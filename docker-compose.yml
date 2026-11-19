@@ -2,7 +2,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "0.0.0.0:8200:8200"
+      - "0.0.0.0:8210:8210"
     env_file:
       - path: .env
         required: false

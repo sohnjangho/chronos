@@ -12,5 +12,5 @@ RUN python -c "import tomllib; p = tomllib.load(open('pyproject.toml', 'rb'))['p
 
 COPY . .
 
-EXPOSE 8200
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8200", "--reload"]
+EXPOSE 8210
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8210", "--reload"]

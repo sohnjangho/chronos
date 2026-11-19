@@ -53,3 +53,37 @@ def test_domains_are_excluded(tmp_path):
     f.parent.mkdir(parents=True)
     f.write_text("a=1\n" * 2000)
     assert run(tmp_path).returncode == 0
+
+
+def test_tests_folder_under_scanned_root_is_excluded(tmp_path):
+    f = tmp_path / "backend/app/tests/t.py"
+    f.parent.mkdir(parents=True)
+    f.write_text("a=1\n" * 2000)
+    assert run(tmp_path).returncode == 0
+
+
+def long_function(name, body_lines):
+    return f"def {name}():\n" + "    a = 1\n" * body_lines
+
+
+def test_function_over_hard_limit_fails(tmp_path):
+    f = tmp_path / "backend/app/f.py"
+    f.parent.mkdir(parents=True)
+    f.write_text(long_function("long_fn", 100))  # 101줄
+    r = run(tmp_path)
+    assert r.returncode == 1 and "long_fn" in r.stdout
+
+
+def test_function_over_soft_limit_warns_only(tmp_path):
+    f = tmp_path / "backend/app/f.py"
+    f.parent.mkdir(parents=True)
+    f.write_text(long_function("long_fn", 50))  # 51줄
+    r = run(tmp_path)
+    assert r.returncode == 0 and "long_fn" in r.stdout
+
+
+def test_long_function_in_excluded_path_passes(tmp_path):
+    f = tmp_path / "backend/app/domains/construction/f.py"
+    f.parent.mkdir(parents=True)
+    f.write_text(long_function("long_fn", 200))
+    assert run(tmp_path).returncode == 0

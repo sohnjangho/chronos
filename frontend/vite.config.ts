@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5600,
     strictPort: true,
     proxy: {
-      '/api': 'http://backend:8200',
+      '/api': 'http://backend:8210',
     },
   },
   test: {

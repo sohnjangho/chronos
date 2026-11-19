@@ -28,7 +28,8 @@ export default defineConfig(
   {
     rules: {
       'max-lines': ['warn', 300],
-      'max-lines-per-function': ['warn', 50],
+      // 함수 상한 100줄은 오류. 권장 50줄은 검토에서 본다(한 규칙에 기준 둘을 둘 수 없다).
+      'max-lines-per-function': ['error', { max: 100, skipBlankLines: true, skipComments: true }],
     },
   },
   {
