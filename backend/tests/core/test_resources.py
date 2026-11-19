@@ -1,11 +1,19 @@
 from dataclasses import replace
 from datetime import date
+from time import perf_counter
 
 from app.core import resources
 from app.core.cpm import compute
-from app.core.model import Activity, BlockedPeriod, CalendarSpec, Relation, Resource
-from app.core.resources import Peak, level
-from tests.core.helpers import act, sched
+from app.core.model import (
+    Activity,
+    BlockedPeriod,
+    CalendarSpec,
+    Constraint,
+    Relation,
+    Resource,
+)
+from app.core.resources import Peak, level, usage
+from tests.core.helpers import act, big_schedule, sched
 
 R = Resource("crane", "타워크레인", "대", 1)
 def test_two_tasks_one_crane_are_serialized():
@@ -103,13 +111,11 @@ def test_pushed_successor_is_leveled_at_its_new_dates():
         [Relation("B", "C"), Relation("A", "D", "FS", 2)],
     ))
     r = level(s, compute(s))
-    days = [d for i in "ABCD" for d in _span(r.dates[i])]
-    assert len(days) == len(set(days)) and r.overloads == ()
-    assert r.dates["C"][0] > r.dates["B"][1] and r.dates["D"][0] >= date(2027, 3, 8)
-
-
-def _span(se):
-    return [date.fromordinal(o) for o in range(se[0].toordinal(), se[1].toordinal() + 1) if date.fromordinal(o).weekday() < 5]
+    assert r.dates["B"] == (date(2027, 3, 4), date(2027, 3, 5))
+    assert r.dates["C"] == (date(2027, 3, 8), date(2027, 3, 9))
+    assert r.dates["D"] == (date(2027, 3, 10), date(2027, 3, 11))
+    assert r.finish == date(2027, 3, 11) and r.overloads == ()
+    assert r.shifted == ("B", "C", "D")
 
 
 def test_activity_with_actual_dates_is_never_shifted():
@@ -199,3 +205,150 @@ def test_leveling_is_deterministic_regardless_of_input_order():
     r1, r2 = level(s1, compute(s1)), level(s2, compute(s2))
     assert r1 == level(s1, compute(s1))
     assert r1.dates == r2.dates and r1.shifted == r2.shifted
+
+
+# ---- 고침 1차 ----
+
+def test_finish_only_actual_is_not_moved_by_pinned_predecessor():
+    # Q 가 밀려도, 시작 실적 없이 끝난 F 의 날짜는 그대로다.
+    f = act("F", 2, actual_finish=date(2027, 3, 5), progress=1.0)
+    s = with_res(sched(
+        [crane("P", 2), act("G", 5), crane("Q", 2), f],
+        [Relation("P", "G"), Relation("Q", "F")],
+    ))
+    c = compute(s)
+    assert (c.rows["F"].es, c.rows["F"].ef) == (date(2027, 3, 3), date(2027, 3, 5))
+    r = level(s, c)
+    assert r.dates["Q"] == (date(2027, 3, 3), date(2027, 3, 4))
+    assert r.dates["F"] == (date(2027, 3, 3), date(2027, 3, 5)) and r.shifted == ("Q",)
+    assert r.cpm.rows["F"].es == date(2027, 3, 3)
+    # 날짜를 붙잡기 위해 결과 일정에는 계산된 시작일이 actual_start 로 들어간다.
+    assert {a.id: a.actual_start for a in r.schedule.activities}["F"] == date(2027, 3, 3)
+
+
+def test_activities_with_actuals_never_appear_in_shifted():
+    acts = [
+        crane("A", 4), crane("B", 3), crane("C", 2),
+        crane("S", 3, actual_start=date(2027, 3, 2)),                                     # 진행 중
+        crane("D", 2, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 2), progress=1.0),
+        act("F1", 2, actual_finish=date(2027, 3, 9), progress=1.0),                       # 시작 실적 없음
+        crane("F2", 1, actual_finish=date(2027, 3, 10), progress=1.0),
+        act("T", 2),
+    ]
+    rels = [Relation("B", "F1"), Relation("C", "F2", "SS", 1), Relation("B", "S"),
+            Relation("C", "D", "FF", 0), Relation("F1", "T", "SS", 0)]
+    s = with_res(sched(acts, rels))
+    c = compute(s)
+    r = level(s, c)
+    actual = {a.id for a in acts if a.actual_start or a.actual_finish}
+    assert r.shifted and not actual & set(r.shifted)
+    assert all(r.dates[i] == (c.rows[i].es, c.rows[i].ef) for i in actual)
+    assert all(r.dates[i] == (row.es, row.ef) for i, row in r.cpm.rows.items())
+
+
+def test_usage_lists_consumers_per_workday():
+    # A 는 목~월(3/4~3/8), B 는 목~금(3/4~3/5).
+    s = with_res(sched([crane("B", 2), crane("A", 3), act("N", 9, resources=("ghost",))], [], start=date(2027, 3, 4)))
+    c = compute(s)
+    u = usage(s, {i: (row.es, row.ef) for i, row in c.rows.items()})
+    assert u == {"crane": {
+        date(2027, 3, 4): ("A", "B"),
+        date(2027, 3, 5): ("A", "B"),
+        date(2027, 3, 8): ("A",),
+    }}
+    assert date(2027, 3, 6) not in u["crane"] and list(u["crane"]) == sorted(u["crane"])
+
+
+def test_usage_skips_milestones_and_unused_resources():
+    m = Activity("M", "M", "finish_ms", "1", 0, resources=("crane",))
+    s = with_res(sched([act("A", 2), m], []), R, Resource("pump", "펌프카", "대", 1))
+    assert usage(s, {"A": (date(2027, 3, 1), date(2027, 3, 2)), "M": (date(2027, 3, 2), date(2027, 3, 2))}) == {}
+
+
+def test_level_returns_pinned_schedule_and_its_cpm():
+    s = with_res(sched([crane("A", 3), crane("B", 2)], []))
+    r = level(s, compute(s))
+    assert r.cpm.rows["B"].es == r.dates["B"][0] == date(2027, 3, 4)
+    assert r.cpm == compute(r.schedule) and r.finish == r.cpm.finish
+    pins = {a.id: a.pinned_start for a in r.schedule.activities}
+    assert pins == {"A": None, "B": date(2027, 3, 4)}
+    assert replace(r.schedule, activities=s.activities) == s          # 다른 것은 그대로
+
+
+def test_check_only_returns_input_schedule_and_cpm():
+    s = with_res(sched([crane("A", 3), crane("B", 2)], []))
+    c = compute(s)
+    r = level(s, c, shift=False)
+    assert r.schedule is s and r.cpm is c
+
+
+def test_shifted_activity_keeps_fnlt_and_shows_negative_float():
+    fnlt = Constraint("FNLT", date(2027, 3, 3))
+    s = with_res(sched([crane("A", 3), crane("B", 2, constraint=fnlt)], []))
+    r = level(s, compute(s))
+    b = next(a for a in r.schedule.activities if a.id == "B")
+    assert r.dates["B"] == (date(2027, 3, 4), date(2027, 3, 5))
+    assert b.constraint == fnlt and b.pinned_start == date(2027, 3, 4)
+    assert r.cpm.rows["B"].tf == -2 and r.cpm.rows["B"].critical
+
+
+def test_pushed_successor_is_not_pinned():
+    s = with_res(sched([crane("A", 3), crane("B", 2), act("C", 1)], [Relation("B", "C")]))
+    r = level(s, compute(s))
+    assert {a.id: a.pinned_start for a in r.schedule.activities} == {"A": None, "B": date(2027, 3, 4), "C": None}
+
+
+def test_leveling_the_result_again_changes_nothing():
+    s = with_res(sched(
+        [crane("A", 3), crane("B", 2), crane("C", 2), crane("D", 2)],
+        [Relation("B", "C"), Relation("A", "D", "FS", 2)],
+    ))
+    r1 = level(s, compute(s))
+    r2 = level(r1.schedule, r1.cpm)
+    assert r2.dates == r1.dates and r2.shifted == () and r2.schedule == r1.schedule
+
+
+def test_holiday_is_skipped_when_shifting():
+    cal = CalendarSpec(5, holidays=(date(2027, 3, 4),))
+    s = with_res(sched([crane("A", 3), crane("B", 2)], [], cal))
+    r = level(s, compute(s))
+    assert r.dates["B"] == (date(2027, 3, 5), date(2027, 3, 8)) and r.overloads == ()
+    assert date(2027, 3, 4) not in usage(r.schedule, r.dates)["crane"]
+
+
+def test_six_day_calendar_uses_saturday_when_shifting():
+    s = with_res(sched([crane("A", 4), crane("B", 3)], [], CalendarSpec(6)))
+    r = level(s, compute(s))
+    assert r.dates["B"] == (date(2027, 3, 5), date(2027, 3, 8))       # 금·토·월
+    assert usage(r.schedule, r.dates)["crane"][date(2027, 3, 6)] == ("B",)
+
+
+def test_zero_capacity_user_is_pushed_by_predecessor_but_not_leveled():
+    zero = Resource("pump", "펌프카", "대", 0)
+    s = with_res(sched(
+        [crane("A", 5), crane("B", 2), act("Z", 2, resources=("pump",))], [Relation("B", "Z")],
+    ), R, zero)
+    r = level(s, compute(s))
+    assert r.dates["B"] == (date(2027, 3, 8), date(2027, 3, 9))
+    assert r.dates["Z"] == (date(2027, 3, 10), date(2027, 3, 11)) and r.shifted == ("B", "Z")
+    assert r.overloads == (Peak("pump", date(2027, 3, 10), 1, 0), Peak("pump", date(2027, 3, 11), 1, 0))
+    assert {a.id: a.pinned_start for a in r.schedule.activities}["Z"] is None
+
+
+def test_data_date_holds_not_started_work_before_leveling():
+    s = replace(with_res(sched([crane("A", 3), crane("B", 2)], [])), data_date=date(2027, 3, 3))
+    r = level(s, compute(s))
+    assert r.dates["A"] == (date(2027, 3, 3), date(2027, 3, 5))
+    assert r.dates["B"] == (date(2027, 3, 8), date(2027, 3, 9)) and r.overloads == ()
+
+
+def test_two_hundred_activities_level_quickly():
+    s = big_schedule()
+    c = compute(s)
+    assert len(s.activities) == 200 and level(s, c, shift=False).overloads
+    t = perf_counter()
+    r = level(s, c)
+    took = perf_counter() - t
+    assert took < 2.0, took
+    assert r.overloads == () and len(r.shifted) > 50
+    assert all(r.dates[i] == (row.es, row.ef) for i, row in r.cpm.rows.items())

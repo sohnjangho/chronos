@@ -331,3 +331,16 @@ def test_in_progress_started_on_saturday_with_ss_successor_has_zero_float():
     a_row = r.rows["A"]
     assert a_row.tf == 0 and a_row.critical
     assert (a_row.ls, a_row.lf) == (date(2027, 3, 6), date(2027, 3, 10))
+
+
+def test_pinned_start_is_a_lower_bound_and_keeps_fnlt_float():
+    fnlt = Constraint("FNLT", date(2027, 3, 5))
+    a = act("A", 3, pinned_start=date(2027, 3, 6), constraint=fnlt)      # 토요일 → 월요일로 맞춤
+    row = compute(sched([a, act("B", 1)], [Relation("A", "B")])).rows["A"]
+    assert (row.es, row.ef) == (date(2027, 3, 8), date(2027, 3, 10))
+    assert row.lf == date(2027, 3, 5) and row.tf == -3
+    # 실적이 있으면 무시한다.
+    started = act("A", 3, pinned_start=date(2027, 3, 8), actual_start=date(2027, 3, 1))
+    assert compute(sched([started], [])).rows["A"].es == date(2027, 3, 1)
+    done = act("B", 2, pinned_start=date(2027, 3, 8), actual_finish=date(2027, 3, 12))
+    assert compute(sched([act("A", 3), done], [Relation("A", "B")])).rows["B"].es == date(2027, 3, 4)

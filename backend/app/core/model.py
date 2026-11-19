@@ -29,6 +29,8 @@ class Activity:
     constraint: Constraint | None = None
     resources: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
+    # 자원 맞춤이 정한 시작 하한. constraint 와 따로 둔다.
+    pinned_start: date | None = None
 
 
 @dataclass(frozen=True)
