@@ -80,7 +80,7 @@ def make_questionnaire(args: AskIn, ctx: ToolContext) -> AskOut:
         prefilled=args.prefilled,
         domain=args.domain,
         level=args.level,
-        chat_session_id=getattr(ctx, "chat_session_id", None),  # 문맥이 대화 id 를 가질 때만
+        chat_session_id=ctx.chat_session_id,
         round=args.round,
     )
     ctx.emit(AgentEvent("questionnaire", {"id": qid}))

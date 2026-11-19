@@ -152,3 +152,63 @@ class ScheduleDraft(Base):
     report_json: Mapped[dict] = mapped_column(JSON)  # 마지막 점검(CheckReport) 모양
     assumptions_json: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [{label, value, source}]
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class ChatSession(Base):
+    """대화 하나. 만든 사용자만 본다. title 은 첫 사용자 글(40자)이고 그 전에는 빈 글이다."""
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(100), default="")
+    schedule_id: Mapped[int | None] = mapped_column(default=None)  # 대화가 다루는 일정 (FK 아님)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class ChatMessage(Base):
+    """대화 메시지 하나. role: user | assistant | tool. 모양은 app/store/chats.py 가 정한다."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("chat_sessions.id"), index=True)
+    role: Mapped[str] = mapped_column(String(10))
+    content_json: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class WorkflowRun(Base):
+    """도구를 하나 이상 부른 턴 하나의 실행 기록."""
+
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_session_id: Mapped[int] = mapped_column(ForeignKey("chat_sessions.id"), index=True)
+    title: Mapped[str] = mapped_column(String(100))
+    request: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(10), default="running")  # running|done|failed|stopped
+    started_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    ended_at: Mapped[datetime | None] = mapped_column(default=None)
+    tokens: Mapped[int] = mapped_column(default=0)  # 턴의 LLM 입력 + 출력 토큰
+    cost: Mapped[float | None] = mapped_column(default=None)  # 턴의 비용 합(알려 준 것이 없으면 None)
+
+
+class WorkflowStep(Base):
+    """실행 기록의 한 단계 = 도구 호출 한 번. input_json·output_json 은 JSON 글."""
+
+    __tablename__ = "workflow_steps"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("workflow_runs.id"), index=True)
+    n: Mapped[int]  # 1부터
+    tool: Mapped[str] = mapped_column(String(100))
+    program: Mapped[str | None] = mapped_column(String(50), default=None)
+    why: Mapped[str] = mapped_column(Text, default="")  # 호출 앞의 에이전트 글(200자)
+    status: Mapped[str] = mapped_column(String(10), default="running")  # running|done|failed|stopped
+    input_json: Mapped[str] = mapped_column(Text, default="{}")
+    output_json: Mapped[str | None] = mapped_column(Text, default=None)  # 실패면 {"error": …}
+    ms: Mapped[int | None] = mapped_column(default=None)
+    model: Mapped[str | None] = mapped_column(String(200), default=None)  # 이 호출을 낸 LLM 답의 모델
+    tokens: Mapped[int] = mapped_column(default=0)  # 그 LLM 답의 입력 + 출력 토큰
+    cost: Mapped[float | None] = mapped_column(default=None)

@@ -48,6 +48,7 @@ class ToolContext:
     user: User | None
     schedule_id: int | None  # 지금 다루는 일정. 없을 수 있다
     emit: Callable[[AgentEvent], None]
+    chat_session_id: int | None = None  # 지금 대화. 대화 밖에서 부르면 None
 
     def require_schedule_id(self) -> int:
         """대상 일정 id. 없으면 ToolError."""
