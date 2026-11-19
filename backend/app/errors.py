@@ -1,10 +1,19 @@
 """모든 API가 쓰는 오류 응답: {"code", "message", "detail"}."""
 
+import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException
+
+logger = logging.getLogger(__name__)
+
+_HTTP_ERRORS = {
+    404: ("not_found", "찾을 수 없습니다."),
+    405: ("method_not_allowed", "허용되지 않는 요청입니다."),
+}
 
 
 class ApiError(Exception):
@@ -20,10 +29,17 @@ class ApiError(Exception):
         self.detail = detail
 
 
-def error_response(status_code: int, code: str, message: str, detail: Any = None):
+def error_response(
+    status_code: int,
+    code: str,
+    message: str,
+    detail: Any = None,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
         content={"code": code, "message": message, "detail": detail},
+        headers=headers,
     )
 
 
@@ -40,6 +56,23 @@ async def _invalid_request(_: Request, exc: RequestValidationError) -> JSONRespo
     return error_response(422, "invalid_request", "요청 형식이 올바르지 않습니다.", detail)
 
 
+async def _http_error(_: Request, exc: HTTPException) -> JSONResponse:
+    code, message = _HTTP_ERRORS.get(
+        exc.status_code, ("http_error", "요청을 처리할 수 없습니다.")
+    )
+    return error_response(exc.status_code, code, message, headers=exc.headers)
+
+
+async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+    # 오류 내용은 서버 기록에만 남긴다. 요청 본문·머리글은 남기지 않는다.
+    logger.error(
+        "처리하지 못한 오류: %s %s", request.method, request.url.path, exc_info=exc
+    )
+    return error_response(500, "internal_error", "서버에서 문제가 생겼습니다.")
+
+
 def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ApiError, _api_error)
     app.add_exception_handler(RequestValidationError, _invalid_request)
+    app.add_exception_handler(HTTPException, _http_error)
+    app.add_exception_handler(Exception, _unhandled)

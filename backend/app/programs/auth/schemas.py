@@ -19,7 +19,7 @@ Name = Annotated[str, Field(min_length=1, max_length=100)]
 
 class LoginIn(BaseModel):
     login_id: str
-    password: str
+    password: Annotated[str, Field(min_length=1)]
 
 
 class UserOut(BaseModel):

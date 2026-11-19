@@ -7,6 +7,7 @@ from app.main import app
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
 from app.store.tables import User
+from tests.helpers import auth
 
 
 @pytest.fixture(autouse=True)
@@ -14,13 +15,8 @@ def test_env(monkeypatch, tmp_path):
     """시험은 실제 .env 없이 자기 값만 쓴다."""
     monkeypatch.setenv("CHRONOS_ADMIN_ID", "admin")
     monkeypatch.setenv("CHRONOS_ADMIN_PASSWORD", "test-pass")
-    monkeypatch.setenv("CHRONOS_SECRET_KEY", "test-secret-key")
+    monkeypatch.setenv("CHRONOS_SECRET_KEY", "test-secret-key-0123456789abcdef")
     monkeypatch.setenv("CHRONOS_DATA_DIR", str(tmp_path / "data"))
-
-
-def auth(token: str) -> dict[str, str]:
-    """Bearer 토큰을 요청 머리글로 바꾼다."""
-    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
@@ -32,7 +28,10 @@ def client():
 
 @pytest.fixture
 def session(client):
-    """앱과 같은 시험 DB에 붙은 세션."""
+    """앱과 같은 시험 DB에 붙은 세션.
+
+    API로 바꾼 행을 다시 읽기 전에는 session.expire_all() 을 불러야 새 값이 보인다.
+    """
     yield from get_session()
 
 

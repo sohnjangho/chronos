@@ -1,12 +1,12 @@
 import time
 
-from conftest import auth
 from fastapi.testclient import TestClient
 from itsdangerous import TimestampSigner
 
 from app.main import app
 from app.security.tokens import issue_token
 from app.store.tables import User
+from tests.helpers import auth
 
 
 def login(client, login_id, password):
