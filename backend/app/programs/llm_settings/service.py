@@ -6,12 +6,13 @@
 from datetime import UTC, datetime
 
 import httpx
+from pydantic import SecretStr
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
 from app.llm import connections
-from app.llm.connections import DEFAULT_BASE_URLS, ProbeResult
+from app.llm.connections import DEFAULT_BASE_URLS, ProbeResult, secret_is_sendable
 from app.programs.llm_settings.schemas import (
     AssignmentOut,
     AssignmentsIn,
@@ -25,6 +26,8 @@ from app.store.tables import LlmAssignment, LlmConnection
 
 # 키가 이보다 짧으면 끝 4자리도 보여주지 않는다(거의 전부가 드러나므로).
 MIN_SECRET_CHARS_FOR_LAST4 = 8
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 # 쓰임새별 기본 배정: (모델, 라우팅 전략). 기본 연결을 가리킨다.
 DEFAULT_ASSIGNMENTS: dict[str, tuple[str, str | None]] = {
@@ -48,8 +51,22 @@ def _last4(secret: str) -> str:
     return secret[-4:] if len(secret) >= MIN_SECRET_CHARS_FOR_LAST4 else ""
 
 
-def _host(url: str) -> str:
-    return httpx.URL(url).host
+def _origin(url: str) -> tuple[str, str, int]:
+    """(scheme, host, 실제 포트). 기본 포트는 채워서 비교한다."""
+    parsed = httpx.URL(url)
+    return parsed.scheme, parsed.host.lower(), parsed.port or _DEFAULT_PORTS[parsed.scheme]
+
+
+def _secret_value(secret: SecretStr) -> str:
+    """앞뒤 공백을 떼고, 머리글에 실을 수 없는 키면 422 invalid_secret(키는 응답에 담지 않음)."""
+    value = secret.get_secret_value().strip()
+    if not secret_is_sendable(value):
+        raise ApiError(
+            422,
+            "invalid_secret",
+            "API 키에 쓸 수 없는 문자가 있습니다. 공백이나 줄바꿈이 섞이지 않았는지 확인해 주세요.",
+        )
+    return value
 
 
 def _get(session: Session, conn_id: int) -> LlmConnection:
@@ -94,7 +111,7 @@ def list_connections(session: Session) -> list[LlmConnection]:
 
 def test_connection(data: ConnectionTestIn) -> ProbeResult:
     base_url = _resolve_base_url(data.provider, data.base_url)
-    return connections.probe(base_url, data.secret.get_secret_value())
+    return connections.probe(base_url, _secret_value(data.secret))
 
 
 def create_connection(
@@ -102,7 +119,7 @@ def create_connection(
 ) -> tuple[LlmConnection, ProbeResult]:
     """연결을 시험하고 저장한다. 시험이 실패해도 status='failed' 로 저장한다."""
     base_url = _resolve_base_url(data.provider, data.base_url)
-    secret = data.secret.get_secret_value()
+    secret = _secret_value(data.secret)
     result = connections.probe(base_url, secret)
     conn = LlmConnection(
         name=data.name,
@@ -123,17 +140,16 @@ def update_connection(
 ) -> tuple[LlmConnection, ProbeResult | None]:
     """고친다. 주소나 키가 바뀌면 다시 시험한다(그때만 결과가 있다)."""
     conn = _get(session, conn_id)
+    new_secret = _secret_value(data.secret) if data.secret is not None else None
     url_changed = data.base_url is not None and data.base_url != conn.base_url
-    if url_changed and data.secret is None and _host(data.base_url) != _host(conn.base_url):
+    if url_changed and new_secret is None and _origin(data.base_url) != _origin(conn.base_url):
         raise ApiError(
             422, "secret_required", "주소의 호스트가 바뀌면 API 키를 다시 넣어 주세요."
         )
     result = None
-    if url_changed or data.secret is not None:
-        secret = (
-            data.secret.get_secret_value() if data.secret is not None else _stored_secret(conn)
-        )
-        if data.secret is not None:
+    if url_changed or new_secret is not None:
+        secret = new_secret if new_secret is not None else _stored_secret(conn)
+        if new_secret is not None:
             conn.secret_ciphertext = encrypt(secret)
             conn.secret_last4 = _last4(secret)
         if data.base_url is not None:

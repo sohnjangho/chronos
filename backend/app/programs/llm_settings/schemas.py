@@ -10,8 +10,8 @@ Purpose = Literal["light", "normal", "hard", "longdoc"]
 RoutingStrategy = Literal["cost", "balanced", "quality"]
 
 BaseUrl = Annotated[str, AfterValidator(normalize_base_url)]
-# SecretStr: repr·검증 오류에 키가 드러나지 않는다.
-Secret = Annotated[SecretStr, Field(min_length=1)]
+# SecretStr: repr·검증 오류에 키가 드러나지 않는다. 문자 검증은 service 가 한다(invalid_secret).
+Secret = SecretStr
 Name = Annotated[str, Field(min_length=1, max_length=100)]
 
 

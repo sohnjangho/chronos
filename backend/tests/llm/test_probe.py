@@ -1,8 +1,8 @@
 import httpx
 import pytest
 
-from app.llm.connections import probe
-from app.llm.errors import LlmError, explain
+from app.llm.connections import _client, normalize_base_url, probe
+from app.llm.errors import InvalidBaseUrl, LlmError, explain
 
 URL = "https://platform.liner.com/api/v1"
 
@@ -77,10 +77,33 @@ def test_messages():
         assert explain(exc).message == message
 
 
-@pytest.mark.parametrize("secret", ["키값"])
-def test_unsendable_secret_is_explained(secret):
-    result = _probe(lambda request: httpx.Response(200, json={"data": []}), secret=secret)
-    assert result.ok is False and result.error.code == "unknown"
+@pytest.mark.parametrize("secret", ["키값", "abcd\nefgh", "abcd efgh", "abcd\x00", "", "a" * 513])
+def test_unsendable_secret_is_never_sent(secret):
+    seen = []
+    result = _probe(lambda request: seen.append(request) or httpx.Response(200), secret=secret)
+    assert result.ok is False and result.error.code == "unknown" and seen == []
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://user:pw@platform.liner.com/api/v1",
+        "https://platform.liner.com/api/v1?key=x",
+        "https://platform.liner.com/api/v1#frag",
+    ],
+)
+def test_userinfo_query_fragment_rejected(base_url):
+    seen = []
+    result = _probe(lambda request: seen.append(request) or httpx.Response(200), base_url=base_url)
+    assert result.error.code == "bad_url" and seen == []
+    with pytest.raises(InvalidBaseUrl) as info:
+        normalize_base_url(base_url)
+    assert str(info.value) == "주소에 사용자 정보나 물음표(?)·샵(#) 뒤 값은 넣을 수 없습니다."
+
+
+def test_client_ignores_proxy_environment():
+    with _client(None) as client:
+        assert client.trust_env is False
 
 
 def test_secret_not_in_result_repr():

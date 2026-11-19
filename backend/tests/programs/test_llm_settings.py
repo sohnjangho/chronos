@@ -225,6 +225,51 @@ def test_host_change_with_secret_reprobes(client, admin, conn_id, fake_probe_ok)
     assert fake_probe_ok[-1].headers["Authorization"] == "Bearer zzzz9999yyyy4321"
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    ["http://platform.liner.com/api/v1", "https://platform.liner.com:8443/api/v1"],
+)
+def test_origin_change_requires_secret(client, admin, conn_id, base_url):
+    r = client.patch(f"/api/llm/connections/{conn_id}", json={"base_url": base_url}, headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "secret_required"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    ["https://platform.liner.com/api/v2", "https://PLATFORM.liner.com:443/api/v2"],
+)
+def test_same_origin_change_reuses_stored_secret(client, admin, conn_id, fake_probe_ok, base_url):
+    r = client.patch(f"/api/llm/connections/{conn_id}", json={"base_url": base_url}, headers=admin)
+    assert r.status_code == 200 and r.json()["status"] == "ok"
+    assert fake_probe_ok[-1].headers["Authorization"] == "Bearer abcd1234efgh5678"
+
+
+def test_same_origin_change_with_unreadable_key_is_409(client, session, conn_id, monkeypatch):
+    monkeypatch.setenv("CHRONOS_SECRET_KEY", "another-secret-key-0123456789abcdef")
+    admin_id = session.scalars(select(User.id).where(User.login_id == "admin")).one()
+    r = client.patch(
+        f"/api/llm/connections/{conn_id}",
+        json={"base_url": "https://platform.liner.com/api/v2"},
+        headers=auth(issue_token(admin_id)),
+    )
+    assert r.status_code == 409 and r.json()["code"] == "secret_unreadable"
+
+
+def test_patch_is_default_false_rejected(client, admin, conn_id):
+    r = client.patch(f"/api/llm/connections/{conn_id}", json={"is_default": False}, headers=admin)
+    assert r.status_code == 422
+
+
+def test_failed_retest_keeps_model_list(client, admin, conn_id, monkeypatch):
+    _use_handler(monkeypatch, lambda request: httpx.Response(401))
+    r = client.post(f"/api/llm/connections/{conn_id}/test", headers=admin)
+    assert r.json()["error"]["code"] == "bad_key"
+    models = client.get(f"/api/llm/connections/{conn_id}/models", headers=admin).json()
+    assert models == {"models": ["liner-mark", "liner-claude-router"]}
+    [conn] = client.get("/api/llm/connections", headers=admin).json()
+    assert conn["status"] == "failed" and conn["model_count"] == 2
+
+
 def test_retest_uses_stored_secret(client, admin, conn_id, fake_probe_ok):
     r = client.post(f"/api/llm/connections/{conn_id}/test", headers=admin)
     assert r.status_code == 200 and r.json()["ok"] is True and "abcd1234" not in r.text
@@ -298,6 +343,63 @@ def test_delete_connection_drops_its_assignments(client, admin, session, fake_pr
     assert session.query(LlmAssignment).count() == 0
     items = {i["purpose"]: i for i in client.get("/api/llm/assignments", headers=admin).json()["items"]}
     assert items["hard"]["connection_id"] == first["id"]
+
+
+# 키 문자 검증
+BAD_SECRET_MESSAGE = "API 키에 쓸 수 없는 문자가 있습니다. 공백이나 줄바꿈이 섞이지 않았는지 확인해 주세요."
+
+
+def _secret_requests(conn_id, secret):
+    return [
+        ("post", "/api/llm/connections/test", {"provider": "liner", "secret": secret}),
+        ("post", "/api/llm/connections", {"name": "n", "provider": "liner", "secret": secret}),
+        ("patch", f"/api/llm/connections/{conn_id}", {"secret": secret}),
+    ]
+
+
+@pytest.mark.parametrize(
+    "secret", ["abcd1234\nefgh5678", "abcd1234 efgh5678", "키abcd1234efgh5678", "   ", "a" * 513]
+)
+def test_bad_secret_rejected_everywhere(client, admin, conn_id, secret):
+    for method, url, body in _secret_requests(conn_id, secret):
+        r = getattr(client, method)(url, json=body, headers=admin)
+        assert r.status_code == 422, url
+        assert r.json()["code"] == "invalid_secret" and r.json()["message"] == BAD_SECRET_MESSAGE
+        assert "abcd1234" not in r.text and "efgh5678" not in r.text
+
+
+def test_secret_whitespace_is_stripped(client, admin, fake_probe_ok):
+    r = client.post(
+        "/api/llm/connections",
+        json={"name": "n", "provider": "liner", "secret": "  abcd1234efgh5678\n"},
+        headers=admin,
+    )
+    assert r.status_code == 201 and r.json()["secret_last4"] == "5678"
+    assert fake_probe_ok[-1].headers["Authorization"] == "Bearer abcd1234efgh5678"
+
+
+def test_user_cannot_test_or_create(client, user):
+    body = {"name": "n", "provider": "liner", "secret": "abcd1234efgh5678"}
+    assert client.post("/api/llm/connections/test", json=body, headers=user).status_code == 403
+    assert client.post("/api/llm/connections", json=body, headers=user).status_code == 403
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://user:pw@platform.liner.com/api/v1",
+        "https://platform.liner.com/api/v1?key=x",
+        "https://platform.liner.com/api/v1#frag",
+    ],
+)
+def test_userinfo_query_fragment_url_rejected(client, admin, base_url):
+    r = client.post(
+        "/api/llm/connections/test",
+        json={"provider": "liner", "base_url": base_url, "secret": "abcd1234efgh5678"},
+        headers=admin,
+    )
+    assert r.status_code == 422 and r.json()["code"] == "invalid_request"
+    assert "사용자 정보나 물음표(?)" in r.text and "pw@" not in r.text
 
 
 # 키가 기록에 남지 않는다
