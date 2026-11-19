@@ -12,7 +12,8 @@ from sqlalchemy import select
 import app.tools.generate as generate_tools
 from app.agent import context, loop, turns
 from app.agent.context import UiContext, build_context
-from app.agent.events import AgentEvent, json_safe
+from app.agent.events import AgentEvent, json_safe, to_sse
+from app.agent.generation import generate
 from app.agent.loop import run_turn
 from app.agent.workflow_log import WorkflowLog
 from app.llm.client import LlmClient
@@ -23,12 +24,21 @@ from app.store.tables import (
     ChatMessage,
     LlmCall,
     QuestionnaireRecord,
+    ScheduleDraft,
     User,
     WorkflowRun,
     WorkflowStep,
 )
 from app.tools import registry
-from tests.gen_doubles import SCHED_OK, START_FACT, WBS_OK, script
+from app.tools.context import ToolContext
+from tests.gen_doubles import (
+    FINISH_BY,
+    SCHED_LATE_BY_3,
+    SCHED_OK,
+    START_FACT,
+    WBS_OK,
+    script,
+)
 from tests.llm_doubles import FakeLiner, add_connection
 from tests.loop_doubles import FAIL, ScriptedLlm, calls, raw_call, reply
 from tests.tool_doubles import Empty, registered
@@ -311,10 +321,15 @@ def test_context_has_rules_levels_domain_schedule_and_condition_counts(
     assert system["role"] == "system"
     text = system["content"]
     assert "날짜를 계산하지 말고 도구 결과의 날짜만 말한다" in text
-    assert "오늘: 2026-11-20 (금) (Asia/Seoul)" in text
-    assert "연·월·일이 모두 적힌 날짜만" in text and "2027-11-30로 가정" in text and "YYYY-MM-DD" in text
+    # I6: 날짜는 코드가 만든 날짜 도우미에서 옮겨 쓴다(모델이 날짜를 만들지 않는다)
+    assert "## 날짜 도우미" in text and "- 오늘: 2026-11-20 (금)" in text and "- 올해: 2026년 · 내년: 2027년" in text
+    assert "날짜 도우미에 보이는 날짜나 사용자가 연·월·일을 모두 적은 날짜만" in text
+    assert "값을 짐작하지 말고 질문으로 묻는다" in text and "2027-11-30로 가정" not in text
     assert "정밀도 5단계:" in text and "분야: 건설 (construction)" in text and "construction(건설)" in text
-    assert "generate.extract_conditions" in text and "ask.questionnaire" in text and "generate.run" in text
+    # m10: 도구 이름은 모델이 보는 꼴(__) 그대로
+    for name in ("generate__extract_conditions", "ask__questionnaire", "ask__fill_answers", "generate__run"):
+        assert name in text
+    assert "generate.run" not in text and "ask.questionnaire" not in text
     assert "열린 프로그램: schedule" in text and "#1 시험 일정" in text and "준공 2027-03-05" in text
     assert "액티비티 2개" in text and "조건 0개" in text
     assert "고른 액티비티: A 작업 A" in text and "시작 2027-03-01" in text
@@ -416,7 +431,7 @@ async def test_cancel_during_an_llm_call_stops_the_run(session, admin_user, chat
 
 
 async def test_unexpected_error_ends_with_internal_error(run, session, monkeypatch, caplog):
-    def broken(self, step, result):
+    def broken(self, *args):
         word = "chat"
         raise RuntimeError(f"secret-{word}-text")  # 코드 줄(추적에 보임)에 글이 그대로 있지 않게
 
@@ -538,3 +553,287 @@ def test_json_safe_replaces_lone_surrogates_everywhere():
 
 def test_default_llm_uses_the_session(session):
     assert isinstance(loop.default_llm(session), LlmClient)
+
+
+# ══ Fix round 1 ════════════════════════════════════════════════════
+
+
+def _lock_state(path: str) -> str:
+    """다른 연결이 바로 쓰기를 잡을 수 있으면 "free"."""
+    con = sqlite3.connect(path, timeout=0)
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        con.rollback()
+        return "free"
+    except sqlite3.OperationalError:
+        return "locked"
+    finally:
+        con.close()
+
+
+def _gen_client(monkeypatch, gen: FakeLiner) -> None:
+    monkeypatch.setattr(generate_tools, "client_for", lambda ctx: LlmClient(ctx.session, transport=gen.transport))
+
+
+GEN_ARGS = {"domain": "construction", "level": "L3", "request": "5층 사무동", "facts": [START_FACT]}
+
+
+# ── I1: 도구 안에서 부른 LLM 도 턴 사용량에 ──
+
+
+async def test_usage_counts_llm_calls_made_inside_tools(run, session, monkeypatch):
+    gen = FakeLiner()
+    script(gen, WBS_OK, SCHED_OK)
+    _gen_client(monkeypatch, gen)
+    ev = await run(ScriptedLlm([calls("generate.run", GEN_ARGS), reply("끝")]), "일정 만들어 줘")
+    usage = next(e for e in ev if e.type == "usage").data
+    # 루프 2번 + 도구 안(WBS·초안) 2번. 가짜 답마다 12/5 토큰, 0.04
+    assert usage == {"input_tokens": 48, "output_tokens": 20, "cost": pytest.approx(0.16), "calls": 4}
+    row = session.query(WorkflowRun).one()
+    assert row.tokens == 68 and row.cost == pytest.approx(0.16)
+
+
+async def test_usage_leaves_out_earlier_turns_and_other_chats(run, session, admin_user):
+    other = chats.create_chat(session, user_id=admin_user.id).id
+    session.add(LlmCall(chat_session_id=other, purpose="normal", model="m", requested_model="m",
+                        input_tokens=999, output_tokens=0, latency_ms=1, ok=True))
+    session.commit()
+    await run(ScriptedLlm([reply("하나")]), "a")
+    ev = await run(ScriptedLlm([reply("둘", prompt_tokens=1, completion_tokens=2, cost=0.5)]), "b")
+    assert next(e for e in ev if e.type == "usage").data == {
+        "input_tokens": 1, "output_tokens": 2, "cost": 0.5, "calls": 1,
+    }
+
+
+async def test_failed_llm_call_counts_as_a_call(run):
+    ev = await run(ScriptedLlm([calls("schedule.read", {}), FAIL("timeout")]), "x")
+    assert next(e for e in ev if e.type == "usage").data == {
+        "input_tokens": 12, "output_tokens": 5, "cost": 0.04, "calls": 2,
+    }
+
+
+# ── I2: 카드·질문지·승인 사건은 event 메시지로 저장 ──
+
+
+async def test_tool_events_are_saved_as_event_messages_outside_the_model_history(run, session, chat_id):
+    def emitter(args: Empty, ctx) -> Empty:
+        ctx.emit(AgentEvent("card", {"kind": "progress", "n": 1}))
+        ctx.emit(AgentEvent("questionnaire", {"id": 5}))
+        ctx.emit(AgentEvent("open_window", {"program": "x", "params": {}}))  # 저장하지 않는다
+        ctx.emit(AgentEvent("approval", {"id": 9}))
+        return Empty()
+
+    with registered("emitter", emitter):
+        llm = ScriptedLlm([calls("emitter", {}), reply("끝"), reply("다음")])
+        await run(llm, "x")
+        await run(llm, "y")
+    rows = stored(session, chat_id)
+    assert [r for r, _ in rows] == [
+        "user", "assistant", "event", "event", "event", "tool", "assistant", "user", "assistant",
+    ]
+    assert [c for r, c in rows if r == "event"] == [
+        {"type": "card", "data": {"kind": "progress", "n": 1}},
+        {"type": "questionnaire", "data": {"id": 5}},
+        {"type": "approval", "data": {"id": 9}},
+    ]
+    for body in llm.bodies[1:]:  # 같은 턴의 다음 요청과 다음 턴의 요청 모두
+        assert "progress" not in json.dumps(body["messages"], ensure_ascii=False)
+    assert [m["role"] for m in llm.bodies[2]["messages"][1:]] == ["user", "assistant", "tool", "assistant", "user"]
+
+
+async def test_event_messages_do_not_use_up_the_history_window(run, session, chat_id):
+    for i in range(29):
+        chats.add_message(session, chat_id, "user" if i % 2 == 0 else "assistant", {"kind": "text", "text": f"말{i:03d}"})
+    for _ in range(10):
+        chats.add_message(session, chat_id, "event", {"type": "card", "data": {"kind": "x"}})
+    session.commit()
+    llm = ScriptedLlm([reply("네")])
+    await run(llm, "마지막")
+    texts = [m["content"] for m in llm.bodies[0]["messages"][1:]]
+    assert len(texts) == 30 and texts[0] == "말000" and texts[-1] == "마지막"
+
+
+async def test_events_are_written_after_the_tool_not_while_it_waits_on_the_llm(run, session):
+    path = session.get_bind().url.database
+    seen: list[str] = []
+    inner = ScriptedLlm([reply("안쪽")], on_request=lambda _b: seen.append(_lock_state(path)))
+
+    async def talker(args: Empty, ctx) -> Empty:
+        ctx.emit(AgentEvent("card", {"kind": "progress"}))
+        await asyncio.sleep(0.05)  # 루프가 사건을 받아 갈 틈(이때 쓰면 아래 LLM 호출 동안 잠금이 남는다)
+        client = LlmClient(ctx.session, transport=inner.transport)
+        await client.chat("light", [{"role": "user", "content": "x"}], chat_session_id=ctx.chat_session_id)
+        return Empty()
+
+    with registered("talker", talker):
+        await run(ScriptedLlm([calls("talker", {}), reply("끝")]), "x")
+    assert seen == ["free"]
+    assert session.query(ChatMessage).filter(ChatMessage.role == "event").count() == 1
+
+
+def test_history_skips_event_rows_between_a_call_and_its_result(session, admin_user, chat_id):
+    add = lambda role, content: chats.add_message(session, chat_id, role, content)
+    add("user", {"kind": "text", "text": "읽어 줘"})
+    add("assistant", {"kind": "tool_calls", "text": "", "tool_calls": [{"id": "c1", "name": "schedule.read", "arguments": "{}"}]})
+    add("event", {"type": "card", "data": {"kind": "x"}})
+    add("tool", {"kind": "tool_result", "tool_call_id": "c1", "name": "schedule.read", "ok": True, "content": "{}"})
+    session.commit()
+    messages = build_context(session, admin_user, chat_id, NO_UI)[1:]
+    assert [m["role"] for m in messages] == ["user", "assistant", "tool"]
+    assert messages[2]["content"] == "{}"  # 진짜 결과가 짝으로 남았다(채운 결과가 아님)
+
+
+# ── I3: generate.run 안에서도 멈춤 ──
+
+
+async def test_stop_during_generate_run_stops_before_its_next_llm_call(run, session, chat_id, monkeypatch):
+    gen = ScriptedLlm()
+    gen.on_request = lambda _b: turns.request_stop(chat_id) if len(gen.bodies) == 1 else None  # 둘째(초안) 요청 중
+    script(gen, WBS_OK, SCHED_LATE_BY_3, SCHED_OK)
+    _gen_client(monkeypatch, gen)
+    llm = ScriptedLlm([calls("generate.run", {**GEN_ARGS, "conditions": [FINISH_BY.to_dict()]}), reply("끝")])
+    claim = turns.claim(chat_id)
+    try:
+        ev = await run(llm, "일정 만들어 줘")
+    finally:
+        turns.release(chat_id, claim)
+    assert len(gen.requests) == 2 and len(llm.requests) == 1  # 고침 요청도, 루프의 다음 요청도 없다
+    assert ev[-2].data["code"] == "stopped" and ev[-1].type == "done"
+    session.expire_all()
+    step, row = session.query(WorkflowStep).one(), session.query(WorkflowRun).one()
+    assert (step.status, row.status) == ("stopped", "stopped")
+    out = json.loads(step.output_json)
+    assert out["ok"] is False and isinstance(out["draft_id"], int)  # 1회차 초안(가장 나은 안)은 저장했다
+    assert out["reason"] == "중단해서 지금까지 가장 나은 초안(1회차, 위반 1)을 저장했습니다."
+    assert session.query(ScheduleDraft).count() == 1
+
+
+async def test_generation_stopped_before_its_first_call_saves_nothing(session, admin_user):
+    add_connection(session)
+    gen = FakeLiner()
+    ctx = ToolContext(session=session, user=admin_user, schedule_id=None, emit=lambda e: None,
+                      stop_requested=lambda: True)
+    r = await generate(ctx, LlmClient(session, transport=gen.transport), domain="construction", level="L3",
+                       request="5층 사무동", facts=[START_FACT])
+    assert (r.ok, r.draft_id, r.schedule, r.reason) == (False, None, None, "중단했습니다.")
+    assert gen.requests == [] and session.query(ScheduleDraft).count() == 0
+
+
+def test_tool_context_never_stops_by_default(session):
+    assert ToolContext(session=session, user=None, schedule_id=None, emit=lambda e: None).stop_requested() is False
+
+
+# ── I5: 턴을 시작하다 실패해도 error·done 으로 끝남 ──
+
+
+async def test_unreadable_schedule_summary_does_not_break_the_turn(run, monkeypatch, sid, spy_llm):
+    def boom(*args, **kwargs):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(context, "view_data", boom)
+    ev = await run(spy_llm, "x", ui=UiContext("schedule", sid, None))
+    assert types(ev) == ["text", "usage", "done"]
+    assert f"- 대상 일정: #{sid} 일정을 읽을 수 없습니다." in spy_llm.last_messages_text
+
+
+async def test_failure_while_starting_the_turn_ends_with_error_and_done(run, monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(loop, "build_context", boom)
+    llm = ScriptedLlm([reply("안 불림")])
+    ev = await run(llm, "x")
+    assert types(ev) == ["error", "done"] and ev[0].data["code"] == "internal_error" and llm.requests == []
+
+
+# ── I6: 날짜 도우미(코드가 계산) ──
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("11월 30일 준공", [("11월 30일", date(2026, 11, 30))]),
+        ("1월 10일 착공", [("1월 10일", date(2027, 1, 10))]),
+        ("11월 20일", [("11월 20일", date(2026, 11, 20))]),  # 오늘은 아직 지나지 않았다
+        ("2028년 3월 2일", [("2028년 3월 2일", date(2028, 3, 2))]),
+        ("내년 11월 30일", [("내년 11월 30일", date(2027, 11, 30))]),
+        ("올해 12월 1일", [("올해 12월 1일", date(2026, 12, 1))]),
+        ("2월 29일", [("2월 29일", date(2028, 2, 29))]),  # 다음 윤년
+        ("2월 30일", [("2월 30일", None)]),  # 없는 날
+        ("12 월 1 일, 12월 1일", [("12 월 1 일", date(2026, 12, 1)), ("12월 1일", date(2026, 12, 1))]),
+        ("내년 3월, 다음 달 초", []),  # 일이 없는 날짜는 계산하지 않는다
+    ],
+)
+def test_month_days_resolve_to_the_nearest_future_date(text, expected):
+    assert context.month_days(text, date(2026, 11, 20)) == expected
+
+
+def test_date_helper_lines_in_the_context(session, admin_user, chat_id, monkeypatch):
+    monkeypatch.setattr(context, "today", lambda: date(2026, 11, 20))
+    chats.add_message(session, chat_id, "user", {"kind": "text", "text": "11월 30일 준공, 1월 10일 착공, 2월 30일"})
+    session.commit()
+    text = build_context(session, admin_user, chat_id, NO_UI)[0]["content"]
+    assert "- '11월 30일' → 2026-11-30 (월)" in text and "- '1월 10일' → 2027-01-10 (일)" in text
+    assert "- '2월 30일' → 없는 날짜입니다" in text
+
+
+def test_date_helper_reads_the_request_and_the_answers_on_resume(session, admin_user, chat_id, monkeypatch):
+    monkeypatch.setattr(context, "today", lambda: date(2026, 11, 20))
+    chats.add_message(session, chat_id, "user", {"kind": "text", "text": "11월 30일 준공"})
+    chats.add_message(session, chat_id, "assistant", {"kind": "text", "text": "질문지에 답해 주세요."})
+    chats.add_message(session, chat_id, "user", {
+        "kind": "questionnaire_submitted", "questionnaire_id": 1,
+        "answers": [{"question_id": "s", "question": "착공일은?", "value": "12월 1일", "label": "12월 1일"}],
+        "assumed": [],
+    })
+    session.commit()
+    text = build_context(session, admin_user, chat_id, NO_UI)[0]["content"]
+    assert "- '11월 30일' → 2026-11-30 (월)" in text and "- '12월 1일' → 2026-12-01 (화)" in text
+
+
+# ── m1: 기다리는 동안 ping ──
+
+
+async def test_pings_while_waiting_for_the_llm_and_a_tool(run, monkeypatch):
+    monkeypatch.setattr(loop, "PING_INTERVAL_S", 0.05)
+
+    async def slow(args: Empty, ctx) -> Empty:
+        await asyncio.sleep(0.3)
+        return Empty()
+
+    with registered("slow", slow):
+        llm = ScriptedLlm([calls("slow", {}), reply("끝")])
+        llm.delay_s = 0.3
+        ev = await run(llm, "x")
+    names = types(ev)
+    assert "ping" in names[: names.index("tool_start")]  # LLM 을 기다리는 동안
+    assert "ping" in names[names.index("tool_start"): names.index("tool_end")]  # 도구를 기다리는 동안
+    assert [n for n in names if n != "ping"] == [
+        "workflow", "tool_start", "tool_end", "workflow", "text", "workflow", "usage", "done",
+    ]
+
+
+def test_ping_is_an_sse_comment():
+    assert to_sse(AgentEvent("ping", {})) == ": ping\n\n"
+
+
+# ── m3: 글을 저장한 뒤에 text 사건 ──
+
+
+async def test_assistant_text_is_saved_before_its_text_event(session, admin_user, chat_id):
+    add_connection(session)
+    llm = ScriptedLlm([calls("schedule.read", {}, text="읽겠습니다."), reply("끝입니다.")])
+    agen = run_turn(session, admin_user, chat_id, "x", NO_UI, llm=LlmClient(session, transport=llm.transport))
+    seen = []
+    async for ev in agen:
+        if ev.type == "text":
+            last = [c for r, c in stored(session, chat_id) if r == "assistant"][-1]
+            seen.append(last["text"])
+    assert seen == ["읽겠습니다.", "끝입니다."]
+
+
+# ── m9: JSON 이 아닌 값도 글로 ──
+
+
+def test_to_sse_turns_non_json_values_into_text():
+    assert to_sse(AgentEvent("card", {"d": date(2027, 3, 1)})) == 'event: card\ndata: {"d": "2027-03-01"}\n\n'

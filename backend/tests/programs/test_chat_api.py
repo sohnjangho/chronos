@@ -1,6 +1,7 @@
 """대화 API: 대화 만들기·읽기, 메시지 보내기(SSE), 질문지 제출로 이어 가기, 멈춤, 소유자 확인."""
 
 import json
+from contextlib import contextmanager
 
 import httpx
 import pytest
@@ -9,12 +10,14 @@ from sqlalchemy import select
 
 from app.agent import loop, turns
 from app.agent.context import UiContext
+from app.db import get_session
 from app.llm.client import LlmClient
 from app.main import app
 from app.programs.chat import service
+from app.store import chats
 from app.store import questionnaires as qstore
 from app.store.questionnaires import Question
-from app.store.tables import User, WorkflowRun
+from app.store.tables import User, WorkflowRun, WorkflowStep
 from app.tools import registry
 from tests.llm_doubles import add_connection
 from tests.loop_doubles import ScriptedLlm, calls, reply
@@ -42,6 +45,8 @@ def parse(body: str) -> list[tuple[str, dict]]:
     """SSE 본문 → [(event, data)]."""
     out = []
     for block in body.strip().split("\n\n"):
+        if block.startswith(":"):  # 주석(ping)
+            continue
         event, data = block.split("\n")
         assert event.startswith("event: ") and data.startswith("data: ")
         out.append((event[len("event: "):], json.loads(data[len("data: "):])))
@@ -263,3 +268,52 @@ def test_questionnaire_resume_rejects_a_wrong_questionnaire(client, admin, chat_
     assert r.json()["message"] == "이 대화에서 제출한 질문지가 아닙니다."
     assert client.get(f"/api/chat/sessions/{chat_id}", headers=admin).json()["messages"] == []
     assert not turns.is_running(chat_id)
+
+
+# ══ Fix round 1 ════════════════════════════════════════════════════
+
+
+def test_detail_returns_event_messages_in_order(client, admin, chat_id, scripted, session):
+    args = {"purpose": "generate", "title": "질문", "questions": [
+        {"id": x, "group": "범위", "question": f"{x}?", "assumption": f"{x} 가정"} for x in ("a", "b", "c")
+    ]}
+    scripted._script.clear()
+    scripted.push(calls("ask.questionnaire", args), reply("질문지에 답해 주세요."))
+    post(client, chat_id, admin, text="일정 만들어 줘")
+    messages = client.get(f"/api/chat/sessions/{chat_id}", headers=admin).json()["messages"]
+    assert [m["role"] for m in messages] == ["user", "assistant", "event", "tool", "assistant"]
+    qid = messages[2]["content"]["data"]["id"]
+    assert messages[2]["content"] == {"type": "questionnaire", "data": {"id": qid}}
+
+
+def test_resuming_with_the_same_questionnaire_twice_is_422(client, admin, chat_id, scripted, session):
+    qid = make_questionnaire(session, chat_id)
+    assert post(client, chat_id, admin, questionnaire_id=qid).status_code == 200
+    r = post(client, chat_id, admin, questionnaire_id=qid)
+    assert r.status_code == 422 and r.json()["code"] == "invalid_questionnaire"
+    assert r.json()["message"] == "이미 이어서 처리한 질문지입니다."
+
+
+def test_stream_sends_pings_while_waiting(client, admin, chat_id, scripted, monkeypatch):
+    monkeypatch.setattr(loop, "PING_INTERVAL_S", 0.05)
+    scripted.delay_s = 0.3
+    body = post(client, chat_id, admin, text="안녕").text
+    assert ": ping\n\n" in body and body.rstrip().endswith("event: done\ndata: {}")
+
+
+def test_startup_closes_runs_left_running():
+    with TestClient(app), contextmanager(get_session)() as s:
+        admin_id = s.scalars(select(User).where(User.login_id == "admin")).one().id
+        chat = chats.create_chat(s, user_id=admin_id)
+        run = WorkflowRun(chat_session_id=chat.id, title="t", request="r", status="running")
+        done = WorkflowRun(chat_session_id=chat.id, title="t", request="r", status="done")
+        s.add_all([run, done])
+        s.flush()
+        s.add(WorkflowStep(run_id=run.id, n=1, tool="generate.run", status="running", input_json="{}"))
+        s.commit()
+        ids = (run.id, done.id)
+    with TestClient(app), contextmanager(get_session)() as s:  # 서버를 다시 띄움(같은 DB)
+        left, finished = s.get(WorkflowRun, ids[0]), s.get(WorkflowRun, ids[1])
+        assert (left.status, finished.status) == ("stopped", "done") and left.ended_at is not None
+        assert finished.ended_at is None
+        assert s.scalars(select(WorkflowStep)).one().status == "stopped"

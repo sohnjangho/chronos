@@ -1,8 +1,12 @@
 """대화마다 도는 턴을 하나로 묶고, 멈춤 요청을 전한다(프로세스 메모리에만 둔다).
 
 대화 API 는 턴을 시작하기 전에 claim 하고(이미 돌고 있으면 TurnRunning), 턴이 끝나면 release 한다.
-POST …/stop 은 request_stop 으로 표시만 하고, 에이전트 루프가 단계 사이에서 stop_requested 를 본다.
+POST …/stop 은 request_stop 으로 표시만 하고, 에이전트 루프가 단계 사이에서 stop_requested 를 본다
+(생성 도구는 ToolContext.stop_requested 로 LLM 을 부르기 전에 본다).
 서버를 다시 띄우면 모두 풀린다.
+
+서버 작업자(uvicorn worker)가 하나라고 본다. 작업자가 여럿이면 이 표가 작업자마다 따로 있어서,
+409(턴이 도는 중)와 멈춤이 같은 작업자에 온 요청끼리만 맞는다.
 """
 
 from dataclasses import dataclass

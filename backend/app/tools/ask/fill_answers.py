@@ -1,6 +1,7 @@
 """ask.fill_answers — 질문지를 연 채 사용자가 대화로 답하면 그 질문의 칸을 채운다.
 
 답 규칙은 질문지 저장(app.store.questionnaires.answer)과 같다. 하나라도 틀리면 이번에 넣은 답은 모두 되돌린다.
+지금 대화(ctx.chat_session_id)에서 만든 질문지만 채운다.
 """
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,6 +12,7 @@ from app.tools.context import ToolContext, ToolError
 from app.tools.registry import tool
 
 NOT_FOUND_MESSAGE = "질문지를 찾을 수 없습니다."
+OTHER_CHAT_MESSAGE = "이 대화의 질문지가 아닙니다."
 
 
 class AnswerItem(BaseModel):
@@ -40,9 +42,12 @@ class FillOut(BaseModel):
 )
 def fill_answers(args: FillIn, ctx: ToolContext) -> FillOut:
     try:
-        before = dict(store.get(ctx.session, args.questionnaire_id).answers_json)
+        record = store.get(ctx.session, args.questionnaire_id)
     except store.NotFound:
         raise ToolError(NOT_FOUND_MESSAGE) from None
+    if record.chat_session_id != ctx.chat_session_id:
+        raise ToolError(OTHER_CHAT_MESSAGE)
+    before = dict(record.answers_json)
     try:
         for item in args.answers:
             store.answer(ctx.session, args.questionnaire_id, item.question_id, item.value)

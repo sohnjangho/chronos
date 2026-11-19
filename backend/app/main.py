@@ -1,10 +1,10 @@
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 from fastapi import FastAPI
 
 from app.config import Settings, validate_settings
-from app.db import close_db, init_db
+from app.db import close_db, get_session, init_db
 from app.errors import install_error_handlers
 from app.programs.auth.router import router as auth_router
 from app.programs.chat.router import router as chat_router
@@ -12,6 +12,7 @@ from app.programs.llm_settings.router import router as llm_settings_router
 from app.programs.questionnaire.router import router as questionnaire_router
 from app.programs.schedule.router import router as schedule_router
 from app.programs.workflow.router import router as workflow_router
+from app.store.workflows import close_unfinished
 from app.tools import registry
 
 
@@ -19,6 +20,8 @@ from app.tools import registry
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     validate_settings(Settings())
     init_db()
+    with contextmanager(get_session)() as session:
+        close_unfinished(session)  # 지난번에 끝나지 못한 실행 기록은 stopped 로 닫는다
     registry.load_all()  # 에이전트가 쓸 도구를 모두 등록한다
     yield
     close_db()

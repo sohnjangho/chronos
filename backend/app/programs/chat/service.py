@@ -31,6 +31,7 @@ from app.store.timeutil import as_utc
 
 NOT_FOUND_MESSAGE = "대화를 찾을 수 없습니다."
 INVALID_QUESTIONNAIRE_MESSAGE = "이 대화에서 제출한 질문지가 아닙니다."
+RESUMED_QUESTIONNAIRE_MESSAGE = "이미 이어서 처리한 질문지입니다."
 TURN_RUNNING_MESSAGE = "앞의 요청을 처리하는 중입니다."
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
@@ -72,17 +73,19 @@ def stop(session: Session, user: User, chat_id: int) -> StopOut:
 
 
 def _check_questionnaire(session: Session, chat_id: int, qid: int) -> None:
-    """제출됐고 이 대화의 것인 질문지만 받는다."""
+    """제출됐고 이 대화의 것이며 아직 이어 가지 않은 질문지만 받는다."""
     try:
         record = questionnaires.get(session, qid)
     except questionnaires.NotFound:
         record = None
     if record is None or record.status != "submitted" or record.chat_session_id != chat_id:
         raise ApiError(422, "invalid_questionnaire", INVALID_QUESTIONNAIRE_MESSAGE)
+    if chats.was_resumed(session, chat_id, qid):
+        raise ApiError(422, "invalid_questionnaire", RESUMED_QUESTIONNAIRE_MESSAGE)
 
 
 def start_turn(session: Session, user: User, chat_id: int, body: MessageIn) -> StreamingResponse:
-    """확인(404 → 422 질문지 → 409) 뒤 턴을 맡고 SSE 응답을 돌려준다."""
+    """확인(404 → 422 질문지 → 409) 뒤 턴을 맡고 SSE 응답을 돌려준다(기다리는 동안 `: ping` 주석 줄)."""
     _owned(session, user, chat_id)
     if body.questionnaire_id is not None:
         _check_questionnaire(session, chat_id, body.questionnaire_id)

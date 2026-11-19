@@ -50,9 +50,12 @@ class WorkflowLog:
         self._rows.append({"n": n, "tool": tool, "program": program, "status": "running"})
         return n
 
-    def step_finished(self, n: int, result: ToolResult) -> None:
-        """단계를 닫는다: done(성공) 또는 failed(output 은 {"error": …})."""
-        status = "done" if result.ok else "failed"
+    def step_finished(self, n: int, result: ToolResult, stopped: bool = False) -> None:
+        """단계를 닫는다: done(성공) 또는 failed(output 은 {"error": …}).
+
+        stopped 면(도구가 도는 동안 멈춤을 눌렀으면) 성공한 결과도 stopped 로 둔다. 출력은 그대로 저장한다.
+        """
+        status = ("stopped" if stopped else "done") if result.ok else "failed"
         output = result.output if result.ok else {"error": result.error}
         step = self._steps[n - 1]
         step.status = status

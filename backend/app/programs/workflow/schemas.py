@@ -10,8 +10,8 @@ class RunOut(BaseModel):
     status: str  # running | done | failed | stopped
     started_at: datetime
     ended_at: datetime | None
-    tokens: int  # 턴의 LLM 입력 + 출력 토큰(도구 안에서 부른 LLM 은 빠짐)
-    cost: float | None
+    tokens: int  # 턴의 LLM 입력 + 출력 토큰(도구 안에서 부른 LLM 호출 포함)
+    cost: float | None  # 턴의 비용 합(도구 안 호출 포함). 비용을 알린 호출이 없으면 null
     step_count: int
 
 

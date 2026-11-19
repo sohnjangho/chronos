@@ -3,16 +3,21 @@
 한 턴의 흐름: 사용자 메시지 저장 → 메시지 조립(context.build_context) → LLM 에 도구 목록과 함께 묻기 →
 도구 호출이 오면 단계마다 workflow·tool_start → 도구 실행(도구가 내는 사건은 바로 흘려보냄) → tool_end·workflow
 → 결과를 붙여 다시 묻기 → 도구 호출이 없으면 text 로 끝. 끝에는 [workflow] [usage] [error] done.
+LLM 이나 도구를 기다리는 동안 PING_INTERVAL_S 마다 ping 을 낸다(연결 유지).
 
 트랜잭션: LLM 을 부르기 전과 도구를 부르기 전에 늘 commit 한다(쓰기를 쥔 채 네트워크를 기다리지 않는다).
-실패한 도구가 남긴 쓰기는 버린다(rollback). 멈춤은 app.agent.turns 의 표시를 단계 사이에서 본다.
+실패한 도구가 남긴 쓰기는 버린다(rollback). 도구가 낸 card·questionnaire·approval 사건은 도구가 끝난 뒤
+같은 commit 에서 event 메시지로 저장한다(도구가 LLM 을 기다리는 동안 쓰지 않는다).
+멈춤은 app.agent.turns 의 표시를 단계 사이에서 보고, 도구에도 ToolContext.stop_requested 로 넘긴다.
+사용량은 턴 동안 이 대화에 생긴 llm_calls 줄의 합이다(도구 안의 LLM 호출 포함).
 """
 
 import asyncio
+import json
 import logging
 import math
 import traceback
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Coroutine
 from contextlib import aclosing
 from dataclasses import dataclass
 
@@ -31,6 +36,7 @@ from app.agent.events import AgentEvent, json_safe
 from app.agent.workflow_log import TITLE_LIMIT, WorkflowLog
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply, Usage
 from app.store import chats, questionnaires
+from app.store.llm_usage import UsageSum, last_call_id, usage_since
 from app.store.tables import User
 from app.tools import registry
 from app.tools.context import ToolContext
@@ -38,7 +44,10 @@ from app.tools.context import ToolContext
 logger = logging.getLogger(__name__)
 
 MAX_STEPS = 12  # 한 턴의 LLM 호출 수 한도
+PING_INTERVAL_S = 15.0  # 이만큼 아무 사건이 없으면 ping
+SAVED_EVENTS = frozenset({"card", "questionnaire", "approval"})  # event 메시지로 저장하는 도구 사건
 QUESTIONNAIRE_TITLE = "질문지 답"
+PING = AgentEvent("ping", {})
 _MAX_SQL_INT = 2**63 - 1
 
 
@@ -81,29 +90,9 @@ def _tokens(usage: Usage) -> int:
     return _count(_count(usage.input_tokens) + _count(usage.output_tokens))
 
 
-@dataclass
-class _Usage:
-    """턴 안 LLM 답들의 사용량 합(도구 안에서 부른 LLM 은 들어가지 않는다)."""
-
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cost: float | None = None  # 비용을 알려 준 답이 하나도 없으면 None
-    calls: int = 0
-
-    def add(self, usage: Usage) -> None:
-        self.input_tokens += _count(usage.input_tokens)
-        self.output_tokens += _count(usage.output_tokens)
-        if (cost := _money(usage.cost)) is not None:
-            self.cost = (self.cost or 0.0) + cost
-        self.calls += 1
-
-    @property
-    def tokens(self) -> int:
-        return _count(self.input_tokens + self.output_tokens)
-
-    def data(self) -> dict:
-        return {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens, "cost": self.cost,
-                "calls": self.calls}
+def _storable(data: dict) -> dict:
+    """DB JSON 칸에 넣을 수 있는 사본(서로게이트 정리, JSON 이 아닌 값은 글로)."""
+    return json.loads(json.dumps(json_safe(data), ensure_ascii=False, default=str))
 
 
 @dataclass(frozen=True)
@@ -119,16 +108,19 @@ def default_llm(session: Session) -> LlmClient:
     return LlmClient(session)
 
 
-async def _next_event(task: asyncio.Task, queue: asyncio.Queue) -> AgentEvent | None:
-    """도구가 낸 다음 사건을 기다린다. 도구가 끝났고 남은 사건이 없으면 None."""
-    while queue.empty() and not task.done():
+async def _next_event(task: asyncio.Future, queue: asyncio.Queue, interval: float) -> AgentEvent | None:
+    """task 를 기다리며 큐에 들어온 사건 하나를 돌려준다. interval 초 동안 아무것도 없으면 PING,
+    task 가 끝났고 남은 사건이 없으면 None. task 는 취소하지 않는다."""
+    if queue.empty() and not task.done():
         getter = asyncio.ensure_future(queue.get())
         try:
-            await asyncio.wait({task, getter}, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait({task, getter}, timeout=interval, return_when=asyncio.FIRST_COMPLETED)
         finally:
             getter.cancel()  # 이미 끝났으면 아무 일도 없다(꺼내지 못한 사건은 큐에 남는다)
         if getter.done() and not getter.cancelled():
             return getter.result()
+        if queue.empty() and not task.done():
+            return PING
     return None if queue.empty() else queue.get_nowait()
 
 
@@ -151,14 +143,16 @@ class _Turn:
         self.chat_id = chat_session_id
         self.ui = ui
         self.llm = llm
-        self.usage = _Usage()
         self.outcome = DONE
         self.messages: list[dict] = []
         self.programs = {s.name: s.program for s in registry.list_tools(enabled_only=False)}
         self.schedule_id: int | None = None
         self.log: WorkflowLog | None = None
-        self.task: asyncio.Task | None = None
+        self.calls_before: int | None = None  # 턴을 시작할 때의 마지막 llm_calls.id
+        self.usage: UsageSum | None = None
+        self.task: asyncio.Future | None = None  # 지금 기다리는 LLM 호출 또는 도구
         self.queue: asyncio.Queue = asyncio.Queue()
+        self.collected: list[AgentEvent] = []  # 이번 도구가 낸, 저장할 사건
         self.step_n = 0
         self.calls_seen = 0
 
@@ -166,6 +160,7 @@ class _Turn:
 
     def begin(self, text: str | None, questionnaire_id: int | None) -> None:
         """사용자 메시지를 저장하고(대화 제목·일정도 정함) commit 한 뒤 LLM 에 보낼 메시지를 만든다."""
+        self.calls_before = last_call_id(self.session)
         chat = chats.get_chat(self.session, self.chat_id)
         content = _user_content(self.session, text, questionnaire_id)
         is_text = content["kind"] == "text"
@@ -183,15 +178,21 @@ class _Turn:
         self.messages = build_context(self.session, self.user, self.chat_id, ui)
 
     def close_log(self) -> None:
-        self.log.finish(self.outcome.status, tokens=self.usage.tokens, cost=self.usage.cost)
+        """턴의 사용량(llm_calls 합)을 읽고 실행 기록을 닫는다."""
+        if self.calls_before is not None:
+            self.usage = usage_since(self.session, self.chat_id, self.calls_before)
+        if self.log is not None:
+            u = self.usage
+            tokens = _count(u.input_tokens + u.output_tokens) if u else 0
+            self.log.finish(self.outcome.status, tokens=tokens, cost=_money(u.cost) if u else None)
         self.session.commit()
 
     def abort(self, outcome: _Outcome) -> None:
-        """턴이 중간에 끊겼다(연결 끊김·취소·예상 못 한 오류): 도구를 멈추고, 남은 쓰기를 버리고, 기록을 닫는다.
+        """턴이 중간에 끊겼다(연결 끊김·취소·예상 못 한 오류): 기다리던 것을 멈추고, 남은 쓰기를 버리고, 기록을 닫는다.
 
         await 하지 않는다(취소 중에는 기다리는 곳마다 다시 취소된다).
         """
-        self.cancel_tool()
+        self.cancel_task()
         self.outcome = outcome
         try:
             self.session.rollback()
@@ -200,59 +201,86 @@ class _Turn:
             _log_failure("워크플로우 기록을 닫지 못했습니다", self.chat_id, exc)
 
     def final_events(self) -> list[AgentEvent]:
-        events = [self.log.event()] if self.log.run_id is not None else []
-        if self.usage.calls:
-            events.append(AgentEvent("usage", self.usage.data()))
+        events = [self.log.event()] if self.log is not None and self.log.run_id is not None else []
+        if self.usage is not None and self.usage.calls:
+            u = self.usage
+            usage = {"input_tokens": u.input_tokens, "output_tokens": u.output_tokens, "cost": u.cost, "calls": u.calls}
+            events.append(AgentEvent("usage", usage))
         if self.outcome.error is not None:
             events.append(AgentEvent("error", self.outcome.error))
         return [*events, AgentEvent("done", {})]
 
-    # ── 한 단계 ──
+    # ── 단계 ──
 
     async def events(self, max_steps: int) -> AsyncIterator[AgentEvent]:
         try:
             for _ in range(max_steps):
-                if turns.stop_requested(self.chat_id):
-                    self.outcome = STOPPED
+                if self.stopping():
                     return
-                reply = await self.ask()
+                self.start(self.llm.chat("normal", self.messages, tools=registry.as_llm_tools(),
+                                         chat_session_id=self.chat_id))
+                while (event := await self.waiting()) is not None:
+                    yield event
+                reply = self.reply()
                 if reply is None:
                     return
                 text = json_safe(reply.text)
-                if text:
-                    yield AgentEvent("text", {"text": text})
                 if not reply.tool_calls:
                     self.answer(text)
+                    if text:
+                        yield AgentEvent("text", {"text": text})
                     return
-                for call in self.record_calls(reply, text):
-                    if turns.stop_requested(self.chat_id):
-                        self.outcome = STOPPED
+                calls = self.record_calls(reply, text)
+                if text:
+                    yield AgentEvent("text", {"text": text})
+                for call in calls:
+                    if self.stopping():
                         return
                     for event in self.start_tool(call, reply, text):
                         yield event
-                    self.launch(call)
-                    while (event := await _next_event(self.task, self.queue)) is not None:
+                    self.start(registry.call(call.name, call.arguments, self.tool_context()))
+                    while (event := await self.waiting()) is not None:
                         yield event
                     for event in self.end_tool(call):
                         yield event
             self.outcome = STEP_LIMIT
         finally:
-            self.cancel_tool()
+            self.cancel_task()
 
-    async def ask(self) -> LlmReply | None:
-        """LLM(normal)에 묻는다. 부를 수 없거나 실패하면 outcome 을 정하고 None."""
+    def stopping(self) -> bool:
+        if turns.stop_requested(self.chat_id):
+            self.outcome = STOPPED
+            return True
+        return False
+
+    def start(self, work: Coroutine) -> None:
+        """LLM 호출이나 도구를 따로 돌린다(기다리는 동안 사건·ping 을 내보내려고)."""
+        self.queue = asyncio.Queue()
+        self.task = asyncio.ensure_future(work)
+
+    async def waiting(self) -> AgentEvent | None:
+        event = await _next_event(self.task, self.queue, PING_INTERVAL_S)
+        if event is not None and event.type in SAVED_EVENTS:
+            self.collected.append(event)
+        return event
+
+    def reply(self) -> LlmReply | None:
+        """끝난 LLM 호출의 답. 부를 수 없었거나 실패했으면 outcome 을 정하고 None."""
+        task, self.task = self.task, None
         try:
-            reply = await self.llm.chat(
-                "normal", self.messages, tools=registry.as_llm_tools(), chat_session_id=self.chat_id
-            )
+            return task.result()
         except LlmNotReady:
             self.outcome = NOT_READY
-            return None
         except LlmFailed as e:
             self.outcome = _llm_failed(e)
-            return None
-        self.usage.add(reply.usage)
-        return reply
+        return None
+
+    def tool_context(self) -> ToolContext:
+        return ToolContext(
+            session=self.session, user=self.user, schedule_id=self.schedule_id,
+            emit=lambda event: self.queue.put_nowait(event), chat_session_id=self.chat_id,
+            stop_requested=lambda: turns.stop_requested(self.chat_id),
+        )
 
     def save(self, role: str, content: dict) -> None:
         """메시지를 저장 목록에 더하고 다음 요청 메시지에도 붙인다(commit 은 부르는 쪽)."""
@@ -288,18 +316,17 @@ class _Turn:
                  "program": program, "arguments": call.arguments_text}
         return [self.log.event(), AgentEvent("tool_start", start)]
 
-    def launch(self, call: _Call) -> None:
-        self.queue = asyncio.Queue()
-        ctx = ToolContext(session=self.session, user=self.user, schedule_id=self.schedule_id,
-                          emit=self.queue.put_nowait, chat_session_id=self.chat_id)
-        self.task = asyncio.ensure_future(registry.call(call.name, call.arguments, ctx))
-
     def end_tool(self, call: _Call) -> list[AgentEvent]:
+        """도구 결과를 기록한다: 단계 닫기, 모아 둔 사건을 event 메시지로, tool 메시지 — 한 번에 commit."""
         result = self.task.result()
         self.task = None
         if not result.ok:
             self.session.rollback()  # 실패한 도구가 남긴 쓰기는 저장하지 않는다
-        self.log.step_finished(self.step_n, result)
+        stopped = result.ok and turns.stop_requested(self.chat_id)  # 도는 동안 멈춤을 눌렀다
+        self.log.step_finished(self.step_n, result, stopped)
+        for event in self.collected:
+            chats.add_message(self.session, self.chat_id, "event", _storable({"type": event.type, "data": event.data}))
+        self.collected = []
         self.save("tool", {"kind": "tool_result", "tool_call_id": call.id, "name": call.name, "ok": result.ok,
                            "content": result_text(result)})
         self.session.commit()
@@ -307,7 +334,7 @@ class _Turn:
                "ok": result.ok, "ms": result.ms, "error": json_safe(result.error)}
         return [AgentEvent("tool_end", end), self.log.event()]
 
-    def cancel_tool(self) -> None:
+    def cancel_task(self) -> None:
         if self.task is not None and not self.task.done():
             self.task.cancel()
 
@@ -327,11 +354,12 @@ async def run_turn(
 
     text 또는 questionnaire_id(제출된 질문지의 답·가정으로 이어 가기) 가운데 하나를 준다.
     대화가 이 사용자의 것인지, 질문지가 맞는지, 이미 도는 턴이 있는지는 부르는 쪽(대화 API)이 확인한다.
+    턴을 시작하다 실패해도 error(internal_error)·done 으로 끝난다.
     스트림이 닫히거나(연결 끊김) 취소되면 실행을 stopped 로 닫고 그대로 끝난다(더 내보내지 않는다).
     """
     turn = _Turn(session, user, chat_session_id, ui, llm or default_llm(session))
-    turn.begin(text, questionnaire_id)
     try:
+        turn.begin(text, questionnaire_id)
         async with aclosing(turn.events(max_steps)) as events:
             async for event in events:
                 yield event

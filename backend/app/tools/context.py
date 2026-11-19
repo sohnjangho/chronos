@@ -36,6 +36,10 @@ def explained_schedule_errors() -> Iterator[None]:
         raise ToolError(schedule_error_message(e)) from None
 
 
+def _never() -> bool:
+    return False
+
+
 class NoArgs(BaseModel):
     """입력이 없는 도구의 입력 모델."""
 
@@ -49,6 +53,8 @@ class ToolContext:
     schedule_id: int | None  # 지금 다루는 일정. 없을 수 있다
     emit: Callable[[AgentEvent], None]
     chat_session_id: int | None = None  # 지금 대화. 대화 밖에서 부르면 None
+    # 사용자가 멈춤을 눌렀는가. 오래 도는 도구(생성 루프)는 LLM 을 부르기 전에 본다. 대화 밖에서는 늘 False
+    stop_requested: Callable[[], bool] = _never
 
     def require_schedule_id(self) -> int:
         """대상 일정 id. 없으면 ToolError."""

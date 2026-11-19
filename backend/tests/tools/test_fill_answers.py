@@ -1,5 +1,7 @@
 """도구 ask.fill_answers: 질문지를 연 채 대화로 답하면 그 칸을 채운다."""
 
+import dataclasses
+
 import pytest
 
 from app.agent.events import AgentEvent
@@ -98,3 +100,24 @@ async def test_a_failing_answer_leaves_earlier_answers_untouched(ctx, session, q
 async def test_input_shape_is_strict(ctx, args):
     r = await call("ask.fill_answers", args, ctx)
     assert r.ok is False and r.error.startswith("입력 형식 오류")
+
+
+# ── Fix round 1 (m11): 이 대화의 질문지만 ──
+
+
+@pytest.mark.parametrize("questionnaire_chat, ctx_chat", [(None, 7), (7, None), (7, 8)], ids=["no_chat", "outside_chat", "other_chat"])
+async def test_questionnaire_of_another_chat_is_a_tool_error(ctx, events, session, questionnaire_chat, ctx_chat):
+    qid = store.create(session, purpose="generate", title="질문", questions=QUESTIONS, prefilled=[],
+                       domain="construction", level="L3", chat_session_id=questionnaire_chat)
+    chat_ctx = dataclasses.replace(ctx, chat_session_id=ctx_chat)
+    r = await call("ask.fill_answers", {"questionnaire_id": qid, "answers": [{"question_id": "floors", "value": "5"}]}, chat_ctx)
+    assert (r.ok, r.error) == (False, "이 대화의 질문지가 아닙니다.") and events == []
+    assert answers_of(session, qid) == {}
+
+
+async def test_questionnaire_of_this_chat_is_filled(ctx, session):
+    qid = store.create(session, purpose="generate", title="질문", questions=QUESTIONS, prefilled=[],
+                       domain="construction", level="L3", chat_session_id=7)
+    chat_ctx = dataclasses.replace(ctx, chat_session_id=7)
+    r = await call("ask.fill_answers", {"questionnaire_id": qid, "answers": [{"question_id": "floors", "value": "5"}]}, chat_ctx)
+    assert r.ok and answers_of(session, qid) == {"floors": "5"}

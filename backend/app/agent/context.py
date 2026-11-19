@@ -1,9 +1,12 @@
-"""에이전트에게 보내는 메시지 조립: 지시문 + 분야 지식 + 지금 상황(화면·일정 요약·조건 수) + 대화 기록.
+"""에이전트에게 보내는 메시지 조립: 지시문 + 분야 지식 + 지금 상황(화면·일정 요약·조건 수·날짜 도우미) + 대화 기록.
 
 대화 기록은 마지막 HISTORY_LIMIT 개 메시지만 본다(요약은 하지 않는다). 도구 호출과 결과는 짝을 맞춰 보낸다.
+화면 사건(role "event")은 모델에 보내지 않는다. 날짜 도우미의 날짜는 모두 코드가 계산한다.
 """
 
 import json
+import logging
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -24,6 +27,8 @@ from app.store.view import view_data
 from app.tools.context import SCHEDULE_NOT_FOUND_MESSAGE
 from app.tools.registry import ToolResult
 
+logger = logging.getLogger(__name__)
+
 PROMPT = Path(__file__).parent / "prompts" / "system.md"
 HISTORY_LIMIT = 30  # 모델이 보는 지난 메시지 수(이번 사용자 메시지 포함)
 RESULT_LIMIT = 4000  # 도구 결과 글의 길이 한도
@@ -32,6 +37,10 @@ NOT_RUN = json.dumps({"error": "실행하지 않았습니다(턴이 중간에 �
 _LAYERS = (("base", "기본"), ("domain", "분야"), ("mine", "내 규칙"), ("input", "입력"))
 SEOUL = ZoneInfo("Asia/Seoul")
 _WEEKDAYS = "월화수목금토일"
+# "11월 30일", "2027년 11월 30일", "내년 3월 2일" (월·일이 다 있을 때만. "내년 3월" 은 계산하지 않는다)
+_MONTH_DAY = re.compile(r"(?:(\d{4})\s*년\s*|(올해|금년|내년|명년|내후년)\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일")
+_YEAR_WORDS = {"올해": 0, "금년": 0, "내년": 1, "명년": 1, "내후년": 2}
+_LEAP_SEARCH_YEARS = 8  # 2월 29일은 다음 윤년까지 찾는다
 
 
 @dataclass(frozen=True)
@@ -53,12 +62,66 @@ def today_text(day: date) -> str:
     return f"{day.isoformat()} ({_WEEKDAYS[day.weekday()]})"
 
 
+def _resolve(year: str | None, word: str | None, month: int, day: int, base: date) -> date | None:
+    """연도가 적혀 있으면 그 해, '내년' 같은 말이면 그 해, 없으면 오늘 이후 가장 가까운 날. 없는 날이면 None."""
+    if year or word:
+        try:
+            return date(int(year) if year else base.year + _YEAR_WORDS[word], month, day)
+        except ValueError:
+            return None
+    for y in range(base.year, base.year + _LEAP_SEARCH_YEARS + 1):
+        try:
+            found = date(y, month, day)
+        except ValueError:
+            continue
+        if found >= base:
+            return found
+    return None
+
+
+def month_days(text: str, base: date) -> list[tuple[str, date | None]]:
+    """글 속 'M월 D일'(앞에 연도나 '올해·내년·내후년' 이 붙을 수 있음)마다 (그 말, 코드가 정한 날짜)."""
+    return [
+        (m.group(0), _resolve(m.group(1), m.group(2), int(m.group(3)), int(m.group(4)), base))
+        for m in _MONTH_DAY.finditer(text)
+    ]
+
+
+def _date_texts(rows: list[ChatMessage]) -> list[str]:
+    """날짜 도우미가 읽을 글: 마지막 사용자 글. 질문지 제출이면 그 답과, 그 앞의 마지막 사용자 글."""
+    texts: list[str] = []
+    for row in reversed(rows):
+        if row.role != "user":
+            continue
+        content = row.content_json
+        if content.get("kind") != "questionnaire_submitted":
+            return [*texts, content.get("text", "")]
+        if not texts:
+            texts = [f"{a['value']} {a['label']}" for a in content["answers"]]
+    return texts
+
+
+def date_helper(rows: list[ChatMessage], base: date) -> list[str]:
+    """'## 날짜 도우미' 줄들: 오늘, 올해·내년, 사용자 글 속 'M월 D일' 의 온전한 날짜(모두 코드가 계산)."""
+    lines = [
+        "## 날짜 도우미 (코드가 계산했다. 날짜는 여기 있는 것을 그대로 옮겨 쓴다)",
+        f"- 오늘: {today_text(base)}",
+        f"- 올해: {base.year}년 · 내년: {base.year + 1}년",
+    ]
+    seen: set[str] = set()
+    for text in _date_texts(rows):
+        for phrase, day in month_days(text, base):
+            if phrase not in seen:
+                seen.add(phrase)
+                lines.append(f"- '{phrase}' → {today_text(day) if day else '없는 날짜입니다'}")
+    return lines
+
+
 def system_prompt() -> str:
-    """prompts/system.md 에 오늘 날짜·분야 목록·정밀도 정의·분야 지식을 넣은 지시문(턴마다 새로 만든다)."""
+    """prompts/system.md 에 분야 목록·정밀도 정의·분야 지식을 넣은 지시문."""
     packs = [load(d) for d in domains()]
     return (
         PROMPT.read_text(encoding="utf-8")
-        .replace("{{today}}", today_text(today()))
         .replace("{{domains}}", ", ".join(f"{p.id}({p.name})" for p in packs))
         .replace("{{levels}}", levels_prompt())
         .replace("{{packs}}", "\n\n".join(p.prompt() for p in packs))
@@ -66,9 +129,10 @@ def system_prompt() -> str:
 
 
 def build_context(session: Session, user: User, chat_session_id: int, ui: UiContext) -> list[dict]:
-    """LLM 에 보낼 메시지: system(지시문 + 지금 상황) 하나 뒤에 마지막 30개 대화 메시지."""
-    system = system_prompt() + "\n\n" + situation(session, user, ui)
+    """LLM 에 보낼 메시지: system(지시문 + 지금 상황 + 날짜 도우미) 하나 뒤에 마지막 30개 대화 메시지(event 제외)."""
     rows = recent_messages(session, chat_session_id, HISTORY_LIMIT)
+    helper = "\n".join(date_helper(rows, today()))
+    system = "\n\n".join([system_prompt(), situation(session, user, ui), helper])
     return [{"role": "system", "content": system}, *history(rows)]
 
 
@@ -92,6 +156,9 @@ def _schedule_lines(session: Session, ui: UiContext) -> list[str]:
         return [f"- 대상 일정: #{ui.schedule_id} 일정을 읽을 수 없습니다: {SCHEDULE_NOT_FOUND_MESSAGE}", *selected]
     except ScheduleError as e:
         return [f"- 대상 일정: #{ui.schedule_id} 일정을 읽을 수 없습니다: {schedule_error_message(e)}", *selected]
+    except Exception as exc:  # noqa: BLE001 — 요약을 못 만들어도 턴은 이어 간다(종류만 남김)
+        logger.warning("일정 요약 실패: schedule=%s (%s)", ui.schedule_id, type(exc).__name__)
+        return [f"- 대상 일정: #{ui.schedule_id} 일정을 읽을 수 없습니다.", *selected]
     lines = [_schedule_line(view), _condition_line(stored)]
     if ui.selected_activity:
         lines.append(_activity_line(view, ui.selected_activity))
@@ -186,6 +253,8 @@ def history(rows: list[ChatMessage]) -> list[dict]:
     out: list[dict] = []
     pending: list[str] = []
     for row in rows:
+        if row.role == "event":  # 화면 사건은 모델에 보내지 않는다(호출·결과 짝도 끊지 않는다)
+            continue
         message = wire(row.role, row.content_json)
         if message["role"] == "tool":
             if message["tool_call_id"] in pending:

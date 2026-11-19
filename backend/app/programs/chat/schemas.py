@@ -47,8 +47,8 @@ class ChatSessionOut(BaseModel):
 
 class MessageOut(BaseModel):
     id: int
-    role: Literal["user", "assistant", "tool"]
-    content: dict  # app/store/chats.py 의 모양
+    role: Literal["user", "assistant", "tool", "event"]
+    content: dict  # app/store/chats.py 의 모양. event 는 {"type": card|questionnaire|approval, "data": {...}}
     created_at: datetime
 
 

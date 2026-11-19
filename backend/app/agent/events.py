@@ -16,6 +16,7 @@ EventType = Literal[
     "usage",
     "error",
     "done",
+    "ping",  # 기다리는 동안 연결을 살려 두는 것. SSE 주석 줄로 나간다
 ]
 
 
@@ -40,6 +41,11 @@ def json_safe(value: object) -> object:
 
 
 def to_sse(event: AgentEvent) -> str:
-    """`event: <type>\\ndata: <json>\\n\\n`. data 는 한 줄 JSON(json_safe 를 거침)."""
-    data = json.dumps(json_safe(event.data), ensure_ascii=False)
+    """`event: <type>\\ndata: <json>\\n\\n`. data 는 한 줄 JSON(json_safe 를 거침, JSON 이 아닌 값은 글로).
+
+    ping 은 주석 줄 `: ping\\n\\n` 이다(화면의 사건 처리에는 닿지 않는다).
+    """
+    if event.type == "ping":
+        return ": ping\n\n"
+    data = json.dumps(json_safe(event.data), ensure_ascii=False, default=str)
     return f"event: {event.type}\ndata: {data}\n\n"

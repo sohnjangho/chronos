@@ -58,6 +58,11 @@ BROKEN_RULES = frozenset({"base.no_cycle", "base.no_dangling", "base.valid"})
 LIMIT_REASON = "조건을 모두 맞추지 못했습니다."
 NO_DRAFT_REASON = "일정 초안을 만들지 못했습니다. 다시 시도해 주세요."
 OUT_OF_RANGE = "날짜 계산이 범위를 넘었습니다(기간·lag 가 너무 큽니다)."
+STOPPED_REASON = "중단했습니다."
+
+
+class _Stopped(Exception):
+    """사용자가 멈춤을 눌렀다(LLM 을 부르기 전에 ctx.stop_requested 로 안다)."""
 
 
 @dataclass(frozen=True)
@@ -128,12 +133,18 @@ class _Loop:
         while len(self.rounds) < max_rounds:
             if self.wbs is None and not await self.make_wbs():
                 continue
+            self.stop_check()
             self.card("schedule")
             scored = self.score(await self.ask_draft())
             if scored is not None and not scored.report.violations:
                 return
 
+    def stop_check(self) -> None:
+        if self.ctx.stop_requested():
+            raise _Stopped
+
     async def make_wbs(self) -> bool:
+        self.stop_check()
         self.card("wbs")
         messages = wbs_messages(self.pack, self.brief, self.feedback)
         reply = await ask(self.llm, messages, WBS_SCHEMA, self.chat_session_id)
@@ -213,12 +224,12 @@ class _Loop:
         fit = ["정밀도 맞춤(위반은 아니지만 고칠 때 맞춘다):", *(f"- {w}" for w in fresh)]
         return "\n".join([self.violation_note, *fit])
 
-    def result(self, assumptions: list[dict], failure: str | None = None) -> GenResult:
-        """끝 결과. failure 는 LLM 실패 안내 글(그때까지 가장 나은 초안이 있으면 저장한다)."""
+    def result(self, assumptions: list[dict], failure: str | None = None, stopped: bool = False) -> GenResult:
+        """끝 결과. failure 는 LLM 실패 안내 글, stopped 는 멈춤(둘 다 그때까지 가장 나은 초안이 있으면 저장한다)."""
         best = self.best
         base = {"conditions": self.conditions, "rounds": self.rounds, "assumptions": assumptions}
         if best is None:
-            reason = f"일정을 만들지 못했습니다. {failure}" if failure else NO_DRAFT_REASON
+            reason = STOPPED_REASON if stopped else f"일정을 만들지 못했습니다. {failure}" if failure else NO_DRAFT_REASON
             return GenResult(ok=False, draft_id=None, schedule=None, report=None, warnings=list(self.notes),
                              reason=reason, **base)
         ok = not best.report.violations
@@ -230,7 +241,8 @@ class _Loop:
         return GenResult(
             ok=ok, draft_id=draft_id, schedule=best.schedule, report=best.report,
             warnings=[*self.notes, *best.warnings], conflict=[] if ok else [v.condition_id for v in best.report.violations],
-            reason=None if ok else _end_reason(best, failure), uncheckable=uncheckable, invalid=invalid, **base,
+            reason=None if ok else _end_reason(best, failure, stopped), uncheckable=uncheckable, invalid=invalid,
+            **base,
         )
 
 
@@ -238,10 +250,12 @@ def _described(v: Violation) -> str:
     return f"{v.message} ({', '.join(v.activity_ids)})" if v.activity_ids else v.message
 
 
-def _end_reason(best: _Scored, failure: str | None) -> str:
+def _end_reason(best: _Scored, failure: str | None, stopped: bool = False) -> str:
+    count = len(best.report.violations)
+    if stopped:
+        return f"중단해서 지금까지 가장 나은 초안({best.round}회차, 위반 {count})을 저장했습니다."
     if failure is None:
         return LIMIT_REASON
-    count = len(best.report.violations)
     return f"LLM 호출이 실패해 지금까지 가장 나은 초안({best.round}회차, 위반 {count})을 저장했습니다. {failure}"
 
 
@@ -281,7 +295,8 @@ async def generate(
 
     없는 분야면 UnknownDomain, 없는 정밀도면 KeyError. LLM 실패는 ok=False·reason 으로 바뀌고, 그때까지
     점검한 초안이 있으면 가장 나은 것을 저장한다(없으면 schedule=None). 결과 초안은 schedule_drafts 에만
-    넣는다(일정 저장은 승인 뒤).
+    넣는다(일정 저장은 승인 뒤). ctx.stop_requested() 가 참이면 다음 LLM 호출 전에 멈추고 같은 식으로
+    끝낸다(가장 나은 초안이 있으면 저장, 없으면 reason "중단했습니다.").
     """
     pack = load(domain)
     inputs, notes = _for_level(level, inputs)
@@ -297,4 +312,6 @@ async def generate(
         await loop.run(max_rounds)
     except (LlmNotReady, LlmFailed) as error:
         return loop.result(noted, failure=_llm_message(error))
+    except _Stopped:
+        return loop.result(noted, stopped=True)
     return loop.result(noted)
