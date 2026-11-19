@@ -7,6 +7,7 @@ from app.main import app
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
 from app.store.tables import User
+from tests import schedules
 from tests.helpers import auth
 
 
@@ -63,3 +64,15 @@ def admin(admin_token) -> dict[str, str]:
 @pytest.fixture
 def user(user_token) -> dict[str, str]:
     return auth(user_token)
+
+
+@pytest.fixture
+def sample_schedule():
+    """A(3일) → B(2일). 2027-03-01(월) 시작, 주 5일. A 3/1~3/3, B 3/4~3/5."""
+    return schedules.sample()
+
+
+@pytest.fixture
+def sid(session, sample_schedule) -> int:
+    """sample_schedule 을 버전 1로 저장한 일정 id."""
+    return schedules.store(session, sample_schedule)

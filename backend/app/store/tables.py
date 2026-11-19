@@ -51,3 +51,48 @@ class LlmAssignment(Base):
     connection_id: Mapped[int | None] = mapped_column(ForeignKey("llm_connections.id"))
     model: Mapped[str] = mapped_column(String(200))
     routing_strategy: Mapped[str | None] = mapped_column(String(10))  # cost|balanced|quality
+
+
+class ScheduleRecord(Base):
+    """일정 하나. 내용은 버전(schedule_versions)에 있고, 여기에는 지금 버전 번호만 둔다."""
+
+    __tablename__ = "schedules"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    domain: Mapped[str] = mapped_column(String(50))
+    level: Mapped[str] = mapped_column(String(2))  # 'L1'..'L5'
+    current_version: Mapped[int] = mapped_column(default=1)
+    created_by: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class ScheduleVersion(Base):
+    """일정의 한 버전. 고칠 때마다 새로 쌓고 지우지 않는다."""
+
+    __tablename__ = "schedule_versions"
+
+    schedule_id: Mapped[int] = mapped_column(ForeignKey("schedules.id"), primary_key=True)
+    n: Mapped[int] = mapped_column(primary_key=True)
+    snapshot_json: Mapped[dict] = mapped_column(JSON)  # store.schedules.to_json 결과
+    conditions_json: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    note: Mapped[str] = mapped_column(Text, default="")
+    by_kind: Mapped[str] = mapped_column(String(10))  # 'user' | 'agent'
+    by_name: Mapped[str] = mapped_column(String(100))
+    is_plan: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class ChangeLog(Base):
+    """새 버전을 만든 고침 한 번. changes_json 은 [{id, field, from, to}]."""
+
+    __tablename__ = "change_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(ForeignKey("schedules.id"))
+    version_n: Mapped[int]
+    by_kind: Mapped[str] = mapped_column(String(10))
+    by_name: Mapped[str] = mapped_column(String(100))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    changes_json: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
