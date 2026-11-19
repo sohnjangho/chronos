@@ -482,39 +482,9 @@ def test_apply_sets_capacity_and_calendar(two_crane_tasks):
 
 ---
 
-### Task 8: 건설 분야 묶음과 질문지 [sonnet 자료 + opus 코드]
+### Task 8: 분야 지식 · 정밀도 정의 · 에이전트가 만든 질문의 질문지 [opus] — v2 (PM 정정 2026-11-20)
 
-**Files:** Create `backend/app/domains/loader.py`, `backend/app/domains/construction/pack.yaml`, `backend/app/tools/ask/make_questionnaire.py`, `backend/app/programs/questionnaire/{router,service,schemas}.py`, `backend/tests/domains/test_loader.py`, `backend/tests/programs/test_questionnaire.py`
-
-**Interfaces — Consumes:** Task 7 `Condition`
-**Produces:**
-- `pack.yaml` 구조: `id: construction` · `name: 건설` · `terms{}` · `default_calendar{days_per_week: 6, holidays: KR}` · `rules[]`(Condition 형식 — 양생 7일 `min_gap`, 골조 2개 층 위부터 설비 배관은 `text_only`) · `info_items[]`: `{id, group '범위'|'날짜'|'달력·방식'|'자원·외부', label, question, required: {L1,L2,L3,L4,L5 각 'must'|'optional'|'skip'}, options[]: {value, label, hint?, recommended?}, allow_free: true, follow_ups[]: {when_value, item_id}, to_condition?: {kind, params_template}}` · `wbs_template[]`(기초/골조/외장·설비/마감 3단계) · `key_resources[]`: `{id, name, unit, tags[]}`(타워크레인·철근공·타설반) · `activity_types[]`: `{tag, name_keywords[], resources[]}`
-  - `info_items`는 설계 11-3의 공통 19개 + 건설 추가 8개를 전부 담는다. `required` 값은 설계 표 그대로.
-- `domains.loader.load(domain_id) -> DomainPack`, `DomainPack.must_items(level) -> list[InfoItem]`
-- 표 `questionnaires(id, session_id, schedule_draft_id, domain, level, items_json, answers_json, status 'open'|'submitted', created_at)`
-- 도구 `ask.questionnaire {purpose, items: [item_id…], prefilled: [{item_id, value, source}]}` → 질문지 만들고 `AgentEvent("questionnaire", {id})` 내보냄. 물을 것이 2개 이하면 질문지를 만들지 않고 `AgentEvent("card", {kind:"mini_questions", …})`
-- API: `GET /api/questionnaires/{id}` → `{id, title, level, progress:{must_total, must_filled, optional_total, optional_filled}, groups:[{name, filled, total, items:[{item_id, label, question, required, options, allow_free, value, source, reason?}]}]}` · `PATCH /api/questionnaires/{id}/answers {item_id, value | "__auto__"}` — 답에 따라 `follow_ups` 항목이 생기고 사라진 결과를 돌려줌. `"__auto__"`는 `required='optional'`에만 허용(`422 must_item`) · `POST /api/questionnaires/{id}/submit` — `must`가 비어 있으면 `422 {"code":"must_missing","detail":{"items":[…]}}`
-
-- [ ] **Step 1: 실패하는 시험**
-```python
-def test_pack_has_all_common_items(): assert len([i for i in load("construction").info_items]) >= 27
-def test_l1_must_items_match_spec(): assert {i.id for i in load("construction").must_items("L1")} >= {"purpose", "scope", "start_date", "finish_date"}
-def test_l3_requires_key_resources_but_l2_skips(): p = load("construction"); assert "key_resources" in ids(p.must_items("L3")) and "key_resources" not in ids(p.must_items("L2"))
-def test_follow_up_appears_and_disappears(client, admin, qid):
-    r = client.patch(f"/api/questionnaires/{qid}/answers", json={"item_id": "basement", "value": "b1"}, headers=admin)
-    assert "retaining_wall" in item_ids(r.json())
-    r = client.patch(f"/api/questionnaires/{qid}/answers", json={"item_id": "basement", "value": "none"}, headers=admin)
-    assert "retaining_wall" not in item_ids(r.json())
-def test_auto_rejected_on_must(client, admin, qid):
-    assert client.patch(f"/api/questionnaires/{qid}/answers", json={"item_id": "work_week", "value": "__auto__"}, headers=admin).status_code == 422
-def test_submit_blocked_until_must_filled(client, admin, qid):
-    r = client.post(f"/api/questionnaires/{qid}/submit", headers=admin); assert r.status_code == 422 and r.json()["code"] == "must_missing"
-def test_prefilled_keeps_source(client, admin, qid_prefilled):
-    assert item(client.get(f"/api/questionnaires/{qid_prefilled}", headers=admin).json(), "finish_date")["source"] == "프롬프트"
-async def test_two_or_fewer_questions_become_card(ctx, events):
-    await call("ask.questionnaire", {"purpose": "generate", "items": ["work_week"], "prefilled": []}, ctx); assert events[-1].type == "card"
-```
-- [ ] **Step 2~5:** 실패 확인 → 구현(자료 채우기는 sonnet, 코드는 opus) → 통과 확인 → 커밋 `feat: 건설 분야 묶음과 질문지`
+질문을 분야별로 코드에 정해 두지 않는다. 에이전트가 생성 중 질문을 만들고, 이 작업은 그 질문을 질문지에 넣는 도구·API와 에이전트가 읽는 지식(정밀도 정의·분야 묶음)을 만든다. 답하지 않은 질문은 에이전트의 가정으로 채운다. 상세 지시: `.superpowers/sdd/2026-11-19-chronos-plan-1-foundation/task-8-brief.md` (v2). 설계 11-1~11-4(v2.4).
 
 ---
 
