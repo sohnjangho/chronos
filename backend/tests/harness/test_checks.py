@@ -32,9 +32,11 @@ def test_resource_cap_violation_lists_activities(two_crane_tasks):
     assert r.violations == [] and set(r.notices[0].activity_ids) == {"A", "B"}
 
 
+# controller 판단(fix round 1, F2)으로 바뀐 시험: 간격은 선행 종료와 후행 시작 "사이" 의 날 수다.
+# 다음 근무일에 이어지면 간격 0 → 7 모자란다. 원래 기대는 amount == 6 이었다.
 def test_min_gap_curing(pour_then_next_day):
     r = check(pour_then_next_day, [Condition("c3", "domain", "min_gap", {"after_tag": "타설", "days": 7}, "양생 7일", "분야 규칙")])
-    assert r.violations and r.violations[0].amount == 6
+    assert r.violations and r.violations[0].amount == 7
 
 
 def test_text_only_is_never_passed(s_finish_0305):
@@ -111,15 +113,16 @@ def test_finish_by_uses_the_leveled_finish(two_crane_tasks):
 
 
 def test_min_gap_uses_the_leveled_dates():
-    # X 가 크레인을 먼저 차지해 N 은 03.03 → 03.08 로 밀린다. 타설 P 의 종료(03.02)와 N 시작 사이 4일.
+    # X 가 크레인을 먼저 차지해 N 은 03.03 → 03.08 로 밀린다. 타설 P 의 종료(03.02)와 N 시작 사이
+    # 근무일 3일(03.03·03.04·03.05). (fix round 1 F2 로 4·5 → 3·4)
     crane = Resource("crane", "타워크레인", "대", 1)
     s = make(
         [task("P", 2, tags=("타설",)), task("N", 1, resources=("crane",)), task("X", 5, resources=("crane",))],
         [Relation("P", "N")],
         [crane],
     )
-    assert check(s, [cond("c3", "min_gap", {"after_tag": "타설", "days": 4})]).violations == []
-    assert check(s, [cond("c3", "min_gap", {"after_tag": "타설", "days": 5})]).violations[0].amount == 1
+    assert check(s, [cond("c3", "min_gap", {"after_tag": "타설", "days": 3})]).violations == []
+    assert check(s, [cond("c3", "min_gap", {"after_tag": "타설", "days": 4})]).violations[0].amount == 1
 
 
 def test_conditions_are_applied_before_checking(s_finish_0305):
@@ -194,20 +197,37 @@ def test_max_duration(s_finish_0305):
 
 
 def test_min_gap_takes_the_worst_relation_and_ignores_untagged_predecessors():
-    # P(타설)→N 은 다음 근무일(간격 1), Q(타설)→R 은 FS lag 5(간격 6), N→T 는 타설이 아니다.
+    # P(타설)→N 은 다음 근무일(간격 0), Q(타설)→R 은 FS lag 5(간격 5), N→T 는 타설이 아니다.
+    # (fix round 1 F2 로 간격 1·6, 최대 6일 부족 → 간격 0·5, 최대 7일 부족)
     s = make(
         [task("P", 2, tags=("타설",)), task("N", 1), task("Q", 2, tags=("타설",)), task("R", 1), task("T", 1)],
         [Relation("P", "N"), Relation("Q", "R", lag=5), Relation("N", "T")],
     )
     r = check(s, [cond("g", "min_gap", {"after_tag": "타설", "days": 7})])
     assert r.violations == [
-        Violation("g", "'타설' 뒤 간격이 7일보다 짧은 곳이 2곳 있습니다(최대 6일 부족).", ("N", "P", "Q", "R"), 6)
+        Violation("g", "'타설' 뒤 간격이 근무일 7일보다 짧은 곳이 2곳 있습니다(최대 7일 부족).", ("N", "P", "Q", "R"), 7)
     ]
 
 
-def test_min_gap_passes_with_enough_lag():
-    s = make([task("P", 2, tags=("타설",)), task("N", 1)], [Relation("P", "N", lag=6)])  # 간격 7
-    assert check(s, [cond("g", "min_gap", {"after_tag": "타설", "days": 7})]).passed == ["g"]
+def test_min_gap_counts_the_days_strictly_between():
+    # fix round 1 F2: FS lag 6 이면 사이 근무일 6일 → 7일 양생에 1 모자란다. lag 7 이면 통과.
+    lag6 = make([task("P", 2, tags=("타설",)), task("N", 1)], [Relation("P", "N", lag=6)])
+    lag7 = make([task("P", 2, tags=("타설",)), task("N", 1)], [Relation("P", "N", lag=7)])
+    curing = cond("g", "min_gap", {"after_tag": "타설", "days": 7})
+    assert check(lag6, [curing]).violations[0].amount == 1
+    assert check(lag7, [curing]).passed == ["g"]
+
+
+def test_min_gap_in_calendar_days_counts_the_weekend():
+    # P(타설) 03.01~03.05(금), N 03.08(월): 사이 달력일 2일(토·일), 근무일 0일.
+    s = make([task("P", 5, tags=("타설",)), task("N", 1)], [Relation("P", "N")])
+    calendar_days = {"after_tag": "타설", "unit": "calendar_days"}
+    assert check(s, [cond("g", "min_gap", {**calendar_days, "days": 2})]).passed == ["g"]
+    r = check(s, [cond("g", "min_gap", {**calendar_days, "days": 3})])
+    assert r.violations == [
+        Violation("g", "'타설' 뒤 간격이 달력일 3일보다 짧은 곳이 1곳 있습니다(최대 1일 부족).", ("N", "P"), 1)
+    ]
+    assert check(s, [cond("g", "min_gap", {"after_tag": "타설", "days": 1})]).violations[0].amount == 1
 
 
 WINTER_POUR = {"start_md": [12, 1], "end_md": [2, 28], "tag": "타설"}
@@ -232,3 +252,70 @@ def test_calendar_guard_flags_a_calendar_condition_that_is_not_in_force(s_finish
     r = check(s_finish_0305, [*BASE_RULES, six, five])
     assert r.violations == [Violation("c6", "달력이 조건(주 6일 근무)과 다릅니다.", (), None)]
     assert r.passed == [*BASE_IDS, "c5"]
+
+
+# ── fix round 1: 형식이 틀린 조건은 invalid 로 (F1, M6) ─────────────
+
+MALFORMED = {
+    "bad_cap": ("resource_cap", {"resource_id": "crane", "capacity": "2"}, "'capacity' 칸 값이 올바르지 않습니다: 0 이상의 정수"),
+    "bad_holidays": ("calendar", {"days_per_week": 6, "holidays": "kr"},
+                     "'holidays' 칸 값이 올바르지 않습니다: \"KR\" 또는 날짜(YYYY-MM-DD) 목록"),
+    "bad_finish": ("finish_by", {}, "'date' 칸이 없습니다."),
+    "bad_gap": ("min_gap", {"after_tag": "타설", "days": "7"}, "'days' 칸 값이 올바르지 않습니다: 0 이상의 정수"),
+}
+
+
+@pytest.mark.parametrize("cid", list(MALFORMED))
+def test_malformed_condition_is_listed_as_invalid_and_the_rest_is_checked(two_crane_tasks, cid):
+    kind, params, message = MALFORMED[cid]
+    r = check(two_crane_tasks, [*BASE_RULES, cond(cid, kind, params), cond("c1", "finish_by", {"date": "2027-03-05"})])
+    assert r.invalid == [{"condition_id": cid, "message": message}]
+    assert r.passed == BASE_IDS and [v.condition_id for v in r.violations] == ["c1"]
+    assert cid not in r.uncheckable + r.skipped and r.notices == []
+
+
+def test_invalid_conditions_are_not_skipped_when_the_schedule_is_broken(cyclic):
+    r = check(cyclic, [*BASE_RULES, cond("bad", "finish_by", {"date": "3월 4일"}), cond("c1", "max_duration", {"days": 3})])
+    assert r.invalid == [{"condition_id": "bad", "message": "'date' 칸 값이 올바르지 않습니다: 날짜(YYYY-MM-DD)"}]
+    assert r.skipped == [*BASE_IDS[1:], "c1"]
+
+
+def test_a_non_base_id_in_the_base_layer_is_invalid(s_finish_0305):
+    r = check(s_finish_0305, [Condition("x", "base", "no_cycle", {}, "", "기본 규칙")])
+    assert r.invalid == [{"condition_id": "x", "message": "기본 규칙은 바꿀 수 없습니다."}] and r.passed == []
+
+
+def test_base_rules_are_recognised_by_id(s_finish_0305):
+    moved = Condition("base.no_cycle", "input", "no_cycle", {}, "", "프롬프트")
+    assert check(s_finish_0305, [moved]).passed == ["base.no_cycle"]
+
+
+# ── fix round 1: 자원 조건은 자기 용량으로 잰다 (M5) ─────────────────
+
+
+def test_resource_cap_is_judged_by_its_own_capacity(two_crane_tasks):
+    # 조립하지 않은 목록: 일정에는 이긴 조건(2대)이 들어가 둘이 같이 일한다. 진 조건(1대)은 지켜지지 않는다.
+    one = Condition("d1", "domain", "resource_cap", {"resource_id": "crane", "capacity": 1}, "", "분야 규칙")
+    two = cond("i1", "resource_cap", {"resource_id": "crane", "capacity": 2})
+    r = check(two_crane_tasks, [one, two])
+    assert r.passed == ["i1"]
+    assert r.violations == [
+        Violation(
+            "d1",
+            "맞춘 뒤에도 타워크레인 필요량이 용량(1대)을 넘는 날이 3일 있습니다(최대 1대 초과).",
+            ("A", "B"),
+            1,
+        )
+    ]
+
+
+# ── fix round 1: 날짜가 늦으면 양은 1 이상 (M8) ─────────────────────
+
+
+def test_a_saturday_finish_after_a_friday_deadline_is_one_day_late():
+    s = make([task("A", 1, actual_start=date(2027, 3, 5), actual_finish=date(2027, 3, 6))])
+    r = check(s, [cond("f", "finish_by", {"date": "2027-03-05"}), cond("m", "milestone_by", {"activity_id": "A", "date": "2027-03-05"})])
+    assert [(v.condition_id, v.message, v.amount) for v in r.violations] == [
+        ("f", "준공이 기한보다 1일 늦습니다.", 1),
+        ("m", "A 종료가 기한보다 1일 늦습니다.", 1),
+    ]

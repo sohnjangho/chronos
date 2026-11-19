@@ -61,6 +61,7 @@ async def test_checks_the_stored_schedule_against_the_assembled_conditions(ctx, 
         ],
         "uncheckable": ["i2"],
         "skipped": [],
+        "invalid": [],
     }
 
 
@@ -79,4 +80,56 @@ async def test_broken_stored_schedule_is_reported_not_raised(ctx, session, sid):
         "notices": [],
         "uncheckable": [],
         "skipped": BASE_IDS[1:],
+        "invalid": [],
     }
+
+
+# ── fix round 1 ─────────────────────────────────────────────────────
+
+
+async def test_unreadable_stored_conditions_are_reported_not_raised(ctx, session, sample_schedule):
+    # tests/tools/test_first_tools.py 가 저장하는 모양: id 만 있는 조건 둘 (F1)
+    sid = store(session, sample_schedule, conditions=[{"id": "c1"}, {"id": "c2"}])
+    r = await call("harness.check", {}, replace(ctx, schedule_id=sid))
+    assert (r.ok, r.error) == (True, None)
+    assert r.output["invalid"] == [
+        {"condition_id": "c1", "message": "'kind' 칸이 없습니다."},
+        {"condition_id": "c2", "message": "'kind' 칸이 없습니다."},
+    ]
+    assert r.output["passed"] == BASE_IDS and r.output["violations"] == []
+
+
+async def test_a_bad_stored_condition_does_not_stop_the_others(ctx, session, sample_schedule):
+    bad = Condition("i1", "input", "finish_by", {"date": "2027-03-04"}, "", "프롬프트").to_dict()
+    bad["params"] = {"date": "3월 4일"}
+    good = Condition("i2", "input", "finish_by", {"date": "2027-03-04"}, "", "프롬프트").to_dict()
+    sid = store(session, sample_schedule, conditions=[bad, {"layer": "input"}, good])
+    r = await call("harness.check", {}, replace(ctx, schedule_id=sid))
+    assert r.output["invalid"] == [
+        {"condition_id": "i1", "message": "'date' 칸 값이 올바르지 않습니다: 날짜(YYYY-MM-DD)"},
+        {"condition_id": "?", "message": "'id' 칸이 없습니다."},
+    ]
+    assert [v["condition_id"] for v in r.output["violations"]] == ["i2"]
+
+
+async def test_check_and_the_screen_use_the_same_schedule(client, admin, ctx, session):
+    # 검토 예 (F4): 저장된 크레인 1대, 입력 조건 2대, 준공 03.05. 조건을 넣으면 A·B 가 같이 일해 준공 03.03.
+    crane = Resource("crane", "타워크레인", "대", 1)
+    schedule = make([task("A", 3, resources=("crane",)), task("B", 3, resources=("crane",))], resources=[crane])
+    conditions = [
+        Condition("i1", "input", "resource_cap", {"resource_id": "crane", "capacity": 2}, "크레인 2대", "프롬프트"),
+        Condition("i2", "input", "finish_by", {"date": "2027-03-05"}, "준공 03.05", "프롬프트"),
+    ]
+    sid = store(session, schedule, conditions=[c.to_dict() for c in conditions])
+    sctx = replace(ctx, schedule_id=sid)
+    report = (await call("harness.check", {}, sctx)).output
+    assert report["violations"] == [] and report["passed"] == [*BASE_IDS, "i1", "i2"]
+    view = client.get(f"/api/schedules/{sid}", headers=admin).json()
+    assert view["finish"] == "2027-03-03"
+    assert (await call("calc.cpm", {}, sctx)).output["finish"] == "2027-03-03"
+    assert (await call("schedule.read", {}, sctx)).output["finish"] == "2027-03-03"
+    # 고친 뒤(버전 2)에도 지금 날짜와 Plan(버전 1) 날짜 모두 조건을 넣어 계산한다.
+    patched = client.patch(
+        f"/api/schedules/{sid}/activities/A", json={"name": "기초", "base_version": 1}, headers=admin
+    ).json()
+    assert (patched["version"], patched["finish"], patched["plan_finish"]) == (2, "2027-03-03", "2027-03-03")

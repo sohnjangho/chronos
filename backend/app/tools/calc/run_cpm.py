@@ -34,8 +34,8 @@ class CpmOut(BaseModel):
 )
 def run_cpm(args: NoArgs, ctx: ToolContext) -> CpmOut:
     with explained_schedule_errors():
-        schedule, _, _ = load(ctx.session, ctx.require_schedule_id())
-        cpm = run(schedule)
+        schedule, conditions, _ = load(ctx.session, ctx.require_schedule_id())
+        cpm = run(schedule, conditions)  # 화면과 같은 계산(저장된 조건을 넣는다)
     rows = []
     for a in schedule.activities:
         row = cpm.rows[a.id]

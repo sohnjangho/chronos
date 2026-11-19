@@ -1,15 +1,19 @@
 """조건 점검: 일정이 조건을 지키는지 코드로 잰다. 날짜 셈은 전부 app/core 것을 쓴다.
 
 `check(schedule, conditions)` 의 순서
-1. 켜진 조건을 일정에 넣는다(`apply_to_schedule`). 꺼진 조건은 어디에도 나오지 않는다.
-2. `compute` 뒤 `level(shift=True)`. 날짜 조건은 맞춘 뒤 날짜(화면에 보이는 일정)로 잰다.
-3. 양은 모두 조건을 넣은 일정 달력(꼬리표 없음)의 근무일 수다.
+1. 형식이 틀린 조건(`condition_problem`)은 `invalid` 에만 넣는다(켜졌든 꺼졌든). 꺼진 조건은 그 밖 어디에도 없다.
+2. 일정은 `prepare(schedule, conditions)`(조립 + 켜진 조건 넣기)로 만든다. 화면(app.store 의 run)과 같은 일정이다.
+3. `compute` 뒤 `level(shift=True)`. 날짜 조건은 맞춘 뒤 날짜(화면에 보이는 일정)로 잰다.
+4. 받은 목록의 켜진 조건을 그대로 점검한다. 보통은 조립된 목록(assemble 결과)을 넘긴다. 조립하지 않은
+   목록을 넘기면 진 조건도 자기 params 로 재므로, 일정에 들어가지 못한 조건은 지켜지지 않은 것으로 나온다.
+5. 양은 모두 조건을 넣은 일정 달력(꼬리표 없음)으로 센다. 날짜가 늦으면 양은 1 이상이다.
 
 보고서
-- passed: 위반이 없는 점검 가능 조건(알림이 있어도 통과다). 기본 규칙은 계산이 되면 통과다.
+- passed: 위반이 없는 점검 가능 조건(알림이 있어도 통과다). 기본 규칙(id 로 안다)은 계산이 되면 통과다.
 - violations / notices: 조건마다 많아야 하나씩, 조건 순서대로. notices 는 resource_cap 에만 나온다.
 - uncheckable: 켜져 있지만 코드로 점검하지 않는 조건(text_only·duration_per_unit). 통과로 치지 않는다.
 - skipped: 일정이 계산되지 않아(ScheduleError) 점검하지 못한 조건. 그때 위반은 기본 규칙 하나뿐이다.
+- invalid: 형식이 틀린 조건 [{condition_id, message}]. 위 네 칸 어디에도 들어가지 않는다.
 """
 
 from collections.abc import Sequence
@@ -18,10 +22,10 @@ from datetime import date
 
 from app.core.calendar import WorkCalendar
 from app.core.cpm import CpmResult, ScheduleError, compute
-from app.core.model import BlockedPeriod, CalendarSpec, Schedule
+from app.core.model import Schedule
 from app.core.resources import LevelResult, level, usage
-from app.harness.assemble import apply_to_schedule, holidays_of
-from app.harness.conditions import Condition
+from app.harness.assemble import holidays_of, in_period, period_of, prepare
+from app.harness.conditions import BASE_IDS, Condition, condition_problem
 from app.store.messages import schedule_error_message
 
 
@@ -40,6 +44,7 @@ class CheckReport:
     uncheckable: list[str]
     notices: list[Violation] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    invalid: list[dict] = field(default_factory=list)  # [{condition_id, message}]
 
 
 # ScheduleError 코드 → 어겨진 기본 규칙
@@ -74,6 +79,11 @@ def _day(text: str) -> date:
     return date.fromisoformat(text)
 
 
+def _late_by(x: _Ctx, due: date, when: date) -> int:
+    """when 이 due 보다 늦은 근무일 수. 날짜가 늦은데 근무일 차이가 0 이면(예: 토요일 실적) 1."""
+    return max(1, x.cal.workdays_between(due, when))
+
+
 # ── 날짜 ────────────────────────────────────────────────────────────
 
 
@@ -82,7 +92,7 @@ def _finish_by(c: Condition, x: _Ctx) -> Violation | None:
     if finish <= due:
         return None
     late = tuple(sorted(i for i, row in x.lv.cpm.rows.items() if row.ef > due))
-    days = x.cal.workdays_between(due, finish)
+    days = _late_by(x, due, finish)
     return Violation(c.id, f"준공이 기한보다 {days}일 늦습니다.", late, days)
 
 
@@ -93,7 +103,7 @@ def _milestone_by(c: Condition, x: _Ctx) -> Violation | None:
         return Violation(c.id, "없는 액티비티를 가리킵니다.", (), None)
     if row.ef <= due:
         return None
-    days = x.cal.workdays_between(due, row.ef)
+    days = _late_by(x, due, row.ef)
     return Violation(c.id, f"{aid} 종료가 기한보다 {days}일 늦습니다.", (aid,), days)
 
 
@@ -120,22 +130,34 @@ def _max_duration(c: Condition, x: _Ctx) -> Violation | None:
     return Violation(c.id, message, tuple(sorted(over)), worst)
 
 
+def _gap(x: _Ctx, unit: str, finish: date, start: date) -> int:
+    """선행 종료일과 후행 시작일 "사이" 의 날 수(두 날은 빼고). 다음 날 이어지면 0."""
+    if unit == "calendar_days":
+        return (start - finish).days - 1
+    return x.cal.workdays_between(finish, start) - 1
+
+
 def _min_gap(c: Condition, x: _Ctx) -> Violation | None:
-    """꼬리표가 붙은 선행의 종료와 후행 시작 사이 근무일(workdays_between)이 days 보다 작은 곳."""
+    """꼬리표가 붙은 선행의 종료와 후행 시작 사이 날 수(unit: 근무일·달력일)가 days 보다 작은 곳.
+
+    선행이 꼬리표를 단 모든 관계(관계 종류 무관)를 본다. 양 = days − 가장 작은 간격.
+    """
     tag, need = c.params["after_tag"], c.params["days"]
+    unit = c.params.get("unit", "workdays")
     rows = x.lv.cpm.rows
     tagged = {a.id for a in x.schedule.activities if tag in a.tags}
     short = {}
     for r in x.schedule.relations:
         if r.pred in tagged:
-            gap = x.cal.workdays_between(rows[r.pred].ef, rows[r.succ].es)
+            gap = _gap(x, unit, rows[r.pred].ef, rows[r.succ].es)
             if gap < need:
                 short[r.pred, r.succ] = gap
     if not short:
         return None
     worst = need - min(short.values())
     ids = tuple(sorted({i for pair in short for i in pair}))
-    message = f"'{tag}' 뒤 간격이 {need}일보다 짧은 곳이 {len(short)}곳 있습니다(최대 {worst}일 부족)."
+    word = "달력일" if unit == "calendar_days" else "근무일"
+    message = f"'{tag}' 뒤 간격이 {word} {need}일보다 짧은 곳이 {len(short)}곳 있습니다(최대 {worst}일 부족)."
     return Violation(c.id, message, ids, worst)
 
 
@@ -144,17 +166,13 @@ def _blocked_period(c: Condition, x: _Ctx) -> Violation | None:
 
     금지 기간을 넣은 달력에서는 그 사이 날에 일하지 않으므로, 기간을 건너 쉬었다 이어지는 것은 괜찮다.
     """
-    period = BlockedPeriod(tuple(c.params["start_md"]), tuple(c.params["end_md"]), c.params["tag"])
-    # 주 7일·공휴일 없음 + 이 기간만 막은 달력: 꼬리표가 있으면 쉬는 날 = 금지 기간 안
-    only_period = WorkCalendar(CalendarSpec(7, (), (period,)))
-    tags = (period.tag,)
+    period = period_of(c.params)
     rows = x.lv.cpm.rows
     inside = tuple(
         sorted(
             a.id
             for a in x.schedule.activities
-            if period.tag in a.tags
-            and not all(only_period.is_workday(d, tags) for d in (rows[a.id].es, rows[a.id].ef))
+            if period.tag in a.tags and any(in_period(period, d) for d in (rows[a.id].es, rows[a.id].ef))
         )
     )
     if not inside:
@@ -174,14 +192,15 @@ def _calendar(c: Condition, x: _Ctx) -> Violation | None:
 
 
 def _over_capacity(c: Condition, x: _Ctx, used: _Usage, prefix: str) -> Violation | None:
-    rid = c.params["resource_id"]
+    """조건 자기 용량(params 의 capacity)을 넘는 날. 일정에 들어간 용량이 아니라 이 조건의 값으로 잰다."""
+    rid, cap = c.params["resource_id"], c.params["capacity"]
     resource = next(r for r in x.schedule.resources if r.id == rid)
-    over = {d: ids for d, ids in used.get(rid, {}).items() if len(ids) > resource.capacity}
+    over = {d: ids for d, ids in used.get(rid, {}).items() if len(ids) > cap}
     if not over:
         return None
-    worst = max(len(ids) for ids in over.values()) - resource.capacity
+    worst = max(len(ids) for ids in over.values()) - cap
     ids = tuple(sorted({i for day in over.values() for i in day}))
-    unit, name, cap = resource.unit, resource.name, resource.capacity
+    unit, name = resource.unit, resource.name
     message = f"{prefix} {name} 필요량이 용량({cap}{unit})을 넘는 날이 {len(over)}일 있습니다(최대 {worst}{unit} 초과)."
     return Violation(c.id, message, ids, worst)
 
@@ -235,27 +254,30 @@ def _error_ids(e: ScheduleError) -> tuple[str, ...]:
     return ()
 
 
-def _broken(e: ScheduleError, checkable: list[Condition], uncheckable: list[str]) -> CheckReport:
+def _broken(e: ScheduleError, checkable: list[Condition], start: CheckReport) -> CheckReport:
     rule = _ERROR_RULE[e.code]
-    violation = Violation(rule, schedule_error_message(e), _error_ids(e), None)
-    skipped = [c.id for c in checkable if c.id != rule]
-    return CheckReport(passed=[], violations=[violation], uncheckable=uncheckable, skipped=skipped)
+    start.violations.append(Violation(rule, schedule_error_message(e), _error_ids(e), None))
+    start.skipped.extend(c.id for c in checkable if c.id != rule)
+    return start
 
 
 def check(schedule: Schedule, conditions: Sequence[Condition]) -> CheckReport:
-    """일정을 조건으로 점검한다. 일정이 깨졌어도 예외를 내지 않는다(모듈 설명글 참고)."""
-    active = [c for c in conditions if c.enabled]
-    uncheckable = [c.id for c in active if not c.checkable]
+    """일정을 조건으로 점검한다. 일정이 깨졌거나 조건 형식이 틀려도 예외를 내지 않는다(모듈 설명글 참고)."""
+    problems = [(c, condition_problem(c)) for c in conditions]
+    invalid = [{"condition_id": c.id, "message": p} for c, p in problems if p is not None]
+    active = [c for c, p in problems if p is None and c.enabled]
+    report = CheckReport(
+        passed=[], violations=[], uncheckable=[c.id for c in active if not c.checkable], invalid=invalid
+    )
     checkable = [c for c in active if c.checkable]
-    s = apply_to_schedule(schedule, active)
+    s = prepare(schedule, conditions)
     try:
         cpm = compute(s)
     except ScheduleError as e:
-        return _broken(e, checkable, uncheckable)
+        return _broken(e, checkable, report)
     x = _context(s, cpm)
-    report = CheckReport(passed=[], violations=[], uncheckable=uncheckable)
     for c in checkable:
-        violation = None if c.layer == "base" else _CHECKS[c.kind](c, x)
+        violation = None if c.id in BASE_IDS else _CHECKS[c.kind](c, x)
         if violation is None:
             report.passed.append(c.id)
         else:

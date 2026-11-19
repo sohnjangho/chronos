@@ -14,7 +14,7 @@ from app.core.model import (
     Relation,
     Resource,
 )
-from app.harness.assemble import apply_to_schedule, assemble
+from app.harness.assemble import apply_to_schedule, assemble, prepare, prepare_stored
 from app.harness.conditions import BASE_RULES, Condition
 from tests.schedules import make, task
 
@@ -56,9 +56,11 @@ def test_base_rules():
 
 
 def test_base_rules_come_first_and_cannot_be_replaced_by_id_or_layer():
+    # fix round 1 (M6) 로 바뀜: 겹이 "base" 인데 기본 규칙 id 가 아닌 조건은 버리지 않고 그대로 남긴다
+    # (형식 오류라 겨루지도 넣지도 않고, check 의 invalid 에 나온다). 기본 규칙 id 인 조건은 여전히 버린다.
     by_id = cnd("base.calendar", "input", "calendar", {"days_per_week": 6, "holidays": []})
     by_layer = cnd("x", "base", "no_cycle", {}, enabled=False)
-    assert assemble([by_layer], [], [by_id]) == list(BASE_RULES)
+    assert assemble([by_layer], [], [by_id]) == [*BASE_RULES, by_layer]
 
 
 def test_a_calendar_condition_does_not_compete_with_the_base_calendar_rule():
@@ -136,6 +138,107 @@ def test_reassembling_is_stable_and_frees_a_loser_whose_winner_is_gone():
     assert assemble([loser], [], [])[len(BASE_RULES):] == [d]
 
 
+# ── fix round 1: 금지 기간은 꼬리표가 같고 기간이 겹칠 때만 겨룬다 (F3) ──
+
+WINTER = {"start_md": [12, 1], "end_md": [2, 28], "tag": "타설"}
+MONSOON = {"start_md": [7, 1], "end_md": [8, 31], "tag": "타설"}
+
+
+def own(out: list[Condition]) -> dict:
+    return {c.id: (c.enabled, c.overridden_by) for c in out[len(BASE_RULES):]}
+
+
+def test_two_seasons_of_one_tag_in_the_same_layer_both_stay():
+    out = assemble([cnd("winter", "domain", "blocked_period", WINTER), cnd("monsoon", "domain", "blocked_period", MONSOON)], [], [])
+    assert own(out) == {"winter": (True, None), "monsoon": (True, None)}
+
+
+def test_a_later_layer_overrides_only_the_overlapping_season():
+    mid_winter = {"start_md": [12, 15], "end_md": [2, 15], "tag": "타설"}
+    out = assemble(
+        [cnd("winter", "domain", "blocked_period", WINTER), cnd("monsoon", "domain", "blocked_period", MONSOON)],
+        [],
+        [cnd("i", "input", "blocked_period", mid_winter)],
+    )
+    assert own(out) == {"winter": (False, "i"), "monsoon": (True, None), "i": (True, None)}
+
+
+def test_overlapping_periods_in_the_same_layer_never_override():
+    january = {"start_md": [1, 1], "end_md": [1, 31], "tag": "타설"}
+    out = assemble([], [], [cnd("a", "input", "blocked_period", WINTER), cnd("b", "input", "blocked_period", january)])
+    assert own(out) == {"a": (True, None), "b": (True, None)}
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "overlap"),
+    [
+        (([11, 1], [1, 15]), ([1, 10], [3, 1]), True),  # 둘 다 해를 넘겨 1월에 겹친다
+        (([12, 1], [12, 31]), ([1, 1], [2, 28]), False),  # 맞닿기만 한다
+        (([2, 29], [2, 29]), ([2, 20], [3, 5]), True),  # 윤일
+    ],
+)
+def test_period_overlap_wraps_the_year_end(first, second, overlap):
+    a = cnd("a", "domain", "blocked_period", {"start_md": first[0], "end_md": first[1], "tag": "타설"})
+    b = cnd("b", "input", "blocked_period", {"start_md": second[0], "end_md": second[1], "tag": "타설"})
+    assert own(assemble([a], [], [b]))["a"] == ((False, "b") if overlap else (True, None))
+
+
+def test_different_tags_never_compete():
+    paint = {**WINTER, "tag": "도장"}
+    out = assemble([cnd("a", "domain", "blocked_period", WINTER)], [], [cnd("b", "input", "blocked_period", paint)])
+    assert own(out) == {"a": (True, None), "b": (True, None)}
+
+
+# ── fix round 1: 같은 id (M7) ───────────────────────────────────────
+
+
+def test_duplicate_ids_keep_only_the_last_occurrence():
+    d = cnd("c1", "domain", "finish_by", {"date": "2027-12-31"})
+    i = cnd("c1", "input", "finish_by", {"date": "2027-11-30"})
+    m = cnd("c2", "mine", "max_duration", {"days": 5})
+    out = assemble([d], [m], [i, replace(m, layer="input", params={"days": 3})])
+    assert out[len(BASE_RULES):] == [i, replace(m, layer="input", params={"days": 3})]
+    assert all(c.overridden_by != c.id for c in out)
+
+
+# ── fix round 1: 형식이 틀린 조건 (F1) ──────────────────────────────
+
+MALFORMED = [
+    cnd("bad_cap", "input", "resource_cap", {"resource_id": "crane", "capacity": "2"}),
+    cnd("bad_holidays", "input", "calendar", {"days_per_week": 6, "holidays": "kr"}),
+    cnd("bad_finish", "input", "finish_by", {}),
+    cnd("bad_gap", "input", "min_gap", {"after_tag": "타설", "days": "7"}),
+]
+
+
+def test_malformed_conditions_neither_compete_nor_raise():
+    good = cnd("good", "domain", "resource_cap", {"resource_id": "crane", "capacity": 1})
+    no_target = cnd("no_target", "input", "resource_cap", {"capacity": 2})
+    out = assemble([good], [], [*MALFORMED, no_target])
+    assert out == [*BASE_RULES, good, *MALFORMED, no_target]
+
+
+def test_malformed_conditions_are_not_applied(two_crane_tasks):
+    assert apply_to_schedule(two_crane_tasks, MALFORMED) == two_crane_tasks
+
+
+# ── fix round 1: 화면과 점검이 같이 쓰는 준비 (F4) ──────────────────
+
+
+def test_prepare_assembles_then_applies(two_crane_tasks):
+    domain = cnd("d", "domain", "resource_cap", {"resource_id": "crane", "capacity": 3})
+    mine = cnd("m", "mine", "resource_cap", {"resource_id": "crane", "capacity": 2})
+    off = cnd("f", "input", "start_after", {"date": "2027-04-01"}, enabled=False)
+    s = prepare(two_crane_tasks, [mine, *MALFORMED, off, domain])
+    assert s.resources[0].capacity == 2 and s.start == date(2027, 3, 1)
+    assert prepare(two_crane_tasks, []) is two_crane_tasks
+
+
+def test_prepare_stored_skips_dicts_it_cannot_read(two_crane_tasks):
+    stored = [{"id": "c1"}, cnd("m", "mine", "resource_cap", {"resource_id": "crane", "capacity": 2}).to_dict()]
+    assert prepare_stored(two_crane_tasks, stored).resources[0].capacity == 2
+
+
 # ── R6: 일정에 넣기 ─────────────────────────────────────────────────
 
 FINISH_BY_0310 = cnd("f", "input", "finish_by", {"date": "2027-03-10"})
@@ -184,13 +287,17 @@ def test_resource_cap_sets_only_that_resource():
     assert unknown == s
 
 
-def test_calendar_sets_days_and_holidays_and_keeps_blocked_periods():
+def test_calendar_sets_days_and_adds_holidays_and_keeps_blocked_periods():
+    # fix round 1 (M9) 로 바뀜: 공휴일은 바꾸지 않고 일정에 있던 것과 합친다(날짜 순).
     winter = BlockedPeriod((12, 1), (2, 28), "타설")
-    s = make([task("A", 1)], cal=CalendarSpec(5, (date(2027, 3, 2),), (winter,)))
+    own_day = date(2027, 3, 2)
+    s = make([task("A", 1)], cal=CalendarSpec(5, (own_day,), (winter,)))
     kr = apply_to_schedule(s, [cnd("c", "input", "calendar", {"days_per_week": 6, "holidays": "KR"})])
-    assert kr.calendar == CalendarSpec(6, KOREA_HOLIDAYS_2027, (winter,))
+    assert kr.calendar == CalendarSpec(6, tuple(sorted({*KOREA_HOLIDAYS_2027, own_day})), (winter,))
     none = apply_to_schedule(s, [cnd("c", "input", "calendar", {"days_per_week": 7, "holidays": []})])
-    assert none.calendar == CalendarSpec(7, (), (winter,))
+    assert none.calendar == CalendarSpec(7, (own_day,), (winter,))
+    listed = apply_to_schedule(s, [cnd("c", "input", "calendar", {"days_per_week": 5, "holidays": ["2027-03-03"]})])
+    assert listed.calendar.holidays == (own_day, date(2027, 3, 3))
 
 
 def test_blocked_period_is_appended_once():

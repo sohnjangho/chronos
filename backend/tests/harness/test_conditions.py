@@ -4,7 +4,13 @@ import json
 
 import pytest
 
-from app.harness.conditions import Condition
+from app.harness.conditions import (
+    BASE_RULES,
+    Condition,
+    ConditionFormatError,
+    read_conditions,
+    validate_params,
+)
 
 WINTER = Condition(
     "i1",
@@ -29,6 +35,7 @@ def test_round_trip_through_json():
         "source": "프롬프트",
         "enabled": False,
         "overridden_by": "i2",
+        "checkable": True,  # fix round 1 (M10): 읽기 전용, from_dict 는 무시한다
     }
     assert Condition.from_dict(d) == WINTER
 
@@ -60,3 +67,87 @@ def test_checkable():
 
     assert make("finish_by").checkable and make("calendar").checkable
     assert not make("text_only").checkable and not make("duration_per_unit").checkable
+
+
+# ── fix round 1: params 검사와 형식 오류 (F1) ───────────────────────
+
+GOOD_PARAMS = [
+    ("finish_by", {"date": "2027-03-04"}),
+    ("start_after", {"date": "2027-03-04"}),
+    ("milestone_by", {"activity_id": "A", "date": "2027-03-04"}),
+    ("resource_cap", {"resource_id": "crane", "capacity": 0}),
+    ("calendar", {"days_per_week": 6, "holidays": "KR"}),
+    ("calendar", {"days_per_week": 5, "holidays": ["2027-03-02"]}),
+    ("blocked_period", {"start_md": [12, 1], "end_md": [2, 29], "tag": "타설"}),
+    ("min_gap", {"after_tag": "타설", "days": 7}),
+    ("min_gap", {"after_tag": "타설", "days": 7, "unit": "calendar_days"}),
+    ("max_duration", {"days": 0}),
+    ("text_only", {}),
+    ("duration_per_unit", {}),
+]
+
+
+@pytest.mark.parametrize(("kind", "params"), GOOD_PARAMS)
+def test_good_params(kind, params):
+    assert validate_params(kind, params) is None
+
+
+BAD_PARAMS = [
+    ("finish_by", {}, "'date' 칸이 없습니다."),
+    ("finish_by", {"date": "2027-02-30"}, "'date' 칸 값이 올바르지 않습니다: 날짜(YYYY-MM-DD)"),
+    ("finish_by", {"date": 20270304}, "'date' 칸 값이 올바르지 않습니다: 날짜(YYYY-MM-DD)"),
+    ("milestone_by", {"activity_id": "", "date": "2027-03-04"}, "'activity_id' 칸 값이 올바르지 않습니다: 빈칸이 아닌 글자"),
+    ("resource_cap", {"resource_id": "crane", "capacity": -1}, "'capacity' 칸 값이 올바르지 않습니다: 0 이상의 정수"),
+    ("resource_cap", {"resource_id": "crane", "capacity": True}, "'capacity' 칸 값이 올바르지 않습니다: 0 이상의 정수"),
+    ("resource_cap", {"resource_id": "crane", "capacity": 2.0}, "'capacity' 칸 값이 올바르지 않습니다: 0 이상의 정수"),
+    ("calendar", {"days_per_week": 4, "holidays": []}, "'days_per_week' 칸 값이 올바르지 않습니다: 5·6·7 가운데 하나"),
+    ("calendar", {"days_per_week": 5, "holidays": ["03-02"]},
+     "'holidays' 칸 값이 올바르지 않습니다: \"KR\" 또는 날짜(YYYY-MM-DD) 목록"),
+    ("calendar", {"days_per_week": 5}, "'holidays' 칸이 없습니다."),
+    ("blocked_period", {"start_md": [2, 30], "end_md": [3, 1], "tag": "타설"}, "'start_md' 칸 값이 올바르지 않습니다: [월, 일]"),
+    ("blocked_period", {"start_md": [13, 1], "end_md": [3, 1], "tag": "타설"}, "'start_md' 칸 값이 올바르지 않습니다: [월, 일]"),
+    ("blocked_period", {"start_md": [12, 1], "end_md": [2], "tag": "타설"}, "'end_md' 칸 값이 올바르지 않습니다: [월, 일]"),
+    ("blocked_period", {"start_md": [12, 1], "end_md": [2, 28]}, "'tag' 칸이 없습니다."),
+    ("min_gap", {"after_tag": "타설", "days": "7"}, "'days' 칸 값이 올바르지 않습니다: 0 이상의 정수"),
+    ("min_gap", {"after_tag": "타설", "days": 7, "unit": "weeks"},
+     "'unit' 칸 값이 올바르지 않습니다: \"workdays\" 또는 \"calendar_days\""),
+    ("max_duration", {}, "'days' 칸이 없습니다."),
+    ("text_only", [], "'params' 칸 값이 올바르지 않습니다: 객체"),
+    ("made_up", {}, "알 수 없는 조건 종류입니다: made_up"),
+]
+
+
+@pytest.mark.parametrize(("kind", "params", "message"), BAD_PARAMS)
+def test_bad_params(kind, params, message):
+    assert validate_params(kind, params) == message
+
+
+def test_from_dict_raises_a_format_error_naming_the_condition():
+    with pytest.raises(ConditionFormatError) as missing_id:
+        Condition.from_dict({"layer": "input", "kind": "text_only", "params": {}, "text": "", "source": ""})
+    assert (missing_id.value.condition_id, missing_id.value.message) == ("?", "'id' 칸이 없습니다.")
+    assert isinstance(missing_id.value, ValueError)
+    with pytest.raises(ConditionFormatError) as missing_kind:
+        Condition.from_dict({"id": "c1"})
+    assert (missing_kind.value.condition_id, missing_kind.value.message) == ("c1", "'kind' 칸이 없습니다.")
+    with pytest.raises(ConditionFormatError) as bad_params:
+        Condition.from_dict({**WINTER.to_dict(), "params": {"start_md": [12, 1], "end_md": [2, 28]}})
+    assert (bad_params.value.condition_id, bad_params.value.message) == ("i1", "'tag' 칸이 없습니다.")
+    with pytest.raises(ConditionFormatError) as base_layer:
+        Condition.from_dict({**WINTER.to_dict(), "layer": "base"})
+    assert base_layer.value.message == "기본 규칙은 바꿀 수 없습니다."
+
+
+def test_from_dict_reads_stored_base_rules():
+    assert [Condition.from_dict(b.to_dict()) for b in BASE_RULES] == list(BASE_RULES)
+
+
+def test_read_conditions_splits_good_and_bad():
+    stored = [{"id": "c1"}, WINTER.to_dict(), "oops", {"kind": "text_only"}]
+    good, bad = read_conditions(stored)
+    assert good == [WINTER]
+    assert bad == [
+        {"condition_id": "c1", "message": "'kind' 칸이 없습니다."},
+        {"condition_id": "?", "message": "조건이 객체가 아닙니다."},
+        {"condition_id": "?", "message": "'id' 칸이 없습니다."},
+    ]

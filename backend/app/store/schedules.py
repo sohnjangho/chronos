@@ -21,6 +21,7 @@ from app.core.model import (
     WbsNode,
 )
 from app.core.resources import level as level_schedule
+from app.harness.assemble import prepare_stored
 from app.store.tables import ScheduleRecord, ScheduleVersion
 
 
@@ -134,8 +135,14 @@ def from_json(d: dict) -> Schedule:
     )
 
 
-def run(schedule: Schedule) -> CpmResult:
-    """경로 계산 뒤 자원 맞춤까지 한 결과(화면 날짜). 깨진 일정이면 ScheduleError."""
+def run(schedule: Schedule, conditions: list[dict] | None = None) -> CpmResult:
+    """경로 계산 뒤 자원 맞춤까지 한 결과(화면 날짜). 깨진 일정이면 ScheduleError.
+
+    conditions(저장된 조건 dict 목록)를 주면 하네스 점검과 같은 준비(`app.harness.assemble.prepare`:
+    기본 규칙과 조립, 켜진 조건 넣기)를 한 일정을 계산한다. 읽지 못하는 조건 dict 는 건너뛴다.
+    """
+    if conditions is not None:
+        schedule = prepare_stored(schedule, conditions)
     return level_schedule(schedule, compute(schedule), shift=True).cpm
 
 
