@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import String
+from sqlalchemy import JSON, ForeignKey, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -19,3 +19,35 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(10))  # 'admin' | 'user'
     password_hash: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class LlmConnection(Base):
+    """LLM 연결. 키는 암호문(secret_ciphertext)과 끝 4자리만 둔다."""
+
+    __tablename__ = "llm_connections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    provider: Mapped[str] = mapped_column(String(30))  # 'liner' | 'openai_compatible'
+    base_url: Mapped[str] = mapped_column(String(500))
+    secret_ciphertext: Mapped[str] = mapped_column(Text)
+    secret_last4: Mapped[str] = mapped_column(String(4))
+    is_default: Mapped[bool] = mapped_column(default=False)
+    status: Mapped[str] = mapped_column(String(10), default="unknown")  # 'ok' | 'failed' | 'unknown'
+    model_count: Mapped[int | None] = mapped_column(default=None)
+    checked_at: Mapped[datetime | None] = mapped_column(default=None)
+    latency_ms: Mapped[int | None] = mapped_column(default=None)
+    # 마지막으로 성공한 연결 시험의 모델 id 목록
+    models_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class LlmAssignment(Base):
+    """쓰임새(purpose)마다 어느 연결의 어느 모델을 쓸지."""
+
+    __tablename__ = "llm_assignments"
+
+    purpose: Mapped[str] = mapped_column(String(10), primary_key=True)  # light|normal|hard|longdoc
+    connection_id: Mapped[int | None] = mapped_column(ForeignKey("llm_connections.id"))
+    model: Mapped[str] = mapped_column(String(200))
+    routing_strategy: Mapped[str | None] = mapped_column(String(10))  # cost|balanced|quality
