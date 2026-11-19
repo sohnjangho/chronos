@@ -17,7 +17,7 @@ terms:
   float: 여유
   critical_path: 크리티컬 패스
   contingency: 예비 기간
-  progress: 실적
+  actual: 실적
 
 # 현장 기본 달력: 일요일과 법정 공휴일은 쉰다.
 default_calendar:
@@ -26,18 +26,18 @@ default_calendar:
 
 # 분야 규칙(하네스 ② 겹). 모양은 app/harness/conditions.Condition 과 같다.
 rules:
+  # 양생은 다음 층 철근·거푸집 작업을 막지 않으므로 자동 점검(min_gap)으로 두지 않는다(PM 확인 전 잠정).
   - id: construction.curing
     layer: domain
-    kind: min_gap
-    # unit 은 PM 확인 전 잠정값(근무일 기준). 달력일로 바뀌면 calendar_days.
-    params: {after_tag: 타설, days: 7, unit: workdays}
-    text: 타설 뒤 양생 7일
+    kind: text_only
+    params: {}
+    text: "슬래브 거푸집 해체는 타설 뒤 7일 이상 습윤 양생을 거친 뒤에 한다 (다음 층 철근·거푸집 작업은 막지 않는다)"
     source: 분야 규칙
   - id: construction.mep_after_frame
     layer: domain
     kind: text_only
     params: {}
-    text: 골조 2개 층 위부터 설비 배관
+    text: 설비 배관은 골조보다 2개 층 아래에서 따라간다
     source: 분야 규칙
   - id: construction.retaining_before_excavation
     layer: domain
@@ -57,11 +57,15 @@ key_resources:
   - id: tower_crane
     name: 타워크레인
     unit: 대
-    tags: [골조, 외장]
+    tags: [골조, 철근, 거푸집, 외장]  # 철근·거푸집 자재도 크레인으로 올린다
   - id: rebar_crew
     name: 철근공
     unit: 명
     tags: [철근]
+  - id: form_crew
+    name: 형틀목공
+    unit: 명
+    tags: [거푸집]
   - id: pour_crew
     name: 타설반
     unit: 조
@@ -74,9 +78,12 @@ activity_types:
     resources: []
   - tag: 철근
     name_keywords: [철근, 배근]
-    resources: [rebar_crew]
+    resources: [rebar_crew, tower_crane]
+  - tag: 거푸집
+    name_keywords: [거푸집]
+    resources: [form_crew, tower_crane]
   - tag: 타설
-    name_keywords: [타설, 콘크리트]
+    name_keywords: [타설]  # "콘크리트"만으로는 붙이지 않는다(버림 콘크리트는 타설반 작업이 아니다)
     resources: [pour_crew]
   - tag: 골조
     name_keywords: [골조]
@@ -97,16 +104,16 @@ wbs_template:
   - {code: "1.3", name: 기초 공사, parent: "1"}
   - {code: "1.3.1", name: 버림 콘크리트, parent: "1.3"}
   - {code: "1.3.2", name: 기초 철근 배근·거푸집, parent: "1.3"}
-  - {code: "1.3.3", name: 기초 콘크리트 타설·양생, parent: "1.3"}
+  - {code: "1.3.3", name: 기초 콘크리트 타설, parent: "1.3"}
   - {code: "2", name: 골조, parent: null}
   - {code: "2.1", name: 지하층 골조, parent: "2"}
   - {code: "2.1.1", name: 지하 벽·슬래브 철근 배근, parent: "2.1"}
   - {code: "2.1.2", name: 지하 거푸집, parent: "2.1"}
-  - {code: "2.1.3", name: 지하 콘크리트 타설·양생, parent: "2.1"}
+  - {code: "2.1.3", name: 지하 콘크리트 타설, parent: "2.1"}
   - {code: "2.2", name: 지상층 골조(층마다 반복), parent: "2"}
   - {code: "2.2.1", name: 기준층 철근 배근, parent: "2.2"}
   - {code: "2.2.2", name: 기준층 거푸집, parent: "2.2"}
-  - {code: "2.2.3", name: 기준층 콘크리트 타설·양생, parent: "2.2"}
+  - {code: "2.2.3", name: 기준층 콘크리트 타설, parent: "2.2"}
   - {code: "2.3", name: 옥탑·지붕 골조, parent: "2"}
   - {code: "3", name: 외장·설비, parent: null}
   - {code: "3.1", name: 외장, parent: "3"}
@@ -134,7 +141,7 @@ assumption_defaults:
   - key: contingency_ratio
     label: 예비 기간 비율
     value: 5%
-    note: 전체 공사 기간 대비. 준공 직전에 묶어 둔다.
+    note: 전체 공사 기간 대비. 준공 직전에 한데 모아 둔다.
   - key: frame_days_per_floor
     label: 층당 골조 기간
     value: 10일
@@ -142,7 +149,7 @@ assumption_defaults:
   - key: curing_days
     label: 타설 후 양생
     value: 7일
-    note: 다음 층 작업이나 거푸집 해체 전에 둔다. 동절기에는 늘린다.
+    note: 습윤 양생 기간 — 슬래브 거푸집 해체·상부 하중 전 기준. 다음 층 작업을 막는 기간이 아니다.
   - key: workdays_per_week
     label: 주 근무일
     value: 6일

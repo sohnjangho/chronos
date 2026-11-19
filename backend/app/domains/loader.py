@@ -1,6 +1,7 @@
 """정밀도 정의(levels.yaml)와 분야 묶음(<분야>/pack.yaml)을 읽고, 에이전트 지시문에 넣을 글을 만든다.
 
 내용은 YAML 에만 둔다. 읽을 때 pydantic 으로 검사하고(모르는 칸은 거절) 프로세스마다 한 번만 읽는다.
+돌려주는 것은 늘 깊은 사본이라 고쳐도 다음 호출에 영향이 없다.
 분야 규칙은 app.harness.conditions.Condition 으로 읽혀야 하고 겹 "domain"·출처 "분야 규칙" 이어야 한다.
 """
 
@@ -26,6 +27,19 @@ ROOT = Path(__file__).parent
 LEVEL_IDS = ("L1", "L2", "L3", "L4", "L5")
 # 분야 묶음의 규칙 한 줄에 쓸 수 있는 칸. overridden_by·checkable 은 조립·계산이 정하는 값이라 받지 않는다.
 _RULE_KEYS = frozenset({"id", "layer", "kind", "params", "text", "source", "enabled"})
+# 아는 조건 종류의 params 칸(app/harness/conditions 의 검사와 같은 칸 — 시험이 맞는지 본다).
+# 하네스는 모르는 칸을 상관하지 않지만 분야 묶음은 오타(unti 등)를 막으려고 거절한다. 여기 없는 종류는 칸을 보지 않는다.
+PARAM_KEYS: dict[str, frozenset[str]] = {
+    "finish_by": frozenset({"date"}),
+    "start_after": frozenset({"date"}),
+    "milestone_by": frozenset({"activity_id", "date"}),
+    "resource_cap": frozenset({"resource_id", "capacity"}),
+    "calendar": frozenset({"days_per_week", "holidays"}),
+    "blocked_period": frozenset({"start_md", "end_md", "tag"}),
+    "min_gap": frozenset({"after_tag", "days", "unit"}),
+    "max_duration": frozenset({"days"}),
+    "text_only": frozenset(),
+}
 
 
 class UnknownDomain(LookupError):
@@ -71,8 +85,8 @@ def _levels() -> dict[str, LevelDef]:
 
 
 def levels() -> dict[str, LevelDef]:
-    """L1~L5 차례의 정의. 고쳐도 다음 호출에 영향이 없도록 새 dict 를 준다."""
-    return dict(_levels())
+    """L1~L5 차례의 정의(깊은 사본)."""
+    return {key: d.model_copy(deep=True) for key, d in _levels().items()}
 
 
 def _span(span: list[int]) -> str:
@@ -85,8 +99,8 @@ def levels_prompt() -> str:
     for d in levels().values():
         count = f"{_span(d.activity_count)}개" if d.activity_count else "고른 구간만"
         lines.append(
-            f"- {d.id} {d.name}: 쓰는 곳 {d.use} · WBS 깊이 {_span(d.wbs_depth)} · 액티비티 {count}"
-            f" · 기간 단위 {d.time_unit} · 자원 {d.resources} · 꼭 있어야 하는 것: {d.must_contain}"
+            f"- {d.id} {d.name} — 쓰는 곳: {d.use} · WBS 깊이: {_span(d.wbs_depth)} · 액티비티 수: {count}"
+            f" · 기간 단위: {d.time_unit} · 자원: {d.resources} · 꼭 있어야 하는 것: {d.must_contain}"
         )
     return "\n".join(lines)
 
@@ -126,7 +140,7 @@ class AssumptionDefault(_Strict):
 
 
 def _rule(raw: dict) -> dict:
-    """규칙 한 줄을 검사하고 Condition.to_dict 모양으로 맞춘다."""
+    """규칙 한 줄을 검사하고 Condition.to_dict 모양에서 _RULE_KEYS 칸만 남긴다(다시 읽어도 된다)."""
     extra = sorted(set(raw) - _RULE_KEYS)
     if extra:
         raise ValueError(f"규칙 {raw.get('id')!r} 에 모르는 칸이 있습니다: {extra}")
@@ -136,11 +150,23 @@ def _rule(raw: dict) -> dict:
         raise ValueError(f"규칙 {raw.get('id')!r} 을 조건으로 읽을 수 없습니다: {e}") from None
     if (c.layer, c.source) != ("domain", "분야 규칙"):
         raise ValueError(f"규칙 {c.id!r} 은 겹 'domain', 출처 '분야 규칙' 이어야 합니다.")
-    return c.to_dict()
+    unknown = sorted(set(c.params) - PARAM_KEYS.get(c.kind, set(c.params)))
+    if unknown:
+        raise ValueError(f"규칙 {c.id!r} 의 params 에 모르는 칸이 있습니다: {unknown}")
+    return {key: value for key, value in c.to_dict().items() if key in _RULE_KEYS}
 
 
 def _duplicates(values: list[str]) -> list[str]:
     return [v for v, n in Counter(values).items() if n > 1]
+
+
+def _rule_line(raw: dict) -> str:
+    """규칙 한 줄. 자동 점검하는 규칙은 어떻게 점검하는지(kind 와 params)도 보인다."""
+    c = Condition.from_dict(raw)
+    if not c.checkable:
+        return f"- {c.text} [{c.id} · 자동 점검 안 됨]"
+    params = ", ".join(f"{key}={value}" for key, value in c.params.items())
+    return f"- {c.text} [{c.id} · 자동 점검: {c.kind} {params}]"
 
 
 class DomainPack(_Strict):
@@ -148,7 +174,7 @@ class DomainPack(_Strict):
     name: Text
     terms: dict[str, str]  # 영어 열쇠 → 이 분야에서 쓰는 말
     default_calendar: DefaultCalendar
-    rules_raw: list[dict] = Field(alias="rules")  # Condition.to_dict 모양(겹 "domain")
+    rules_raw: list[dict] = Field(alias="rules")  # Condition.to_dict 모양에서 overridden_by·checkable 을 뺀 것
     key_resources: list[KeyResource]
     activity_types: list[ActivityType]
     wbs_template: list[WbsNode]
@@ -199,9 +225,7 @@ class DomainPack(_Strict):
     def _rules_and_resources(self) -> list[str]:
         names = {k.id: k.name for k in self.key_resources}
         lines = ["분야 규칙:"]
-        for raw in self.rules_raw:
-            c = Condition.from_dict(raw)
-            lines.append(f"- {c.text} [{c.id}, {'자동 점검' if c.checkable else '자동 점검 안 됨'}]")
+        lines += [_rule_line(raw) for raw in self.rules_raw]
         lines.append("주요 자원 후보:")
         lines += [f"- {k.name}({k.id}, 단위 {k.unit}) — 쓰는 작업: {', '.join(k.tags)}" for k in self.key_resources]
         lines.append("작업 유형(액티비티 이름에 이 말이 있으면 그 유형):")
@@ -221,7 +245,7 @@ class DomainPack(_Strict):
     def _defaults(self) -> list[str]:
         lines = ["가정할 때 쓰는 기준값:"]
         for a in self.assumption_defaults:
-            lines.append(f"- {a.label}: {a.value}" + (f" — {a.note}" if a.note else ""))
+            lines.append(f"- {a.label}: {a.value}" + (f" ({a.note})" if a.note else ""))
         return lines
 
 
@@ -236,11 +260,15 @@ def domains() -> list[str]:
 
 
 @cache
-def load(domain_id: str) -> DomainPack:
-    """분야 묶음. 없는 분야면 UnknownDomain. 프로세스마다 한 번만 읽는다."""
-    if domain_id not in domains():
-        raise UnknownDomain(domain_id)
+def _load(domain_id: str) -> DomainPack:
     pack = read_pack(ROOT / domain_id / "pack.yaml")
     if pack.id != domain_id:
         raise ValueError(f"{domain_id}/pack.yaml 의 id 가 {pack.id!r} 입니다.")
     return pack
+
+
+def load(domain_id: str) -> DomainPack:
+    """분야 묶음(깊은 사본). 없는 분야면 UnknownDomain. 파일은 프로세스마다 한 번만 읽는다."""
+    if domain_id not in domains():
+        raise UnknownDomain(domain_id)
+    return _load(domain_id).model_copy(deep=True)

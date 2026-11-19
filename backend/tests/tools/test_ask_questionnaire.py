@@ -180,3 +180,36 @@ async def test_created_questionnaire_is_readable_through_the_api(ctx, client, ad
     body = client.get(f"/api/questionnaires/{r.output['id']}", headers=admin).json()
     assert body["progress"] == {"answered": 0, "total": 3}
     assert [g["name"] for g in body["groups"]] == ["범위", "날짜"]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param({"question": "   "}, id="question"),
+        pytest.param({"assumption": " \n "}, id="assumption"),
+        pytest.param({"group": "  "}, id="group"),
+        pytest.param({"options": [{"value": "  ", "label": "가"}]}, id="option_value"),
+        pytest.param({"options": [{"value": "a", "label": "\t"}]}, id="option_label"),
+    ],
+)
+async def test_whitespace_only_text_is_rejected(ctx, events, bad):
+    r = await call("ask.questionnaire", ask([q("scope"), q("structure", **bad), q("floors")]), ctx)
+    assert r.ok is False and r.error.startswith("입력 형식 오류"), r.error
+    assert events == [] and _rows(ctx.session) == 0
+
+
+async def test_question_text_is_trimmed(ctx, session):
+    padded = q(
+        "structure",
+        group=" 범위 ",
+        question="  구조 형식은?  ",
+        why=" 기간이 달라집니다. ",
+        options=[{"value": " rc ", "label": " 철근콘크리트 ", "hint": " 흔함 ", "recommended": True}],
+        assumption=" 철근콘크리트로 가정합니다. ",
+    )
+    r = await call("ask.questionnaire", ask([q("scope"), padded, q("floors")]), ctx)
+    stored = session.get(QuestionnaireRecord, r.output["id"]).questions_json[1]
+    assert (stored["group"], stored["question"], stored["why"], stored["assumption"]) == (
+        "범위", "구조 형식은?", "기간이 달라집니다.", "철근콘크리트로 가정합니다."
+    )
+    assert stored["options"] == [{"value": "rc", "label": "철근콘크리트", "hint": "흔함", "recommended": True}]

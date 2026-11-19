@@ -23,7 +23,7 @@ FREE_TEXT_MESSAGE = f"답은 1~{MAX_FREE_TEXT}자로 적어 주세요."
 
 
 class QuestionOption(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)  # 공백뿐인 글은 빈 글로 거절
 
     value: str = Field(min_length=1, max_length=100, description="답으로 저장되는 값")
     label: str = Field(min_length=1, max_length=100, description="화면에 보이는 선택지 글")
@@ -32,9 +32,9 @@ class QuestionOption(BaseModel):
 
 
 class Question(BaseModel):
-    """에이전트가 만든 질문 하나."""
+    """에이전트가 만든 질문 하나. 글의 앞뒤 공백은 뗀다."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)  # 공백뿐인 글은 빈 글로 거절
 
     id: str = Field(pattern=r"^[a-z0-9_]{1,40}$", description="질문지 안에서 겹치지 않는 영문 id")
     group: str = Field(min_length=1, max_length=20, description="묶음 이름(예: 범위, 날짜)")
@@ -121,14 +121,18 @@ def create(
     purpose: str,
     title: str,
     questions: Sequence[Question],
-    prefilled: Sequence[Prefilled],
+    prefilled: Sequence[Prefilled | dict],
     domain: str | None,
     level: str | None,
     chat_session_id: int | None = None,
     round: int = 1,
     commit: bool = True,
 ) -> int:
-    """질문지를 만들고 id 를 돌려준다. 질문 묶음에 문제가 있으면 ValueError(question_problems 를 이은 글)."""
+    """질문지를 만들고 id 를 돌려준다. 질문 묶음에 문제가 있으면 ValueError(question_problems 를 이은 글).
+
+    prefilled 는 Prefilled 나 같은 모양의 dict(틀리면 pydantic ValidationError).
+    """
+    filled = [Prefilled.model_validate(p) for p in prefilled]
     problems = question_problems(questions)
     if problems:
         raise ValueError(" / ".join(problems))
@@ -141,7 +145,7 @@ def create(
         round=round,
         questions_json=[q.model_dump(mode="json") for q in questions],
         answers_json={},
-        prefilled_json=[p.model_dump(mode="json") for p in prefilled],
+        prefilled_json=[p.model_dump(mode="json") for p in filled],
         status="open",
     )
     session.add(record)

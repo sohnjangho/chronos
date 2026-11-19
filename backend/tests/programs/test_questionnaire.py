@@ -1,6 +1,7 @@
 """질문지 API: 묶음·진행, 답 고르기·적기·지우기, 제출(답과 가정)."""
 
 import pytest
+from pydantic import ValidationError
 
 from app.store import questionnaires as store
 from app.store.questionnaires import Prefilled, Question
@@ -247,3 +248,22 @@ def test_store_create_without_commit(session):
     )
     session.rollback()
     assert session.get(QuestionnaireRecord, qid) is None
+
+
+def test_store_create_accepts_prefilled_dicts_and_models(client, admin, session):
+    prefilled = [{"label": "분야", "value": "건설", "source": "프롬프트"}, Prefilled(label="정밀도", value="L3 관리", source="분야 지식")]
+    qid = store.create(
+        session, purpose="generate", title="t", questions=[Question.model_validate(FINISH)], prefilled=prefilled, domain=None, level=None
+    )
+    assert _get(client, admin, qid)["prefilled"] == [
+        {"label": "분야", "value": "건설", "source": "프롬프트"},
+        {"label": "정밀도", "value": "L3 관리", "source": "분야 지식"},
+    ]
+
+
+def test_store_create_rejects_a_bad_prefilled_dict(session):
+    with pytest.raises(ValidationError):
+        store.create(
+            session, purpose="generate", title="t", questions=[Question.model_validate(FINISH)], prefilled=[{"label": "분야"}], domain=None, level=None
+        )
+    assert session.query(QuestionnaireRecord).count() == 0

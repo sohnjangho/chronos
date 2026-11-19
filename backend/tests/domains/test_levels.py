@@ -42,11 +42,22 @@ def test_levels_prompt_has_one_line_per_level_with_its_definition():
         line = next(x for x in lines if f"{level_id} {name}" in x)
         assert use in line and unit in line and resources in line and must in line
     l3 = next(x for x in lines if "L3 관리" in x)
-    assert "WBS 깊이 3 " in l3 and "3~3" not in l3  # 같은 두 값은 하나로
+    assert "WBS 깊이: 3 " in l3 and "3~3" not in l3  # 같은 두 값은 하나로
+    assert "액티비티 수: 50~100개" in l3 and "기간 단위: 일" in l3 and "자원: 주요 자원" in l3
+    assert "쓰는 곳: 계획 수립·월간 보고" in l3 and "꼭 있어야 하는 것: 공종별 액티비티" in l3
+    l1 = next(x for x in lines if "L1 마스터" in x)
+    assert "자원: 없음" in l1
     l5 = next(x for x in lines if "L5 상세" in x)
-    assert "고른 구간만" in l5
+    assert "액티비티 수: 고른 구간만" in l5
 
 
 def test_levels_hands_out_a_copy():
     levels().pop("L1")
     assert "L1" in levels()
+
+
+def test_levels_cache_cannot_be_corrupted():
+    lv = levels()
+    lv["L3"].wbs_depth.append(9)
+    lv["L3"].activity_count[0] = 1
+    assert levels()["L3"].wbs_depth == [3, 3] and levels()["L3"].activity_count == [50, 100]

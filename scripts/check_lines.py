@@ -13,7 +13,7 @@ from pathlib import Path
 # (기준 폴더, 확장자, 권장, 상한, 제외할 하위 폴더)
 RULES = [
     ("frontend/src", {".ts", ".tsx"}, 300, 600, ()),
-    ("backend/app", {".py"}, 400, 800, ("domains",)),
+    ("backend/app", {".py"}, 400, 800, ()),  # app/domains 의 YAML 은 .py 가 아니라 재지 않는다
 ]
 FUNC_SOFT, FUNC_HARD = 50, 100
 
