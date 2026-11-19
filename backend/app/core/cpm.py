@@ -173,8 +173,8 @@ def _start_bound(net: _Net, a: Activity, rel: Relation, early: _Dates) -> date:
 
 
 def _late_start(net: _Net, a: Activity, lf: date, early: _Dates) -> date:
-    """종료 상한 lf 에 맞는 시작 상한. 끝난 액티비티는 실제 막대를 여유만큼 통째로 민다."""
-    if a.actual_finish:
+    """종료 상한 lf 에 맞는 시작 상한. 실적이 있으면 실제 막대를 여유만큼 통째로 민다."""
+    if a.actual_start or a.actual_finish:
         es, ef = early[a.id]
         return net.cal.shift(es, net.cal.workdays_between(ef, lf, a.tags), a.tags)
     return net.cal.add_workdays(lf, -_duration(a), a.tags)
@@ -182,7 +182,7 @@ def _late_start(net: _Net, a: Activity, lf: date, early: _Dates) -> date:
 
 def _late_finish(net: _Net, a: Activity, ls: date, early: _Dates) -> date:
     """시작 상한 ls 에 맞는 종료 상한. _late_start 의 거울."""
-    if a.actual_finish:
+    if a.actual_start or a.actual_finish:
         es, ef = early[a.id]
         return net.cal.shift(ef, net.cal.workdays_between(es, ls, a.tags), a.tags)
     return net.cal.add_workdays(ls, _duration(a), a.tags)

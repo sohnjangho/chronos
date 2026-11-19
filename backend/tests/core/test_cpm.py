@@ -308,3 +308,26 @@ def test_completed_without_actual_start_ignores_data_date():
                       [Relation("A", "B")]), data_date=date(2027, 3, 15))
     r = compute(s)
     assert (r.rows["B"].es, r.rows["B"].ef) == (date(2027, 3, 4), date(2027, 3, 12))
+
+
+# ---- 고침 2차: 진행 중 작업도 거꾸로 계산에서 실제 막대를 민다 ----
+
+def test_in_progress_with_ss_successor_and_data_date_has_no_negative_float():
+    a = act("A", 10, rd=5, actual_start=date(2027, 3, 1))
+    s = replace(sched([a, act("B", 10)], [Relation("A", "B", "SS", 1)]), data_date=date(2027, 3, 10))
+    r = compute(s)
+    assert r.rows["A"].ef == date(2027, 3, 16)
+    assert (r.rows["B"].es, r.rows["B"].ef, r.rows["B"].tf) == (date(2027, 3, 10), date(2027, 3, 23), 0)
+    a_row = r.rows["A"]
+    assert a_row.tf == 5                                  # 사업 종료일 3/23 만 A 를 묶는다
+    assert (a_row.ls, a_row.lf) == (date(2027, 3, 8), date(2027, 3, 23))   # ES+tf, EF+tf
+
+
+def test_in_progress_started_on_saturday_with_ss_successor_has_zero_float():
+    a = act("A", 3, actual_start=date(2027, 3, 6))
+    r = compute(sched([a, act("B", 10)], [Relation("A", "B", "SS", 1)]))
+    assert r.rows["A"].ef == date(2027, 3, 10)
+    assert (r.rows["B"].es, r.rows["B"].ef, r.rows["B"].tf) == (date(2027, 3, 8), date(2027, 3, 19), 0)
+    a_row = r.rows["A"]
+    assert a_row.tf == 0 and a_row.critical
+    assert (a_row.ls, a_row.lf) == (date(2027, 3, 6), date(2027, 3, 10))
