@@ -183,6 +183,15 @@ def test_period_overlap_wraps_the_year_end(first, second, overlap):
     assert own(assemble([a], [], [b]))["a"] == ((False, "b") if overlap else (True, None))
 
 
+def test_only_an_enabled_winner_can_override():
+    # fix round 2: 우선순위가 높은 것부터 정한다. 진 조건은 다른 조건을 이기지 못한다.
+    # A(분야 11월)는 B(내 규칙 11.15~12.31)와 겹치지만 B 는 C(입력 12월)에 진다 → A 는 켜진 채로 남는다.
+    a = cnd("A", "domain", "blocked_period", {"start_md": [11, 1], "end_md": [11, 30], "tag": "타설"})
+    b = cnd("B", "mine", "blocked_period", {"start_md": [11, 15], "end_md": [12, 31], "tag": "타설"})
+    c = cnd("C", "input", "blocked_period", {"start_md": [12, 1], "end_md": [12, 31], "tag": "타설"})
+    assert own(assemble([a], [b], [c])) == {"A": (True, None), "B": (False, "C"), "C": (True, None)}
+
+
 def test_different_tags_never_compete():
     paint = {**WINTER, "tag": "도장"}
     out = assemble([cnd("a", "domain", "blocked_period", WINTER)], [], [cnd("b", "input", "blocked_period", paint)])
@@ -192,12 +201,15 @@ def test_different_tags_never_compete():
 # ── fix round 1: 같은 id (M7) ───────────────────────────────────────
 
 
-def test_duplicate_ids_keep_only_the_last_occurrence():
-    d = cnd("c1", "domain", "finish_by", {"date": "2027-12-31"})
+def test_duplicate_ids_use_the_last_occurrence_and_keep_the_earlier_ones_aside():
+    # fix round 2 로 바뀜: 앞의 같은 id 조건은 없애지 않고 받은 그대로 남긴다(겨루지도 넣지도 않는다).
+    # check 가 그것을 invalid("같은 id 의 조건이 뒤에 다시 있습니다.")로 알린다. 원래 기대는 [i, m3] 였다.
+    d = cnd("c1", "domain", "finish_by", {"date": "2027-12-31"}, overridden_by="zz")
     i = cnd("c1", "input", "finish_by", {"date": "2027-11-30"})
     m = cnd("c2", "mine", "max_duration", {"days": 5})
-    out = assemble([d], [m], [i, replace(m, layer="input", params={"days": 3})])
-    assert out[len(BASE_RULES):] == [i, replace(m, layer="input", params={"days": 3})]
+    m3 = replace(m, layer="input", params={"days": 3})
+    out = assemble([d], [m], [i, m3])
+    assert out[len(BASE_RULES):] == [d, m, i, m3]
     assert all(c.overridden_by != c.id for c in out)
 
 
@@ -305,6 +317,13 @@ def test_blocked_period_is_appended_once():
     winter = cnd("b", "input", "blocked_period", {"start_md": [12, 1], "end_md": [2, 28], "tag": "타설"})
     out = apply_to_schedule(apply_to_schedule(s, [winter]), [winter, replace(winter, id="b2")])
     assert out.calendar.blocked == (BlockedPeriod((7, 1), (7, 31), "도장"), BlockedPeriod((12, 1), (2, 28), "타설"))
+
+
+def test_an_earlier_condition_with_a_repeated_id_is_not_applied(two_crane_tasks):
+    cap = cnd("c", "input", "resource_cap", {"resource_id": "crane", "capacity": 3})
+    later = cnd("c", "input", "start_after", {"date": "2027-04-01"})
+    s = apply_to_schedule(two_crane_tasks, [cap, later])
+    assert (s.resources[0].capacity, s.start) == (1, date(2027, 4, 1))
 
 
 def test_disabled_base_and_check_only_conditions_change_nothing(s_finish_0305):

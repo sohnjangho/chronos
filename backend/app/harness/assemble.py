@@ -14,6 +14,7 @@ from app.harness.conditions import (
     BASE_RULES,
     Condition,
     condition_problem,
+    duplicated_later,
     read_conditions,
 )
 
@@ -70,20 +71,27 @@ def _reset(c: Condition) -> Condition:
     return replace(c, enabled=c.enabled or c.overridden_by is not None, overridden_by=None)
 
 
-def _winner(entries: list[tuple[int, Condition]], n: int) -> Condition | None:
-    """n 번째 조건을 이기는 조건 가운데 가장 나중 것. 없으면 None.
+def _contest(entries: list[tuple[int, Condition]], aside: list[bool]) -> dict[int, str]:
+    """진 조건의 자리 → 이긴 조건 id.
 
-    뒤에 있는 조건만 이길 수 있다: 겹이 더 뒤이거나, 같은 겹 안에서 목록이 더 뒤(blocked_period 는 제외).
+    우선순위가 가장 높은 것(목록 맨 뒤)부터 정한다. 앞의 조건은 이미 켜지기로 정해진 조건과 겨룰 때만 지고,
+    그 가운데 우선순위가 가장 높은 것에 진다. 그래서 진 조건이 다른 조건을 끄는 일은 없다.
+    이길 수 있는 것: 겹이 더 뒤이거나, 같은 겹 안에서 목록이 더 뒤(blocked_period 는 같은 겹이면 못 이긴다).
     """
-    rank, c = entries[n]
-    if not _competes(c):
-        return None
-    best = None
-    for later_rank, d in entries[n + 1:]:
-        beats = later_rank > rank or c.kind != "blocked_period"
-        if beats and _competes(d) and _conflict(c, d):
-            best = d
-    return best
+    kept: list[tuple[int, Condition]] = []  # 켜지기로 정해진 것, 우선순위가 높은 것부터
+    lost: dict[int, str] = {}
+    for n in range(len(entries) - 1, -1, -1):
+        rank, c = entries[n]
+        if aside[n] or not _competes(c):
+            continue
+        winner = next(
+            (d for r, d in kept if (r > rank or c.kind != "blocked_period") and _conflict(c, d)), None
+        )
+        if winner is None:
+            kept.append((rank, c))
+        else:
+            lost[n] = winner.id
+    return lost
 
 
 def assemble(
@@ -92,12 +100,14 @@ def assemble(
     """BASE_RULES + 분야 규칙 + 내 규칙 + 입력 조건을 하나의 목록으로 묶는다. 예외를 내지 않는다.
 
     - BASE_RULES 가 맨 앞에 늘 그대로 들어간다. 받은 목록에서 기본 규칙 id 인 조건은 버린다.
-    - 같은 id 가 여러 번 있으면 마지막 것만 남긴다(인자 순서로 이어 붙인 목록에서).
+    - 같은 id 가 여러 번 있으면 마지막 것만 쓴다(인자 순서로 이어 붙인 목록에서). 앞의 것은 받은 그대로
+      제자리에 남고 겨루지도 넣지도 않는다(check 가 invalid 로 알린다).
     - 켜져 있고 형식이 맞는 조건끼리 겨룬다. 열쇠: resource_cap·milestone_by·min_gap 은 (종류, 대상),
       finish_by·start_after·calendar·max_duration 은 종류만, blocked_period 는 꼬리표가 같고 기간이 겹칠 때.
-      나중 것이 이긴다: 인자 순서(분야 < 내 규칙 < 입력), 같은 겹 안에서는 목록에서 뒤에 있는 것.
+      우선순위: 인자 순서(분야 < 내 규칙 < 입력), 같은 겹 안에서는 목록에서 뒤에 있는 것.
       다만 blocked_period 는 같은 겹 안에서는 서로 덮지 않는다(철마다 따로 둘 수 있다).
-    - 진 조건은 enabled=False, overridden_by=이긴 것 가운데 가장 나중 것의 id 로 남는다.
+    - 우선순위가 높은 것부터 정하고, 켜지기로 정해진 조건만 다른 조건을 이긴다(`_contest`).
+      진 조건은 enabled=False, overridden_by=이긴(켜진) 조건의 id 로 남는다.
     - 진 표시(overridden_by)는 조립할 때마다 새로 매긴다. 이긴 조건이 없어지면 다시 켜진다.
       사용자가 끈 조건(enabled=False, overridden_by=None)은 꺼진 채로 남고 겨루지 않는다.
     - 형식이 틀린 조건(condition_problem)은 겨루지 않고 받은 그대로 남는다(겹 "base" 인 다른 id 포함).
@@ -108,12 +118,12 @@ def assemble(
         for c in group
         if c.id not in BASE_IDS
     ]
-    last = {c.id: n for n, (_, c) in enumerate(entries)}
-    entries = [(rank, _reset(c)) for n, (rank, c) in enumerate(entries) if last[c.id] == n]
+    aside = duplicated_later([c for _, c in entries])
+    entries = [(rank, c if aside[n] else _reset(c)) for n, (rank, c) in enumerate(entries)]
+    lost = _contest(entries, aside)
     out = list(BASE_RULES)
     for n, (_, c) in enumerate(entries):
-        winner = _winner(entries, n)
-        out.append(c if winner is None else replace(c, enabled=False, overridden_by=winner.id))
+        out.append(replace(c, enabled=False, overridden_by=lost[n]) if n in lost else c)
     return out
 
 
@@ -190,11 +200,14 @@ def apply_to_schedule(schedule: Schedule, conditions: Sequence[Condition]) -> Sc
     · start_after → Schedule.start(늦어지기만) · resource_cap → Resource.capacity
     · calendar → 근무 요일, 공휴일은 합침("KR" 은 2027년 자료만 있다)
     · blocked_period → CalendarSpec.blocked 에 덧붙임(같은 것이 있으면 그대로).
-    꺼진 조건, 기본 규칙 id 인 조건, 형식이 틀린 조건은 넣지 않는다. min_gap·max_duration·milestone_by·
-    text_only·duration_per_unit 은 점검만 하고 넣지 않는다. 여러 번 넣어도 결과가 같다.
+    꺼진 조건, 기본 규칙 id 인 조건, 형식이 틀린 조건, 뒤에 같은 id 가 다시 있는 조건은 넣지 않는다.
+    min_gap·max_duration·milestone_by·text_only·duration_per_unit 은 점검만 하고 넣지 않는다.
+    여러 번 넣어도 결과가 같다.
     """
-    for c in conditions:
-        if c.enabled and c.kind in _APPLY and c.id not in BASE_IDS and condition_problem(c) is None:
+    for c, later in zip(conditions, duplicated_later(conditions), strict=True):
+        if later or not c.enabled or c.kind not in _APPLY or c.id in BASE_IDS:
+            continue
+        if condition_problem(c) is None:
             schedule = _APPLY[c.kind](schedule, c.params)
     return schedule
 

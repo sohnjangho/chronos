@@ -1,7 +1,8 @@
 """조건 점검: 일정이 조건을 지키는지 코드로 잰다. 날짜 셈은 전부 app/core 것을 쓴다.
 
 `check(schedule, conditions)` 의 순서
-1. 형식이 틀린 조건(`condition_problem`)은 `invalid` 에만 넣는다(켜졌든 꺼졌든). 꺼진 조건은 그 밖 어디에도 없다.
+1. 형식이 틀린 조건(`condition_problem`)과 뒤에 같은 id 가 다시 있는 조건은 `invalid` 에만 넣는다(켜졌든
+   꺼졌든). 같은 id 는 마지막 것만 점검한다. 꺼진 조건은 그 밖 어디에도 없다.
 2. 일정은 `prepare(schedule, conditions)`(조립 + 켜진 조건 넣기)로 만든다. 화면(app.store 의 run)과 같은 일정이다.
 3. `compute` 뒤 `level(shift=True)`. 날짜 조건은 맞춘 뒤 날짜(화면에 보이는 일정)로 잰다.
 4. 받은 목록의 켜진 조건을 그대로 점검한다. 보통은 조립된 목록(assemble 결과)을 넘긴다. 조립하지 않은
@@ -25,7 +26,13 @@ from app.core.cpm import CpmResult, ScheduleError, compute
 from app.core.model import Schedule
 from app.core.resources import LevelResult, level, usage
 from app.harness.assemble import holidays_of, in_period, period_of, prepare
-from app.harness.conditions import BASE_IDS, Condition, condition_problem
+from app.harness.conditions import (
+    BASE_IDS,
+    DUPLICATE_ID_MESSAGE,
+    Condition,
+    condition_problem,
+    duplicated_later,
+)
 from app.store.messages import schedule_error_message
 
 
@@ -223,15 +230,8 @@ def _resource_notice(c: Condition, x: _Ctx) -> Violation | None:
     return _over_capacity(c, x, x.before, "맞추기 전 날짜로는")
 
 
-def _structural(c: Condition, x: _Ctx) -> Violation | None:
-    """기본 규칙 종류: 계산이 됐으면 지켜졌다."""
-    return None
-
-
+# 기본 규칙(id 로 안다)은 계산이 되면 통과라 여기 없다. 기본 규칙 종류를 다른 id 로 쓰면 형식 오류다.
 _CHECKS = {
-    "no_cycle": _structural,
-    "no_dangling": _structural,
-    "valid": _structural,
     "calendar": _calendar,
     "finish_by": _finish_by,
     "start_after": _start_after,
@@ -263,7 +263,11 @@ def _broken(e: ScheduleError, checkable: list[Condition], start: CheckReport) ->
 
 def check(schedule: Schedule, conditions: Sequence[Condition]) -> CheckReport:
     """일정을 조건으로 점검한다. 일정이 깨졌거나 조건 형식이 틀려도 예외를 내지 않는다(모듈 설명글 참고)."""
-    problems = [(c, condition_problem(c)) for c in conditions]
+    later = duplicated_later(conditions)
+    problems = [
+        (c, DUPLICATE_ID_MESSAGE if dup else condition_problem(c))
+        for c, dup in zip(conditions, later, strict=True)
+    ]
     invalid = [{"condition_id": c.id, "message": p} for c, p in problems if p is not None]
     active = [c for c, p in problems if p is None and c.enabled]
     report = CheckReport(

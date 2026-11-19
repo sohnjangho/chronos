@@ -11,6 +11,7 @@ params 는 JSON 그대로의 모양이다(날짜는 ISO 글자, start_md·end_md
 형식이 틀린 조건(`condition_problem` 이 글을 돌려주는 것)은 겨루지도, 일정에 넣지도, 점검하지도 않는다.
 """
 
+import re
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
@@ -28,6 +29,13 @@ _KINDS = frozenset(get_args(Kind))
 
 # 코드로 점검하지 않는 종류. duration_per_unit 은 params 모양과 잣대가 아직 없다.
 UNCHECKED_KINDS = frozenset({"text_only", "duration_per_unit"})
+# 기본 규칙만 쓰는 종류(구조 점검). 기본 규칙 id 가 아닌 조건은 이 종류를 쓸 수 없다.
+_BASE_ONLY_KINDS = frozenset({"no_cycle", "no_dangling", "valid"})
+
+DUPLICATE_ID_MESSAGE = "같은 id 의 조건이 뒤에 다시 있습니다."
+DATE_RANGE_MESSAGE = "날짜는 1900년부터 2199년 사이여야 합니다."
+_FIRST_DAY, _LAST_DAY = date(1900, 1, 1), date(2199, 12, 31)
+_ISO_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 class ConditionFormatError(ValueError):
@@ -120,7 +128,8 @@ def _dict_problem(d: dict) -> str | None:
 
 
 def _is_date(v: object) -> bool:
-    if not isinstance(v, str):
+    """YYYY-MM-DD 꼴의 있는 날짜(fromisoformat 이 받는 다른 ISO 꼴은 받지 않는다). 범위는 따로 본다."""
+    if not (isinstance(v, str) and _ISO_DAY.fullmatch(v)):
         return False
     try:
         date.fromisoformat(v)
@@ -141,9 +150,12 @@ def _is_month_day(v: object) -> bool:
     """[월, 일]. 2월 29일도 된다(윤년 기준)."""
     if not (isinstance(v, list | tuple) and len(v) == 2 and all(type(x) is int for x in v)):
         return False
+    month, day = v
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return False
     try:
-        date(2028, v[0], v[1])
-    except ValueError:
+        date(2028, month, day)
+    except (ValueError, OverflowError):
         return False
     return True
 
@@ -174,8 +186,20 @@ _PARAMS: dict[str, tuple[tuple[str, _Check, bool], ...]] = {
 }
 
 
+def _dates(kind: str, params: dict) -> list[date]:
+    """꼴 검사를 마친 params 의 날짜들(범위 검사용)."""
+    if kind in ("finish_by", "start_after", "milestone_by"):
+        return [date.fromisoformat(params["date"])]
+    if kind == "calendar" and isinstance(params["holidays"], list):
+        return [date.fromisoformat(h) for h in params["holidays"]]
+    return []
+
+
 def validate_params(kind: str, params: object) -> str | None:
-    """kind 에 맞는 params 인지. 틀리면 무엇이 틀렸는지 한국어 글, 맞으면 None. 모르는 칸은 상관하지 않는다."""
+    """kind 에 맞는 params 인지. 틀리면 무엇이 틀렸는지 한국어 글, 맞으면 None. 모르는 칸은 상관하지 않는다.
+
+    날짜는 YYYY-MM-DD 꼴이고 1900-01-01 ~ 2199-12-31 안이어야 한다(core 날짜 셈이 넘치지 않게).
+    """
     if kind not in _KINDS:
         return f"알 수 없는 조건 종류입니다: {kind}"
     if not isinstance(params, dict):
@@ -186,13 +210,17 @@ def validate_params(kind: str, params: object) -> str | None:
                 return f"'{key}' 칸이 없습니다."
         elif not ok(params[key]):
             return _bad(key, what)
+    if any(not _FIRST_DAY <= d <= _LAST_DAY for d in _dates(kind, params)):
+        return DATE_RANGE_MESSAGE
     return None
 
 
 def condition_problem(c: Condition) -> str | None:
     """조건이 형식에 맞지 않으면 그 까닭(한국어), 맞으면 None.
 
-    기본 규칙 id 인 조건은 params 를 보지 않는다. 겹이 "base" 인데 기본 규칙 id 가 아니면 틀린 것이다.
+    기본 규칙 id 인 조건은 params 를 보지 않는다. 기본 규칙 id 가 아닌데 겹이 "base" 이거나
+    기본 규칙 종류(no_cycle·no_dangling·valid)면 틀린 것이다. 같은 id 가 뒤에 다시 있는지는 보지 않는다
+    (목록을 보아야 하므로 `duplicated_later`).
     """
     if c.layer not in _LAYERS:
         return f"알 수 없는 겹입니다: {c.layer}"
@@ -202,7 +230,15 @@ def condition_problem(c: Condition) -> str | None:
         return None
     if c.layer == "base":
         return "기본 규칙은 바꿀 수 없습니다."
+    if c.kind in _BASE_ONLY_KINDS:
+        return "기본 규칙 종류는 바꿀 수 없습니다."
     return validate_params(c.kind, c.params)
+
+
+def duplicated_later(conditions: Sequence[Condition]) -> list[bool]:
+    """조건마다, 목록 뒤쪽에 같은 id 의 조건이 다시 있는가. 같은 id 는 마지막 것만 쓴다."""
+    last = {c.id: n for n, c in enumerate(conditions)}
+    return [last[c.id] != n for n, c in enumerate(conditions)]
 
 
 def read_conditions(stored: Sequence[object]) -> tuple[list[Condition], list[dict]]:

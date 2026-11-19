@@ -82,6 +82,8 @@ GOOD_PARAMS = [
     ("min_gap", {"after_tag": "타설", "days": 7}),
     ("min_gap", {"after_tag": "타설", "days": 7, "unit": "calendar_days"}),
     ("max_duration", {"days": 0}),
+    ("finish_by", {"date": "1900-01-01"}),
+    ("finish_by", {"date": "2199-12-31"}),
     ("text_only", {}),
     ("duration_per_unit", {}),
 ]
@@ -113,6 +115,22 @@ BAD_PARAMS = [
      "'unit' 칸 값이 올바르지 않습니다: \"workdays\" 또는 \"calendar_days\""),
     ("max_duration", {}, "'days' 칸이 없습니다."),
     ("text_only", [], "'params' 칸 값이 올바르지 않습니다: 객체"),
+    # fix round 2: 월·일이 너무 큰 정수, 날짜 범위, YYYY-MM-DD 가 아닌 ISO 꼴
+    ("blocked_period", {"start_md": [2147483648, 1], "end_md": [3, 1], "tag": "타설"},
+     "'start_md' 칸 값이 올바르지 않습니다: [월, 일]"),
+    ("blocked_period", {"start_md": [1, 1], "end_md": [1, 2**31], "tag": "타설"},
+     "'end_md' 칸 값이 올바르지 않습니다: [월, 일]"),
+    ("start_after", {"date": "9999-12-31"}, "날짜는 1900년부터 2199년 사이여야 합니다."),
+    ("finish_by", {"date": "0001-01-01"}, "날짜는 1900년부터 2199년 사이여야 합니다."),
+    ("finish_by", {"date": "1899-12-31"}, "날짜는 1900년부터 2199년 사이여야 합니다."),
+    ("milestone_by", {"activity_id": "A", "date": "2200-01-01"}, "날짜는 1900년부터 2199년 사이여야 합니다."),
+    ("calendar", {"days_per_week": 5, "holidays": ["2027-03-02", "2300-01-01"]},
+     "날짜는 1900년부터 2199년 사이여야 합니다."),
+    ("finish_by", {"date": "20270304"}, "'date' 칸 값이 올바르지 않습니다: 날짜(YYYY-MM-DD)"),
+    ("finish_by", {"date": "2027-W10-1"}, "'date' 칸 값이 올바르지 않습니다: 날짜(YYYY-MM-DD)"),
+    ("finish_by", {"date": "２０２７-03-04"}, "'date' 칸 값이 올바르지 않습니다: 날짜(YYYY-MM-DD)"),
+    ("calendar", {"days_per_week": 5, "holidays": ["20270302"]},
+     "'holidays' 칸 값이 올바르지 않습니다: \"KR\" 또는 날짜(YYYY-MM-DD) 목록"),
     ("made_up", {}, "알 수 없는 조건 종류입니다: made_up"),
 ]
 
@@ -151,3 +169,11 @@ def test_read_conditions_splits_good_and_bad():
         {"condition_id": "?", "message": "조건이 객체가 아닙니다."},
         {"condition_id": "?", "message": "'id' 칸이 없습니다."},
     ]
+
+
+@pytest.mark.parametrize("kind", ["no_cycle", "no_dangling", "valid"])
+def test_base_rule_kinds_cannot_be_reused_under_another_id(kind):
+    # fix round 2: 기본 규칙 종류(구조 점검)는 기본 규칙 id 로만 쓸 수 있다.
+    with pytest.raises(ConditionFormatError) as e:
+        Condition.from_dict({"id": "x", "layer": "input", "kind": kind, "params": {}, "text": "", "source": ""})
+    assert e.value.message == "기본 규칙 종류는 바꿀 수 없습니다."

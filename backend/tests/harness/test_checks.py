@@ -319,3 +319,30 @@ def test_a_saturday_finish_after_a_friday_deadline_is_one_day_late():
         ("f", "준공이 기한보다 1일 늦습니다.", 1),
         ("m", "A 종료가 기한보다 1일 늦습니다.", 1),
     ]
+
+
+
+# ── fix round 2 ─────────────────────────────────────────────────────
+
+
+def test_dates_out_of_range_and_huge_month_days_are_invalid_not_raised(s_finish_0305):
+    conditions = [
+        *BASE_RULES,
+        cond("far", "start_after", {"date": "9999-12-31"}),
+        cond("old", "finish_by", {"date": "0001-01-01"}),
+        cond("huge", "blocked_period", {"start_md": [2147483648, 1], "end_md": [3, 1], "tag": "타설"}),
+    ]
+    r = check(s_finish_0305, conditions)
+    assert [i["condition_id"] for i in r.invalid] == ["far", "old", "huge"]
+    assert r.passed == BASE_IDS and r.violations == []
+
+
+def test_a_base_rule_kind_under_another_id_is_invalid(s_finish_0305):
+    r = check(s_finish_0305, [cond("x", "no_dangling", {})])
+    assert r.invalid == [{"condition_id": "x", "message": "기본 규칙 종류는 바꿀 수 없습니다."}] and r.passed == []
+
+
+def test_earlier_conditions_with_a_repeated_id_are_invalid_and_the_last_is_used(s_finish_0305):
+    r = check(s_finish_0305, [cond("c1", "finish_by", {"date": "2027-03-04"}), cond("c1", "max_duration", {"days": 1})])
+    assert r.invalid == [{"condition_id": "c1", "message": "같은 id 의 조건이 뒤에 다시 있습니다."}]
+    assert [(v.condition_id, v.amount) for v in r.violations] == [("c1", 2)]  # max_duration: A 3일 − 1
