@@ -25,7 +25,7 @@ stage "비밀 검사" bash scripts/check_secrets.sh
 stage "줄 수 검사" docker compose run --rm -T -v "${ROOT}:/repo:ro" backend \
   python /repo/scripts/check_lines.py /repo
 stage "줄 수 검사 시험" docker compose run --rm -T -v "${ROOT}/scripts:/scripts:ro" backend \
-  pytest -q -p no:cacheprovider /scripts/tests
+  pytest -q -p no:cacheprovider -p no:asyncio /scripts/tests
 stage "ruff check" backend ruff check .
 stage "pytest" backend pytest -q
 stage "eslint" frontend npm run lint

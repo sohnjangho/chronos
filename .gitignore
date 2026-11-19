@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 data/
+# 도구 코드 폴더(app/tools/data)는 자료가 아니다
+!backend/app/tools/data/
 *.db
 *.sqlite*
 secrets/

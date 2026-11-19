@@ -28,7 +28,7 @@ def test_ok_lists_model_ids():
 
 @pytest.mark.parametrize(
     "status,code",
-    [(401, "bad_key"), (403, "bad_key"), (429, "rate_limited"), (404, "bad_url"), (500, "unknown")],
+    [(401, "bad_key"), (403, "bad_key"), (429, "rate_limited"), (404, "bad_url"), (500, "server_error")],
 )
 def test_status_codes_are_explained(status, code):
     result = _probe(lambda request: httpx.Response(status))

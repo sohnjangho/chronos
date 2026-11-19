@@ -53,6 +53,26 @@ class LlmAssignment(Base):
     routing_strategy: Mapped[str | None] = mapped_column(String(10))  # cost|balanced|quality
 
 
+class LlmCall(Base):
+    """LLM 호출 한 번의 기록(실패도 남긴다). 주고받은 글과 키는 담지 않는다."""
+
+    __tablename__ = "llm_calls"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_session_id: Mapped[int | None] = mapped_column(default=None)  # 대화 id (FK 아님)
+    purpose: Mapped[str] = mapped_column(String(10))
+    model: Mapped[str] = mapped_column(String(200))  # 실제로 답한 모델(실패면 요청한 모델)
+    requested_model: Mapped[str] = mapped_column(String(200))
+    routing_strategy: Mapped[str | None] = mapped_column(String(10))
+    input_tokens: Mapped[int] = mapped_column(default=0)
+    output_tokens: Mapped[int] = mapped_column(default=0)
+    cost: Mapped[float | None] = mapped_column(default=None)
+    latency_ms: Mapped[int]
+    ok: Mapped[bool]
+    error_code: Mapped[str | None] = mapped_column(String(20), default=None)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
 class ScheduleRecord(Base):
     """일정 하나. 내용은 버전(schedule_versions)에 있고, 여기에는 지금 버전 번호만 둔다."""
 

@@ -21,10 +21,11 @@ from app.programs.schedule.schemas import (
     ScheduleView,
     VersionOut,
 )
-from app.programs.schedule.view import build_view, run
+from app.programs.schedule.view import build_view
 from app.store.schedules import NotFound, get_record, get_version, list_records, load
 from app.store.tables import User
 from app.store.versions import VersionConflict, list_versions, restore, save_new_version
+from app.store.view import run
 
 SCHEDULE_ERROR_MESSAGES = {
     "cycle": "선후 관계가 고리를 이룹니다.",

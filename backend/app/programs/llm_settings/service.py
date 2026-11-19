@@ -3,6 +3,7 @@
 평문 키는 요청을 처리하는 동안에만 쓰고, 저장은 암호문으로만 한다. 기록(log)은 남기지 않는다.
 """
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 
 import httpx
@@ -11,7 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.llm import connections
+from app.llm import assignments, connections
 from app.llm.connections import DEFAULT_BASE_URLS, ProbeResult, secret_is_sendable
 from app.programs.llm_settings.schemas import (
     AssignmentOut,
@@ -28,14 +29,6 @@ from app.store.tables import LlmAssignment, LlmConnection
 MIN_SECRET_CHARS_FOR_LAST4 = 8
 
 _DEFAULT_PORTS = {"http": 80, "https": 443}
-
-# 쓰임새별 기본 배정: (모델, 라우팅 전략). 기본 연결을 가리킨다.
-DEFAULT_ASSIGNMENTS: dict[str, tuple[str, str | None]] = {
-    "light": ("liner-claude-router", "cost"),
-    "normal": ("liner-claude-router", "balanced"),
-    "hard": ("liner-claude-router", "quality"),
-    "longdoc": ("liner-mark", None),
-}
 
 
 def _resolve_base_url(provider: str, base_url: str | None) -> str:
@@ -195,30 +188,7 @@ def connection_models(session: Session, conn_id: int) -> list[str]:
 
 def get_assignments(session: Session) -> list[AssignmentOut]:
     """네 쓰임새 모두. 저장 안 된 쓰임새는 기본 연결을 가리키는 기본값으로 채운다."""
-    stored = {a.purpose: a for a in session.scalars(select(LlmAssignment))}
-    default = _default(session)
-    items = []
-    for purpose, (model, strategy) in DEFAULT_ASSIGNMENTS.items():
-        found = stored.get(purpose)
-        if found is not None:
-            items.append(
-                AssignmentOut(
-                    purpose=purpose,
-                    connection_id=found.connection_id,
-                    model=found.model,
-                    routing_strategy=found.routing_strategy,
-                )
-            )
-        else:
-            items.append(
-                AssignmentOut(
-                    purpose=purpose,
-                    connection_id=default.id if default else None,
-                    model=model,
-                    routing_strategy=strategy,
-                )
-            )
-    return items
+    return [AssignmentOut(**asdict(item)) for item in assignments.resolve_all(session)]
 
 
 def put_assignments(session: Session, data: AssignmentsIn) -> None:
