@@ -12,13 +12,21 @@
 - 자리가 없으면 그 액티비티의 `pinned_start` 를 뒤로 잡고, 후행 날짜는 `compute`
   로 다시 구한다. 관계·달력 규칙은 전부 `cpm.compute` 것을 쓴다.
   (맞추는 동안에는 옮긴 액티비티의 후행만 담은 작은 일정을 계산한다. 그 밖의
-  선행은 지금 날짜를 실적으로 넣어 고정한다 — 실적이 둘 다 있으면 `compute` 가
-  그 날짜를 그대로 쓴다는 규칙에 기댄다. 마지막 결과는 전체 일정을 계산한 것이다.)
+  선행은 지금 날짜를 실적으로 넣어 고정한다. 마지막 결과는 전체 일정을 계산한 것이다.)
+  이 방식은 `compute` 의 규칙 하나에 기댄다: actual_start 와 actual_finish 가 둘 다
+  있는 액티비티는 정확히 그 날짜에 놓인다.
 - 실적(actual_start 또는 actual_finish)이 있는 액티비티는 옮기지 않는다.
   용량 0 이하인 자원을 쓰는 액티비티도 스스로는 옮기지 않는다(선행에 밀릴 수는 있다).
 - FNLT 는 맞춤을 막지 않는다. 넘으면 `LevelResult.cpm` 의 tf 가 음수가 된다.
 - `LevelResult.cpm` 의 여유(tf·ff)와 주공정은 관계와 `pinned_start` 만 반영한다.
   자원이 비어 있는지는 반영하지 않는다(여유만큼 늦추면 자원이 겹칠 수 있다).
+
+`LevelResult.schedule` 은 저장하지 않는다
+- 계산과 화면 표시에만 쓰는 임시 값이다. 절대 저장하지 않는다. 저장하는 것은 사용자가
+  만든 일정이고, 읽을 때 `level` 을 다시 돌린다.
+- 이 일정에는 맞춤이 옮긴 액티비티의 `pinned_start` 가 들어 있다. 그리고 actual_finish
+  만 있는 액티비티 가운데 맞춤 때문에 날짜가 달라질 것에는 계산된 `actual_start`
+  (맞추기 전 CPM 시작일)가 들어 있다. 이 값은 실제 실적이 아니다.
 """
 
 import heapq
@@ -47,6 +55,18 @@ class Peak:
 
 @dataclass(frozen=True)
 class LevelResult:
+    """맞춤(또는 점검) 결과.
+
+    dates: id → (ES, EF). 항상 cpm.rows 의 (es, ef) 와 같다.
+    finish: 사업 종료일. 항상 cpm.finish 와 같다.
+    peaks: 쓰이는 자원마다 필요량이 가장 큰 날(동률이면 이른 날). schedule.resources 순.
+    overloads: 필요량이 용량을 넘는 (날짜, 자원) 마다 하나. 날짜 순, 같은 날은 자원 id 순.
+    shifted: 받은 cpm 과 날짜가 달라진 id. 처음 달라진 순서(직접 옮긴 것, 이어서 따라 밀린 후행).
+    schedule: 임시 값, 저장 금지. 받은 일정에 pinned_start(와 계산된 actual_start)를 넣은 것.
+        shift=False 면 받은 일정 그대로다. 모듈 설명글 참고.
+    cpm: compute(schedule) 결과. shift=False 면 받은 cpm 그대로다.
+    """
+
     dates: dict[str, tuple[date, date]]
     finish: date
     peaks: dict[str, Peak]
