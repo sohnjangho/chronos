@@ -105,7 +105,7 @@ def restore(
     """n번 버전의 내용(일정·조건)을 새 버전으로 만든다. 이력은 지우지 않는다.
 
     base_version 을 주면 그것이 지금 버전인지 확인한다(없으면 지금 버전 위에 쌓는다).
-    n번 일정이 계산되지 않으면 ScheduleError 를 내고 아무것도 저장하지 않는다.
+    n번 일정이 n번의 조건을 넣고 계산되지 않으면 ScheduleError 를 내고 아무것도 저장하지 않는다.
     변경 이력에는 지금 버전 → n번 내용의 차이를 적는다.
     """
     schedule, conditions, _ = load(session, schedule_id, n)
@@ -114,7 +114,7 @@ def restore(
     base = current_n if base_version is None else base_version
     if base != current_n:
         raise VersionConflict(current_n)
-    run(schedule)
+    run(schedule, conditions)
     return save_new_version(
         session,
         schedule_id,

@@ -483,9 +483,9 @@ def test_conflict_at_save_time_is_409(client, admin, session, sid, sample_schedu
     """확인을 지난 뒤 저장 직전에 다른 요청이 먼저 저장하면 409, 고침은 남지 않는다."""
     real_run = service.run
 
-    def run_after_someone_saves(schedule):
+    def run_after_someone_saves(schedule, conditions=None):
         save_new_version(session, sid, sample_schedule, [], by_kind="agent", by_name="에이전트", note="먼저", changes=[], base_version=1)
-        return real_run(schedule)
+        return real_run(schedule, conditions)
 
     monkeypatch.setattr(service, "run", run_after_someone_saves)
     r = _patch(client, admin, sid, "A", 1, od=5)

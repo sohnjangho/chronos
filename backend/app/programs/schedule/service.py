@@ -1,6 +1,6 @@
 """일정 읽기·고치기·버전.
 
-고칠 때마다: 지금 버전 확인(409) → 고침 적용 → 계산 확인(422, 저장 안 함) → 새 버전 저장.
+고칠 때마다: 지금 버전 확인(409) → 고침 적용 → 계산 확인(저장된 조건을 넣어, 422, 저장 안 함) → 새 버전 저장.
 바뀐 것이 없으면 버전을 만들지 않고 지금 일정을 돌려준다.
 """
 
@@ -60,9 +60,9 @@ def list_schedules(session: Session) -> list[ScheduleItem]:
     """일정 목록. finish 는 화면과 같은 계산값(깨진 일정이면 None)."""
     items = []
     for rec in list_records(session):
-        schedule, _, n = load(session, rec.id)
+        schedule, conditions, n = load(session, rec.id)
         try:
-            finish = run(schedule).finish
+            finish = run(schedule, conditions).finish
         except ScheduleError:
             finish = None
         items.append(
@@ -109,7 +109,7 @@ def _write(
     if not result.changes:
         return get_view(session, schedule_id)
     try:
-        cpm = run(result.schedule)
+        cpm = run(result.schedule, conditions)  # 저장할 조건을 넣어 확인(화면과 같은 계산)
     except ScheduleError as e:
         raise _invalid(e) from None
     try:

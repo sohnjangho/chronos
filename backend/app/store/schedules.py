@@ -169,9 +169,10 @@ def create_schedule(
 ) -> int:
     """일정과 버전 1을 만들고 일정 id 를 준다. 변경 이력은 남기지 않는다.
 
-    먼저 계산해 본다. 깨진 일정이면 ScheduleError 를 내고 아무것도 저장하지 않는다.
+    먼저 저장할 조건을 넣어 계산해 본다(화면과 같은 계산). 깨진 일정이면 ScheduleError 를 내고
+    아무것도 저장하지 않는다.
     """
-    run(schedule)
+    run(schedule, conditions)
     record = ScheduleRecord(
         name=name, domain=domain, level=level, current_version=1, created_by=by_name
     )
