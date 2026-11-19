@@ -24,7 +24,7 @@
 - 모듈 규칙: `app/core`는 DB·LLM·FastAPI를 import하지 않는다. `app/programs/<a>`는 `app/programs/<b>`를 import하지 않는다. 에이전트는 도구를 `app/tools/registry`로만 부른다. 화면의 `src/programs/<a>`는 `src/programs/<b>`를 import하지 않는다.
 - 파일 길이: 화면 파일 권장 300줄·상한 600줄, 서버 파일 권장 400줄·상한 800줄, 함수 권장 50줄·상한 100줄. 시험·자동 생성·자료 파일 제외. `scripts/check.sh`가 검사한다.
 - 색·글꼴 값은 `frontend/src/os/tokens.css`의 변수만 쓴다(값은 Task 12에 있음).
-- 포트: 서버 8200, 화면 5600. 둘 다 `0.0.0.0`.
+- 포트: 서버 8210, 화면 5600. 둘 다 `0.0.0.0`.
 - 검증은 Docker 안에서: `docker compose run --rm backend pytest -q`, `docker compose run --rm frontend npm test`. 작업을 끝냈다고 말하기 전에 `scripts/check.sh` 전체가 통과해야 한다.
 - git: `main`에 직접 작업하지 않는다. 작업마다 `feature/t<번호>-<이름>` 브랜치 → 커밋 → GitHub PR(비공개 저장소) → 확인 뒤 병합. 체크포인트마다 `~/reports/pr_YYYYMMDD_HHMM.md` 보고서(요약·diff 경로·영향·Docker 시험 로그·검토 요청).
 - 작업 등급(모델): 각 Task 제목의 `[fable]` `[opus]` `[sonnet]`. 한 번에 한 작업, 끝나면 확인 뒤 다음.
