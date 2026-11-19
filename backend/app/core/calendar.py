@@ -16,6 +16,14 @@ def _in_period(d: date, period: BlockedPeriod) -> bool:
     return md >= period.start_md or md <= period.end_md  # 해를 넘기는 기간
 
 
+class NoWorkdayError(ValueError):
+    """훑는 한도 안에 근무일이 없다."""
+
+    def __init__(self, tags: tuple[str, ...]) -> None:
+        super().__init__(f"no workday within {_MAX_SCAN} days for tags {tags!r}")
+        self.tags = tags
+
+
 class WorkCalendar:
     def __init__(self, spec: CalendarSpec) -> None:
         self._days_per_week = spec.days_per_week
@@ -35,7 +43,7 @@ class WorkCalendar:
             if self.is_workday(d, tags):
                 return d
             d += step
-        raise ValueError(f"no workday within {_MAX_SCAN} days for tags {tags!r}")
+        raise NoWorkdayError(tags)
 
     def next_workday(self, d: date, tags: tuple[str, ...] = ()) -> date:
         """d 가 일하는 날이면 d, 아니면 그 뒤 첫 근무일."""

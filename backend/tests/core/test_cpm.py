@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -173,9 +174,11 @@ def test_tagged_successor_waits_for_blocked_period():
     assert r.rows["A"].ff == 5 and r.rows["A"].tf == 5
 
 
-def test_actual_start_only_uses_remaining_duration():
+def test_in_progress_without_data_date_counts_remaining_from_actual_start():
     a = act("A", 5, rd=2, actual_start=date(2027, 3, 2), progress=0.6)
-    r = compute(sched([a, act("B", 1)], [Relation("A", "B")]))
+    s = sched([a, act("B", 1)], [Relation("A", "B")])
+    assert s.data_date is None
+    r = compute(s)
     assert (r.rows["A"].es, r.rows["A"].ef) == (date(2027, 3, 2), date(2027, 3, 3))
     assert r.rows["B"].es == date(2027, 3, 4)
 
@@ -213,3 +216,95 @@ def test_free_float_never_exceeds_project_finish():
     assert (r.rows["A"].tf, r.rows["A"].ff) == (2, 0)
     r = compute(sched([act("A", 3), act("B", 5), act("C", 1)], [Relation("A", "C", "SS", -4)]))
     assert (r.rows["A"].tf, r.rows["A"].ff) == (2, 2)
+
+
+# ---- 고침 1차: Data Date·끝난 작업 거꾸로 계산·입력 오류 코드 ----
+
+def test_in_progress_with_data_date_counts_remaining_from_data_date():
+    a = act("A", 5, rd=2, actual_start=date(2027, 3, 2), progress=0.6)
+    s = replace(sched([a, act("B", 1)], [Relation("A", "B")]), data_date=date(2027, 3, 5))
+    r = compute(s)
+    assert (r.rows["A"].es, r.rows["A"].ef) == (date(2027, 3, 2), date(2027, 3, 8))
+    assert r.rows["B"].es == date(2027, 3, 9)
+
+
+def test_in_progress_started_after_data_date_counts_from_actual_start():
+    a = act("A", 5, actual_start=date(2027, 3, 9))
+    s = replace(sched([a], []), data_date=date(2027, 3, 5))
+    assert compute(s).rows["A"].ef == date(2027, 3, 15)
+
+
+def test_in_progress_data_date_on_weekend_moves_to_next_workday():
+    a = act("A", 5, rd=1, actual_start=date(2027, 3, 2))
+    s = replace(sched([a], []), data_date=date(2027, 3, 6))
+    assert compute(s).rows["A"].ef == date(2027, 3, 8)
+
+
+def test_not_started_never_starts_before_data_date():
+    s = replace(sched([act("A", 2), act("B", 1)], [Relation("A", "B")]), data_date=date(2027, 3, 10))
+    r = compute(s)
+    assert (r.rows["A"].es, r.rows["A"].ef) == (date(2027, 3, 10), date(2027, 3, 11))
+    assert r.rows["B"].es == date(2027, 3, 12)
+    s = replace(sched([act("A", 2)], []), data_date=date(2027, 3, 6))
+    assert compute(s).rows["A"].es == date(2027, 3, 8)
+
+
+def test_data_date_earlier_than_other_bounds_changes_nothing():
+    s = replace(sched([act("A", 3), act("B", 2)], [Relation("A", "B")]), data_date=date(2027, 2, 1))
+    r = compute(s)
+    assert (r.rows["A"].es, r.rows["B"].es) == (date(2027, 3, 1), date(2027, 3, 4))
+
+
+def test_completed_activity_is_unaffected_by_data_date():
+    a = act("A", 3, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 2), progress=1.0)
+    s = replace(sched([a, act("B", 1)], [Relation("A", "B")]), data_date=date(2027, 3, 10))
+    r = compute(s)
+    assert (r.rows["A"].es, r.rows["A"].ef) == (date(2027, 3, 1), date(2027, 3, 2))
+    assert r.rows["B"].es == date(2027, 3, 10)
+
+
+def test_finished_chain_stays_critical_backward():
+    a = act("A", 3, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 5), progress=1.0)
+    b = act("B", 2, actual_start=date(2027, 3, 8), actual_finish=date(2027, 3, 12), progress=1.0)
+    r = compute(sched([a, b, act("C", 1)], [Relation("A", "B"), Relation("B", "C")]))
+    assert r.rows["C"].es == date(2027, 3, 15)
+    assert [r.rows[i].tf for i in "ABC"] == [0, 0, 0]
+    assert all(r.rows[i].critical for i in "ABC")
+    assert r.critical_path == ("A", "B", "C")
+
+
+def test_finished_successor_passes_its_float_through_ss():
+    # B 는 실제 기간(5일)이 od(2일)보다 길다. A 의 여유는 B 의 여유(0)를 넘지 않는다.
+    b = act("B", 2, actual_start=date(2027, 3, 8), actual_finish=date(2027, 3, 12), progress=1.0)
+    a = act("A", 5, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 5), progress=1.0)
+    r = compute(sched([a, b, act("C", 1)], [Relation("A", "B", "SS", 5), Relation("B", "C")]))
+    assert (r.rows["A"].tf, r.rows["B"].tf) == (0, 0)
+
+
+def test_calendar_without_workdays_raises_schedule_error():
+    cal = CalendarSpec(7, blocked=(BlockedPeriod((1, 1), (12, 31), "x"),))
+    with pytest.raises(ScheduleError) as e: compute(sched([act("A", 1, tags=("x",))], [], cal))
+    assert e.value.code == "no_workdays"
+    assert e.value.detail == {"tags": ["x"]}
+
+
+def test_duplicate_activity_id_raises():
+    with pytest.raises(ScheduleError) as e: compute(sched([act("A", 1), act("B", 1), act("A", 2)], []))
+    assert e.value.code == "duplicate_id"
+    assert e.value.detail == {"activity": "A"}
+
+
+def test_ss_lag_from_actual_start_on_non_workday():
+    a = act("A", 3, actual_start=date(2027, 3, 6))      # 토요일에 시작
+    r = compute(sched([a, act("B", 1)], [Relation("A", "B", "SS", 1)]))
+    assert r.rows["B"].es == date(2027, 3, 8)
+    r = compute(sched([a, act("B", 1)], [Relation("A", "B", "SF", 1)]))
+    assert r.rows["B"].ef == date(2027, 3, 8)
+
+
+def test_completed_without_actual_start_ignores_data_date():
+    b = act("B", 2, actual_finish=date(2027, 3, 12), progress=1.0)
+    s = replace(sched([act("A", 3, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 3)), b],
+                      [Relation("A", "B")]), data_date=date(2027, 3, 15))
+    r = compute(s)
+    assert (r.rows["B"].es, r.rows["B"].ef) == (date(2027, 3, 4), date(2027, 3, 12))
