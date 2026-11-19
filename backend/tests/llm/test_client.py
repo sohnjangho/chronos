@@ -5,9 +5,10 @@ import logging
 import httpx
 import pytest
 from sqlalchemy import inspect, select, text
+from sqlalchemy.orm import Session
 
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, _http_client
-from app.store.tables import LlmAssignment, LlmCall, User
+from app.store.tables import LlmAssignment, LlmCall, LlmConnection, User
 from tests.llm_doubles import KEY, LINER, add_connection, chat_body, tool_call
 
 HI = [{"role": "user", "content": "hi"}]
@@ -126,6 +127,10 @@ async def test_connect_error_is_bad_url(llm, liner):
     assert e.value.error.code == "bad_url"
 
 
+# 응답 본문 앞부분(뒤에 ,"usage":… 를 붙여 쓴다). 넘치는 숫자는 dict 로 만들 수 없어 글로 쓴다.
+OK_CHOICES = '{"choices":[{"message":{"role":"assistant","content":"ok"}}]'
+
+
 def _with_tool_function(function) -> dict:
     return chat_body(None, tool_calls=[{"id": "c1", "type": "function", "function": function}])
 
@@ -139,6 +144,9 @@ UNUSABLE_BODIES = {
     "list_usage": {**chat_body(), "usage": [12, 5]},
     "string_function": _with_tool_function("schedule__read"),
     "null_tool_name": _with_tool_function({"name": None, "arguments": "{}"}),
+    "tokens_1e400": httpx.Response(200, text=f'{OK_CHOICES},"usage":{{"prompt_tokens":1e400}}}}'),
+    "tokens_infinity": httpx.Response(200, text=f'{OK_CHOICES},"usage":{{"completion_tokens":Infinity}}}}'),
+    "cost_400_digits": httpx.Response(200, text=f'{OK_CHOICES},"usage":{{"cost":1{"0" * 400}}}}}'),
 }
 
 
@@ -343,3 +351,63 @@ async def test_recording_failure_keeps_the_original_llm_failed(llm, liner, broke
     with pytest.raises(LlmFailed) as e:
         await llm.chat("light", HI)
     assert e.value.error.code == "bad_key"
+
+
+# ── 기록할 값 다듬기: 제공자가 준 값이 기록을 깨거나 호출 결과를 바꾸지 않는다 ──
+
+
+async def test_token_counts_are_clamped_when_recorded(llm, session, liner):
+    liner.push(chat_body(prompt_tokens=10**20, completion_tokens=-3))
+    r = await llm.chat("light", HI)
+    assert (r.text, r.usage.input_tokens, r.usage.output_tokens) == ("ok", 10**20, -3)
+    row = session.query(LlmCall).one()
+    assert (row.ok, row.input_tokens, row.output_tokens) == (True, 2**63 - 1, 0)
+
+
+async def test_unencodable_model_name_is_cleaned_when_recorded(llm, session, liner):
+    liner.push(httpx.Response(200, text=f'{OK_CHOICES},"model":"claude\\ud800"}}'))
+    r = await llm.chat("light", HI)
+    assert (r.text, r.model) == ("ok", "claude\ud800")
+    assert session.query(LlmCall).one().model == "claude?"
+
+
+@pytest.mark.parametrize("cost", ["Infinity", "-Infinity", "NaN"])
+async def test_non_finite_cost_is_recorded_as_null(llm, session, liner, cost):
+    liner.push(httpx.Response(200, text=f'{OK_CHOICES},"usage":{{"cost":{cost}}}}}'))
+    await llm.chat("light", HI)
+    row = session.query(LlmCall).one()
+    assert row.ok is True and row.cost is None
+
+
+@pytest.fixture
+def recording_raises_non_db_error(monkeypatch):
+    """기록 commit 이 SQLAlchemy 가 감싸지 않는 오류(OverflowError)를 내게 한다."""
+
+    def commit(self):
+        raise OverflowError("Python int too large to convert to SQLite INTEGER")
+
+    monkeypatch.setattr(Session, "commit", commit)
+
+
+async def test_non_db_recording_error_keeps_a_successful_reply(llm, liner, recording_raises_non_db_error, caplog):
+    r = await llm.chat("light", HI)
+    assert r.text == "ok"
+    assert "OverflowError" in caplog.text and "too large" not in caplog.text
+
+
+async def test_non_db_recording_error_keeps_the_original_llm_failed(llm, liner, recording_raises_non_db_error):
+    liner.push(httpx.Response(401))
+    with pytest.raises(LlmFailed) as e:
+        await llm.chat("light", HI)
+    assert e.value.error.code == "bad_key"
+
+
+@pytest.mark.parametrize("calls_bound", [True, False], ids=["llm_calls_bound", "llm_calls_unbound"])
+async def test_recorder_uses_the_bind_for_llm_calls(session, connection, liner, calls_bound):
+    """표마다 묶인 세션: 기록은 LlmCall 의 bind 로 하고, 그것이 없어도 답은 그대로다."""
+    engine = session.get_bind()
+    binds = {LlmConnection: engine, LlmAssignment: engine} | ({LlmCall: engine} if calls_bound else {})
+    with Session(binds=binds) as table_bound:
+        r = await LlmClient(table_bound, transport=liner.transport).chat("light", HI)
+    assert r.text == "ok"
+    assert session.query(LlmCall).count() == (1 if calls_bound else 0)

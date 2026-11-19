@@ -10,12 +10,12 @@
 import asyncio
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Literal
 
 import httpx
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.llm.assignments import Purpose, resolve
@@ -32,8 +32,17 @@ _NOT_READY: dict[str, str] = {
     "no_connection": "LLM 연결이 없습니다. 설정에서 연결을 추가해 주세요.",
     "secret_unreadable": "저장된 키를 읽을 수 없습니다. 키를 다시 넣어 주세요.",
 }
-# 통신 실패, 시간 초과, 쓸 수 없는 응답(JSON 아님·choices 없음·칸의 모양이 틀림).
-_FAILURES = (httpx.HTTPError, httpx.InvalidURL, TimeoutError, ValueError, TypeError, LookupError)
+# 통신 실패, 시간 초과, 쓸 수 없는 응답(JSON 아님·choices 없음·칸의 모양이 틀림·숫자가 넘침).
+_FAILURES = (
+    httpx.HTTPError,
+    httpx.InvalidURL,
+    TimeoutError,
+    ValueError,
+    TypeError,
+    LookupError,
+    OverflowError,
+)
+_MAX_SQL_INT = 2**63 - 1  # SQLite INTEGER 의 가장 큰 값
 
 
 @dataclass(frozen=True)
@@ -191,7 +200,11 @@ def _text(content: object) -> str:
 
 
 def _parse_reply(data: dict, requested_model: str, *, want_json: bool) -> LlmReply:
-    """응답 본문 → LlmReply. 모양이 틀리면 ValueError·TypeError·LookupError (→ 실패로 바뀐다)."""
+    """응답 본문 → LlmReply.
+
+    모양이 틀리면 ValueError·TypeError·LookupError, 숫자가 넘치면(토큰 수 1e400·Infinity,
+    400자리 정수 cost) OverflowError (→ 모두 unknown 실패로 바뀐다).
+    """
     message = _object(data["choices"][0]["message"])
     text = _text(message.get("content"))
     usage = data.get("usage")
@@ -210,7 +223,25 @@ def _parse_reply(data: dict, requested_model: str, *, want_json: bool) -> LlmRep
     )
 
 
+def _count(n: int) -> int:
+    """기록할 토큰 수: 0 ~ SQLite INTEGER 의 가장 큰 값."""
+    return min(max(n, 0), _MAX_SQL_INT)
+
+
+def _money(cost: float | None) -> float | None:
+    """기록할 비용: 유한한 값만, 아니면 None."""
+    return cost if cost is not None and math.isfinite(cost) else None
+
+
+def _storable(text: str) -> str:
+    """UTF-8 로 쓸 수 없는 글자(짝 없는 surrogate 등)를 '?' 로 바꾼다."""
+    return text.encode("utf-8", "replace").decode("utf-8")
+
+
 class LlmClient:
+    """session 은 Engine 에 묶여 있어야 한다. Connection 에 묶인 세션은 지원하지 않는다
+    (llm_calls 를 쓰는 기록 세션이 부른 쪽 트랜잭션에 끼게 된다)."""
+
     def __init__(
         self, session: Session, *, transport: httpx.AsyncBaseTransport | None = None
     ) -> None:
@@ -258,32 +289,37 @@ class LlmClient:
         reply: LlmReply | None,
         error: LlmError | None,
     ) -> None:
-        """llm_calls 한 줄을 같은 DB 에 따로 연 짧은 세션으로 저장한다.
+        """llm_calls 한 줄을 LlmCall 의 bind(같은 DB)에 따로 연 짧은 세션으로 저장한다.
 
-        부른 쪽 세션은 commit·expire 하지 않는다. 저장이 실패하면 되돌리고 경고(예외 종류만)를
-        남길 뿐, 호출 결과는 바꾸지 않는다.
+        부른 쪽 세션은 commit·expire 하지 않는다. 제공자가 준 값은 쓸 수 있게 다듬는다
+        (토큰 수 0~2^63-1, 비용은 유한한 값 아니면 None, 모델 이름의 쓸 수 없는 글자는 '?').
+        저장이 어떤 이유로든 실패하면 되돌리고 경고(예외 종류만)를 남길 뿐, 호출 결과는 바꾸지 않는다.
         """
-        row = LlmCall(
-            chat_session_id=chat_session_id,
-            purpose=purpose,
-            model=reply.model if reply else target.model,
-            requested_model=target.model,
-            routing_strategy=target.routing_strategy,
-            input_tokens=reply.usage.input_tokens if reply else 0,
-            output_tokens=reply.usage.output_tokens if reply else 0,
-            cost=reply.usage.cost if reply else None,
-            latency_ms=latency_ms,
-            ok=error is None,
-            error_code=error.code if error else None,
-        )
-        with Session(self._session.get_bind()) as recorder:
-            try:
+        try:
+            row = LlmCall(
+                chat_session_id=chat_session_id,
+                purpose=purpose,
+                model=_storable(reply.model) if reply else target.model,
+                requested_model=target.model,
+                routing_strategy=target.routing_strategy,
+                input_tokens=_count(reply.usage.input_tokens) if reply else 0,
+                output_tokens=_count(reply.usage.output_tokens) if reply else 0,
+                cost=_money(reply.usage.cost) if reply else None,
+                latency_ms=latency_ms,
+                ok=error is None,
+                error_code=error.code if error else None,
+            )
+            with Session(self._session.get_bind(LlmCall)) as recorder:
                 recorder.add(row)
-                recorder.commit()
-            except SQLAlchemyError as exc:
-                recorder.rollback()
-                # 예외 글에는 SQL 과 값이 들어 있으므로 종류만 남긴다.
-                logger.warning("LLM 호출 기록 저장 실패: purpose=%s (%s)", purpose, type(exc).__name__)
+                try:
+                    recorder.commit()
+                except Exception:
+                    recorder.rollback()
+                    raise
+        # 기록은 호출 결과(답·LlmFailed)를 바꾸지 않는다. 예외 글·추적에는 SQL 과 값이 들어 있을
+        # 수 있으므로 logger.exception 대신 종류만 남긴다(그래서 BLE001 을 끈다).
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("LLM 호출 기록 저장 실패: purpose=%s (%s)", purpose, type(exc).__name__)
 
     async def chat(
         self,
@@ -306,10 +342,12 @@ class LlmClient:
           (받은 원문은 raw_arguments). None 인 인자는 registry.call 이 실행하지 않고 거절한다.
         - 없는 purpose(KeyError)·모양이 틀린 messages(KeyError·TypeError·AttributeError)는 부른
           쪽 잘못이다. 보내기 전에 그대로 올라가고 llm_calls 에도 남지 않는다.
-        - 기록: 보낸 호출마다(실패 포함) llm_calls 에 한 줄을 남긴다. 받은 세션과 같은 DB 에 따로
-          연 짧은 세션으로 저장하고 그것만 commit 한다. 받은 세션은 commit·expire·flush 하지
-          않는다(쌓인 변경도 그대로 남는다). 기록 저장이 실패해도 경고만 남기고 결과(답 또는
-          LlmFailed)는 그대로다. 부르는 쪽은 commit 하지 않은 쓰기를 쥔 채 chat 을 부르면 안
+        - 기록: 보낸 호출마다(실패 포함) llm_calls 에 한 줄을 남긴다. 받은 세션의 LlmCall bind
+          (같은 DB)에 따로 연 짧은 세션으로 저장하고 그것만 commit 한다. 받은 세션은 Engine 에
+          묶여 있어야 한다(Connection 에 묶인 세션은 지원하지 않는다: 기록 세션이 부른 쪽
+          트랜잭션에 끼게 된다). 받은 세션은 commit·expire·flush 하지 않는다(쌓인 변경도 그대로
+          남는다). 기록 저장이 어떤 이유로든 실패해도 경고만 남기고 결과(답 또는 LlmFailed)는
+          그대로다. 부르는 쪽은 commit 하지 않은 쓰기를 쥔 채 chat 을 부르면 안
           된다. 그러면 SQLite busy timeout(기본 5초)을 기다린 뒤 사용량 기록이 빠질 수 있다.
         """
         target = self._target(purpose)
