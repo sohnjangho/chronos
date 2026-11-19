@@ -1,0 +1,25 @@
+# 비밀값·자료 — 절대 커밋하지 않는다 (대회 규정 제4조 6항)
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.sqlite*
+secrets/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# 기타
+.DS_Store
+*.log
