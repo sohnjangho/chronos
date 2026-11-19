@@ -23,3 +23,6 @@ dist/
 # 기타
 .DS_Store
 *.log
+
+# 작업 진행 기록(커밋하지 않음)
+.superpowers/
