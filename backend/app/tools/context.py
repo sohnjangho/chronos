@@ -1,15 +1,20 @@
 """도구가 실행될 때 받는 문맥과, 도구가 내는 오류."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.agent.events import AgentEvent
+from app.core.cpm import ScheduleError
+from app.store.messages import schedule_error_message
+from app.store.schedules import NotFound
 from app.store.tables import User
 
 NO_SCHEDULE_MESSAGE = "대상 일정이 없습니다."
+SCHEDULE_NOT_FOUND_MESSAGE = "일정을 찾을 수 없습니다."
 
 
 class ToolError(Exception):
@@ -18,6 +23,17 @@ class ToolError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.message = message
+
+
+@contextmanager
+def explained_schedule_errors() -> Iterator[None]:
+    """없는 일정(NotFound)·계산이 안 되는 일정(ScheduleError)을 한국어 설명의 ToolError 로 바꾼다."""
+    try:
+        yield
+    except NotFound:
+        raise ToolError(SCHEDULE_NOT_FOUND_MESSAGE) from None
+    except ScheduleError as e:
+        raise ToolError(schedule_error_message(e)) from None
 
 
 class NoArgs(BaseModel):

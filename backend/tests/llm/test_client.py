@@ -4,9 +4,10 @@ import logging
 
 import httpx
 import pytest
+from sqlalchemy import inspect, select, text
 
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, _http_client
-from app.store.tables import LlmAssignment, LlmCall
+from app.store.tables import LlmAssignment, LlmCall, User
 from tests.llm_doubles import KEY, LINER, add_connection, chat_body, tool_call
 
 HI = [{"role": "user", "content": "hi"}]
@@ -125,12 +126,30 @@ async def test_connect_error_is_bad_url(llm, liner):
     assert e.value.error.code == "bad_url"
 
 
-@pytest.mark.parametrize("response", [httpx.Response(200, text="not json"), {"choices": []}, {"x": 1}])
+def _with_tool_function(function) -> dict:
+    return chat_body(None, tool_calls=[{"id": "c1", "type": "function", "function": function}])
+
+
+UNUSABLE_BODIES = {
+    "not_json": httpx.Response(200, text="not json"),
+    "no_choices": {"choices": []},
+    "no_choices_key": {"x": 1},
+    "null_message": {"choices": [{"message": None}]},
+    "string_message": {"choices": [{"message": "안녕"}]},
+    "list_usage": {**chat_body(), "usage": [12, 5]},
+    "string_function": _with_tool_function("schedule__read"),
+    "null_tool_name": _with_tool_function({"name": None, "arguments": "{}"}),
+}
+
+
+@pytest.mark.parametrize("response", UNUSABLE_BODIES.values(), ids=UNUSABLE_BODIES.keys())
 async def test_unusable_body_is_unknown_failure(llm, session, liner, response):
     liner.push(response)
     with pytest.raises(LlmFailed) as e:
         await llm.chat("light", HI)
-    assert e.value.error.code == "unknown" and session.query(LlmCall).one().ok is False
+    assert e.value.error.code == "unknown"
+    row = session.query(LlmCall).one()
+    assert row.ok is False and row.error_code == "unknown"
 
 
 async def test_success_row_has_no_content_and_all_columns(llm, session, liner):
@@ -174,13 +193,29 @@ async def test_tools_are_sent_and_tool_call_names_come_back_dotted(llm, liner):
     ]
 
 
-async def test_unparseable_tool_arguments_become_empty_dict(llm, liner):
+async def test_unparseable_tool_arguments_become_none_and_keep_the_raw_text(llm, liner):
     liner.push(chat_body(None, tool_calls=[
         {"id": "c1", "type": "function", "function": {"name": "calc__cpm", "arguments": "{oops"}},
         {"id": "c2", "type": "function", "function": {"name": "calc__cpm", "arguments": "[1]"}},
+        {"id": "c3", "type": "function", "function": {"name": "calc__cpm", "arguments": "{}"}},
+        {"id": "c4", "type": "function", "function": {"name": "calc__cpm", "arguments": 5}},
+        {"id": "c5", "type": "function", "function": {"name": "calc__cpm"}},
     ]))
     r = await llm.chat("normal", HI)
-    assert [c.arguments for c in r.tool_calls] == [{}, {}]
+    assert [(c.arguments, c.raw_arguments) for c in r.tool_calls] == [
+        (None, "{oops"), (None, "[1]"), ({}, None), (None, "5"), (None, None),
+    ]
+
+
+async def test_content_parts_are_joined_text_parts_only(llm, liner):
+    liner.push(chat_body([
+        {"type": "text", "text": "안녕"},
+        {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+        "조각 아님",
+        {"type": "text", "text": "하세요"},
+    ]))
+    r = await llm.chat("light", HI)
+    assert r.text == "안녕하세요"
 
 
 async def test_dotted_names_in_history_are_sent_in_llm_form(llm, liner):
@@ -242,10 +277,56 @@ async def test_key_never_logged_or_stored_or_in_errors(llm, session, liner, capl
     assert KEY not in repr(llm) and KEY not in repr(vars(llm))
 
 
-def test_http_client_ignores_proxy_environment_and_does_not_retry():
+def test_http_client_ignores_proxy_environment_and_uses_the_timeout():
     client = _http_client(None, 5)
     assert client.trust_env is False and client.timeout == httpx.Timeout(5)
 
 
 def test_client_needs_only_a_session(session):
     assert isinstance(LlmClient(session), LlmClient)
+
+
+@pytest.mark.parametrize(
+    ("purpose", "messages"),
+    [("nope", HI), ("light", [{"role": "assistant", "tool_calls": [{"id": "c1"}]}])],
+    ids=["unknown_purpose", "malformed_history"],
+)
+async def test_caller_errors_are_raised_before_the_request(llm, session, liner, purpose, messages):
+    with pytest.raises((KeyError, TypeError, AttributeError)):
+        await llm.chat(purpose, messages)
+    assert liner.requests == [] and session.query(LlmCall).count() == 0
+
+
+# ── 기록은 따로 짧은 세션으로: 부른 쪽 트랜잭션을 건드리지 않는다 ──────
+
+
+async def test_chat_neither_commits_nor_expires_the_callers_session(llm, session):
+    admin = session.scalars(select(User).where(User.login_id == "admin")).one()
+    session.add(User(login_id="draft", name="저장 전", role="user", password_hash="x"))
+    await llm.chat("light", HI)
+    assert not inspect(admin).expired_attributes
+    session.rollback()
+    assert session.scalar(select(User).where(User.login_id == "draft")) is None
+    assert session.query(LlmCall).one().ok is True  # 기록은 따로 남았다
+
+
+@pytest.fixture
+def broken_recording(session):
+    """llm_calls 표를 지워 기록 저장(commit)이 실패하게 한다."""
+    session.execute(text("DROP TABLE llm_calls"))
+    session.commit()
+
+
+async def test_recording_failure_keeps_a_successful_reply(llm, session, liner, broken_recording, caplog):
+    liner.push(chat_body("답입니다"))
+    r = await llm.chat("light", HI)
+    assert r.text == "답입니다" and r.usage.cost == 0.04
+    assert "OperationalError" in caplog.text and "INSERT" not in caplog.text
+    assert session.scalar(select(User.login_id).where(User.login_id == "admin")) == "admin"
+
+
+async def test_recording_failure_keeps_the_original_llm_failed(llm, liner, broken_recording):
+    liner.push(httpx.Response(401))
+    with pytest.raises(LlmFailed) as e:
+        await llm.chat("light", HI)
+    assert e.value.error.code == "bad_key"

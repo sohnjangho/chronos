@@ -6,6 +6,8 @@ import pytest
 
 from app.agent.events import AgentEvent
 from app.core.model import Relation, Resource
+from app.store.schedules import to_json
+from app.store.tables import ScheduleVersion
 from app.tools.registry import call, list_tools
 from tests.schedules import make, store, task
 
@@ -48,6 +50,11 @@ async def test_open_window_rejects_bad_input(ctx, events):
     assert events == []
 
 
+async def test_open_window_rejects_a_misspelled_field(ctx, events):
+    r = await call("ui.open_window", {"program": "schedule", "param": {"tab": "gantt"}}, ctx)
+    assert r.ok is False and r.error.startswith("입력 형식 오류: param: ") and events == []
+
+
 async def test_schedule_read_summary(sched_ctx, events):
     r = await call("schedule.read", {}, sched_ctx)
     assert r.ok is True and r.error is None and events == []
@@ -84,6 +91,23 @@ async def test_schedule_read_matches_schedule_api(client, admin, sched_ctx, sid)
 async def test_missing_schedule_id_fails_with_message(ctx, name):
     r = await call(name, {}, ctx)
     assert (r.ok, r.output, r.error) == (False, None, "대상 일정이 없습니다.")
+
+
+@pytest.mark.parametrize("name", ["schedule.read", "calc.cpm"])
+async def test_unknown_schedule_is_explained(ctx, name):
+    r = await call(name, {}, replace(ctx, schedule_id=999))
+    assert (r.ok, r.output, r.error) == (False, None, "일정을 찾을 수 없습니다.")
+
+
+CYCLE = make([task("A", 1), task("B", 1)], [Relation("A", "B"), Relation("B", "A")])
+
+
+@pytest.mark.parametrize("name", ["schedule.read", "calc.cpm"])
+async def test_uncomputable_schedule_is_explained(sched_ctx, session, sid, name):
+    session.get(ScheduleVersion, (sid, 1)).snapshot_json = to_json(CYCLE)
+    session.commit()
+    r = await call(name, {}, sched_ctx)
+    assert (r.ok, r.output, r.error) == (False, None, "선후 관계가 고리를 이룹니다.")
 
 
 @pytest.mark.parametrize("name", ["schedule.read", "calc.cpm"])

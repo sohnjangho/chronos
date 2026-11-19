@@ -4,6 +4,7 @@
   기록(log)·예외·repr·llm_calls 표 어디에도 담지 않는다.
 - 다시 시도하지 않는다. 실패는 LlmFailed(설명 붙음)로 바꾼다.
 - 호출마다(실패 포함) llm_calls 에 한 줄을 남긴다. 주고받은 글은 남기지 않는다.
+  기록은 따로 짧은 세션으로 저장하고, 부른 쪽 세션(트랜잭션)은 건드리지 않는다.
 """
 
 import asyncio
@@ -14,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 import httpx
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.llm.assignments import Purpose, resolve
@@ -30,7 +32,7 @@ _NOT_READY: dict[str, str] = {
     "no_connection": "LLM 연결이 없습니다. 설정에서 연결을 추가해 주세요.",
     "secret_unreadable": "저장된 키를 읽을 수 없습니다. 키를 다시 넣어 주세요.",
 }
-# 통신 실패, 시간 초과, 쓸 수 없는 응답(JSON 아님·choices 없음).
+# 통신 실패, 시간 초과, 쓸 수 없는 응답(JSON 아님·choices 없음·칸의 모양이 틀림).
 _FAILURES = (httpx.HTTPError, httpx.InvalidURL, TimeoutError, ValueError, TypeError, LookupError)
 
 
@@ -45,7 +47,8 @@ class Usage:
 class ToolCall:
     id: str
     name: str  # 등록부 이름(점 표기, 예: schedule.read)
-    arguments: dict
+    arguments: dict | None  # JSON 객체로 읽지 못했으면 None(registry.call 이 실행하지 않고 거절)
+    raw_arguments: str | None = None  # arguments 가 None 일 때 받은 원문(진단용). 없었으면 None
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,17 @@ def _request_body(
     return body
 
 
+class _Unusable(ValueError):
+    """응답 속 칸의 모양이 틀렸다(→ unknown 실패)."""
+
+
+def _object(value: object) -> dict:
+    """응답 속 객체여야 하는 칸. dict 가 아니면 쓸 수 없는 응답이다."""
+    if not isinstance(value, dict):
+        raise _Unusable
+    return value
+
+
 def _json_object(text: str) -> dict | None:
     try:
         value = json.loads(text)
@@ -126,28 +140,56 @@ def _json_object(text: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+def _arguments(raw: object) -> tuple[dict | None, str | None]:
+    """(인자, 원문). JSON 객체로 읽히면 (객체, None), 아니면 (None, 받은 원문)."""
+    if isinstance(raw, dict):
+        return raw, None
+    if isinstance(raw, str):
+        parsed = _json_object(raw)
+        return (parsed, None) if parsed is not None else (None, raw)
+    return None, None if raw is None else json.dumps(raw, ensure_ascii=False)
+
+
 def _tool_calls(message: dict) -> list[ToolCall]:
     calls = []
     for item in message.get("tool_calls") or []:
-        function = item["function"]
-        arguments = function.get("arguments")
-        parsed = _json_object(arguments) if isinstance(arguments, str) else arguments
+        function = _object(item["function"])
+        name = function["name"]
+        if not isinstance(name, str):
+            raise _Unusable
+        arguments, raw = _arguments(function.get("arguments"))
         calls.append(
             ToolCall(
                 id=str(item.get("id", "")),
-                name=from_llm_name(function["name"]),
-                arguments=parsed if isinstance(parsed, dict) else {},
+                name=from_llm_name(name),
+                arguments=arguments,
+                raw_arguments=raw,
             )
         )
     return calls
 
 
+def _text(content: object) -> str:
+    """답 글. 조각 목록이면 type 이 text 인 조각의 text 를 잇는다(다른 조각은 버린다)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            part["text"]
+            for part in content
+            if isinstance(part, dict)
+            and part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+        )
+    return ""
+
+
 def _parse_reply(data: dict, requested_model: str, *, want_json: bool) -> LlmReply:
-    """응답 본문 → LlmReply. choices 가 없으면 LookupError/TypeError (→ 실패로 바뀐다)."""
-    message = data["choices"][0]["message"]
-    content = message.get("content")
-    text = content if isinstance(content, str) else ""
-    usage = data.get("usage") or {}
+    """응답 본문 → LlmReply. 모양이 틀리면 ValueError·TypeError·LookupError (→ 실패로 바뀐다)."""
+    message = _object(data["choices"][0]["message"])
+    text = _text(message.get("content"))
+    usage = data.get("usage")
+    usage = {} if usage is None else _object(usage)
     cost = usage.get("cost")
     return LlmReply(
         text=text,
@@ -170,12 +212,15 @@ class LlmClient:
         self._transport = transport  # 시험에서 httpx.MockTransport 를 넣는다
 
     def _target(self, purpose: Purpose) -> _Target:
-        assignment = resolve(self._session, purpose)
-        conn = (
-            self._session.get(LlmConnection, assignment.connection_id)
-            if assignment.connection_id is not None
-            else None
-        )
+        # 부른 쪽 세션에 쌓인 변경을 flush 하지 않는다. flush 하면 그 연결이 SQLite 쓰기 잠금을
+        # 쥐어, 따로 여는 기록 세션이 잠금을 기다리게 된다.
+        with self._session.no_autoflush:
+            assignment = resolve(self._session, purpose)
+            conn = (
+                self._session.get(LlmConnection, assignment.connection_id)
+                if assignment.connection_id is not None
+                else None
+            )
         if conn is None:
             raise LlmNotReady("no_connection")
         try:
@@ -207,22 +252,32 @@ class LlmClient:
         reply: LlmReply | None,
         error: LlmError | None,
     ) -> None:
-        self._session.add(
-            LlmCall(
-                chat_session_id=chat_session_id,
-                purpose=purpose,
-                model=reply.model if reply else target.model,
-                requested_model=target.model,
-                routing_strategy=target.routing_strategy,
-                input_tokens=reply.usage.input_tokens if reply else 0,
-                output_tokens=reply.usage.output_tokens if reply else 0,
-                cost=reply.usage.cost if reply else None,
-                latency_ms=latency_ms,
-                ok=error is None,
-                error_code=error.code if error else None,
-            )
+        """llm_calls 한 줄을 같은 DB 에 따로 연 짧은 세션으로 저장한다.
+
+        부른 쪽 세션은 commit·expire 하지 않는다. 저장이 실패하면 되돌리고 경고(예외 종류만)를
+        남길 뿐, 호출 결과는 바꾸지 않는다.
+        """
+        row = LlmCall(
+            chat_session_id=chat_session_id,
+            purpose=purpose,
+            model=reply.model if reply else target.model,
+            requested_model=target.model,
+            routing_strategy=target.routing_strategy,
+            input_tokens=reply.usage.input_tokens if reply else 0,
+            output_tokens=reply.usage.output_tokens if reply else 0,
+            cost=reply.usage.cost if reply else None,
+            latency_ms=latency_ms,
+            ok=error is None,
+            error_code=error.code if error else None,
         )
-        self._session.commit()
+        with Session(self._session.get_bind()) as recorder:
+            try:
+                recorder.add(row)
+                recorder.commit()
+            except SQLAlchemyError as exc:
+                recorder.rollback()
+                # 예외 글에는 SQL 과 값이 들어 있으므로 종류만 남긴다.
+                logger.warning("LLM 호출 기록 저장 실패: purpose=%s (%s)", purpose, type(exc).__name__)
 
     async def chat(
         self,
@@ -234,11 +289,20 @@ class LlmClient:
         timeout_s: float = 60,
         chat_session_id: int | None = None,
     ) -> LlmReply:
-        """한 번 부른다. 연결이 없으면 LlmNotReady, 실패하면 LlmFailed.
+        """한 번 부른다. 연결이 없으면 LlmNotReady, 보낸 뒤 실패하면 LlmFailed.
 
-        timeout_s 는 호출 전체에 건다. tools 는 registry.as_llm_tools() 형식.
-        json_schema 를 주면 그 모양의 JSON 을 요청하고, 답이 JSON 객체면 reply.parsed 에 담는다
-        (아니면 parsed=None, text 에 받은 그대로).
+        - timeout_s 는 호출 전체에 건다. tools 는 registry.as_llm_tools() 형식.
+        - json_schema 를 주면 strict 모드로 그 모양의 JSON 을 요청한다. strict 모드는 모든 속성이
+          required 에 들어 있고 additionalProperties 가 false 여야 하므로(중첩 객체도) 스키마를
+          그렇게 써서 넘긴다. 답이 JSON 객체면 reply.parsed 에 담는다(아니면 parsed=None,
+          text 에 받은 그대로).
+        - 없는 purpose(KeyError)·모양이 틀린 messages(KeyError·TypeError·AttributeError)는 부른
+          쪽 잘못이다. 보내기 전에 그대로 올라가고 llm_calls 에도 남지 않는다.
+        - 기록: 보낸 호출마다(실패 포함) llm_calls 에 한 줄을 남긴다. 받은 세션과 같은 DB 에 따로
+          연 짧은 세션으로 저장하고 그것만 commit 한다. 받은 세션은 commit·expire·flush 하지
+          않는다(쌓인 변경도 그대로 남는다). 기록 저장이 실패해도 경고만 남기고 결과(답 또는
+          LlmFailed)는 그대로다. 받은 세션이 쓰기를 flush 한 채(SQLite 쓰기 잠금을 쥔 채)
+          부르면 기록 세션이 잠금을 기다리다 기록을 못 남길 수 있으니, 쓰기는 먼저 commit 한다.
         """
         target = self._target(purpose)
         body = _request_body(target, messages, tools, json_schema)

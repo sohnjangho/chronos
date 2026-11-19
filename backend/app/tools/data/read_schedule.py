@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.store.schedules import load
 from app.store.view import view_data
-from app.tools.context import NoArgs, ToolContext
+from app.tools.context import NoArgs, ToolContext, explained_schedule_errors
 from app.tools.registry import tool
 
 
@@ -35,7 +35,8 @@ class ReadScheduleOut(BaseModel):
 )
 def read_schedule(args: NoArgs, ctx: ToolContext) -> ReadScheduleOut:
     schedule_id = ctx.require_schedule_id()
-    view = view_data(ctx.session, schedule_id)
+    with explained_schedule_errors():
+        view = view_data(ctx.session, schedule_id)
     _, conditions, _ = load(ctx.session, schedule_id, view["version"])
     return ReadScheduleOut(
         name=view["name"],

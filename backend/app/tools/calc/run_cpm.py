@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.store.schedules import load
 from app.store.view import run
-from app.tools.context import NoArgs, ToolContext
+from app.tools.context import NoArgs, ToolContext, explained_schedule_errors
 from app.tools.registry import tool
 
 
@@ -33,8 +33,9 @@ class CpmOut(BaseModel):
     program="schedule",
 )
 def run_cpm(args: NoArgs, ctx: ToolContext) -> CpmOut:
-    schedule, _, _ = load(ctx.session, ctx.require_schedule_id())
-    cpm = run(schedule)
+    with explained_schedule_errors():
+        schedule, _, _ = load(ctx.session, ctx.require_schedule_id())
+        cpm = run(schedule)
     rows = []
     for a in schedule.activities:
         row = cpm.rows[a.id]

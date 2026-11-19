@@ -4,7 +4,7 @@ import logging
 import re
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, create_model
 
 from app.tools import registry
 from app.tools.context import ToolContext, ToolError
@@ -73,6 +73,19 @@ def test_bad_tool_name_raises(name):
     with pytest.raises(ValueError):
         tool(name, "이름이 틀림")(run)
     assert name not in {t.name for t in list_tools(enabled_only=False)}
+
+
+@pytest.mark.parametrize("extra", [None, "ignore", "allow"])
+def test_input_model_must_forbid_unknown_fields(extra):
+    config = ConfigDict(extra=extra) if extra else ConfigDict()
+    loose = create_model("Loose", __config__=config, n=(int, 0))
+
+    def run(args: loose, ctx: ToolContext) -> SpyOut:
+        return SpyOut(n=args.n)
+
+    with pytest.raises(TypeError, match="extra"):
+        tool("temp.loose", "모르는 칸을 받음")(run)
+    assert "temp.loose" not in {t.name for t in list_tools(enabled_only=False)}
 
 
 def test_function_without_models_raises():
@@ -175,3 +188,23 @@ async def test_tool_error_message_is_passed_through(ctx):
     with registered("temp.refuse", run):
         r = await call("temp.refuse", {}, ctx)
     assert (r.ok, r.output, r.error) == (False, None, "그 창은 열 수 없습니다.")
+
+
+class OptionalIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    n: int = 1
+
+
+@pytest.mark.parametrize("arguments", [None, [1], "{}"], ids=["none", "list", "string"])
+async def test_arguments_that_are_not_an_object_are_rejected_before_running(ctx, arguments):
+    ran = []
+
+    def run(args: OptionalIn, ctx: ToolContext) -> SpyOut:  # 칸이 모두 선택이라 {} 면 돈다
+        ran.append(args)
+        return SpyOut(n=args.n)
+
+    with registered("temp.optional", run):
+        r = await call("temp.optional", arguments, ctx)
+    assert (r.ok, r.output, r.error) == (False, None, "입력 형식 오류: 인자가 JSON 객체가 아닙니다.")
+    assert ran == []

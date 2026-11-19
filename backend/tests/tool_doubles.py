@@ -3,12 +3,14 @@
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.tools import registry
 
 
 class SpyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     n: int
 
 
@@ -17,7 +19,7 @@ class SpyOut(BaseModel):
 
 
 class Empty(BaseModel):
-    pass
+    model_config = ConfigDict(extra="forbid")
 
 
 @contextmanager
