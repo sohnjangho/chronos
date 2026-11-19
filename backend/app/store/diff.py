@@ -1,7 +1,8 @@
 """두 일정의 차이를 변경 이력 꼴 [{id, field, from, to}] 로 만든다.
 
 - 칸이 달라진 액티비티: 칸마다 {id, field, from, to} (값은 JSON 꼴).
-- 생긴·없어진 액티비티: {id, field: "activity", from: None, to: id} / {from: id, to: None}.
+- 생긴·없어진 액티비티: {id, field: "activity", from: None, to: 액티비티 JSON} / {from: 액티비티 JSON, to: None}
+  (액티비티 추가·삭제 API 와 같은 꼴).
 - 선행이 달라진 액티비티: {id: 후행, field: "predecessors", from: [{pred,type,lag}], to: [...]}.
 일정 전체의 칸(달력·WBS·자원·시작일·Data Date)은 비교하지 않는다.
 """
@@ -34,9 +35,9 @@ def schedule_changes(old: Schedule, new: Schedule) -> list[dict]:
     changes: list[dict] = []
     for aid in list(news) + [i for i in olds if i not in news]:
         if aid not in olds:
-            changes.append({"id": aid, "field": "activity", "from": None, "to": aid})
+            changes.append({"id": aid, "field": "activity", "from": None, "to": news[aid]})
         elif aid not in news:
-            changes.append({"id": aid, "field": "activity", "from": aid, "to": None})
+            changes.append({"id": aid, "field": "activity", "from": olds[aid], "to": None})
         else:
             changes += field_changes(aid, olds[aid], news[aid])
         before, after = predecessors(old, aid), predecessors(new, aid)

@@ -20,6 +20,7 @@ from app.core.model import (
 )
 from app.store.schedules import (
     NotFound,
+    activity_json,
     create_schedule,
     from_json,
     get_record,
@@ -286,9 +287,9 @@ def test_restore_records_differences(session, sid, sample_schedule):
     assert sorted(log.changes_json, key=lambda c: (c["id"], c["field"])) == [
         {"id": "A", "field": "od", "from": 5, "to": 3},
         {"id": "A", "field": "tags", "from": ["x"], "to": []},
-        {"id": "B", "field": "activity", "from": None, "to": "B"},
+        {"id": "B", "field": "activity", "from": None, "to": activity_json(sample_schedule.activities[1])},
         {"id": "B", "field": "predecessors", "from": [], "to": [{"pred": "A", "type": "FS", "lag": 0}]},
-        {"id": "C", "field": "activity", "from": "C", "to": None},
+        {"id": "C", "field": "activity", "from": activity_json(task("C", 1)), "to": None},
         {"id": "C", "field": "predecessors", "from": [{"pred": "A", "type": "SS", "lag": 1}], "to": []},
     ]
 
@@ -303,3 +304,43 @@ def test_restore_of_invalid_snapshot_raises_and_saves_nothing(session, sid, samp
     assert session.get(ScheduleRecord, sid).current_version == 2
     assert len(list_versions(session, sid)) == 2
     assert session.query(ChangeLog).filter_by(schedule_id=sid).count() == 1
+
+
+# ── 고침 2차 ────────────────────────────────────────────────────────
+
+
+def _two_saves_elsewhere(session, sid, schedule):
+    """다른 세션이 두 번 저장한다(DB 의 지금 버전 3)."""
+    with Session(session.get_bind()) as other:
+        _save(other, sid, schedule, 1)
+        _save(other, sid, schedule, 2)
+
+
+def test_conflict_with_commit_false_keeps_the_db_version_in_session(session, sid, sample_schedule):
+    # 세션의 객체 지도는 약한 참조라, 부르는 쪽처럼 객체를 붙잡고 있어야 낡은 값이 남는다.
+    record = get_record(session, sid)
+    assert record.current_version == 1
+    _two_saves_elsewhere(session, sid, sample_schedule)
+    with pytest.raises(VersionConflict) as e:
+        _save(session, sid, sample_schedule, 1, commit=False)
+    assert e.value.current == 3
+    assert get_record(session, sid) is record and record.current_version == 3
+    assert load(session, sid)[2] == 3
+
+
+def test_successful_save_with_commit_false_shows_the_new_version_in_session(session, sid, sample_schedule):
+    record = get_record(session, sid)
+    assert record.current_version == 1
+    assert _save(session, sid, sample_schedule, 1, commit=False) == 2
+    assert record.current_version == 2
+
+
+def test_restore_reads_the_db_version_not_a_stale_session_value(session, sid, sample_schedule):
+    record = get_record(session, sid)
+    assert record.current_version == 1
+    _two_saves_elsewhere(session, sid, sample_schedule)
+    assert restore(session, sid, 1, by_name="a", base_version=3, commit=False) == 4
+    with pytest.raises(VersionConflict) as e:
+        restore(session, sid, 1, by_name="a", base_version=3, commit=False)
+    assert e.value.current == 4
+    assert record.current_version == 4

@@ -24,11 +24,26 @@ class VersionConflict(Exception):
         self.current = current
 
 
-def _current_in_db(session: Session, schedule_id: int) -> int:
-    """세션에 든 객체가 아니라 DB 의 지금 버전 번호."""
-    return session.scalar(
-        select(ScheduleRecord.current_version).where(ScheduleRecord.id == schedule_id)
+def _fresh_record(session: Session, schedule_id: int) -> ScheduleRecord:
+    """세션의 일정 객체. current_version 은 다음에 읽을 때 DB 에서 다시 읽게 해 둔다."""
+    record = get_record(session, schedule_id)  # 없는 일정이면 NotFound
+    session.expire(record, ["current_version"])
+    return record
+
+
+def _bump(session: Session, schedule_id: int, base_version: int) -> bool:
+    """DB 의 지금 버전이 base_version 이면 하나 올리고 True. 세션 객체는 건드리지 않는다.
+
+    "evaluate" 동기화는 DB 에서 0줄이 바뀌어도 낡은 세션 객체를 base+1 로 바꾸므로 끈다.
+    부르는 쪽이 _fresh_record 로 값을 만료시켜 DB 값을 다시 읽는다.
+    """
+    result = session.execute(
+        update(ScheduleRecord)
+        .where(ScheduleRecord.id == schedule_id, ScheduleRecord.current_version == base_version)
+        .values(current_version=base_version + 1)
+        .execution_options(synchronize_session=False)
     )
+    return result.rowcount == 1
 
 
 def save_new_version(
@@ -45,15 +60,11 @@ def save_new_version(
     commit: bool = True,
 ) -> int:
     """base_version+1 번 버전과 변경 이력 한 줄을 저장한다. 계산 확인은 부르는 쪽이 한다."""
-    get_record(session, schedule_id)  # 없는 일정이면 NotFound
     n = base_version + 1
-    bumped = session.execute(
-        update(ScheduleRecord)
-        .where(ScheduleRecord.id == schedule_id, ScheduleRecord.current_version == base_version)
-        .values(current_version=n)
-    )
-    if bumped.rowcount != 1:
-        current = _current_in_db(session, schedule_id)
+    bumped = _bump(session, schedule_id, base_version)
+    record = _fresh_record(session, schedule_id)
+    if not bumped:
+        current = record.current_version
         if commit:
             session.rollback()
         raise VersionConflict(current)
@@ -98,6 +109,7 @@ def restore(
     변경 이력에는 지금 버전 → n번 내용의 차이를 적는다.
     """
     schedule, conditions, _ = load(session, schedule_id, n)
+    _fresh_record(session, schedule_id)  # 지금 버전은 세션의 낡은 값이 아니라 DB 값으로
     current, _, current_n = load(session, schedule_id)
     base = current_n if base_version is None else base_version
     if base != current_n:
