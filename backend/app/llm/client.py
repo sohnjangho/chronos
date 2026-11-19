@@ -47,7 +47,8 @@ class Usage:
 class ToolCall:
     id: str
     name: str  # 등록부 이름(점 표기, 예: schedule.read)
-    arguments: dict | None  # JSON 객체로 읽지 못했으면 None(registry.call 이 실행하지 않고 거절)
+    # 빈 글(공백만 포함)이면 {}(인자 없음). JSON 객체로 읽지 못했으면 None(registry.call 이 거절)
+    arguments: dict | None
     raw_arguments: str | None = None  # arguments 가 None 일 때 받은 원문(진단용). 없었으면 None
 
 
@@ -141,9 +142,14 @@ def _json_object(text: str) -> dict | None:
 
 
 def _arguments(raw: object) -> tuple[dict | None, str | None]:
-    """(인자, 원문). JSON 객체로 읽히면 (객체, None), 아니면 (None, 받은 원문)."""
+    """(인자, 원문). JSON 객체로 읽히면 (객체, None), 아니면 (None, 받은 원문).
+
+    빈 글이나 공백뿐인 글은 인자 없음({}, None)이다(인자 없는 도구에 ""를 보내는 제공자가 있다).
+    """
     if isinstance(raw, dict):
         return raw, None
+    if isinstance(raw, str) and not raw.strip():
+        return {}, None
     if isinstance(raw, str):
         parsed = _json_object(raw)
         return (parsed, None) if parsed is not None else (None, raw)
@@ -296,13 +302,15 @@ class LlmClient:
           required 에 들어 있고 additionalProperties 가 false 여야 하므로(중첩 객체도) 스키마를
           그렇게 써서 넘긴다. 답이 JSON 객체면 reply.parsed 에 담는다(아니면 parsed=None,
           text 에 받은 그대로).
+        - reply.tool_calls[].arguments: 빈 글(공백만 포함)이면 {}, JSON 객체가 아닌 글이면 None
+          (받은 원문은 raw_arguments). None 인 인자는 registry.call 이 실행하지 않고 거절한다.
         - 없는 purpose(KeyError)·모양이 틀린 messages(KeyError·TypeError·AttributeError)는 부른
           쪽 잘못이다. 보내기 전에 그대로 올라가고 llm_calls 에도 남지 않는다.
         - 기록: 보낸 호출마다(실패 포함) llm_calls 에 한 줄을 남긴다. 받은 세션과 같은 DB 에 따로
           연 짧은 세션으로 저장하고 그것만 commit 한다. 받은 세션은 commit·expire·flush 하지
           않는다(쌓인 변경도 그대로 남는다). 기록 저장이 실패해도 경고만 남기고 결과(답 또는
-          LlmFailed)는 그대로다. 받은 세션이 쓰기를 flush 한 채(SQLite 쓰기 잠금을 쥔 채)
-          부르면 기록 세션이 잠금을 기다리다 기록을 못 남길 수 있으니, 쓰기는 먼저 commit 한다.
+          LlmFailed)는 그대로다. 부르는 쪽은 commit 하지 않은 쓰기를 쥔 채 chat 을 부르면 안
+          된다. 그러면 SQLite busy timeout(기본 5초)을 기다린 뒤 사용량 기록이 빠질 수 있다.
         """
         target = self._target(purpose)
         body = _request_body(target, messages, tools, json_schema)

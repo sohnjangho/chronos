@@ -207,6 +207,19 @@ async def test_unparseable_tool_arguments_become_none_and_keep_the_raw_text(llm,
     ]
 
 
+@pytest.mark.parametrize(
+    ("raw", "arguments", "raw_arguments"),
+    [("", {}, None), ("  ", {}, None), ("{", None, "{"), ("[1]", None, "[1]"), ("null", None, "null")],
+    ids=["empty", "blank", "broken", "list", "null"],
+)
+async def test_empty_arguments_text_means_no_arguments(llm, liner, raw, arguments, raw_arguments):
+    liner.push(chat_body(None, tool_calls=[
+        {"id": "c1", "type": "function", "function": {"name": "calc__cpm", "arguments": raw}},
+    ]))
+    r = await llm.chat("normal", HI)
+    assert (r.tool_calls[0].arguments, r.tool_calls[0].raw_arguments) == (arguments, raw_arguments)
+
+
 async def test_content_parts_are_joined_text_parts_only(llm, liner):
     liner.push(chat_body([
         {"type": "text", "text": "안녕"},
