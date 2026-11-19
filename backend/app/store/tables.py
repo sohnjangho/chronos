@@ -136,3 +136,19 @@ class QuestionnaireRecord(Base):
     status: Mapped[str] = mapped_column(String(10), default="open")  # 'open' | 'submitted'
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     submitted_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+class ScheduleDraft(Base):
+    """생성 루프가 만든 일정 초안. 저장(일정·버전)은 승인 뒤에 따로 한다. 모양은 app/store/drafts.py."""
+
+    __tablename__ = "schedule_drafts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_session_id: Mapped[int | None] = mapped_column(default=None)  # 대화 id (FK 아님)
+    domain: Mapped[str] = mapped_column(String(50))
+    level: Mapped[str] = mapped_column(String(2))  # 'L1'..'L5'
+    schedule_json: Mapped[dict] = mapped_column(JSON)  # store.schedules.to_json 결과(맞춤 전 일정)
+    conditions_json: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [Condition.to_dict()]
+    report_json: Mapped[dict] = mapped_column(JSON)  # 마지막 점검(CheckReport) 모양
+    assumptions_json: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [{label, value, source}]
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
