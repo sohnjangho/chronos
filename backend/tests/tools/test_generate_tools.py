@@ -54,7 +54,7 @@ def test_generate_tools_are_registered():
     specs = {t.name: t for t in list_tools()}
     assert {"generate.extract_conditions", "generate.run"} <= set(specs)
     assert not {"generate.make_wbs", "generate.make_schedule"} & set(specs)
-    assert not specs["generate.run"].mutates and not specs["generate.extract_conditions"].mutates
+    assert specs["generate.run"].mutates and not specs["generate.extract_conditions"].mutates  # run 은 초안을 저장한다
 
 
 async def test_extract_builds_input_conditions_with_ids_and_sources(ctx, liner):
@@ -133,6 +133,50 @@ async def test_extract_request_is_light_strict_and_carries_answers_and_assumed(c
     assert "공종별 액티비티, 선후 관계, 달력, 주요 자원" in text  # L3 에 꼭 있어야 하는 것
 
 
+async def test_extract_drops_resource_cap_at_rough_levels(ctx, liner):
+    script(liner, extracted([cond("resource_cap", "타워크레인 1대", resource_id="tower_crane", capacity=1)]))
+    r = await call("generate.extract_conditions", extract_args(level="L2"), ctx)
+    assert r.output["conditions"] == []
+    assert r.output["dropped"] == [{"kind": "resource_cap", "reason": "개략 일정(L1·L2)에서는 자원을 다루지 않습니다."}]
+
+
+async def test_extract_drops_dates_whose_year_is_not_in_the_text(ctx, liner):
+    script(liner, extracted(
+        [cond("finish_by", "11월 30일 준공", date="2026-11-30"), cond("max_duration", "한 작업 30일 이내", days=30)],
+        facts=[{"label": "착공일", "value": "2026-12-01", "source": "프롬프트"}, {"label": "층수", "value": "5층", "source": "프롬프트"}],
+        unknown=["준공 기한의 연도: '11월 30일'"],
+    ))
+    r = await call("generate.extract_conditions", extract_args(text="5층 사무동, 12월 1일 착공, 11월 30일 준공"), ctx)
+    out = r.output
+    assert [c["id"] for c in out["conditions"]] == ["in.max_duration"]
+    assert out["facts"] == [{"label": "층수", "value": "5층", "source": "프롬프트"}]
+    reason = "원문에 연도가 없는 날짜는 쓰지 않습니다."
+    assert out["dropped"] == [{"kind": "finish_by", "reason": reason}, {"kind": "fact", "reason": reason}]
+    assert out["unknown"] == ["준공 기한의 연도: '11월 30일'"]
+
+
+async def test_extract_takes_the_year_from_answers_and_assumed(ctx, liner):
+    script(liner, extracted(
+        [cond("finish_by", "준공 기한", "질문지", date="2027-11-30"),
+         cond("calendar", "공휴일", "가정", days_per_week=6, holidays=["2028-01-03"])],
+    ))
+    args = extract_args(
+        text="5층 사무동 일정",
+        answers=[{"question": "준공 기한은?", "answer": "2027-11-30"}],
+        assumed=[{"question": "추가 휴일?", "assumption": "2028년 1월 3일 쉼"}],
+    )
+    r = await call("generate.extract_conditions", args, ctx)
+    assert [c["id"] for c in r.output["conditions"]] == ["in.finish_by", "in.calendar"] and r.output["dropped"] == []
+
+
+def test_extract_prompt_forbids_converting_yearless_dates():
+    from app.agent.generation_steps import system_prompt
+    from app.domains.loader import load
+
+    text = system_prompt("extract", load("construction"))
+    assert "연도·월·일" in text and "unknown" in text and "내년 3월" in text
+
+
 async def test_extract_llm_failure_is_a_tool_error(ctx, liner):
     script(liner, httpx.ReadTimeout("느림"))
     r = await call("generate.extract_conditions", extract_args(), ctx)
@@ -167,7 +211,8 @@ async def test_run_generates_and_stores_draft(ctx, liner, session, events):
     assert out["violations"] == [] and out["notices"] == [] and out["conflict"] == [] and out["reason"] is None
     assert out["warnings"] == ["액티비티가 4개입니다. L3는 50~100개입니다."] and out["assumptions"] == []
     assert session.get(ScheduleDraft, out["draft_id"]) is not None
-    assert {e.data["stage"] for e in events if e.type == "card"} == {"wbs", "schedule", "compute", "critical", "check"}
+    stages = {e.data["stage"] for e in events if e.type == "card" and e.data["kind"] == "generation"}
+    assert stages == {"wbs", "schedule", "compute", "critical", "check"}
 
 
 async def test_run_reports_violations_at_the_limit(ctx, liner):
@@ -195,6 +240,41 @@ async def test_run_llm_down(ctx, liner, session):
     r = await call("generate.run", run_args(), ctx)
     assert r.ok and not r.output["ok"] and r.output["draft_id"] is None and r.output["finish"] is None
     assert "늦습니다" in r.output["reason"] and session.query(ScheduleDraft).count() == 0
+
+
+async def test_run_keeps_best_draft_when_llm_fails(ctx, liner, session):
+    script(liner, WBS_OK, SCHED_LATE_BY_3, httpx.ReadTimeout("느림"))
+    r = await call("generate.run", run_args(), ctx)
+    out = r.output
+    assert r.ok and not out["ok"] and out["draft_id"] is not None and out["conflict"] == ["in.finish_by"]
+    assert out["reason"].startswith("LLM 호출이 실패해 지금까지 가장 나은 초안(1회차, 위반 1)을 저장했습니다.")
+    assert out["finish"] == "2027-04-08" and session.get(ScheduleDraft, out["draft_id"]) is not None
+
+
+async def test_run_removes_resource_cap_at_rough_levels(ctx, liner):
+    script(liner, WBS_OK, SCHED_OK)
+    crane = {"id": "in.resource_cap.tower_crane", "layer": "input", "kind": "resource_cap",
+             "params": {"resource_id": "tower_crane", "capacity": 1}, "text": "타워크레인 1대", "source": "질문지"}
+    r = await call("generate.run", run_args(level="L1", conditions=[crane]), ctx)
+    assert r.output["ok"] and len(r.output["rounds"]) == 1
+    assert "개략 일정(L1·L2)에서는 자원을 다루지 않습니다." in r.output["warnings"]
+
+
+async def test_run_reports_unchecked_conditions_and_result_card(ctx, liner, events):
+    script(liner, WBS_OK, SCHED_OK)
+    r = await call("generate.run", run_args(), ctx)
+    out = r.output
+    assert out["ok"] and {"id": "construction.curing", "name": next(
+        u["name"] for u in out["uncheckable"] if u["id"] == "construction.curing")} in out["uncheckable"]
+    assert len(out["uncheckable"]) == 4 and out["invalid"] == []
+    card = [e.data for e in events if e.type == "card" and e.data["kind"] == "generation_result"]
+    assert card == [{
+        "kind": "generation_result", "ok": True, "draft_id": out["draft_id"], "finish": FINISH,
+        "activity_count": 4, "critical_count": 4, "assumptions": [], "violations": [],
+        "uncheckable_count": 4, "invalid_count": 0, "conflict": [], "reason": None,
+    }]
+    spec = {t.name: t for t in list_tools()}["generate.run"]
+    assert "ok 는 자동 점검한 조건만의 결과입니다. uncheckable 의 조건은 점검하지 않았으니 통과로 말하지 마세요." in spec.description
 
 
 async def test_extract_output_feeds_run(ctx, liner):

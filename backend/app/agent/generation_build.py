@@ -26,11 +26,16 @@ from app.harness.assemble import holidays_of
 from app.harness.conditions import Condition, condition_problem, validate_params
 from app.llm.client import LlmReply
 
-MAX_DAYS = 2000  # 한 액티비티 기간·lag 의 한도(근무일). 넘으면 깨진 초안
+# LLM 이 내는 숫자의 한도(근무일). 넘으면 깨진 초안 — core 날짜 셈이 넘치거나 오래 걸리지 않게
+MAX_OD = 3650
+MAX_LAG = 365
 MAX_ACTIVITIES = 400
 NOT_JSON = "답이 JSON 객체가 아닙니다."
 START_LABEL = "착공일"
-_ISO_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+# 착공일로 읽는 사실(fact)의 label. 이 말과 똑같을 때만("외부 마감 시작" 같은 것은 아니다)
+START_LABELS = frozenset({"착공", "착공일", "착수", "착수일", "시작일", "프로젝트 시작"})
+ROUGH_RESOURCE_MESSAGE = "개략 일정(L1·L2)에서는 자원을 다루지 않습니다."
+ISO_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _MAX_ERRORS = 3
 
 
@@ -47,7 +52,7 @@ class WbsIn(_Loose):
 class PredIn(_Loose):
     pred: str = Field(min_length=1)
     type: RelType = "FS"
-    lag: int = Field(default=0, ge=-MAX_DAYS, le=MAX_DAYS)
+    lag: int = Field(default=0, ge=-MAX_LAG, le=MAX_LAG)
 
 
 class ActIn(_Loose):
@@ -55,7 +60,7 @@ class ActIn(_Loose):
     name: str = Field(min_length=1)
     kind: Literal["task", "start_ms", "finish_ms"]
     wbs: str
-    od: int = Field(ge=0, le=MAX_DAYS)
+    od: int = Field(ge=0, le=MAX_OD)
     tags: list[str] = []
     predecessors: list[PredIn] = []
 
@@ -151,11 +156,16 @@ def fit_warnings(level: str, nodes: Sequence[WbsIn], activity_count: int) -> lis
     return out
 
 
+def uses_resources(level: str) -> bool:
+    """정밀도 정의에 주요 자원이 있는가(L1·L2 는 '없음' — 개략 일정)."""
+    return levels()[level].resources == "주요 자원"
+
+
 def _fact_date(fact: dict) -> date | None:
-    """'착공'·'시작' 이 든 label 의 값에 있는 날짜(YYYY-MM-DD, 조건 날짜 범위 안)."""
-    if not any(word in fact["label"] for word in ("착공", "시작")):
+    """label 이 START_LABELS 가운데 하나인 사실의 값에 있는 날짜(YYYY-MM-DD, 조건 날짜 범위 안)."""
+    if fact["label"].strip() not in START_LABELS:
         return None
-    found = _ISO_DAY.search(fact["value"])
+    found = ISO_DAY.search(fact["value"])
     if found is None or validate_params("start_after", {"date": found.group()}) is not None:
         return None
     return date.fromisoformat(found.group())
@@ -196,8 +206,8 @@ class Setting:
 
 def setting(pack: DomainPack, level: str, start: date, extra_tags: Sequence[str]) -> Setting:
     cal = pack.default_calendar
-    use_resources = levels()[level].resources == "주요 자원"
-    resources = tuple(Resource(k.id, k.name, k.unit, 1) for k in pack.key_resources) if use_resources else ()
+    keys = pack.key_resources if uses_resources(level) else []
+    resources = tuple(Resource(k.id, k.name, k.unit, 1) for k in keys)
     known = dict.fromkeys([*(t.tag for t in pack.activity_types), *extra_tags])
     return Setting(
         start=start,

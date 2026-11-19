@@ -104,10 +104,15 @@ async def test_llm_down_gives_reason_and_no_draft(ctx, llm, liner, session):
     assert r.draft_id is None and r.report is None
 
 
-async def test_llm_failure_after_good_drafts_still_stores_nothing(ctx, llm, liner, session):
-    script(liner, WBS_OK, SCHED_LATE_BY_3, httpx.ConnectError("끊김"))
+async def test_llm_failure_keeps_best_draft_so_far(ctx, llm, liner, session):
+    script(liner, WBS_OK, SCHED_CYCLE, SCHED_LATE_BY_3, httpx.ConnectError("끊김"))
     r = await gen(ctx, llm, inputs=[FINISH_BY])
-    assert not r.ok and r.schedule is None and drafts(session) == 0 and r.reason
+    assert not r.ok and r.schedule is not None and drafts(session) == 1 and r.draft_id is not None
+    assert r.conflict == ["in.finish_by"] and [x.violations for x in r.rounds] == [-1, 1]
+    assert r.reason.startswith("LLM 호출이 실패해 지금까지 가장 나은 초안(2회차, 위반 1)을 저장했습니다.")
+    assert "연결할 수 없습니다" in r.reason  # 실패 까닭도 붙는다
+    row = session.get(ScheduleDraft, r.draft_id)
+    assert row.schedule_json == to_json(r.schedule) and row.report_json["violations"][0]["condition_id"] == "in.finish_by"
 
 
 async def test_llm_not_ready_gives_reason_and_no_draft(ctx, llm_empty, session):
@@ -192,6 +197,82 @@ async def test_level_fit_alone_does_not_trigger_repair(ctx, llm, liner):
     r = await gen(ctx, llm, level="L1")
     assert r.ok and len(r.rounds) == 1 and len(liner.requests) == 2
     assert r.warnings == ["WBS 깊이가 3단계입니다. L1는 1~2단계입니다.", "액티비티가 4개입니다. L1는 10~20개입니다."]
+
+
+async def test_resource_cap_is_removed_at_rough_levels(ctx, llm, liner):
+    script(liner, WBS_OK, SCHED_OK)
+    r = await gen(ctx, llm, level="L2", inputs=[CRANE_CAP, FINISH_BY])
+    assert r.ok and len(r.rounds) == 1
+    assert "개략 일정(L1·L2)에서는 자원을 다루지 않습니다." in r.warnings
+    assert "in.resource_cap.tower_crane" not in [c.id for c in r.conditions]
+    assert "tower_crane" not in user_text(liner, 1).split("지킬 조건:")[1]
+
+
+async def test_start_fact_needs_an_exact_start_label(ctx, llm, liner):
+    script(liner, WBS_OK, SCHED_OK)
+    other = {"label": "외부 마감 시작", "value": "2027-09-01", "source": "프롬프트"}
+    r = await gen(ctx, llm, facts=[other])
+    today = date.today()
+    assert r.schedule.start == today + timedelta(days=7 - today.weekday())
+    assert r.assumptions[-1]["label"] == "착공일"
+
+
+async def test_exact_start_labels_are_accepted(ctx, llm, liner):
+    script(liner, WBS_OK, SCHED_OK)
+    r = await gen(ctx, llm, facts=[{"label": "착수일", "value": "2027-05-03(월)", "source": "질문지"}])
+    assert r.schedule.start == date(2027, 5, 3) and r.assumptions == []
+
+
+async def test_uncheckable_and_invalid_conditions_are_reported(ctx, llm, liner):
+    script(liner, WBS_OK, SCHED_OK)
+    first = input_condition("in.text_only", "text_only", {}, "민원 많은 지역")
+    again = input_condition("in.text_only", "text_only", {}, "야간 작업 없음")
+    r = await gen(ctx, llm, inputs=[first, again])
+    curing = next(c for c in r.conditions if c.id == "construction.curing")
+    assert r.ok and {"id": "construction.curing", "name": curing.text} in r.uncheckable
+    assert {"id": "in.text_only", "name": "야간 작업 없음"} in r.uncheckable
+    assert r.invalid == [{"id": "in.text_only", "reason": "같은 id 의 조건이 뒤에 다시 있습니다."}]
+
+
+async def test_broken_round_keeps_the_previous_violations_in_feedback(ctx, llm, liner):
+    script(liner, WBS_OK, SCHED_LATE_BY_3, SCHED_CYCLE, SCHED_OK)
+    r = await gen(ctx, llm, inputs=[FINISH_BY])
+    assert r.ok and [x.violations for x in r.rounds] == [1, -1, 0]
+    text = user_text(liner, 3)
+    assert "고리" in text and "준공이 기한보다 3일 늦습니다." in text
+
+
+async def test_huge_duration_is_broken_and_loop_continues(ctx, llm, liner):
+    script(liner, WBS_OK, sched(10**9), sched(3651), SCHED_OK)
+    r = await gen(ctx, llm)
+    assert r.ok and [x.violations for x in r.rounds] == [-1, -1, 0]
+    assert "od" in user_text(liner, 2)
+
+
+async def test_long_lag_is_broken(ctx, llm, liner):
+    late = sched(20)
+    late["activities"][2]["predecessors"][0]["lag"] = 366
+    script(liner, WBS_OK, late, SCHED_OK)
+    r = await gen(ctx, llm)
+    assert r.ok and [x.violations for x in r.rounds] == [-1, 0]
+
+
+async def test_overflow_while_computing_is_a_broken_draft(ctx, llm, liner, monkeypatch):
+    from app.agent import generation
+
+    real, calls = generation.check_schedule, []
+
+    def flaky(schedule, conditions):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OverflowError("date value out of range")
+        return real(schedule, conditions)
+
+    monkeypatch.setattr(generation, "check_schedule", flaky)
+    script(liner, WBS_OK, SCHED_OK, SCHED_OK)
+    r = await gen(ctx, llm)
+    assert r.ok and [x.violations for x in r.rounds] == [-1, 0]
+    assert "날짜 계산이 범위를 넘었습니다" in user_text(liner, 2)
 
 
 async def test_level_without_resources_attaches_none(ctx, llm, liner):

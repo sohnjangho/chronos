@@ -1,6 +1,8 @@
 """generate.extract_conditions — 요청·질문지 답·가정에서 입력 조건과 사실을 뽑는다(LLM light 한 번).
 
-LLM 이 낸 조건은 하네스 형식 검사(condition_problem)를 거친다. 틀린 것은 버리고 dropped 에 까닭을 남긴다.
+LLM 이 낸 조건은 하네스 형식 검사(validate_params)를 거친다. 틀린 것은 버리고 dropped 에 까닭을 남긴다.
+LLM 이 낸 날짜(YYYY-MM-DD)는 그 연도가 원문(요청·질문지 답·가정)에 있어야 쓴다 — 지어낸 연도를 막는다.
+개략 일정(L1·L2)은 자원을 다루지 않으므로 resource_cap 을 버린다.
 조건 id 는 `in.<kind>` 또는 `in.<kind>.<대상>`(resource_cap 은 자원 id, blocked_period 는 꼬리표).
 같은 id 가 다시 나오면 `.2`, `.3` … 을 붙인다.
 """
@@ -10,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import app.tools.generate as package
+from app.agent.generation_build import ISO_DAY, ROUGH_RESOURCE_MESSAGE, uses_resources
 from app.agent.generation_steps import compact, level_line, strict_object, system_prompt
 from app.domains.loader import DomainPack, UnknownDomain, load
 from app.harness.conditions import Condition, validate_params
@@ -20,6 +23,7 @@ from app.tools.registry import tool
 ALLOWED_KINDS = ("start_after", "finish_by", "calendar", "blocked_period", "resource_cap", "max_duration", "text_only")
 SOURCES = ("프롬프트", "질문지", "가정")
 UNREADABLE_MESSAGE = "조건을 읽지 못했습니다. 다시 시도해 주세요."
+YEARLESS_MESSAGE = "원문에 연도가 없는 날짜는 쓰지 않습니다."
 # 종류마다 params 로 옮길 칸(LLM 답의 칸 이름 그대로)
 _PARAM_FIELDS = {
     "start_after": ("date",),
@@ -141,9 +145,11 @@ def _params(p: _Proposed, pack: DomainPack) -> dict:
     return params
 
 
-def _problem(p: _Proposed, pack: DomainPack) -> str | None:
+def _problem(p: _Proposed, pack: DomainPack, level: str) -> str | None:
     if p.kind not in ALLOWED_KINDS:
         return f"쓸 수 없는 조건 종류입니다: {p.kind}"
+    if p.kind == "resource_cap" and not uses_resources(level):
+        return ROUGH_RESOURCE_MESSAGE
     if p.kind == "resource_cap" and p.resource_id not in {k.id for k in pack.key_resources}:
         return f"없는 자원입니다: {p.resource_id}"
     return None
@@ -159,14 +165,44 @@ def _condition_id(kind: str, params: dict, used: set[str]) -> str:
     return cid
 
 
-def conditions_from(proposed: list[_Proposed], pack: DomainPack) -> tuple[list[dict], list[DroppedOut]]:
+def _sources(args: ExtractIn) -> str:
+    """날짜의 연도를 찾아볼 원문: 요청 + 질문지 답 + 가정."""
+    return "\n".join([args.text, *(a.answer for a in args.answers), *(a.assumption for a in args.assumed)])
+
+
+def _year_problem(days: list[str], sources: str) -> str | None:
+    """날짜(YYYY-MM-DD) 가운데 연도 네 자리가 원문에 없는 것이 있으면 YEARLESS_MESSAGE."""
+    return YEARLESS_MESSAGE if any(d[:4] not in sources for d in days) else None
+
+
+def _dates(kind: str, params: dict) -> list[str]:
+    if kind in ("start_after", "finish_by"):
+        return [params["date"]]
+    if kind == "calendar" and isinstance(params["holidays"], list):
+        return list(params["holidays"])
+    return []
+
+
+def facts_from(facts: list[FactOut], sources: str) -> tuple[list[FactOut], list[DroppedOut]]:
+    """값에 든 날짜의 연도가 원문에 없는 사실은 버린다(kind "fact")."""
+    kept, dropped = [], []
+    for f in facts:
+        if problem := _year_problem(ISO_DAY.findall(f.value), sources):
+            dropped.append(DroppedOut(kind="fact", reason=problem))
+        else:
+            kept.append(f)
+    return kept, dropped
+
+
+def conditions_from(proposed: list[_Proposed], pack: DomainPack, args: ExtractIn) -> tuple[list[dict], list[DroppedOut]]:
     kept: list[dict] = []
     dropped: list[DroppedOut] = []
     used: set[str] = set()
+    sources = _sources(args)
     for p in proposed:
-        problem = _problem(p, pack)
+        problem = _problem(p, pack, args.level)
         params = _params(p, pack) if problem is None else {}
-        problem = problem or validate_params(p.kind, params)
+        problem = problem or validate_params(p.kind, params) or _year_problem(_dates(p.kind, params), sources)
         if problem is not None:
             dropped.append(DroppedOut(kind=p.kind, reason=problem))
             continue
@@ -206,7 +242,8 @@ async def _ask(args: ExtractIn, pack: DomainPack, ctx: ToolContext) -> _Reply:
 @tool(
     "generate.extract_conditions",
     "일정 요청·질문지 답·가정으로 넘긴 질문에서 입력 조건(준공 기한·착공·달력·금지 기간·자원 대수·최대 기간·글 조건)과 "
-    "사실(facts)·가정(assumptions)을 뽑는다. 형식이 틀린 조건은 버리고 dropped 에 까닭을 남긴다. "
+    "사실(facts)·가정(assumptions)을 뽑는다. 형식이 틀린 조건, 원문에 연도가 없는 날짜, 개략 일정(L1·L2)의 "
+    "자원 조건은 버리고 dropped 에 까닭을 남긴다. "
     "unknown 은 고른 정밀도에 꼭 있어야 하는데 아직 모르는 것 — 물을지(두 번째 질문) 가정할지 정할 때 쓴다. "
     "결과를 그대로 generate.run 에 넘긴다.",
 )
@@ -216,11 +253,12 @@ async def extract_conditions(args: ExtractIn, ctx: ToolContext) -> ExtractOut:
     except UnknownDomain:
         raise ToolError(f"없는 분야입니다: {args.domain}") from None
     reply = await _ask(args, pack, ctx)
-    conditions, dropped = conditions_from(reply.conditions, pack)
+    conditions, dropped = conditions_from(reply.conditions, pack, args)
+    facts, dropped_facts = facts_from(reply.facts, _sources(args))
     return ExtractOut(
         conditions=conditions,
-        facts=reply.facts,
+        facts=facts,
         assumptions=[FactOut(label=a.label, value=a.value, source="가정") for a in reply.assumptions],
         unknown=reply.unknown,
-        dropped=dropped,
+        dropped=dropped + dropped_facts,
     )

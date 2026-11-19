@@ -1,6 +1,7 @@
 """generate.run — 생성 루프(app.agent.generation.generate)를 돌려 일정 초안을 만든다.
 
-초안은 schedule_drafts 에만 넣는다. 일정 저장(첫 버전)은 승인 뒤에 한다.
+초안은 schedule_drafts 에만 넣는다(그래서 mutates). 일정 저장(첫 버전)은 승인 뒤에 한다.
+끝나면 결과 카드 `AgentEvent("card", {"kind": "generation_result", …})` 를 한 번 낸다.
 """
 
 from datetime import date
@@ -9,6 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 import app.tools.generate as package
+from app.agent.events import AgentEvent
 from app.agent.generation import GenResult, generate
 from app.core.cpm import ScheduleError
 from app.domains.loader import UnknownDomain
@@ -51,6 +53,16 @@ class ViolationOut(BaseModel):
     amount: int | None
 
 
+class UncheckedOut(BaseModel):
+    id: str
+    name: str  # 조건 글
+
+
+class InvalidOut(BaseModel):
+    id: str
+    reason: str
+
+
 class RunOut(BaseModel):
     ok: bool
     draft_id: int | None
@@ -61,9 +73,11 @@ class RunOut(BaseModel):
     violations: list[ViolationOut]
     notices: list[ViolationOut]
     assumptions: list[FactIn]
-    warnings: list[str]  # 정밀도 맞춤 알림(위반 아님)
+    warnings: list[str]  # 정밀도 맞춤·뺀 조건 알림(위반 아님)
     conflict: list[str]
     reason: str | None
+    uncheckable: list[UncheckedOut]  # 자동 점검하지 않은 조건 — 통과가 아니다
+    invalid: list[InvalidOut]  # 형식이 틀려 읽지 않은 조건
 
 
 def _inputs(stored: list[dict]) -> list[Condition]:
@@ -95,7 +109,18 @@ def _out(r: GenResult) -> RunOut:
         warnings=r.warnings,
         conflict=r.conflict,
         reason=r.reason,
+        uncheckable=[UncheckedOut(**u) for u in r.uncheckable],
+        invalid=[InvalidOut(**i) for i in r.invalid],
     )
+
+
+def result_card(out: RunOut) -> AgentEvent:
+    """대화에 보일 결과 카드: 준공·액티비티 수·크리티컬 수·가정·위반과 점검하지 않은 조건 수."""
+    data = out.model_dump(mode="json")
+    keys = ("ok", "draft_id", "finish", "activity_count", "critical_count", "assumptions", "violations")
+    card = {"kind": "generation_result", **{k: data[k] for k in keys}}
+    card |= {"uncheckable_count": len(out.uncheckable), "invalid_count": len(out.invalid)}
+    return AgentEvent("card", card | {"conflict": data["conflict"], "reason": data["reason"]})
 
 
 @tool(
@@ -103,7 +128,9 @@ def _out(r: GenResult) -> RunOut:
     "일정 초안을 만든다: WBS → 액티비티(기간·선후 관계) → 코드가 날짜·크리티컬 패스 계산 → 조건 점검 → "
     "위반이면 고쳐 다시(최대 5회). 입력은 generate.extract_conditions 의 결과(facts·conditions·assumptions). "
     "단계마다 생성 카드가 대화에 보인다. 초안은 저장 전 상태(draft_id)이고, 일정 저장은 승인 뒤에 한다. "
-    "한도까지 못 맞추면 ok=false 와 가장 나은 안, 부딪히는 조건(conflict)을 준다.",
+    "한도까지 못 맞추거나 LLM 호출이 중간에 실패하면 ok=false 와 그때까지 가장 나은 안, 부딪히는 조건(conflict)을 준다. "
+    "ok 는 자동 점검한 조건만의 결과입니다. uncheckable 의 조건은 점검하지 않았으니 통과로 말하지 마세요.",
+    mutates=True,
 )
 async def run(args: RunIn, ctx: ToolContext) -> RunOut:
     inputs = _inputs(args.conditions)
@@ -120,4 +147,6 @@ async def run(args: RunIn, ctx: ToolContext) -> RunOut:
         )
     except UnknownDomain:
         raise ToolError(f"없는 분야입니다: {args.domain}") from None
-    return _out(result)
+    out = _out(result)
+    ctx.emit(result_card(out))
+    return out
