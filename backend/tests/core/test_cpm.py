@@ -3,20 +3,9 @@ from datetime import date
 import pytest
 
 from app.core.cpm import ScheduleError, compute
-from app.core.model import (
-    Activity,
-    BlockedPeriod,
-    CalendarSpec,
-    Constraint,
-    Relation,
-    Schedule,
-    WbsNode,
-)
+from app.core.model import Activity, BlockedPeriod, CalendarSpec, Constraint, Relation
+from tests.core.helpers import act, sched
 
-CAL5 = CalendarSpec(days_per_week=5)
-def act(i, od, **k): return Activity(id=i, name=i, kind="task", wbs="1", od=od, **k)
-def sched(acts, rels, cal=CAL5, start=date(2027, 3, 1)):
-    return Schedule(start=start, calendar=cal, wbs=(WbsNode("1", "w", None),), activities=tuple(acts), relations=tuple(rels))
 
 def test_fs_chain():
     r = compute(sched([act("A", 3), act("B", 2)], [Relation("A", "B")]))
