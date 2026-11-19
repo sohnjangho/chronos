@@ -116,3 +116,23 @@ class ChangeLog(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     changes_json: Mapped[list[dict]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class QuestionnaireRecord(Base):
+    """에이전트가 만든 질문을 담은 질문지 하나. 모양은 app/store/questionnaires.py 가 정한다."""
+
+    __tablename__ = "questionnaires"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_session_id: Mapped[int | None] = mapped_column(default=None)  # 대화 id (FK 아님)
+    purpose: Mapped[str] = mapped_column(String(10))  # generate|delay|report|recovery|clarify
+    title: Mapped[str] = mapped_column(String(100))
+    domain: Mapped[str | None] = mapped_column(String(50), default=None)
+    level: Mapped[str | None] = mapped_column(String(2), default=None)  # 'L1'..'L5'
+    round: Mapped[int] = mapped_column(default=1)  # 몇 번째 묻는가(최대 2)
+    questions_json: Mapped[list[dict]] = mapped_column(JSON)  # [Question]
+    answers_json: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)  # {질문 id: 답}
+    prefilled_json: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [{label, value, source}]
+    status: Mapped[str] = mapped_column(String(10), default="open")  # 'open' | 'submitted'
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    submitted_at: Mapped[datetime | None] = mapped_column(default=None)

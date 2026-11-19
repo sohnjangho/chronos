@@ -1,0 +1,153 @@
+# 건설 분야 묶음 — 에이전트가 일정을 만들 때 참고하는 지식(설계 11-3).
+# 질문은 두지 않는다. 질문은 에이전트가 모자란 정보를 보고 그 자리에서 만든다.
+# 예시와 기준값은 중층 철근콘크리트 건물(5층 사무동 정도)을 기준으로 한다.
+
+id: construction
+name: 건설
+
+# 일정판·대화에서 쓰는 말
+terms:
+  activity: 액티비티
+  resource: 자원
+  start: 착공
+  deadline: 준공
+  milestone: 마일스톤
+  wbs: WBS
+  calendar: 작업 달력
+  float: 여유
+  critical_path: 크리티컬 패스
+  contingency: 예비 기간
+  progress: 실적
+
+# 현장 기본 달력: 일요일과 법정 공휴일은 쉰다.
+default_calendar:
+  days_per_week: 6
+  holidays: KR
+
+# 분야 규칙(하네스 ② 겹). 모양은 app/harness/conditions.Condition 과 같다.
+rules:
+  - id: construction.curing
+    layer: domain
+    kind: min_gap
+    # unit 은 PM 확인 전 잠정값(근무일 기준). 달력일로 바뀌면 calendar_days.
+    params: {after_tag: 타설, days: 7, unit: workdays}
+    text: 타설 뒤 양생 7일
+    source: 분야 규칙
+  - id: construction.mep_after_frame
+    layer: domain
+    kind: text_only
+    params: {}
+    text: 골조 2개 층 위부터 설비 배관
+    source: 분야 규칙
+  - id: construction.retaining_before_excavation
+    layer: domain
+    kind: text_only
+    params: {}
+    text: 흙막이 설치 뒤 터파기
+    source: 분야 규칙
+  - id: construction.exterior_after_frame
+    layer: domain
+    kind: text_only
+    params: {}
+    text: 외장은 골조가 끝난 층부터
+    source: 분야 규칙
+
+# 주요 자원 후보. tags 는 이 자원을 쓰는 작업 유형.
+key_resources:
+  - id: tower_crane
+    name: 타워크레인
+    unit: 대
+    tags: [골조, 외장]
+  - id: rebar_crew
+    name: 철근공
+    unit: 명
+    tags: [철근]
+  - id: pour_crew
+    name: 타설반
+    unit: 조
+    tags: [타설]
+
+# 작업 유형: 액티비티 이름에 name_keywords 가운데 하나가 있으면 그 tag 를 붙이고 resources 를 연결한다.
+activity_types:
+  - tag: 터파기
+    name_keywords: [터파기, 흙막이]
+    resources: []
+  - tag: 철근
+    name_keywords: [철근, 배근]
+    resources: [rebar_crew]
+  - tag: 타설
+    name_keywords: [타설, 콘크리트]
+    resources: [pour_crew]
+  - tag: 골조
+    name_keywords: [골조]
+    resources: [tower_crane]
+  - tag: 외장
+    name_keywords: [외장, 커튼월, 패널]
+    resources: [tower_crane]
+
+# 대표 WBS 틀(중층 건물, 3단계). parent 는 위 단계의 code.
+wbs_template:
+  - {code: "1", name: 기초, parent: null}
+  - {code: "1.1", name: 착공 준비·가설, parent: "1"}
+  - {code: "1.1.1", name: 가설 울타리·현장 사무실, parent: "1.1"}
+  - {code: "1.1.2", name: 타워크레인 설치, parent: "1.1"}
+  - {code: "1.2", name: 흙막이·터파기, parent: "1"}
+  - {code: "1.2.1", name: 흙막이 설치, parent: "1.2"}
+  - {code: "1.2.2", name: 터파기·잔토 처리, parent: "1.2"}
+  - {code: "1.3", name: 기초 공사, parent: "1"}
+  - {code: "1.3.1", name: 버림 콘크리트, parent: "1.3"}
+  - {code: "1.3.2", name: 기초 철근 배근·거푸집, parent: "1.3"}
+  - {code: "1.3.3", name: 기초 콘크리트 타설·양생, parent: "1.3"}
+  - {code: "2", name: 골조, parent: null}
+  - {code: "2.1", name: 지하층 골조, parent: "2"}
+  - {code: "2.1.1", name: 지하 벽·슬래브 철근 배근, parent: "2.1"}
+  - {code: "2.1.2", name: 지하 거푸집, parent: "2.1"}
+  - {code: "2.1.3", name: 지하 콘크리트 타설·양생, parent: "2.1"}
+  - {code: "2.2", name: 지상층 골조(층마다 반복), parent: "2"}
+  - {code: "2.2.1", name: 기준층 철근 배근, parent: "2.2"}
+  - {code: "2.2.2", name: 기준층 거푸집, parent: "2.2"}
+  - {code: "2.2.3", name: 기준층 콘크리트 타설·양생, parent: "2.2"}
+  - {code: "2.3", name: 옥탑·지붕 골조, parent: "2"}
+  - {code: "3", name: 외장·설비, parent: null}
+  - {code: "3.1", name: 외장, parent: "3"}
+  - {code: "3.1.1", name: 외벽 단열·방수, parent: "3.1"}
+  - {code: "3.1.2", name: 커튼월·외장 패널, parent: "3.1"}
+  - {code: "3.1.3", name: 창호, parent: "3.1"}
+  - {code: "3.2", name: 기계 설비, parent: "3"}
+  - {code: "3.2.1", name: 설비 배관, parent: "3.2"}
+  - {code: "3.2.2", name: 공조·덕트, parent: "3.2"}
+  - {code: "3.2.3", name: 승강기 설치, parent: "3.2"}
+  - {code: "3.3", name: 전기·통신, parent: "3"}
+  - {code: "3.3.1", name: 전기 배관·배선, parent: "3.3"}
+  - {code: "3.3.2", name: 수변전 설비, parent: "3.3"}
+  - {code: "4", name: 마감, parent: null}
+  - {code: "4.1", name: 내부 마감, parent: "4"}
+  - {code: "4.1.1", name: 경량 벽체·천장, parent: "4.1"}
+  - {code: "4.1.2", name: 바닥·도장, parent: "4.1"}
+  - {code: "4.2", name: 부대 토목·조경, parent: "4"}
+  - {code: "4.3", name: 준공 준비, parent: "4"}
+  - {code: "4.3.1", name: 시운전·종합 점검, parent: "4.3"}
+  - {code: "4.3.2", name: 사용승인·준공 검사, parent: "4.3"}
+
+# 가정할 때 쓰는 기준값. 사용자가 답하지 않은 질문을 채울 때 참고하고, 쓴 값은 "가정한 것"으로 남긴다.
+assumption_defaults:
+  - key: contingency_ratio
+    label: 예비 기간 비율
+    value: 5%
+    note: 전체 공사 기간 대비. 준공 직전에 묶어 둔다.
+  - key: frame_days_per_floor
+    label: 층당 골조 기간
+    value: 10일
+    note: 철근콘크리트 기준층 한 개 층의 철근·거푸집·타설. 첫 층과 전이층은 더 걸린다.
+  - key: curing_days
+    label: 타설 후 양생
+    value: 7일
+    note: 다음 층 작업이나 거푸집 해체 전에 둔다. 동절기에는 늘린다.
+  - key: workdays_per_week
+    label: 주 근무일
+    value: 6일
+    note: 일요일과 법정 공휴일은 쉰다.
+  - key: winter_period
+    label: 동절기
+    value: 12월 1일 ~ 2월 말
+    note: 이 기간의 콘크리트 타설은 보온 양생 계획이 있어야 한다.
