@@ -1,9 +1,14 @@
 """일정 API: 계산 포함 응답, 고치기, 버전·변경 이력."""
 
+from datetime import datetime
+
 import pytest
 
 from app.core.model import BlockedPeriod, CalendarSpec, Relation, Resource
+from app.programs.schedule import edits, service
+from app.store.schedules import to_json
 from app.store.tables import ChangeLog, ScheduleVersion
+from app.store.versions import mark_plan, save_new_version
 from tests.schedules import make, store, task
 
 # ── 작업 지시서의 시험 ──────────────────────────────────────────────
@@ -266,7 +271,7 @@ def _new(**k):
 ERROR_CASES = {
     "cycle": (None, "put", "A/predecessors", {"items": [{"pred": "B"}]}, "선후 관계가 고리를 이룹니다."),
     "dangling_ref": (None, "post", "", _new(after="ZZ"), "없는 액티비티를 가리키는 관계가 있습니다."),
-    "bad_duration": (None, "patch", "A", {"od": -1}, "기간이 올바르지 않습니다."),
+    "bad_duration": (None, "patch", "A", {"kind": "start_ms"}, "기간이 올바르지 않습니다."),
     "empty": (_one_task, "delete", "A?base_version=1", None, "액티비티가 없습니다."),
     "no_workdays": (_blocked_cal, "patch", "A", {"tags": ["동절기"]}, "일할 수 있는 날이 없는 달력입니다."),
     "duplicate_id": (None, "post", "", _new(id="A"), "같은 ID의 액티비티가 있습니다."),
@@ -330,3 +335,171 @@ def test_restore_returns_view_and_keeps_history(client, admin, sid):
     versions = _versions(client, admin, sid)
     assert [x["n"] for x in versions] == [3, 2, 1]
     assert (versions[0]["note"], versions[0]["by_kind"], versions[0]["by_name"]) == ("1번 버전으로 되돌림", "user", "관리자")
+
+
+# ── 고침 1차 ────────────────────────────────────────────────────────
+
+CYCLE = make([task("A", 1), task("B", 1)], [Relation("A", "B"), Relation("B", "A")])
+
+
+def _corrupt_v1_after_valid_edit(client, admin, session, sid):
+    """버전 2(올바름)를 만든 뒤 Plan 인 버전 1 을 계산이 안 되는 일정으로 바꿔 쓴다."""
+    assert _patch(client, admin, sid, "A", 1, od=5).status_code == 200
+    session.get(ScheduleVersion, (sid, 1)).snapshot_json = to_json(CYCLE)
+    session.commit()
+
+
+def test_invalid_plan_snapshot_gives_null_plan_fields(client, admin, session, sid):
+    _corrupt_v1_after_valid_edit(client, admin, session, sid)
+    for v in (_get(client, admin, sid), _patch(client, admin, sid, "B", 2, od=3).json()):
+        assert v["plan_finish"] is None and v["finish"] is not None
+        assert {(a["plan_start"], a["plan_finish"], a["status"]) for a in v["activities"]} == {(None, None, "new")}
+    assert _get(client, admin, sid)["version"] == 3
+
+
+def test_restore_of_invalid_version_is_422_and_saves_nothing(client, admin, session, sid):
+    _corrupt_v1_after_valid_edit(client, admin, session, sid)
+    r = client.post(f"/api/schedules/{sid}/versions/1/restore", json={"base_version": 2}, headers=admin)
+    assert r.status_code == 422
+    assert (r.json()["code"], r.json()["message"]) == ("schedule_invalid", "선후 관계가 고리를 이룹니다.")
+    assert len(_versions(client, admin, sid)) == 2
+    session.expire_all()
+    assert session.query(ChangeLog).filter_by(schedule_id=sid).count() == 1
+
+
+def test_marked_plan_feeds_plan_fields(client, admin, session, sid):
+    _patch(client, admin, sid, "A", 1, od=5)
+    _patch(client, admin, sid, "A", 2, od=6)
+    mark_plan(session, sid, 2)
+    v = _get(client, admin, sid)
+    assert (v["plan_finish"], _act(v, "A")["plan_finish"]) == ("2027-03-09", "2027-03-05")
+    assert [x["is_plan"] for x in _versions(client, admin, sid)] == [False, True, False]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"progress": 1.5}, {"progress": -0.1}, {"od": -1}, {"od": 2.5}, {"rd": -1}, {"rd": 1.5}, {"color": "red"}],
+)
+def test_patch_shape_errors_are_invalid_request(client, admin, sid, body):
+    r = _patch(client, admin, sid, "A", 1, **body)
+    assert r.status_code == 422 and r.json()["code"] == "invalid_request", body
+    assert _get(client, admin, sid)["version"] == 1
+
+
+def test_other_request_models_reject_unknown_fields(client, admin, sid):
+    for r in (
+        client.post(f"/api/schedules/{sid}/activities", json=_new(color="red"), headers=admin),
+        client.post(f"/api/schedules/{sid}/activities", json=_new(od=-1), headers=admin),
+        client.put(f"/api/schedules/{sid}/activities/B/predecessors", json={"items": [{"pred": "A", "x": 1}], "base_version": 1}, headers=admin),
+        client.put(f"/api/schedules/{sid}/activities/B/predecessors", json={"items": [], "base_version": 1, "x": 1}, headers=admin),
+        client.post(f"/api/schedules/{sid}/versions/1/restore", json={"base_version": 1, "x": 1}, headers=admin),
+        _patch(client, admin, sid, "A", 1, constraint={"type": "SNET", "date": "2027-03-08", "x": 1}),
+    ):
+        assert r.status_code == 422 and r.json()["code"] == "invalid_request", r.json()
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({"actual_start": "2027-03-05", "actual_finish": "2027-03-04"}, "실제 종료일이 실제 시작일보다 앞설 수 없습니다."),
+        ({"wbs": "9"}, "없는 WBS 코드입니다: 9"),
+        ({"resources": ["crane", "pump"]}, "없는 자원입니다: pump"),
+    ],
+)
+def test_patch_semantic_errors_are_invalid_activity(client, admin, sid, body, message):
+    r = _patch(client, admin, sid, "A", 1, **body)
+    assert r.status_code == 422
+    assert (r.json()["code"], r.json()["message"]) == ("invalid_activity", message)
+    assert _get(client, admin, sid)["version"] == 1
+
+
+def test_finish_before_existing_start_is_rejected(client, admin, sid):
+    assert _patch(client, admin, sid, "A", 1, actual_start="2027-03-02").status_code == 200
+    r = _patch(client, admin, sid, "A", 2, actual_finish="2027-03-01")
+    assert r.status_code == 422 and r.json()["code"] == "invalid_activity"
+
+
+def test_post_with_unknown_wbs_is_invalid_activity(client, admin, sid):
+    r = client.post(f"/api/schedules/{sid}/activities", json=_new(wbs="9"), headers=admin)
+    assert r.status_code == 422
+    assert (r.json()["code"], r.json()["message"]) == ("invalid_activity", "없는 WBS 코드입니다: 9")
+
+
+def test_next_id_goes_past_four_digits():
+    assert edits.next_id(make([task("A9990", 1)])) == "A10000"
+    assert edits.next_id(make([task("A10000", 1), task("A1035", 1)])) == "A10010"
+    assert edits.next_id(make([task("A1035", 1)])) == "A1040"
+
+
+def _aware(s: str) -> bool:
+    return datetime.fromisoformat(s).tzinfo is not None
+
+
+def test_timestamps_carry_utc_offset(client, admin, sid):
+    _patch(client, admin, sid, "A", 1, od=5)
+    assert all(_aware(row["updated_at"]) for row in client.get("/api/schedules", headers=admin).json())
+    assert all(_aware(v["created_at"]) for v in _versions(client, admin, sid))
+
+
+def test_weight_is_zero_when_there_is_no_duration(client, admin, session):
+    sid = store(session, make([task("S", 0, kind="start_ms"), task("F", 0, kind="finish_ms")], [Relation("S", "F")]))
+    assert [a["weight"] for a in _get(client, admin, sid)["activities"]] == [0.0, 0.0]
+
+
+def test_explicit_null_clears_actual_dates(client, admin, sid):
+    _patch(client, admin, sid, "A", 1, actual_start="2027-03-01", actual_finish="2027-03-03")
+    a = _act(_patch(client, admin, sid, "A", 2, actual_start=None, actual_finish=None).json(), "A")
+    assert (a["actual_start"], a["actual_finish"], a["status"]) == (None, None, "on_plan")
+
+
+def _last_changes(session, sid):
+    session.expire_all()
+    return session.query(ChangeLog).filter_by(schedule_id=sid).order_by(ChangeLog.id.desc()).first().changes_json
+
+
+def test_changes_json_for_post_delete_and_put(client, admin, session, sid):
+    client.post(f"/api/schedules/{sid}/activities", json=_new(name="마감", after="B"), headers=admin)
+    added = {
+        "id": "A1010", "name": "마감", "kind": "task", "wbs": "1", "od": 1, "rd": None, "progress": 0.0,
+        "actual_start": None, "actual_finish": None, "constraint": None, "resources": [], "tags": [],
+    }
+    assert _last_changes(session, sid) == [
+        {"id": "A1010", "field": "activity", "from": None, "to": added},
+        {"id": "A1010", "field": "predecessors", "from": [], "to": [{"pred": "B", "type": "FS", "lag": 0}]},
+    ]
+    client.put(f"/api/schedules/{sid}/activities/A1010/predecessors", json={"items": [{"pred": "A", "lag": 2}], "base_version": 2}, headers=admin)
+    assert _last_changes(session, sid) == [
+        {"id": "A1010", "field": "predecessors", "from": [{"pred": "B", "type": "FS", "lag": 0}],
+         "to": [{"pred": "A", "type": "FS", "lag": 2}]},
+    ]
+    client.delete(f"/api/schedules/{sid}/activities/A1010?base_version=3", headers=admin)
+    assert _last_changes(session, sid) == [
+        {"id": "A1010", "field": "activity", "from": added, "to": None},
+        {"id": "A1010", "field": "relation", "from": {"succ": "A1010", "pred": "A", "type": "FS", "lag": 2}, "to": None},
+    ]
+
+
+def test_conflict_at_save_time_is_409(client, admin, session, sid, sample_schedule, monkeypatch):
+    """확인을 지난 뒤 저장 직전에 다른 요청이 먼저 저장하면 409, 고침은 남지 않는다."""
+    real_run = service.run
+
+    def run_after_someone_saves(schedule):
+        save_new_version(session, sid, sample_schedule, [], by_kind="agent", by_name="에이전트", note="먼저", changes=[], base_version=1)
+        return real_run(schedule)
+
+    monkeypatch.setattr(service, "run", run_after_someone_saves)
+    r = _patch(client, admin, sid, "A", 1, od=5)
+    assert r.status_code == 409 and r.json()["detail"] == {"current": 2}
+    assert [(x["n"], x["by_name"]) for x in _versions(client, admin, sid)] == [(2, "에이전트"), (1, "에이전트")]
+
+
+def test_write_reuses_the_checked_computation(client, admin, sid, monkeypatch):
+    """쓰기 뒤 화면은 지금 일정을 다시 계산하지 않는다(Plan 버전 1 만 계산)."""
+    from app.store import view
+
+    calls = []
+    real_run = view.run
+    monkeypatch.setattr(view, "run", lambda s: calls.append(s) or real_run(s))
+    v = _patch(client, admin, sid, "A", 1, od=5).json()
+    assert v["finish"] == "2027-03-09" and v["plan_finish"] == "2027-03-05"
+    assert len(calls) == 1 and calls[0].activities[0].od == 3  # 버전 1(Plan) 의 A

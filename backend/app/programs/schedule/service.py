@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
-from app.core.cpm import ScheduleError
+from app.core.cpm import CpmResult, ScheduleError
 from app.core.model import Schedule
 from app.errors import ApiError
 from app.programs.schedule import edits
@@ -53,10 +53,12 @@ def _check_schedule(session: Session, schedule_id: int) -> None:
         raise ApiError(404, "not_found", "일정을 찾을 수 없습니다.") from None
 
 
-def get_view(session: Session, schedule_id: int) -> ScheduleView:
+def get_view(
+    session: Session, schedule_id: int, computed: tuple[int, CpmResult] | None = None
+) -> ScheduleView:
     _check_schedule(session, schedule_id)
     try:
-        return build_view(session, schedule_id)
+        return build_view(session, schedule_id, computed)
     except ScheduleError as e:
         raise _invalid(e) from None
 
@@ -114,11 +116,11 @@ def _write(
     if not result.changes:
         return get_view(session, schedule_id)
     try:
-        run(result.schedule)
+        cpm = run(result.schedule)
     except ScheduleError as e:
         raise _invalid(e) from None
     try:
-        save_new_version(
+        saved = save_new_version(
             session,
             schedule_id,
             result.schedule,
@@ -131,7 +133,7 @@ def _write(
         )
     except VersionConflict as e:
         raise _conflict(e.current) from None
-    return get_view(session, schedule_id)
+    return get_view(session, schedule_id, (saved, cpm))
 
 
 def patch_activity(
@@ -177,6 +179,8 @@ def restore_version(
         restore(session, schedule_id, n, by_name=user.name, base_version=base_version)
     except NotFound:
         raise ApiError(404, "not_found", "버전을 찾을 수 없습니다.") from None
+    except ScheduleError as e:
+        raise _invalid(e) from None
     except VersionConflict as e:
         raise _conflict(e.current) from None
     return get_view(session, schedule_id)

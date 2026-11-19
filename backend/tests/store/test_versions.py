@@ -7,6 +7,7 @@ from datetime import date
 import pytest
 from sqlalchemy.orm import Session
 
+from app.core.cpm import ScheduleError
 from app.core.model import (
     Activity,
     BlockedPeriod,
@@ -26,8 +27,14 @@ from app.store.schedules import (
     to_json,
 )
 from app.store.tables import ChangeLog, ScheduleRecord, ScheduleVersion
-from app.store.versions import VersionConflict, list_versions, restore, save_new_version
-from tests.schedules import store
+from app.store.versions import (
+    VersionConflict,
+    list_versions,
+    mark_plan,
+    restore,
+    save_new_version,
+)
+from tests.schedules import make, store, task
 
 # ── 작업 지시서의 시험 ──────────────────────────────────────────────
 
@@ -194,3 +201,105 @@ def test_two_sessions_cannot_both_save_on_the_same_base(session, sid, sample_sch
             save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="b", note="", changes=[], base_version=1)
     assert e.value.current == 2
     assert [v.by_name for v in list_versions(session, sid)] == ["a", "에이전트"]
+
+
+# ── 고침 1차 ────────────────────────────────────────────────────────
+
+CYCLE = make([task("A", 1), task("B", 1)], [Relation("A", "B"), Relation("B", "A")])
+
+
+def _save(session, sid, schedule, base, **k):
+    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=base, **k)
+
+
+def test_from_json_fills_defaults_for_missing_keys(sample_schedule):
+    d = to_json(sample_schedule)
+    del d["data_date"], d["calendar"]["holidays"], d["calendar"]["blocked"]
+    for a in d["activities"]:
+        for key in ("rd", "progress", "actual_start", "actual_finish", "constraint", "resources", "tags"):
+            del a[key]
+    del d["resources"]
+    for r in d["relations"]:
+        del r["type"], r["lag"]
+    assert from_json(d) == replace(sample_schedule, resources=())
+
+
+def test_create_schedule_rejects_invalid_schedule(session):
+    with pytest.raises(ScheduleError) as e:
+        store(session, CYCLE)
+    assert e.value.code == "cycle"
+    assert session.query(ScheduleRecord).count() == 0
+    assert session.query(ScheduleVersion).count() == 0
+
+
+def test_commit_false_then_rollback_persists_nothing(session, sid, sample_schedule):
+    other = create_schedule(
+        session, name="x", domain="d", level="L1", schedule=sample_schedule, conditions=[],
+        by_kind="agent", by_name="a", note="", commit=False,
+    )
+    assert _save(session, sid, sample_schedule, 1, commit=False) == 2
+    assert restore(session, sid, 1, by_name="a", commit=False) == 3
+    mark_plan(session, sid, 3, commit=False)
+    session.rollback()
+    assert session.get(ScheduleRecord, other) is None
+    assert session.get(ScheduleRecord, sid).current_version == 1
+    assert [(v.n, v.is_plan) for v in list_versions(session, sid)] == [(1, False)]
+    assert session.query(ChangeLog).count() == 0
+
+
+def test_conflict_with_commit_false_leaves_the_session_to_the_caller(session, sid, sample_schedule):
+    other = create_schedule(
+        session, name="x", domain="d", level="L1", schedule=sample_schedule, conditions=[],
+        by_kind="agent", by_name="a", note="", commit=False,
+    )
+    with pytest.raises(VersionConflict) as e:
+        _save(session, sid, sample_schedule, 5, commit=False)
+    assert e.value.current == 1
+    assert session.get(ScheduleRecord, other) is not None  # 되돌리지 않았다
+    session.commit()
+    session.expire_all()
+    assert session.get(ScheduleRecord, other).current_version == 1
+
+
+def test_mark_plan_leaves_exactly_one_plan(session, sid, sample_schedule):
+    _save(session, sid, sample_schedule, 1)
+    _save(session, sid, sample_schedule, 2)
+    mark_plan(session, sid, 2)
+    mark_plan(session, sid, 3)
+    session.expire_all()
+    assert [(v.n, v.is_plan) for v in list_versions(session, sid)] == [(3, True), (2, False), (1, False)]
+    with pytest.raises(NotFound):
+        mark_plan(session, sid, 9)
+
+
+def test_restore_records_differences(session, sid, sample_schedule):
+    a = sample_schedule.activities[0]
+    changed = replace(
+        sample_schedule,
+        activities=(replace(a, od=5, tags=("x",)), task("C", 1)),
+        relations=(Relation("A", "C", "SS", 1),),
+    )
+    _save(session, sid, changed, 1)
+    restore(session, sid, 1, by_name="손장호")
+    log = session.query(ChangeLog).filter_by(schedule_id=sid, version_n=3).one()
+    assert log.summary == "1번 버전으로 되돌림"
+    assert sorted(log.changes_json, key=lambda c: (c["id"], c["field"])) == [
+        {"id": "A", "field": "od", "from": 5, "to": 3},
+        {"id": "A", "field": "tags", "from": ["x"], "to": []},
+        {"id": "B", "field": "activity", "from": None, "to": "B"},
+        {"id": "B", "field": "predecessors", "from": [], "to": [{"pred": "A", "type": "FS", "lag": 0}]},
+        {"id": "C", "field": "activity", "from": "C", "to": None},
+        {"id": "C", "field": "predecessors", "from": [{"pred": "A", "type": "SS", "lag": 1}], "to": []},
+    ]
+
+
+def test_restore_of_invalid_snapshot_raises_and_saves_nothing(session, sid, sample_schedule):
+    _save(session, sid, sample_schedule, 1)
+    session.get(ScheduleVersion, (sid, 1)).snapshot_json = to_json(CYCLE)
+    session.commit()
+    with pytest.raises(ScheduleError):
+        restore(session, sid, 1, by_name="a")
+    session.expire_all()
+    assert session.get(ScheduleRecord, sid).current_version == 2
+    assert len(list_versions(session, sid)) == 2
+    assert session.query(ChangeLog).filter_by(schedule_id=sid).count() == 1

@@ -9,6 +9,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.cpm import CpmResult, compute
 from app.core.model import (
     Activity,
     BlockedPeriod,
@@ -19,6 +20,7 @@ from app.core.model import (
     Schedule,
     WbsNode,
 )
+from app.core.resources import level as level_schedule
 from app.store.tables import ScheduleRecord, ScheduleVersion
 
 
@@ -86,30 +88,31 @@ def to_json(schedule: Schedule) -> dict:
 
 
 def activity_from_json(d: dict) -> Activity:
-    c = d["constraint"]
+    """기본값이 있는 칸은 없어도 읽는다(그 칸이 생기기 전에 저장한 스냅숏)."""
+    c = d.get("constraint")
     return Activity(
         id=d["id"],
         name=d["name"],
         kind=d["kind"],
         wbs=d["wbs"],
         od=d["od"],
-        rd=d["rd"],
-        progress=d["progress"],
-        actual_start=_day(d["actual_start"]),
-        actual_finish=_day(d["actual_finish"]),
+        rd=d.get("rd"),
+        progress=d.get("progress", 0.0),
+        actual_start=_day(d.get("actual_start")),
+        actual_finish=_day(d.get("actual_finish")),
         constraint=Constraint(c["type"], date.fromisoformat(c["date"])) if c else None,
-        resources=tuple(d["resources"]),
-        tags=tuple(d["tags"]),
+        resources=tuple(d.get("resources", ())),
+        tags=tuple(d.get("tags", ())),
     )
 
 
 def _calendar(d: dict) -> CalendarSpec:
     return CalendarSpec(
         days_per_week=d["days_per_week"],
-        holidays=tuple(date.fromisoformat(h) for h in d["holidays"]),
+        holidays=tuple(date.fromisoformat(h) for h in d.get("holidays", ())),
         blocked=tuple(
             BlockedPeriod(tuple(p["start_md"]), tuple(p["end_md"]), p["tag"])
-            for p in d["blocked"]
+            for p in d.get("blocked", ())
         ),
     )
 
@@ -120,12 +123,28 @@ def from_json(d: dict) -> Schedule:
         calendar=_calendar(d["calendar"]),
         wbs=tuple(WbsNode(w["code"], w["name"], w["parent"]) for w in d["wbs"]),
         activities=tuple(activity_from_json(a) for a in d["activities"]),
-        relations=tuple(Relation(r["pred"], r["succ"], r["type"], r["lag"]) for r in d["relations"]),
-        resources=tuple(
-            Resource(r["id"], r["name"], r["unit"], r["capacity"]) for r in d["resources"]
+        relations=tuple(
+            Relation(r["pred"], r["succ"], r.get("type", "FS"), r.get("lag", 0))
+            for r in d["relations"]
         ),
-        data_date=_day(d["data_date"]),
+        resources=tuple(
+            Resource(r["id"], r["name"], r["unit"], r["capacity"]) for r in d.get("resources", ())
+        ),
+        data_date=_day(d.get("data_date")),
     )
+
+
+def run(schedule: Schedule) -> CpmResult:
+    """경로 계산 뒤 자원 맞춤까지 한 결과(화면 날짜). 깨진 일정이면 ScheduleError."""
+    return level_schedule(schedule, compute(schedule), shift=True).cpm
+
+
+def end_write(session: Session, commit: bool) -> None:
+    """commit 이면 커밋, 아니면 flush 만 한다(트랜잭션은 부른 쪽이 끝낸다)."""
+    if commit:
+        session.commit()
+    else:
+        session.flush()
 
 
 def create_schedule(
@@ -139,8 +158,13 @@ def create_schedule(
     by_kind: str,
     by_name: str,
     note: str,
+    commit: bool = True,
 ) -> int:
-    """일정과 버전 1을 만들고 일정 id 를 준다. 변경 이력은 남기지 않는다."""
+    """일정과 버전 1을 만들고 일정 id 를 준다. 변경 이력은 남기지 않는다.
+
+    먼저 계산해 본다. 깨진 일정이면 ScheduleError 를 내고 아무것도 저장하지 않는다.
+    """
+    run(schedule)
     record = ScheduleRecord(
         name=name, domain=domain, level=level, current_version=1, created_by=by_name
     )
@@ -157,7 +181,7 @@ def create_schedule(
             by_name=by_name,
         )
     )
-    session.commit()
+    end_write(session, commit)
     return record.id
 
 

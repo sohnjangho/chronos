@@ -1,7 +1,9 @@
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+
+from app.store.timeutil import as_utc
 
 Kind = Literal["task", "start_ms", "finish_ms"]
 RelType = Literal["FS", "SS", "FF", "SF"]
@@ -9,21 +11,31 @@ RelType = Literal["FS", "SS", "FF", "SF"]
 # PATCH 에서 null 로 지울 수 있는 칸. 나머지 칸은 null 을 받지 않는다.
 CLEARABLE = frozenset({"rd", "actual_start", "actual_finish", "constraint"})
 
+Days = Annotated[int, Field(ge=0, strict=True)]  # 0 이상 정수(2.0 같은 실수도 받지 않음)
+Progress = Annotated[float, Field(ge=0, le=1)]
+UtcDatetime = Annotated[datetime, AfterValidator(as_utc)]  # 내보낼 때 +00:00(Z) 이 붙는다
 
-class ConstraintIO(BaseModel):
+
+class Strict(BaseModel):
+    """모르는 칸은 받지 않는다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ConstraintIO(Strict):
     type: Literal["SNET", "FNLT"]
     date: date
 
 
-class ActivityPatch(BaseModel):
+class ActivityPatch(Strict):
     """보낸 칸만 바꾼다."""
 
     name: str | None = None
     kind: Kind | None = None
     wbs: str | None = None
-    od: int | None = None
-    rd: int | None = None
-    progress: float | None = None
+    od: Days | None = None
+    rd: Days | None = None
+    progress: Progress | None = None
     actual_start: date | None = None
     actual_finish: date | None = None
     constraint: ConstraintIO | None = None
@@ -39,28 +51,28 @@ class ActivityPatch(BaseModel):
         return self
 
 
-class ActivityCreate(BaseModel):
+class ActivityCreate(Strict):
     id: str | None = None
     name: str
     kind: Kind
     wbs: str
-    od: int
+    od: Days
     after: str | None = None
     base_version: int
 
 
-class RelationIn(BaseModel):
+class RelationIn(Strict):
     pred: str
     type: RelType = "FS"
     lag: int = 0
 
 
-class PredecessorsIn(BaseModel):
+class PredecessorsIn(Strict):
     items: list[RelationIn]
     base_version: int
 
 
-class RestoreIn(BaseModel):
+class RestoreIn(Strict):
     base_version: int
 
 
@@ -124,7 +136,7 @@ class ScheduleView(BaseModel):
     version: int
     data_date: date | None
     finish: date
-    plan_finish: date
+    plan_finish: date | None  # Plan 이 계산되지 않으면 null
     wbs: list[WbsOut]
     activities: list[ActivityView]
     relations: list[RelationOut]
@@ -139,7 +151,7 @@ class ScheduleItem(BaseModel):
     level: str
     version: int
     finish: date | None  # 계산이 깨진 일정이면 null
-    updated_at: datetime
+    updated_at: UtcDatetime
 
 
 class VersionOut(BaseModel):
@@ -148,4 +160,4 @@ class VersionOut(BaseModel):
     by_kind: str
     by_name: str
     is_plan: bool
-    created_at: datetime
+    created_at: UtcDatetime

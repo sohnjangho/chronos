@@ -7,15 +7,18 @@
 from sqlalchemy.orm import Session
 
 from app.core.calendar import WorkCalendar
-from app.core.cpm import CpmResult, CpmRow, compute
+from app.core.cpm import CpmResult, CpmRow, ScheduleError
 from app.core.model import Activity, Schedule
-from app.core.resources import level
-from app.store.schedules import activity_json, get_record, load, plan_version, to_json
+from app.store.schedules import (
+    activity_json,
+    get_record,
+    load,
+    plan_version,
+    run,
+    to_json,
+)
 
-
-def run(schedule: Schedule) -> CpmResult:
-    """경로 계산 뒤 자원 맞춤까지 한 결과. 깨진 일정이면 ScheduleError."""
-    return level(schedule, compute(schedule), shift=True).cpm
+__all__ = ["run", "view_data"]
 
 
 def _status(cal: WorkCalendar, a: Activity, row: CpmRow, plan: CpmRow | None) -> str:
@@ -40,12 +43,12 @@ def _weights(schedule: Schedule) -> dict[str, float]:
     }
 
 
-def _activities(schedule: Schedule, cpm: CpmResult, plan: CpmResult) -> list[dict]:
+def _activities(schedule: Schedule, cpm: CpmResult, plan: CpmResult | None) -> list[dict]:
     cal = WorkCalendar(schedule.calendar)
     weights = _weights(schedule)
     rows = []
     for a in schedule.activities:
-        row, p = cpm.rows[a.id], plan.rows.get(a.id)
+        row, p = cpm.rows[a.id], plan.rows.get(a.id) if plan else None
         rows.append(
             {
                 **activity_json(a),
@@ -63,16 +66,30 @@ def _activities(schedule: Schedule, cpm: CpmResult, plan: CpmResult) -> list[dic
     return rows
 
 
-def view_data(session: Session, schedule_id: int) -> dict:
+def _plan(session: Session, schedule_id: int, n: int, cpm: CpmResult) -> CpmResult | None:
+    """Plan 버전의 계산 결과. 계산이 안 되는 Plan 이면 None(Plan 없음으로 본다)."""
+    plan_n = plan_version(session, schedule_id)
+    if plan_n == n:
+        return cpm
+    try:
+        return run(load(session, schedule_id, plan_n)[0])
+    except ScheduleError:
+        return None
+
+
+def view_data(
+    session: Session, schedule_id: int, computed: tuple[int, CpmResult] | None = None
+) -> dict:
     """지금 버전의 계산 포함 자료(ScheduleView 의 칸 그대로). 계산한 날짜는 date 객체다.
 
-    없는 일정이면 NotFound, 깨진 일정이면 ScheduleError.
+    computed=(버전 번호, 그 버전의 run 결과) 를 주면, 지금 버전이 그 번호일 때 다시 계산하지 않는다.
+    Plan 이 계산되지 않으면 plan 칸은 모두 None, status 는 "new" 다.
+    없는 일정이면 NotFound, 지금 일정이 깨졌으면 ScheduleError.
     """
     record = get_record(session, schedule_id)
     schedule, _, n = load(session, schedule_id)
-    cpm = run(schedule)
-    plan_n = plan_version(session, schedule_id)
-    plan = cpm if plan_n == n else run(load(session, schedule_id, plan_n)[0])
+    cpm = computed[1] if computed is not None and computed[0] == n else run(schedule)
+    plan = _plan(session, schedule_id, n, cpm)
     activities = _activities(schedule, cpm, plan)
     snapshot = to_json(schedule)
     return {
@@ -83,7 +100,7 @@ def view_data(session: Session, schedule_id: int) -> dict:
         "version": n,
         "data_date": schedule.data_date,
         "finish": cpm.finish,
-        "plan_finish": plan.finish,
+        "plan_finish": plan.finish if plan else None,
         "wbs": snapshot["wbs"],
         "activities": activities,
         "relations": snapshot["relations"],
