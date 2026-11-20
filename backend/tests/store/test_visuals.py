@@ -45,8 +45,9 @@ def test_delay_impact_rows_come_from_the_delay_report(session, sid):
                   before_version=None)
     session.commit()
     t = build(session, "delay_impact", sid)
-    assert t.columns == ["작업", "지연(근무일)", "흡수(근무일)", "준공 영향(근무일)"]  # 글 칸(상태)은 차트 자료가 아니라 뺀다
-    assert t.rows == [["작업 B", 2, 0, 2]]
+    assert t.columns == ["작업", "지연(근무일)", "흡수(근무일)", "준공 영향(근무일)", "상태"]
+    assert t.rows == [["작업 B", 2, 0, 2, "열림"]]
+    assert t.roles == ("charted", "charted", "charted", "charted", "shown")  # 상태는 그림 아래 표에만
     assert t.chart == "bars"
 
 
@@ -70,6 +71,7 @@ def test_scenario_compare_puts_the_current_schedule_first(session, sid):
     session.commit()
     t = build(session, "scenario_compare", sid)
     assert t.columns == ["안", "준공", "크리티컬(개)", "위반(개)"]
+    assert t.roles == ("charted", "shown", "charted", "charted")  # 막대 그림의 날짜는 표에만
     assert t.rows == [["지금 일정", "2027-03-05", 2, 0], ["A 늘림 안", "2027-03-09", 2, 0]]
 
 
@@ -94,11 +96,27 @@ def test_s_curve_follows_the_asked_unit(session):
     assert week.rows[-1][1] == month.rows[-1][1] == 100
 
 
+def test_summary_and_s_curve_chart_every_column(session, sid):
+    assert build(session, "summary", sid).roles == ("charted", "charted", "charted")
+    assert build(session, "s_curve", sid).roles == ("charted", "charted", "charted")
+
+
+def test_more_than_40_points_switch_to_months_with_a_note(session):
+    sid = store(session, make([task("A", 300)]))  # 약 60주
+    week = visuals.build(session, "s_curve", sid, None, today=TODAY, unit="week")
+    assert len(week.rows) <= 40 and week.note == "점이 많아 월 단위로 그렸습니다"
+    assert visuals.build(session, "s_curve", sid, None, today=TODAY).note == "점이 많아 월 단위로 그렸습니다"
+    month = visuals.build(session, "s_curve", sid, None, today=TODAY, unit="month")
+    assert month.note == "" and month.rows == week.rows
+    assert build(session, "summary", sid).note == ""
+
+
 def test_resource_load_rows(session):
     sid = store(session, make([task("A", 3, resources=("crane",)), task("B", 2, resources=("crane",))],
                               [Relation("A", "B")], [Resource("crane", "타워크레인", "대", 1)]))
     t = build(session, "resource_load", sid)
     assert t.columns == ["자원", "한도", "최고 사용", "최고 사용일", "한도 넘은 날(일)"]
+    assert t.roles == ("charted", "charted", "charted", "shown", "charted")
     assert t.rows == [["타워크레인", 1, 1, "2027-03-01", 0]]
 
 
@@ -123,7 +141,7 @@ def test_save_find_and_out(session, sid):
     assert visuals.find_verified(session, sid, "k2") is None
     o = visuals.out(row)
     assert (o["html"], o["passed"], o["total"], o["version"], o["data_date"]) == ("<html></html>", 6, 6, 1, date(2027, 3, 1))
-    assert o["rows"] == t.rows and o["columns"] == t.columns and o["chart"] == "timeline"
+    assert o["rows"] == t.rows and o["columns"] == t.columns and o["chart"] == "timeline" and o["table_note"] == ""
 
 
 def test_fallback_rows_are_not_found_and_hide_html(session, sid):

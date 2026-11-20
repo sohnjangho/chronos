@@ -26,6 +26,7 @@ class VisualOut(BaseModel):
     columns: list[str]
     rows: list[list[str | int | float | None]]
     chart: Literal["timeline", "bars", "line"]
+    table_note: str  # 표를 만들 때 바꾼 것(예: 점이 많아 월 단위로 그렸습니다) — 캡션에 덧붙인다
     html: str | None
     theme: str
     description: str

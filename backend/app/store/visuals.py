@@ -2,11 +2,11 @@
 
 종류(kind)와 표:
 - summary: 크리티컬 패스 작업(시작 순) — 작업·시작·끝. version 을 주면 그 버전.
-- delay_impact: 기록한 지연 사건(store.delays.report) — 작업·지연·흡수·준공 영향(근무일). 지금 버전만.
-  (글 칸은 첫 열만 둔다 — 대조는 표의 모든 값이 차트 자료에 있는지 센다.)
+- delay_impact: 기록한 지연 사건(store.delays.report) — 작업·지연·흡수·준공 영향(근무일)·상태. 지금 버전만.
 - scenario_compare: 지금 일정 + 열린·승인 대기 만약에 안(새것 5개) — 안·준공·크리티컬 수·위반 수. 지금 버전만.
-- s_curve: 기준 범위(Plan 이 있는 액티비티)의 누적 계획·실적 %. unit(week·month)을 주면 그 단위, 없으면 주 단위
-  (40점이 넘으면 월). 지금 버전만.
+- s_curve: 기준 범위(Plan 이 있는 액티비티)의 누적 계획·실적 %. unit(week·month)을 주면 그 단위, 없으면 주 단위.
+  주가 40점을 넘으면 월로 바꾸고 note 에 「점이 많아 월 단위로 그렸습니다」. 지금 버전만.
+열마다 대조 규칙(roles): charted(차트 자료에 개수까지) · shown(그림 아래 표 칸에 그대로). 막대 그림의 날짜·글 칸이 shown 이다.
 - resource_load: 쓰이는 자원마다 한도·최고 사용·그날·한도 넘은 날 수(자원 맞춤 뒤). version 을 주면 그 버전.
 기준일(data_date) = 그 버전 일정의 Data Date, 없으면 today(부르는 쪽이 준다 — app.agent.context.today()). 정수로 떨어지는 소수는 정수로 둔다(100.0 → 100, 글자 대조).
 쓰기는 flush 만 한다(commit 은 부르는 쪽).
@@ -35,11 +35,16 @@ __all__ = ["KINDS", "NotFound", "TableError", "VisualTable", "build", "find_veri
 Kind = Literal["summary", "delay_impact", "scenario_compare", "s_curve", "resource_load"]
 KINDS: tuple[str, ...] = ("summary", "delay_impact", "scenario_compare", "s_curve", "resource_load")
 Chart = Literal["timeline", "bars", "line"]
+Role = Literal["charted", "shown"]
+C: Role = "charted"
+S: Role = "shown"
 Cell = str | int | float | None
 
 MAX_ROWS = 25  # summary 줄 수 한도
 MAX_SCENARIOS = 5
 MAX_WEEK_POINTS = 40
+MONTH_NOTE = "점이 많아 월 단위로 그렸습니다"
+STATUS_LABELS = {"open": "열림", "reflected": "반영됨"}
 
 
 class TableError(ValueError):
@@ -59,6 +64,13 @@ class VisualTable:
     chart: Chart  # 우리 그림(SVG)의 모양과 요청 글의 그림 종류
     version: int
     data_date: date | None
+    # 열마다 대조 규칙: charted = 차트 자료에 개수까지 있어야 함, shown = 그림 아래 보이는 표 칸에 그대로 있어야 함.
+    # 비면 모두 charted.
+    roles: tuple[Role, ...] = ()
+    note: str = ""  # 캡션에 덧붙일 글(예: 점이 많아 월 단위로 그렸습니다)
+
+    def role(self, i: int) -> Role:
+        return self.roles[i] if i < len(self.roles) else "charted"
 
 
 def _num(x: float) -> int | float:
@@ -79,21 +91,22 @@ def _summary(session: Session, schedule_id: int, version: int | None, today: dat
                      if cpm.rows[a.id].critical)
     rows: list[list[Cell]] = [[name, es.isoformat(), ef.isoformat()] for es, ef, _, name in on_path[:MAX_ROWS]]
     return VisualTable("summary", "일정 요약 — 크리티컬 패스 작업", ["작업", "시작", "끝"], rows, "timeline", n,
-                       schedule.data_date or today)
+                       schedule.data_date or today, (C, C, C))
 
 
 def _delay_impact(session: Session, schedule_id: int, version: int | None, today: date) -> VisualTable:
     _current_only(session, schedule_id, version)
     data = delays.report(session, schedule_id)
     rows: list[list[Cell]] = [
-        [e["activity_name"], e["days"], e["impact"]["absorbed"], e["impact"]["finish_delta"]]
+        [e["activity_name"], e["days"], e["impact"]["absorbed"], e["impact"]["finish_delta"],
+         STATUS_LABELS.get(e["status"], e["status"])]
         for e in data["events"] if e["impact"]
     ]
     if not rows:
         raise TableError("기록한 지연이 없습니다.")
     schedule, _, n = load(session, schedule_id)
-    return VisualTable("delay_impact", "지연 영향", ["작업", "지연(근무일)", "흡수(근무일)", "준공 영향(근무일)"],
-                       rows, "bars", n, schedule.data_date or today)
+    return VisualTable("delay_impact", "지연 영향", ["작업", "지연(근무일)", "흡수(근무일)", "준공 영향(근무일)", "상태"],
+                       rows, "bars", n, schedule.data_date or today, (C, C, C, C, S))
 
 
 def _scenario_row(name: str, summary: dict) -> list[Cell]:
@@ -109,7 +122,7 @@ def _scenario_compare(session: Session, schedule_id: int, version: int | None, t
     rows = [_scenario_row("지금 일정", scenarios.summarize(session, schedule_id, schedule, conditions))]
     rows += [_scenario_row(s.name, s.summary_json) for s in found]
     return VisualTable("scenario_compare", "안 비교", ["안", "준공", "크리티컬(개)", "위반(개)"], rows, "bars", n,
-                       schedule.data_date or today)
+                       schedule.data_date or today, (C, S, C, C))
 
 
 def _day(s: str | None) -> date | None:
@@ -138,12 +151,14 @@ def _s_curve(session: Session, schedule_id: int, version: int | None, today: dat
     cal = WorkCalendar(prepare_stored(schedule, conditions).calendar)
     data_date = view["data_date"] or today
     points = curve(base, cal, data_date=data_date, unit="month" if unit == "month" else "week")
-    if unit is None and len(points) > MAX_WEEK_POINTS:
-        points = curve(base, cal, data_date=data_date, unit="month")
+    note = ""
+    if unit != "month" and len(points) > MAX_WEEK_POINTS:  # 주가 40점을 넘으면 월(컨트롤러 판정 11-20)
+        points, note = curve(base, cal, data_date=data_date, unit="month"), MONTH_NOTE
     rows: list[list[Cell]] = [
         [p.date.isoformat(), _num(p.plan_cum), None if p.actual_cum is None else _num(p.actual_cum)] for p in points
     ]
-    return VisualTable("s_curve", "진행 S-커브", ["날짜", "계획 누적(%)", "실적 누적(%)"], rows, "line", n, data_date)
+    return VisualTable("s_curve", "진행 S-커브", ["날짜", "계획 누적(%)", "실적 누적(%)"], rows, "line", n, data_date,
+                       (C, C, C), note)
 
 
 def _resource_load(session: Session, schedule_id: int, version: int | None, today: date) -> VisualTable:
@@ -160,7 +175,7 @@ def _resource_load(session: Session, schedule_id: int, version: int | None, toda
     if not rows:
         raise TableError("쓰는 자원이 없습니다.")
     return VisualTable("resource_load", "자원 부하", ["자원", "한도", "최고 사용", "최고 사용일", "한도 넘은 날(일)"], rows,
-                       "bars", n, schedule.data_date or today)
+                       "bars", n, schedule.data_date or today, (C, C, C, S, C))
 
 
 _BUILDERS: dict[str, Callable[[Session, int, int | None, date], VisualTable]] = {
@@ -210,7 +225,8 @@ def save(
 ) -> Visual:
     row = Visual(
         schedule_id=schedule_id, version=table.version, kind=table.kind, input_hash=key, data_date=table.data_date,
-        table_json={"title": table.title, "columns": table.columns, "rows": table.rows, "chart": table.chart},
+        table_json={"title": table.title, "columns": table.columns, "rows": table.rows, "chart": table.chart,
+                    "roles": [table.role(i) for i in range(len(table.columns))], "note": table.note},
         html=html, theme=theme[:40], description=description, resource_id=resource_id[:100], verified=verified,
         passed=passed, total=total, checks_json={"problems": problems, "external": external}, attempts=attempts,
         fallback=fallback, note=note[:200], latency_ms=latency_ms, created_by=created_by[:100],
@@ -233,7 +249,7 @@ def out(row: Visual) -> dict:
     t = row.table_json
     return {
         "id": row.id, "schedule_id": row.schedule_id, "kind": row.kind, "title": t["title"], "version": row.version,
-        "data_date": row.data_date, "columns": t["columns"], "rows": t["rows"], "chart": t["chart"],
+        "data_date": row.data_date, "columns": t["columns"], "rows": t["rows"], "chart": t["chart"], "table_note": t.get("note", ""),
         "html": None if row.fallback else row.html, "theme": row.theme, "description": row.description,
         "resource_id": row.resource_id, "verified": row.verified, "passed": row.passed, "total": row.total,
         "fallback": row.fallback, "note": row.note, "external": list(row.checks_json.get("external", [])),

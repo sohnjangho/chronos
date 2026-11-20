@@ -11,7 +11,7 @@ const V: VisualData = {
   id: 7, schedule_id: 1, kind: 'summary', title: '일정 요약 — 크리티컬 패스 작업', version: 3, data_date: '2027-03-01',
   columns: ['작업', '시작', '끝'], rows: [['터파기', '2027-03-01', '2027-03-05'], ['기초 타설', '2027-03-08', '2027-03-19']],
   chart: 'timeline', html: HTML, theme: 'summary', description: '요약', resource_id: 'viz_1', verified: true, passed: 6,
-  total: 6, fallback: false, note: '', external: ['https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js'],
+  total: 6, fallback: false, note: '', table_note: '', external: ['https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js'],
   latency_ms: 11000, created_at: '2026-11-20T10:00:00',
 };
 const FALLBACK: VisualData = { ...V, html: null, verified: false, passed: 5, fallback: true, note: 'Liner 그림 검증 실패 → 기본 그림' };
@@ -38,13 +38,42 @@ describe('frame', () => {
     const doc = f.getAttribute('srcdoc') ?? '';
     expect(doc).toMatch(/<meta http-equiv="Content-Security-Policy" content="[^"]*connect-src 'none'[^"]*">/);
     expect(doc).toContain('img-src data:');
-    expect(doc).toContain('script-src \'unsafe-inline\' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com');
+    // 서버가 대조한 외부 주소(external)의 패키지 폴더만 허용한다(호스트 전체가 아니라).
+    expect(doc).toContain("script-src 'unsafe-inline' https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/;");
+    expect(doc).not.toContain('https://cdn.jsdelivr.net');
     expect(doc.indexOf('Content-Security-Policy')).toBeLessThan(doc.indexOf('chronosVisual'));
     expect(doc).toContain('afterRender'); // 차트가 실제로 그려진 뒤에 ready
     // 요소의 load 는 window 까지 오지 않는다(DOM 명세) — Chart.js 를 부른 때는 document 에서 잡는다(실제 Chrome 에서 확인).
     expect(doc).toContain('document.addEventListener("load"');
     expect(f).toHaveAttribute('title', '일정 요약 — 크리티컬 패스 작업');
     expect(screen.getByText('데이터: 크로노스 계산(버전 v3, 기준일 2027-03-01) · 그림: Liner Visualization · 숫자 대조 통과 6/6')).toBeVisible();
+  });
+
+  test('csp sources are the allowed package folders of the checked external urls', () => {
+    const external = [
+      'https://cdn.jsdelivr.net/npm/@liner-fe/design-token@^3.0.0/lib/index.css',
+      'https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css',
+      'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js',
+      'https://evil.example/x.js',
+    ];
+    render(<VisualFrame data={{ ...V, external }} />);
+    const doc = frame().getAttribute('srcdoc') ?? '';
+    const sources = 'https://cdn.jsdelivr.net/npm/@liner-fe/design-token@^3.0.0/ https://cdn.jsdelivr.net/npm/pretendard@1.3.9/ https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/';
+    expect(doc).toContain(`style-src 'unsafe-inline' ${sources};`);
+    expect(doc).toContain(`font-src ${sources};`);
+    expect(doc).not.toContain('evil.example');
+  });
+
+  test('without a head the csp goes first, not inside a <header>', () => {
+    render(<VisualFrame data={{ ...V, html: '<html><body><header>머리</header><canvas></canvas></body></html>' }} />);
+    const doc = frame().getAttribute('srcdoc') ?? '';
+    expect(doc.startsWith('<meta http-equiv="Content-Security-Policy"')).toBe(true);
+    expect(doc.indexOf('Content-Security-Policy')).toBeLessThan(doc.indexOf('<header>'));
+  });
+
+  test('the caption carries the table note', () => {
+    render(<VisualFrame data={{ ...V, table_note: '점이 많아 월 단위로 그렸습니다' }} />);
+    expect(screen.getByText(/숫자 대조 통과 6\/6 · 점이 많아 월 단위로 그렸습니다/)).toBeVisible();
   });
 
   test('fallback draws our svg with the reason and no iframe', () => {

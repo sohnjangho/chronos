@@ -19,11 +19,35 @@ const NOTES = {
   error: '그림을 그리다 오류가 나 기본 그림으로 보입니다.',
 };
 
-// 서버 verify 의 ALLOWED_HOSTS 와 같은 목록(backend/app/llm/visualization.py).
-const HOSTS = 'https://cdn.jsdelivr.net https://cdnjs.cloudflare.com';
-const CSP =
-  `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' ${HOSTS}; ` +
-  `style-src 'unsafe-inline' ${HOSTS}; font-src ${HOSTS}; img-src data:; connect-src 'none'">`;
+// 서버 대조의 ALLOWED_PREFIXES 와 같은 목록(backend/app/llm/visual_check.py).
+const PREFIXES = [
+  'https://cdn.jsdelivr.net/npm/@liner-fe/design-token@',
+  'https://cdn.jsdelivr.net/npm/pretendard@',
+  'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/',
+];
+
+/**
+ * CSP 의 허용 출처: 서버가 대조한 외부 주소 가운데 PREFIXES 로 시작하는 것의 패키지 폴더(앞부분 다음 첫 '/' 까지).
+ * CSP 는 '/' 로 끝나는 경로만 앞부분으로 맞추므로(예: …/pretendard@1.3.9/) 버전 폴더까지 넣는다.
+ */
+function sources(external: string[]): string {
+  const found = new Set<string>();
+  for (const raw of external) {
+    const url = raw.startsWith('//') ? `https:${raw}` : raw;
+    const prefix = PREFIXES.find((p) => url.startsWith(p));
+    const cut = prefix ? url.indexOf('/', prefix.length) : -1;
+    if (cut > 0) found.add(url.slice(0, cut + 1));
+  }
+  return [...found].map((s) => ` ${s}`).join('');
+}
+
+function csp(external: string[]): string {
+  const from = sources(external);
+  return (
+    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'${from}; ` +
+    `style-src 'unsafe-inline'${from}; font-src${from}; img-src data:; connect-src 'none'">`
+  );
+}
 
 // iframe 안의 감시: 그림 파일(script·link)을 못 불러오면 'cdn', 그 밖의 script 오류는 'error', Chart.js 를 불러오면
 // 전역 플러그인을 달아 차트를 처음 다 그린 뒤(afterRender) 'ready'. 요소의 load 는 window 까지 오지 않아(DOM 명세) document 에서 잡는다. 처음 알린 것 하나만 보낸다(그린 뒤의 오류는 무시).
@@ -35,16 +59,18 @@ const WATCH =
   'document.addEventListener("load",function(e){var t=e.target;if(t&&t.tagName==="SCRIPT")hook()},true);' +
   'window.addEventListener("load",function(){if(typeof Chart==="undefined")p("cdn")})})();</script>';
 
-function withWatch(html: string): string {
-  const m = /<head[^>]*>/i.exec(html);
-  if (!m) return CSP + WATCH + html;
+function withWatch(html: string, external: string[]): string {
+  const head = csp(external) + WATCH;
+  const m = /<head(\s[^>]*)?>/i.exec(html); // <header> 는 아니다
+  if (!m) return head + html;
   const at = m.index + m[0].length;
-  return html.slice(0, at) + CSP + WATCH + html.slice(at);
+  return html.slice(0, at) + head + html.slice(at);
 }
 
 function caption(d: VisualData, drawn: boolean): string {
   const data = `데이터: 크로노스 계산(버전 v${d.version}${d.data_date ? `, 기준일 ${d.data_date}` : ''})`;
-  return drawn ? `${data} · 그림: Liner Visualization · 숫자 대조 통과 ${d.passed}/${d.total}` : `${data} · 그림: 크로노스 기본 그림`;
+  const line = drawn ? `${data} · 그림: Liner Visualization · 숫자 대조 통과 ${d.passed}/${d.total}` : `${data} · 그림: 크로노스 기본 그림`;
+  return d.table_note ? `${line} · ${d.table_note}` : line;
 }
 
 function DataTable({ d }: { d: VisualData }) {
@@ -101,7 +127,7 @@ export default function VisualFrame({ data, height = 520 }: { data: VisualData; 
     <figure className="vf-root">
       {drawn ? (
         <div className="vf-stage" style={{ height }}>
-          <iframe ref={ref} className="vf-iframe" title={data.title} sandbox="allow-scripts" srcDoc={withWatch(data.html ?? '')} />
+          <iframe ref={ref} className="vf-iframe" title={data.title} sandbox="allow-scripts" srcDoc={withWatch(data.html ?? '', data.external)} />
           {!state.ready && <div className="vf-wait">그림 만드는 중…</div>}
         </div>
       ) : (

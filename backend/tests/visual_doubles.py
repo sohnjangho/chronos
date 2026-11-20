@@ -4,13 +4,14 @@ HTML 모양은 실측(11-20, stream:false) 그대로 줄였다: 머리에 CDN �
 보이는 표(<td>), 그리고 `const data = [{…}]` 배열 → `.map` → `new Chart(ctx, {… scales.x.min/max: new Date('…')})`.
 """
 
+import asyncio
 import json
 
 import httpx
 
-CDN = (
-    "https://cdn.jsdelivr.net/npm/@liner-fe/design-token@^3.0.0/dist/index.css",
-    "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css",
+CDN = (  # 실측 HTML 의 외부 주소 그대로
+    "https://cdn.jsdelivr.net/npm/@liner-fe/design-token@^3.0.0/lib/index.css",
+    "https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css",
     "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js",
 )
 
@@ -65,19 +66,25 @@ def atlas_body(html: str, *, theme: str = "comparison", resource_id: str = "viz_
 
 
 class VisualMock(httpx.MockTransport):
-    """replies 를 차례로 답한다(다 쓰면 마지막을 되풀이). dict → 200 JSON, int → 그 상태(빈 JSON), 예외 → 던짐."""
+    """replies 를 차례로 답한다(다 쓰면 마지막을 되풀이). dict → 200 JSON, int → 그 상태(빈 JSON), 예외 → 던짐.
 
-    def __init__(self, *replies: object) -> None:
+    delay 초를 기다린 뒤 답한다(동시에 도는 요청을 시험할 때 — 0 이면 기다리지 않아 요청이 겹치지 않는다).
+    """
+
+    def __init__(self, *replies: object, delay: float = 0.0) -> None:
         self.requests: list[httpx.Request] = []
         self.replies = list(replies)
+        self.delay = delay
         super().__init__(self._handle)
 
     @property
     def last(self) -> httpx.Request:
         return self.requests[-1]
 
-    def _handle(self, request: httpx.Request) -> httpx.Response:
+    async def _handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        if self.delay:
+            await asyncio.sleep(self.delay)
         reply = self.replies[min(len(self.requests), len(self.replies)) - 1]
         if isinstance(reply, Exception):
             raise reply

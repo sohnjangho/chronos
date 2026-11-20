@@ -17,6 +17,8 @@ export interface VisualData {
   rows: Cell[][];
   /** 우리 그림(SVG)의 모양. */
   chart: 'timeline' | 'bars' | 'line';
+  /** 표를 만들 때 바꾼 것(예: 「점이 많아 월 단위로 그렸습니다」). 캡션에 덧붙인다. 없으면 빈 글. */
+  table_note: string;
   /** Liner 가 그린 HTML. null 이면(대조 실패·Liner 실패) 우리 그림으로 대신한다. */
   html: string | null;
   theme: string;

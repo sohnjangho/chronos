@@ -28,8 +28,8 @@ def setup(monkeypatch, session):
 
 @pytest.fixture
 def liner(monkeypatch):
-    def use(*replies):
-        t = VisualMock(*replies)
+    def use(*replies, delay=0.0):
+        t = VisualMock(*replies, delay=delay)
         monkeypatch.setattr(visualization, "TRANSPORT", t)
         return t
     return use
@@ -124,7 +124,7 @@ async def test_no_connection_rows_do_not_pile_up(sctx, liner, session):
 async def test_identical_requests_in_flight_share_one_call(sctx, liner, session):
     from sqlalchemy.orm import Session
 
-    t = liner(atlas_body(chart_html(GOOD, bounds=None)))
+    t = liner(atlas_body(chart_html(GOOD, bounds=None)), delay=0.05)  # 두 요청이 실제로 겹치게
     with Session(session.get_bind()) as other:
         a, b = await asyncio.gather(
             visualization.make(session, kind="summary", schedule_id=sctx.schedule_id, version=None,
@@ -134,6 +134,24 @@ async def test_identical_requests_in_flight_share_one_call(sctx, liner, session)
         )
         assert len(t.requests) == 1
         assert a.id == b.id and b.verified
+
+
+async def test_in_flight_sharing_is_per_schedule(sctx, liner, session):
+    from sqlalchemy.orm import Session
+
+    from tests.schedules import sample, store
+
+    other_sid = store(session, sample())  # 같은 표(같은 입력 열쇠)를 가진 다른 일정
+    t = liner(atlas_body(chart_html(GOOD, bounds=None)), delay=0.05)  # 두 요청이 실제로 겹치게
+    with Session(session.get_bind()) as other:
+        a, b = await asyncio.gather(
+            visualization.make(session, kind="summary", schedule_id=sctx.schedule_id, version=None,
+                               today=date(2027, 3, 1), created_by="김하늘"),
+            visualization.make(other, kind="summary", schedule_id=other_sid, version=None,
+                               today=date(2027, 3, 1), created_by="김하늘"),
+        )
+        assert len(t.requests) == 2
+        assert (a.schedule_id, b.schedule_id) == (sctx.schedule_id, other_sid) and a.id != b.id
 
 
 async def test_no_data_is_a_tool_error(sctx, liner):
