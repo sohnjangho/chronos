@@ -31,7 +31,7 @@ export default function EvidenceCard({ data }: CardProps) {
               <li key={id ?? `i${i}`}>
                 {id !== null && <span className="ch-cite">{`[근거 ${id}]`}</span>}
                 {linkable(url) ? (
-                  <a className="ch-wrap" href={url} target="_blank" rel="noopener noreferrer">
+                  <a className="ch-wrap" href={url} target="_blank" rel="noopener noreferrer" aria-label={`${title} (새 탭)`}>
                     {title}
                   </a>
                 ) : (

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { json } from '../../../test-helpers';
 import { callsTo, openSpy, routes, setup } from '../testKit';
+import { won } from './Card';
 import { CARDS, CardView, type CardCtx } from './index';
 
 let sendText = vi.fn<CardCtx['sendText']>();
@@ -35,7 +36,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('evidence', () => {
   test('evidence card links open in a new tab', () => {
     renderCard('card', { kind: 'evidence', query: '층당 골조 공기', mode: 'web', results: [{ evidence_id: 1, title: '골조 공기 기준', url: 'https://example.com/a', hostname: 'example.com', date: '2026-03-01' }] });
-    expect(screen.getByRole('link', { name: '골조 공기 기준' })).toHaveAttribute('target', '_blank');
+    expect(screen.getByRole('link', { name: '골조 공기 기준 (새 탭)' })).toHaveAttribute('target', '_blank');
     expect(screen.getByText('[근거 1]')).toBeVisible();
     expect(screen.getByText('웹')).toBeVisible();
     expect(screen.getByText(/example\.com/)).toBeVisible();
@@ -49,7 +50,7 @@ describe('evidence', () => {
 });
 
 describe('actual recorded', () => {
-  const ACTUAL = { kind: 'actual_recorded', schedule_id: 1, activity_id: 'A2020', name: '지상 골조', progress: 0.6, assumed: ['실제 시작일을 2027-05-06로 두었습니다(계획 시작일).'], delay: { activity_id: 'A2020', late_days: 3, finish_delta: 2 }, version: 4 };
+  const ACTUAL = { kind: 'actual_recorded', schedule_id: 1, activity_id: 'A2020', name: '지상 골조', progress: 0.6, assumed: ['실제 시작일을 2027-05-06로 두었습니다(계획 시작일).'], delay: { activity_id: 'A2020', late_days: 3, finish_delta: 2 }, version: 4, before_version: 3 };
 
   test('actual card shows assumptions and delay', async () => {
     renderCard('card', ACTUAL);
@@ -57,13 +58,13 @@ describe('actual recorded', () => {
     expect(screen.getByText(/실제 시작일을 2027-05-06로 두었습니다/)).toBeVisible();
     expect(screen.getByText(/Plan보다 3일 늦어졌습니다 · 준공 \+2일/)).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: '지연 기록 열기' }));
-    expect(openSpy).toHaveBeenCalledWith('delays', { id: '1', activity: 'A2020', days: '3' });
+    expect(openSpy).toHaveBeenCalledWith('delays', { id: '1', activity: 'A2020', days: '3', before: '3' });
   });
 
-  test('passes before_version as before when the card has it', async () => {
-    renderCard('card', { ...ACTUAL, before_version: 3 });
+  test('an older card without before_version opens without before', async () => {
+    renderCard('card', { ...ACTUAL, before_version: undefined });
     await userEvent.click(screen.getByRole('button', { name: '지연 기록 열기' }));
-    expect(openSpy).toHaveBeenCalledWith('delays', { id: '1', activity: 'A2020', days: '3', before: '3' });
+    expect(openSpy).toHaveBeenCalledWith('delays', { id: '1', activity: 'A2020', days: '3' });
   });
 
   test('no delay, no delay line', () => {
@@ -100,21 +101,51 @@ describe('delay impact', () => {
     expect(sendText).toHaveBeenCalledWith('지연 기록을 반영한 만회 계획을 만들어 줘');
   });
 
-  test('open delay: compare opens the delay copy the server makes', async () => {
+  test('the recovery request button waits while the request is sent', async () => {
+    renderCard('card', IMPACT);
+    let done!: (ok: boolean) => void;
+    sendText.mockImplementation(() => new Promise<boolean>((r) => (done = r)));
+    await userEvent.click(screen.getByRole('button', { name: '만회 계획 요청' }));
+    expect(screen.getByRole('button', { name: '만회 계획 요청' })).toBeDisabled();
+    done(true);
+    await waitFor(() => expect(screen.getByRole('button', { name: '만회 계획 요청' })).toBeEnabled());
+    expect(sendText).toHaveBeenCalledTimes(1);
+  });
+
+  test('missing impact: no critical or clash lines (not 「없음」)', () => {
+    renderCard('card', { ...IMPACT, impact: null });
+    expect(screen.queryByText('크리티컬 변화')).toBeNull();
+    expect(screen.queryByText('새 자원 겹침')).toBeNull();
+  });
+
+  test('compare asks the server for a copy with this event only', async () => {
     routes['POST /api/schedules/1/delays/scenario'] = () => json(200, { scenario_id: 7 });
     renderCard('card', IMPACT);
     await userEvent.click(screen.getByRole('button', { name: '비교판에서 보기' }));
     await waitFor(() => expect(openSpy).toHaveBeenCalledWith('compare', { id: '1', base: 'current', other: 's:7' }));
-    expect(callsTo('/api/schedules/1/delays/scenario', 'POST')).toHaveLength(1);
+    const calls = callsTo('/api/schedules/1/delays/scenario', 'POST');
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String(calls[0][1]!.body))).toEqual({ event_ids: [2] });
   });
 
-  test('reflected delay: no recovery button, compare Plan with the current version, open the log', async () => {
+  test('reflected delay: no recovery button, compare shows the server refusal, open the log', async () => {
+    routes['POST /api/schedules/1/delays/scenario'] = () => json(422, { code: 'no_open_delays', message: '열린 지연 사건이 없습니다.', detail: null });
     renderCard('card', { ...IMPACT, status: 'reflected' });
     expect(screen.queryByRole('button', { name: '만회 계획 요청' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: '비교판에서 보기' }));
-    expect(openSpy).toHaveBeenCalledWith('compare', { id: '1', base: 'plan', other: 'current' });
+    expect(await screen.findByRole('alert')).toHaveTextContent('열린 지연 사건이 없습니다.');
+    expect(openSpy).not.toHaveBeenCalledWith('compare', expect.anything());
     await userEvent.click(screen.getByRole('button', { name: '지연 기록 열기' }));
     expect(openSpy).toHaveBeenCalledWith('delays', { id: '1', event: '2' });
+  });
+
+  test('won: under 10,000, 만 원, and 억', () => {
+    expect(won(9_000)).toBe('9,000원');
+    expect(won(9_300_000)).toBe('930만 원');
+    expect(won(12_400_000)).toBe('1,240만 원');
+    expect(won(120_000_000)).toBe('1억 2,000만 원');
+    expect(won(100_000_000)).toBe('1억 원');
+    expect(won(1_234_567_890)).toBe('12억 3,457만 원');
   });
 });
 
@@ -162,9 +193,22 @@ describe('scenario, rule and additions', () => {
     expect(screen.getByText('[근거 3]')).toBeVisible();
   });
 
-  test('approval card shows the rule to save', () => {
-    renderCard('approval', { id: 5, title: '내 규칙 저장 — 동절기 양생 7일 이상', reasons: ['rule_save'], summary: { rule: { scope: 'domain', domain: 'construction', text: '동절기 양생 7일 이상', kind: 'min_gap', params: {} } } });
+  const RULE = { scope: 'domain', domain: 'construction', text: '동절기 양생 7일 이상', kind: 'min_gap', params: {} };
+
+  test('rule approval card does not repeat the title: only the scope', () => {
+    renderCard('approval', { id: 5, title: '내 규칙 저장 — 동절기 양생 7일 이상', reasons: ['rule_save'], summary: { rule: RULE } });
+    expect(screen.getByText('내 규칙 범위: 분야 전체')).toBeVisible();
+    expect(screen.queryByText(/내 규칙 저장: /)).toBeNull();
+  });
+
+  test('approval card with another title shows the whole rule line', () => {
+    renderCard('approval', { id: 5, title: '5층 사무동 신축 일정', reasons: ['rule_save'], summary: { rule: RULE } });
     expect(screen.getByText('내 규칙 저장: 동절기 양생 7일 이상 (분야 전체)')).toBeVisible();
+  });
+
+  test('auto applied card shows the schedule rule line', () => {
+    renderCard('card', { kind: 'auto_applied', schedule_id: 1, version: 5, count: 0, summary: { changed_count: 0, rule: { ...RULE, scope: 'schedule' } } });
+    expect(screen.getByText('내 규칙 저장: 동절기 양생 7일 이상 (이 일정)')).toBeVisible();
   });
 
   test.each(['evidence', 'actual_recorded', 'delay_impact', 'scenario_created', 'rule_saved'])('broken %s data does not throw', (kind) => {

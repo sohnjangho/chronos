@@ -129,20 +129,29 @@ export function SummaryLines({ summary }: { summary: unknown }) {
 /** 근무일 차이 글: 3 → "+3일", -3 → "−3일", 0 → "0일"(서버가 센 값을 그대로 보인다). */
 export const signedDays = (n: number) => (n > 0 ? `+${n}일` : n < 0 ? `−${-n}일` : '0일');
 
-/** 원 → 글. 1만 원 아래는 원 그대로(9,000원), 그 밖은 만 원 단위 반올림(930만 원). */
+/** 원 → 글. 1만 원 아래는 원 그대로(9,000원), 그 밖은 만 원 단위 반올림(930만 원), 1억 이상은 억·만(1억 2,000만 원). */
 export function won(v: number): string {
-  if (Math.abs(v) < 10_000) return `${v.toLocaleString('ko-KR')}원`;
-  return `${Math.round(v / 10_000).toLocaleString('ko-KR')}만 원`;
+  const n = (x: number) => x.toLocaleString('ko-KR');
+  if (Math.abs(v) < 10_000) return `${n(v)}원`;
+  const man = Math.round(v / 10_000);
+  if (Math.abs(man) < 10_000) return `${n(man)}만 원`;
+  const eok = Math.trunc(man / 10_000);
+  const rest = Math.abs(man % 10_000);
+  return rest ? `${n(eok)}억 ${n(rest)}만 원` : `${n(eok)}억 원`;
 }
 
 const RULE_SCOPES: Record<string, string> = { domain: '분야 전체', schedule: '이 일정' };
 
-/** 내 규칙(승인 summary.rule {scope, text} 또는 rule_saved 카드의 rule {scope, condition{text}}) 한 줄. 글이 없으면 null. */
-export function ruleLine(rule: unknown): string | null {
+/**
+ * 내 규칙(승인·자동 적용 summary.rule {scope, text} 또는 rule_saved 카드의 rule {scope, condition{text}}) 한 줄. 글이 없으면 null.
+ * title 에 이미 규칙 글이 있으면(「내 규칙 저장 — <글>」 제목) 글을 되풀이하지 않고 범위만 보인다.
+ */
+export function ruleLine(rule: unknown, title = ''): string | null {
   const r = asObj(rule);
   const text = asText(r.text) || asText(asObj(r.condition).text);
   if (!text) return null;
   const scope = RULE_SCOPES[asText(r.scope)];
+  if (title.includes(text)) return scope ? `내 규칙 범위: ${scope}` : null;
   return `내 규칙 저장: ${text}${scope ? ` (${scope})` : ''}`;
 }
 
