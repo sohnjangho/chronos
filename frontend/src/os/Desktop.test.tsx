@@ -52,7 +52,7 @@ test('menubar shows the active program name', async () => {
   render(<Desktop />);
   await userEvent.click(dockIcon('일정판'));
   expect(within(menubar()).getByText('일정판')).toBeVisible();
-  expect(await screen.findByText('준비 중입니다.')).toBeVisible();
+  expect(await screen.findByText('메뉴바에서 일정을 고르세요.')).toBeVisible(); // 일정판 화면(Task 16), 지금 일정 없음
 });
 
 test('a program that fails to load does not break the desktop', async () => {
@@ -63,7 +63,7 @@ test('a program that fails to load does not break the desktop', async () => {
   await userEvent.click(dockIcon('고장'));
   expect(await screen.findByText('이 프로그램을 열 수 없습니다')).toBeVisible();
   expect(dock()).toBeVisible();
-  expect(within(screen.getByRole('dialog', { name: '일정판' })).getByText('준비 중입니다.')).toBeVisible();
+  expect(within(screen.getByRole('dialog', { name: '일정판' })).getByText('메뉴바에서 일정을 고르세요.')).toBeVisible();
 });
 
 test('a window is a labelled dialog with traffic lights and gets focus when it opens', async () => {

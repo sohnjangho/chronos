@@ -24,7 +24,8 @@ export default function Table<T>({ columns, rows, rowKey, label, onRowClick, sel
   const cell = (row: T, c: Column<T>) =>
     c.render ? c.render(row) : String((row as Record<string, unknown>)[c.key] ?? '');
   const onRowKey = (e: KeyboardEvent, row: T) => {
-    if (!onRowClick || (e.key !== 'Enter' && e.key !== ' ')) return;
+    // 행 안의 단추·입력 칸에서 누른 Enter·Space 는 그 칸의 몫이다.
+    if (!onRowClick || e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
     e.preventDefault();
     onRowClick(row);
   };

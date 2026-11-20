@@ -58,3 +58,27 @@ test('empty table shows a message', () => {
   render(<Table columns={columns} rows={[]} rowKey={(r) => r.id} />);
   expect(screen.getByText('자료가 없습니다.')).toBeInTheDocument();
 });
+
+test('Enter or Space on a control inside a row does not also pick the row', async () => {
+  const onRowClick = vi.fn();
+  const onButton = vi.fn();
+  // 행을 고르지 않는 단추(누름이 행으로 올라가지 않게 막는다) — 키 처리만 본다.
+  const button = (r: Row) => (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onButton(r.id);
+      }}
+    >
+      열기
+    </button>
+  );
+  const withButton: Column<Row>[] = [...columns, { key: 'act', header: '동작', render: button }];
+  render(<Table columns={withButton} rows={rows} rowKey={(r) => r.id} onRowClick={onRowClick} />);
+  screen.getAllByRole('button', { name: '열기' })[0].focus();
+  await userEvent.keyboard('{Enter}');
+  await userEvent.keyboard(' ');
+  expect(onButton).toHaveBeenCalledTimes(2);
+  expect(onButton).toHaveBeenCalledWith('A1020');
+  expect(onRowClick).not.toHaveBeenCalled();
+});
