@@ -141,10 +141,16 @@ export default function ContextPanel() {
   useEffect(() => useAiChat.getState().bindSchedule(scheduleId), [scheduleId]);
   useEffect(() => {
     const src = useContextPanel.getState().source;
-    const alive = src !== null && useWindows.getState().wins.some((w) => w.id === src.id);
-    if (wasOpen.current && !open && !alive) button.current?.focus();
+    const st = useWindows.getState();
+    const alive = src !== null && st.wins.some((w) => w.id === src.id);
+    if (wasOpen.current && !open && !alive) {
+      // 여는 단추가 숨어 있으면(확대한 창 + Dock 숨김) 맨 앞 창으로 포커스를 준다.
+      const front = dockHidden ? (activeWindow(st) ?? topWindow(st.wins)) : null;
+      if (front) st.focus(front.id);
+      else button.current?.focus();
+    }
     wasOpen.current = open;
-  }, [open]);
+  }, [open]); // 닫힐 때 한 번
   if (open) return <Panel />;
   return (
     <button

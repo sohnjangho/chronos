@@ -26,6 +26,13 @@
 
   /* 강조색·색 면 위의 글자(두 테마 모두 흰색) */
   --on-accent: #fff;
+  /* 흰 글자를 얹는 채움(12~14px 글자와 4.5:1 이상). 가리킴 채움도 같다. */
+  --accent-hover: #2a64c7;
+  --danger-hover: #9b2c2c;
+  --success-strong: #17703f;
+  --warning-strong: #8a5411;
+  --neutral-strong: #5b6577;
+
   /* 메뉴바·Dock 위(짙은 면) */
   --on-topbar-fg: #eef2f8;
   --on-topbar-muted: #aab4c6;
@@ -107,6 +114,12 @@
   --tone-danger-bg: #3e1d1d;
 
   --on-accent: #fff;
+  --accent-hover: #2a5fc0;
+  --danger-hover: #a83232;
+  --success-strong: #1f7a47;
+  --warning-strong: #9a5c12;
+  --neutral-strong: #4a5568;
+
   --on-topbar-fg: #e4e9f2;
   --on-topbar-muted: #8f9bb0;
   --menu-hover-bg: #243049;

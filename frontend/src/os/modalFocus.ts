@@ -9,12 +9,14 @@ const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select
 export function useModalFocus(ref: RefObject<HTMLElement | null>) {
   // 처음 그릴 때(autoFocus 가 포커스를 옮기기 전) 연 곳을 잡는다.
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const node = ref.current;
+    return () => {
+      // StrictMode(개발)의 가짜 언마운트에서는 겹화면이 그대로 붙어 있다 → 진짜로 닫힐 때만 돌려준다.
+      if (node?.isConnected) return;
       if (opener && opener !== document.body && opener.isConnected) opener.focus();
-    },
-    [opener],
-  );
+    };
+  }, [opener, ref]);
   return (e: KeyboardEvent) => {
     if (e.key !== 'Tab' || !ref.current) return;
     const items = [...ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)];

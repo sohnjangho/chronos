@@ -127,7 +127,7 @@
 }
 .st-step.on { color: var(--tone-info-fg); font-weight: 700; }
 .st-step.on i { background: var(--accent); color: var(--on-accent); }
-.st-step.ok i { background: var(--success); color: var(--on-accent); }
+.st-step.ok i { background: var(--success-strong); color: var(--on-accent); }
 .st-providers { display: flex; flex-wrap: wrap; gap: 8px; }
 .st-provider {
   flex: 1 1 200px;

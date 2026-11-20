@@ -5,27 +5,15 @@ import ApprovalWidget from './ApprovalWidget';
 import ContextPanel from './ContextPanel';
 import ShellDialogs from './Dialogs';
 import Dock from './Dock';
-import { useDock } from './dockStore';
 import LockScreen from './LockScreen';
 import MenuBar from './MenuBar';
 import SearchPalette from './SearchPalette';
 import { useSession } from './session';
 import { useShell } from './shell';
 import { useShellShortcuts } from './shortcuts';
-import { useTheme } from './theme';
 import Window from './Window';
 import { activeWindow, useWindows } from './windowStore';
-import { useZoom } from './zoom';
-
-/** 사용자가 바뀌면 그 사람의 화면 설정(테마·배율·Dock)을 읽는다. */
-function useUserPrefs() {
-  const userId = useSession((s) => s.session?.user.id ?? null);
-  useEffect(() => {
-    useTheme.getState().load(userId);
-    useZoom.getState().load(userId);
-    useDock.getState().load(userId);
-  }, [userId]);
-}
+import './userScope';
 
 /**
  * 바탕화면: 메뉴바 · 위젯 · 창 · Dock. 빈 곳을 누르면 활성 창이 풀린다.
@@ -38,7 +26,6 @@ export default function Desktop() {
   const announcement = useShell((s) => s.announcement);
   const inset = useWindows((s) => s.insetRight);
   useApprovalPolling();
-  useUserPrefs();
   useShellShortcuts();
   useEffect(() => {
     const onResize = () => useWindows.getState().fitToScreen();

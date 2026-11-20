@@ -1,6 +1,7 @@
 import { useAiChat } from './aiChat';
 import { useApprovals } from './approvals';
 import { useContextPanel } from './contextStore';
+import { useCurrentSchedule } from './currentSchedule';
 import { useEvidence } from './evidence';
 import { useShell } from './shell';
 import { useWindows } from './windowStore';
@@ -16,4 +17,5 @@ export function resetShellState(): void {
   useShell.setState({ dialog: null, drawer: 'closed', palette: false, dockRevealed: false, announcement: '' });
   useWindows.getState().reset();
   useApprovals.setState({ pending: 0 });
+  useCurrentSchedule.setState({ userId: null, current: null });
 }

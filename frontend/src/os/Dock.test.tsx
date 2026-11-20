@@ -5,7 +5,7 @@ import { registerPrograms } from '../programs';
 import { signInAsDemo, stubFetch } from '../test-helpers';
 import { useApprovals } from './approvals';
 import Desktop from './Desktop';
-import { magnification } from './Dock';
+import Dock, { magnification } from './Dock';
 import { useDock } from './dockStore';
 import { useSession } from './session';
 import { useShell } from './shell';
@@ -235,24 +235,16 @@ test('a maximized window hides the Dock; the bottom strip and Ctrl+Alt+D reveal 
   expect(wrap()).toHaveAttribute('data-hidden', 'true');
 });
 
-test('the Dock leaves no timer behind when the desktop goes away', () => {
+test('the Dock clears the timers it starts when it goes away', () => {
   vi.useFakeTimers();
-  // 같은 프로그램 창을 Dock 없이 열었을 때 남는 타이머(React Suspense 몫)를 기준으로 삼는다.
-  const leftAfter = (doIt: () => void) => {
-    const { unmount } = render(<Desktop />);
-    doIt();
-    unmount();
-    const n = vi.getTimerCount();
-    vi.clearAllTimers();
-    resetShellState();
-    return n;
-  };
-  const base = leftAfter(() => openProgram('schedule'));
-  const withDock = leftAfter(() => {
-    fireEvent.click(icon('일정판'));
-    fireEvent.pointerDown(icon('탐색기'), { pointerType: 'touch', clientX: 1, clientY: 1 });
-  });
-  expect(withDock).toBe(base);
+  // Dock 만 그린다(창·지연 로딩 없음). 그래서 남는 타이머는 모두 Dock 몫이다.
+  const { unmount } = render(<Dock />);
+  expect(vi.getTimerCount()).toBe(0);
+  fireEvent.click(icon('일정판'));
+  fireEvent.pointerDown(icon('탐색기'), { pointerType: 'touch', clientX: 1, clientY: 1 });
+  expect(vi.getTimerCount()).toBe(2);
+  unmount();
+  expect(vi.getTimerCount()).toBe(0);
 });
 
 test('a Dock revealed from the bottom strip hides 0.8 s after the pointer leaves without entering it', () => {

@@ -5,6 +5,7 @@ import { registerPrograms } from '../programs';
 import { json, signInAsDemo, stubFetch } from '../test-helpers';
 import App from './App';
 import { useAiChat } from './aiChat';
+import { useCurrentSchedule } from './currentSchedule';
 import { useContextPanel } from './contextStore';
 import { useEvidence } from './evidence';
 import { useSession } from './session';
@@ -104,4 +105,40 @@ test('a different user signing in over a session also clears the previous state'
   act(() => useShell.getState().setDialog({ kind: 'shortcuts' }));
   act(() => signInAsDemo('user', '박서준', 'demo-user', 2));
   expect(useShell.getState().dialog).toBeNull();
+});
+
+test('the next user never sees the previous user\'s site, not even in the first frame', () => {
+  mockLogin(200, {});
+  localStorage.setItem('chronos.schedule.2', JSON.stringify({ id: 5, name: '박서준의 물류센터' }));
+  signInAsDemo('admin');
+  render(<App />);
+  act(() => useCurrentSchedule.getState().setCurrent({ id: 4, name: '김하늘의 사무동' }));
+  const seen: (string | undefined)[] = [];
+  const stop = useCurrentSchedule.subscribe((s) => seen.push(s.current?.name));
+  act(() => useSession.getState().logout());
+  expect(useCurrentSchedule.getState().current).toBeNull();
+  act(() => signInAsDemo('user', '박서준', 'demo-user', 2));
+  expect(useCurrentSchedule.getState().current).toEqual({ id: 5, name: '박서준의 물류센터' });
+  expect(seen).not.toContain('김하늘의 사무동');
+  stop();
+  act(() => useSession.getState().logout());
+  act(() => signInAsDemo('admin'));
+  expect(useCurrentSchedule.getState().current).toEqual({ id: 4, name: '김하늘의 사무동' });
+});
+
+test('a user without a stored site sees 일정 고르기 after someone else used the browser', async () => {
+  stubFetch({
+    '/api/approvals/count': { pending: 0 },
+    '/api/schedules': [
+      { id: 4, name: '김하늘의 사무동', level: 'L3' },
+      { id: 5, name: '물류센터', level: 'L2' },
+    ],
+  });
+  signInAsDemo('admin');
+  render(<App />);
+  act(() => useCurrentSchedule.getState().setCurrent({ id: 4, name: '김하늘의 사무동' }));
+  act(() => useSession.getState().logout());
+  act(() => signInAsDemo('user', '박서준', 'demo-user', 2));
+  expect(await screen.findByRole('button', { name: '일정 고르기' })).toBeVisible();
+  expect(screen.queryByText(/김하늘의 사무동/)).toBeNull();
 });

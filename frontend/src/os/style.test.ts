@@ -97,10 +97,34 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-test('white text on accent and danger fills reaches 4.5:1 in both themes', () => {
+const uiCssFiles: Record<string, string> = { ...shellCss, ...programCss, 'ui.css': uiCss };
+
+/** 흰 글자(var(--on-accent))를 얹는 채움 토큰: 같은 규칙 블록의 `background: var(--x)`. */
+function filledTokens(): Set<string> {
+  const found = new Set<string>();
+  for (const css of Object.values(uiCssFiles)) {
+    for (const [, body] of css.matchAll(/\{([^{}]*)\}/g)) {
+      if (!/(?<![-\w])color:\s*var\(--on-accent\)/.test(body)) continue;
+      const bg = /background(?:-color)?:\s*var\((--[\w-]+)\)\s*;/.exec(body);
+      if (bg) found.add(bg[1]);
+    }
+  }
+  return found;
+}
+
+test('white text on every filled tone reaches 4.5:1 in both themes', () => {
   const light = tokenBlock(':root');
-  for (const block of [light, tokenBlock(':root[data-theme="dark"]')]) {
+  const dark = tokenBlock(':root[data-theme="dark"]');
+  // 가리킴(hover) 채움은 글자색 규칙과 다른 블록에 있어 따로 적는다.
+  const fills = new Set([...filledTokens(), '--accent-hover', '--danger-hover']);
+  expect([...fills].sort()).toEqual(
+    expect.arrayContaining(['--accent', '--danger', '--success-strong', '--warning-strong', '--neutral-strong']),
+  );
+  for (const block of [light, dark]) {
     const on = block.get('--on-accent') ?? light.get('--on-accent')!;
-    for (const fill of ['--accent', '--danger']) expect(contrast(on, block.get(fill)!), fill).toBeGreaterThanOrEqual(4.5);
+    for (const fill of fills) {
+      const value = block.get(fill) ?? light.get(fill)!;
+      expect(contrast(on, value), `${fill} ${value}`).toBeGreaterThanOrEqual(4.5);
+    }
   }
 });

@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
 import { signInAsDemo, stubFetch } from '../test-helpers';
 import Desktop from './Desktop';
 import { useSession } from './session';
+import { useContextPanel } from './contextStore';
 import { useShell } from './shell';
 import { useWindows } from './windowStore';
 import { resetShellState } from './shellReset';
@@ -94,4 +96,31 @@ test('window shortcuts are ignored while the drawer, palette or a dialog is open
   }
   ctrlAlt('KeyM');
   expect(shown()).toBe(0);
+});
+
+test('under StrictMode the drawer keeps focus on its search box (no refocus on the simulated unmount)', async () => {
+  render(
+    <StrictMode>
+      <Desktop />
+    </StrictMode>,
+  );
+  dockButton('앱 목록').focus();
+  await userEvent.keyboard('{Enter}');
+  expect(within(screen.getByRole('dialog', { name: '앱 목록' })).getByRole('searchbox', { name: '프로그램 찾기' })).toHaveFocus();
+  await userEvent.keyboard('{Escape}');
+  expect(dockButton('앱 목록')).toHaveFocus();
+});
+
+test('closing the panel while its button is hidden focuses the maximized window', () => {
+  render(<Desktop />);
+  act(() => void useWindows.getState().open('schedule'));
+  act(() => useWindows.getState().toggleMaximize(useWindows.getState().wins[0].id));
+  act(() => useContextPanel.getState().toggle());
+  act(() => void useWindows.getState().open('chat'));
+  act(() => useWindows.getState().close(useWindows.getState().wins.find((w) => w.programId === 'chat')!.id));
+  // 포커스를 패널 안에 둔 채 닫는다(닫히면 그 자리가 사라진다).
+  act(() => within(screen.getByRole('complementary', { name: 'Context 패널' })).getByRole('button', { name: 'Context 패널 닫기' }).focus());
+  ctrlAlt('Period');
+  expect(useContextPanel.getState().open).toBe(false);
+  expect(screen.getByRole('dialog', { name: '일정판' })).toHaveFocus();
 });

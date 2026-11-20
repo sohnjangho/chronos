@@ -12,9 +12,9 @@
 .ui-btn:hover:not(:disabled) { background: var(--bg-panel-alt); }
 .ui-btn:disabled { color: var(--fg-muted); cursor: default; opacity: 0.6; }
 .ui-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.ui-btn-primary:hover:not(:disabled) { background: var(--accent-text); }
+.ui-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .ui-btn-danger { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
-.ui-btn-danger:hover:not(:disabled) { background: var(--danger-text); }
+.ui-btn-danger:hover:not(:disabled) { background: var(--danger-hover); }
 
 .ui-badge {
   display: inline-block;
@@ -30,10 +30,10 @@
 .ui-badge-success { background: var(--tone-success-bg); color: var(--success-text); }
 .ui-badge-warning { background: var(--tone-warning-bg); color: var(--warning-text); }
 .ui-badge-danger { background: var(--tone-danger-bg); color: var(--danger-text); }
-.ui-badge-solid.ui-badge-neutral { background: var(--fg-muted); color: var(--on-accent); }
+.ui-badge-solid.ui-badge-neutral { background: var(--neutral-strong); color: var(--on-accent); }
 .ui-badge-solid.ui-badge-info { background: var(--accent); color: var(--on-accent); }
-.ui-badge-solid.ui-badge-success { background: var(--success); color: var(--on-accent); }
-.ui-badge-solid.ui-badge-warning { background: var(--warning); color: var(--on-accent); }
+.ui-badge-solid.ui-badge-success { background: var(--success-strong); color: var(--on-accent); }
+.ui-badge-solid.ui-badge-warning { background: var(--warning-strong); color: var(--on-accent); }
 .ui-badge-solid.ui-badge-danger { background: var(--danger); color: var(--on-accent); }
 
 .ui-tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 10px; }

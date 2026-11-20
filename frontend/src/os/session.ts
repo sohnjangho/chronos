@@ -26,6 +26,22 @@ interface SessionState {
 
 const KEY = 'chronos.session';
 
+type UserChange = (next: Session | null) => void;
+const userListeners = new Set<UserChange>();
+
+/**
+ * 로그인한 사람이 바뀔 때(로그아웃·다른 사람 로그인) 부를 함수를 단다. 세션을 바꾸기 **전에**, 같은 호출 안에서
+ * 부르므로 다음 사람의 첫 화면에 앞 사람의 상태가 그려지지 않는다. 잠금을 푸는 같은 사람은 부르지 않는다.
+ */
+export function onUserChange(fn: UserChange): () => void {
+  userListeners.add(fn);
+  return () => void userListeners.delete(fn);
+}
+
+function notify(prev: Session | null, next: Session | null) {
+  if ((prev?.user.id ?? null) !== (next?.user.id ?? null)) userListeners.forEach((fn) => fn(next));
+}
+
 function restore(): Pick<SessionState, 'session' | 'locked'> {
   const raw = loadJson(KEY) as (Session & { locked?: unknown }) | null;
   const valid =
@@ -40,6 +56,7 @@ function restore(): Pick<SessionState, 'session' | 'locked'> {
 export const useSession = create<SessionState>((set, get) => ({
   ...restore(),
   signIn(session) {
+    notify(get().session, session);
     saveJson(KEY, { ...session, locked: false });
     set({ session, locked: false });
   },
@@ -50,6 +67,7 @@ export const useSession = create<SessionState>((set, get) => ({
     set({ locked: true });
   },
   logout() {
+    notify(get().session, null);
     saveJson(KEY, null);
     set({ session: null, locked: false });
   },
