@@ -8,7 +8,8 @@ export default defineConfig({
     port: 5600,
     strictPort: true,
     proxy: {
-      '/api': 'http://backend:8210',
+      // Docker 에서는 backend 서비스, 맥에서 직접 띄울 때는 CHRONOS_API_URL(예: http://127.0.0.1:8210).
+      '/api': process.env.CHRONOS_API_URL ?? 'http://backend:8210',
     },
   },
   test: {
