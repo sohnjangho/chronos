@@ -3,7 +3,7 @@
 import { createStore, type StoreApi } from 'zustand';
 import { ApiError } from '../api';
 import * as sapi from './scheduleApi';
-import type { ActivityFields, NewActivity, PredItem, ScheduleView } from './scheduleApi';
+import type { ActivityFields, NewActivity, PredItem, ScheduleView, WeightMode } from './scheduleApi';
 import { errorText, reader, type GetState, type Queue, type SetState } from './scheduleRead';
 
 export const CONFLICT_NOTICE = '그 사이 일정이 바뀌어 다시 불러왔습니다';
@@ -21,6 +21,13 @@ export interface UndoStep {
   expect: number;
   /** 바꾼 것의 버전 메모(서버 note). 읽기 전이면 빈 글. */
   note: string;
+}
+
+/** 버전을 바꾼 마지막 고침(이 일정 창 어디서든): 고치기 전·뒤 일정과 고친 액티비티(없으면 null). 지연 알림이 쓴다. */
+export interface LastChange {
+  before: ScheduleView;
+  after: ScheduleView;
+  aid: string | null;
 }
 
 /** 보낼 차례가 왔을 때의 일정으로 선행 목록을 만든다. null 이면 보내지 않는다. */
@@ -44,6 +51,7 @@ export interface ScheduleState {
   /** 이 일정을 보는 창들에서 고친 것이 쌓인다. */
   undo: UndoStep[];
   redo: UndoStep[];
+  lastChange: LastChange | null;
   /** 서버에서 다시 읽는다. 읽는 중이면 그 요청을 같이 기다린다. */
   load(): Promise<void>;
   patchActivity(aid: string, fields: ActivityFields): Promise<boolean>;
@@ -52,6 +60,10 @@ export interface ScheduleState {
   /** 새 액티비티 id(못 넣었으면 null). 넣으면 그 행을 고르고 모든 창에서 보이게 한다. */
   addActivity(input: NewActivity): Promise<string | null>;
   deleteActivity(aid: string): Promise<boolean>;
+  /** Data Date 바꾸기(null 이면 지움). 다른 고침처럼 새 버전·되돌리기. */
+  setDataDate(date: string | null): Promise<boolean>;
+  /** 가중치 방식 바꾸기. 버전 밖이라 되돌리기에 쌓지 않고, 바꾼 뒤 일정을 다시 읽는다. */
+  setWeightMode(mode: WeightMode): Promise<boolean>;
   undoLast(): Promise<boolean>;
   redoLast(): Promise<boolean>;
   select(aid: string | null, by?: string | null): void;
@@ -74,6 +86,7 @@ const INITIAL = {
   pending: 0,
   undo: [],
   redo: [],
+  lastChange: null,
 };
 
 /** 쓰기는 한 번에 하나. */
@@ -124,7 +137,23 @@ function writer(id: number, get: GetState, set: SetState) {
     set(INITIAL);
   }
 
-  return { load, enqueue, write, reset, epoch: () => q.epoch };
+  /** 버전 밖의 쓰기(가중치 방식): 줄을 서서 보내고, 성공하면 일정을 다시 읽는다. 실패하면 서버 글을 알림. */
+  function sideWrite(send: () => Promise<unknown>): Promise<boolean> {
+    return enqueue(async () => {
+      const mine = q.epoch;
+      set({ notice: null });
+      try {
+        await send();
+      } catch (e) {
+        if (mine === q.epoch) set({ notice: { tone: 'error', text: errorText(e) } });
+        return false;
+      }
+      if (mine === q.epoch) await fetchView();
+      return true;
+    }, false);
+  }
+
+  return { load, enqueue, write, sideWrite, reset, epoch: () => q.epoch };
 }
 
 /** 이 일정 창들에서 고친 것·되돌리기·다시 하기. */
@@ -139,14 +168,18 @@ function editing(id: number, get: GetState, set: SetState, w: ReturnType<typeof 
     }
   }
 
-  /** build 는 차례가 왔을 때의 일정(view)으로 보낼 요청을 만든다(null 이면 보내지 않음). 버전이 바뀌면 되돌리기에 쌓는다. */
-  function change(build: (view: ScheduleView) => (() => Promise<ScheduleView>) | null) {
+  /**
+   * build 는 차례가 왔을 때의 일정(view)으로 보낼 요청을 만든다(null 이면 보내지 않음). 버전이 바뀌면 되돌리기에 쌓고
+   * 마지막 고침(lastChange, aid = 고친 액티비티)으로 둔다.
+   */
+  function change(build: (view: ScheduleView) => (() => Promise<ScheduleView>) | null, aid: string | null = null) {
     return w.enqueue(async (view) => {
       const send = build(view);
       if (!send) return null;
       const next = await w.write(send);
       if (next && next.version !== view.version) {
-        set((s) => ({ undo: [...s.undo, { restore: view.version, expect: next.version, note: '' }], redo: [] }));
+        const lastChange = { before: view, after: next, aid };
+        set((s) => ({ undo: [...s.undo, { restore: view.version, expect: next.version, note: '' }], redo: [], lastChange }));
         void noteFor(next.version);
       }
       return next;
@@ -169,6 +202,7 @@ function editing(id: number, get: GetState, set: SetState, w: ReturnType<typeof 
       set((s) => ({
         [from]: rest,
         [to]: [...s[to], { restore: step.expect, expect: next.version, note: step.note }],
+        lastChange: null, // 되돌린 고침의 지연 알림은 거둔다
         notice: { tone: 'info', text: step.note ? `${done}: ${step.note}` : done },
       }));
       return true;
@@ -186,12 +220,12 @@ function makeStore(id: number): ScheduleStore {
       scheduleId: id,
       ...INITIAL,
       load: w.load,
-      patchActivity: async (aid, fields) => (await change((view) => () => sapi.patchActivity(id, aid, fields, view.version))) !== null,
+      patchActivity: async (aid, fields) => (await change((view) => () => sapi.patchActivity(id, aid, fields, view.version), aid)) !== null,
       async setPredecessors(aid, items) {
         const sent = await change((view) => {
           const list = typeof items === 'function' ? items(view) : items;
           return list && (() => sapi.putPredecessors(id, aid, list, view.version));
-        });
+        }, aid);
         return sent !== null;
       },
       async addActivity(input) {
@@ -209,6 +243,9 @@ function makeStore(id: number): ScheduleStore {
         if (ok) set({ notice: { tone: 'info', text: `${aid} 을(를) 지웠습니다. 되돌리기로 살릴 수 있습니다.` } });
         return ok;
       },
+      setDataDate: async (date) =>
+        (await change((view) => () => sapi.patchSchedule(id, { data_date: date, base_version: view.version }))) !== null,
+      setWeightMode: (mode) => w.sideWrite(() => sapi.putWeightMode(id, mode)),
       undoLast: () => travel('undo'),
       redoLast: () => travel('redo'),
       select: (aid, by = null) => set((s) => ({ selected: aid, selectedBy: aid === null ? null : by, selectedN: s.selectedN + 1 })),

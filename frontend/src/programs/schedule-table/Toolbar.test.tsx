@@ -204,7 +204,7 @@ describe('그 밖의 도구', () => {
   test('the weighted progress of the whole schedule is shown', async () => {
     await renderSchedule();
     expect(within(toolbar()).getByText('전체 가중 진척도 28.6%')).toBeVisible();
-    expect(within(toolbar()).getByText('가중치 방식 기간 비례')).toBeVisible();
+    expect(within(toolbar()).getByRole('combobox', { name: '가중치' })).toHaveValue('duration');
   });
 
   test('features the server cannot do yet have no buttons', async () => {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { loadPref, savePref } from '../../os/prefs';
 import { useSession } from '../../os/session';
-import { COLUMNS, DEFAULT_VISIBLE, FIXED, type ColKey, type ColumnDef } from '../../shared/schedule/columns';
+import { COLUMNS, DEFAULT_VISIBLE, FIXED, MANUAL_WEIGHT, type ColKey, type ColumnDef } from '../../shared/schedule/columns';
 import { download, toCsv } from '../../shared/schedule/csv';
 import { commitCell } from '../../shared/schedule/edits';
 import { format, parse, ParseError } from '../../shared/schedule/predecessors';
@@ -9,6 +9,7 @@ import { ancestors, buildRows, NO_FILTER, wbsLabel, wbsTree, weightedProgress, t
 import type { Activity, PredItem, ScheduleView } from '../../shared/schedule/scheduleApi';
 import type { ScheduleState } from '../../shared/schedule/scheduleStore';
 import { useSchedule, useScheduleStore, useWindowId } from '../../shared/schedule/scope';
+import DelayNotice from './DelayNotice';
 import Grid from './Grid';
 import RelationsPanel from './RelationsPanel';
 import Toolbar, { DeleteConfirm } from './Toolbar';
@@ -18,8 +19,8 @@ const PREF = 'schedule.columns';
 const NEW_ACTIVITY = { name: '새 액티비티', kind: 'task' as const, od: 5 };
 const NO_TEXT = { preds: '', wbsLabel: '', resources: '' };
 
-/** 사용자별로 기억하는 보이는 칸(모르는 값이면 기본). */
-function useVisibleColumns() {
+/** 사용자별로 기억하는 보이는 칸(모르는 값이면 기본). 가중치 직접 입력 방식이면 가중치 칸을 고칠 수 있다. */
+function useVisibleColumns(manual: boolean) {
   const userId = useSession((s) => s.session?.user.id ?? null);
   const [visible, setVisible] = useState<ColKey[]>(() => {
     const saved = loadPref(PREF, userId);
@@ -30,7 +31,10 @@ function useVisibleColumns() {
     setVisible(keys);
     savePref(PREF, userId, keys);
   };
-  const columns = useMemo(() => COLUMNS.filter((c) => FIXED.includes(c.key) || visible.includes(c.key)), [visible]);
+  const columns = useMemo(
+    () => COLUMNS.filter((c) => FIXED.includes(c.key) || visible.includes(c.key)).map((c) => (manual && c.key === 'weight' ? MANUAL_WEIGHT : c)),
+    [visible, manual],
+  );
   return { visible, change, columns };
 }
 
@@ -185,7 +189,9 @@ function Foot({ rows, total, editingPreds }: { rows: number; total: number; edit
 export default function TableTab() {
   const view = useSchedule((s) => s.view)!;
   const selected = useSchedule((s) => s.selected);
-  const { visible, change, columns } = useVisibleColumns();
+  const weightMode = view.weight_mode ?? 'duration';
+  const { visible, change, columns } = useVisibleColumns(weightMode === 'manual');
+  const store = useScheduleStore();
   const texts = useTexts(view);
   const bodyRef = useRef<HTMLTableSectionElement>(null);
   const rs = useRowState(view, bodyRef);
@@ -208,11 +214,14 @@ export default function TableTab() {
         canAdd={view.wbs.length > 0}
         canDelete={!!sel}
         progress={weightedProgress(view.activities)}
+        weightMode={weightMode}
+        onWeightMode={(mode) => void store.getState().setWeightMode(mode)}
         onAdd={add}
         onDelete={() => setAsking(sel?.id ?? null)}
         onExport={() => download(`${view.name} v${view.version}.csv`, toCsv(view, columns, (aid) => texts.get(aid) ?? NO_TEXT))}
       />
       {sel && asking === sel.id && <DeleteConfirm activity={sel} onDone={() => setAsking(null)} />}
+      <DelayNotice />
       <div className="sch-grid-wrap">
         <Grid
           rows={rs.rows}

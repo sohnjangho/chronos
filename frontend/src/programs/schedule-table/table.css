@@ -67,3 +67,16 @@
 .sch-rel-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--fg-muted); text-align: center; }
 .sch-rel-empty b { color: var(--fg); }
 .sch-pick { width: 320px; max-width: calc(100vw - 32px); }
+
+/* 가중치 방식 · 머리줄 Data Date 칸 · 지연 알림 띠 */
+.sch-weight { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-12); color: var(--fg-muted); white-space: nowrap; }
+.sch-weight select { height: 28px; font: inherit; font-size: var(--fs-12); color: var(--fg); background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: var(--radius-2); }
+.sch-dd { display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px; border: 1px dashed transparent; border-radius: var(--radius-2); background: none; color: inherit; font: inherit; cursor: pointer; }
+.sch-dd:hover, .sch-dd:focus-visible { border-color: var(--border-strong); background: var(--bg-panel-alt); }
+.sch-dd-edit { display: inline-flex; align-items: center; gap: 6px; }
+.sch-dd-input {
+  width: 112px; height: 26px; box-sizing: border-box; padding: 0 6px; font: inherit; font-variant-numeric: tabular-nums;
+  color: var(--fg); background: var(--bg-panel); border: 1px solid var(--accent); border-radius: 4px;
+}
+.sch-delay { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; background: var(--tone-warning-bg); color: var(--warning-text); border-bottom: 1px solid var(--border); }
+.sch-delay span { flex: 1; min-width: 0; overflow-wrap: anywhere; }

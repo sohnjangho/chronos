@@ -1,7 +1,7 @@
 // 스케줄표의 커서: 키보드 초점 줄(roving tabindex), 지금 칸, 고치는 칸. 콜백은 모두 안정적이다(줄을 다시 그리지 않게).
 import { useCallback, useRef, useState, type RefObject } from 'react';
 import type { EditEnd } from '../../shared/schedule/CellEditor';
-import { COLUMNS, type ColKey, type ColumnDef } from '../../shared/schedule/columns';
+import { type ColKey, type ColumnDef } from '../../shared/schedule/columns';
 import { useSelect } from '../../shared/schedule/scope';
 
 export interface Editing {
@@ -38,7 +38,7 @@ export function useCursor(bodyRef: RefObject<HTMLTableSectionElement | null>, co
   }, [select]);
   const onEdit = useCallback(
     (aid: string, col: ColKey) => {
-      if (!COLUMNS.find((c) => c.key === col)?.edit) return;
+      if (!cols.current.find((c) => c.key === col)?.edit) return;
       onPick(aid, col);
       setEditing({ aid, col });
     },

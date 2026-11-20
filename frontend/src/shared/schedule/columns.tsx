@@ -74,6 +74,13 @@ export const COLUMNS: ColumnDef[] = [
   { key: 'resources', header: '주요 자원', width: 140, optional: true, text: (c) => c.resources },
 ];
 
+/** 가중치 방식이 직접 입력(manual)일 때의 가중치 칸: 넣은 값을 보이고 고칠 수 있다(비어 있으면 넣지 않은 것). */
+export const MANUAL_WEIGHT: ColumnDef = {
+  ...COLUMNS.find((c) => c.key === 'weight')!,
+  edit: 'text',
+  text: (c) => num(c.a.manual_weight ?? null),
+};
+
 /** 늘 보이는 칸(열 고르기에 없다). */
 export const FIXED: ColKey[] = ['id', 'name'];
 

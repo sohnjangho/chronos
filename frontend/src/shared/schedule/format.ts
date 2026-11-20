@@ -27,6 +27,9 @@ export function statusKey(status: string): StatusKey | null {
   return KNOWN.test(status) ? (status.split(' ')[0] as StatusKey) : null;
 }
 
+/** 서버 status 의 Plan 대비 늦은 근무일("late +3" → 3). 늦지 않았으면 0. */
+export const lateDays = (status: string) => (statusKey(status) === 'late' ? Number(status.split(' ')[1]) : 0);
+
 const TONE: Record<StatusKey, Tone> = { on_plan: 'success', late: 'danger', early: 'info', done: 'neutral', new: 'neutral' };
 
 /** 서버 status → 배지 글과 색. 지연·선행은 Plan 종료와 지금 종료의 근무일 차이(서버 계산). */

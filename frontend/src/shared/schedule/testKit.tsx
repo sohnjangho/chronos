@@ -81,6 +81,14 @@ export function mockPatch(statusOrView: number | ScheduleView, body?: unknown) {
   queued.push(typeof statusOrView === 'number' ? { status: statusOrView, body } : { status: 200, body: statusOrView });
 }
 
+/** 다음 쓰기를 가중치 방식 PUT 의 성공({mode})으로 받고, 그 뒤 일정 읽기는 view 를 준다(방식은 버전 밖이라 다시 읽는다). */
+export function mockWeightMode(mode: string, view: ScheduleView) {
+  queued.push(async () => {
+    server.view = view;
+    return json(200, { mode });
+  });
+}
+
 /** 다음 쓰기의 응답을 부르는 쪽이 정할 때까지 붙잡아 둔다. */
 export function holdNextWrite() {
   let release!: (v: ScheduleView) => void;

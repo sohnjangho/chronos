@@ -40,6 +40,13 @@ function progress(text: string): EditRequest {
   return { patch: { progress: Math.round(n * 100) / 10000 } };
 }
 
+/** 직접 넣는 가중치: 0 이상 숫자, 비우면 지움(null). */
+function manualWeight(text: string): EditRequest {
+  if (!text) return { patch: { manual_weight: null } };
+  const n = Number(text);
+  return Number.isFinite(n) && n >= 0 ? { patch: { manual_weight: n } } : { error: '가중치는 0 이상 숫자로 넣어 주세요.' };
+}
+
 /** col 칸에 적은 text(앞뒤 공백 뺀 것)를 요청으로. */
 export function toRequest(col: ColKey, raw: string): EditRequest {
   const text = raw.trim();
@@ -60,6 +67,8 @@ export function toRequest(col: ColKey, raw: string): EditRequest {
       return dateOrNull(text, col);
     case 'progress':
       return progress(text);
+    case 'weight':
+      return manualWeight(text);
     case 'constraint':
       return constraint(text);
     case 'preds':

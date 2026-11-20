@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { forgetSchedules, holdSchedule, scheduleStore } from './scheduleStore';
-import { holdNextWrite, loadSpy, makeView, mockPatch, server, setup, writes } from './testKit';
+import { holdNextWrite, loadSpy, makeView, mockPatch, mockWeightMode, server, setup, writes } from './testKit';
 
 const store = () => scheduleStore(1).getState();
 
@@ -186,4 +186,41 @@ test('undo still refuses when someone else changed the schedule in between', asy
   await store().load(); // 다른 사람이 고침 → 5
   expect(await store().undoLast()).toBe(false);
   expect(writes().filter(([, url]) => url.includes('/restore'))).toEqual([]);
+});
+
+test('setDataDate patches the schedule with base_version and can be undone like any change', async () => {
+  await store().load();
+  mockPatch(makeView({ version: 2, data_date: '2027-06-08' }));
+  expect(await store().setDataDate('2027-06-08')).toBe(true);
+  expect(writes().at(-1)).toEqual(['PATCH', '/api/schedules/1', { data_date: '2027-06-08', base_version: 1 }]);
+  expect(store().view?.data_date).toBe('2027-06-08');
+  expect(store().undo).toEqual([{ restore: 1, expect: 2, note: '' }]);
+});
+
+test('setWeightMode puts the mode and reads the schedule again (the version does not move)', async () => {
+  await store().load();
+  mockWeightMode('manual', makeView({ weight_mode: 'manual', summary: { critical_count: 8, negative_float_count: 0, warning_count: 1, weight_missing: 2 } }));
+  expect(await store().setWeightMode('manual')).toBe(true);
+  expect(writes().at(-1)).toEqual(['PUT', '/api/schedules/1/weight-mode', { mode: 'manual' }]);
+  expect(loadSpy).toHaveBeenCalledTimes(2);
+  expect(store().view).toMatchObject({ version: 1, weight_mode: 'manual', summary: { weight_missing: 2 } });
+});
+
+test('a refused weight mode leaves the server message', async () => {
+  await store().load();
+  mockPatch(422, { code: 'invalid_request', message: '입력이 올바르지 않습니다.', detail: null });
+  expect(await store().setWeightMode('manual')).toBe(false);
+  expect(store().notice).toEqual({ tone: 'error', text: '입력이 올바르지 않습니다.' });
+  expect(loadSpy).toHaveBeenCalledTimes(1);
+});
+
+test('a write that moves the version is kept as the last change (with the edited activity)', async () => {
+  await store().load();
+  const before = store().view;
+  mockPatch(makeView({ version: 2 }));
+  await store().patchActivity('A2020', { progress: 0.2 });
+  expect(store().lastChange).toMatchObject({ before, after: { version: 2 }, aid: 'A2020' });
+  mockPatch(makeView({ version: 3, data_date: '2027-06-08' }));
+  await store().setDataDate('2027-06-08');
+  expect(store().lastChange).toMatchObject({ after: { version: 3 }, aid: null });
 });

@@ -6,7 +6,7 @@ import { useScheduleStore } from '../../shared/schedule/scope';
 import { COLUMNS, FIXED, type ColKey } from '../../shared/schedule/columns';
 import Popover from '../../shared/schedule/Popover';
 import { filterCount, NO_FILTER, wbsLabel, type RowFilter } from '../../shared/schedule/rows';
-import type { Activity, Wbs } from '../../shared/schedule/scheduleApi';
+import type { Activity, Wbs, WeightMode } from '../../shared/schedule/scheduleApi';
 
 interface ToolbarProps {
   query: string;
@@ -20,6 +20,8 @@ interface ToolbarProps {
   canAdd: boolean;
   /** 전체 가중 진척(0~1), 가중치가 없으면 null. */
   progress: number | null;
+  weightMode: WeightMode;
+  onWeightMode(mode: WeightMode): void;
   onAdd(): void;
   onDelete(): void;
   onExport(): void;
@@ -109,7 +111,13 @@ export default function Toolbar(p: ToolbarProps) {
       </Popover>
       <span className="sch-sep" aria-hidden="true" />
       <History />
-      <span className="sch-muted">가중치 방식 기간 비례</span>
+      <label className="sch-weight">
+        가중치
+        <select aria-label="가중치" value={p.weightMode} onChange={(e) => p.onWeightMode(e.target.value as WeightMode)}>
+          <option value="duration">기간 비례</option>
+          <option value="manual">직접 입력</option>
+        </select>
+      </label>
       <span className="sch-gap" />
       {p.progress !== null && <Badge tone="info">{`전체 가중 진척도 ${percent(p.progress)}%`}</Badge>}
       <Button onClick={p.onExport}>CSV 내보내기</Button>

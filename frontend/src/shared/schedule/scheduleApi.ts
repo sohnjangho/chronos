@@ -35,7 +35,12 @@ export interface Activity {
   critical: boolean;
   status: string;
   weight: number;
+  /** 사람이 넣은 가중치(가중치 방식이 manual 일 때 쓴다). 넣지 않았으면 null. */
+  manual_weight?: number | null;
 }
+
+/** 공정률 가중치 방식: 기간 비례 · 직접 입력. */
+export type WeightMode = 'duration' | 'manual';
 
 export interface Relation {
   pred: string;
@@ -70,7 +75,9 @@ export interface ScheduleView {
   activities: Activity[];
   relations: Relation[];
   resources: Resource[];
-  summary: { critical_count: number; negative_float_count: number; warning_count: number };
+  /** 묶음 2 서버부터. weight_missing = manual 방식에서 가중치를 넣지 않은 작업 수(duration 이면 0). */
+  weight_mode?: WeightMode;
+  summary: { critical_count: number; negative_float_count: number; warning_count: number; weight_missing?: number };
   /** 조건을 넣은 근무 달력(묶음 2 서버부터): 주 근무일 수, 일정 기간 안의 작업 금지 기간. */
   calendar?: { days_per_week: number; blocked: { tag: string; start: string; finish: string }[] };
 }
@@ -90,8 +97,10 @@ export interface VersionItem {
   created_at: string;
 }
 
-/** PATCH 로 고칠 수 있는 칸. rd·actual_*·constraint 는 null 로 지운다. */
-export type ActivityFields = Partial<Pick<Activity, 'name' | 'kind' | 'wbs' | 'od' | 'rd' | 'progress' | 'actual_start' | 'actual_finish' | 'constraint'>>;
+/** PATCH 로 고칠 수 있는 칸. rd·actual_*·constraint·manual_weight 는 null 로 지운다. */
+export type ActivityFields = Partial<
+  Pick<Activity, 'name' | 'kind' | 'wbs' | 'od' | 'rd' | 'progress' | 'actual_start' | 'actual_finish' | 'constraint' | 'manual_weight'>
+>;
 
 export interface NewActivity {
   name: string;
@@ -120,6 +129,13 @@ export const postActivity = (id: number, input: NewActivity, baseVersion: number
 
 export const deleteActivity = (id: number, aid: string, baseVersion: number) =>
   api<ScheduleView>(`${act(id, aid)}?base_version=${baseVersion}`, { method: 'DELETE' });
+
+/** Data Date 바꾸기(null 이면 지움). 새 버전이 생긴다. */
+export const patchSchedule = (id: number, body: { data_date: string | null; base_version: number }) =>
+  api<ScheduleView>(base(id), send('PATCH', body));
+
+/** 가중치 방식 바꾸기. 버전은 그대로라 바꾼 뒤 일정을 다시 읽는다. */
+export const putWeightMode = (id: number, mode: WeightMode) => api<{ mode: WeightMode }>(`${base(id)}/weight-mode`, send('PUT', { mode }));
 
 export const restoreVersion = (id: number, n: number, baseVersion: number) =>
   api<ScheduleView>(`${base(id)}/versions/${n}/restore`, send('POST', { base_version: baseVersion }));

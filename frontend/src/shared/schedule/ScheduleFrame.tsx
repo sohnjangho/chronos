@@ -13,19 +13,27 @@ import './schedule.css';
 
 const positiveInt = (s: string | undefined) => (s && /^\d+$/.test(s) && Number(s) > 0 ? Number(s) : null);
 
-/** 머리줄: Data Date · 완료 예정 · 크리티컬 · 음수 플로트 · 경고(서버 계산값). */
-function Stats() {
+/**
+ * 머리줄: Data Date · 완료 예정 · 크리티컬 · 음수 플로트 · 경고(서버 계산값).
+ * dataDate 를 주면 Data Date 자리에 그것을(스케줄의 고치는 칸), extra 는 끝에 더 그린다.
+ */
+function Stats({ dataDate, extra }: { dataDate?: ReactNode; extra?: ReactNode }) {
   const view = useSchedule((s) => s.view);
   if (!view) return null;
   const { critical_count: critical, negative_float_count: negative, warning_count: warning } = view.summary;
   return (
     <div role="group" aria-label="일정 요약" className="sch-stats">
-      <span className="sch-muted">Data Date</span>
-      <span className="sch-date">{view.data_date ? dot(view.data_date) : '없음'}</span>
+      {dataDate ?? (
+        <>
+          <span className="sch-muted">Data Date</span>
+          <span className="sch-date">{view.data_date ? dot(view.data_date) : '없음'}</span>
+        </>
+      )}
       <Badge tone="info">{`완료 예정 ${dot(view.finish)}`}</Badge>
       <Badge tone={critical ? 'danger' : 'neutral'}>{`크리티컬 ${critical}`}</Badge>
       <Badge tone={negative ? 'danger' : 'success'}>{`음수 플로트 ${negative}`}</Badge>
       <Badge tone={warning ? 'warning' : 'neutral'}>{`경고 ${warning}`}</Badge>
+      {extra}
     </div>
   );
 }
@@ -70,10 +78,14 @@ interface FrameProps {
   name: string;
   /** 일정을 읽은 뒤에 그릴 프로그램 화면. 그 안에서는 useSchedule((s) => s.view)! 로 읽어도 된다. */
   children: ReactNode;
+  /** 머리줄의 Data Date 자리에 그릴 것(없으면 읽기 전용 글). 일정을 읽은 뒤에만 그린다. */
+  dataDate?: ReactNode;
+  /** 머리줄 끝에 더 그릴 것(프로그램의 경고 등). */
+  headExtra?: ReactNode;
 }
 
 /** 일정 하나를 잡은 창 안: 제목·화면 맥락·params.activity, 읽는 중·못 읽음·화면. */
-function Held({ windowId, params, programId, name, children }: FrameProps) {
+function Held({ windowId, params, programId, name, children, dataDate, headExtra }: FrameProps) {
   const store = useScheduleStore();
   const view = useSchedule((s) => s.view);
   const loadError = useSchedule((s) => s.loadError);
@@ -100,7 +112,7 @@ function Held({ windowId, params, programId, name, children }: FrameProps) {
     <div className="sch-root">
       {view && (
         <div className="sch-head">
-          <Stats />
+          <Stats dataDate={dataDate} extra={headExtra} />
         </div>
       )}
       <NoticeBar windowId={windowId} />
