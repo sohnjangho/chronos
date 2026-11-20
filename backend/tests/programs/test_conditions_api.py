@@ -4,6 +4,9 @@
 크레인 1대면 B 뒤에 C 를 맞춰 준공 2027-08-13, 2대면 B·C 를 같이 해 준공 2027-07-02.
 """
 
+from dataclasses import replace
+from datetime import date
+
 import pytest
 
 from app.core.model import Relation, Resource
@@ -203,11 +206,13 @@ def test_preview_shapes_the_whole_answer(client, admin, sid):
     assert (crane["params"]["capacity"], crane["state"], crane["message"]) == (2, "passed", None)
 
 
-def test_preview_view_is_the_previewed_schedule_with_plan_bars_at_the_saved_dates(client, admin, sid):
+def test_preview_view_is_the_previewed_schedule_with_plan_bars_at_the_previewed_dates(client, admin, sid):
+    # Task 16d: Plan 은 바꾼 조건으로 계산한다. 실적이 없으면 Plan = 계산 날짜.
     view = _post(client, admin, sid, "preview", CRANE_TWO).json()["view"]
     c = next(a for a in view["activities"] if a["id"] == "C")
-    assert (view["id"], view["version"], view["finish"], view["plan_finish"]) == (sid, 1, "2027-07-02", "2027-08-13")
-    assert (c["es"], c["ef"], c["plan_start"], c["plan_finish"]) == ("2027-04-26", "2027-06-04", "2027-06-07", "2027-07-16")
+    assert (view["id"], view["version"], view["finish"], view["plan_finish"]) == (sid, 1, "2027-07-02", "2027-07-02")
+    assert (c["es"], c["ef"], c["plan_start"], c["plan_finish"]) == ("2027-04-26", "2027-06-04", "2027-04-26", "2027-06-04")
+    assert c["status"] == "on_plan"
     assert view["summary"]["critical_count"] == 4
 
 
@@ -458,7 +463,8 @@ def test_m2_a_fix_can_be_previewed_when_the_stored_version_does_not_compute(clie
     assert r.status_code == 200
     j = r.json()
     assert j["before"] == {"finish": None, "critical_count": None, "violated": 1} and j["moved"] == []
-    assert (j["after"]["finish"], j["feasible"], j["view"]["plan_finish"]) == ("2027-08-13", True, None)
+    # Task 16d: 저장된 쪽 Plan 은 없지만(moved 없음) 바꾼 조건의 Plan 은 계산된다
+    assert (j["after"]["finish"], j["feasible"], j["view"]["plan_finish"]) == ("2027-08-13", True, "2027-08-13")
 
 
 def test_m2_commit_on_a_stored_version_that_does_not_compute_is_a_korean_422(client, admin, session, sid):
@@ -487,3 +493,30 @@ def test_m6_ask_agent_reuses_the_callers_latest_session_for_the_schedule(client,
     other = store(session, office(), conditions=list(CONDITIONS))
     assert _post(client, admin, other, "ask-agent", []).json()["chat_session_id"] != first
     assert [s["id"] for s in client.get("/api/chat/sessions", headers=admin).json()].count(first) == 1
+
+
+# ── Task 16d: 미리 보기의 Plan 은 바꾼 조건으로 계산한다 ─────────────────
+
+
+def _late_start(session) -> int:
+    """A 가 실적으로 늦어진 일정(Data Date 2027-03-29, A 진행 중 남은 30일). ES/EF 는 Plan 보다 늦다."""
+    base = office()
+    late_a = replace(base.activities[0], actual_start=base.start, progress=0.5, rd=30)
+    schedule = replace(base, activities=(late_a, *base.activities[1:]), data_date=date(2027, 3, 29))
+    return store(session, schedule, conditions=list(CONDITIONS))
+
+
+def test_16d_preview_moves_the_plan_with_the_changed_capacity(client, admin, session):
+    sid = _late_start(session)
+    r = _post(client, admin, sid, "preview", CRANE_TWO).json()
+    # moved 는 Plan 날짜: before = 저장된 조건의 Plan(크레인 1대), after = 바꾼 조건의 Plan(크레인 2대)
+    assert r["moved"] == [
+        {"activity_id": "C", "name": "골조 2구역", "before": {"start": "2027-06-07", "finish": "2027-07-16"},
+         "after": {"start": "2027-04-26", "finish": "2027-06-04"}},
+        {"activity_id": "D", "name": "마감", "before": {"start": "2027-07-19", "finish": "2027-08-13"},
+         "after": {"start": "2027-06-07", "finish": "2027-07-02"}},
+    ]
+    view = r["view"]
+    c = next(a for a in view["activities"] if a["id"] == "C")
+    assert (c["plan_start"], c["plan_finish"], view["plan_finish"]) == ("2027-04-26", "2027-06-04", "2027-07-02")
+    assert c["ef"] > c["plan_finish"] and c["status"].startswith("late +")  # 상태는 바꾼 조건의 Plan 과 비교

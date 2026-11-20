@@ -28,7 +28,7 @@ from app.store.schedules import (
     to_json,
 )
 
-__all__ = ["plan_of", "run", "view_data", "view_of"]
+__all__ = ["plan_of", "plan_with", "run", "view_data", "view_of"]
 
 
 def _status(cal: WorkCalendar, a: Activity, row: CpmRow, plan: CpmRow | None) -> str:
@@ -122,13 +122,12 @@ def _without_actuals(schedule: Schedule) -> Schedule:
     return replace(schedule, activities=acts, data_date=None)
 
 
-def plan_of(session: Session, schedule_id: int, n: int, current: CpmResult | None) -> CpmResult | None:
-    """Plan: 버전 n 의 일정에서 실적·기록한 지연·Data Date 를 빼고, 그 버전의 조건을 넣어(prepare_stored) run 한 결과.
+def plan_with(schedule: Schedule, conditions: list[dict], current: CpmResult | None) -> CpmResult | None:
+    """Plan: 일정에서 실적·기록한 지연·Data Date 를 빼고, 저장 모양 조건을 넣어(prepare_stored) run 한 결과.
 
-    current = 버전 n 의 일정을 그 버전의 조건으로 계산한 것(없으면 None). 뺄 실적이 없으면 같은 계산이라
-    current 를 그대로 쓴다. 계산이 안 되면 None(Plan 없음으로 본다).
+    current = 같은 일정을 같은 조건으로 계산한 것(없으면 None). 뺄 실적이 없으면 같은 계산이라 current 를
+    그대로 쓴다. 계산이 안 되면 None(Plan 없음으로 본다). 조건 미리 보기는 바꾼 조건으로 부른다.
     """
-    schedule, conditions, _ = load(session, schedule_id, n)
     planned = _without_actuals(schedule)
     if planned == schedule:
         return current
@@ -136,6 +135,12 @@ def plan_of(session: Session, schedule_id: int, n: int, current: CpmResult | Non
         return run(prepare_stored(planned, conditions))
     except ScheduleError:
         return None
+
+
+def plan_of(session: Session, schedule_id: int, n: int, current: CpmResult | None) -> CpmResult | None:
+    """버전 n 의 일정과 그 버전의 조건으로 plan_with. current = 버전 n 을 그 버전의 조건으로 계산한 것."""
+    schedule, conditions, _ = load(session, schedule_id, n)
+    return plan_with(schedule, conditions, current)
 
 
 def view_of(
