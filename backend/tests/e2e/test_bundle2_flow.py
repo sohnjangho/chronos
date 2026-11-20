@@ -8,9 +8,9 @@
 → shorten_options 카드(도달한 안 ≥ 1, 위반 0) → 추천 복사본 submit → 승인 → 새 버전·지연 reflected·복사본 applied
 → 공정률 준공 차이 → 개발 콘솔 두 턴(첫 턴 도구 칸 ≥ 2) → 공장 일정은 자원 묶음 간트.
 
-PM 규칙(11-20): 「Plan」 = 실적·기록한 지연 없이 계산한 것. 지연을 기록해도 버전·Plan·지금 준공은 그대로이고
-(지연 기록의 with_open 이 늦어진 준공), 만회안 승인처럼 계획을 바꾸는 승인은 Plan 을 함께 옮긴다. 그래서 만회의 뜻은
-"승인 뒤 지금 준공 ≤ 지연 전 Plan 준공 < 지연을 넣은 준공(with_open)" 이고, 공정률의 Plan 대비 차이는 새 Plan 기준이다.
+PM 규칙: 지연을 기록해도 버전·Plan·지금 준공은 그대로다(지연 기록의 with_open 이 늦어진 준공). 만회안 승인처럼
+계획을 바꾸는 승인은 Plan 을 그 승인 때의 예측으로 고정한다(Task 16e). 그래서 만회의 뜻은
+"승인 뒤 지금 준공 ≤ 지연 전 Plan 준공 < 지연을 넣은 준공(with_open)" 이고, 승인 직후 준공 차이는 0 이다.
 """
 
 import json
@@ -141,8 +141,9 @@ def test_delay_to_recovery_to_approval_then_progress_devconsole_and_factory_gant
     progress_after = _ok(client.get(f"/api/schedules/{sid}/progress", headers=h))
     after = progress_after["cpm"]["finish_variance"]
     assert after["current"] == best["finish"]  # 승인한 안의 준공이 지금 준공
-    # 끝 단언(지시서의 `after.days <= before.days`)을 PM 규칙의 뜻으로: Plan 대비 차이는 승인으로 옮긴 새 Plan 기준이라
-    # 지연 전 차이와 바로 견줄 수 없다(씨앗 기준 8일 → 15일, 새 Plan 이 더 많이 당겨짐). 만회는 준공 날짜로 본다.
+    # 끝 단언(지시서의 `after.days <= before.days`): 승인은 Plan 을 그때의 예측으로 고정하므로 승인 직후 차이는 0
+    # (씨앗 기준 8일 → 0일). 만회 자체는 준공 날짜로 본다.
+    assert after["days"] == 0 and after["plan"] == after["current"]
     before = progress_before["cpm"]["finish_variance"]
     assert after["current"] <= before["plan"] < late["with_open"]  # 만회: 지연을 넣은 준공에서 지연 전 Plan 준공까지 당겼다
     assert after["plan"] < before["plan"]  # 계획 변경 승인은 Plan 도 옮긴다(지연 기록은 안 옮김)
