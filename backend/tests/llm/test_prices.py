@@ -12,6 +12,8 @@ def test_known_models_have_public_prices():
     # 가격 문서의 라우터 표 값(카탈로그 표의 0.825 / 4.125 가 아니다)
     assert (price_of("gemini-3.8-flash")["input"], price_of("gemini-3.8-flash")["output"]) == (0.75, 3.75)
     assert price_of("liner-mark") == price_of("liner-mark-latest") == price_of("liner-mark-1.3")
+    assert price_of("openai/text-embedding-3-small") == {"kind": "model", "input": 0.02, "output": 0.0,
+                                                         "cached_input": 0.0, "as_of": "2026-11-20"}
 
 
 def test_routers_are_ranges_of_the_models_they_pick():
