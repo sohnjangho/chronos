@@ -428,7 +428,8 @@ def test_usage_window_and_searches(client, admin, session):
     add_calls(session, [("m", 1, 1, None, True)], at=old)
     add_calls(session, [("m", 1, 1, None, True)])
     session.add_all([EvidenceSearch(query="q", mode="web", ok=True), EvidenceSearch(query="q", mode="web", ok=False),
-                     EvidenceSearch(query="q", mode="web", ok=True, created_at=old)])
+                     EvidenceSearch(query="q", mode="web", ok=True, created_at=old),
+                     EvidenceSearch(query="q", mode="weather", ok=False)])  # 날씨 조회는 근거 검색 수에 들지 않는다
     session.commit()
     u = client.get("/api/devconsole/usage", headers=admin).json()  # 기본 14일, 모델별
     assert u["totals"]["calls"] == 1 and u["searches"] == {"calls": 2, "failed": 1}

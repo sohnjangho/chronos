@@ -91,6 +91,8 @@ async def test_gateway_codes(use, reason, code):
 @pytest.mark.parametrize(("answer", "code"), [
     ((500, {}), "server_error"), ((401, {}), "bad_key"), ((200, "<html>oops</html>"), "unknown"),
     (httpx.ReadTimeout("slow"), "timeout"), (httpx.ConnectError("no"), "bad_url"),
+    ((200, "<response><header><resultCode>00</resultCode></header></response>"), "unknown"),
+    ((200, []), "unknown"),
     ((200, {"response": {"header": {"resultCode": "11", "resultMsg": "NO_MANDATORY_REQUEST_PARAMETERS_ERROR"}}}),
      "bad_request"),
 ])

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, defer
 
+from app.store.evidence import WEATHER_MODE
 from app.store.tables import (
     ChatMessage,
     ChatSession,
@@ -225,7 +226,7 @@ def usage(session: Session, *, days: int, group: UsageGroup) -> UsageOut:
     order = (lambda r: r.key) if group == "day" else (lambda r: (-r.calls, r.key))
     searched = session.execute(
         select(func.count(), func.coalesce(func.sum(EvidenceSearch.ok == False), 0))
-        .where(EvidenceSearch.created_at >= since)
+        .where(EvidenceSearch.created_at >= since, EvidenceSearch.mode != WEATHER_MODE)  # 날씨 조회는 빼고 센다
     ).one()
     return UsageOut(rows=sorted(buckets.values(), key=order), totals=totals, cost_known=totals.cost is not None,
                     searches=SearchCount(calls=searched[0], failed=int(searched[1])))

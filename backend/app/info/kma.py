@@ -145,7 +145,7 @@ async def _get(conn: KmaConn, path: str, params: dict[str, str]) -> list[dict]:
             code = "server_error"
         elif response.status_code >= 400:
             code = _STATUS.get(response.status_code, "unknown")
-        elif reason is None:
+        elif reason is None or not isinstance(data, dict):  # 읽을 수 없는 본문(XML 성공 응답 등)
             code = "unknown"
     if code is not None:
         logger.warning("기상청 호출 실패: %s code=%s", path, code)

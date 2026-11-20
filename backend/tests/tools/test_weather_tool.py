@@ -3,6 +3,7 @@
 기상청은 부르지 않는다(app.info.kma.TRANSPORT 를 가짜로 바꿔 끼운다). 값은 모두 가상이다.
 """
 
+import asyncio
 import dataclasses
 import json
 from datetime import datetime
@@ -84,15 +85,16 @@ async def test_history_stats_are_computed_by_code(use, ctx):
     assert r.output["stats"] == {"tavg": 1.3, "tmin_avg": -1.3, "freezing_days": 1.5, "rain_days": 1.0,
                                  "max_rain_mm": 8.5}
     assert r.output["period"] == "2024~2025년 12월" and r.output["days"] == []
+    assert (r.output["years_used"], r.output["missing_years"]) == (2, [])
     asked = [(q.url.params["startDt"], q.url.params["endDt"], q.url.params["stnIds"]) for q in mock.requests]
-    assert asked == [("20241201", "20241231", "108"), ("20251201", "20251231", "108")]
+    assert asked == [("20251201", "20251231", "108"), ("20241201", "20241231", "108")]  # 최근 해부터
 
 
 @pytest.mark.parametrize(("month", "first", "last"), [(11, "2016", "2025"), (10, "2017", "2026"), (2, "2017", "2026")])
 async def test_history_uses_only_finished_months(use, ctx, month, first, last):
     mock = use(KmaMock(asos=_asos_by_year))
     await call("info.weather", {"place": "서울", "kind": "history", "month": month}, ctx)
-    starts = [q.url.params["startDt"][:4] for q in mock.requests]
+    starts = sorted(q.url.params["startDt"][:4] for q in mock.requests)
     assert len(starts) == 10 and (starts[0], starts[-1]) == (first, last)  # 이번 달(11월)은 아직 끝나지 않았다
 
 
@@ -180,3 +182,82 @@ async def test_history_without_any_data_falls_back(use, ctx, session):
     r = await call("info.weather", {"place": "서울", "kind": "history", "month": 12, "years": 2}, ctx)
     assert not r.ok and r.error == f"그 기간의 관측 자료가 없습니다. {FALLBACK}"
     assert session.query(EvidenceSearch).one().error_code == "no_data"
+
+
+THREE_YEARS = YEARS | {"2023": [asos_day("2023-12-01", "0.0", "-1.0", "2.0")]}
+
+
+def _flaky(request):
+    """2022 는 서버 오류, 2021 은 자료 없음, 2023~2025 는 자료."""
+    year = request.url.params["startDt"][:4]
+    if year == "2022":
+        return 500, {}
+    return 200, ok_body(THREE_YEARS.get(year, []))
+
+
+async def test_period_counts_only_years_with_data_and_skips_a_failing_year(use, ctx, session):
+    use(KmaMock(asos=_flaky))
+    r = await call("info.weather", {"place": "서울", "kind": "history", "month": 12, "years": 5}, ctx)
+    assert r.ok, r.error
+    assert (r.output["period"], r.output["years_used"], r.output["missing_years"]) == (
+        "2023~2025년 12월", 3, [2021, 2022])
+    item = session.get(EvidenceItem, r.output["evidence_id"])
+    assert "2023~2025년 12월" in item.description and "빠진 해 2021·2022" in item.description
+
+
+async def test_fewer_than_three_years_fails(use, ctx):
+    use(KmaMock(asos=_asos_by_year))  # 2024·2025 만 자료
+    r = await call("info.weather", {"place": "서울", "kind": "history", "month": 12, "years": 10}, ctx)
+    assert not r.ok
+    assert r.error == f"자료가 있는 해가 2년뿐이라 통계를 내지 않습니다(3년 이상 필요). {FALLBACK}"
+
+
+async def test_account_errors_stop_at_the_first_year(use, ctx):
+    mock = use(KmaMock(asos=(403, gateway_body("22"))))
+    r = await call("info.weather", {"place": "서울", "kind": "history", "month": 12}, ctx)
+    assert not r.ok and r.error.startswith(kma.FAILED_MESSAGES["rate_limited"]) and len(mock.requests) == 1
+
+
+async def test_history_has_an_overall_time_limit(monkeypatch, kma_conn, ctx):
+    async def slow_2022(conn, stn, start, end):
+        if start.year == 2022:
+            await asyncio.sleep(10)
+        return [kma.DayObs(start, 1.0, -1.0, 0.0)]
+
+    monkeypatch.setattr(kma, "asos_daily", slow_2022)
+    monkeypatch.setattr(weather, "HISTORY_TIMEOUT_S", 0.2)
+    r = await call("info.weather", {"place": "서울", "kind": "history", "month": 12, "years": 5}, ctx)
+    assert r.ok, r.error
+    assert (r.output["period"], r.output["missing_years"]) == ("2023~2025년 12월", [2021, 2022])
+
+
+def _conn(session, key: str, status: str) -> None:
+    session.add(InfoConnection(name=key[:4], preset="kma", base_url=kma.DEFAULT_BASE_URL,
+                               secret_ciphertext=encrypt(key), secret_last4=key[-4:], status=status))
+    session.commit()
+
+
+@pytest.mark.parametrize(("rows", "chosen"), [
+    ([("OKOLDkey0000", "ok"), ("FAILEDkey111", "failed"), ("NEWESTkey222", "unknown")], "OKOLDkey0000"),
+    ([("FAILEDkey111", "failed"), ("NEWESTkey222", "unknown")], "NEWESTkey222"),
+])
+async def test_connection_prefers_ok_then_newest(monkeypatch, session, ctx, rows, chosen):
+    mock = KmaMock(fcst=(200, ok_body([])))
+    monkeypatch.setattr(kma, "TRANSPORT", mock)
+    for key, status in rows:
+        _conn(session, key, status)
+    assert (await call("info.weather", {"place": "서울", "kind": "forecast"}, ctx)).ok
+    assert f"serviceKey={chosen}&" in mock.requests[0].url.query.decode()
+
+
+@pytest.mark.parametrize("name", ["광주시", "광주 시"])
+async def test_gwangju_si_alone_is_ambiguous(use, ctx, name):
+    mock = use(KmaMock())
+    r = await call("info.weather", {"place": name, "kind": "forecast"}, ctx)
+    assert not r.ok and r.error == "광주광역시인지 경기 광주시인지 알려 주세요" and mock.requests == []
+
+
+async def test_gwangju_metropolitan_is_found(use, ctx):
+    mock = use(KmaMock(fcst=(200, ok_body([]))))
+    assert (await call("info.weather", {"place": "광주광역시", "kind": "forecast"}, ctx)).ok
+    assert mock.requests[0].url.params["nx"] == "58"

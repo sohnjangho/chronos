@@ -34,6 +34,13 @@ ALIASES = {"경기": "수원", "강원": "춘천", "충북": "청주", "충청�
            "경남": "창원", "경상남": "창원"}
 _SUFFIXES = ("특별자치시", "특별자치도", "특별시", "광역시", "시", "군", "도")
 _BY_NAME = {p.name: p for p in PLACES}
+# 둘 이상으로 읽히는 이름 → 되물을 말. 「광주」·「광주광역시」는 광역시로 본다.
+AMBIGUOUS = {"광주시": "광주광역시인지 경기 광주시인지 알려 주세요"}
+
+
+def ambiguous(name: str) -> str | None:
+    """되물어야 하는 이름이면 그 말, 아니면 None."""
+    return AMBIGUOUS.get("".join(name.split()))
 
 
 def find(name: str) -> Place | None:

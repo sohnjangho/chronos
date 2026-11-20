@@ -6,9 +6,11 @@
 - 실패 줄은 따로 연 짧은 세션에 바로 저장한다(루프가 rollback 해도 한도에 들게). 키는 출력·카드·기록에 없다.
 """
 
+import asyncio
 import calendar
 import logging
 import time
+from dataclasses import dataclass
 from datetime import date, datetime
 from statistics import mean
 from typing import Literal
@@ -46,6 +48,10 @@ PORTAL_URL, PORTAL_HOST = "https://www.data.go.kr", "data.go.kr"
 FORECAST_DAYS = 3
 RAIN_DAY_MM = 1.0
 DASH = "—"
+MIN_YEARS = 3  # history 는 자료가 있는 해가 이만큼(요청한 햇수가 더 적으면 그만큼) 있어야 통계를 낸다
+HISTORY_TIMEOUT_S = 60.0  # history 전체 기다림 한도. 넘으면 남은 해는 빠진 해
+# 계정 오류는 다른 해도 똑같이 실패하므로 바로 멈춘다(그 밖의 실패는 그 해만 빠진 해로 둔다).
+ACCOUNT_CODES = frozenset({"not_registered", "key_expired", "ip_not_allowed", "rate_limited", "bad_key"})
 
 
 class WeatherIn(BaseModel):
@@ -78,17 +84,36 @@ class DayOut(BaseModel):
 class WeatherOut(BaseModel):
     place: str
     kind: str
-    period: str  # 기준 기간 글
+    period: str  # 기준 기간 글(history 는 자료가 있는 첫 해~끝 해)
     source: str
     evidence_id: int
     used: int
     limit: int
     stats: StatsOut | None = None
+    years_used: int | None = None  # history: 자료가 있는 해 수
+    missing_years: list[int] = []  # history: 자료가 없거나 실패한 해
     days: list[DayOut] = []
 
 
 class _NoData(Exception):
     """그 기간의 관측 자료가 하나도 없다."""
+
+
+class _TooFew(Exception):
+    """자료가 있는 해가 너무 적다."""
+
+    def __init__(self, got: int, need: int) -> None:
+        super().__init__(got)
+        self.message = f"자료가 있는 해가 {got}년뿐이라 통계를 내지 않습니다({need}년 이상 필요)."
+
+
+@dataclass(frozen=True)
+class _History:
+    period: str
+    text: str
+    stats: StatsOut
+    used: list[int]
+    missing: list[int]
 
 
 def _now() -> datetime:
@@ -136,16 +161,18 @@ def _day_out(day: DayFcst) -> DayOut:
     return DayOut(date=day.date.isoformat(), tmin=day.tmin, tmax=day.tmax, pop=day.pop, text=text)
 
 
-def _stats_text(place: places.Place, period: str, years: int, s: StatsOut) -> str:
-    return (f"{place.name}(ASOS {place.stn}) {period}, 자료 있는 해 {years}년의 해 평균: 평균기온 {_deg(s.tavg)} · "
+def _stats_text(place: places.Place, period: str, years: int, missing: list[int], s: StatsOut) -> str:
+    gaps = f", 빠진 해 {'·'.join(map(str, missing))}" if missing else ""
+    return (f"{place.name}(ASOS {place.stn}) {period}, 자료 있는 해 {years}년{gaps}의 해 평균: 평균기온 {_deg(s.tavg)} · "
             f"평균 최저기온 {_deg(s.tmin_avg)} · 영하(최저 0℃ 미만) {DASH if s.freezing_days is None else s.freezing_days}일 · "
             f"1mm 이상 강수 {s.rain_days}일 · 하루 최대 강수 {s.max_rain_mm}mm(해마다 최댓값의 평균). 출처: {ASOS_SOURCE}")
 
 
 def _conn(session: Session) -> KmaConn:
     with session.no_autoflush:
+        # 시험에 통과한(ok) 연결을 먼저, 그다음 새것(id 가 큰 것)
         row = session.scalars(select(InfoConnection).where(InfoConnection.preset == "kma")
-                              .order_by(InfoConnection.id)).first()
+                              .order_by(InfoConnection.status != "ok", InfoConnection.id.desc())).first()
     if row is None:
         raise ToolError(f"{NO_CONNECTION} {FALLBACK}")
     try:
@@ -164,19 +191,41 @@ def _record_failure(ctx: ToolContext, query: str, code: str, latency_ms: int) ->
         logger.warning("날씨 조회 실패 기록 저장 실패 (%s)", type(exc).__name__)
 
 
-async def _history(conn: KmaConn, place: places.Place, month: int, count: int) -> tuple[str, str, StatsOut]:
+async def _fetch_years(conn: KmaConn, place: places.Place, month: int,
+                       years: list[int]) -> tuple[dict[int, list[DayObs]], KmaFailed | None]:
+    """최근 해부터 한 해씩 받는다. 계정 오류는 그대로 던지고, 그 밖의 실패·시간 초과는 그 해(와 남은 해)를 뺀다."""
+    got: dict[int, list[DayObs]] = {}
+    failure: KmaFailed | None = None
+    try:
+        async with asyncio.timeout(HISTORY_TIMEOUT_S):
+            for year in sorted(years, reverse=True):
+                try:
+                    days = await kma.asos_daily(conn, place.stn, date(year, month, 1),
+                                                date(year, month, calendar.monthrange(year, month)[1]))
+                except KmaFailed as e:
+                    if e.code in ACCOUNT_CODES:
+                        raise
+                    failure = e
+                    continue
+                if days:
+                    got[year] = days
+    except TimeoutError:
+        failure = KmaFailed("timeout")
+    return got, failure
+
+
+async def _history(conn: KmaConn, place: places.Place, month: int, count: int) -> _History:
     years = _years(month, count, _now().date())
-    by_year = []
-    for year in years:
-        days = await kma.asos_daily(conn, place.stn, date(year, month, 1),
-                                    date(year, month, calendar.monthrange(year, month)[1]))
-        if days:
-            by_year.append(days)
-    if not by_year:
-        raise _NoData
-    period = f"{years[0]}~{years[-1]}년 {month}월" if len(years) > 1 else f"{years[0]}년 {month}월"
-    stats = history_stats(by_year)
-    return period, _stats_text(place, period, len(by_year), stats), stats
+    got, failure = await _fetch_years(conn, place, month, years)
+    if not got:
+        raise failure or _NoData()
+    need = min(MIN_YEARS, len(years))
+    if len(got) < need:
+        raise _TooFew(len(got), need)
+    used, missing = sorted(got), sorted(set(years) - set(got))
+    period = f"{used[0]}~{used[-1]}년 {month}월" if len(used) > 1 else f"{used[0]}년 {month}월"
+    stats = history_stats([got[y] for y in used])
+    return _History(period, _stats_text(place, period, len(used), missing, stats), stats, used, missing)
 
 
 async def _forecast(conn: KmaConn, place: places.Place) -> tuple[str, str, list[DayOut]]:
@@ -205,6 +254,8 @@ def _card(search_id: int, query: str, evidence_id: int, title: str) -> AgentEven
     mutates=True,
 )
 async def weather(args: WeatherIn, ctx: ToolContext) -> WeatherOut:
+    if (question := places.ambiguous(args.place)) is not None:
+        raise ToolError(question)
     place = places.find(args.place)
     if place is None:
         raise ToolError(f"모르는 위치입니다: {args.place} — 가까운 시·도 이름을 알려 주세요")
@@ -221,13 +272,17 @@ async def weather(args: WeatherIn, ctx: ToolContext) -> WeatherOut:
     start = time.perf_counter()
     try:
         conn = _conn(ctx.session)
+        history = None
         if args.kind == "history":
-            period, text, stats = await _history(conn, place, args.month, args.years)
-            source, days = ASOS_SOURCE, []
+            history = await _history(conn, place, args.month, args.years)
+            period, text, stats, source, days = history.period, history.text, history.stats, ASOS_SOURCE, []
         else:
             (period, text, days), source, stats = await _forecast(conn, place), FCST_SOURCE, None
     except KmaFailed as e:
         _record_failure(ctx, query, e.code, int((time.perf_counter() - start) * 1000))
+        raise ToolError(f"{e.message} {FALLBACK}") from None
+    except _TooFew as e:
+        _record_failure(ctx, query, "too_few_years", int((time.perf_counter() - start) * 1000))
         raise ToolError(f"{e.message} {FALLBACK}") from None
     except _NoData:
         _record_failure(ctx, query, "no_data", int((time.perf_counter() - start) * 1000))
@@ -242,4 +297,6 @@ async def weather(args: WeatherIn, ctx: ToolContext) -> WeatherOut:
                                      hits=[hit])
     ctx.emit(_card(search_id, query, items[0].id, title))
     return WeatherOut(place=place.name, kind=args.kind, period=period, source=source, evidence_id=items[0].id,
-                      used=used + 1, limit=LIMIT, stats=stats, days=days)
+                      used=used + 1, limit=LIMIT, stats=stats, days=days,
+                      years_used=len(history.used) if history else None,
+                      missing_years=history.missing if history else [])
