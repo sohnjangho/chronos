@@ -62,26 +62,26 @@ test('with no window the app menu is the product: ChronOS · 윈도우 · 도움
 
 test('the app name menu shows program info, hides and closes the active window', async () => {
   render(<Desktop />);
-  openProgram('schedule');
-  await openMenu('일정판');
-  await userEvent.click(item('일정판 정보'));
-  const info = screen.getByRole('dialog', { name: '일정판 정보' });
+  openProgram('schedule-table');
+  await openMenu('스케줄');
+  await userEvent.click(item('스케줄 정보'));
+  const info = screen.getByRole('dialog', { name: '스케줄 정보' });
   expect(within(info).getByText('업무 프로그램')).toBeVisible();
-  expect(within(info).getByText('schedule')).toBeVisible();
+  expect(within(info).getByText('schedule-table')).toBeVisible();
   await userEvent.click(within(info).getByRole('button', { name: '닫기' }));
-  await openMenu('일정판');
+  await openMenu('스케줄');
   await userEvent.click(item('숨기기'));
-  expect(win('schedule').minimized).toBe(true);
-  openProgram('schedule');
-  await openMenu('일정판');
+  expect(win('schedule-table').minimized).toBe(true);
+  openProgram('schedule-table');
+  await openMenu('스케줄');
   await userEvent.click(item('닫기'));
   expect(useWindows.getState().wins).toEqual([]);
 });
 
 test('clicking the empty desktop clears the active window', async () => {
   render(<Desktop />);
-  openProgram('schedule');
-  const dialog = screen.getByRole('dialog', { name: '일정판' });
+  openProgram('schedule-table');
+  const dialog = screen.getByRole('dialog', { name: '스케줄' });
   expect(dialog).toHaveClass('is-active');
   fireEvent.pointerDown(screen.getByTestId('desktop-surface'));
   expect(dialog).not.toHaveClass('is-active');
@@ -98,7 +98,7 @@ test('the 윈도우 menu has commands with shortcuts, disabled states and the wi
   expect(item('좌우 분할')).toHaveAttribute('aria-keyshortcuts', 'Control+Alt+S');
   expect(item('다음 창')).toBeDisabled();
   await userEvent.keyboard('{Escape}');
-  openProgram('schedule');
+  openProgram('schedule-table');
   openProgram('chat');
   act(() => useWindows.getState().minimize(win('chat').id));
   await openMenu('윈도우');
@@ -111,7 +111,7 @@ test('the 윈도우 menu has commands with shortcuts, disabled states and the wi
 
 test('arranging from the menu announces the result', async () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   openProgram('chat');
   await openMenu('윈도우');
   await userEvent.click(item('좌우 분할'));
@@ -150,22 +150,22 @@ test('group titles are skipped by the arrow keys', async () => {
 
 test('every program window gets a 보기 menu with zoom that is remembered per program', async () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   await openMenu('보기');
   expect(item('배율 100%')).toBeDisabled();
   expect(item('확대')).toHaveAttribute('aria-keyshortcuts', 'Control+Alt+=');
   await userEvent.click(item('확대'));
-  expect(screen.getByRole('dialog', { name: '일정판' }).querySelector('.os-win-zoom')).toHaveAttribute('data-zoom', '110');
+  expect(screen.getByRole('dialog', { name: '스케줄' }).querySelector('.os-win-zoom')).toHaveAttribute('data-zoom', '110');
   key('Minus');
   key('Minus');
-  expect(useZoom.getState().levels.schedule).toBe(90);
+  expect(useZoom.getState().levels['schedule-table']).toBe(90);
   key('Digit0');
-  expect(useZoom.getState().levels.schedule).toBe(100);
+  expect(useZoom.getState().levels['schedule-table']).toBe(100);
   for (let i = 0; i < 12; i += 1) key('Equal');
-  expect(useZoom.getState().levels.schedule).toBe(200);
+  expect(useZoom.getState().levels['schedule-table']).toBe(200);
   await openMenu('보기');
   expect(item('확대')).toBeDisabled();
-  expect(JSON.parse(localStorage.getItem('chronos.zoom.1')!)).toEqual({ schedule: 200 });
+  expect(JSON.parse(localStorage.getItem('chronos.zoom.1')!)).toEqual({ 'schedule-table': 200 });
 });
 
 test('zoom has a lower limit of 50%', () => {
@@ -187,11 +187,11 @@ test('the settings program keeps its own 보기 items and gets the zoom items ap
 
 test('window shortcuts work, but not while typing or locked', () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   openProgram('chat');
   key('KeyM');
   expect(useWindows.getState().wins.every((w) => w.minimized)).toBe(true);
-  openProgram('schedule');
+  openProgram('schedule-table');
   key('KeyW');
   expect(useWindows.getState().wins.map((w) => w.programId)).toEqual(['chat']);
   const input = document.createElement('input');
@@ -210,10 +210,10 @@ test('window shortcuts work, but not while typing or locked', () => {
 
 test('Ctrl+` brings the next window forward and Ctrl+Alt+G arranges a grid', () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   openProgram('chat');
   fireEvent.keyDown(document.body, { code: 'Backquote', key: '`', ctrlKey: true });
-  expect(useWindows.getState().activeProgramId()).toBe('schedule');
+  expect(useWindows.getState().activeProgramId()).toBe('schedule-table');
   fireEvent.keyDown(document.body, { code: 'KeyG', key: 'g', ctrlKey: true, altKey: true });
   expect(screen.getByRole('status')).toHaveTextContent('창 2개를 격자로 정렬했습니다');
 });

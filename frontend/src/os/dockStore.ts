@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { loadPref, savePref } from './prefs';
-import type { ProgramManifest } from './registry';
+import { SCHEDULE_TOOLS, type ProgramManifest } from './registry';
 
 export type DockEntry =
   | { kind: 'apps' }
@@ -18,6 +18,15 @@ interface DockState {
   move(id: string, to: number, allIds: string[]): void;
 }
 
+/**
+ * 저장된 차례의 옛 일정판(schedule) 자리에 나뉜 도구 프로그램 넷을 넣는다(이미 있는 것은 그 자리 그대로).
+ * 일정판을 Dock 에 두었던 사람은 그 넷을 모두 Dock 에서 쓰던 셈이다.
+ */
+function migrated(ids: string[]): string[] {
+  if (!ids.includes('schedule')) return ids;
+  return ids.flatMap((id) => (id === 'schedule' ? SCHEDULE_TOOLS.filter((t) => !ids.includes(t)) : [id]));
+}
+
 /** Dock 에 둘 프로그램 차례와 바꾸기. 사용자별로 저장한다(실패해도 메모리에는 남는다). */
 export const useDock = create<DockState>((set, get) => {
   const save = (pinned: string[]) => {
@@ -30,7 +39,10 @@ export const useDock = create<DockState>((set, get) => {
     pinned: null,
     load(userId) {
       const saved = loadPref('dock', userId);
-      set({ userId, pinned: Array.isArray(saved) ? saved.filter((x): x is string => typeof x === 'string') : null });
+      const ids = Array.isArray(saved) ? saved.filter((x): x is string => typeof x === 'string') : null;
+      const pinned = ids && migrated(ids);
+      if (pinned && pinned !== ids) savePref('dock', userId, pinned);
+      set({ userId, pinned });
     },
     pin: (id, allIds) => save([...current(allIds).filter((x) => x !== id), id]),
     unpin: (id, allIds) => save(current(allIds).filter((x) => x !== id)),

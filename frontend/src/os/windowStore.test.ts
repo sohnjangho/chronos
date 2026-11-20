@@ -28,12 +28,26 @@ beforeEach(() => {
 });
 
 test('open twice focuses the same window', () => {
-  const a = s().open('schedule');
+  const a = s().open('schedule-table');
   s().open('chat');
-  const b = s().open('schedule', { tab: 'gantt' });
+  const b = s().open('schedule-table', { activity: 'A2020' });
   expect(b).toBe(a);
   expect(top().id).toBe(a);
-  expect(win(a).params).toEqual({ tab: 'gantt' });
+  expect(win(a).params).toEqual({ activity: 'A2020' });
+});
+
+// 일정판(schedule)은 넷으로 나뉘었다. 옛 대화 기록의 open_window·옛 단추가 부르는 open('schedule', …)은 맞는 프로그램을 연다.
+test('the old schedule board id opens the matching tool program', () => {
+  const table = s().open('schedule', { id: '1' });
+  expect(win(table)).toMatchObject({ programId: 'schedule-table', params: { id: '1' } });
+  const gantt = s().open('schedule', { id: '1', tab: 'gantt' });
+  expect(win(gantt)).toMatchObject({ programId: 'gantt', params: { id: '1' } });
+  expect(win(s().open('schedule', { tab: 'cpm' })).programId).toBe('cpm');
+  expect(win(s().open('schedule', { tab: 'progress' })).programId).toBe('progress');
+  expect(s().open('schedule', { tab: 'table', activity: 'A1' })).toBe(table);
+  expect(win(table).params).toEqual({ activity: 'A1' });
+  expect(s().open('schedule')).toBe(table);
+  expect(s().wins.map((w) => w.programId)).toEqual(['schedule-table', 'gantt', 'cpm', 'progress']);
 });
 
 test('focus raises z above all', () => {
@@ -124,8 +138,8 @@ test('default size comes from the program and is clamped to the screen', () => {
 
 test('setTitle changes only the title', () => {
   const a = s().open('a');
-  s().setTitle(a, '일정판 — 5층 사무동 신축');
-  expect(win(a)).toMatchObject({ title: '일정판 — 5층 사무동 신축', programId: 'a' });
+  s().setTitle(a, '스케줄 — 5층 사무동 신축');
+  expect(win(a)).toMatchObject({ title: '스케줄 — 5층 사무동 신축', programId: 'a' });
 });
 
 test('fitToScreen keeps every window inside a smaller screen', () => {
@@ -283,7 +297,7 @@ describe('window motion (switch on, fake clock)', () => {
   });
 
   test('a new window opens with the open motion, which clears after 220ms', () => {
-    const a = s().open('schedule');
+    const a = s().open('schedule-table');
     expect(win(a).motion).toBe('open');
     vi.advanceTimersByTime(219);
     expect(win(a).motion).toBe('open');
@@ -292,7 +306,7 @@ describe('window motion (switch on, fake clock)', () => {
   });
 
   test('an open from the Dock is marked so the window grows out of the icon', () => {
-    const a = s().open('schedule', undefined, 'dock');
+    const a = s().open('schedule-table', undefined, 'dock');
     expect(win(a)).toMatchObject({ motion: 'open', fromDock: true });
     vi.advanceTimersByTime(220);
     expect(win(a).motion).toBeUndefined();
@@ -300,10 +314,10 @@ describe('window motion (switch on, fake clock)', () => {
   });
 
   test('bringing an open window forward has no motion', () => {
-    const a = s().open('schedule');
+    const a = s().open('schedule-table');
     s().open('chat');
     vi.advanceTimersByTime(220);
-    s().open('schedule');
+    s().open('schedule-table');
     expect(win(a).motion).toBeUndefined();
     expect(top().id).toBe(a);
     s().focus(s().wins[1].id);
@@ -311,12 +325,12 @@ describe('window motion (switch on, fake clock)', () => {
   });
 
   test('close keeps the window, inactive and untouchable, until the 160ms motion ends', () => {
-    const a = s().open('schedule');
+    const a = s().open('schedule-table');
     const b = s().open('chat');
     vi.advanceTimersByTime(220);
     s().close(b);
     expect(win(b).motion).toBe('close');
-    expect(s().activeProgramId()).toBe('schedule');
+    expect(s().activeProgramId()).toBe('schedule-table');
     const z = s().topZ;
     s().focus(b);
     s().toggleMaximize(b);
@@ -331,9 +345,9 @@ describe('window motion (switch on, fake clock)', () => {
   });
 
   test('opening a program whose window is closing makes a new window', () => {
-    const a = s().open('schedule');
+    const a = s().open('schedule-table');
     s().close(a);
-    const b = s().open('schedule');
+    const b = s().open('schedule-table');
     expect(b).not.toBe(a);
     expect(win(b).motion).toBe('open');
     vi.advanceTimersByTime(220);
@@ -341,14 +355,14 @@ describe('window motion (switch on, fake clock)', () => {
   });
 
   test('closing a minimized window removes it at once (there is nothing to see)', () => {
-    const a = s().open('schedule');
+    const a = s().open('schedule-table');
     s().minimize(a);
     s().close(a);
     expect(s().wins).toEqual([]);
   });
 
   test('minimize hides in the store at once and the 260ms motion then clears; restore plays back', () => {
-    const a = s().open('schedule');
+    const a = s().open('schedule-table');
     vi.advanceTimersByTime(220);
     s().minimize(a);
     expect(win(a)).toMatchObject({ minimized: true, motion: 'minimize' });
@@ -357,7 +371,7 @@ describe('window motion (switch on, fake clock)', () => {
     expect(win(a).motion).toBe('minimize');
     vi.advanceTimersByTime(1);
     expect(win(a).motion).toBeUndefined();
-    s().open('schedule');
+    s().open('schedule-table');
     expect(win(a)).toMatchObject({ minimized: false, motion: 'restore' });
     vi.advanceTimersByTime(260);
     expect(win(a).motion).toBeUndefined();
@@ -368,7 +382,7 @@ describe('window motion (switch on, fake clock)', () => {
   });
 
   test('maximize and restore zoom for 200ms; a window that is still opening keeps its open motion', () => {
-    const a = s().open('schedule');
+    const a = s().open('schedule-table');
     s().toggleMaximize(a);
     expect(win(a)).toMatchObject({ maximized: true, motion: 'open' });
     vi.advanceTimersByTime(220);
@@ -381,7 +395,7 @@ describe('window motion (switch on, fake clock)', () => {
   });
 
   test('minimize all and close all move every window; closing windows are not counted again', () => {
-    const a = s().open('schedule');
+    const a = s().open('schedule-table');
     const b = s().open('chat');
     vi.advanceTimersByTime(220);
     expect(s().minimizeAll()).toBe(2);
@@ -398,16 +412,16 @@ describe('window motion (switch on, fake clock)', () => {
   });
 
   test('close active closes with motion and the next window becomes active at once', () => {
-    s().open('schedule');
+    s().open('schedule-table');
     const b = s().open('chat');
     s().closeActive();
     expect(win(b).motion).toBe('close');
-    expect(s().activeProgramId()).toBe('schedule');
+    expect(s().activeProgramId()).toBe('schedule-table');
   });
 
   test('with reduced motion everything changes at once', () => {
     vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('reduce'), media: q, addEventListener() {}, removeEventListener() {} }));
-    const a = s().open('schedule', undefined, 'dock');
+    const a = s().open('schedule-table', undefined, 'dock');
     expect(win(a).motion).toBeUndefined();
     expect(win(a).fromDock).toBeUndefined();
     s().minimize(a);
@@ -424,14 +438,14 @@ describe('window motion (switch on, fake clock)', () => {
 
   test('with the switch off (the default under the test runner) close removes at once', () => {
     setWindowMotion(false);
-    const a = s().open('schedule');
+    const a = s().open('schedule-table');
     expect(win(a).motion).toBeUndefined();
     s().close(a);
     expect(s().wins).toEqual([]);
   });
 
   test('reset drops pending motion timers', () => {
-    s().open('schedule');
+    s().open('schedule-table');
     s().open('chat');
     expect(vi.getTimerCount()).toBe(2);
     s().reset();

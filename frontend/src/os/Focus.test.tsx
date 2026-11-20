@@ -69,8 +69,8 @@ test('an info dialog returns focus to the menu that opened it and keeps Tab insi
 
 test('/ opens the palette from the desktop but not from inside a window', () => {
   render(<Desktop />);
-  act(() => void useWindows.getState().open('schedule'));
-  const win = screen.getByRole('dialog', { name: '일정판' });
+  act(() => void useWindows.getState().open('schedule-table'));
+  const win = screen.getByRole('dialog', { name: '스케줄' });
   fireEvent.keyDown(win, { key: '/', code: 'Slash' });
   expect(useShell.getState().palette).toBe(false);
   fireEvent.keyDown(document.body, { key: '/', code: 'Slash' });
@@ -80,7 +80,7 @@ test('/ opens the palette from the desktop but not from inside a window', () => 
 test('window shortcuts are ignored while the drawer, palette or a dialog is open', () => {
   render(<Desktop />);
   act(() => {
-    useWindows.getState().open('schedule');
+    useWindows.getState().open('schedule-table');
     useWindows.getState().open('chat');
   });
   const shown = () => useWindows.getState().wins.filter((w) => !w.minimized).length;
@@ -113,7 +113,7 @@ test('under StrictMode the drawer keeps focus on its search box (no refocus on t
 
 test('closing the panel while its button is hidden focuses the maximized window', () => {
   render(<Desktop />);
-  act(() => void useWindows.getState().open('schedule'));
+  act(() => void useWindows.getState().open('schedule-table'));
   act(() => useWindows.getState().toggleMaximize(useWindows.getState().wins[0].id));
   act(() => useContextPanel.getState().toggle());
   act(() => void useWindows.getState().open('chat'));
@@ -122,5 +122,5 @@ test('closing the panel while its button is hidden focuses the maximized window'
   act(() => within(screen.getByRole('complementary', { name: 'Context 패널' })).getByRole('button', { name: 'Context 패널 닫기' }).focus());
   ctrlAlt('Period');
   expect(useContextPanel.getState().open).toBe(false);
-  expect(screen.getByRole('dialog', { name: '일정판' })).toHaveFocus();
+  expect(screen.getByRole('dialog', { name: '스케줄' })).toHaveFocus();
 });

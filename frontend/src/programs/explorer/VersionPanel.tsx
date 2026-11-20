@@ -1,4 +1,4 @@
-// 오른쪽: 고른 일정의 요약 · [일정판에서 열기] · (관리자) [일정 지우기] · 버전 목록(번호·Plan·메모·누가·[되돌리기]).
+// 오른쪽: 고른 일정의 요약 · [스케줄에서 열기] · (관리자) [일정 지우기] · 버전 목록(번호·처음 계획·메모·누가·[되돌리기]).
 import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import { dot, domainLabel, levelLabel, stamp, type ScheduleSummary, type TreeSchedule, type Version } from './exApi';
@@ -28,8 +28,9 @@ function author(v: Version): string {
   return v.by_name === kind ? kind : `${v.by_name} · ${kind}`;
 }
 
+/** 번호 · 「지금」 · 「처음 계획」(is_plan 버전. 화면의 Plan 은 지금 일정을 실적 없이 계산한 것이라 이 버전과 다르다). */
 function badgeText(v: Version, current: number): string {
-  return [String(v.n), v.n === current ? '지금' : '', v.is_plan ? 'Plan' : ''].filter(Boolean).join(' ');
+  return [String(v.n), v.n === current ? '지금' : '', v.is_plan ? '처음 계획' : ''].filter(Boolean).join(' ');
 }
 
 function Versions({ versions, current, onRestore }: { versions: Version[]; current: number; onRestore(n: number): void }) {
@@ -85,7 +86,7 @@ export default function VersionPanel({ schedule, view, versions, versionsError, 
       </dl>
       <div className="ex-actions">
         <Button variant="primary" onClick={onOpen}>
-          일정판에서 열기
+          스케줄에서 열기
         </Button>
         {admin && (
           <Button variant="danger" onClick={onDelete}>

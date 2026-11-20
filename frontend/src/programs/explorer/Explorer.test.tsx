@@ -142,17 +142,17 @@ describe('R7 탐색기', () => {
     expect(rows[0]).toHaveTextContent('A2020 기간 10 → 8');
     expect(rows[0]).toHaveTextContent('김하늘 · 직접 수정');
     expect(within(rows[0]).queryByRole('button', { name: '되돌리기' })).toBeNull();
-    expect(rows[1]).toHaveTextContent('1 Plan');
+    expect(rows[1]).toHaveTextContent('1 처음 계획'); // is_plan = 처음 계획(PM 11-20: 화면의 「Plan」은 지금 일정을 실적 없이 계산한 것)
     expect(rows[1]).toHaveTextContent('이도윤 · 에이전트');
   });
 
-  test('[일정판에서 열기] sets the current schedule and opens the schedule board', async () => {
+  test('[스케줄에서 열기] sets the current schedule and opens the 스케줄 program', async () => {
     setup();
     await renderExplorer();
     await pick('5층 사무동 신축');
-    await userEvent.click(within(panel()).getByRole('button', { name: '일정판에서 열기' }));
+    await userEvent.click(within(panel()).getByRole('button', { name: '스케줄에서 열기' }));
     expect(useCurrentSchedule.getState().current).toEqual({ id: 1, name: '5층 사무동 신축' });
-    expect(openSpy).toHaveBeenCalledWith('schedule', { id: '1' });
+    expect(openSpy).toHaveBeenCalledWith('schedule-table', { id: '1' });
   });
 
   test('admin delete asks in the app, names the schedule and clears the current schedule', async () => {

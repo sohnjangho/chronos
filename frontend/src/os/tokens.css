@@ -64,6 +64,10 @@
   --tile-green-to: #16844c;
   --tile-rose-from: #f27a96;
   --tile-rose-to: #bf3456;
+  --tile-orange-from: #f59a5b;
+  --tile-orange-to: #c2501a;
+  --tile-fuchsia-from: #d68ae6;
+  --tile-fuchsia-to: #9a35b5;
   --tile-slate-from: #8c98ae;
   --tile-slate-to: #4a5670;
 
@@ -142,6 +146,10 @@
   --tile-green-to: #127140;
   --tile-rose-from: #e86e8a;
   --tile-rose-to: #a52c4a;
+  --tile-orange-from: #ea8d4f;
+  --tile-orange-to: #a8430f;
+  --tile-fuchsia-from: #c97ddb;
+  --tile-fuchsia-to: #82289a;
   --tile-slate-from: #7f8ba2;
   --tile-slate-to: #3c475e;
 }

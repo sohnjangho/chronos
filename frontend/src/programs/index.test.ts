@@ -1,5 +1,7 @@
+import type { ReactElement } from 'react';
 import { expect, test } from 'vitest';
-import { programs } from '../os/registry';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { getProgram, programs } from '../os/registry';
 import { registerPrograms } from './index';
 
 test('every plan-1 program is registered with its id, name, kind and size', () => {
@@ -12,9 +14,22 @@ test('every plan-1 program is registered with its id, name, kind and size', () =
     ['approvals', '승인함', 'system', 1200, 760],
     ['explorer', '탐색기', 'system', 1100, 720],
     ['settings', '설정', 'system', 1300, 860],
-    ['schedule', '일정판', 'work', 1600, 900],
+    ['schedule-table', '스케줄', 'work', 1600, 900],
+    ['gantt', '간트차트', 'work', 1600, 900],
+    ['cpm', 'CPM', 'work', 1600, 900],
+    ['progress', '공정률', 'work', 1400, 860],
     ['conditions', '조건·규칙', 'work', 1400, 860],
   ]);
   expect(programs('user').filter((p) => p.badge === 'approvals').map((p) => p.id)).toEqual(['approvals']);
   expect(programs('user').some((p) => p.adminOnly)).toBe(false);
+});
+
+test('the schedule board is gone: its four tool programs each have their own icon and tone', () => {
+  registerPrograms();
+  expect(getProgram('schedule')).toBeUndefined();
+  const tools = ['schedule-table', 'gantt', 'cpm', 'progress'].map((id) => getProgram(id)!);
+  expect(new Set(tools.map((p) => p.tone)).size).toBe(4);
+  const drawings = tools.map((p) => renderToStaticMarkup(p.icon as ReactElement));
+  expect(new Set(drawings).size).toBe(4);
+  expect(drawings.every((d) => d.startsWith('<svg'))).toBe(true);
 });

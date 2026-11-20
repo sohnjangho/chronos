@@ -617,7 +617,7 @@ async def test_failed_llm_call_counts_as_a_call(run):
 
 async def test_tool_events_are_saved_as_event_messages_outside_the_model_history(run, session, chat_id):
     def emitter(args: Empty, ctx) -> Empty:
-        ctx.emit(AgentEvent("card", {"kind": "progress", "n": 1}))
+        ctx.emit(AgentEvent("card", {"kind": "progress-card", "n": 1}))
         ctx.emit(AgentEvent("questionnaire", {"id": 5}))
         ctx.emit(AgentEvent("open_window", {"program": "x", "params": {}}))  # 저장하지 않는다
         ctx.emit(AgentEvent("approval", {"id": 9}))
@@ -632,12 +632,12 @@ async def test_tool_events_are_saved_as_event_messages_outside_the_model_history
         "user", "assistant", "event", "event", "event", "tool", "assistant", "user", "assistant",
     ]
     assert [c for r, c in rows if r == "event"] == [
-        {"type": "card", "data": {"kind": "progress", "n": 1}},
+        {"type": "card", "data": {"kind": "progress-card", "n": 1}},
         {"type": "questionnaire", "data": {"id": 5}},
         {"type": "approval", "data": {"id": 9}},
     ]
-    for body in llm.bodies[1:]:  # 같은 턴의 다음 요청과 다음 턴의 요청 모두
-        assert "progress" not in json.dumps(body["messages"], ensure_ascii=False)
+    for body in llm.bodies[1:]:  # 같은 턴의 다음 요청과 다음 턴의 요청 모두(지시문에는 공정률 프로그램 id "progress" 가 있다)
+        assert "progress-card" not in json.dumps(body["messages"], ensure_ascii=False)
     assert [m["role"] for m in llm.bodies[2]["messages"][1:]] == ["user", "assistant", "tool", "assistant", "user"]
 
 

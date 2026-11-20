@@ -71,7 +71,7 @@ function Numbers({ item }: { item: Detail }) {
       </div>
       <span className="apv-gap" />
       {item.schedule_id !== null && (
-        <Button onClick={() => useWindows.getState().open('schedule', { id: String(item.schedule_id), tab: 'gantt' })}>간트에서 보기</Button>
+        <Button onClick={() => useWindows.getState().open('gantt', { id: String(item.schedule_id) })}>간트에서 보기</Button>
       )}
     </div>
   );

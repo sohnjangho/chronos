@@ -80,7 +80,7 @@ function paletteGroups({ role, query, currentId, data, done }: GroupArgs): PickG
       items: data.activities
         .filter((a) => match(`${a.id} ${a.name}`))
         .slice(0, MAX_ACTIVITIES)
-        .map((a) => ({ key: `x-${a.id}`, label: a.name, detail: a.id, run: done(() => open('schedule', { activity: a.id })) })),
+        .map((a) => ({ key: `x-${a.id}`, label: a.name, detail: a.id, run: done(() => open('schedule-table', { activity: a.id })) })),
     },
   ];
 }
@@ -107,7 +107,7 @@ function PaletteView() {
   );
 }
 
-/** 전역 검색(Ctrl+K, 바탕화면에서 /): 프로그램 열기 · 일정 바꾸기 · 승인 열기 · 액티비티로 일정판 열기. */
+/** 전역 검색(Ctrl+K, 바탕화면에서 /): 프로그램 열기 · 일정 바꾸기 · 승인 열기 · 액티비티로 스케줄 열기. */
 export default function SearchPalette() {
   const open = useShell((s) => s.palette);
   return open ? <PaletteView /> : null;

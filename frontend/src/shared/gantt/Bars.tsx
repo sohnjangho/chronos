@@ -68,12 +68,7 @@ export function ActualLine({ id, x, w, y }: { id: string; x: number; w: number; 
   return <rect className="gantt-actual" data-actual={id} x={x} y={y + 22} width={Math.max(w, 2)} height={4} rx={1} />;
 }
 
-/** 막대 위 얇은 Plan 버전 자리(지금 일정과 다를 때). */
-export function PlanMark({ id, x, w, y }: { id: string; x: number; w: number; y: number }) {
-  return <rect className="gantt-planmark" data-planmark={id} x={x} y={y + 3} width={Math.max(w, 2)} height={3} />;
-}
-
-/** 여유 꼬리: 막대 끝(EF 다음 날 0시)부터 LF 끝까지, 막대 아래 가는 줄. */
+/** 여유 꼬리: 막대 끝(종료 다음 날 0시)부터 LF 끝까지, 막대 아래 가는 줄. */
 export function FloatTail({ id, x, w, y, title }: { id: string; x: number; w: number; y: number; title: string }) {
   return (
     <rect className="gantt-float" data-float={id} x={x} y={y + 26} width={Math.max(w, 1)} height={2}>

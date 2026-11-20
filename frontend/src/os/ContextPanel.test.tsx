@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
@@ -83,52 +83,53 @@ afterEach(() => {
 
 test('the round button and Ctrl+Alt+. toggle a 420px panel that narrows the window area', async () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   await userEvent.click(screen.getByRole('button', { name: 'Context 패널 열기 (Ctrl+Alt+.)' }));
   expect(panel()).toHaveStyle({ width: '420px' });
   expect(useWindows.getState().insetRight).toBe(420);
   fireEvent.keyDown(document.body, { code: 'Period', key: '.', ctrlKey: true, altKey: true });
   expect(screen.queryByRole('complementary', { name: 'Context 패널' })).toBeNull();
   expect(useWindows.getState().insetRight).toBe(0);
-  expect(screen.getByRole('dialog', { name: '일정판' })).toHaveFocus();
+  expect(screen.getByRole('dialog', { name: '스케줄' })).toHaveFocus();
 });
 
 test('the header names the source window, follows the active window and marks a closed one', async () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   act(() => useContextPanel.getState().toggle());
-  expect(within(panel()).getByRole('button', { name: '출처: 일정판' })).toBeEnabled();
+  expect(within(panel()).getByRole('button', { name: '출처: 스케줄' })).toBeEnabled();
   openProgram('chat');
   const source = within(panel()).getByRole('button', { name: '출처: 에이전트 대화' });
   act(() => useWindows.getState().focus(useWindows.getState().wins[0].id));
-  await userEvent.click(within(panel()).getByRole('button', { name: '출처: 일정판' }));
-  expect(useWindows.getState().activeProgramId()).toBe('schedule');
-  act(() => useWindows.getState().close(useWindows.getState().wins.find((w) => w.programId === 'schedule')!.id));
+  await userEvent.click(within(panel()).getByRole('button', { name: '출처: 스케줄' }));
+  expect(useWindows.getState().activeProgramId()).toBe('schedule-table');
+  act(() => useWindows.getState().close(useWindows.getState().wins.find((w) => w.programId === 'schedule-table')!.id));
   expect(source).not.toBeInTheDocument();
   expect(within(panel()).queryByRole('button', { name: /^출처:/ })).toBeNull();
-  expect(within(panel()).getByText('닫힌 창: 일정판')).toBeInTheDocument();
+  expect(within(panel()).getByText('닫힌 창: 스케줄')).toBeInTheDocument();
   expect(panel().querySelector('.os-ctx-body')).toHaveClass('is-stale');
 });
 
 // 화면 맥락은 창 params 가 아니라 창이 알린 uiContext 에서 온다(Task 16 fix 1).
-const publishSelected = (activity: string) =>
-  act(() => {
-    const id = useWindows.getState().wins.find((w) => w.programId === 'schedule')!.id;
-    useUiContext.getState().publish(id, { program: 'schedule', schedule_id: 4, selected_activity: activity });
-  });
+// 스케줄 창이 먼저 제 맥락(고른 것 없음)을 알린 뒤에 고른 것을 알린다 — 늦게 그려진 창이 시험이 알린 것을 덮지 않게.
+async function publishSelected(activity: string) {
+  const id = useWindows.getState().wins.find((w) => w.programId === 'schedule-table')!.id;
+  await waitFor(() => expect(useUiContext.getState().byWindow[id]).toBeDefined());
+  act(() => useUiContext.getState().publish(id, { program: 'schedule-table', schedule_id: 4, selected_activity: activity }));
+}
 
 test('the AI tab talks with the source context and can continue in the chat program', async () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   act(() => useContextPanel.getState().toggle());
-  publishSelected('A1020');
+  await publishSelected('A1020');
   await userEvent.type(within(panel()).getByRole('textbox', { name: '에이전트에게 묻기' }), '요약해 줘{Enter}');
   expect(await within(panel()).findByText('요약입니다')).toBeVisible();
   expect(within(panel()).getByText('요약해 줘')).toBeVisible();
   const create = fetchMock.mock.calls.find(([u, i]) => u === '/api/chat/sessions' && i?.method === 'POST')!;
   expect(JSON.parse(String(create[1]?.body))).toEqual({ schedule_id: 4 });
   const send = fetchMock.mock.calls.find(([u]) => u === '/api/chat/sessions/9/messages')!;
-  expect(JSON.parse(String(send[1]?.body))).toEqual({ text: '요약해 줘', ui: { program: 'schedule', schedule_id: 4, selected_activity: 'A1020' } });
+  expect(JSON.parse(String(send[1]?.body))).toEqual({ text: '요약해 줘', ui: { program: 'schedule-table', schedule_id: 4, selected_activity: 'A1020' } });
   await userEvent.click(within(panel()).getByRole('button', { name: '전체 화면으로' }));
   const chat = useWindows.getState().wins.find((w) => w.programId === 'chat')!;
   expect(chat).toMatchObject({ params: { session: '9' }, maximized: true });
@@ -136,7 +137,7 @@ test('the AI tab talks with the source context and can continue in the chat prog
 
 test('the 근거 tab shows the schedule summary for schedule windows and an empty text otherwise', async () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   act(() => useContextPanel.getState().toggle());
   await userEvent.click(tab(/^근거/));
   expect(await within(panel()).findByText('크리티컬 액티비티')).toBeVisible();
@@ -151,7 +152,7 @@ test('the 근거 tab shows the schedule summary for schedule windows and an empt
 
 test('the 활동 tab lists pending approvals and recent runs of the current schedule only', async () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   act(() => useContextPanel.getState().toggle());
   await userEvent.click(tab('활동'));
   expect(await within(panel()).findByText('만회 계획')).toBeVisible();
@@ -164,7 +165,7 @@ test('the 활동 tab lists pending approvals and recent runs of the current sche
 
 test('changing the current schedule clears the AI conversation', async () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   act(() => useContextPanel.getState().toggle());
   await userEvent.type(within(panel()).getByRole('textbox', { name: '에이전트에게 묻기' }), '요약해 줘{Enter}');
   await within(panel()).findByText('요약입니다');
@@ -206,7 +207,7 @@ test('switching tabs mid-reply keeps the conversation and the reply still arrive
     'POST /api/chat/sessions/9/messages': () => live.response,
   });
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   act(() => useContextPanel.getState().toggle());
   await userEvent.type(within(panel()).getByRole('textbox', { name: '에이전트에게 묻기' }), '요약해 줘{Enter}');
   await userEvent.click(tab(/^근거/));
@@ -221,7 +222,7 @@ test('switching tabs mid-reply keeps the conversation and the reply still arrive
 
 test('closing and reopening the panel keeps the same conversation and session', async () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   act(() => useContextPanel.getState().toggle());
   await userEvent.type(within(panel()).getByRole('textbox', { name: '에이전트에게 묻기' }), '첫 질문{Enter}');
   await within(panel()).findByText('요약입니다');
@@ -237,10 +238,10 @@ test('closing and reopening the panel keeps the same conversation and session', 
 
 test('the AI tab sends the published context as it is when sending, not as it was', async () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   act(() => useContextPanel.getState().toggle());
-  publishSelected('A1020');
-  publishSelected('A1030');
+  await publishSelected('A1020');
+  await publishSelected('A1030');
   await userEvent.type(within(panel()).getByRole('textbox', { name: '에이전트에게 묻기' }), '이것은?{Enter}');
   await within(panel()).findByText('요약입니다');
   const send = fetchMock.mock.calls.find(([u]) => u === '/api/chat/sessions/9/messages')!;
@@ -257,7 +258,7 @@ test('changing the schedule stops a running reply', async () => {
     'POST /api/chat/sessions/9/messages': () => live.response,
   });
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   act(() => useContextPanel.getState().toggle());
   await userEvent.type(within(panel()).getByRole('textbox', { name: '에이전트에게 묻기' }), '요약해 줘{Enter}');
   await vi.waitFor(() => expect(calls.mock.calls.some(([u]) => u === '/api/chat/sessions/9/messages')).toBe(true));
@@ -268,7 +269,7 @@ test('changing the schedule stops a running reply', async () => {
 
 test('the round button hides with the Dock while a window is maximized', () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   // hidden 이면 접근성 이름이 비어 역할로 찾을 수 없다(그래서 class 로 본다).
   const button = () => document.querySelector<HTMLButtonElement>('.os-ctx-open')!;
   expect(screen.getByRole('button', { name: 'Context 패널 열기 (Ctrl+Alt+.)' })).toBe(button());
@@ -281,15 +282,15 @@ test('the round button hides with the Dock while a window is maximized', () => {
 
 test('windows narrowed by the panel get their width back when it closes, unless resized meanwhile', () => {
   render(<Desktop />);
-  openProgram('schedule');
+  openProgram('schedule-table');
   openProgram('chat');
   const win = (p: string) => useWindows.getState().wins.find((w) => w.programId === p)!;
   const chatBefore = { ...win('chat') };
   act(() => useContextPanel.getState().toggle());
   expect(win('chat').x + win('chat').w).toBeLessThanOrEqual(1500);
-  expect(win('schedule').x + win('schedule').w).toBeLessThanOrEqual(1500);
-  act(() => useWindows.getState().resize(win('schedule').id, 900, 600));
+  expect(win('schedule-table').x + win('schedule-table').w).toBeLessThanOrEqual(1500);
+  act(() => useWindows.getState().resize(win('schedule-table').id, 900, 600));
   act(() => useContextPanel.getState().toggle());
   expect(win('chat')).toMatchObject({ x: chatBefore.x, w: chatBefore.w });
-  expect(win('schedule').w).toBe(900);
+  expect(win('schedule-table').w).toBe(900);
 });

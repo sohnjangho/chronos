@@ -71,10 +71,10 @@ test('results are grouped by kind with counts and filtered by the query', async 
   render(<Desktop />);
   act(() => useShell.getState().setPalette(true));
   expect(within(await within(palette()).findByRole('group', { name: '액티비티' })).getAllByRole('option')).toHaveLength(2);
-  expect(within(group('프로그램')).getAllByRole('option')).toHaveLength(8);
+  expect(within(group('프로그램')).getAllByRole('option')).toHaveLength(11);
   expect(within(group('일정')).getAllByRole('option')).toHaveLength(2);
   expect(within(group('승인 대기')).getAllByRole('option')).toHaveLength(2);
-  expect(within(palette()).getByText('8')).toBeInTheDocument();
+  expect(within(palette()).getByText('11')).toBeInTheDocument();
   await userEvent.type(box(), '터파기');
   expect(within(palette()).getAllByRole('group').map((g) => g.getAttribute('aria-label'))).toEqual(['액티비티']);
 });
@@ -95,7 +95,7 @@ test('Enter on each kind does the right thing', async () => {
   await pick('만회');
   expect(useWindows.getState().wins.find((w) => w.programId === 'approvals')?.params).toEqual({ id: '11' });
   await pick('기초');
-  expect(useWindows.getState().wins.find((w) => w.programId === 'schedule')?.params).toEqual({ activity: 'A1030' });
+  expect(useWindows.getState().wins.find((w) => w.programId === 'schedule-table')?.params).toEqual({ activity: 'A1030' });
 });
 
 test('arrow keys move the highlighted result', async () => {

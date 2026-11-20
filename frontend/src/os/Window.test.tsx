@@ -73,10 +73,10 @@ afterEach(() => {
 
 test('opening from the Dock grows the window out of its Dock icon, then the motion clears', async () => {
   render(<Desktop />);
-  await userEvent.click(dockIcon('일정판'));
-  const d = dialog('일정판');
+  await userEvent.click(dockIcon('스케줄'));
+  const d = dialog('스케줄');
   const w = useWindows.getState().wins[0];
-  const icon = iconCentre('일정판');
+  const icon = iconCentre('스케줄');
   expect(d).toHaveAttribute('data-motion', 'open');
   expect(lastOn(d).frames[0]).toMatchObject({ transform: 'scale(0.6)', opacity: 0, transformOrigin: `${icon.x - w.x}px ${icon.y - w.y}px` });
   expect(lastOn(d).frames.at(-1)).toMatchObject({ transform: 'scale(1)', opacity: 1 });
@@ -87,8 +87,8 @@ test('opening from the Dock grows the window out of its Dock icon, then the moti
 
 test('a window opened from elsewhere (drawer, search, another window) grows from the bottom centre', () => {
   render(<Desktop />);
-  act(() => void useWindows.getState().open('schedule'));
-  const d = dialog('일정판');
+  act(() => void useWindows.getState().open('schedule-table'));
+  const d = dialog('스케줄');
   const w = useWindows.getState().wins[0];
   expect(d).toHaveAttribute('data-motion', 'open');
   expect(lastOn(d).frames[0]).toMatchObject({ transformOrigin: `${960 - w.x}px ${1080 - w.y}px` });
@@ -96,21 +96,21 @@ test('a window opened from elsewhere (drawer, search, another window) grows from
 
 test('bringing an already open window forward plays no motion', async () => {
   render(<Desktop />);
-  await userEvent.click(dockIcon('일정판'));
+  await userEvent.click(dockIcon('스케줄'));
   await userEvent.click(dockIcon('질문지'));
   await settle(260);
   const before = played.length;
-  await userEvent.click(dockIcon('일정판'));
-  expect(useWindows.getState().activeProgramId()).toBe('schedule');
-  expect(dialog('일정판')).not.toHaveAttribute('data-motion');
+  await userEvent.click(dockIcon('스케줄'));
+  expect(useWindows.getState().activeProgramId()).toBe('schedule-table');
+  expect(dialog('스케줄')).not.toHaveAttribute('data-motion');
   expect(played).toHaveLength(before);
 });
 
 test('closing fades the window out where it is, blocks clicks meanwhile and removes it after the motion', async () => {
   render(<Desktop />);
-  await userEvent.click(dockIcon('일정판'));
+  await userEvent.click(dockIcon('스케줄'));
   await settle(260);
-  const d = dialog('일정판');
+  const d = dialog('스케줄');
   await userEvent.click(light('닫기', d));
   expect(d).toHaveAttribute('data-motion', 'close');
   expect(d).toHaveAttribute('inert');
@@ -129,17 +129,17 @@ test('closing fades the window out where it is, blocks clicks meanwhile and remo
 
 test('minimizing shrinks the window into its Dock icon and hides it after the motion; the Dock icon brings it back in reverse', async () => {
   render(<Desktop />);
-  await userEvent.click(dockIcon('일정판'));
+  await userEvent.click(dockIcon('스케줄'));
   await settle(260);
-  const d = dialog('일정판');
-  const icon = iconCentre('일정판');
+  const d = dialog('스케줄');
+  const icon = iconCentre('스케줄');
   await userEvent.click(light('최소화', d));
   expect(useWindows.getState().wins[0].minimized).toBe(true);
   expect(d).toBeVisible();
   expect(d).toHaveAttribute('data-motion', 'minimize');
   expect(d).toHaveAttribute('inert');
   const min = lastOn(d);
-  // 일정판 1600×900 @ (24, 68): 48/1600 = 0.03 → 48×27 상자의 가운데가 아이콘 가운데
+  // 스케줄 1600×900 @ (24, 68): 48/1600 = 0.03 → 48×27 상자의 가운데가 아이콘 가운데
   expect(min.frames.at(-1)).toMatchObject({ transform: `translate(${icon.x - 24 - 24}px, ${icon.y - 68 - 13.5}px) scale(0.03)`, opacity: 0 });
   expect(min.options).toMatchObject({ duration: 260 });
   fireEvent.pointerDown(d); // 줄어드는 창을 눌러도 되살아나지 않는다
@@ -148,7 +148,7 @@ test('minimizing shrinks the window into its Dock icon and hides it after the mo
   expect(d).not.toBeVisible();
   expect(d).not.toHaveAttribute('data-motion');
 
-  await userEvent.click(dockIcon('일정판'));
+  await userEvent.click(dockIcon('스케줄'));
   expect(d).toBeVisible();
   expect(d).toHaveAttribute('data-motion', 'restore');
   expect(d).not.toHaveAttribute('inert');
@@ -160,9 +160,9 @@ test('minimizing shrinks the window into its Dock icon and hides it after the mo
 
 test('maximize and restore move the frame smoothly from where it was', async () => {
   render(<Desktop />);
-  await userEvent.click(dockIcon('일정판'));
+  await userEvent.click(dockIcon('스케줄'));
   await settle(260);
-  const d = dialog('일정판');
+  const d = dialog('스케줄');
   await userEvent.click(light('확대', d));
   expect(d).toHaveStyle({ left: '0px', top: '48px', width: '1920px', height: '1032px' });
   expect(d).toHaveAttribute('data-motion', 'zoom');
@@ -196,12 +196,12 @@ test('dragging and resizing play no motion', async () => {
 test('with reduced motion every change is immediate and nothing animates', async () => {
   reducedMotion(true);
   render(<Desktop />);
-  await userEvent.click(dockIcon('일정판'));
-  const d = dialog('일정판');
+  await userEvent.click(dockIcon('스케줄'));
+  const d = dialog('스케줄');
   expect(d).not.toHaveAttribute('data-motion');
   await userEvent.click(light('최소화', d));
   expect(d).not.toBeVisible();
-  await userEvent.click(dockIcon('일정판'));
+  await userEvent.click(dockIcon('스케줄'));
   expect(d).toBeVisible();
   await userEvent.click(light('확대', d));
   expect(d).not.toHaveAttribute('data-motion');

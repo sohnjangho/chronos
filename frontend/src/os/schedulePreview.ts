@@ -1,4 +1,4 @@
-// 일정 미리 보기: 조건·규칙 창이 저장하지 않고 계산한 일정을 일정판(간트)에 넘기는 OS 저장소.
+// 일정 미리 보기: 조건·규칙 창이 저장하지 않고 계산한 일정을 간트차트(나중에 CPM)에 넘기는 OS 저장소.
 // 프로그램끼리는 import 하지 않으므로 여기(os)에 둔다. 간트는 previews[일정 id] 가 있으면 그 일정을 그리고,
 // moved 의 before 자리에 이전 위치를 점선 막대로 남긴다. 로그아웃(resetShellState)·조건 창 닫기·되돌리기·확정에서 지운다.
 import { create } from 'zustand';
@@ -28,7 +28,7 @@ export interface PreviewActivity {
   weight: number;
 }
 
-/** 서버 ScheduleView 와 같은 모양. version 은 기준 버전 그대로다(저장하지 않았다). plan_* 은 저장된 Plan 버전. */
+/** 서버 ScheduleView 와 같은 모양. version 은 기준 버전 그대로다(저장하지 않았다). plan_* 은 기준 버전의 Plan(저장된 조건으로 실적 없이 계산한 것 — 지금 서버는 바꾼 조건을 넣지 않는다). */
 export interface PreviewView {
   id: number;
   name: string;

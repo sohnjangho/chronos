@@ -62,6 +62,7 @@ test('every program has its own icon tone with gradient tokens in both themes', 
   const light = tokenBlock(':root');
   const dark = tokenBlock(':root[data-theme="dark"]');
   for (const t of [...tones, 'slate']) {
+    expect(shellCss['./os.css'], t).toContain(`.os-tone-${t} {`);
     for (const end of ['from', 'to']) {
       expect(light.has(`--tile-${t}-${end}`), `${t} ${end}`).toBe(true);
       expect(dark.has(`--tile-${t}-${end}`), `${t} ${end} dark`).toBe(true);
@@ -77,7 +78,11 @@ test('reduced motion turns off Dock magnification transitions and the launch bou
   expect(dock).toMatch(/@keyframes os-dock-bounce/);
 });
 
-const programCss = import.meta.glob<string>('../programs/**/*.css', { query: '?raw', import: 'default', eager: true });
+const programCss = {
+  ...import.meta.glob<string>('../programs/**/*.css', { query: '?raw', import: 'default', eager: true }),
+  // 프로그램들이 같이 쓰는 화면(일정 도구 창 틀·간트 그림)도 같은 규칙.
+  ...import.meta.glob<string>('../shared/**/*.css', { query: '?raw', import: 'default', eager: true }),
+};
 
 test('program styles never use a background token as a text color (unreadable in the dark theme)', () => {
   const files = Object.entries(programCss);

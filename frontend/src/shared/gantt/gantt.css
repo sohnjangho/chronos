@@ -28,7 +28,6 @@
 .gantt-handle:hover { fill: var(--fg); fill-opacity: 0.25; }
 .gantt-summary { fill: var(--neutral-strong); }
 .gantt-actual { fill: var(--success); pointer-events: none; }
-.gantt-planmark { fill: var(--fg-muted); pointer-events: none; }
 .gantt-ms { fill: var(--fg); }
 .gantt-ms.critical { fill: var(--danger); }
 .gantt-due { fill: var(--bg-panel); stroke: var(--danger); stroke-width: 1.5; }

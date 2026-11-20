@@ -29,7 +29,7 @@ export interface ProgramMenu {
 }
 
 /** 아이콘 타일 색(tokens.css 의 --tile-<tone>-from/to). */
-export type IconTone = 'blue' | 'violet' | 'teal' | 'indigo' | 'amber' | 'sky' | 'green' | 'rose' | 'slate';
+export type IconTone = 'blue' | 'violet' | 'teal' | 'indigo' | 'amber' | 'sky' | 'green' | 'rose' | 'orange' | 'fuchsia' | 'slate';
 
 export interface ProgramManifest {
   id: string;
@@ -60,4 +60,17 @@ export function programs(role: Role): ProgramManifest[] {
 
 export function getProgram(id: string): ProgramManifest | undefined {
   return entries.get(id);
+}
+
+// 옛 일정판(schedule)은 탭마다 프로그램으로 나뉘었다(Task 16b). 옛 대화 기록의 open_window·옛 Dock 설정이 계속 되도록.
+const SCHEDULE_TABS: Record<string, string> = { table: 'schedule-table', gantt: 'gantt', cpm: 'cpm', progress: 'progress' };
+
+/** 일정판이 나뉜 도구 프로그램, Dock 차례대로. */
+export const SCHEDULE_TOOLS = Object.values(SCHEDULE_TABS);
+
+/** 없어진 프로그램 id 를 지금 프로그램으로. schedule → params.tab 의 프로그램(없으면 스케줄), tab 은 뗀다. */
+export function resolveProgram(id: string, params?: Record<string, string>): { id: string; params?: Record<string, string> } {
+  if (id !== 'schedule') return { id, params };
+  const { tab, ...rest } = params ?? {};
+  return { id: SCHEDULE_TABS[tab ?? ''] ?? 'schedule-table', params: params && rest };
 }

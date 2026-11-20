@@ -83,10 +83,10 @@ function Question({ ask, name, busy, onConfirm, onCancel }: { ask: Ask; name: st
   );
 }
 
-/** OS 의 지금 일정으로 정하고 일정판에서 연다. */
+/** OS 의 지금 일정으로 정하고 「스케줄」에서 연다. */
 function openBoard(s: TreeSchedule) {
   useCurrentSchedule.getState().setCurrent({ id: s.id, name: s.name });
-  useWindows.getState().open('schedule', { id: String(s.id) });
+  useWindows.getState().open('schedule-table', { id: String(s.id) });
 }
 
 export default function Explorer() {

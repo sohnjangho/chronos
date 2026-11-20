@@ -33,7 +33,7 @@ function useSourceTracking(open: boolean) {
   }, [open, topZ]);
 }
 
-/** 업무 프로그램(일정판·조건) 창이면 지금 일정 요약을 근거로 쓴다(그 창이 따로 넘긴 근거가 없을 때). */
+/** 업무 프로그램(스케줄·간트차트·CPM·공정률·조건) 창이면 지금 일정 요약을 근거로 쓴다(그 창이 따로 넘긴 근거가 없을 때). */
 function useScheduleEvidence(source: ContextSource | null, scheduleId: number | null): EvidenceItem[] | null {
   const isWork = source !== null && getProgram(source.programId)?.kind === 'work';
   const [view, setView] = useState<ScheduleView | null>(null);

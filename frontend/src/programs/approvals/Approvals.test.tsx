@@ -99,11 +99,11 @@ describe('R2 승인이 필요한 이유·숫자·차이 표', () => {
     expect(rows[4]).toContain('타워크레인1대2대');
   });
 
-  test('[간트에서 보기] opens the schedule gantt and there is no compare button', async () => {
+  test('[간트에서 보기] opens the 간트차트 program and there is no compare button', async () => {
     setup();
     await renderApprovals();
     await userEvent.click(screen.getByRole('button', { name: '간트에서 보기' }));
-    expect(openSpy).toHaveBeenCalledWith('schedule', { id: '1', tab: 'gantt' });
+    expect(openSpy).toHaveBeenCalledWith('gantt', { id: '1' });
     expect(screen.queryByRole('button', { name: /비교판/ })).toBeNull();
   });
 

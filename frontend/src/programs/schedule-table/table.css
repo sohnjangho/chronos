@@ -1,0 +1,69 @@
+/* 스케줄: 도구줄 찾기·필터, 표, 삭제 확인, 관계 패널. 색·글꼴은 tokens.css 변수만. 표가 창보다 넓을 때만 표 칸이 가로로 밀리고 ID·이름은 붙어 있다. */
+.sch-table-tab { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sch-search {
+  height: 28px; width: 200px; min-width: 120px; box-sizing: border-box; padding: 0 10px;
+  font: inherit; font-size: var(--fs-12); color: var(--fg); background: var(--bg-panel);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+}
+.sch-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.sch-confirm { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; background: var(--tone-danger-bg); color: var(--danger-text); border-bottom: 1px solid var(--border); }
+.sch-confirm span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sch-cols { flex-direction: row; gap: 20px; }
+.sch-fieldset { display: flex; flex-direction: column; gap: 4px; border: 0; margin: 0; padding: 0; }
+.sch-fieldset legend { padding: 0; margin-bottom: 4px; font-size: var(--fs-12); color: var(--fg-muted); }
+.sch-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-12); color: var(--fg-muted); }
+.sch-field select { height: 28px; font: inherit; font-size: var(--fs-13); color: var(--fg); background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: var(--radius-2); }
+.sch-grid-wrap { flex: 1; min-height: 0; overflow: auto; }
+.sch-grid { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; }
+.sch-grid th,
+.sch-grid td {
+  box-sizing: border-box; height: 32px; padding: 0 8px; background: var(--bg-panel);
+  border-bottom: 1px solid var(--bg-app); border-right: 1px solid var(--bg-app);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sch-grid th {
+  position: sticky; top: 0; z-index: 2; height: 34px; text-align: left;
+  background: var(--bg-panel-alt); color: var(--fg-muted); font-size: var(--fs-12); font-weight: 500; border-bottom: 1px solid var(--border);
+}
+.sch-grid .num { text-align: right; font-variant-numeric: tabular-nums; }
+.sch-grid .pin1 { position: sticky; left: 0; z-index: 1; }
+.sch-grid .pin2 { position: sticky; left: 96px; z-index: 1; box-shadow: 1px 0 0 var(--border); }
+.sch-grid th.pin1,
+.sch-grid th.pin2 { z-index: 3; }
+.sch-row { cursor: default; }
+.sch-row:hover td { background: var(--bg-panel-alt); }
+.sch-grid tr[aria-current="true"] td { background: var(--bg-selected); }
+.sch-grid tbody tr:focus { outline: none; }
+.sch-grid tbody tr:focus-visible td { box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+.sch-grid td.editable { cursor: text; }
+.sch-grid td.active { box-shadow: inset 0 0 0 2px var(--accent); }
+.sch-grid td.danger { color: var(--danger-text); font-weight: 700; }
+.sch-grid td:has(> .sch-editor) { padding: 0 3px; }
+.sch-group td { background: var(--bg-panel-alt); font-weight: 700; }
+.sch-toggle { border: 0; background: none; padding: 0 4px 0 0; font: inherit; color: var(--fg-muted); cursor: pointer; }
+
+/* 관계 패널 */
+.sch-rel { flex: none; height: min(200px, 30%); min-height: 120px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; }
+.sch-rel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.sch-rel-name { display: inline-flex; min-width: 0; max-width: 100%; }
+.sch-rel-head .ui-badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.sch-rel-tables { flex: 1; min-height: 0; overflow: auto; display: flex; gap: 24px; }
+.sch-rel-table { flex: 1 1 0; min-width: 0; align-self: flex-start; table-layout: fixed; border-collapse: collapse; }
+.sch-rel-table th {
+  position: sticky; top: 0; height: 28px; padding: 0 8px; text-align: left;
+  background: var(--bg-panel-alt); color: var(--fg-muted); font-size: var(--fs-12); font-weight: 500; border-bottom: 1px solid var(--border);
+}
+.sch-rel-table th:nth-child(1) { width: 52px; }
+.sch-rel-table th:nth-child(2) { width: 84px; }
+.sch-rel-table th:nth-child(4),
+.sch-rel-table th:nth-child(5) { width: 76px; }
+.sch-rel-table th:nth-child(6) { width: 32px; }
+.sch-rel-table td { height: 30px; padding: 0 8px; border-bottom: 1px solid var(--bg-app); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sch-rel-table select,
+.sch-lag {
+  width: 100%; height: 24px; box-sizing: border-box; font: inherit; font-size: var(--fs-12);
+  color: var(--fg); background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: 4px;
+}
+.sch-rel-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--fg-muted); text-align: center; }
+.sch-rel-empty b { color: var(--fg); }
+.sch-pick { width: 320px; max-width: calc(100vw - 32px); }

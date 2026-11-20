@@ -15,8 +15,8 @@ from tests.schedules import make, store, task
 
 
 async def test_open_window_emits_event(ctx, events):
-    await call("ui.open_window", {"program": "schedule", "params": {"tab": "gantt"}}, ctx)
-    assert events[-1].type == "open_window" and events[-1].data["program"] == "schedule"
+    await call("ui.open_window", {"program": "gantt", "params": {"id": "1"}}, ctx)
+    assert events[-1].type == "open_window" and events[-1].data["program"] == "gantt"
 
 
 # ── 덧붙인 시험 ─────────────────────────────────────────────────────
@@ -37,9 +37,9 @@ def test_specs():
 
 
 async def test_open_window_output_and_event(ctx, events):
-    r = await call("ui.open_window", {"program": "schedule", "params": {"tab": "gantt"}}, ctx)
+    r = await call("ui.open_window", {"program": "gantt", "params": {"id": "1"}}, ctx)
     assert (r.ok, r.output) == (True, {"opened": True})
-    assert events == [AgentEvent("open_window", {"program": "schedule", "params": {"tab": "gantt"}})]
+    assert events == [AgentEvent("open_window", {"program": "gantt", "params": {"id": "1"}})]
     r = await call("ui.open_window", {"program": "chat"}, ctx)
     assert r.ok and events[-1].data == {"program": "chat", "params": {}}
 
@@ -51,8 +51,30 @@ async def test_open_window_rejects_bad_input(ctx, events):
 
 
 async def test_open_window_rejects_a_misspelled_field(ctx, events):
-    r = await call("ui.open_window", {"program": "schedule", "param": {"tab": "gantt"}}, ctx)
+    r = await call("ui.open_window", {"program": "gantt", "param": {"id": "1"}}, ctx)
     assert r.ok is False and r.error.startswith("입력 형식 오류: param: ") and events == []
+
+
+# Task 16b: 일정판(schedule)은 스케줄·간트차트·CPM·공정률 프로그램으로 나뉘었다. 도구는 화면에 있는 프로그램만 연다.
+OPENABLE = [
+    "chat", "questionnaire", "workflow", "approvals", "explorer", "settings",
+    "schedule-table", "gantt", "cpm", "progress", "conditions",
+]
+
+
+def test_open_window_offers_the_screen_programs_by_id_and_name():
+    spec = {t.name: t for t in list_tools()}["ui.open_window"]
+    schema = spec.input_model.model_json_schema()
+    assert schema["properties"]["program"]["enum"] == OPENABLE
+    for text in ("schedule-table(스케줄", "gantt(간트차트", "cpm(CPM", "progress(공정률"):
+        assert text in spec.description
+    assert "일정판" not in spec.description
+
+
+@pytest.mark.parametrize("program", ["schedule", "schedule-board", "x"])
+async def test_open_window_rejects_a_program_that_is_not_on_screen(ctx, events, program):
+    r = await call("ui.open_window", {"program": program}, ctx)
+    assert r.ok is False and r.error.startswith("입력 형식 오류: program: ") and events == []
 
 
 async def test_schedule_read_summary(sched_ctx, events):

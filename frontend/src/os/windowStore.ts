@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { cascadeBoxes, gridBoxes, splitBoxes, type Box } from './arrange';
-import { getProgram } from './registry';
+import { getProgram, resolveProgram } from './registry';
 import { clearMotionTimers, isClosing, motionActions, startMotion, type Motion } from './windowMotion';
 
 export { ARRANGE_GAP } from './arrange';
@@ -152,7 +152,10 @@ interface WindowState {
   deactivated: boolean;
   /** 오른쪽에 붙은 패널 폭(px). 창은 그만큼 좁은 화면에 맞춘다. */
   insetRight: number;
-  /** 이미 열려 있으면 앞으로 가져오고(최소화 풀기) params 를 바꾼다. 창 id 를 돌려준다. from: 연 곳(움직임 원점). */
+  /**
+   * 이미 열려 있으면 앞으로 가져오고(최소화 풀기) params 를 바꾼다. 창 id 를 돌려준다. from: 연 곳(움직임 원점).
+   * 없어진 프로그램 id(옛 일정판 schedule)는 지금 프로그램으로 연다(registry.resolveProgram).
+   */
   open(programId: string, params?: Params, from?: 'dock'): string;
   close(id: string): void;
   focus(id: string): void;
@@ -268,7 +271,8 @@ export const useWindows = create<WindowState>((set, get) => {
     ...initial,
     ...bulkActions(set, get),
     ...withMotion,
-    open(programId, params, from) {
+    open(requested, requestedParams, from) {
+      const { id: programId, params } = resolveProgram(requested, requestedParams);
       const found = get().wins.find((w) => w.programId === programId && !isClosing(w));
       if (found) {
         restore(found.id, params ? { params } : {});

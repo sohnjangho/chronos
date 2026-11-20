@@ -1,0 +1,41 @@
+/* 일정 도구 창(스케줄·간트차트·CPM·공정률) 공용: 창 틀·머리줄·알림·도구줄·펼침 판·칸 편집기·아래 줄. 색·글꼴은 tokens.css 변수만.
+   창 안에서만 세로로 스크롤하고, 표·차트가 창보다 넓을 때만 그 자료 영역이 가로로 밀린다. */
+.sch-root { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--bg-panel); color: var(--fg); font-size: var(--fs-13); }
+.sch-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; padding: 0 12px; border-bottom: 1px solid var(--border); }
+.sch-stats { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; min-width: 0; }
+.sch-date { font-weight: 700; font-variant-numeric: tabular-nums; margin-right: 4px; }
+.sch-notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px; }
+.sch-notice span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sch-notice.is-error { background: var(--tone-danger-bg); color: var(--danger-text); }
+.sch-notice.is-info { background: var(--tone-info-bg); color: var(--tone-info-fg); }
+.sch-x { border: 0; background: none; color: inherit; font: inherit; font-size: var(--fs-16); line-height: 1; padding: 0 4px; cursor: pointer; }
+.sch-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sch-empty { margin: 0; padding: 24px; color: var(--fg-muted); }
+.sch-muted { color: var(--fg-muted); font-size: var(--fs-12); }
+.sch-gap { flex: 1; }
+
+.sch-toolbar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 7px 12px; border-bottom: 1px solid var(--border); }
+.sch-sep { width: 1px; height: 20px; background: var(--border); }
+.sch-pop-root { position: relative; }
+.sch-pop {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 6; min-width: 200px;
+  background: var(--bg-panel); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius-3); box-shadow: var(--menu-shadow);
+}
+.sch-pop.is-up { top: auto; bottom: calc(100% + 4px); }
+.sch-pop.is-right { left: auto; right: 0; }
+.sch-pop-body { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 10px 12px; }
+.sch-check { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+
+.sch-editor {
+  width: 100%; height: 26px; box-sizing: border-box; padding: 0 5px;
+  font: inherit; color: var(--fg); background: var(--bg-panel); border: 1px solid var(--accent); border-radius: 4px;
+}
+.sch-editor:focus { outline: 1px solid var(--accent); }
+.sch-foot {
+  flex: none; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; min-width: 0;
+  background: var(--bg-panel-alt); border-top: 1px solid var(--border); border-bottom: 2px solid var(--border-strong);
+  font-size: var(--fs-12); color: var(--fg-muted);
+}
+.sch-foot > span { white-space: nowrap; }
+.sch-foot .sch-muted { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sch-saving { color: var(--accent-text); }

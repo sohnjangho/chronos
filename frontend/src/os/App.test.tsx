@@ -46,7 +46,7 @@ test('logout returns to login and closes windows', async () => {
   mockLogin(200, {});
   signInAsDemo('admin');
   render(<App />);
-  await userEvent.click(within(screen.getByRole('toolbar', { name: '프로그램 막대' })).getByRole('button', { name: /^일정판/ }));
+  await userEvent.click(within(screen.getByRole('toolbar', { name: '프로그램 막대' })).getByRole('button', { name: /^스케줄/ }));
   await userEvent.click(screen.getByRole('button', { name: 'ChronOS 메뉴' }));
   await userEvent.click(screen.getByRole('menuitem', { name: '로그아웃' }));
   expect(screen.getByRole('button', { name: '들어가기' })).toBeVisible();
@@ -79,7 +79,7 @@ test('logging out and in as someone else leaves nothing of the previous user', (
   signInAsDemo('admin');
   render(<App />);
   act(() => {
-    const id = useWindows.getState().open('schedule');
+    const id = useWindows.getState().open('schedule-table');
     useContextPanel.getState().toggle();
     useEvidence.getState().setEvidence(id, [{ label: '비밀 근거', value: '1' }]);
     useAiChat.setState({ scheduleId: null, lines: [{ who: 'me', text: '앞 사람 질문' }], sessionId: 9 });
@@ -93,7 +93,7 @@ test('logging out and in as someone else leaves nothing of the previous user', (
   expect(useEvidence.getState().byWindow).toEqual({});
   expect(useAiChat.getState()).toMatchObject({ lines: [], sessionId: null });
   expect(useShell.getState()).toMatchObject({ dialog: null, drawer: 'closed', palette: false });
-  act(() => void useWindows.getState().open('schedule'));
+  act(() => void useWindows.getState().open('schedule-table'));
   expect(useWindows.getState().wins[0].id).toBe('w1');
   expect(useEvidence.getState().byWindow.w1).toBeUndefined();
 });
