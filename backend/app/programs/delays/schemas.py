@@ -126,7 +126,7 @@ class TotalsOut(BaseModel):
 
 
 class FinishOut(BaseModel):
-    plan: date | None  # Plan: 지금 버전을 실적·기록한 지연 없이 계산한 준공(지연은 Plan 을 옮기지 않는다)
+    plan: date | None  # Plan 준공: 마지막 계획 변경 때 고정한 예측(store.view.plan_of — 지연은 Plan 을 옮기지 않는다)
     current: date  # 지금 버전(반영된 지연 포함)
     with_open: date  # 열린 사건까지 넣은 준공
     deadline: date | None

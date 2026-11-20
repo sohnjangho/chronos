@@ -189,5 +189,5 @@ def office_building(session: Session) -> int:
     run(actual, conditions)  # 실적을 넣은 일정이 계산되는지 확인(깨지면 ScheduleError, 저장하지 않음 — save_new_version 은 확인하지 않는다)
     save_new_version(session, sid, actual, conditions, by_kind="user", by_name=BY,
                      note=f"실적 입력(Data Date {DATA_DATE.isoformat()})",
-                     changes=schedule_changes(plan, actual), base_version=1, commit=False)
+                     changes=schedule_changes(plan, actual), base_version=1, plan_change=False, commit=False)
     return sid

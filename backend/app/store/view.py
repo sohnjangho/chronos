@@ -2,9 +2,11 @@
 
 날짜·여유·주공정은 저장된 일정에 그 버전의 저장된 조건을 넣고(하네스 `prepare_stored`, 점검과 같은 준비)
 compute → level(shift=True) 한 결과(LevelResult.cpm)를 쓴다. 그래서 화면 날짜는 주요 자원 용량과 조건을
-지키고, 하네스 점검이 재는 일정과 같다. Plan 은 같은 버전의 일정에서 실적(실제 시작·종료·진도·남은 기간)과
-기록한 지연의 시작 하한(start_floor), Data Date 를 빼고 같은 계산을 한 것이다(PM 결정 11-20). 그래서 기록한 지연은
-Plan 을 옮기지 않고 상태(late +n)로만 보인다. 처음 계획(is_plan 버전)은 Plan 칸을 정하지 않는다.
+지키고, 하네스 점검이 재는 일정과 같다. Plan 은 마지막 계획 변경 때의 예측(그때까지의 실적을 담은 같은 계산)을
+고정한 것이다(버전 줄의 plan_json, PM 결정 11-20 밤 — store.versions). 그래서 실적·Data Date·기록한 지연은 Plan 을
+옮기지 않고 상태(late +n)로만 보인다. plan_json 이 없는 옛 버전은 예전처럼 같은 버전의 일정에서 실적(실제 시작·종료·
+진도·남은 기간)과 기록한 지연의 시작 하한(start_floor), Data Date 를 빼고 계산한다. 처음 계획(is_plan 버전)은 Plan 칸을
+정하지 않는다.
 액티비티·관계·자원 칸은 저장된 일정 그대로 보여 준다(조건이 넣은 FNLT·용량은 보이지 않는다).
 달력(calendar)은 조건을 넣은 달력의 근무 요일과, 작업 금지 기간을 일정 기간 안의 날짜로 펼친 것이다.
 가중치(weight)는 일정의 weight_mode(duration·manual)를 따른다.
@@ -12,7 +14,7 @@ Plan 을 옮기지 않고 상태(late +n)로만 보인다. 처음 계획(is_plan
 """
 
 from calendar import isleap
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date
 
 from sqlalchemy.orm import Session
@@ -26,15 +28,36 @@ from app.harness.assemble import prepare_stored
 from app.store.schedules import (
     activity_json,
     get_record,
+    get_version,
     load,
     run,
     to_json,
 )
 
-__all__ = ["plan_of", "plan_with", "run", "view_data", "view_of"]
+__all__ = ["Plan", "plan_changed", "plan_of", "plan_source", "plan_with", "run", "view_data", "view_of"]
 
 
-def _status(cal: WorkCalendar, a: Activity, row: CpmRow, plan: CpmRow | None) -> str:
+@dataclass(frozen=True)
+class PlanRow:
+    es: date
+    ef: date
+
+
+@dataclass(frozen=True)
+class Plan:
+    """고정한 Plan(plan_json). 쓰는 쪽이 CpmResult 처럼 rows[id].es·ef 와 finish 만 읽는다."""
+
+    rows: dict[str, PlanRow]
+    finish: date
+
+    @classmethod
+    def from_json(cls, d: dict) -> "Plan":
+        rows = {aid: PlanRow(date.fromisoformat(r["start"]), date.fromisoformat(r["finish"]))
+                for aid, r in d["activities"].items()}
+        return cls(rows, date.fromisoformat(d["finish"]))
+
+
+def _status(cal: WorkCalendar, a: Activity, row: CpmRow, plan: CpmRow | PlanRow | None) -> str:
     if a.actual_finish is not None:
         return "done"
     if plan is None:
@@ -98,7 +121,7 @@ def _display(domain: str) -> dict:
 
 
 def _activities(
-    schedule: Schedule, calendar: CalendarSpec, cpm: CpmResult, plan: CpmResult | None, mode: str
+    schedule: Schedule, calendar: CalendarSpec, cpm: CpmResult, plan: CpmResult | Plan | None, mode: str
 ) -> list[dict]:
     """calendar 는 계산에 쓴 달력(조건을 넣은 것). 지연·앞섬 일수를 같은 달력으로 센다. mode = 가중치 방식."""
     cal = WorkCalendar(calendar)
@@ -134,11 +157,24 @@ def _without_actuals(schedule: Schedule) -> Schedule:
     return replace(schedule, activities=acts, data_date=None)
 
 
+def plan_changed(before: Schedule, after: Schedule) -> bool:
+    """계획 칸(기간·관계·제약·이름·종류·WBS·자원·꼬리표·달력 등)이 바뀌었는가(새 버전이 Plan 을 새로 찍는가).
+
+    실적(실제 시작·종료·진도·남은 기간)·기록한 지연의 시작 하한·Data Date·가중치(manual_weight)만 바뀌었으면 False.
+    """
+    def plan_part(s: Schedule) -> Schedule:
+        s = _without_actuals(s)
+        return replace(s, activities=tuple(replace(a, manual_weight=None) for a in s.activities))
+
+    return plan_part(before) != plan_part(after)
+
+
 def plan_with(schedule: Schedule, conditions: list[dict], current: CpmResult | None) -> CpmResult | None:
-    """Plan: 일정에서 실적·기록한 지연·Data Date 를 빼고, 저장 모양 조건을 넣어(prepare_stored) run 한 결과.
+    """옛 Plan(plan_json 이 없는 버전): 일정에서 실적·기록한 지연·Data Date 를 빼고, 저장 모양 조건을 넣어
+    (prepare_stored) run 한 결과.
 
     current = 같은 일정을 같은 조건으로 계산한 것(없으면 None). 뺄 실적이 없으면 같은 계산이라 current 를
-    그대로 쓴다. 계산이 안 되면 None(Plan 없음으로 본다). 조건 미리 보기는 바꾼 조건으로 부른다.
+    그대로 쓴다. 계산이 안 되면 None(Plan 없음으로 본다).
     """
     planned = _without_actuals(schedule)
     if planned == schedule:
@@ -149,10 +185,27 @@ def plan_with(schedule: Schedule, conditions: list[dict], current: CpmResult | N
         return None
 
 
-def plan_of(session: Session, schedule_id: int, n: int, current: CpmResult | None) -> CpmResult | None:
-    """버전 n 의 일정과 그 버전의 조건으로 plan_with. current = 버전 n 을 그 버전의 조건으로 계산한 것."""
+def plan_of(session: Session, schedule_id: int, n: int, current: CpmResult | None) -> Plan | CpmResult | None:
+    """버전 n 의 Plan: 고정한 plan_json. 없는 옛 버전이면 버전 n 의 일정과 조건으로 plan_with
+    (current = 버전 n 을 그 버전의 조건으로 계산한 것)."""
+    row = get_version(session, schedule_id, n)
+    if row.plan_json is not None:
+        return Plan.from_json(row.plan_json)
     schedule, conditions, _ = load(session, schedule_id, n)
     return plan_with(schedule, conditions, current)
+
+
+def plan_source(session: Session, schedule_id: int, n: int) -> tuple[Schedule, list[dict], int]:
+    """버전 n 의 Plan 을 계산으로 다시 만드는 (일정, 조건, 버전) — 비교판의 Plan 안.
+
+    plan_json 이 있으면 Plan 을 찍은 버전의 내용 그대로(실적 포함 — 그 계산이 plan_json 이다),
+    없는 옛 버전이면 버전 n 에서 실적을 뺀 것(plan_with 와 같은 계산).
+    """
+    plan = get_version(session, schedule_id, n).plan_json
+    if plan is not None:
+        return load(session, schedule_id, plan["version"])
+    schedule, conditions, _ = load(session, schedule_id, n)
+    return _without_actuals(schedule), conditions, n
 
 
 def view_of(
@@ -162,12 +215,12 @@ def view_of(
     schedule: Schedule,
     ready: Schedule,
     cpm: CpmResult,
-    plan: CpmResult | None,
+    plan: CpmResult | Plan | None,
 ) -> dict:
     """메모리의 일정으로 만든 ScheduleView 자료(칸 그대로, 계산한 날짜는 date 객체). 저장된 것이 아니어도 된다.
 
     schedule = 저장 모양의 일정(액티비티·관계·자원 칸), ready = 조건을 넣은 일정(지연 일수를 세는 달력),
-    cpm = ready 의 run 결과, plan = Plan 계산(plan_of), n = 보일 버전 번호. 없는 일정이면 NotFound.
+    cpm = ready 의 run 결과, plan = Plan(plan_of), n = 보일 버전 번호. 없는 일정이면 NotFound.
     """
     record = get_record(session, schedule_id)
     activities = _activities(schedule, ready.calendar, cpm, plan, record.weight_mode)

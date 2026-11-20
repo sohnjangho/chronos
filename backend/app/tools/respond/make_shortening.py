@@ -4,7 +4,7 @@
    열린 사건이 있으면 그것만 넣은 "지연 반영안 (n건)"(source delay)을 기준으로 둔다 — 같은 버전·같은 사건 묶음이고
    스냅숏·조건까지 같은 열린 지연 반영안이 있으면 그것을 쓴다(사건을 고쳤으면 새로 만든다).
 2. 목표(근무일): target_days → 기준 준공이 켜진 finish_by 가운데 가장 이른 기한을 넘으면 기한까지 → Plan 준공
-   (store.view.plan_of, 실적·기록한 지연 없이 계산)을 넘으면 Plan 까지 → 없으면 ToolError.
+   (store.view.plan_of, 마지막 계획 변경 때 고정한 예측)을 넘으면 Plan 까지 → 없으면 ToolError.
 3. core.shorten 의 묶음(이동이 있는 것)마다 복사본(source shorten): 일정 = apply_moves(기준 원본, resources=False),
    자원 추가는 입력 조건 in.resource_cap.<자원>(source "단축안")으로 넣는다(같은 id 는 바꿈).
 4. 설명·추천은 LLM(hard, strict JSON)이 쓴다. 날짜가 든 설명은 버리고, 만든 안에 없는 추천은 버린다. LLM 이 실패하거나

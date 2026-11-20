@@ -128,7 +128,7 @@ async def test_check_and_the_screen_use_the_same_schedule(client, admin, ctx, se
     assert view["finish"] == "2027-03-03"
     assert (await call("calc.cpm", {}, sctx)).output["finish"] == "2027-03-03"
     assert (await call("schedule.read", {}, sctx)).output["finish"] == "2027-03-03"
-    # 고친 뒤(버전 2)에도 지금 날짜와 Plan(지금 버전을 실적 없이) 날짜 모두 조건을 넣어 계산한다.
+    # 고친 뒤(버전 2)에도 지금 날짜와 Plan(이름 고침도 계획 변경이라 버전 2 때 찍은 것) 날짜 모두 조건을 넣어 계산한다.
     patched = client.patch(
         f"/api/schedules/{sid}/activities/A", json={"name": "기초", "base_version": 1}, headers=admin
     ).json()

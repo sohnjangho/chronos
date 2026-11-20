@@ -60,7 +60,7 @@ async def test_start_date_defaults_to_data_date_then_today(ctx3, session, sid3, 
     assert session.get(DelayEventRow, 1).start_date == date(2027, 3, 2)
     schedule, conditions, _ = load(session, sid3)
     save_new_version(session, sid3, replace(schedule, data_date=date(2027, 3, 3)), conditions, by_kind="user",
-                     by_name="관리자", note="Data Date", changes=[], base_version=1)
+                     by_name="관리자", note="Data Date", changes=[], base_version=1, plan_change=False)
     await call("delay.record", args, ctx3)
     assert session.get(DelayEventRow, 2).start_date == date(2027, 3, 3)
 
@@ -71,7 +71,7 @@ async def test_actual_source_is_reflected_with_version_diff(ctx3, session, sid3)
             "B": {"actual_start": date(2027, 3, 4), "progress": 0.1, "rd": 4}}
     acts = tuple(replace(a, **done.get(a.id, {})) for a in schedule.activities)
     save_new_version(session, sid3, replace(schedule, activities=acts), conditions, by_kind="agent", by_name="에이전트",
-                     note="실적", changes=[], base_version=1)
+                     note="실적", changes=[], base_version=1, plan_change=False)
     o = (await call("delay.record", {"activity_id": "B", "days": 2, "cause": "실적 입력에서 감지", "source": "actual",
                                      "before_version": 1}, ctx3)).output
     assert o["status"] == "reflected" and o["impact"]["finish_delta"] == 2
@@ -117,7 +117,7 @@ async def test_api_and_tool_record_an_actual_delay_the_same_way(client, admin, c
                      replace(x, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 3), progress=1.0)
                      if x.id == "A" else x for x in schedule.activities)
         save_new_version(session, sid, replace(schedule, activities=acts), conditions, by_kind="agent",
-                         by_name="에이전트", note="실적", changes=[], base_version=1)
+                         by_name="에이전트", note="실적", changes=[], base_version=1, plan_change=False)
     body = {"activity_id": "B", "days": 2, "cause": "실적 입력에서 감지", "start_date": "2027-03-04",
             "source": "actual", "before_version": 1}
     o = (await call("delay.record", body, replace(ctx, schedule_id=a))).output

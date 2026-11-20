@@ -124,7 +124,7 @@ def test_unchanged_or_broken_proposals_are_errors(session, sid, make_after, code
 def test_auto_apply_on_a_moved_schedule_is_stale(session, sid):
     p = proposal(session, sid)
     save_new_version(session, sid, p.before, p.before_conditions, by_kind="user", by_name="김하늘", note="다른 고침",
-                     changes=[], base_version=1)
+                     changes=[], base_version=1, plan_change=False)
     with pytest.raises(ProposalError) as e:
         propose(session, p, chat_session_id=None, requested_by="김하늘", force_auto=True)
     assert (e.value.code, e.value.message) == ("stale", "그 사이 일정이 바뀌었습니다. 일정을 다시 읽고 고쳐 주세요.")

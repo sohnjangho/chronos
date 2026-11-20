@@ -18,7 +18,7 @@ def test_user_cannot_delete_schedule(client, user, sid):
 
 def test_tree_item_shape_and_values(client, user, sid, session, sample_schedule):
     save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="김하늘", note="고침",
-                     changes=[], base_version=1)
+                     changes=[], base_version=1, plan_change=False)
     body = client.get("/api/explorer/tree", headers=user).json()
     assert set(body) == {"schedules"}
     [item] = body["schedules"]
@@ -57,7 +57,8 @@ def test_tree_finish_uses_the_saved_conditions(client, user, session):
 def test_admin_deletes_a_schedule_with_its_versions_and_history(client, admin, sid, session, sample_schedule):
     other = schedules.store(session, sample_schedule)
     save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="김하늘", note="고침",
-                     changes=[{"id": "A", "field": "od", "from": 3, "to": 3}], base_version=1)
+                     changes=[{"id": "A", "field": "od", "from": 3, "to": 3}], base_version=1,
+                     plan_change=False)
     res = client.delete(f"/api/schedules/{sid}", headers=admin)
     assert res.status_code == 200 and res.json() == {"deleted": sid}
     session.expire_all()

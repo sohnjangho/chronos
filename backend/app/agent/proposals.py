@@ -2,8 +2,8 @@
 
 차례: 계산 확인(store.schedules.run) → 바뀌는 것이 있는가 → 하네스 점검 → 승인 판단(app.agent.approval.assess)
 → 승인 건(store.approvals) → 승인이 필요하면 기다리고, 아니면 바로 반영(status auto, 되돌릴 버전 restore_to).
-사유 = assess 사유 + extra_reasons, REASONS 차례·겹침 없음. Plan 다시 잡기(reset_plan·plan_reset)는 하지 않는다(PM 11-20:
-Plan = 실적 없이 계산한 지금 일정). 승인 표의 reset_plan 칸은 늘 False 다.
+사유 = assess 사유 + extra_reasons, REASONS 차례·겹침 없음. Plan 다시 잡기 선택(reset_plan·plan_reset)은 없다 — Plan 은
+계획 변경을 반영한 버전이 새로 찍는다(store.approvals._plan_change, PM 11-20 밤). 승인 표의 reset_plan 칸은 늘 False 다.
 승인 수준: important = 사유가 하나라도 있으면 · all = 늘 · auto = condition_violated 가 있을 때. force_auto 면 늘 바로 반영.
 쓰기는 flush 만 한다(commit·rollback 은 부르는 쪽). 분야 범위 내 규칙은 propose 를 거치지 않는다(Task 35).
 """

@@ -123,7 +123,7 @@ def _plan_dates(view):
 
 
 def test_editing_od_moves_plan_dates(client, admin, sid):
-    """PM 결정 11-20: Plan = 지금 일정을 실적 없이 계산한 것. 기간을 고치면 Plan 도 같이 움직인다."""
+    """기간 고침은 계획 변경이라 그 버전의 예측으로 Plan 을 새로 찍는다(PM 결정 11-20 밤)."""
     v = _patch(client, admin, sid, "A", 1, od=5).json()
     assert _plan_dates(v) == [("A", "2027-03-01", "2027-03-05"), ("B", "2027-03-08", "2027-03-09")]
     assert v["plan_finish"] == v["finish"] == "2027-03-09"
@@ -176,7 +176,7 @@ def test_new_activity_status_and_generated_ids(client, admin, sid):
 
 
 def test_marked_plan_version_does_not_drive_plan(client, admin, session, sid):
-    """is_plan 표시(처음 계획)는 Plan 칸을 정하지 않는다: Plan 은 지금 버전(A 6일)에서 계산한다."""
+    """is_plan 표시(처음 계획)는 Plan 칸을 정하지 않는다: Plan 은 마지막 계획 변경(버전 3, A 6일) 때 찍은 것이다."""
     _patch(client, admin, sid, "A", 1, od=5)
     _patch(client, admin, sid, "A", 2, od=6)
     session.get(ScheduleVersion, (sid, 2)).is_plan = True
@@ -375,7 +375,7 @@ def _corrupt_v1_after_valid_edit(client, admin, session, sid):
 
 
 def test_a_broken_first_version_does_not_touch_plan(client, admin, session, sid):
-    """Plan 은 지금 버전에서 계산한다: 계산이 안 되는 버전 1 은 Plan 칸과 상관없다."""
+    """Plan 은 마지막 계획 변경 때 찍은 것이다: 계산이 안 되는 버전 1 은 Plan 칸과 상관없다."""
     _corrupt_v1_after_valid_edit(client, admin, session, sid)
     for v in (_get(client, admin, sid), _patch(client, admin, sid, "B", 2, od=3).json()):
         assert v["plan_finish"] is not None and v["plan_finish"] == v["finish"]
@@ -383,10 +383,12 @@ def test_a_broken_first_version_does_not_touch_plan(client, admin, session, sid)
     assert _get(client, admin, sid)["version"] == 3
 
 
-def test_uncomputable_plan_gives_null_plan_fields(client, admin, sid, monkeypatch):
-    """실적을 뺀 일정이 계산되지 않으면 Plan 없음: plan 칸은 모두 None, status 는 "new"."""
+def test_uncomputable_plan_gives_null_plan_fields(client, admin, session, sid, monkeypatch):
+    """고정한 Plan 이 없는 옛 버전에서 실적을 뺀 일정이 계산되지 않으면 Plan 없음: plan 칸은 모두 None, status 는 "new"."""
     from app.store import view
 
+    session.get(ScheduleVersion, (sid, 1)).plan_json = None  # 16e 전에 저장된 버전(실적 고침은 그대로 물려받는다)
+    session.commit()
     real_run = view.run
 
     def run_failing_without_actuals(s):
@@ -415,11 +417,13 @@ CRANE_ONE = {"id": "in.crane", "layer": "input", "kind": "resource_cap", "params
 
 
 def test_plan_recomputed_without_actuals_keeps_the_conditions(client, admin, session):
-    """Data Date 가 있으면 Plan 을 다시 계산한다(view.plan_of 의 run(prepare_stored(...))). 일정의 크레인은 2대지만
-    조건이 1대로 줄여 X·Y 가 차례로 선다. 조건을 빼고 계산하면 Y 의 Plan 이 3/1~3/2 로 틀리게 나온다."""
+    """고정한 Plan 이 없는 옛 버전에 Data Date 가 있으면 Plan 을 다시 계산한다(view.plan_with 의 run(prepare_stored(...))).
+    일정의 크레인은 2대지만 조건이 1대로 줄여 X·Y 가 차례로 선다. 조건을 빼고 계산하면 Y 의 Plan 이 3/1~3/2 로 틀리게 나온다."""
     s = make([task("X", 2, resources=("crane",)), task("Y", 2, resources=("crane",))],
              resources=[Resource("crane", "타워크레인", "대", 2)])
     sid = store(session, s, [CRANE_ONE])
+    session.get(ScheduleVersion, (sid, 1)).plan_json = None  # 16e 전에 저장된 버전
+    session.commit()
     v = client.patch(f"/api/schedules/{sid}", json={"data_date": "2027-03-01", "base_version": 1}, headers=admin).json()
     assert v["data_date"] == "2027-03-01"
     assert _plan_dates(v) == [("X", "2027-03-01", "2027-03-02"), ("Y", "2027-03-03", "2027-03-04")]
@@ -449,7 +453,7 @@ def test_approved_recorded_delays_do_not_move_plan(client, admin, session):
 
 
 def test_marked_plan_stays_in_the_version_list(client, admin, session, sid):
-    """mark_plan 표시는 버전 목록에 남고(처음 계획), Plan 칸은 지금 버전(A 6일)에서 계산한다."""
+    """mark_plan 표시는 버전 목록에 남고(처음 계획), Plan 칸은 마지막 계획 변경(버전 3, A 6일) 때 찍은 것이다."""
     _patch(client, admin, sid, "A", 1, od=5)
     _patch(client, admin, sid, "A", 2, od=6)
     mark_plan(session, sid, 2)
@@ -567,7 +571,8 @@ def test_conflict_at_save_time_is_409(client, admin, session, sid, sample_schedu
     real_run = service.run
 
     def run_after_someone_saves(schedule, conditions=None):
-        save_new_version(session, sid, sample_schedule, [], by_kind="agent", by_name="에이전트", note="먼저", changes=[], base_version=1)
+        save_new_version(session, sid, sample_schedule, [], by_kind="agent", by_name="에이전트", note="먼저", changes=[], base_version=1,
+                         plan_change=False)
         return real_run(schedule, conditions)
 
     monkeypatch.setattr(service, "run", run_after_someone_saves)
@@ -577,8 +582,8 @@ def test_conflict_at_save_time_is_409(client, admin, session, sid, sample_schedu
 
 
 def test_write_reuses_the_checked_computation(client, admin, sid, monkeypatch):
-    """쓰기 뒤 화면은 지금 일정을 다시 계산하지 않는다. 실적이 없으면 Plan 도 그 계산 그대로이고,
-    실적이 있으면 실적을 뺀 지금 일정만 한 번 계산한다."""
+    """쓰기 뒤 화면은 지금 일정을 다시 계산하지 않는다. Plan 은 버전에 고정한 것(plan_json)을 읽으므로 실적이
+    있어도 다시 계산하지 않는다(PM 결정 11-20 밤)."""
     from app.store import view
 
     calls = []
@@ -588,6 +593,5 @@ def test_write_reuses_the_checked_computation(client, admin, sid, monkeypatch):
     assert v["finish"] == v["plan_finish"] == "2027-03-09"
     assert calls == []
     v = _patch(client, admin, sid, "A", 2, actual_start="2027-03-01", rd=6).json()
-    assert (v["finish"], v["plan_finish"]) == ("2027-03-10", "2027-03-09")
-    [plan] = calls  # 버전 3 의 A(5일)에서 실적을 뺀 것
-    assert (plan.activities[0].od, plan.activities[0].actual_start, plan.activities[0].rd) == (5, None, None)
+    assert (v["finish"], v["plan_finish"]) == ("2027-03-10", "2027-03-09")  # Plan 은 버전 2(A 5일) 때 찍은 것
+    assert calls == []

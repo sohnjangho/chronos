@@ -1,7 +1,8 @@
 """비교판 자료: 두 안의 요약(SideOut)·액티비티별 차이(RowOut), 여러 안 요약 표.
 
-안(ref): `current`(지금 버전) · `plan`(지금 버전을 실적·기록한 지연 없이 계산한 것, store.view.plan_of 와 같은 계산 —
-PM 결정 11-20) · `v:<n>`(버전 n) · `s:<복사본 id>`(그 일정의 복사본). 모르는 ref 는 422 invalid_ref.
+안(ref): `current`(지금 버전) · `plan`(지금 버전의 Plan 을 찍은 버전의 내용 그대로 — 그 계산이 고정한 Plan 이다,
+store.view.plan_source, PM 결정 11-20 밤. 옛 버전이면 지금 버전을 실적·기록한 지연 없이) · `v:<n>`(버전 n) ·
+`s:<복사본 id>`(그 일정의 복사본). 모르는 ref 는 422 invalid_ref.
 날짜는 모두 저장 모양의 일정에 그 안의 저장 조건을 넣고(prepare_stored) compute → level(shift=True) 한 값이다(화면과 같다).
 - 안 요약: plan_delta = Plan 준공 → 이 안 준공(Plan 이 계산되지 않으면 None — 그때 plan ref 만 422, 요약 표는 Plan 을 뺌),
   deadline = 켜진 finish_by 가운데 가장 이른 기한(ISO, 없으면 None), deadline_float = 이 안 준공 → 그 기한
@@ -28,7 +29,7 @@ from app.store import scenarios
 from app.store.messages import schedule_error_message
 from app.store.scenarios import _peak  # 복사본 요약과 같은 자원 최고 부하
 from app.store.schedules import NotFound, from_json, get_record, get_version, load
-from app.store.view import _without_actuals  # Plan 계산(plan_of)과 같은 "실적 뺀 일정"
+from app.store.view import plan_source
 
 INVALID_REF_MESSAGE = "비교할 안을 찾을 수 없습니다: {}"
 SCHEDULE_NOT_FOUND_MESSAGE = "일정을 찾을 수 없습니다."
@@ -110,7 +111,8 @@ class _Board:
         if ref == "current":
             return _Side(ref, f"현재 일정 (버전 {n})", n, schedule, conditions, changes=[])
         if ref == "plan":
-            return _Side(ref, f"Plan (버전 {n})", n, _without_actuals(schedule), conditions, changes=[])
+            planned, planned_conditions, at = plan_source(self.session, self.schedule_id, n)
+            return _Side(ref, f"Plan (버전 {at})", at, planned, planned_conditions, changes=[])
         number = int(ref[2:])
         if ref.startswith("v:"):
             try:

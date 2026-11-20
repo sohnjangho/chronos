@@ -360,7 +360,7 @@ def _event_out(row: DelayEventRow, n: int, names: dict[str, str], resources: dic
 def report(session: Session, schedule_id: int) -> dict:
     """지연 기록 묶음(DelaysOut 의 칸 그대로). 낡은 분석은 먼저 다시 한다(refresh).
 
-    finish: plan = Plan(실적·기록한 지연 없이, store.view.plan_of), current = 지금 버전, with_open = 열린 사건을 넣은 준공,
+    finish: plan = Plan(마지막 계획 변경 때 고정한 예측, store.view.plan_of), current = 지금 버전, with_open = 열린 사건을 넣은 준공,
     deadline = 가장 이른 finish_by, deadline_float = with_open → deadline 근무일(조건 넣은 달력). 날짜는 date 객체·ISO 글.
     없는 일정이면 NotFound, 지금 일정이 깨졌으면 ScheduleError.
     """

@@ -1,7 +1,9 @@
 """일정 읽기·고치기·버전.
 
 고칠 때마다: 지금 버전 확인(409) → 고침 적용 → 계산 확인(저장된 조건을 넣어, 422, 저장 안 함) → 새 버전 저장.
-바뀐 것이 없으면 버전을 만들지 않고 지금 일정을 돌려준다.
+바뀐 것이 없으면 버전을 만들지 않고 지금 일정을 돌려준다. 계획 칸(기간·관계·제약·이름·종류·WBS·자원·꼬리표)을
+고치면 계획 변경(Plan 을 새로 찍음), 실적 칸·진도·남은 기간·Data Date·가중치만 고치면 앞 Plan 을 물려받는다
+(store.view.plan_changed, PM 결정 11-20 밤).
 """
 
 from collections.abc import Callable
@@ -28,7 +30,7 @@ from app.store.messages import SCHEDULE_ERROR_MESSAGES
 from app.store.schedules import NotFound, get_record, get_version, list_records, load
 from app.store.tables import User
 from app.store.versions import VersionConflict, list_versions, restore, save_new_version
-from app.store.view import run
+from app.store.view import plan_changed, run
 
 CONFLICT_MESSAGE = "그 사이 일정이 바뀌었습니다. 다시 불러와 주세요."
 
@@ -125,6 +127,7 @@ def _write(
             note=result.note,
             changes=result.changes,
             base_version=base_version,
+            plan_change=plan_changed(schedule, result.schedule),
         )
     except VersionConflict as e:
         raise _conflict(e.current) from None

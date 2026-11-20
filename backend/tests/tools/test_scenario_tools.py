@@ -142,7 +142,7 @@ async def test_submit_tool_explains_an_uncomputable_schedule(ctx_sid, session, s
     before, stored, _ = load(session, sid)
     broken = replace(before, relations=(*before.relations, Relation("B", "A")))
     save_new_version(session, sid, broken, stored, by_kind="user", by_name="김하늘", note="고리", changes=[],
-                     base_version=1)
+                     base_version=1, plan_change=True)
     with_b4 = replace(before, activities=tuple(replace(a, od=4) if a.id == "B" else a for a in before.activities))
     row = Scenario(schedule_id=sid, base_version=2, name="B 4일", source="agent",
                    snapshot_json=to_json(with_b4), conditions_json=stored, created_by="김하늘")

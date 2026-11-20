@@ -33,7 +33,7 @@ def test_summary_reads_the_asked_version(session, sid):
     schedule, conditions, _ = load(session, sid)
     longer = replace(schedule, activities=(replace(schedule.activities[0], od=4), schedule.activities[1]))
     save_new_version(session, sid, longer, conditions, by_kind="user", by_name="김하늘", note="A 4일", changes=[],
-                     base_version=1)
+                     base_version=1, plan_change=True)
     assert build(session, "summary", sid).rows[0] == ["작업 A", "2027-03-01", "2027-03-04"]
     old = build(session, "summary", sid, 1)
     assert (old.version, old.rows[0]) == (1, ["작업 A", "2027-03-01", "2027-03-03"])

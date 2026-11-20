@@ -11,6 +11,7 @@ from app.programs.scenarios.compare import change_of
 from app.store import scenarios
 from app.store.schedules import load
 from app.store.versions import save_new_version
+from app.store.view import plan_changed
 from tests.approval_doubles import finish_by
 from tests.schedules import make, store, task
 
@@ -40,9 +41,10 @@ def scenario_A(session, sid_chain) -> int:
 
 
 def new_version(session, sid: int, schedule, note: str) -> int:
-    _, stored, n = load(session, sid)
+    """표 고치기처럼 계획 칸이 바뀌면 계획 변경(Plan 을 새로 찍음), 실적만이면 물려받는다."""
+    before, stored, n = load(session, sid)
     return save_new_version(session, sid, schedule, stored, by_kind="user", by_name="김하늘", note=note, changes=[],
-                            base_version=n)
+                            base_version=n, plan_change=plan_changed(before, schedule))
 
 
 def compare(client, admin, sid: int, base: str, other: str):
@@ -117,7 +119,9 @@ def test_change_kinds(base, other, start_delta, finish_delta, change):
     assert change_of(base, other, start_delta, finish_delta) == change
 
 
-def test_plan_side_is_the_current_version_without_actuals(client, admin, session, sid_chain):
+def test_plan_side_is_the_version_that_snapped_the_plan(client, admin, session, sid_chain):
+    """PM 결정 11-20 밤(16e): Plan 안 = Plan 을 찍은 버전의 내용 그대로. 실적(버전 2)은 Plan 을 물려받아 버전 1 이고,
+    그 뒤 계획 변경(버전 3, C 4일)은 그때의 예측(A 실적 포함)을 찍는다."""
     current = load(session, sid_chain)[0]
     late = replace(current, activities=tuple(
         replace(a, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 10)) if a.id == "A" else a
@@ -125,11 +129,17 @@ def test_plan_side_is_the_current_version_without_actuals(client, admin, session
     new_version(session, sid_chain, late, "A 실적")
     r = compare(client, admin, sid_chain, "plan", "current").json()
     assert (r["base"]["label"], r["base"]["version"], r["base"]["finish"], r["base"]["plan_delta"]) == (
-        "Plan (버전 2)", 2, "2027-03-19", 0)
+        "Plan (버전 1)", 1, "2027-03-19", 0)
     assert (r["other"]["label"], r["other"]["finish"], r["other"]["plan_delta"]) == (
         "현재 일정 (버전 2)", "2027-03-23", 2)
     a = next(x for x in r["rows"] if x["activity_id"] == "A")
     assert (a["finish_delta"], a["change"]) == (2, "pushed")
+    new_version(session, sid_chain, replace(late, activities=tuple(
+        replace(a, od=4) if a.id == "C" else a for a in late.activities)), "C 4일")
+    r = compare(client, admin, sid_chain, "plan", "current").json()
+    assert (r["base"]["label"], r["base"]["finish"], r["other"]["finish"], r["other"]["plan_delta"]) == (
+        "Plan (버전 3)", "2027-03-22", "2027-03-22", 0)
+    assert r["changed_count"] == 0
 
 
 def test_stale_scenario(client, admin, session, sid_chain, scenario_A):
@@ -204,8 +214,11 @@ def test_uncomputable_plan_only_fails_the_plan_ref(client, admin, session, sid_c
     """Plan 이 계산되지 않으면 plan_delta 는 null, 요약 표에서 Plan 은 빠지고, plan ref 만 422."""
     from app.programs.scenarios import compare as compare_module
 
-    monkeypatch.setattr(compare_module, "_without_actuals",
-                        lambda s: replace(s, relations=(*s.relations, Relation("C", "A"))))
+    def broken_plan(session, schedule_id, n):
+        schedule, conditions, _ = load(session, schedule_id, n)
+        return replace(schedule, relations=(*schedule.relations, Relation("C", "A"))), conditions, n
+
+    monkeypatch.setattr(compare_module, "plan_source", broken_plan)
     r = compare(client, admin, sid_chain, "v:1", "current")
     assert r.status_code == 200 and (r.json()["base"]["plan_delta"], r.json()["other"]["plan_delta"]) == (None, None)
     sides = client.get(f"/api/schedules/{sid_chain}/compare/summary", headers=admin).json()["sides"]

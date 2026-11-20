@@ -14,9 +14,10 @@ from sqlalchemy.orm import Session
 
 from app.store import links
 from app.store.drafts import get_draft
-from app.store.schedules import NotFound, create_schedule, from_json
-from app.store.tables import Approval, ChangeLog, ChatMessage
+from app.store.schedules import NotFound, create_schedule, from_json, load
+from app.store.tables import Approval, ChangeLog, ChatMessage, Scenario
 from app.store.versions import mark_plan, save_new_version
+from app.store.view import plan_changed
 
 __all__ = [
     "AGENT_NAME", "REQUEST_LIMIT", "STATUS_GROUPS", "DraftUsed", "NotFound", "apply", "create", "get", "last_request",
@@ -77,11 +78,28 @@ def last_request(session: Session, chat_session_id: int | None) -> str:
     return text[:REQUEST_LIMIT]
 
 
+def _plan_change(session: Session, row: Approval) -> bool:
+    """고침 건(change)을 반영한 버전이 Plan 을 새로 찍는가(PM 결정 11-20 밤, store.versions).
+
+    - 복사본 반영: 지연 반영안(source 'delay')만 물려받고, 단축안·에이전트 복사본은 계획 변경.
+    - 일정 범위 내 규칙: 계획 변경.
+    - 그 밖(에이전트 고침·조건 확정·실적 입력): 조건이 바뀌었거나 계획 칸이 바뀌었으면 계획 변경, 실적·Data Date 만
+      바꿨으면(schedule.record_actual) 물려받는다. 계획 칸과 실적을 같이 바꾸면 계획 변경이다.
+    """
+    if row.link_kind == "scenario":
+        scenario = session.get(Scenario, row.link_id)
+        return scenario is None or scenario.source != "delay"
+    if row.link_kind == "rule":
+        return True
+    before, conditions, _ = load(session, row.schedule_id, row.base_version)
+    return list(row.conditions_json) != conditions or plan_changed(before, from_json(row.snapshot_json))
+
+
 def apply(session: Session, row: Approval, *, by_name: str) -> None:
     """승인 건의 변경을 일정에 넣는다. flush 만 하고 commit 하지 않는다. row.schedule_id·row.version 을 채운다.
 
     새 버전·변경 이력의 by_kind 는 변경을 낸 쪽(row.requested_kind: "agent" | "user", 예전 줄은 "agent")이다.
-    - change: base_version 위에 새 버전. 그 사이 바뀌었으면 VersionConflict(아무것도 쓰지 않음).
+    - change: base_version 위에 새 버전. 그 사이 바뀌었으면 VersionConflict(아무것도 쓰지 않음). 계획 변경인지는 _plan_change.
     - first_save: 초안의 분야·정밀도로 새 일정(이름 = 제목)과 버전 1을 만들고 「처음 계획」으로 표시한다(is_plan). 변경 이력 한 줄을 남기고
       초안을 쓴 것(used_at·schedule_id)으로 표시한다. 초안이 이미 쓰였으면 DraftUsed(아무것도 쓰지 않음).
     - rule: 일정은 건드리지 않는다(schedule_id·version 그대로 None). 내 규칙은 links.after_apply 가 만든다.
@@ -96,7 +114,8 @@ def apply(session: Session, row: Approval, *, by_name: str) -> None:
     if row.kind == "change":
         row.version = save_new_version(
             session, row.schedule_id, schedule, conditions, by_kind=by_kind, by_name=by_name, note=row.title,
-            changes=list(row.changes_json), base_version=row.base_version, commit=False,
+            changes=list(row.changes_json), base_version=row.base_version,
+            plan_change=_plan_change(session, row), commit=False,
         )
         links.after_apply(session, row)
         return

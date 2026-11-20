@@ -205,7 +205,7 @@ def test_recovery_of_an_uncomputable_schedule_is_not_a_500(client, admin, sessio
     approve(client, admin, submit(client, admin, sid, sc))
     broken, stored, n = load(session, sid)
     save_new_version(session, sid, replace(broken, relations=(*broken.relations, Relation("C", "A"))), stored,
-                     by_kind="user", by_name="김하늘", note="고리", changes=[], base_version=n)
+                     by_kind="user", by_name="김하늘", note="고리", changes=[], base_version=n, plan_change=True)
     r = client.get(f"/api/schedules/{sid}/scenarios?status=applied", headers=admin)
     assert (r.status_code, r.json()[0]["recovery"]) == (200, {"planned_gain": 3, "achieved": None})
     d = client.get(f"/api/schedules/{sid}/scenarios/{sc}", headers=admin)

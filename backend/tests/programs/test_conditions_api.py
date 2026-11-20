@@ -4,8 +4,6 @@
 크레인 1대면 B 뒤에 C 를 맞춰 준공 2027-08-13, 2대면 B·C 를 같이 해 준공 2027-07-02.
 """
 
-from dataclasses import replace
-from datetime import date
 
 import pytest
 
@@ -495,28 +493,34 @@ def test_m6_ask_agent_reuses_the_callers_latest_session_for_the_schedule(client,
     assert [s["id"] for s in client.get("/api/chat/sessions", headers=admin).json()].count(first) == 1
 
 
-# ── Task 16d: 미리 보기의 Plan 은 바꾼 조건으로 계산한다 ─────────────────
+# ── Task 16d → 16e: 미리 보기의 Plan 은 확정하면 될 Plan(바꾼 조건으로 계산한 지금 예측) ─────────────────
 
 
-def _late_start(session) -> int:
-    """A 가 실적으로 늦어진 일정(Data Date 2027-03-29, A 진행 중 남은 30일). ES/EF 는 Plan 보다 늦다."""
-    base = office()
-    late_a = replace(base.activities[0], actual_start=base.start, progress=0.5, rd=30)
-    schedule = replace(base, activities=(late_a, *base.activities[1:]), data_date=date(2027, 3, 29))
-    return store(session, schedule, conditions=list(CONDITIONS))
+def _late_start(client, admin, sid) -> None:
+    """버전 1(실적 없음)의 Plan 위에 A 를 실적으로 늦춘다(버전 2·3, Data Date 2027-03-29, A 진행 중 남은 30일).
+    실적은 계획 변경이 아니라 Plan 은 버전 1 것 그대로이고 ES/EF 는 그보다 2주 늦다."""
+    body = {"actual_start": "2027-03-01", "progress": 0.5, "rd": 30, "base_version": 1}
+    assert client.patch(f"/api/schedules/{sid}/activities/A", json=body, headers=admin).status_code == 200
+    body = {"data_date": "2027-03-29", "base_version": 2}
+    assert client.patch(f"/api/schedules/{sid}", json=body, headers=admin).status_code == 200
 
 
-def test_16d_preview_moves_the_plan_with_the_changed_capacity(client, admin, session):
-    sid = _late_start(session)
-    r = _post(client, admin, sid, "preview", CRANE_TWO).json()
-    # moved 는 Plan 날짜: before = 저장된 조건의 Plan(크레인 1대), after = 바꾼 조건의 Plan(크레인 2대)
+def test_16d_preview_moves_the_plan_with_the_changed_capacity(client, admin, sid):
+    _late_start(client, admin, sid)
+    r = _post(client, admin, sid, "preview", CRANE_TWO, base_version=3).json()
+    # PM 결정 11-20 밤(16e): 조건 확정은 계획 변경이라 Plan = 바꾼 조건(크레인 2대)으로 계산한 지금 예측(A 실적 포함).
+    # moved 는 Plan 날짜: before = 지금 Plan(버전 1 때 찍은 것, 크레인 1대), after = 확정하면 될 Plan
     assert r["moved"] == [
+        {"activity_id": "A", "name": "터파기", "before": {"start": "2027-03-01", "finish": "2027-04-23"},
+         "after": {"start": "2027-03-01", "finish": "2027-05-07"}},
+        {"activity_id": "B", "name": "골조 1구역", "before": {"start": "2027-04-26", "finish": "2027-06-04"},
+         "after": {"start": "2027-05-10", "finish": "2027-06-18"}},
         {"activity_id": "C", "name": "골조 2구역", "before": {"start": "2027-06-07", "finish": "2027-07-16"},
-         "after": {"start": "2027-04-26", "finish": "2027-06-04"}},
+         "after": {"start": "2027-05-10", "finish": "2027-06-18"}},
         {"activity_id": "D", "name": "마감", "before": {"start": "2027-07-19", "finish": "2027-08-13"},
-         "after": {"start": "2027-06-07", "finish": "2027-07-02"}},
+         "after": {"start": "2027-06-21", "finish": "2027-07-16"}},
     ]
     view = r["view"]
     c = next(a for a in view["activities"] if a["id"] == "C")
-    assert (c["plan_start"], c["plan_finish"], view["plan_finish"]) == ("2027-04-26", "2027-06-04", "2027-07-02")
-    assert c["ef"] > c["plan_finish"] and c["status"].startswith("late +")  # 상태는 바꾼 조건의 Plan 과 비교
+    assert (c["plan_start"], c["plan_finish"], view["plan_finish"]) == ("2027-05-10", "2027-06-18", "2027-07-16")
+    assert view["finish"] == view["plan_finish"] and {a["status"] for a in view["activities"]} == {"on_plan"}

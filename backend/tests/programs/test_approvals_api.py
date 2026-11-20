@@ -121,7 +121,7 @@ def test_approving_a_change_saves_a_new_agent_version(client, admin, pending, si
 
 
 def test_approving_a_change_moves_plan(client, admin, pending, sid):
-    """PM 결정 11-20: Plan 은 지금 일정을 실적 없이 계산한 것 — 승인한 변경(B 4일)은 Plan 도 옮긴다."""
+    """승인한 에이전트 고침(B 4일)은 계획 변경이라 그 버전의 예측으로 Plan 을 새로 찍는다(PM 결정 11-20 밤)."""
     assert client.get(f"/api/schedules/{sid}", headers=admin).json()["plan_finish"] == "2027-03-05"
     decide(client, pending, admin)
     view = client.get(f"/api/schedules/{sid}", headers=admin).json()

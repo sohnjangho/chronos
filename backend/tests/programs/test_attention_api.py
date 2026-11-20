@@ -66,8 +66,9 @@ def test_unreadable_schedule_is_danger(client, admin, session):
 
 
 def test_late_task_alone_is_a_warning(client, admin, session):
-    started_late = task("A", 3, actual_start=date(2027, 3, 3), progress=0.5)
-    sid = store(session, make([started_late, task("B", 2)], [Relation("A", "B")]))
+    sid = store(session, make([task("A", 3), task("B", 2)], [Relation("A", "B")]))
+    body = {"actual_start": "2027-03-03", "progress": 0.5, "base_version": 1}  # 실적은 Plan(버전 1)을 옮기지 않는다
+    assert client.patch(f"/api/schedules/{sid}/activities/A", json=body, headers=admin).status_code == 200
     got = item_of(client, admin, sid)
     assert got["late_count"] > 0 and got["violations"] == 0 and got["negative_float_count"] == 0
     assert got["level"] == "warning" and got["finish_delta"] > 0

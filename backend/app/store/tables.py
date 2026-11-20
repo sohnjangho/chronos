@@ -105,6 +105,8 @@ class ScheduleVersion(Base):
     by_name: Mapped[str] = mapped_column(String(100))
     is_plan: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    # 고정한 Plan(store.schedules.plan_snapshot). 16e 전 버전은 NULL(store.view.plan_of 가 예전 방식으로 계산)
+    plan_json: Mapped[dict | None] = mapped_column(JSON, default=None)
 
 
 class ChangeLog(Base):

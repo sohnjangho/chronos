@@ -44,7 +44,7 @@ from app.store.schedules import NotFound, get_record, load, run, to_json
 from app.store.settings import approval_mode
 from app.store.tables import ChatSession, ScheduleRecord, User
 from app.store.versions import VersionConflict
-from app.store.view import plan_with, view_of
+from app.store.view import plan_of, view_of
 
 CONFLICT_MESSAGE = "그 사이 일정이 바뀌었습니다. 다시 불러와 주세요."
 NO_CHANGE_MESSAGE = "바뀌는 것이 없습니다."
@@ -142,15 +142,16 @@ def _changed(session: Session, schedule_id: int, body: ChangesIn, user: User) ->
 def preview(session: Session, schedule_id: int, body: ChangesIn, user: User) -> PreviewOut:
     """바꾼 조건으로 계산한 일정·위반·움직인 액티비티. 저장하지 않는다.
 
-    view 의 Plan 칸과 상태는 바꾼 조건으로 계산한 Plan(확정하면 될 Plan)을 따른다. moved 는 Plan 날짜로
-    before = 저장된 조건의 Plan, after = 바꾼 조건의 Plan 이다(간트 막대가 Plan 날짜라서).
+    view 의 Plan 칸과 상태는 확정하면 될 Plan 을 따른다: 조건 확정은 계획 변경이라 Plan = 바꾼 조건으로 계산한 지금
+    예측(실적 포함, PM 결정 11-20 밤)이다. moved 는 Plan 날짜로 before = 지금 버전의 Plan(plan_of), after = 그 예측이다
+    (간트 막대가 Plan 날짜라서).
     """
     loaded, before, after = _changed(session, schedule_id, body, user)
     cpm = _need(after, AFTER_BROKEN)
     saved = before.cpm  # 저장된 버전이 계산되지 않으면 None: 그래도 고친 조건은 미리 본다
     violations = after.report.violations
-    plan_before = plan_with(loaded.schedule, loaded.stored, saved) if saved else None
-    plan_after = plan_with(loaded.schedule, after.stored, cpm)
+    plan_before = plan_of(session, loaded.record.id, loaded.n, saved) if saved else None
+    plan_after = cpm
     return PreviewOut.model_validate({
         "feasible": not violations,
         "view": view_of(session, loaded.record.id, loaded.n, loaded.schedule, after.ready, cpm, plan_after),

@@ -14,6 +14,7 @@ from app.main import include_program_routers
 from app.programs.progress import service
 from app.store.schedules import load
 from app.store.versions import save_new_version
+from app.store.view import plan_changed
 from tests import schedules
 
 
@@ -25,9 +26,10 @@ def get_progress(client, admin, sid, unit=None) -> dict:
 
 
 def _save(session, sid, schedule, base) -> int:
-    return save_new_version(
-        session, sid, schedule, [], by_kind="user", by_name="김하늘", note="실적", changes=[], base_version=base
-    )
+    """표 고치기처럼 계획 칸이 바뀌면 계획 변경(Plan 을 새로 찍음), 실적만이면 물려받는다."""
+    before = load(session, sid, base)[0]
+    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="김하늘", note="실적", changes=[],
+                            base_version=base, plan_change=plan_changed(before, schedule))
 
 
 def _plan() -> Schedule:
@@ -199,7 +201,8 @@ def test_program_routers_are_discovered(client, admin):
 @pytest.fixture
 def sid_added(session, sid_progress) -> int:
     """sid_progress 버전 2 에 나중에 더한 C(15일, wbs 1, 실적 시작 3/1·진도 0.5·남은 14일 → 3/22)를 버전 3 으로.
-    C 가 준공을 정해 크리티컬이고 A·B 는 여유가 생긴다. Plan(실적 없이 계산한 지금 일정)의 C 는 3/1~3/19."""
+    C 가 준공을 정해 크리티컬이고 A·B 는 여유가 생긴다. 액티비티를 더한 것은 계획 변경이라 Plan 은 그때의 예측
+    (A·C 실적 포함, PM 결정 11-20 밤): A 3/1~3/8, B 3/9~3/15, C 3/1~3/22."""
     v2, _, n = load(session, sid_progress)
     c = Activity("C", "작업 C", "task", "1", 15, rd=14, progress=0.5, actual_start=date(2027, 3, 1))
     _save(session, sid_progress, replace(v2, activities=(*v2.activities, c)), n)
@@ -207,17 +210,21 @@ def sid_added(session, sid_progress) -> int:
 
 
 def test_activity_added_later_is_in_the_plan(client, admin, sid_added):
-    """PM 결정 11-20: Plan 은 지금 일정을 실적 없이 계산한 것이라 나중에 더한 C 도 Plan 이 있다(added_after_plan 0).
-    가중치 A·B·C = 0.2·0.2·0.6. 3/3 아침 Plan: A 2/5·C 2/15 → 16%, 실적: A 0.2·C 0.5 → 34%."""
+    """C 를 더한 버전이 Plan 을 새로 찍으므로 나중에 더한 C 도 Plan 이 있다(added_after_plan 0).
+    가중치 A·B·C = 0.2·0.2·0.6. 3/3 아침 Plan: A 2/6·C 2/16 → 0.2×2/6 + 0.6×2/16 = 14.2%, 실적: A 0.2·C 0.5 → 34%."""
     p = get_progress(client, admin, sid_added)
-    assert (p["plan_now"], p["actual_now"]) == (16.0, 34.0)
+    assert (p["plan_now"], p["actual_now"]) == (14.2, 34.0)
     assert p["added_after_plan"] == {"count": 0, "actual_pct": 0.0}
     assert p["curve"][-1]["plan_cum"] == 100.0
     assert p["counts"]["total"] == 3
 
 
-def test_critical_variance_counts_a_task_added_later(client, admin, sid_added):
-    """크리티컬은 C 뿐: 지금 3/1~3/22(16일) − Plan 3/1~3/19(15일) = 1."""
+def test_critical_variance_counts_a_task_added_later(client, admin, session, sid_added):
+    """크리티컬은 C 뿐. 더한 때 Plan 은 3/1~3/22(16일)로 차이 0, 그 뒤 실적(남은 기간 15일, 계획 변경 아님)으로
+    지금 3/1~3/23(17일) − Plan 16일 = 1."""
+    assert get_progress(client, admin, sid_added)["cpm"]["critical_variance"] == {"days": 0, "max_id": "C"}
+    v3, _, n = load(session, sid_added)
+    _save(session, sid_added, replace(v3, activities=tuple(replace(a, rd=15) if a.id == "C" else a for a in v3.activities)), n)
     assert get_progress(client, admin, sid_added)["cpm"]["critical_variance"] == {"days": 1, "max_id": "C"}
 
 

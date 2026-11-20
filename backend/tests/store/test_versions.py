@@ -43,16 +43,16 @@ from tests.schedules import make, store, task
 def test_json_roundtrip(sample_schedule):
     assert from_json(to_json(sample_schedule)) == sample_schedule
 def test_save_bumps_version_and_logs(session, sid, sample_schedule):
-    n = save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="손장호", note="x", changes=[{"id": "A", "field": "od", "from": 3, "to": 4}], base_version=1)
+    n = save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="손장호", note="x", changes=[{"id": "A", "field": "od", "from": 3, "to": 4}], base_version=1, plan_change=False)
     assert n == 2 and session.query(ChangeLog).filter_by(schedule_id=sid).count() == 1
 def test_stale_base_version_conflicts(session, sid, sample_schedule):
-    save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1)
+    save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1, plan_change=False)
     with pytest.raises(VersionConflict) as e:
-        save_new_version(session, sid, sample_schedule, [], by_kind="agent", by_name="에이전트", note="", changes=[], base_version=1)
+        save_new_version(session, sid, sample_schedule, [], by_kind="agent", by_name="에이전트", note="", changes=[], base_version=1, plan_change=False)
     assert e.value.current == 2
 def test_restore_creates_new_version_keeping_history(session, sid, sample_schedule):
     # 지시서 시험은 버전 2 가 이미 있다고 본다(sid 는 버전 1 만 있다). 한 번 고친 뒤 되돌린다.
-    save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1)
+    save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1, plan_change=False)
     assert restore(session, sid, 1, by_name="손장호") == 3 and len(list_versions(session, sid)) == 3
 
 
@@ -121,7 +121,7 @@ def test_pinned_start_is_never_persisted(session):
     sid = store(session, pinned)
     loaded, _, _ = load(session, sid)
     assert all(a.pinned_start is None for a in loaded.activities)
-    save_new_version(session, sid, pinned, [], by_kind="user", by_name="a", note="", changes=[], base_version=1)
+    save_new_version(session, sid, pinned, [], by_kind="user", by_name="a", note="", changes=[], base_version=1, plan_change=False)
     loaded, _, n = load(session, sid)
     assert n == 2 and all(a.pinned_start is None for a in loaded.activities)
 
@@ -144,7 +144,7 @@ def test_create_and_load(session, sample_schedule):
 
 def test_load_older_version(session, sid, sample_schedule):
     changed = replace(sample_schedule, activities=sample_schedule.activities[:1], relations=())
-    save_new_version(session, sid, changed, [{"c": 1}], by_kind="user", by_name="a", note="", changes=[], base_version=1)
+    save_new_version(session, sid, changed, [{"c": 1}], by_kind="user", by_name="a", note="", changes=[], base_version=1, plan_change=False)
     assert load(session, sid) == (changed, [{"c": 1}], 2)
     assert load(session, sid, 1) == (sample_schedule, [], 1)
 
@@ -158,7 +158,7 @@ def test_load_unknown_raises_not_found(session, sid):
 
 def test_save_writes_version_and_change_log(session, sid, sample_schedule):
     changes = [{"id": "A", "field": "od", "from": 3, "to": 4}]
-    save_new_version(session, sid, sample_schedule, [{"c": 1}], by_kind="user", by_name="손장호", note="A 기간 3 → 4", changes=changes, base_version=1)
+    save_new_version(session, sid, sample_schedule, [{"c": 1}], by_kind="user", by_name="손장호", note="A 기간 3 → 4", changes=changes, base_version=1, plan_change=False)
     v2 = session.get(ScheduleVersion, (sid, 2))
     assert (v2.note, v2.by_kind, v2.by_name, v2.is_plan, v2.conditions_json) == (
         "A 기간 3 → 4", "user", "손장호", False, [{"c": 1}]
@@ -171,7 +171,7 @@ def test_save_writes_version_and_change_log(session, sid, sample_schedule):
 
 def test_conflict_saves_nothing(session, sid, sample_schedule):
     with pytest.raises(VersionConflict) as e:
-        save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[{"id": "A"}], base_version=0)
+        save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[{"id": "A"}], base_version=0, plan_change=False)
     assert e.value.current == 1
     session.expire_all()
     assert session.get(ScheduleRecord, sid).current_version == 1
@@ -181,7 +181,7 @@ def test_conflict_saves_nothing(session, sid, sample_schedule):
 
 def test_restore_copies_old_content_and_lists_newest_first(session, sid, sample_schedule):
     changed = replace(sample_schedule, activities=sample_schedule.activities[:1], relations=())
-    save_new_version(session, sid, changed, [{"c": 1}], by_kind="user", by_name="a", note="", changes=[], base_version=1)
+    save_new_version(session, sid, changed, [{"c": 1}], by_kind="user", by_name="a", note="", changes=[], base_version=1, plan_change=False)
     assert restore(session, sid, 1, by_name="손장호") == 3
     assert load(session, sid) == (sample_schedule, [], 3)
     versions = list_versions(session, sid)
@@ -195,7 +195,7 @@ def test_restore_unknown_version_raises_not_found(session, sid):
 
 
 def test_restore_checks_base_version(session, sid, sample_schedule):
-    save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1)
+    save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1, plan_change=False)
     with pytest.raises(VersionConflict) as e:
         restore(session, sid, 1, by_name="a", base_version=1)
     assert e.value.current == 2
@@ -206,9 +206,9 @@ def test_two_sessions_cannot_both_save_on_the_same_base(session, sid, sample_sch
     with Session(session.get_bind()) as other:
         get_record(other, sid)  # 다른 세션도 버전 1 을 읽어 둔다
         get_record(session, sid)
-        save_new_version(other, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1)
+        save_new_version(other, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1, plan_change=False)
         with pytest.raises(VersionConflict) as e:
-            save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="b", note="", changes=[], base_version=1)
+            save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="b", note="", changes=[], base_version=1, plan_change=False)
     assert e.value.current == 2
     assert [v.by_name for v in list_versions(session, sid)] == ["a", "에이전트"]
 
@@ -219,7 +219,7 @@ CYCLE = make([task("A", 1), task("B", 1)], [Relation("A", "B"), Relation("B", "A
 
 
 def _save(session, sid, schedule, base, **k):
-    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=base, **k)
+    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=base, plan_change=False, **k)
 
 
 def test_from_json_fills_defaults_for_missing_keys(sample_schedule):

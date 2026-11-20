@@ -151,6 +151,15 @@ def run(schedule: Schedule, conditions: list[dict] | None = None) -> CpmResult:
     return level_schedule(schedule, compute(schedule), shift=True).cpm
 
 
+def plan_snapshot(cpm: CpmResult, n: int) -> dict:
+    """버전 n 의 계산(실적 포함, run 결과)을 Plan 으로 고정한 것(버전 줄의 plan_json, PM 결정 11-20 밤).
+
+    {version: n, finish, activities: {id: {start, finish}}}, 날짜는 ISO 글. version = Plan 을 찍은 버전(비교판의 Plan 안).
+    """
+    rows = {aid: {"start": row.es.isoformat(), "finish": row.ef.isoformat()} for aid, row in cpm.rows.items()}
+    return {"version": n, "finish": cpm.finish.isoformat(), "activities": rows}
+
+
 def end_write(session: Session, commit: bool) -> None:
     """commit 이면 커밋, 아니면 flush 만 한다(트랜잭션은 부른 쪽이 끝낸다)."""
     if commit:
@@ -175,9 +184,9 @@ def create_schedule(
     """일정과 버전 1을 만들고 일정 id 를 준다. 변경 이력은 남기지 않는다.
 
     먼저 저장할 조건을 넣어 계산해 본다(화면과 같은 계산). 깨진 일정이면 ScheduleError 를 내고
-    아무것도 저장하지 않는다.
+    아무것도 저장하지 않는다. 첫 저장은 늘 계획 변경이라 그 계산을 Plan 으로 고정한다(plan_snapshot).
     """
-    run(schedule, conditions)
+    cpm = run(schedule, conditions)
     record = ScheduleRecord(
         name=name, domain=domain, level=level, current_version=1, created_by=by_name
     )
@@ -192,6 +201,7 @@ def create_schedule(
             note=note,
             by_kind=by_kind,
             by_name=by_name,
+            plan_json=plan_snapshot(cpm, 1),
         )
     )
     end_write(session, commit)

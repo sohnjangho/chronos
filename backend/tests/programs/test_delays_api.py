@@ -202,7 +202,7 @@ def test_no_events(client, admin, sid3):
 def test_deadline_float_counts_workdays_from_with_open(client, admin, session, sid3):
     schedule, _, _ = load(session, sid3)
     save_new_version(session, sid3, schedule, [finish_by("2027-03-12")], by_kind="user", by_name="관리자", note="기한",
-                     changes=[], base_version=1)
+                     changes=[], base_version=1, plan_change=True)
     r = post(client, admin, sid3, B2)
     assert (r["finish"]["deadline"], r["finish"]["deadline_float"]) == ("2027-03-12", 3)
 
@@ -267,7 +267,7 @@ def test_get_reanalyses_open_events_after_a_new_version(client, admin, session, 
     schedule, conditions, _ = load(session, sid3)
     longer = replace(schedule, activities=tuple(replace(a, od=5) if a.id == "C" else a for a in schedule.activities))
     save_new_version(session, sid3, longer, conditions, by_kind="user", by_name="관리자", note="C 5일", changes=[],
-                     base_version=1)
+                     base_version=1, plan_change=True)
     r = get(client, admin, sid3)
     e = r["events"][0]
     # C 5일(3/4~3/10)이 준공을 잡아 B +2(3/9 끝)는 모두 흡수된다
@@ -414,7 +414,7 @@ def with_actual_b(session, sid: int) -> None:
             "B": {"actual_start": date(2027, 3, 4), "progress": 0.1, "rd": 4}}
     acts = tuple(replace(a, **done.get(a.id, {})) for a in schedule.activities)
     save_new_version(session, sid, replace(schedule, activities=acts), conditions, by_kind="agent", by_name="에이전트",
-                     note="실적", changes=[], base_version=1)
+                     note="실적", changes=[], base_version=1, plan_change=False)
 
 
 ACTUAL = {**B2, "cause": "실적 입력에서 감지", "source": "actual", "before_version": 1}
