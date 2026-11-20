@@ -32,8 +32,15 @@ def _probe_out(result: ProbeResult) -> ProbeOut:
     return ProbeOut.model_validate(asdict(result))
 
 
+def _out(conn: LlmConnection) -> ConnectionOut:
+    out = ConnectionOut.model_validate(conn)
+    out.chat_model_count = service.chat_model_count(conn)
+    return out
+
+
 def _saved(conn: LlmConnection, result: ProbeResult | None) -> ConnectionSaved:
     out = ConnectionSaved.model_validate(conn)
+    out.chat_model_count = service.chat_model_count(conn)
     if result is not None and result.error is not None:
         out.error = _probe_out(result).error
     return out
@@ -41,7 +48,7 @@ def _saved(conn: LlmConnection, result: ProbeResult | None) -> ConnectionSaved:
 
 @router.get("/connections", dependencies=[AdminOnly])
 def list_connections(session: SessionDep) -> list[ConnectionOut]:
-    return [ConnectionOut.model_validate(c) for c in service.list_connections(session)]
+    return [_out(c) for c in service.list_connections(session)]
 
 
 @router.post("/connections/test", dependencies=[AdminOnly])

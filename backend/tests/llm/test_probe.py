@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.llm.connections import _client, normalize_base_url, probe
+from app.llm.connections import _client, normalize_base_url, normalize_models, probe
 from app.llm.errors import InvalidBaseUrl, LlmError, explain
 
 URL = "https://platform.liner.com/api/v1"
@@ -20,10 +20,54 @@ def test_ok_lists_model_ids():
 
     result = _probe(handler, base_url=URL + "/")
     assert result.ok is True and result.error is None
-    assert result.models == ["liner-mark", "liner-claude-router"]
+    assert [m["id"] for m in result.models] == ["liner-mark", "liner-claude-router"]
     assert seen[0].url == httpx.URL(URL + "/models")
     assert seen[0].headers["Authorization"] == "Bearer k"
     assert seen[0].extensions["timeout"]["read"] == 10
+
+
+LINER_SHAPED = {
+    "data": [
+        {"id": "liner-mark", "name": "Liner: Liner Mark", "owned_by": "liner", "context_length": 1048576,
+         "endpoints": ["/v1/chat/completions", "/v1/responses"]},
+        {"id": "google/gemini-4-neon", "name": "Google: Gemini 4 Neon", "owned_by": "google",
+         "context_length": 1048576, "endpoints": ["/v1/chat/completions"]},
+        {"id": "~anthropic/claude-x", "name": "Claude X"},
+        {"id": "batch-thing", "owned_by": "openai", "endpoints": ["/v1/batches"]},
+        {"id": "plain-model"},
+    ]
+}
+
+
+def test_models_keep_metadata():
+    """업체·업체 이름·문맥 길이·대화용 여부를 남긴다. 없는 값은 규칙대로 채운다."""
+    result = _probe(lambda request: httpx.Response(200, json=LINER_SHAPED))
+    assert result.models == [
+        {"id": "liner-mark", "name": "Liner: Liner Mark", "vendor": "liner", "vendor_name": "Liner",
+         "context_length": 1048576, "chat": True},
+        {"id": "google/gemini-4-neon", "name": "Google: Gemini 4 Neon", "vendor": "google",
+         "vendor_name": "Google", "context_length": 1048576, "chat": True},
+        {"id": "~anthropic/claude-x", "name": "Claude X", "vendor": "anthropic", "vendor_name": "Anthropic",
+         "context_length": None, "chat": True},
+        {"id": "batch-thing", "name": "batch-thing", "vendor": "openai", "vendor_name": "Openai",
+         "context_length": None, "chat": False},
+        {"id": "plain-model", "name": "plain-model", "vendor": "liner", "vendor_name": "Liner",
+         "context_length": None, "chat": True},
+    ]
+
+
+def test_legacy_id_lists_are_normalized():
+    """예전에 저장한 id 목록도 메타데이터 꼴로 읽는다(다음 시험 때까지 쓰이게)."""
+    stored = ["liner-mark", "openai/gpt-x", {"id": "google/g", "name": "Google: G", "vendor": "google",
+                                             "vendor_name": "Google", "context_length": 8, "chat": False}]
+    assert normalize_models(stored) == [
+        {"id": "liner-mark", "name": "liner-mark", "vendor": "liner", "vendor_name": "Liner",
+         "context_length": None, "chat": True},
+        {"id": "openai/gpt-x", "name": "openai/gpt-x", "vendor": "openai", "vendor_name": "Openai",
+         "context_length": None, "chat": True},
+        {"id": "google/g", "name": "Google: G", "vendor": "google", "vendor_name": "Google",
+         "context_length": 8, "chat": False},
+    ]
 
 
 @pytest.mark.parametrize(

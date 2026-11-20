@@ -84,7 +84,7 @@ def test_secret_is_encrypted_and_masked(client, admin, session, fake_probe_ok):
 
 def test_test_endpoint_returns_models(client, admin, fake_probe_ok):
     r = client.post("/api/llm/connections/test", json={"provider": "liner", "base_url": LINER, "secret": "k"}, headers=admin)
-    assert r.json()["ok"] is True and "liner-mark" in r.json()["models"]
+    assert r.json()["ok"] is True and "liner-mark" in [m["id"] for m in r.json()["models"]]
 
 
 @pytest.mark.parametrize("status,code", [(401, "bad_key"), (429, "rate_limited")])
@@ -274,7 +274,7 @@ def test_failed_retest_keeps_model_list(client, admin, conn_id, monkeypatch):
     r = client.post(f"/api/llm/connections/{conn_id}/test", headers=admin)
     assert r.json()["error"]["code"] == "bad_key"
     models = client.get(f"/api/llm/connections/{conn_id}/models", headers=admin).json()
-    assert models == {"models": ["liner-mark", "liner-claude-router"]}
+    assert [m["id"] for m in models["models"]] == ["liner-mark", "liner-claude-router"]
     [conn] = client.get("/api/llm/connections", headers=admin).json()
     assert conn["status"] == "failed" and conn["model_count"] == 2
 
@@ -296,7 +296,14 @@ def test_retest_after_secret_key_change_is_409(client, session, conn_id, monkeyp
 
 def test_models_endpoint_returns_last_list(client, admin, user, conn_id):
     r = client.get(f"/api/llm/connections/{conn_id}/models", headers=admin)
-    assert r.json() == {"models": ["liner-mark", "liner-claude-router"]}
+    assert r.json() == {
+        "models": [
+            {"id": "liner-mark", "name": "liner-mark", "vendor": "liner", "vendor_name": "Liner",
+             "context_length": None, "chat": True},
+            {"id": "liner-claude-router", "name": "liner-claude-router", "vendor": "liner",
+             "vendor_name": "Liner", "context_length": None, "chat": True},
+        ]
+    }
     assert client.get(f"/api/llm/connections/{conn_id}/models", headers=user).status_code == 403
 
 
@@ -418,3 +425,39 @@ def test_key_never_in_debug_logs(client, admin, caplog, fake_probe_ok):
     client.post(f"/api/llm/connections/{conn['id']}/test", headers=admin)
     client.post("/api/llm/connections", json={"provider": "liner", "secret": "abcd1234efgh5678"}, headers=admin)
     assert "abcd1234efgh5678" not in caplog.text
+
+
+def test_model_metadata_and_chat_count(client, admin, monkeypatch):
+    """저장·목록·모델 API 가 메타데이터를 돌려주고, 연결에는 전체 수와 대화용 수가 있다."""
+    body = {"data": [
+        {"id": "liner-mark", "name": "Liner: Liner Mark", "owned_by": "liner", "context_length": 1048576,
+         "endpoints": ["/v1/chat/completions"]},
+        {"id": "google/gemini-4-neon", "name": "Google: Gemini 4 Neon", "owned_by": "google",
+         "context_length": 1048576, "endpoints": ["/v1/chat/completions"]},
+        {"id": "openai/batch", "name": "OpenAI: Batch", "owned_by": "openai", "endpoints": ["/v1/batches"]},
+    ]}
+    _use_handler(monkeypatch, lambda request: httpx.Response(200, json=body))
+    tested = client.post("/api/llm/connections/test", json={"provider": "liner", "secret": "k"}, headers=admin)
+    assert tested.json()["models"][1] == {"id": "google/gemini-4-neon", "name": "Google: Gemini 4 Neon",
+                                          "vendor": "google", "vendor_name": "Google",
+                                          "context_length": 1048576, "chat": True}
+    saved = _create(client, admin, "Liner 기본")
+    assert saved["model_count"] == 3 and saved["chat_model_count"] == 2
+    [conn] = client.get("/api/llm/connections", headers=admin).json()
+    assert conn["model_count"] == 3 and conn["chat_model_count"] == 2
+    models = client.get(f"/api/llm/connections/{conn['id']}/models", headers=admin).json()["models"]
+    assert [(m["vendor"], m["chat"]) for m in models] == [("liner", True), ("google", True), ("openai", False)]
+
+
+def test_legacy_id_list_still_works(client, admin, session, conn_id):
+    """예전 꼴(id 문자열 목록)로 저장된 연결도 다음 시험 전까지 그대로 쓰인다."""
+    row = session.get(LlmConnection, conn_id)
+    row.models_json = ["liner-mark", "openai/gpt-x"]
+    session.commit()
+    models = client.get(f"/api/llm/connections/{conn_id}/models", headers=admin).json()["models"]
+    assert [(m["id"], m["vendor"], m["vendor_name"], m["chat"]) for m in models] == [
+        ("liner-mark", "liner", "Liner", True),
+        ("openai/gpt-x", "openai", "Openai", True),
+    ]
+    [conn] = client.get("/api/llm/connections", headers=admin).json()
+    assert conn["chat_model_count"] == 2

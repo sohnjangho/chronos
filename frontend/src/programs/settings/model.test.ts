@@ -57,3 +57,12 @@ test('strategies have Korean labels over the stored values', () => {
     { value: 'quality', label: '품질 우선' },
   ]);
 });
+
+test('settings layout guards against horizontal overflow (checked on screen too)', () => {
+  // 창이 좁아지면 두 칸을 한 칸으로 접는다(창 너비 기준 container query).
+  expect(settingsCss).toMatch(/\.st-main\s*\{[^}]*container-type:\s*inline-size/);
+  expect(settingsCss).toMatch(/@container[^{]*\(max-width:[^)]*\)\s*\{[^@]*\.st-llm\s*\{[^}]*flex-direction:\s*column/);
+  // 입력 칸·고르기는 칸보다 넓어지지 않는다. 두 칸 격자는 minmax(0, 1fr).
+  expect(settingsCss).toMatch(/\.st-root input,\s*\.st-root select\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%/);
+  expect(settingsCss).toMatch(/\.st-grid2\s*\{[^}]*minmax\(0,\s*1fr\)/);
+});

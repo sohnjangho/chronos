@@ -6,6 +6,7 @@
 import re
 import time
 from dataclasses import dataclass, field
+from typing import TypedDict
 
 import httpx
 
@@ -18,11 +19,25 @@ DEFAULT_BASE_URLS = {"liner": "https://platform.liner.com/api/v1"}
 _SENDABLE_SECRET = re.compile(r"[\x21-\x7e]{1,512}")
 
 
+CHAT_ENDPOINT = "/v1/chat/completions"
+
+
+class ModelInfo(TypedDict):
+    """모델 한 개. vendor 는 owned_by(없으면 id 의 "/" 앞), chat 은 대화 API 를 받는지."""
+
+    id: str
+    name: str
+    vendor: str
+    vendor_name: str
+    context_length: int | None
+    chat: bool
+
+
 @dataclass(frozen=True)
 class ProbeResult:
     ok: bool
     latency_ms: int
-    models: list[str] = field(default_factory=list)
+    models: list[ModelInfo] = field(default_factory=list)
     error: LlmError | None = None
 
 
@@ -44,11 +59,49 @@ def normalize_base_url(base_url: str) -> str:
     return url
 
 
-def _model_ids(body: object) -> list[str]:
+def _vendor_from_id(model_id: str) -> str:
+    """id 의 "/" 앞(앞의 ~ 는 뗀다). "/" 가 없으면 Liner 의 모델."""
+    prefix = model_id.split("/", 1)[0].lstrip("~") if "/" in model_id else ""
+    return prefix or "liner"
+
+
+def model_info(item: dict) -> ModelInfo:
+    """/models 의 항목 하나를 ModelInfo 로. 없는 값은 규칙대로 채운다."""
+    model_id = str(item["id"])
+    vendor = str(item.get("owned_by") or "").strip() or _vendor_from_id(model_id)
+    name = str(item.get("name") or model_id)
+    vendor_name = name.split(":", 1)[0].strip() if ":" in name else vendor.title()
+    endpoints = item.get("endpoints")
+    context = item.get("context_length")
+    return ModelInfo(
+        id=model_id,
+        name=name,
+        vendor=vendor,
+        vendor_name=vendor_name,
+        context_length=context if isinstance(context, int) and not isinstance(context, bool) else None,
+        chat=CHAT_ENDPOINT in endpoints if isinstance(endpoints, list) else True,
+    )
+
+
+def normalize_models(stored: list | None) -> list[ModelInfo]:
+    """저장된 모델 목록을 ModelInfo 꼴로. 예전 꼴(id 문자열 목록)도 받는다."""
+    models: list[ModelInfo] = []
+    for item in stored or []:
+        if isinstance(item, str):
+            models.append(model_info({"id": item}))
+        elif isinstance(item, dict) and "id" in item:
+            if all(key in item for key in ModelInfo.__annotations__):
+                models.append(ModelInfo(**{key: item[key] for key in ModelInfo.__annotations__}))
+            else:
+                models.append(model_info(item))
+    return models
+
+
+def _models(body: object) -> list[ModelInfo]:
     data = body.get("data") if isinstance(body, dict) else None
     if not isinstance(data, list):
         raise TypeError("models 응답에 data 목록이 없습니다.")
-    return [str(item["id"]) for item in data if isinstance(item, dict) and "id" in item]
+    return [model_info(item) for item in data if isinstance(item, dict) and "id" in item]
 
 
 def _elapsed_ms(start: float) -> int:
@@ -72,7 +125,7 @@ def probe(
         with _client(transport) as client:
             response = client.get(f"{url}/models", headers={"Authorization": f"Bearer {secret}"})
         response.raise_for_status()
-        models = _model_ids(response.json())
+        models = _models(response.json())
     # 통신·주소·응답 형식 실패는 설명으로 바꾼다. ValueError 에는 JSON 해석 실패와
     # 보낼 수 없는 키가 들어간다.
     except (httpx.HTTPError, httpx.InvalidURL, ValueError, TypeError) as exc:

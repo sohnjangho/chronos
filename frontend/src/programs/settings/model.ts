@@ -16,8 +16,20 @@ export interface Connection {
   is_default: boolean;
   status: 'ok' | 'failed' | 'unknown';
   model_count: number | null;
+  /** 대화용 모델 수. 시험에 성공한 적이 없으면 null. */
+  chat_model_count?: number | null;
   checked_at: string | null;
   latency_ms: number | null;
+}
+
+/** 모델 한 개. vendor 는 업체 열쇠(owned_by), vendor_name 은 보일 업체 이름, chat 은 대화 API 를 받는지. */
+export interface ModelInfo {
+  id: string;
+  name: string;
+  vendor: string;
+  vendor_name: string;
+  context_length: number | null;
+  chat: boolean;
 }
 
 export interface LlmError {
@@ -34,7 +46,7 @@ export interface ConnectionSaved extends Connection {
 export interface Probe {
   ok: boolean;
   latency_ms: number;
-  models: string[];
+  models: ModelInfo[];
   error: LlmError | null;
 }
 

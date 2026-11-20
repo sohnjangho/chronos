@@ -13,7 +13,13 @@ from sqlalchemy.orm import Session
 
 from app.errors import ApiError
 from app.llm import assignments, connections
-from app.llm.connections import DEFAULT_BASE_URLS, ProbeResult, secret_is_sendable
+from app.llm.connections import (
+    DEFAULT_BASE_URLS,
+    ModelInfo,
+    ProbeResult,
+    normalize_models,
+    secret_is_sendable,
+)
 from app.programs.llm_settings.schemas import (
     AssignmentOut,
     AssignmentsIn,
@@ -182,8 +188,15 @@ def delete_connection(session: Session, conn_id: int) -> None:
     session.commit()
 
 
-def connection_models(session: Session, conn_id: int) -> list[str]:
-    return list(_get(session, conn_id).models_json)
+def connection_models(session: Session, conn_id: int) -> list[ModelInfo]:
+    return normalize_models(_get(session, conn_id).models_json)
+
+
+def chat_model_count(conn: LlmConnection) -> int | None:
+    """대화용 모델 수. 시험에 성공한 적이 없으면(model_count 없음) None."""
+    if conn.model_count is None:
+        return None
+    return sum(1 for model in normalize_models(conn.models_json) if model["chat"])
 
 
 def get_assignments(session: Session) -> list[AssignmentOut]:

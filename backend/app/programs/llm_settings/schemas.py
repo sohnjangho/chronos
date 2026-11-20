@@ -40,10 +40,21 @@ class LlmErrorOut(BaseModel):
     message: str
 
 
+class ModelOut(BaseModel):
+    """모델 한 개: 업체(vendor = owned_by), 업체 이름, 문맥 길이, 대화용 여부."""
+
+    id: str
+    name: str
+    vendor: str
+    vendor_name: str
+    context_length: int | None
+    chat: bool
+
+
 class ProbeOut(BaseModel):
     ok: bool
     latency_ms: int
-    models: list[str]
+    models: list[ModelOut]
     error: LlmErrorOut | None
 
 
@@ -60,6 +71,8 @@ class ConnectionOut(BaseModel):
     is_default: bool
     status: Literal["ok", "failed", "unknown"]
     model_count: int | None
+    # 대화용 모델 수. 표에 열이 없어 저장된 목록에서 센다(router 가 채운다).
+    chat_model_count: int | None = None
     checked_at: UtcDatetime | None
     latency_ms: int | None
 
@@ -71,7 +84,7 @@ class ConnectionSaved(ConnectionOut):
 
 
 class ModelsOut(BaseModel):
-    models: list[str]
+    models: list[ModelOut]
 
 
 class AssignmentIn(BaseModel):

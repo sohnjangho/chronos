@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test } from 'vitest';
 import { json } from '../../test-helpers';
 import type { Connection } from './model';
-import { ASSIGNMENTS, connection, MODELS, renderAs, resetAll, sent } from './testKit';
+import { ASSIGNMENTS, connection, info, LINER_CHAT_IDS, MODELS, renderAs, resetAll, sent } from './testKit';
 
 const row = (label: string) => screen.getByRole('group', { name: label });
 const options = (el: HTMLElement) => Array.from((el as HTMLSelectElement).options).map((o) => o.value);
@@ -26,8 +26,8 @@ test('the four task kinds use the mockup labels', async () => {
 test('models are chosen from the loaded list of the selected connection', async () => {
   renderTable();
   const model = await within(await screen.findByRole('group', { name: '가벼운 일' })).findByRole('combobox', { name: '가벼운 일 모델' });
-  await within(row('가벼운 일')).findByRole('option', { name: 'liner-gpt-router' });
-  expect(options(model)).toEqual(MODELS);
+  await within(row('가벼운 일')).findByRole('combobox', { name: '가벼운 일 업체' });
+  expect(options(model)).toEqual(LINER_CHAT_IDS);
   expect(model).toHaveValue('liner-claude-router');
   // 연결이 하나면 연결 고르기는 보이지 않는다.
   expect(within(row('가벼운 일')).queryByRole('combobox', { name: '가벼운 일 연결' })).toBeNull();
@@ -38,7 +38,7 @@ test('routing strategy is shown only for router models', async () => {
   const light = await screen.findByRole('group', { name: '가벼운 일' });
   expect(within(light).getByRole('combobox', { name: '가벼운 일 기준' })).toHaveValue('cost');
   expect(within(row('긴 문서 읽기')).queryByRole('combobox', { name: '긴 문서 읽기 기준' })).toBeNull();
-  await within(light).findByRole('option', { name: 'liner-mark' });
+  await within(light).findByRole('combobox', { name: '가벼운 일 업체' });
   await userEvent.selectOptions(within(light).getByRole('combobox', { name: '가벼운 일 모델' }), 'liner-mark');
   expect(within(light).queryByRole('combobox', { name: '가벼운 일 기준' })).toBeNull();
   // 라우터로 바꾸면 기준이 다시 보인다(기본 balanced).
@@ -55,7 +55,7 @@ test('saving one row sends a single request with only that row', async () => {
     },
   });
   const light = await screen.findByRole('group', { name: '가벼운 일' });
-  await within(light).findByRole('option', { name: 'liner-mark' });
+  await within(light).findByRole('combobox', { name: '가벼운 일 업체' });
   await userEvent.selectOptions(within(light).getByRole('combobox', { name: '가벼운 일 모델' }), 'liner-mark');
   await userEvent.selectOptions(within(row('보통 일')).getByRole('combobox', { name: '보통 일 기준' }), 'quality');
   expect(within(light).getByRole('button', { name: '저장' })).toBeEnabled();
@@ -85,12 +85,12 @@ test('a save error is shown on that row', async () => {
 test('with two connections a row picks the connection and then a model from its list', async () => {
   const { fetchMock } = renderTable({
     '/api/llm/connections': [connection(), connection({ id: 2, name: '사내 게이트웨이', provider: 'openai_compatible', is_default: false })],
-    '/api/llm/connections/2/models': { models: ['gw-large', 'gw-small'] },
+    '/api/llm/connections/2/models': { models: [info('gw-large', 'Gateway: Large', 'gateway', 32768), info('gw-small', 'Gateway: Small', 'gateway', 8192)] },
     'PUT /api/llm/assignments': (init?: RequestInit) => json(200, JSON.parse(String(init?.body))),
   });
   const light = await screen.findByRole('group', { name: '가벼운 일' });
   await userEvent.selectOptions(within(light).getByRole('combobox', { name: '가벼운 일 연결' }), '2');
-  await within(light).findByRole('option', { name: 'gw-small' });
+  await waitFor(() => expect(options(within(light).getByRole('combobox', { name: '가벼운 일 모델' }))).toContain('gw-small'));
   const model = within(light).getByRole('combobox', { name: '가벼운 일 모델' });
   expect(model).toHaveValue('');
   expect(within(light).getByRole('button', { name: '저장' })).toBeDisabled();
@@ -149,7 +149,7 @@ test('a draft pointing at a deleted connection is dropped', async () => {
   let conns: Connection[] = [connection(), gateway];
   renderAs('admin', undefined, {
     '/api/llm/connections': () => json(200, conns),
-    '/api/llm/connections/2/models': { models: ['gw-small'] },
+    '/api/llm/connections/2/models': { models: [info('gw-small', 'Gateway: Small', 'gateway', 8192)] },
     'DELETE /api/llm/connections/2': () => {
       conns = [connection()];
       return new Response(null, { status: 204 });
@@ -157,7 +157,7 @@ test('a draft pointing at a deleted connection is dropped', async () => {
   });
   const light = await screen.findByRole('group', { name: '가벼운 일' });
   await userEvent.selectOptions(within(light).getByRole('combobox', { name: '가벼운 일 연결' }), '2');
-  await within(light).findByRole('option', { name: 'gw-small' });
+  await waitFor(() => expect(options(within(light).getByRole('combobox', { name: '가벼운 일 모델' }))).toContain('gw-small'));
   await userEvent.selectOptions(within(light).getByRole('combobox', { name: '가벼운 일 모델' }), 'gw-small');
   const gw = screen.getByRole('article', { name: '사내 게이트웨이' });
   await userEvent.click(within(gw).getByRole('button', { name: '삭제' }));
@@ -199,7 +199,7 @@ test('a router row without a stored strategy shows 선택 안 함 and saves what
   expect(strategy).toHaveValue('');
   expect(strategy.selectedOptions[0].text).toBe('선택 안 함');
   expect(within(light).queryByRole('button', { name: '저장' })).toBeNull();
-  await within(light).findByRole('option', { name: 'liner-gpt-router' });
+  await within(light).findByRole('combobox', { name: '가벼운 일 업체' });
   await userEvent.selectOptions(within(light).getByRole('combobox', { name: '가벼운 일 모델' }), 'liner-gpt-router');
   const shown = (within(light).getByRole('combobox', { name: '가벼운 일 기준' }) as HTMLSelectElement).value;
   await userEvent.click(within(light).getByRole('button', { name: '저장' }));
@@ -207,4 +207,67 @@ test('a router row without a stored strategy shows 선택 안 함 and saves what
   expect(sent(fetchMock, 'PUT /api/llm/assignments')).toEqual([
     { items: [{ purpose: 'light', connection_id: 1, model: 'liner-gpt-router', routing_strategy: shown === '' ? null : shown }] },
   ]);
+});
+
+const texts = (el: HTMLElement) => Array.from((el as HTMLSelectElement).options).map((o) => o.text);
+
+test('a row picks the vendor first, then one of its chat models by short name and context length', async () => {
+  const { fetchMock } = renderTable({ 'PUT /api/llm/assignments': (init?: RequestInit) => json(200, JSON.parse(String(init?.body))) });
+  const light = await screen.findByRole('group', { name: '가벼운 일' });
+  const vendor = await within(light).findByRole('combobox', { name: '가벼운 일 업체' });
+  expect(texts(vendor)).toEqual(['Liner (3)', 'Anthropic (1)', 'OpenAI (1)', 'Google (1)']);
+  expect(vendor).toHaveValue('liner');
+  const model = within(light).getByRole('combobox', { name: '가벼운 일 모델' });
+  expect(texts(model)).toEqual(['Liner Mark · 1.05M', 'Claude Router · 200K', 'GPT Router · 400K']);
+  await userEvent.selectOptions(vendor, 'google');
+  expect(options(model)).toContain('google/gemini-4-neon');
+  expect(model).toHaveValue('liner-claude-router');
+  await userEvent.selectOptions(model, 'google/gemini-4-neon');
+  await userEvent.click(within(light).getByRole('button', { name: '저장' }));
+  await within(light).findByText('저장했습니다.');
+  expect(sent(fetchMock, 'PUT /api/llm/assignments')).toEqual([
+    { items: [{ purpose: 'light', connection_id: 1, model: 'google/gemini-4-neon', routing_strategy: null }] },
+  ]);
+});
+
+test('searching in the picker and choosing a result sets both vendor and model', async () => {
+  renderTable();
+  const light = await screen.findByRole('group', { name: '가벼운 일' });
+  await within(light).findByRole('combobox', { name: '가벼운 일 업체' });
+  await userEvent.click(within(light).getByRole('button', { name: '가벼운 일 모델 찾기' }));
+  const panel = within(light).getByRole('group', { name: '가벼운 일 모델 찾기' });
+  await userEvent.type(within(panel).getByRole('searchbox', { name: '모델 찾기' }), 'SONNET');
+  expect(within(panel).getByRole('status', { name: '찾은 모델 수' })).toHaveTextContent('1개');
+  await userEvent.click(within(panel).getByRole('button', { name: 'Anthropic · Claude Sonnet 5 · 1M' }));
+  expect(within(light).queryByRole('group', { name: '가벼운 일 모델 찾기' })).toBeNull();
+  expect(within(light).getByRole('combobox', { name: '가벼운 일 업체' })).toHaveValue('anthropic');
+  expect(within(light).getByRole('combobox', { name: '가벼운 일 모델' })).toHaveValue('anthropic/claude-sonnet-5');
+  expect(within(light).getByRole('button', { name: '저장' })).toBeEnabled();
+});
+
+test('the picker filters work too: Liner routers only lists the recommended set', async () => {
+  renderTable();
+  const light = await screen.findByRole('group', { name: '가벼운 일' });
+  await within(light).findByRole('combobox', { name: '가벼운 일 업체' });
+  await userEvent.click(within(light).getByRole('button', { name: '가벼운 일 모델 찾기' }));
+  const panel = within(light).getByRole('group', { name: '가벼운 일 모델 찾기' });
+  await userEvent.click(within(panel).getByRole('checkbox', { name: 'Liner 라우터만' }));
+  const results = within(panel).getAllByRole('button', { name: /^Liner · / }).map((b) => b.textContent);
+  expect(results).toEqual(['Liner · Claude Router · 200K', 'Liner · GPT Router · 400K', 'Liner · Liner Mark · 1.05M']);
+  await userEvent.selectOptions(within(panel).getByRole('combobox', { name: '문맥 길이' }), '1M 이상');
+  expect(within(panel).getByRole('status', { name: '찾은 모델 수' })).toHaveTextContent('1개');
+});
+
+test('a stored model that is not in the loaded list still shows as the current value', async () => {
+  renderTable({
+    '/api/llm/assignments': {
+      items: ASSIGNMENTS.items.map((i) => (i.purpose === 'light' ? { ...i, model: 'retired/old-model', routing_strategy: null } : i)),
+    },
+  });
+  const light = await screen.findByRole('group', { name: '가벼운 일' });
+  await within(light).findByRole('combobox', { name: '가벼운 일 업체' });
+  const model = within(light).getByRole('combobox', { name: '가벼운 일 모델' }) as HTMLSelectElement;
+  expect(model).toHaveValue('retired/old-model');
+  expect(model.selectedOptions[0].text).toBe('retired/old-model');
+  expect(within(light).queryByRole('button', { name: '저장' })).toBeNull();
 });

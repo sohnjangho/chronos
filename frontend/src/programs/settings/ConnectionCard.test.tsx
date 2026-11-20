@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test, vi } from 'vitest';
 import { json } from '../../test-helpers';
 import type { Connection } from './model';
-import { connection, FAKE_SECRET, LINER_URL, renderAs, resetAll, sent } from './testKit';
+import { connection, FAKE_SECRET, info, LINER_URL, renderAs, resetAll, sent } from './testKit';
 
 const HOST_MESSAGE = '다른 서버 주소로 바꾸면 API 키를 다시 넣어 주세요.';
 const card = () => screen.getByRole('article', { name: 'Liner 기본' });
@@ -27,27 +27,35 @@ test('a card shows name, provider, default, status, url, last four, check and ac
   }
 });
 
-test('a card test shows latency, model count and the model list', async () => {
+test('a card test shows a summary line and the models grouped by vendor', async () => {
   renderAs('admin', undefined, {
     '/api/llm/connections': [connection()],
-    'POST /api/llm/connections/1/test': { ok: true, latency_ms: 377, models: ['liner-mark', 'liner-claude-router'], error: null },
+    'POST /api/llm/connections/1/test': {
+      ok: true,
+      latency_ms: 377,
+      models: [info('liner-mark', 'Liner: Liner Mark', 'liner', 1048576), info('liner-claude-router', 'Liner: Claude Router', 'liner', 200000)],
+      error: null,
+    },
   });
   await action('연결 테스트');
-  expect(await within(card()).findByText(/응답 377ms · 모델 2개/)).toBeVisible();
+  expect(await within(card()).findByText('연결됨 · 377ms · 모델 2개 (대화용 2개) · 업체 1곳')).toBeVisible();
+  await userEvent.click(within(card()).getByRole('button', { name: 'Liner 2개' }));
   expect(within(card()).getByText('liner-claude-router')).toBeVisible();
 });
 
 test('a long model list is searchable', async () => {
-  const models = Array.from({ length: 40 }, (_, i) => `model-${i}`).concat(['liner-mark']);
+  const models = Array.from({ length: 40 }, (_, i) => info(`v/model-${i}`, `Vendor: Model ${i}`, 'v', 8192)).concat([
+    info('liner-mark', 'Liner: Liner Mark', 'liner', 1048576),
+  ]);
   renderAs('admin', undefined, {
     '/api/llm/connections': [connection()],
     'POST /api/llm/connections/1/test': { ok: true, latency_ms: 300, models, error: null },
   });
   await action('연결 테스트');
-  const search = await within(card()).findByLabelText('모델 찾기');
+  const search = await within(card()).findByRole('searchbox', { name: '모델 찾기' });
   await userEvent.type(search, 'mark');
   expect(within(card()).getByText('liner-mark')).toBeVisible();
-  expect(within(card()).queryByText('model-1')).toBeNull();
+  expect(within(card()).queryByText('v/model-1')).toBeNull();
 });
 
 test('a failed card test shows the server message and code', async () => {

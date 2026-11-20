@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ListNote, ModelCell, RowFoot, StrategySelect, type ModelLists, type RowState } from './AssignmentParts';
+import { FindPanel, ListNote, ModelCell, RowFoot, StrategySelect, usePicker, withModel, type ModelLists, type RowState } from './AssignmentParts';
 import { llmApi } from './llmApi';
-import { isRouter, PURPOSES, type Assignment, type Connection, type LlmError } from './model';
+import { isRouter, PURPOSES, type Assignment, type Connection, type LlmError, type ModelInfo } from './model';
 import { ErrorLine, toProblem } from './parts';
 
 /** 연결마다 마지막으로 성공한 시험의 모델 목록. 못 불러오면 서버 글을 둔다. */
@@ -49,16 +49,9 @@ interface RowProps {
   onSaved(items: Assignment[]): void;
 }
 
-/** 배정 한 줄. 고친 줄만 [저장] 이 생기고, 저장은 그 줄 하나만 보낸다. 오류도 그 줄에 보인다. */
-function AssignmentRow({ item, connections, lists, onSaved }: RowProps) {
-  const [draft, setDraft] = useDraft(item, connections);
+/** 줄 저장: 그 줄 하나만 보내고 결과를 그 줄에 둔다. */
+function useRowSave(draft: Assignment, onSaved: RowProps['onSaved']) {
   const [state, setState] = useState<RowState>({});
-  const { label, desc } = PURPOSES[item.purpose];
-  const dirty = !same(draft, item);
-  const change = (patch: Partial<Assignment>) => {
-    setDraft((d) => ({ ...d, ...patch }));
-    setState({});
-  };
   async function save() {
     setState({ busy: true });
     try {
@@ -68,6 +61,26 @@ function AssignmentRow({ item, connections, lists, onSaved }: RowProps) {
       setState({ error: toProblem(e) });
     }
   }
+  return { state, setState, save };
+}
+
+/** 배정 한 줄. 고친 줄만 [저장] 이 생기고, 저장은 그 줄 하나만 보낸다. 오류도 그 줄에 보인다. */
+function AssignmentRow({ item, connections, lists, onSaved }: RowProps) {
+  const [draft, setDraft] = useDraft(item, connections);
+  const { state, setState, save } = useRowSave(draft, onSaved);
+  const picker = usePicker(draft, lists);
+  const [finding, setFinding] = useState(false);
+  const { label, desc } = PURPOSES[item.purpose];
+  const dirty = !same(draft, item);
+  const change = (patch: Partial<Assignment>) => {
+    setDraft((d) => ({ ...d, ...patch }));
+    setState({});
+  };
+  const pickFound = (m: ModelInfo) => {
+    picker.setVendor(m.vendor);
+    setFinding(false);
+    change(withModel(draft, m.id));
+  };
   const canSave = !state.busy && draft.model !== '' && draft.connection_id !== null;
   return (
     <div className="st-arow" role="group" aria-label={label}>
@@ -76,13 +89,12 @@ function AssignmentRow({ item, connections, lists, onSaved }: RowProps) {
           <b>{label}</b>
           <span className="st-muted">{desc}</span>
         </span>
-        <ModelCell label={label} draft={draft} connections={connections} lists={lists} onChange={change} />
+        <ModelCell label={label} draft={draft} connections={connections} picker={picker} finding={finding} onFind={() => setFinding((f) => !f)} onChange={change} />
         <span className="st-arow-std">
-          {isRouter(draft.model) && (
-            <StrategySelect label={label} value={draft.routing_strategy} onPick={(s) => change({ routing_strategy: s })} />
-          )}
+          {isRouter(draft.model) && <StrategySelect label={label} value={draft.routing_strategy} onPick={(s) => change({ routing_strategy: s })} />}
         </span>
       </div>
+      {finding && <FindPanel label={label} models={picker.all} onPick={pickFound} />}
       <ListNote list={draft.connection_id === null ? undefined : lists[draft.connection_id]} />
       {(dirty || state.error || state.done) && (
         <RowFoot state={state} dirty={dirty} canSave={canSave} onRevert={() => change(item)} onSave={save} />

@@ -1,36 +1,53 @@
 import { useState } from 'react';
-import type { Probe } from './model';
+import Table, { type Column } from '../../shared/ui/Table';
+import type { ModelInfo, Probe } from './model';
+import { ModelFilterBar, useModelFilter } from './ModelFilters';
+import { contextText, groupByVendor, shortName, type VendorGroup } from './models';
 import { ErrorLine } from './parts';
 
-/** 이보다 많으면 찾기 칸을 보인다. */
-const LONG_LIST = 12;
+const COLUMNS: Column<ModelInfo>[] = [
+  { key: 'name', header: '이름', render: (m) => <span title={m.name}>{shortName(m)}</span> },
+  { key: 'id', header: 'ID', render: (m) => <span title={m.id}>{m.id}</span> },
+  { key: 'context', header: '문맥 길이', align: 'right', render: (m) => contextText(m.context_length) },
+];
 
-function ModelList({ models }: { models: string[] }) {
-  const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
-  const shown = q ? models.filter((m) => m.toLowerCase().includes(q)) : models;
+/** 업체 한 묶음. 접혀 있고, 누르면 이름 · ID · 문맥 길이 표가 열린다. 찾는 중이면 열어 둔다. */
+function VendorGroupView({ group, forceOpen }: { group: VendorGroup; forceOpen: boolean }) {
+  const [open, setOpen] = useState(false);
+  const shown = forceOpen || open;
   return (
-    <div className="st-models">
-      {models.length > LONG_LIST && (
-        <input
-          className="st-search"
-          aria-label="모델 찾기"
-          placeholder="모델 찾기"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      )}
-      <ul className="st-model-list" aria-label="모델 목록">
-        {shown.map((m) => (
-          <li key={m}>{m}</li>
-        ))}
-      </ul>
-      {shown.length === 0 && <p className="st-muted">찾는 모델이 없습니다.</p>}
-    </div>
+    <section className="st-vgroup">
+      <button type="button" className="st-vgroup-head" aria-expanded={shown} onClick={() => setOpen(!shown)}>
+        <span>{group.vendor_name}</span> <span className="st-muted">{group.models.length}개</span>
+      </button>
+      {shown && <Table label={`${group.vendor_name} 모델`} columns={COLUMNS} rows={group.models} rowKey={(m) => m.id} />}
+    </section>
   );
 }
 
-/** 연결 시험 결과: 성공이면 응답 시간·모델 수·모델 목록, 실패면 서버의 글과 코드. */
+/** 요약 줄 + 찾기·거르개 + 업체별 묶음. 원문 목록을 늘어놓지 않는다. */
+function ModelBrowser({ probe }: { probe: Probe }) {
+  const { filter, setFilter, results, facets } = useModelFilter(probe.models);
+  const chat = probe.models.filter((m) => m.chat).length;
+  const vendors = new Set(probe.models.map((m) => m.vendor)).size;
+  const searching = filter.query.trim() !== '' || filter.vendors.length > 0 || filter.linerRouters;
+  return (
+    <>
+      <div className="st-probe st-probe-ok" role="status">
+        {`연결됨 · ${probe.latency_ms}ms · 모델 ${probe.models.length}개 (대화용 ${chat}개) · 업체 ${vendors}곳`}
+      </div>
+      <ModelFilterBar filter={filter} onChange={setFilter} facets={facets} count={results.length} />
+      <div className="st-vgroups">
+        {groupByVendor(results).map((g) => (
+          <VendorGroupView key={g.vendor} group={g} forceOpen={searching} />
+        ))}
+        {results.length === 0 && <p className="st-muted">찾는 모델이 없습니다.</p>}
+      </div>
+    </>
+  );
+}
+
+/** 연결 시험 결과: 성공이면 요약과 업체별 모델, 실패면 서버의 글과 코드. 마법사와 카드가 함께 쓴다. */
 export default function ProbeResult({ probe }: { probe: Probe }) {
   if (!probe.ok) {
     return (
@@ -43,13 +60,5 @@ export default function ProbeResult({ probe }: { probe: Probe }) {
       </div>
     );
   }
-  return (
-    <>
-      <div className="st-probe st-probe-ok" role="status">
-        <b>연결되었습니다</b>
-        {` · 응답 ${probe.latency_ms}ms · 모델 ${probe.models.length}개를 불러왔습니다`}
-      </div>
-      <ModelList models={probe.models} />
-    </>
-  );
+  return <ModelBrowser probe={probe} />;
 }

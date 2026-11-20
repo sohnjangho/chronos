@@ -8,9 +8,9 @@ import { useWindows } from '../../os/windowStore';
 import { json, signInAs, stubFetch } from '../../test-helpers';
 import manifest from './index';
 import type { Connection } from './model';
-import { connection, FAKE_SECRET, LINER_URL, renderAs, resetAll, routes, sent } from './testKit';
+import { connection, FAKE_SECRET, info, LINER_URL, renderAs, resetAll, routes, sent } from './testKit';
 
-const OK_PROBE = { ok: true, latency_ms: 398, models: ['liner-mark'], error: null };
+const OK_PROBE = { ok: true, latency_ms: 398, models: [info('liner-mark', 'Liner: Liner Mark', 'liner', 1048576)], error: null };
 const BAD_KEY = { ok: false, latency_ms: 120, models: [], error: { code: 'bad_key', message: 'API 키가 맞지 않습니다.' } };
 
 const wizard = () => screen.getByRole('region', { name: '연결 추가' });
@@ -48,7 +48,8 @@ test('save is disabled until the test passes', async () => {
   await userEvent.click(testBtn());
   expect(await screen.findByText(/모델 1개/)).toBeVisible();
   expect(saveBtn()).toBeEnabled();
-  expect(screen.getByText(/응답 398ms/)).toBeVisible();
+  expect(screen.getByText('연결됨 · 398ms · 모델 1개 (대화용 1개) · 업체 1곳')).toBeVisible();
+  await userEvent.click(within(wizard()).getByRole('button', { name: 'Liner 1개' }));
   expect(within(wizard()).getByText('liner-mark')).toBeVisible();
   expect(sent(fetchMock, 'POST /api/llm/connections/test')).toEqual([
     { provider: 'liner', base_url: LINER_URL, secret: FAKE_SECRET },

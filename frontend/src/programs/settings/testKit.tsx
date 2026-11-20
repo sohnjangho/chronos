@@ -5,13 +5,29 @@ import type { Role } from '../../os/session';
 import { useSession } from '../../os/session';
 import { useWindows } from '../../os/windowStore';
 import { signInAs, stubFetch } from '../../test-helpers';
-import type { Connection } from './model';
+import type { Connection, ModelInfo } from './model';
 import Settings from './Settings';
 
 /** 누가 봐도 가짜인 키. */
 export const FAKE_SECRET = 'abcd1234efgh5678';
 export const LINER_URL = 'https://platform.liner.com/api/v1';
-export const MODELS = ['liner-mark', 'liner-claude-router', 'liner-gpt-router'];
+/** 가짜 모델 한 개. 업체 이름은 이름의 "업체: " 앞, 없으면 업체 이름을 대문자로 시작. */
+export function info(id: string, name: string, vendor: string, context_length: number | null, chat = true): ModelInfo {
+  const vendor_name = name.includes(':') ? name.split(':')[0] : vendor[0].toUpperCase() + vendor.slice(1);
+  return { id, name, vendor, vendor_name, context_length, chat };
+}
+
+/** 연결 1 의 모델 목록(Liner 모양). Liner 대화용 셋 + 다른 업체 넷 + 대화용 아닌 것 하나. */
+export const MODELS: ModelInfo[] = [
+  info('liner-mark', 'Liner: Liner Mark', 'liner', 1048576),
+  info('liner-claude-router', 'Liner: Claude Router', 'liner', 200000),
+  info('liner-gpt-router', 'Liner: GPT Router', 'liner', 400000),
+  info('anthropic/claude-sonnet-5', 'Anthropic: Claude Sonnet 5', 'anthropic', 1000000),
+  info('openai/gpt-6', 'OpenAI: GPT-6', 'openai', 128000),
+  info('google/gemini-4-neon', 'Google: Gemini 4 Neon', 'google', 1048576),
+  info('openai/batch-only', 'OpenAI: Batch Only', 'openai', 128000, false),
+];
+export const LINER_CHAT_IDS = ['liner-mark', 'liner-claude-router', 'liner-gpt-router'];
 
 export function connection(over: Partial<Connection> = {}): Connection {
   return {
