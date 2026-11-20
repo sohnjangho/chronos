@@ -31,6 +31,7 @@ MAX_OD = 3650
 MAX_LAG = 365
 MAX_ACTIVITIES = 400
 NOT_JSON = "답이 JSON 객체가 아닙니다."
+CUT_BY_LENGTH = "답이 길이 제한에 걸려 잘렸습니다. 액티비티를 묶어 더 짧게 다시 내 주세요."
 START_LABEL = "착공일"
 # 착공일로 읽는 사실(fact)의 label. 이 말과 똑같을 때만("외부 마감 시작" 같은 것은 아니다)
 START_LABELS = frozenset({"착공", "착공일", "착수", "착수일", "시작일", "프로젝트 시작"})
@@ -92,6 +93,8 @@ def _reason(error: ValidationError) -> str:
 
 
 def _read[M: BaseModel](reply: LlmReply, model: type[M]) -> M:
+    if reply.finish_reason == "length":  # max_tokens 에 걸려 잘린 답은 모양이 맞아도 읽지 않는다
+        raise DraftProblem(CUT_BY_LENGTH)
     if reply.parsed is None:
         raise DraftProblem(NOT_JSON)
     try:

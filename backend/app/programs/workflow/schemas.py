@@ -26,7 +26,7 @@ class StepOut(BaseModel):
     ms: int | None
     model: str | None
     tokens: int
-    cost: float | None
+    cost: float | None  # 그 LLM 답의 비용. 제공자가 알리지 않으면 null(Liner 는 지금 알리지 않는다)
 
 
 class RunDetail(RunOut):

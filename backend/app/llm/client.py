@@ -43,6 +43,8 @@ _FAILURES = (
     OverflowError,
 )
 _MAX_SQL_INT = 2**63 - 1  # SQLite INTEGER 의 가장 큰 값
+# 쓰임새마다 답의 최대 길이(토큰). 모든 요청에 max_tokens 로 보낸다. 넘으면 finish_reason 이 "length" 다.
+MAX_TOKENS: dict[str, int] = {"light": 2000, "normal": 4000, "hard": 16000, "longdoc": 8000}
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,7 @@ class LlmReply:
     model: str  # 실제로 답한 모델
     usage: Usage
     parsed: dict | None = None  # json_schema 를 준 호출에서 답이 JSON 객체일 때만
+    finish_reason: str | None = None  # choices[0].finish_reason("length" 면 max_tokens 에 걸려 잘림). 없으면 None
 
 
 class LlmNotReady(Exception):
@@ -116,9 +119,9 @@ def _wire_messages(messages: list[dict]) -> list[dict]:
 
 
 def _request_body(
-    target: _Target, messages: list[dict], tools: list[dict] | None, json_schema: dict | None
+    target: _Target, purpose: Purpose, messages: list[dict], tools: list[dict] | None, json_schema: dict | None
 ) -> dict:
-    body: dict = {"model": target.model, "messages": _wire_messages(messages)}
+    body: dict = {"model": target.model, "messages": _wire_messages(messages), "max_tokens": MAX_TOKENS[purpose]}
     if tools:
         body["tools"] = tools
     if json_schema is not None:
@@ -205,7 +208,9 @@ def _parse_reply(data: dict, requested_model: str, *, want_json: bool) -> LlmRep
     모양이 틀리면 ValueError·TypeError·LookupError, 숫자가 넘치면(토큰 수 1e400·Infinity,
     400자리 정수 cost) OverflowError (→ 모두 unknown 실패로 바뀐다).
     """
-    message = _object(data["choices"][0]["message"])
+    choice = _object(data["choices"][0])
+    message = _object(choice["message"])
+    finish = choice.get("finish_reason")
     text = _text(message.get("content"))
     usage = data.get("usage")
     usage = {} if usage is None else _object(usage)
@@ -220,6 +225,7 @@ def _parse_reply(data: dict, requested_model: str, *, want_json: bool) -> LlmRep
             cost=float(cost) if cost is not None else None,
         ),
         parsed=_json_object(text) if want_json else None,
+        finish_reason=finish if isinstance(finish, str) else None,
     )
 
 
@@ -292,7 +298,8 @@ class LlmClient:
         """llm_calls 한 줄을 LlmCall 의 bind(같은 DB)에 따로 연 짧은 세션으로 저장한다.
 
         부른 쪽 세션은 commit·expire 하지 않는다. 제공자가 준 값은 쓸 수 있게 다듬는다
-        (토큰 수 0~2^63-1, 비용은 유한한 값 아니면 None, 모델 이름의 쓸 수 없는 글자는 '?').
+        (토큰 수 0~2^63-1, 비용은 유한한 값 아니면 None, 모델 이름·finish_reason 의 쓸 수 없는 글자는 '?',
+        finish_reason 은 20자까지).
         저장이 어떤 이유로든 실패하면 되돌리고 경고(예외 종류만)를 남길 뿐, 호출 결과는 바꾸지 않는다.
         """
         try:
@@ -308,6 +315,7 @@ class LlmClient:
                 latency_ms=latency_ms,
                 ok=error is None,
                 error_code=error.code if error else None,
+                finish_reason=_storable(reply.finish_reason)[:20] if reply and reply.finish_reason else None,
             )
             with Session(self._session.get_bind(LlmCall)) as recorder:
                 recorder.add(row)
@@ -333,7 +341,7 @@ class LlmClient:
     ) -> LlmReply:
         """한 번 부른다. 연결이 없으면 LlmNotReady, 보낸 뒤 실패하면 LlmFailed.
 
-        - timeout_s 는 호출 전체에 건다. tools 는 registry.as_llm_tools() 형식.
+        - timeout_s 는 호출 전체에 건다. tools 는 registry.as_llm_tools() 형식. max_tokens 는 MAX_TOKENS.
         - json_schema 를 주면 strict 모드로 그 모양의 JSON 을 요청한다. strict 모드는 모든 속성이
           required 에 들어 있고 additionalProperties 가 false 여야 하므로(중첩 객체도) 스키마를
           그렇게 써서 넘긴다. 답이 JSON 객체면 reply.parsed 에 담는다(아니면 parsed=None,
@@ -351,7 +359,7 @@ class LlmClient:
           된다. 그러면 SQLite busy timeout(기본 5초)을 기다린 뒤 사용량 기록이 빠질 수 있다.
         """
         target = self._target(purpose)
-        body = _request_body(target, messages, tools, json_schema)
+        body = _request_body(target, purpose, messages, tools, json_schema)
         reply: LlmReply | None = None
         error: LlmError | None = None
         start = time.perf_counter()

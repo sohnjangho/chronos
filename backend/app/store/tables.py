@@ -71,6 +71,8 @@ class LlmCall(Base):
     ok: Mapped[bool]
     error_code: Mapped[str | None] = mapped_column(String(20), default=None)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    # 제공자가 알린 끝난 까닭(stop·length·tool_calls …). 알리지 않았거나 실패면 None
+    finish_reason: Mapped[str | None] = mapped_column(String(20), default=None)
 
 
 class ScheduleRecord(Base):

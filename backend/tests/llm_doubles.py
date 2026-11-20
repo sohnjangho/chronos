@@ -23,15 +23,19 @@ def chat_body(
     prompt_tokens: int = 12,
     completion_tokens: int = 5,
     cost: float | None = 0.04,
+    finish_reason: str | None = None,
 ) -> dict:
-    """OpenAI Chat Completions 응답 본문. cost=None 이면 usage.cost 를 뺀다."""
+    """OpenAI Chat Completions 응답 본문. cost=None 이면 usage.cost 를, finish_reason=None 이면 그 칸을 뺀다."""
     message: dict = {"role": "assistant", "content": text}
     if tool_calls is not None:
         message["tool_calls"] = tool_calls
     usage: dict = {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}
     if cost is not None:
         usage["cost"] = cost
-    return {"model": model, "choices": [{"index": 0, "message": message}], "usage": usage}
+    choice: dict = {"index": 0, "message": message}
+    if finish_reason is not None:
+        choice["finish_reason"] = finish_reason
+    return {"model": model, "choices": [choice], "usage": usage}
 
 
 def tool_call(llm_name: str, arguments: dict, call_id: str = "call_1") -> dict:

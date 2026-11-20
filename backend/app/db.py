@@ -8,17 +8,19 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.security.passwords import hash_password
 from app.store.tables import Base, User
+from app.store.upgrade import add_missing_columns
 
 _engine: Engine | None = None
 
 
 def init_db() -> None:
-    """표를 만들고, 첫 관리자가 없으면 만든다(있으면 건드리지 않는다)."""
+    """표를 만들고(기존 표에 빠진 칸은 더하고), 첫 관리자가 없으면 만든다(있으면 건드리지 않는다)."""
     global _engine
     settings = Settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     _engine = create_engine(f"sqlite:///{settings.data_dir / 'chronos.db'}")
     Base.metadata.create_all(_engine)
+    add_missing_columns(_engine, Base.metadata)  # 지금 모델에 더해진 칸을 기존 DB 에도 더한다
     with Session(_engine) as session:
         found = session.scalar(select(User).where(User.login_id == settings.admin_id))
         if found is None:

@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
-from app.llm.client import LlmClient, LlmFailed, LlmNotReady, _http_client
+from app.llm.client import MAX_TOKENS, LlmClient, LlmFailed, LlmNotReady, _http_client
 from app.store.tables import LlmAssignment, LlmCall, LlmConnection, User
 from tests.llm_doubles import KEY, LINER, add_connection, chat_body, tool_call
 
@@ -38,8 +38,31 @@ async def test_request_goes_to_chat_completions_with_bearer_key(llm, liner):
     assert liner.last_body == {
         "model": "liner-claude-router",
         "messages": HI,
+        "max_tokens": 2000,
         "routing_strategy": "cost",
     }
+
+
+@pytest.mark.parametrize(("purpose", "limit"), [("light", 2000), ("normal", 4000), ("hard", 16000), ("longdoc", 8000)])
+async def test_every_request_sends_the_purposes_max_tokens(llm, liner, purpose, limit):
+    await llm.chat(purpose, HI)
+    assert liner.last_body["max_tokens"] == limit == MAX_TOKENS[purpose]
+
+
+async def test_finish_reason_is_returned_and_recorded_for_every_call(llm, session, liner):
+    liner.push(
+        chat_body("잘린 답", finish_reason="length"),
+        chat_body("ok"),  # 칸이 없음
+        {"choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": 5}]},  # 글이 아님
+        httpx.Response(500),
+    )
+    assert (await llm.chat("hard", HI)).finish_reason == "length"
+    assert (await llm.chat("hard", HI)).finish_reason is None
+    assert (await llm.chat("hard", HI)).finish_reason is None
+    with pytest.raises(LlmFailed):
+        await llm.chat("hard", HI)
+    rows = session.query(LlmCall).order_by(LlmCall.id).all()
+    assert [(r.ok, r.finish_reason) for r in rows] == [(True, "length"), (True, None), (True, None), (False, None)]
 
 
 async def test_reply_text_and_usage(llm, liner):

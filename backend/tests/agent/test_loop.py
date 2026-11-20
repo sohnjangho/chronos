@@ -837,3 +837,21 @@ async def test_assistant_text_is_saved_before_its_text_event(session, admin_user
 
 def test_to_sse_turns_non_json_values_into_text():
     assert to_sse(AgentEvent("card", {"d": date(2027, 3, 1)})) == 'event: card\ndata: {"d": "2027-03-01"}\n\n'
+
+
+# ── 답 잘림(finish_reason "length") ──
+
+
+@pytest.mark.parametrize(
+    ("text", "finish", "shown"),
+    [
+        ("긴 설명의 앞부분", "length", "긴 설명의 앞부분 (답이 길어 잘렸습니다)"),
+        ("", "length", "(답이 길어 잘렸습니다)"),  # 글 없이 잘려도 알린다
+        ("다 쓴 답", "stop", "다 쓴 답"),
+    ],
+)
+async def test_text_answer_cut_by_length_says_so(run, session, chat_id, text, finish, shown):
+    ev = await run(ScriptedLlm([reply(text, finish_reason=finish)]), "길게 설명해 줘")
+    assert [e.data["text"] for e in ev if e.type == "text"] == [shown]
+    assert stored(session, chat_id)[-1] == ("assistant", {"kind": "text", "text": shown})  # 저장한 글도 같다
+    assert session.query(LlmCall).one().finish_reason == finish

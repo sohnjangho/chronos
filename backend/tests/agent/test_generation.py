@@ -1,3 +1,4 @@
+import json
 from datetime import date, timedelta
 
 import httpx
@@ -35,7 +36,7 @@ from tests.gen_doubles import (
     system_text,
     user_text,
 )
-from tests.llm_doubles import FakeLiner
+from tests.llm_doubles import FakeLiner, chat_body
 
 
 async def gen(ctx, llm, *, level="L3", facts=(START_FACT,), inputs=(), assumptions=(), max_rounds=5):
@@ -240,6 +241,31 @@ async def test_broken_round_keeps_the_previous_violations_in_feedback(ctx, llm, 
     assert r.ok and [x.violations for x in r.rounds] == [1, -1, 0]
     text = user_text(liner, 3)
     assert "고리" in text and "준공이 기한보다 3일 늦습니다." in text
+
+
+CUT = "답이 길이 제한에 걸려 잘렸습니다. 액티비티를 묶어 더 짧게 다시 내 주세요."
+
+
+def cut(item: dict) -> dict:
+    """max_tokens 에 걸려 잘린 답(finish_reason "length"). 모양이 맞는 JSON 이어도 초안으로 읽지 않아야 한다."""
+    return chat_body(json.dumps(item, ensure_ascii=False), finish_reason="length")
+
+
+async def test_draft_cut_by_length_is_broken_and_fed_back(ctx, llm, liner, session):
+    script(liner, WBS_OK)
+    liner.push(cut(SCHED_OK))
+    script(liner, SCHED_OK)
+    r = await gen(ctx, llm)
+    assert r.ok and r.rounds == [GenRound(1, 0, -1), GenRound(2, 4, 0)]
+    assert f"앞 답이 깨졌습니다: {CUT}" in user_text(liner, 2)
+    assert [c.finish_reason for c in session.query(LlmCall).order_by(LlmCall.id)] == [None, "length", None]
+
+
+async def test_wbs_cut_by_length_is_asked_again(ctx, llm, liner):
+    liner.push(cut(WBS_OK))
+    script(liner, WBS_OK, SCHED_OK)
+    r = await gen(ctx, llm)
+    assert r.ok and [x.violations for x in r.rounds] == [-1, 0] and CUT in user_text(liner, 1)
 
 
 async def test_huge_duration_is_broken_and_loop_continues(ctx, llm, liner):

@@ -49,6 +49,7 @@ QUESTIONNAIRE_TITLE = "질문지 답"
 REJECTED_TITLE = "승인 거부 뒤 다시 짜기"
 _TITLES = {"questionnaire_submitted": QUESTIONNAIRE_TITLE, "approval_rejected": REJECTED_TITLE}  # 글이 아닌 시작
 PING = AgentEvent("ping", {})
+CUT_NOTE = " (답이 길어 잘렸습니다)"  # max_tokens 에 걸려 잘린 글 답 끝에 붙인다
 _MAX_SQL_INT = 2**63 - 1
 
 
@@ -229,6 +230,8 @@ class _Turn:
                     return
                 text = json_safe(reply.text)
                 if not reply.tool_calls:
+                    if reply.finish_reason == "length":
+                        text = f"{text}{CUT_NOTE}" if text else CUT_NOTE.strip()
                     self.answer(text)
                     if text:
                         yield AgentEvent("text", {"text": text})
