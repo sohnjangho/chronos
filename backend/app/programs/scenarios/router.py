@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.programs.scenarios import service
+from app.programs.scenarios import compare, service
 from app.programs.scenarios.schemas import (
+    CompareOut,
+    CompareSummaryOut,
     DiscardOut,
     ScenarioDetail,
     ScenarioOut,
@@ -41,3 +43,14 @@ def discard_scenario(schedule_id: int, scenario_id: int, session: SessionDep) ->
 @router.post("/{schedule_id}/scenarios/{scenario_id}/submit")
 def submit_scenario(schedule_id: int, scenario_id: int, body: SubmitIn, session: SessionDep, user: UserDep) -> SubmitOut:
     return service.submit(session, schedule_id, scenario_id, body, user)
+
+
+@router.get("/{schedule_id}/compare")
+def compare_plans(schedule_id: int, other: str, session: SessionDep, base: str = "current") -> CompareOut:
+    """두 안(current · plan · v:<n> · s:<복사본 id>)의 요약과 액티비티별 차이."""
+    return compare.compare(session, schedule_id, base, other)
+
+
+@router.get("/{schedule_id}/compare/summary")
+def compare_summary(schedule_id: int, session: SessionDep) -> CompareSummaryOut:
+    return compare.summary(session, schedule_id)

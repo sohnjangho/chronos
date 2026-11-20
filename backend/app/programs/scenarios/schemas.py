@@ -55,3 +55,49 @@ class SubmitOut(BaseModel):
     approval_id: int
     applied: bool
     status: str  # 복사본의 새 상태: submitted | applied
+
+
+class SideOut(BaseModel):
+    """비교판의 한 안(app.programs.scenarios.compare). 날짜 차이는 이 안의 조건 넣은 달력의 근무일."""
+
+    ref: str  # current | plan | v:<n> | s:<복사본 id>
+    label: str  # "현재 일정 (버전 n)" · "Plan (버전 n)" · "버전 n" · 복사본 이름
+    version: int  # 그 버전(복사본은 떠 온 버전)
+    finish: str  # YYYY-MM-DD
+    plan_delta: int  # Plan 준공 → 이 안 준공
+    deadline_float: int | None  # 이 안 준공 → 가장 이른 켜진 finish_by(없으면 None, 늦으면 음수)
+    critical_count: int
+    violations: int  # 조건 위반 수
+    uncheckable: int  # 자동 점검 안 된 조건 수
+    peak: dict | None  # {resource_id, name, need, capacity, when} · 쓰는 자원이 없으면 None
+    changes: list[str]  # 복사본은 이동 글, 버전은 note
+    stale: bool  # 복사본이 떠 온 버전이 지금 버전이 아님
+    status: str | None  # 복사본의 상태(open·submitted·applied·discarded). 복사본이 아니면 None
+
+
+class RowCell(BaseModel):
+    start: str
+    finish: str
+    od: int
+
+
+class RowOut(BaseModel):
+    activity_id: str
+    name: str
+    wbs: str
+    base: RowCell | None  # 기준에 없으면 None
+    other: RowCell | None  # 비교에 없으면 None
+    start_delta: int | None  # 근무일(기준 쪽 달력), other − base. 한쪽에만 있으면 None
+    finish_delta: int | None
+    change: Literal["pulled", "pushed", "same", "added", "removed", "duration"]
+
+
+class CompareOut(BaseModel):
+    base: SideOut
+    other: SideOut
+    rows: list[RowOut]  # 기준 차례, 다음 비교에만 있는 것
+    changed_count: int  # change 가 same 이 아닌 줄 수
+
+
+class CompareSummaryOut(BaseModel):
+    sides: list[SideOut]  # 현재 · Plan · 열린(open·submitted) 복사본 새것부터
