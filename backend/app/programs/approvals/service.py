@@ -3,7 +3,8 @@
 로그인한 누구나 같은 승인함을 보고 결정한다. 결정은 pending 인 건에만 한다(아니면 409). 두 사람이 같이 결정해도
 하나만 적힌다(store.approvals.record_decision 의 조건부 UPDATE, 진 쪽은 반영까지 되돌림).
 승인은 store.approvals.apply 로 반영한다(첫 저장은 새 일정 + Plan, 고침은 새 버전). 그 사이 일정이 바뀌었으면
-반영하지 않고 status 를 conflict 로 남긴 뒤 409 를 준다.
+반영하지 않고 status 를 conflict 로 남긴 뒤 409 를 준다. 거부·충돌은 이어진 것(만약에 복사본)에도 알린다(store.links,
+결정과 같은 commit).
 """
 
 from sqlalchemy.orm import Session
@@ -18,7 +19,7 @@ from app.programs.approvals.schemas import (
     DecideOut,
     ModeIO,
 )
-from app.store import approvals, chats
+from app.store import approvals, chats, links
 from app.store.settings import approval_mode, set_approval_mode
 from app.store.tables import Approval, User
 from app.store.versions import VersionConflict
@@ -73,9 +74,11 @@ def _approve(session: Session, row: Approval, user: User, note: str) -> None:
     try:
         approvals.apply(session, row, by_name=user.name)
     except VersionConflict as e:
+        links.after_conflict(session, row)
         _close(session, row, "conflict", user, note)  # 반영하지 않고 충돌로 남긴다
         raise ApiError(409, "version_conflict", CONFLICT_MESSAGE, {"current": e.current}) from None
     except approvals.DraftUsed:
+        links.after_conflict(session, row)
         _close(session, row, "conflict", user, note)
         raise ApiError(409, "draft_used", DRAFT_USED_MESSAGE) from None
     _close(session, row, "approved", user, note)
@@ -100,6 +103,7 @@ def decide(session: Session, approval_id: int, body: DecideIn, user: User) -> De
     if body.decision == "approve":
         _approve(session, row, user, body.note)
     else:
+        links.after_reject(session, row)
         _close(session, row, "rejected", user, body.note, retry=body.decision == "reject_retry")
     return DecideOut(status=row.status, version=row.version, schedule_id=row.schedule_id,
                      chat_session_id=row.chat_session_id, owner_is_decider=_owner_is(session, row, user))

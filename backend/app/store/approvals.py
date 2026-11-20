@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.store import links
 from app.store.drafts import get_draft
 from app.store.schedules import NotFound, create_schedule, from_json
 from app.store.tables import Approval, ChangeLog, ChatMessage
@@ -82,6 +83,7 @@ def apply(session: Session, row: Approval, *, by_name: str) -> None:
     - change: base_version 위에 새 버전. 그 사이 바뀌었으면 VersionConflict(아무것도 쓰지 않음).
     - first_save: 초안의 분야·정밀도로 새 일정(이름 = 제목)과 버전 1을 만들고 Plan 으로 둔다. 변경 이력 한 줄을 남기고
       초안을 쓴 것(used_at·schedule_id)으로 표시한다. 초안이 이미 쓰였으면 DraftUsed(아무것도 쓰지 않음).
+    반영한 뒤 이어진 것(복사본·지연 사건)에 알린다(store.links.after_apply).
     """
     schedule, conditions = from_json(row.snapshot_json), list(row.conditions_json)
     by_kind = row.requested_kind or "agent"
@@ -90,6 +92,7 @@ def apply(session: Session, row: Approval, *, by_name: str) -> None:
             session, row.schedule_id, schedule, conditions, by_kind=by_kind, by_name=by_name, note=row.title,
             changes=list(row.changes_json), base_version=row.base_version, commit=False,
         )
+        links.after_apply(session, row)
         return
     draft = get_draft(session, row.draft_id)
     if draft.used_at is not None:
@@ -102,6 +105,7 @@ def apply(session: Session, row: Approval, *, by_name: str) -> None:
     session.add(ChangeLog(schedule_id=sid, version_n=1, by_kind=by_kind, by_name=by_name, summary=row.title))
     draft.used_at, draft.schedule_id = datetime.now(UTC), sid
     row.schedule_id, row.version = sid, 1
+    links.after_apply(session, row)
     session.flush()
 
 
