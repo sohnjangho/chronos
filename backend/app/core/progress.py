@@ -10,6 +10,7 @@
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from app.core.calendar import WorkCalendar
@@ -63,6 +64,15 @@ def _share(cal: WorkCalendar, kind: str, start: date, finish: date, day: date, t
     return min(_days(cal, start, day, tags) / n, 1.0)
 
 
+def _started(bar: Bar) -> date | None:
+    """실적 시작일. 실적 시작 없이 끝났으면 지금 계산 시작과 실적 종료 가운데 이른 날. 시작 안 했으면 None."""
+    if bar.actual_start is not None:
+        return bar.actual_start
+    if bar.actual_finish is not None:
+        return min(bar.start, bar.actual_finish)
+    return None
+
+
 def planned(bar: Bar, cal: WorkCalendar, day: date) -> float:
     """Plan 이 없으면 0. 마일스톤은 day > plan_finish 이면 1. task 는 min(k/n, 1)
     (n = [plan_start, plan_finish] 의 근무일 수, k = [plan_start, day) 의 근무일 수)."""
@@ -71,42 +81,55 @@ def planned(bar: Bar, cal: WorkCalendar, day: date) -> float:
     return _share(cal, bar.kind, bar.plan_start, bar.plan_finish, day, bar.tags)
 
 
+def _done_share(bar: Bar, cal: WorkCalendar, day: date) -> float:
+    """끝난 작업(actual_finish 있음)의 몫: day > 실적 종료면 1, day ≤ 실적 시작이면 0, 그 사이는 k/n
+    (창 [실적 시작, 실적 종료 다음 날), 끝난 작업의 진도는 1). 창에 근무일이 없으면 1."""
+    finish = bar.actual_finish
+    if day > finish:
+        return 1.0
+    started = _started(bar)
+    if day <= started:
+        return 0.0
+    n = _days(cal, started, finish + ONE_DAY, bar.tags)
+    return min(_days(cal, started, day, bar.tags) / n, 1.0) if n else 1.0
+
+
 def actual(bar: Bar, cal: WorkCalendar, day: date, data_date: date) -> float | None:
-    """day > data_date 면 None. 시작 안 했거나 day ≤ 실적 시작이면 0. 끝났고 day > 실적 종료면 1.
+    """day > data_date 면 None. 끝났고 day > 실적 종료면 1. 시작 안 했거나 day ≤ 실적 시작이면 0.
     그 밖에는 진도 × k/n — 창 [실적 시작, end)(진행 중 end = data_date, 끝남 end = 실적 종료 다음 날).
-    끝난 작업의 진도는 1 로 본다. 실적 시작 없이 끝난 작업은 지금 계산 시작(cpm 이 정한 날)에서 센다.
+    끝난 작업의 진도는 1 로 본다. 실적 시작 없이 끝난 작업은 지금 계산 시작과 실적 종료 가운데 이른 날에서 센다.
     창에 근무일이 없으면(예: 토요일 시작, 월요일 Data Date) 진도 그대로다."""
     if day > data_date:
         return None
-    started = bar.actual_start or (bar.start if bar.actual_finish else None)
+    if bar.actual_finish is not None:
+        return _done_share(bar, cal, day)
+    started = bar.actual_start
     if started is None or day <= started:
         return 0.0
-    if bar.actual_finish is not None and day > bar.actual_finish:
-        return 1.0
-    if bar.actual_finish is not None:
-        end, p = bar.actual_finish + ONE_DAY, 1.0
-    else:
-        end, p = data_date, bar.progress
-    n = _days(cal, started, end, bar.tags)
+    n = _days(cal, started, data_date, bar.tags)
     if n == 0:
-        return p
-    return p * min(_days(cal, started, day, bar.tags) / n, 1.0)
+        return bar.progress
+    return bar.progress * min(_days(cal, started, day, bar.tags) / n, 1.0)
 
 
 def forecast(bar: Bar, cal: WorkCalendar, day: date, data_date: date) -> float | None:
-    """day < data_date 면 None. 끝났으면 1. 시작 전이면 지금 계산 [start, finish] 로 planned 와 같은 식.
-    진행 중이면 p + (1−p) × min(k/n, 1) — 창 [data_date, finish], k = [data_date, day) 의 근무일 수."""
+    """day < data_date 면 None. Data Date 에는 actual 과 같은 값이다(아침 규칙).
+    - 끝남: actual 과 같은 식(day > 실적 종료면 1).
+    - 시작 전: 지금 계산 [start, finish] 로 planned 와 같은 식.
+    - 진행 중: p0 + (1−p0) × min(k/n, 1). p0 = Data Date 아침의 실적(실적 시작이 Data Date 이후면 0),
+      창 [s, finish], s = max(Data Date, 실적 시작), k = [s, day) 의 근무일 수."""
     if day < data_date:
         return None
     if bar.actual_finish is not None:
-        return 1.0
+        return _done_share(bar, cal, day)
     if bar.actual_start is None:
         return _share(cal, bar.kind, bar.start, bar.finish, day, bar.tags)
-    n = _days(cal, data_date, bar.finish + ONE_DAY, bar.tags)
+    p0 = actual(bar, cal, data_date, data_date) or 0.0
+    since = max(data_date, bar.actual_start)
+    n = _days(cal, since, bar.finish + ONE_DAY, bar.tags)
     if n == 0:
-        return 1.0 if day > bar.finish else bar.progress
-    k = _days(cal, data_date, day, bar.tags)
-    return bar.progress + (1 - bar.progress) * min(k / n, 1.0)
+        return 1.0 if day > bar.finish else p0
+    return p0 + (1 - p0) * min(_days(cal, since, day, bar.tags) / n, 1.0)
 
 
 def _month_firsts(first: date, end: date) -> list[date]:
@@ -139,9 +162,16 @@ def points(bars: list[Bar], data_date: date, unit: Unit) -> list[date]:
     return sorted(set(days))
 
 
+def half_up(x: float, digits: int = 0) -> float:
+    """반올림. 0.5 는 0 에서 먼 쪽으로(12.5 → 13, 0.25 → 0.3, −0.25 → −0.3), −0.0 은 0.0.
+    round() 의 짝수 반올림과 이진 소수 오차를 피하려고 십진수(짧은 표기)로 센다."""
+    q = Decimal(str(x)).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
+    return float(q) + 0.0
+
+
 def _pct(x: float) -> float:
-    """소수 1자리 퍼센트(-0.0 은 0.0)."""
-    return round(x, 1) + 0.0
+    """소수 1자리 퍼센트."""
+    return half_up(x, 1)
 
 
 def weighted(bars: list[Bar], fractions: dict[str, float]) -> float:
@@ -157,7 +187,7 @@ def spi(plan_pct: float, actual_pct: float) -> float | None:
     """실적 ÷ 계획, 소수 2자리. 계획이 0 이면 None."""
     if plan_pct <= 0:
         return None
-    return round(actual_pct / plan_pct, 2) + 0.0
+    return half_up(actual_pct / plan_pct, 2)
 
 
 def _at(bars: list[Bar], cal: WorkCalendar, day: date, data_date: date) -> tuple[float, float | None, float | None]:
@@ -177,3 +207,33 @@ def curve(bars: list[Bar], cal: WorkCalendar, *, data_date: date, unit: Unit) ->
         out.append(CurvePoint(day, plan, act, fc, _pct(plan - prev_plan), act_period))
         prev_plan, prev_act = plan, prev_act if act is None else act
     return out
+
+
+def start_block(
+    cal: WorkCalendar, pred: Bar, rel_type: str, lag: int, data_date: date, tags: tuple[str, ...] = ()
+) -> str | None:
+    """선행 관계 하나가 Data Date 아침에 후행 task(꼬리표 tags)의 시작을 막는 까닭. 막지 않으면 None.
+
+    FS 는 선행 종료, SS 는 선행 시작에서 lag 근무일(꼬리표 없는 달력, 음수면 앞당김) 뒤에 시작할 수 있다 — cpm 과 같은
+    아침·저녁 규칙(선행 종료는 저녁, 시작 마일스톤은 아침, 종료 마일스톤은 저녁). 선행 날짜는 지금 계산 날짜이고
+    실적이 있으면 그것이 곧 실적이다. FF·SF 는 시작을 막지 않는다. "오늘" 은 Data Date(후행 달력의 다음 근무일).
+    - 선행이 Data Date 아침까지 끝나지(FS) / 시작하지(SS) 않았으면 lag ≥ 0 일 때 늘 막힘: "선행 미완료" / "선행 미착수".
+      앞당김(lag < 0)이면 지금 계산 날짜로 센 가능일이 오늘보다 늦을 때만 막힌다.
+    - 끝났거나 시작했는데 lag 이 아직 다 지나지 않았으면 "선행 뒤 n일 대기"(n = lag).
+    """
+    if rel_type == "FS":
+        evening, anchor, reason = pred.kind != "start_ms", pred.finish, "선행 미완료"
+        ready = pred.actual_finish is not None and pred.actual_finish < data_date
+    elif rel_type == "SS":
+        evening, anchor, reason = pred.kind == "finish_ms", pred.start, "선행 미착수"
+        started = _started(pred)
+        ready = started is not None and started <= data_date
+    else:
+        return None
+    if lag:
+        anchor = cal.shift(cal.prev_workday(anchor) if evening else anchor, lag)
+    earliest = cal.next_workday(anchor + ONE_DAY if evening else anchor, tags)
+    blocked = cal.next_workday(data_date, tags) < earliest or (not ready and lag >= 0)
+    if not blocked:
+        return None
+    return f"선행 뒤 {lag}일 대기" if ready else reason

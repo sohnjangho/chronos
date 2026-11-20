@@ -11,9 +11,11 @@ from app.core.progress import (
     actual,
     curve,
     forecast,
+    half_up,
     planned,
     points,
     spi,
+    start_block,
     weighted,
 )
 
@@ -105,8 +107,10 @@ def test_forecast_before_data_date_is_none():
     assert forecast(bar(), CAL, d(3, 2), d(3, 3)) is None
 
 
-def test_forecast_finished_is_one():
-    assert forecast(bar(act=(d(3, 1), d(3, 5)), p=1.0), CAL, d(3, 3), d(3, 3)) == 1.0
+def test_forecast_finished_follows_the_actual_finish():
+    """끝난 작업의 예측은 실적과 같은 식(day > 실적 종료면 1) — fix round 1 판단 m2."""
+    b = bar(act=(d(3, 1), d(3, 5)), p=1.0)
+    assert (forecast(b, CAL, d(3, 3), d(3, 3)), forecast(b, CAL, d(3, 6), d(3, 3))) == (pytest.approx(0.4), 1.0)
 
 
 def test_forecast_not_started_follows_the_current_dates():
@@ -188,3 +192,86 @@ def test_curve_matches_the_brief_example():
 
 def test_curve_without_bars_is_empty():
     assert curve([], CAL, data_date=d(3, 3), unit="week") == []
+
+
+# --- fix round 1 ---------------------------------------------------------------------------------
+
+
+def test_finished_without_actual_start_after_its_finish_is_one():
+    """지금 계산 시작이 실적 종료보다 늦게 잡혀 있어도 실적 종료 다음 날부터 1(m3)."""
+    b = bar(now=(d(3, 8), d(3, 12)), act=(None, d(3, 5)), p=1.0)
+    assert (actual(b, CAL, d(3, 8), d(3, 15)), actual(b, CAL, d(3, 5), d(3, 15))) == (1.0, 0.0)
+
+
+def test_actual_and_forecast_agree_when_finishing_on_the_data_date():
+    """Data Date 에 끝난 작업: 그 날 아침에는 아직 다 끝나지 않았다 — 실적·예측 모두(m2)."""
+    b = bar(now=(d(3, 1), d(3, 3)), act=(d(3, 1), d(3, 3)), p=1.0)  # 창 [3/1, 3/4) = 3 근무일, 아침까지 2
+    assert actual(b, CAL, d(3, 3), d(3, 3)) == forecast(b, CAL, d(3, 3), d(3, 3)) == pytest.approx(2 / 3)
+    assert forecast(b, CAL, d(3, 4), d(3, 3)) == 1.0
+
+
+def test_actual_and_forecast_agree_when_starting_on_the_data_date():
+    """Data Date 에 시작한 작업: 그 날 아침에는 한 일이 없다. 예측은 0 에서 지금 종료까지 오른다(m2)."""
+    b = bar(now=(d(3, 3), d(3, 8)), act=(d(3, 3), None), p=0.3)  # 창 [3/3, 3/8] = 4 근무일
+    assert actual(b, CAL, d(3, 3), d(3, 3)) == forecast(b, CAL, d(3, 3), d(3, 3)) == 0.0
+    assert forecast(b, CAL, d(3, 5), d(3, 3)) == pytest.approx(0.5)
+
+
+def test_curve_lines_meet_at_the_data_date():
+    bars = [
+        bar("A", w=0.5, now=(d(3, 1), d(3, 3)), act=(d(3, 1), d(3, 3)), p=1.0),
+        bar("B", w=0.5, plan=(d(3, 4), d(3, 8)), now=(d(3, 3), d(3, 9)), act=(d(3, 3), None), p=0.4),
+    ]
+    at = next(x for x in curve(bars, CAL, data_date=d(3, 3), unit="week") if x.date == d(3, 3))
+    assert at.actual_cum == at.forecast_cum == 33.3
+
+
+def test_half_up_rounds_halves_away_from_zero():
+    assert (half_up(12.5), half_up(0.25, 1), half_up(0.125, 2), half_up(-0.25, 1), half_up(-0.04, 1)) == (
+        13.0, 0.3, 0.13, -0.3, 0.0
+    )
+    assert spi(8.0, 1.0) == 0.13  # round() 라면 0.12
+
+
+# --- start_block (앞으로 3주의 막힘) ---------------------------------------------------------------
+
+
+def test_fs_blocks_until_the_predecessor_finishes():
+    a = bar(now=(d(3, 1), d(3, 8)), act=(d(3, 1), None), p=0.2)
+    assert start_block(CAL, a, "FS", 0, d(3, 3)) == "선행 미완료"
+
+
+def test_fs_lag_waits_whole_workdays_after_the_actual_finish():
+    a = bar(act=(d(3, 1), d(3, 5)), p=1.0)  # 금요일 저녁 끝, lag 2 → 월·화 기다리고 수요일 아침
+    assert start_block(CAL, a, "FS", 2, d(3, 9)) == "선행 뒤 2일 대기"
+    assert start_block(CAL, a, "FS", 2, d(3, 10)) is None
+
+
+def test_fs_without_lag_is_free_the_next_workday_even_from_a_weekend_data_date():
+    a = bar(act=(d(3, 1), d(3, 5)), p=1.0)
+    assert (start_block(CAL, a, "FS", 0, d(3, 6)), start_block(CAL, a, "FS", 0, d(3, 8))) == (None, None)
+
+
+def test_fs_finishing_on_the_data_date_is_not_finished_that_morning():
+    a = bar(now=(d(3, 1), d(3, 3)), act=(d(3, 1), d(3, 3)), p=1.0)
+    assert start_block(CAL, a, "FS", 0, d(3, 3)) == "선행 미완료"
+
+
+def test_fs_lead_lets_the_successor_start_before_the_predecessor_finishes():
+    a = bar(now=(d(3, 1), d(3, 8)), act=(d(3, 1), None), p=0.2)  # 지금 종료 3/8(월)
+    assert start_block(CAL, a, "FS", -4, d(3, 3)) is None  # 3/8 저녁에서 근무일 4 앞 = 3/2 저녁 → 3/3 아침
+    assert start_block(CAL, a, "FS", -3, d(3, 3)) == "선행 미완료"  # 3/3 저녁 → 3/4 아침
+
+
+def test_ss_needs_the_predecessor_started():
+    started = bar(now=(d(3, 1), d(3, 8)), act=(d(3, 1), None), p=0.2)
+    waiting = bar(plan=(d(3, 8), d(3, 12)), now=(d(3, 9), d(3, 15)))
+    assert start_block(CAL, started, "SS", 0, d(3, 3)) is None
+    assert start_block(CAL, waiting, "SS", 0, d(3, 3)) == "선행 미착수"
+    assert start_block(CAL, started, "SS", 3, d(3, 3)) == "선행 뒤 3일 대기"  # 3/1 아침 + 근무일 3 → 3/4
+    assert start_block(CAL, started, "SS", 3, d(3, 4)) is None
+
+
+def test_ff_and_sf_never_block_the_start():
+    waiting = bar(plan=(d(3, 8), d(3, 12)), now=(d(3, 9), d(3, 15)))
+    assert (start_block(CAL, waiting, "FF", 0, d(3, 3)), start_block(CAL, waiting, "SF", 2, d(3, 3))) == (None, None)

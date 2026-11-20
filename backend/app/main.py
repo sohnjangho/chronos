@@ -17,15 +17,20 @@ def include_program_routers(target: FastAPI) -> list[str]:
     """app/programs/*/router.py 를 프로그램 이름 순으로 불러, 이름이 router 로 끝나는 APIRouter 를 모두 붙인다.
 
     새 프로그램은 router.py 만 두면 등록된다(이 파일을 고치지 않는다). 돌려주는 것은 라우터를 붙인 프로그램 이름.
+    같은 라우터 객체(다른 router.py 가 다시 내보낸 것)는 한 번만 붙인다. 라우터가 없는 router.py 는 시작할 때 오류다.
     """
-    names = []
+    names, seen = [], set()
     for path in sorted(Path(programs.__file__).parent.glob("*/router.py"), key=lambda p: p.parent.name):
-        module = importlib.import_module(f"app.programs.{path.parent.name}.router")
+        name = path.parent.name
+        module = importlib.import_module(f"{programs.__name__}.{name}.router")
         routers = [v for k, v in vars(module).items() if k.endswith("router") and isinstance(v, APIRouter)]
+        if not routers:
+            raise RuntimeError(f"{name} 프로그램의 router.py 에 라우터가 없습니다(이름이 router 로 끝나는 APIRouter).")
         for router in routers:
-            target.include_router(router)
-        if routers:
-            names.append(path.parent.name)
+            if id(router) not in seen:
+                seen.add(id(router))
+                target.include_router(router)
+        names.append(name)
     return names
 
 

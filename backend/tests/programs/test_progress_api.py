@@ -81,7 +81,7 @@ def test_tables(client, admin, sid_progress):
                         {"code": "2", "name": "골조", "weight": 0.5, "plan": 0.0, "actual": 0.0, "diff": 0.0}]
     assert p["milestones"] == [{"id": "M", "name": "준공", "plan": "2027-03-12", "actual_or_forecast": "2027-03-15", "delta": 1, "status": "지연"}]
     assert [d["id"] for d in p["top_delays"]] == ["A", "B"] and p["top_delays"][0]["finish_impact"] == 1
-    assert p["lookahead"]["blocked"] == [{"id": "B", "name": "작업 B", "date": "2027-03-09", "reason": "선행 미완: A"}]
+    assert p["lookahead"]["blocked"] == [{"id": "B", "name": "작업 B", "date": "2027-03-09", "reason": "선행 미완료: A"}]
     assert p["spi_trend"] == [{"date": "2027-03-03", "spi": 0.5}]
 
 
@@ -189,3 +189,96 @@ def test_login_required(client, sid):
 def test_program_routers_are_discovered(client, admin):
     assert {"approvals", "progress", "schedule"} <= set(include_program_routers(FastAPI()))
     assert client.get("/api/settings/approval", headers=admin).status_code == 200
+
+
+# --- fix round 1 ---------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sid_added(session, sid_progress) -> int:
+    """sid_progress 버전 2 에 Plan 뒤에 더한 C(15일, wbs 1, 실적 시작 3/1·진도 0.5·남은 14일 → 3/22)를 버전 3 으로.
+    C 가 준공을 정해 크리티컬이고 A·B 는 여유가 생긴다."""
+    v2, _, n = load(session, sid_progress)
+    c = Activity("C", "작업 C", "task", "1", 15, rd=14, progress=0.5, actual_start=date(2027, 3, 1))
+    _save(session, sid_progress, replace(v2, activities=(*v2.activities, c)), n)
+    return sid_progress
+
+
+def test_activity_added_after_the_plan_is_reported_apart(client, admin, sid_added):
+    """R4: Plan 선·실적 선·SPI 는 Plan 이 있는 A·B 만(가중치 0.2·0.2 → 0.5·0.5 로 다시 나눔). C 는 따로."""
+    p = get_progress(client, admin, sid_added)
+    assert (p["plan_now"], p["actual_now"], p["spi"]) == (20.0, 10.0, 0.5)
+    assert p["added_after_plan"] == {"count": 1, "actual_pct": 50.0}
+    assert p["curve"][-1]["plan_cum"] == 100.0
+    assert p["wbs"][0] == {"code": "1", "name": "기초", "weight": 0.5, "plan": 40.0, "actual": 20.0, "diff": -20.0}
+    assert p["counts"]["total"] == 3
+
+
+def test_critical_variance_is_null_without_a_planned_critical_task(client, admin, sid_added):
+    assert get_progress(client, admin, sid_added)["cpm"]["critical_variance"] is None  # 크리티컬은 Plan 없는 C 뿐
+
+
+def test_lookahead_blocks_by_relation_type(client, admin, session, sid_progress):
+    """I1: D(SS ← 시작한 A)·E(FF ← A)·G(SF ← B)는 막히지 않고, F(SS ← 시작 전 B)는 막힌다."""
+    v2, _, n = load(session, sid_progress)
+    extra = tuple(Activity(i, f"작업 {i}", "task", "2", 2) for i in ("D", "E", "F", "G"))
+    rels = (Relation("A", "D", "SS"), Relation("A", "E", "FF"), Relation("B", "F", "SS"), Relation("B", "G", "SF"))
+    _save(session, sid_progress, replace(v2, activities=(*v2.activities, *extra), relations=(*v2.relations, *rels)), n)
+    la = get_progress(client, admin, sid_progress)["lookahead"]
+    assert [(s["id"], s["date"]) for s in la["starts"]] == [
+        ("D", "2027-03-03"), ("E", "2027-03-05"), ("G", "2027-03-08"), ("B", "2027-03-09"), ("F", "2027-03-09")
+    ]
+    assert la["blocked"] == [
+        {"id": "B", "name": "작업 B", "date": "2027-03-09", "reason": "선행 미완료: A"},
+        {"id": "F", "name": "작업 F", "date": "2027-03-09", "reason": "선행 미착수: B"},
+    ]
+
+
+def test_nested_wbs_rolls_up_to_the_top_group(client, admin, session):
+    base = _plan()
+    plan = replace(
+        base,
+        wbs=(WbsNode("1", "기초", None), WbsNode("1.1", "터파기", "1"), WbsNode("2", "골조", None)),
+        activities=(replace(base.activities[0], wbs="1.1"), *base.activities[1:]),
+    )
+    sid = schedules.store(session, plan)
+    _save(session, sid, _with(plan, date(2027, 3, 3), actual_start=date(2027, 3, 1), progress=0.2, rd=4), 1)
+    assert get_progress(client, admin, sid)["wbs"] == [
+        {"code": "1", "name": "기초", "weight": 0.5, "plan": 40.0, "actual": 20.0, "diff": -20.0},
+        {"code": "2", "name": "골조", "weight": 0.5, "plan": 0.0, "actual": 0.0, "diff": 0.0},
+    ]
+
+
+def test_milestones_done_and_ahead(client, admin, session):
+    """Plan: A(5) → M1, B(5) → M2 (모두 3/5). 지금: A 실적 3/1~3/3 끝·M1 실적 3/3, B 3일로 줄임 → M2 3/3."""
+    m1 = Activity("M1", "기초 완료", "finish_ms", "1", 0)
+    m2 = Activity("M2", "골조 완료", "finish_ms", "1", 0)
+    s = schedules.make([schedules.task("A", 5), m1, schedules.task("B", 5), m2], [Relation("A", "M1"), Relation("B", "M2")])
+    sid = schedules.store(session, s)
+    a, _, b, _ = s.activities
+    done = replace(a, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 3), progress=1.0)
+    _save(session, sid, replace(s, activities=(done, replace(m1, actual_finish=date(2027, 3, 3)), replace(b, od=3), m2)), 1)
+    assert get_progress(client, admin, sid)["milestones"] == [
+        {"id": "M1", "name": "기초 완료", "plan": "2027-03-05", "actual_or_forecast": "2027-03-03", "delta": -2, "status": "완료"},
+        {"id": "M2", "name": "골조 완료", "plan": "2027-03-05", "actual_or_forecast": "2027-03-03", "delta": -2, "status": "앞섬"},
+    ]
+
+
+def test_top_delays_keep_five_by_delay_then_schedule_order(client, admin, session):
+    longer = {"X1": 1, "X2": 3, "X3": 2, "X4": 3, "X5": 1, "X6": 2, "X7": 1}  # 서로 관계없는 2일 작업, 지금은 이만큼 김
+    s = schedules.make([schedules.task(i, 2) for i in longer])
+    sid = schedules.store(session, s)
+    _save(session, sid, replace(s, activities=tuple(replace(a, od=2 + longer[a.id]) for a in s.activities)), 1)
+    top = get_progress(client, admin, sid)["top_delays"]
+    assert [(t["id"], t["delay"], t["finish_impact"]) for t in top] == [
+        ("X2", 3, 3), ("X4", 3, 3), ("X3", 2, 0), ("X6", 2, 0), ("X1", 1, 0)
+    ]
+
+
+def test_plan_compliance_percent_rounds_half_up(client, admin, session):
+    """m8: 8개 가운데 1개 → 12.5 → 13 (짝수 반올림이면 12)."""
+    s = schedules.make([schedules.task(f"T{i}", 1) for i in range(1, 9)])  # 모두 Plan 3/1 하루
+    sid = schedules.store(session, s)
+    first = replace(s.activities[0], actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 1), progress=1.0)
+    _save(session, sid, replace(s, data_date=date(2027, 3, 15), activities=(first, *s.activities[1:])), 1)
+    assert get_progress(client, admin, sid)["cpm"]["plan_compliance"] == {"pct": 13, "done": 1, "due": 8}

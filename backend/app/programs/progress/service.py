@@ -3,6 +3,8 @@
 날짜는 일정 자료(`view_data` — 일정 화면과 같은 계산), 공정률은 core 진행 계산(`app.core.progress`)에서 온다.
 근무일은 저장된 조건을 넣은 달력(`prepare_stored`)과 액티비티의 꼬리표로 센다(일정 화면의 지연 일수와 같은 달력).
 Data Date 가 없으면 오늘(`context.today()`)을 쓴다. 날짜 d 의 값은 "d 날 아침 = 전날까지 한 일" 이다.
+공정률(Plan 선·실적 선·예측 선·SPI·WBS 표)은 Plan 이 있는 액티비티(기준 범위)만, 가중치를 그 안에서 다시 나눠 센다.
+그래서 Plan 선은 100% 에 닿는다. Plan 뒤에 더한 액티비티는 `added_after_plan` 에 따로 보인다.
 """
 
 from dataclasses import asdict
@@ -14,7 +16,16 @@ from app.agent import context
 from app.core.calendar import WorkCalendar
 from app.core.cpm import ScheduleError
 from app.core.model import Schedule
-from app.core.progress import Bar, actual, curve, planned, spi, weighted
+from app.core.progress import (
+    Bar,
+    actual,
+    curve,
+    half_up,
+    planned,
+    spi,
+    start_block,
+    weighted,
+)
 from app.errors import ApiError
 from app.harness.assemble import assemble_all, prepare_stored
 from app.harness.conditions import duplicated_later, read_conditions
@@ -29,7 +40,7 @@ ONE_DAY = timedelta(days=1)
 
 
 def _diff(a: float, b: float) -> float:
-    return round(a - b, 1) + 0.0
+    return half_up(a - b, 1)
 
 
 def _day(s: str | None) -> date | None:
@@ -109,15 +120,17 @@ def _root(code: str, parents: dict[str, str | None]) -> str | None:
 
 
 def _wbs(nodes: list[dict], bars: list[Bar], plan_now: dict, actual_now: dict) -> list[dict]:
-    """맨 위 WBS 묶음마다 공정률. 묶음 안에서 가중치를 다시 나눈다(weighted 가 묶음의 가중치 합으로 나눔)."""
+    """맨 위 WBS 묶음마다 공정률. bars = 기준 범위 막대. 묶음 안에서 가중치를 다시 나눈다(weighted 가 묶음의
+    가중치 합으로 나눔). weight = 기준 범위 가중치 가운데 묶음의 몫(소수 4자리)."""
     parents = {n["code"]: n["parent"] for n in nodes}
+    total = sum(b.weight for b in bars)
     rows = []
     for n in nodes:
         if n["parent"] is not None:
             continue
         group = [b for b in bars if _root(b.wbs, parents) == n["code"]]
         plan, act = weighted(group, plan_now), weighted(group, actual_now)
-        weight = round(sum(b.weight for b in group), 4)
+        weight = half_up(sum(b.weight for b in group) / total, 4) if total > 0 else 0.0
         rows.append({"code": n["code"], "name": n["name"], "weight": weight, "plan": plan, "actual": act, "diff": _diff(act, plan)})
     return rows
 
@@ -154,9 +167,26 @@ def _top_delays(tasks: list[Bar], acts: dict[str, dict], cal: WorkCalendar) -> l
     ]
 
 
-def _lookahead(tasks: list[Bar], view: dict, names: dict[str, str], data_date: date) -> dict:
-    """Data Date ~ +20일에 시작·종료할 task. 시작할 task 가운데 실적 종료가 없는 선행이 있으면 blocked."""
+def _blocked(starts: list[dict], bars: dict[str, Bar], relations: list[dict], cal: WorkCalendar, data_date: date) -> list[dict]:
+    """시작할 task 마다 막는 선행(start_block — 관계 종류·lag)을 까닭별로 묶는다. 예: "선행 미완료: A, C · 선행 미착수: B"."""
+    out = []
+    for s in starts:
+        why: dict[str, list[str]] = {}
+        for r in relations:
+            if r["succ"] != s["id"]:
+                continue
+            reason = start_block(cal, bars[r["pred"]], r["type"], r["lag"], data_date, bars[s["id"]].tags)
+            if reason and r["pred"] not in why.setdefault(reason, []):
+                why[reason].append(r["pred"])
+        if why:
+            out.append({**s, "reason": " · ".join(f"{k}: {', '.join(ids)}" for k, ids in why.items())})
+    return out
+
+
+def _lookahead(bars: list[Bar], relations: list[dict], names: dict[str, str], cal: WorkCalendar, data_date: date) -> dict:
+    """Data Date ~ +20일에 시작·종료할 task. 시작할 task 가운데 선행이 아직 허락하지 않는 것은 blocked."""
     to = data_date + timedelta(days=LOOKAHEAD_DAYS)
+    tasks = [b for b in bars if b.kind == "task"]
 
     def within(b: Bar, day: date) -> dict | None:
         return {"id": b.id, "name": names[b.id], "date": day} if data_date <= day <= to else None
@@ -165,12 +195,7 @@ def _lookahead(tasks: list[Bar], view: dict, names: dict[str, str], data_date: d
     finishes = [x for b in tasks if b.actual_finish is None and (x := within(b, b.finish))]
     starts.sort(key=lambda x: x["date"])
     finishes.sort(key=lambda x: x["date"])
-    unfinished = {a["id"] for a in view["activities"] if a["actual_finish"] is None}
-    blocked = []
-    for s in starts:
-        waiting = dict.fromkeys(r["pred"] for r in view["relations"] if r["succ"] == s["id"] and r["pred"] in unfinished)
-        if waiting:
-            blocked.append({**s, "reason": "선행 미완: " + ", ".join(waiting)})
+    blocked = _blocked(starts, {b.id: b for b in bars}, relations, cal, data_date)
     return {"from": data_date, "to": to, "starts": starts, "finishes": finishes, "blocked": blocked}
 
 
@@ -180,7 +205,7 @@ def _plan_compliance(tasks: list[Bar], data_date: date) -> dict | None:
     if not due:
         return None
     done = sum(b.actual_finish is not None and b.actual_finish <= b.plan_finish for b in due)
-    return {"pct": round(done / len(due) * 100), "done": done, "due": len(due)}
+    return {"pct": int(half_up(done / len(due) * 100)), "done": done, "due": len(due)}
 
 
 def _critical_variance(tasks: list[Bar], acts: dict[str, dict], cal: WorkCalendar) -> dict | None:
@@ -217,6 +242,34 @@ def _read(session: Session, schedule_id: int) -> tuple[dict, Schedule, list[dict
     return view, prepare_stored(schedule, conditions), conditions
 
 
+def _in_plan(b: Bar) -> bool:
+    return b.plan_start is not None and b.plan_finish is not None
+
+
+def _rates(bars: list[Bar], wbs: list[dict], cal: WorkCalendar, data_date: date, unit: Unit) -> dict:
+    """공정률 칸들. 기준 범위(Plan 이 있는 액티비티)로 세고, Plan 뒤에 더한 것은 수와 실적만 따로 낸다."""
+    base = [b for b in bars if _in_plan(b)]
+    added = [b for b in bars if not _in_plan(b)]
+    plan_at = {b.id: planned(b, cal, data_date) for b in base}
+    actual_at = {b.id: actual(b, cal, data_date, data_date) or 0.0 for b in bars}
+    plan_now, actual_now = weighted(base, plan_at), weighted(base, actual_at)
+    points = curve(base, cal, data_date=data_date, unit=unit)
+    return {
+        "plan_now": plan_now,
+        "actual_now": actual_now,
+        "gap": _diff(actual_now, plan_now),
+        "spi": spi(plan_now, actual_now),
+        "added_after_plan": {"count": len(added), "actual_pct": weighted(added, actual_at)},
+        "curve": [asdict(p) for p in points],
+        "spi_trend": [
+            {"date": p.date, "spi": spi(p.plan_cum, p.actual_cum)}
+            for p in points
+            if p.actual_cum is not None and p.plan_cum > 0
+        ],
+        "wbs": _wbs(wbs, base, plan_at, actual_at),
+    }
+
+
 def progress(session: Session, schedule_id: int, unit: Unit) -> ProgressOut:
     view, ready, conditions = _read(session, schedule_id)
     cal = WorkCalendar(ready.calendar)
@@ -225,10 +278,6 @@ def progress(session: Session, schedule_id: int, unit: Unit) -> ProgressOut:
     tasks = [b for b in bars if b.kind == "task"]
     acts = {a["id"]: a for a in view["activities"]}
     names = {i: a["name"] for i, a in acts.items()}
-    plan_at = {b.id: planned(b, cal, data_date) for b in bars}
-    actual_at = {b.id: actual(b, cal, data_date, data_date) or 0.0 for b in bars}
-    plan_now, actual_now = weighted(bars, plan_at), weighted(bars, actual_at)
-    points = curve(bars, cal, data_date=data_date, unit=unit)
     finish = _finish(view, cal, _deadline(conditions))
     return ProgressOut.model_validate(
         {
@@ -238,22 +287,12 @@ def progress(session: Session, schedule_id: int, unit: Unit) -> ProgressOut:
             "data_date_assumed": view["data_date"] is None,
             "unit": unit,
             "weight_mode": view.get("weight_mode", "duration"),  # Task 21 전에는 칸이 없다
-            "plan_now": plan_now,
-            "actual_now": actual_now,
-            "gap": _diff(actual_now, plan_now),
-            "spi": spi(plan_now, actual_now),
+            **_rates(bars, view["wbs"], cal, data_date, unit),
             "finish": finish,
             "counts": _counts(tasks, cal),
-            "curve": [asdict(p) for p in points],
-            "spi_trend": [
-                {"date": p.date, "spi": spi(p.plan_cum, p.actual_cum)}
-                for p in points
-                if p.actual_cum is not None and p.plan_cum > 0
-            ],
-            "wbs": _wbs(view["wbs"], bars, plan_at, actual_at),
             "milestones": _milestones(bars, names, cal),
             "top_delays": _top_delays(tasks, acts, cal),
-            "lookahead": _lookahead(tasks, view, names, data_date),
+            "lookahead": _lookahead(bars, view["relations"], names, cal, data_date),
             "cpm": _cpm(tasks, acts, cal, finish, data_date),
         }
     )

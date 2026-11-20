@@ -15,6 +15,13 @@ class FinishOut(BaseModel):
     deadline_float: int | None  # 지금 준공 → 기한의 근무일 수(남으면 +)
 
 
+class AddedOut(BaseModel):
+    """Plan 뒤에 더한 액티비티(Plan 선·SPI 에 넣지 않는다): 수와 그것들끼리의 실적 퍼센트."""
+
+    count: int
+    actual_pct: float
+
+
 class CountsOut(BaseModel):
     total: int
     done: int
@@ -117,6 +124,7 @@ class ProgressOut(BaseModel):
     actual_now: float
     gap: float
     spi: float | None
+    added_after_plan: AddedOut
     finish: FinishOut
     counts: CountsOut
     curve: list[CurvePointOut]
