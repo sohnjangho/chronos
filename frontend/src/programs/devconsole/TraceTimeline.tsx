@@ -17,15 +17,25 @@ const ESTIMATE_NOTE = '단계 기록에는 시각이 없어, 이 도구를 부�
 const UNPAIRED_NOTE = '이 도구를 부른 답이 길어서 잘려 어느 답이 불렀는지 읽을 수 없습니다. 시각은 앞 단계 뒤에 둔 어림입니다.';
 const INNER_NOTE = '도구 안 모델 호출은 글을 남기지 않습니다(모델·토큰·시간만).';
 
-function result(t: TraceItem): { text: string; danger: boolean } {
-  if (t.ok && t.ms === null && (t.kind === 'llm' || t.kind === 'tool')) return { text: '진행 중', danger: false };
+/** 시간이 없는(끝 기록이 없는) 호출은 턴이 실행 중일 때만 「진행 중」, 아니면 「끝나지 않음」. */
+function result(t: TraceItem, running: boolean): { text: string; danger: boolean } {
+  if (t.ok && t.ms === null && (t.kind === 'llm' || t.kind === 'tool')) return { text: running ? '진행 중' : '끝나지 않음', danger: false };
   if (t.ok) return { text: '성공', danger: false };
   if (t.error === 'stopped') return { text: '멈춤', danger: false };
   return { text: t.error ? `실패: ${t.error}` : '실패', danger: true };
 }
 
-function Row({ t, loop, group, open, onToggle }: { t: TraceItem; loop: number | null; group: number; open: boolean; onToggle(): void }) {
-  const r = result(t);
+interface RowProps {
+  t: TraceItem;
+  running: boolean;
+  loop: number | null;
+  group: number;
+  open: boolean;
+  onToggle(): void;
+}
+
+function Row({ t, running, loop, group, open, onToggle }: RowProps) {
+  const r = result(t, running);
   const unpaired = t.kind === 'tool' && t.parallel_group === null;
   const tokenText = t.input_tokens || t.output_tokens ? `${count(t.input_tokens)} → ${count(t.output_tokens)}` : '—';
   return (
@@ -65,7 +75,7 @@ function Row({ t, loop, group, open, onToggle }: { t: TraceItem; loop: number | 
           ) : (
             <>
               <RawBlock label="입력 원문" value={t.input_text} />
-              <RawBlock label="출력 원문" value={t.output_text} empty={t.ms === null ? '아직 없음 (진행 중)' : '없음'} />
+              <RawBlock label="출력 원문" value={t.output_text} empty={t.ms === null ? (running ? '아직 없음 (진행 중)' : '없음 (끝나지 않음)') : '없음'} />
             </>
           )}
           {t.error && t.error !== 'stopped' && <p className="dc-error">{t.error}</p>}
@@ -75,7 +85,7 @@ function Row({ t, loop, group, open, onToggle }: { t: TraceItem; loop: number | 
   );
 }
 
-export default function TraceTimeline({ items }: { items: TraceItem[] }) {
+export default function TraceTimeline({ items, running }: { items: TraceItem[]; running: boolean }) {
   const [open, setOpen] = useState<Set<number>>(new Set());
   const { loops, groups } = useMemo(() => {
     const loops = new Map<number, number>();
@@ -105,6 +115,7 @@ export default function TraceTimeline({ items }: { items: TraceItem[] }) {
           <Row
             key={t.seq}
             t={t}
+            running={running}
             loop={loops.get(t.seq) ?? null}
             group={t.parallel_group === null ? 0 : (groups.get(t.parallel_group) ?? 0)}
             open={open.has(t.seq)}

@@ -18,7 +18,7 @@ const WHAT: Record<NodeKey, string> = {
 };
 const MODEL_NODES = new Set<NodeKey>(['plan', 'judge']);
 const TOOL_NODES = new Set<NodeKey>(['tool', 'check', 'approval']);
-const STATE: Record<NodeState, { label: string; tone: 'info' | 'success' | 'neutral' }> = {
+export const STATE: Record<NodeState, { label: string; tone: 'info' | 'success' | 'neutral' }> = {
   now: { label: '지금', tone: 'info' },
   past: { label: '지나감', tone: 'success' },
   todo: { label: '아직', tone: 'neutral' },

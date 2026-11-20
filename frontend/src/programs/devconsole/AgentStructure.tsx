@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { NodeKey, StructureNode, Turn } from './devApi';
 import { hourMinute, seconds, tokens } from './format';
-import { contextParts } from './NodeDetail';
+import { contextParts, STATE } from './NodeDetail';
 import { edgeShape, edgesFor, nodeBoxes, SOURCES, type Box, type Edge } from './structureLayout';
 
 /** 그림 칸의 폭(창 크기를 바꾸면 다시). ResizeObserver 가 없으면(시험 환경) 처음 값을 쓴다. */
@@ -54,7 +54,8 @@ const fo = (b: Box) => ({ x: b.x - PAD, y: b.y - PAD, width: b.w + 2 * PAD, heig
 function EdgeLine({ edge, boxes }: { edge: Edge; boxes: ReturnType<typeof nodeBoxes> }) {
   const s = edgeShape(edge, boxes);
   return (
-    <g className={`dc-edge is-${edge.state}`}>
+    <g className={`dc-edge is-${edge.state}${edge.unknown ? ' is-unknown' : ''}`}>
+      {edge.unknown && <title>기록에 남지 않는 길</title>}
       <path d={s.d} markerEnd={`url(#dc-arrow-${edge.state})`} />
       {edge.label && (
         <text x={s.lx} y={s.ly} textAnchor={s.anchor} className="dc-edge-label">
@@ -96,6 +97,12 @@ interface Props {
 
 export default function AgentStructure({ nodes, turn, selected, onSelect }: Props) {
   const { ref, width } = useWidth(900);
+  const nowKey = nodes.find((n) => n.state === 'now')?.key ?? null;
+  const nowRef = useRef<HTMLButtonElement>(null);
+  // 요청을 열 때와 지금 칸이 바뀔 때만 지금 칸을 보이게 옮긴다(읽을 때마다가 아니다).
+  useEffect(() => {
+    if (nowKey) nowRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [turn.turn_id, nowKey]);
   const boxes = useMemo(() => nodeBoxes(width), [width]);
   const edges = useMemo(() => edgesFor(nodes), [nodes]);
   const height = Math.max(...Object.values(boxes).map((b) => b.y + b.h)) + 20;
@@ -124,7 +131,14 @@ export default function AgentStructure({ nodes, turn, selected, onSelect }: Prop
         ))}
         {nodes.map((n) => (
           <foreignObject key={n.key} {...fo(boxes[n.key])}>
-            <button type="button" className={`dc-node ${n.state}`} aria-pressed={n.key === selected} onClick={() => onSelect(n.key)}>
+            <button
+              ref={n.key === nowKey ? nowRef : undefined}
+              type="button"
+              className={`dc-node ${n.state}`}
+              aria-label={`${n.label}, ${STATE[n.state].label}, ${sub(n, turn)}`}
+              aria-pressed={n.key === selected}
+              onClick={() => onSelect(n.key)}
+            >
               <b>{n.label}</b>
               <small>{sub(n, turn)}</small>
             </button>

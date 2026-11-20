@@ -180,11 +180,13 @@
 .dc-sw.is-now { background: var(--tone-info-bg); border-color: var(--accent); }
 .dc-sw.is-todo { border-style: dashed; }
 .dc-sw.is-skipped { background: var(--bg-app); border-color: var(--border); }
+.dc-line-unknown { display: inline-block; width: 16px; margin-right: 5px; vertical-align: 3px; border-top: 1.5px dashed var(--border-strong); }
 
 /* 구조 그림: 선 */
 .dc-edge path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
 .dc-edge.is-past path { stroke: var(--success); stroke-width: 2; }
 .dc-edge.is-now path { stroke: var(--accent); stroke-width: 2; }
+.dc-edge.is-unknown path { stroke-dasharray: 5 4; }
 .dc-arrow path { fill: var(--border-strong); }
 .dc-arrow.is-past path { fill: var(--success); }
 .dc-arrow.is-now path { fill: var(--accent); }

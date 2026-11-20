@@ -1,6 +1,6 @@
 // 개발 콘솔(관리자, 시안 DevConsoleA A안): 탭 셋 — 에이전트 구조 · 실행 추적 · 사용량·비용.
 // 설계 12장의 나머지 일곱 탭은 묶음 4. 위 줄은 요청 고르기와 그 요청의 루프·호출·토큰·비용·시간.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ProgramProps } from '../../os/registry';
 import { useSession } from '../../os/session';
 import Badge from '../../shared/ui/Badge';
@@ -22,10 +22,39 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'usage', label: '사용량·비용' },
 ];
 
-function TurnStats({ detail }: { detail: TurnDetail }) {
+/** active 인 동안 1초마다 다시 그린다(걸린 시간 「n초째」 를 위해). */
+function useTicker(active: boolean) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const next = () => {
+      timer = setTimeout(() => {
+        setTick((n) => n + 1);
+        next();
+      }, 1000);
+    };
+    next();
+    return () => clearTimeout(timer);
+  }, [active]);
+}
+
+/** 걸린 시간: 끝났으면 턴 전체, 실행 중이면 「n초째」(이 화면 시계), 다시 읽기를 멈췄으면 마지막으로 확인한 때까지. */
+function Elapsed({ detail, halted, checkedAt }: { detail: TurnDetail; halted: boolean; checkedAt: number | null }) {
+  const { turn } = detail;
+  const running = turn.status === 'running';
+  useTicker(running && !halted);
+  if (!running) return <span>{turn.ms !== null ? seconds(turn.ms) : '—'}</span>;
+  const start = Date.parse(turn.started_at);
+  if (halted) {
+    return <span title="상세를 더 읽지 못해 그 뒤는 알 수 없습니다.">{`${seconds(Math.max(0, (checkedAt ?? start) - start))}째까지 확인`}</span>;
+  }
+  return <span title="이 화면의 시계로 센 시간">{`${seconds(Math.max(0, Date.now() - start))}째`}</span>;
+}
+
+function TurnStats({ detail, halted, checkedAt }: { detail: TurnDetail; halted: boolean; checkedAt: number | null }) {
   const { turn, structure } = detail;
   const s = status(turn.status);
-  const elapsed = turn.status === 'running' ? `${seconds(Math.max(0, Date.now() - Date.parse(turn.started_at)))}째` : turn.ms !== null ? seconds(turn.ms) : '—';
   return (
     <div className="dc-stats" role="group" aria-label="이 요청">
       <Badge tone={s.tone}>{s.label}</Badge>
@@ -42,7 +71,7 @@ function TurnStats({ detail }: { detail: TurnDetail }) {
         토큰 <b>{tokens(turn.tokens)}</b>
       </span>
       {turn.cost !== null && <b>{cost(turn.cost)}</b>}
-      <span title={turn.status === 'running' ? '이 화면의 시계로 센 시간' : undefined}>{elapsed}</span>
+      <Elapsed detail={detail} halted={halted} checkedAt={checkedAt} />
     </div>
   );
 }
@@ -74,6 +103,10 @@ function StructureView({ detail }: { detail: TurnDetail }) {
             <i className="dc-sw is-skipped" />
             건너뜀(묶음 3)
           </span>
+          <span>
+            <i className="dc-line-unknown" />
+            기록에 남지 않는 길
+          </span>
           <span>칸을 누르면 상세가 열립니다</span>
         </div>
       </div>
@@ -95,7 +128,7 @@ function AdminConsole() {
       {turnTab && (
         <div className="dc-top">
           <TurnPicker turns={d.turns} current={d.detail?.turn ?? null} onOpen={() => void d.reloadTurns()} onPick={d.select} />
-          {d.detail && <TurnStats detail={d.detail} />}
+          {d.detail && <TurnStats detail={d.detail} halted={d.halted} checkedAt={d.checkedAt} />}
         </div>
       )}
       {turnTab && d.error && (
@@ -109,7 +142,7 @@ function AdminConsole() {
         {tab === 'structure' && d.detail && <StructureView key={d.detail.turn.turn_id} detail={d.detail} />}
         {tab === 'trace' && d.detail && (
           <div className="dc-scroll">
-            <TraceTimeline key={d.detail.turn.turn_id} items={d.detail.timeline} />
+            <TraceTimeline key={d.detail.turn.turn_id} items={d.detail.timeline} running={d.detail.turn.status === 'running'} />
           </div>
         )}
       </div>

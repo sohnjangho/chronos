@@ -37,12 +37,13 @@ function itemName(x: unknown, i: number): string {
 const entriesOf = (v: Box): [string, unknown][] => (Array.isArray(v) ? v.map((x, i) => [itemName(x, i), x]) : Object.entries(v));
 const sizeLabel = (v: Box) => (Array.isArray(v) ? `목록 ${v.length}개` : `칸 ${Object.keys(v).length}개`);
 
-function LongText({ text }: { text: string }) {
+function LongText({ text, quote = true }: { text: string; quote?: boolean }) {
   const [all, setAll] = useState(false);
-  if (text.length <= TEXT_CUT || all) return <>{`"${text}"`}</>;
+  const q = quote ? '"' : '';
+  if (text.length <= TEXT_CUT || all) return <>{`${q}${text}${q}`}</>;
   return (
     <>
-      {`"${text.slice(0, TEXT_CUT)}…"`}{' '}
+      {`${q}${text.slice(0, TEXT_CUT)}…${q}`}{' '}
       <button type="button" className="dc-link" onClick={() => setAll(true)}>
         전체 보기 ({count(text.length)}자)
       </button>
@@ -96,8 +97,12 @@ function Branch({ name, value, depth }: { name: string; value: Box; depth: numbe
 const isEmpty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
 const rawLength = (v: unknown) => (typeof v === 'string' ? v.length : JSON.stringify(v).length);
 
+/** JSON 처럼 시작하지만 풀리지 않는 글 — 서버가 60,000자에서 자르고 「(뒤는 생략)」을 붙인 원문. */
+const isCutJson = (raw: unknown, value: unknown) => typeof raw === 'string' && typeof value === 'string' && /^\s*[[{]/.test(raw);
+
 function summary(raw: unknown, value: unknown): string {
   const size = `${count(rawLength(raw))}자`;
+  if (isCutJson(raw, value)) return `길어서 잘린 원문 — 나무로 풀 수 없음 · ${size}`;
   if (!isBox(value)) return `글 ${size}`;
   return `${sizeLabel(value)} · ${size}`;
 }
@@ -130,7 +135,9 @@ export default function RawBlock({ label, value, empty = '없음' }: { label: st
           {isBox(parsed) ? (
             entriesOf(parsed).length > 0 ? <Entries entries={entriesOf(parsed)} depth={0} /> : <p className="dc-muted">{sizeLabel(parsed)}</p>
           ) : (
-            <pre className="dc-text">{String(parsed)}</pre>
+            <p className="dc-text">
+              <LongText text={String(parsed)} quote={false} />
+            </p>
           )}
         </div>
       )}

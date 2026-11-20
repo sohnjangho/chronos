@@ -75,6 +75,8 @@ export interface Edge {
   label?: string;
   /** past = 지나간 길, now = 지금 칸으로 들어가는 길, todo = 아직(또는 기록으로 알 수 없는 길). */
   state: 'past' | 'now' | 'todo';
+  /** 추적에 남지 않는 길(늘 todo, 점선). */
+  unknown?: true;
 }
 
 const EDGES: { from: BoxKey; to: BoxKey; label?: string; unknown?: true }[] = [
@@ -105,7 +107,7 @@ export function edgesFor(nodes: { key: NodeKey; state: NodeState }[]): Edge[] {
   return EDGES.map(({ from, to, label, unknown }) => {
     const lit = !unknown && passed(from) && passed(to);
     const s: Edge['state'] = !lit ? 'todo' : of(to) === 'now' ? 'now' : 'past';
-    return label ? { from, to, label, state: s } : { from, to, state: s };
+    return { from, to, ...(label && { label }), state: s, ...(unknown && { unknown }) };
   });
 }
 

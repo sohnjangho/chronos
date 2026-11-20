@@ -39,6 +39,7 @@ export default function TurnPicker({ turns, current, onOpen, onPick }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -61,14 +62,19 @@ export default function TurnPicker({ turns, current, onOpen, onPick }: Props) {
     }
     setOpen(!open);
   };
-  const pick = (id: number) => {
+  /** 닫고 초점을 [요청: …] 단추로 돌린다(Esc·고르기). */
+  const close = () => {
     setOpen(false);
+    trigger.current?.focus();
+  };
+  const pick = (id: number) => {
+    close();
     onPick(id);
   };
 
   return (
-    <div ref={root} className="dc-picker" onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
-      <button type="button" className="dc-pick-btn" aria-haspopup="dialog" aria-expanded={open} onClick={toggle} title={current?.request}>
+    <div ref={root} className="dc-picker" onKeyDown={(e) => open && e.key === 'Escape' && close()}>
+      <button ref={trigger} type="button" className="dc-pick-btn" aria-haspopup="dialog" aria-expanded={open} onClick={toggle} title={current?.request}>
         <span className="dc-ellipsis">{current ? `요청: ${current.request || '(글 없음)'}` : '요청 고르기'}</span>
         <span aria-hidden="true">▾</span>
       </button>

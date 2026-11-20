@@ -12,6 +12,13 @@ const structure = () => screen.findByRole('group', { name: '에이전트 구조'
 const node = async (label: string) => within(await structure()).getByRole('button', { name: new RegExp(`^${escape(label)}`) });
 const detail = () => screen.getByRole('complementary', { name: '칸 상세' });
 const show = () => render(<DevConsole windowId="w1" />);
+const bar = () => screen.getByRole('group', { name: '이 요청' });
+/** 가짜 시계(setTimeout·Date)를 쓰는 시험: 첫 읽기를 끝내고, ms 만큼 정확히 옮긴다. */
+const fakeClock = () => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+const tick = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+async function settle() {
+  for (let i = 0; i < 20; i++) await tick(0);
+}
 async function openUsage() {
   show();
   await userEvent.click(screen.getByRole('tab', { name: '사용량·비용' }));
@@ -64,16 +71,22 @@ describe('지시서 시험', () => {
   });
 
   test('running turn polls every second and stops when done', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
-    mockTurnSequence([running(), done()]);
+    fakeClock();
+    mockTurnSequence([running(), running(), done()]);
     show();
-    // 첫 읽기(목록 → 상세)가 끝나 그림이 뜬 뒤부터 센다(워크플로우 시험과 같은 방식).
-    expect(await node('도구 실행')).toHaveClass('now');
-    await act(() => vi.advanceTimersByTimeAsync(2500));
+    await settle();
+    expect(fetchCount()).toBe(1);
+    await tick(999);
+    expect(fetchCount()).toBe(1);
+    await tick(1);
     expect(fetchCount()).toBe(2);
-    expect(await node('도구 실행')).toHaveClass('past');
-    await act(() => vi.advanceTimersByTimeAsync(5000));
+    await tick(999);
     expect(fetchCount()).toBe(2);
+    await tick(1);
+    expect(fetchCount()).toBe(3);
+    expect(within(screen.getByRole('group', { name: '에이전트 구조' })).getByRole('button', { name: /^도구 실행/ })).toHaveClass('past');
+    await tick(5000);
+    expect(fetchCount()).toBe(3);
   });
 
   // 실제 API 의 llm 줄 이름은 "모델 호출 (normal)" 이다(지시서 시험의 /llm/ 대신).
@@ -150,6 +163,7 @@ describe('위 줄과 요청 고르기', () => {
     expect(choices.map((b) => b.textContent)).toEqual([expect.stringContaining('5층 사무동 공정표 만들어 줘')]);
     await userEvent.click(choices[0]);
     expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: /^요청:/ })).toHaveFocus();
     await waitFor(() => expect(urls()).toContain('/api/devconsole/turns/38'));
     expect(await screen.findByRole('button', { name: /^요청: 5층 사무동 공정표/ })).toBeVisible();
   });
@@ -162,6 +176,7 @@ describe('위 줄과 요청 고르기', () => {
     await userEvent.type(screen.getByRole('searchbox', { name: '요청 찾기' }), '공정표');
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).toBeNull();
+    expect(picker).toHaveFocus();
     await userEvent.click(picker);
     expect(screen.getByRole('searchbox', { name: '요청 찾기' })).toHaveValue('');
     expect(within(screen.getByRole('dialog')).getAllByRole('button')).toHaveLength(2);
@@ -244,5 +259,129 @@ describe('사용량', () => {
     expect(screen.getByRole('row', { name: /claude-sonnet-5\.5/ })).toHaveTextContent('$0.05');
     await userEvent.selectOptions(screen.getByLabelText('기간'), '30');
     await waitFor(() => expect(lastUrl()).toBe('/api/devconsole/usage?days=30&group=model'));
+  });
+});
+
+describe('Fix round 1', () => {
+  test('I1: a cut-off JSON text says it cannot become a tree and shows only its first 300 characters', async () => {
+    const d = done();
+    const messages = Array.from({ length: 400 }, (_, i) => ({ role: 'user', content: `메시지 ${i}` }));
+    d.timeline[1] = { ...d.timeline[1], input_text: `${JSON.stringify(messages).slice(0, 5000)}\n(뒤는 생략)` };
+    mockTurn(d);
+    const list = await openTrace();
+    await userEvent.click(within(list).getAllByRole('button', { name: /모델 호출 \(normal\)/ })[0]);
+    expect(within(list).getByText(/길어서 잘린 원문 — 나무로 풀 수 없음/)).toBeVisible();
+    await userEvent.click(within(list).getByRole('button', { name: '입력 원문 펼치기' }));
+    const body = within(list).getByRole('group', { name: '입력 원문 내용' });
+    expect(body.textContent!.length).toBeLessThan(400);
+    expect(body).not.toHaveTextContent('(뒤는 생략)');
+    await userEvent.click(within(body).getByRole('button', { name: /전체 보기/ }));
+    expect(body).toHaveTextContent('(뒤는 생략)');
+  });
+
+  test('I1: a long plain text at the top shows its first 300 characters', async () => {
+    const d = done();
+    d.structure.nodes = d.structure.nodes.map((n) => (n.key === 'respond' ? { ...n, detail: { ...n.detail, out: '가'.repeat(1000) } } : n));
+    mockTurn(d);
+    show();
+    await userEvent.click(await node('응답·기록'));
+    await userEvent.click(within(detail()).getByRole('button', { name: '나온 것 펼치기' }));
+    const body = within(detail()).getByRole('group', { name: '나온 것 내용' });
+    expect(body.textContent!.length).toBeLessThan(400);
+    expect(within(body).getByRole('button', { name: '전체 보기 (1,000자)' })).toBeVisible();
+  });
+
+  test('a refused read stops polling, shows why and stops the clock', async () => {
+    fakeClock();
+    mockTurnSequence([running(), 404]);
+    show();
+    await settle();
+    await tick(1000);
+    expect(fetchCount()).toBe(2);
+    expect(screen.getByRole('alert')).toHaveTextContent('실행 추적을 찾을 수 없습니다.');
+    const stopped = bar().textContent;
+    expect(stopped).toMatch(/\d+\.\d초째까지 확인/);
+    await tick(10_000);
+    expect(fetchCount()).toBe(2);
+    expect(bar().textContent).toBe(stopped);
+  });
+
+  test('other failures retry after 1, 2 and then 5 seconds while the clock keeps ticking', async () => {
+    fakeClock();
+    mockTurnSequence([running(), 500, 500, 500, 500, 500]);
+    show();
+    await settle();
+    const secs = () => Number(/(\d+\.\d)초째/.exec(bar().textContent ?? '')![1]);
+    const first = secs();
+    await tick(1000);
+    expect(fetchCount()).toBe(2);
+    expect(screen.getByRole('alert')).toHaveTextContent('서버 오류가 났습니다.');
+    await tick(999);
+    expect(fetchCount()).toBe(2);
+    await tick(1);
+    expect(fetchCount()).toBe(3);
+    await tick(1999);
+    expect(fetchCount()).toBe(3);
+    await tick(1);
+    expect(fetchCount()).toBe(4);
+    await tick(4999);
+    expect(fetchCount()).toBe(4);
+    await tick(1);
+    expect(fetchCount()).toBe(5);
+    await tick(5000);
+    expect(fetchCount()).toBe(6);
+    expect(secs()).toBeGreaterThanOrEqual(first + 14);
+  });
+
+  test('a call without an end says 진행 중 only while the turn runs', async () => {
+    const list = await openTrace();
+    expect(within(list).getByText('진행 중')).toBeVisible();
+  });
+
+  test('a call without an end in a finished turn says it did not finish', async () => {
+    const d = done();
+    d.timeline = [...d.timeline, { ...d.timeline[1], seq: 99, ms: null, output_text: '' }];
+    mockTurn(d);
+    const list = await openTrace();
+    const row = within(list).getAllByRole('button', { name: /모델 호출 \(normal\)/ }).at(-1)!;
+    expect(within(row).getByText('끝나지 않음')).toBeVisible();
+    expect(within(list).queryByText('진행 중')).toBeNull();
+  });
+
+  test('paths the trace cannot record are dashed with a note and a legend entry', async () => {
+    show();
+    const svg = await structure();
+    // SVG 툴팁은 선 묶음(g)의 <title> 이다(getByTitle 은 svg 바로 아래 title 만 찾는다).
+    const notes = [...svg.querySelectorAll('.dc-edge.is-unknown > title')].map((t) => t.textContent);
+    expect(notes).toEqual(['기록에 남지 않는 길', '기록에 남지 않는 길']);
+    expect(screen.getByText('기록에 남지 않는 길', { selector: '.dc-legend span' })).toBeVisible();
+  });
+
+  test('assistive tech hears each node state', async () => {
+    show();
+    expect(await node('도구 실행')).toHaveAccessibleName(/^도구 실행, 지금, /);
+    expect(await node('스킬 찾기')).toHaveAccessibleName(/^스킬 찾기, 건너뜀, /);
+    expect(await node('요청 받기')).toHaveAccessibleName(/^요청 받기, 지나감, /);
+    expect(await node('응답·기록')).toHaveAccessibleName(/^응답·기록, 아직, /);
+  });
+
+  test('the now node scrolls into view when the turn opens or the now node moves, not on every read', async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      fakeClock();
+      mockTurnSequence([running({ now: 'tool' }), running({ now: 'tool' }), running({ now: 'check' })]);
+      show();
+      await settle();
+      expect(scroll).toHaveBeenCalledTimes(1);
+      await tick(1000);
+      expect(fetchCount()).toBe(2);
+      expect(scroll).toHaveBeenCalledTimes(1);
+      await tick(1000);
+      expect(scroll).toHaveBeenCalledTimes(2);
+      expect(scroll.mock.contexts[1]).toHaveAccessibleName(/^조건 점검, 지금/);
+    } finally {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 });

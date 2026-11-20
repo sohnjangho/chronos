@@ -127,7 +127,8 @@ export const usage = (over: Partial<UsageOut> = {}): UsageOut => ({
 const OLDER = turn({ turn_id: 38, request: '5층 사무동 공정표 만들어 줘', status: 'done', ms: 64_000, tokens: 48_200, started_at: new Date(Date.now() - 86_400_000).toISOString() });
 
 let list: Turn[] = [];
-let queue: TurnDetail[] = [];
+/** 상세 응답 차례. 숫자는 그 상태 코드의 오류 응답. */
+let queue: (TurnDetail | number)[] = [];
 let usageBody: UsageOut = usage();
 const byId = new Map<number, TurnDetail>();
 export let fetchMock: ReturnType<typeof vi.fn>;
@@ -144,7 +145,7 @@ export function setup(role: 'admin' | 'user' = 'admin') {
     const url = String(input);
     if (url === '/api/devconsole/turns?limit=30') return json(200, list);
     const m = /^\/api\/devconsole\/turns\/(\d+)$/.exec(url);
-    if (m && Number(m[1]) === 41) return json(200, queue.length > 1 ? queue.shift() : queue[0]);
+    if (m && Number(m[1]) === 41) return detailResponse(queue.length > 1 ? queue.shift()! : queue[0]);
     if (m && byId.has(Number(m[1]))) return json(200, byId.get(Number(m[1])));
     if (url.startsWith('/api/devconsole/usage?')) return json(200, usageBody);
     return json(404, { code: 'not_found', message: '찾을 수 없습니다.', detail: null });
@@ -152,8 +153,13 @@ export function setup(role: 'admin' | 'user' = 'admin') {
   vi.stubGlobal('fetch', fetchMock);
 }
 
+const ERRORS: Record<number, string> = { 403: '관리자만 쓸 수 있습니다.', 404: '실행 추적을 찾을 수 없습니다.', 500: '서버 오류가 났습니다.' };
+function detailResponse(d: TurnDetail | number) {
+  return typeof d === 'number' ? json(d, { code: 'error', message: ERRORS[d] ?? '오류', detail: null }) : json(200, d);
+}
+
 export const mockTurn = (d: TurnDetail) => void (queue = [d]);
-export const mockTurnSequence = (ds: TurnDetail[]) => void (queue = [...ds]);
+export const mockTurnSequence = (ds: (TurnDetail | number)[]) => void (queue = [...ds]);
 export const mockUsage = (u: Partial<UsageOut>) => void (usageBody = usage(u));
 export const urls = () => fetchMock.mock.calls.map(([u]) => String(u));
 export const fetchCount = () => urls().filter((u) => u === '/api/devconsole/turns/41').length;

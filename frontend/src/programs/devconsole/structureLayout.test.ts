@@ -61,8 +61,9 @@ describe('edgesFor', () => {
   test('paths that are never recorded stay unlit', () => {
     const all = edgesFor(states({ request: 'past', context: 'past', plan: 'past', judge: 'past', tool: 'past', check: 'past', approval: 'past', respond: 'past' }));
     expect(find(all, 'skill', 'skillrun')).toMatchObject({ state: 'todo', label: '맞는 스킬 있음' });
-    expect(find(all, 'check', 'judge')).toMatchObject({ state: 'todo', label: '위반 → 고쳐서 다시' });
-    expect(find(all, 'approval', 'inbox')?.state).toBe('todo');
+    expect(find(all, 'check', 'judge')).toMatchObject({ state: 'todo', label: '위반 → 고쳐서 다시', unknown: true });
+    expect(find(all, 'approval', 'inbox')).toMatchObject({ state: 'todo', unknown: true });
     expect(find(all, 'tool', 'judge')).toMatchObject({ state: 'past', label: '결과 관찰' });
+    expect(all.filter((e) => e.unknown).map((e) => `${e.from}-${e.to}`)).toEqual(['check-judge', 'approval-inbox']);
   });
 });
