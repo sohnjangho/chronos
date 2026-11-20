@@ -5,6 +5,7 @@ import { useZoom, zoomOf } from '../../os/zoom';
 import Composer from './Composer';
 import ContextPanel from './ContextPanel';
 import Conversation from './Conversation';
+import ModelPicker from './ModelPicker';
 import { useChat } from './chatStore';
 import ThreadList, { sessionTitle } from './ThreadList';
 import './chat.css';
@@ -84,6 +85,7 @@ function SessionBar() {
         <span aria-hidden="true">▾</span>
       </button>
       <span className="ch-gap" />
+      <ModelPicker />
       <button type="button" className="ch-pill" onClick={() => useChat.getState().newChat()}>
         <span aria-hidden="true">+</span> 새 대화
       </button>
@@ -101,6 +103,8 @@ function ConvHeader() {
   return (
     <div className="ch-head">
       <h2 className="ch-title ch-ellipsis">{title || '무엇을 도와드릴까요?'}</h2>
+      <span className="ch-gap" />
+      <ModelPicker />
     </div>
   );
 }

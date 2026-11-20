@@ -6,7 +6,7 @@ import { useSession } from '../../os/session';
 import { useWindows } from '../../os/windowStore';
 import { ApiError } from '../../shared/api';
 import * as chatApi from './chatApi';
-import type { SessionItem, TurnInput } from './chatApi';
+import type { ChatModel, SessionItem, TurnInput } from './chatApi';
 import { currentUi } from './seeing';
 import { applyEvent, emptyThread, fromDetail, isObj, nextKey, stopRunning, submissionFromView, type Item, type Json, type Retry, type ResumeInput, type Thread } from './thread';
 
@@ -17,13 +17,17 @@ interface ChatState {
   listNotice: string | null;
   currentId: number | null;
   threads: Record<number, Thread>;
+  /** 새 대화에서 고른 모델(첫 보내기 때 세션 생성 직후 PUT). */
+  pendingModel: ChatModel | null;
   /** 아직 대화가 없을 때(새 대화)의 알림. */
   notice: string | null;
   loadSessions(): Promise<void>;
   openSession(id: number): Promise<void>;
   newChat(): void;
   /** 글을 보낸다. 서버가 받아 첫 사건이 오면 true, 보내기 전에 거절되면 false(글을 입력창에 돌려줄 수 있게). */
-  send(text: string): Promise<boolean>;
+  send(text: string, fileIds?: number[], fileNames?: string[]): Promise<boolean>;
+  setModel(model: ChatModel): Promise<void>;
+  clearModel(): Promise<void>;
   /** 제출한 질문지·다시 짜기로 거부한 승인 건으로 대화를 이어 간다. 같은 것은 한 번만(거절되면 다시 할 수 있다). */
   resume(sessionId: number, input: ResumeInput): Promise<void>;
   stop(): Promise<void>;
@@ -39,7 +43,7 @@ const controllers = new Map<number, AbortController>();
 const handled = new Set<string>();
 let generation = 0;
 
-const initial = { sessions: [], listNotice: null, currentId: null, threads: {}, notice: null };
+const initial = { sessions: [], listNotice: null, currentId: null, threads: {}, pendingModel: null, notice: null };
 
 /** 그 대화가 아직 있을 때만 고친다(로그아웃 뒤 늦게 온 사건은 버린다). */
 function patch(id: number, change: (t: Thread) => Thread) {
@@ -121,17 +125,27 @@ async function openSession(id: number) {
 }
 
 /** 지금 대화(없으면 새로 만들어)에 글을 보낸다. */
-async function send(text: string): Promise<boolean> {
+async function send(text: string, fileIds?: number[], fileNames?: string[]): Promise<boolean> {
   let id = useChat.getState().currentId;
   if (id !== null && useChat.getState().threads[id]?.streaming) return false;
   if (id === null) {
+    const pending = useChat.getState().pendingModel;
     try {
       const created = await chatApi.createSession(currentUi().schedule_id ?? null);
       id = created.id;
+      let appliedModel: ChatModel | null = null;
+      if (pending) {
+        try {
+          appliedModel = await chatApi.setChatModel(id, pending);
+        } catch {
+          // 모델 저장 실패해도 대화 보내기는 이어 간다
+        }
+      }
       // 만드는 사이 다른 대화로 옮겼으면 그대로 둔다(글은 새 대화에서 돈다).
       useChat.setState((s) => ({
         sessions: [{ ...created, pending_retries: 0 }, ...s.sessions.filter((x) => x.id !== created.id)],
-        threads: { ...s.threads, [created.id]: { ...emptyThread(), loaded: true } },
+        threads: { ...s.threads, [created.id]: { ...emptyThread(), model: appliedModel, loaded: true } },
+        pendingModel: null,
         ...(s.currentId === null && { currentId: created.id, notice: null }),
       }));
     } catch (err) {
@@ -139,7 +153,45 @@ async function send(text: string): Promise<boolean> {
       return false;
     }
   }
-  return runTurn(id, { text }, { kind: 'user', key: nextKey(), text });
+  const hasFiles = !!fileIds && fileIds.length > 0;
+  const input: TurnInput = hasFiles ? { text, file_ids: fileIds } : { text };
+  const userItem: Item = { kind: 'user', key: nextKey(), text, ...(fileNames?.length ? { fileNames } : {}) };
+  const ok = await runTurn(id, input, userItem);
+  if (ok && hasFiles) {
+    const sid = id;
+    void chatApi.getSession(sid).then((detail) => {
+      if (Array.isArray(detail.files)) patch(sid, (t) => ({ ...t, files: detail.files ?? t.files }));
+    }, () => {});
+  }
+  return ok;
+}
+
+async function setModel(model: ChatModel): Promise<void> {
+  const id = useChat.getState().currentId;
+  if (id === null) {
+    useChat.setState({ pendingModel: model });
+    return;
+  }
+  try {
+    const saved = await chatApi.setChatModel(id, model);
+    patch(id, (t) => ({ ...t, model: saved, notice: null }));
+  } catch (err) {
+    patch(id, (t) => ({ ...t, notice: message(err) }));
+  }
+}
+
+async function clearModel(): Promise<void> {
+  const id = useChat.getState().currentId;
+  if (id === null) {
+    useChat.setState({ pendingModel: null });
+    return;
+  }
+  try {
+    await chatApi.clearChatModel(id);
+    patch(id, (t) => ({ ...t, model: null, notice: null }));
+  } catch (err) {
+    patch(id, (t) => ({ ...t, notice: message(err) }));
+  }
 }
 
 /** 질문지 이어 가기 카드: 질문지를 읽어 답·가정을 바로 보인다(못 읽으면 번호만). */
@@ -212,8 +264,10 @@ export const useChat = create<ChatState>((set) => ({
   ...initial,
   loadSessions,
   openSession,
-  newChat: () => set({ currentId: null, notice: null }),
+  newChat: () => set({ currentId: null, pendingModel: null, notice: null }),
   send,
+  setModel,
+  clearModel,
   resume,
   stop,
   reset,

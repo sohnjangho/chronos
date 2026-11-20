@@ -7,11 +7,13 @@ import { ApprovalCard, AutoAppliedCard } from './ApprovalCards';
 import { asNum, asText, Card, OpenQuestionnaire, type CardCtx, type CardProps } from './Card';
 import DelayImpactCard from './DelayImpactCard';
 import EvidenceCard from './EvidenceCard';
+import FileSavedCard from './FileSavedCard';
 import GenerationCard from './GenerationCard';
 import MiniQuestionsCard from './MiniQuestionsCard';
 import ResultCard from './ResultCard';
 import RuleSavedCard from './RuleSavedCard';
 import ScenarioCard from './ScenarioCard';
+import ScheduleFileCard from './ScheduleFileCard';
 import ShortenCard from './ShortenCard';
 import VisualCard from './VisualCard';
 
@@ -53,7 +55,8 @@ export const CARDS: Record<string, ComponentType<CardProps>> = {
   'card:scenario_created': ScenarioCard,
   'card:rule_saved': RuleSavedCard,
   'card:visual': VisualCard,
-  'card:schedule_file': () => <Card title="공정표 파일">{null}</Card>, // Task 53 서버 사건의 자리 — 그림은 Task 55
+  'card:file_saved': FileSavedCard,
+  'card:schedule_file': ScheduleFileCard,
   approval: ApprovalCard,
   questionnaire: QuestionnaireCard,
 };

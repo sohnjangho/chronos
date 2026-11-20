@@ -71,6 +71,10 @@ function AgentBlock({ item, ctx }: { item: Agent; ctx: CardCtx }) {
       {item.parts.map((p, i) =>
         p.type === 'text' ? (
           <Markdown key={i} text={p.text} />
+        ) : p.type === 'notice' ? (
+          <div key={i} className="ch-turn-notice" role="status">
+            {p.text}
+          </div>
         ) : p.type === 'card' ? (
           <CardView key={i} event={p.event} data={p.data} ctx={ctx} />
         ) : (
@@ -169,7 +173,18 @@ export default function Conversation() {
         )}
         {items.map((it) =>
           it.kind === 'user' ? (
-            <div key={it.key} className="ch-me ch-wrap">{it.text}</div>
+            <div key={it.key} className="ch-me ch-wrap">
+              {it.fileNames && it.fileNames.length > 0 && (
+                <div className="ch-me-files">
+                  {it.fileNames.map((n, i) => (
+                    <span key={i} className="ch-mini-chip">
+                      📎 {n}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div>{it.text}</div>
+            </div>
           ) : it.kind === 'system' ? (
             <SystemCard key={it.key} content={it.content} />
           ) : (

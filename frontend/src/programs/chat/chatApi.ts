@@ -12,8 +12,31 @@ export interface SessionItem {
   pending_retries?: number;
 }
 
+export interface ChatModel {
+  connection_id: number;
+  model: string;
+  routing_strategy: 'cost' | 'balanced' | 'quality' | null;
+}
+
+export interface ChatFile {
+  file_id: number;
+  name: string;
+  kind: string;
+  status: string;
+  deleted: boolean;
+}
+
+export interface ChatModelGroup {
+  connection_id: number;
+  name: string;
+  is_default: boolean;
+  models: { id: string; name?: string }[];
+}
+
 export interface SessionDetail extends Omit<SessionItem, 'pending_retries'> {
   running: boolean;
+  model?: ChatModel | null;
+  files?: ChatFile[];
   messages: unknown[];
   pending_retries: Retry[];
 }
@@ -25,8 +48,11 @@ export interface UiIn {
   selected_activity?: string;
 }
 
-/** text·questionnaire_id·approval_id 가운데 하나만. */
-export type TurnInput = { text: string } | { questionnaire_id: number } | { approval_id: number };
+/** text·questionnaire_id·approval_id 가운데 하나만. file_ids 는 text 와 함께만. */
+export type TurnInput =
+  | { text: string; file_ids?: number[] }
+  | { questionnaire_id: number }
+  | { approval_id: number };
 
 export interface ScheduleItem {
   id: number;
@@ -52,6 +78,10 @@ export const listSessions = () => api<SessionItem[]>('/api/chat/sessions');
 export const createSession = (scheduleId: number | null) => api<SessionItem>('/api/chat/sessions', post({ schedule_id: scheduleId }));
 export const getSession = (id: number) => api<SessionDetail>(`/api/chat/sessions/${id}`);
 export const stopTurn = (id: number) => api<{ stopping: boolean }>(`/api/chat/sessions/${id}/stop`, post());
+export const setChatModel = (id: number, body: ChatModel) =>
+  api<ChatModel>(`/api/chat/sessions/${id}/model`, { method: 'PUT', body: JSON.stringify(body) });
+export const clearChatModel = (id: number) => api<void>(`/api/chat/sessions/${id}/model`, { method: 'DELETE' });
+export const listChatModels = () => api<{ connections: ChatModelGroup[] }>('/api/llm/models?for=chat');
 
 export function postMessage(id: number, body: TurnInput & { ui: UiIn }, onEvent: (type: string, data: unknown) => void, signal: AbortSignal) {
   return streamPost(`/api/chat/sessions/${id}/messages`, body, onEvent, signal);

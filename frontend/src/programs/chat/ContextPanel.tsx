@@ -76,6 +76,20 @@ function ContextTab({ thread }: { thread: Thread | undefined }) {
       ) : (
         <p className="ch-muted">이번 요청에서 아직 실행한 단계가 없습니다.</p>
       )}
+      <h3 className="ch-ctx-h">이 대화의 파일</h3>
+      {thread?.files && thread.files.length > 0 ? (
+        <ul className="ch-ctx-files" aria-label="이 대화의 파일">
+          {thread.files.map((f) => (
+            <li key={f.file_id} className={f.deleted ? 'is-deleted' : ''}>
+              <span className="ch-ellipsis" title={f.name}>
+                {f.deleted ? `${f.name} (지워짐)` : f.name}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="ch-muted">이 대화에 붙인 파일이 없습니다.</p>
+      )}
       <h3 className="ch-ctx-h">이 창에서 받은 사용량</h3>
       <dl className="ch-ctx-dl">
         <Row label="토큰">{u ? `입력 ${tokens(u.input_tokens)} · 출력 ${tokens(u.output_tokens)}` : '—'}</Row>

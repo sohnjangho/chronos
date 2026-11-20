@@ -1,5 +1,7 @@
 // 대화 한 개의 화면 상태. 실시간 SSE 사건과 다시 연 대화의 저장 메시지를 같은 모양으로 만든다(같은 카드로 보이게).
 
+import type { ChatFile, ChatModel } from './chatApi';
+
 export type Json = Record<string, unknown>;
 export type StepStatus = 'running' | 'done' | 'failed' | 'stopped';
 
@@ -19,11 +21,12 @@ export interface ErrorAction {
 
 export type Part =
   | { type: 'text'; text: string }
+  | { type: 'notice'; text: string }
   | { type: 'card'; event: 'card' | 'questionnaire' | 'approval'; data: Json }
   | { type: 'error'; code: string; message: string; action: ErrorAction | null };
 
 export type Item =
-  | { kind: 'user'; key: string; text: string }
+  | { kind: 'user'; key: string; text: string; fileNames?: string[] }
   /** 질문지 제출(questionnaire_submitted)·승인 거부 뒤 이어 가기(approval_rejected) 사용자 메시지. */
   | { kind: 'system'; key: string; content: Json }
   /** 한 턴의 에이전트 답: 도구 단계는 한 줄로 접고, 글·카드·오류는 온 차례대로. */
@@ -57,6 +60,8 @@ export type ResumeInput = { questionnaire_id: number } | { approval_id: number }
 export interface Thread {
   items: Item[];
   retries: Retry[];
+  model: ChatModel | null;
+  files: ChatFile[];
   workflow: WorkflowInfo | null;
   /** 이 창에서 받은 usage 사건의 합. 받은 적이 없으면 null(다시 연 대화의 앞 사용량은 모른다). */
   usage: Usage | null;
@@ -74,6 +79,8 @@ const ZERO_USAGE: Usage = { input_tokens: 0, output_tokens: 0, calls: 0, cost: n
 export const emptyThread = (): Thread => ({
   items: [],
   retries: [],
+  model: null,
+  files: [],
   workflow: null,
   usage: null,
   failedResume: null,
@@ -163,6 +170,10 @@ export function applyEvent(t: Thread, type: string, data: unknown): Thread {
     case 'questionnaire':
     case 'approval':
       return withAgent(t, (a) => addCard(a, type, data));
+    case 'notice': {
+      const text = str(data.text);
+      return text ? withAgent(t, (a) => ({ ...a, parts: [...a.parts, { type: 'notice', text }], textOpen: false })) : t;
+    }
     case 'error':
       return withAgent(t, (a) => ({ ...a, parts: [...a.parts, errorPart(data)], textOpen: false }));
     case 'workflow':
@@ -212,13 +223,21 @@ function applyMessage(t: Thread, role: unknown, c: Json): Thread {
   return t;
 }
 
-/** GET /api/chat/sessions/{id} 의 messages·running·pending_retries 로 만든 상태. */
-export function fromDetail(detail: { messages?: unknown; running?: unknown; pending_retries?: unknown }): Thread {
+/** GET /api/chat/sessions/{id} 의 messages·running·pending_retries·model·files 로 만든 상태. */
+export function fromDetail(detail: {
+  messages?: unknown;
+  running?: unknown;
+  pending_retries?: unknown;
+  model?: ChatModel | null;
+  files?: ChatFile[];
+}): Thread {
   const messages = Array.isArray(detail.messages) ? detail.messages.filter(isObj) : [];
   let t = messages.reduce((acc, m) => (isObj(m.content) ? applyMessage(acc, m.role, m.content) : acc), emptyThread());
   if (detail.running !== true) t = stopRunning(t);
   const retries = Array.isArray(detail.pending_retries) ? (detail.pending_retries.filter(isObj) as unknown as Retry[]) : [];
-  return { ...t, retries, loaded: true };
+  const files = Array.isArray(detail.files) ? detail.files : [];
+  const model = detail.model ?? null;
+  return { ...t, retries, model, files, loaded: true };
 }
 
 /**
