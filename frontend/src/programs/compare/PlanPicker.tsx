@@ -18,13 +18,18 @@ const FIXED: [string, string][] = [
   ['plan', 'Plan'],
 ];
 
-/** 요약 표의 안과 버전 목록(새것부터)으로 묶음을 만든다. 낡은 복사본은 「낡음」(반영된 것은 늘 낡아 빼고). */
+const COPY_STATE: Record<string, string> = { submitted: '승인 대기', applied: '반영됨', discarded: '버린 복사본' };
+
+/**
+ * 요약 표의 안과 버전 목록(새것부터)으로 묶음을 만든다. 요약에 Plan 줄이 없으면(Plan 계산 불가) Plan 은 빼고,
+ * 복사본은 열린 것만 낡았으면 「낡음」, 나머지는 상태 글.
+ */
 export function planGroups(sides: SideOut[], versions: VersionItem[]): PlanGroup[] {
   const label = (ref: string, fallback: string) => sides.find((s) => s.ref === ref)?.label ?? fallback;
-  const copyDetail = (s: SideOut) =>
-    s.status === 'applied' ? '반영됨' : [s.stale && '낡음', s.status === 'submitted' && '승인 대기'].filter(Boolean).join(' · ') || undefined;
+  const copyDetail = (s: SideOut) => (s.status === 'open' ? (s.stale ? '낡음' : undefined) : COPY_STATE[s.status ?? '']);
+  const fixed = FIXED.filter(([ref]) => ref !== 'plan' || sides.some((s) => s.ref === 'plan'));
   return [
-    { title: '현재·Plan', items: FIXED.map(([ref, name]) => ({ ref, label: label(ref, name) })) },
+    { title: '현재·Plan', items: fixed.map(([ref, name]) => ({ ref, label: label(ref, name) })) },
     {
       title: '버전',
       items: versions.map((v) => ({ ref: `v:${v.n}`, label: `버전 ${v.n}`, detail: [v.is_plan && '처음 계획', v.note].filter(Boolean).join(' · ') || undefined })),

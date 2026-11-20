@@ -78,12 +78,23 @@ export default function Header({ scale, marks = [] }: { scale: Scale; marks?: He
         </g>
       ))}
       <line className="gantt-head-line" x1={0} x2={w} y1={42} y2={42} />
-      {marks.map((m) => (
-        <text key={m.key} className={`gantt-mark is-${m.tone}`} data-mark={m.key} x={m.x + 3} y={55}>
-          {m.title && <title>{m.title}</title>}
-          {m.label}
-        </text>
-      ))}
+      {marks.map((m) => {
+        // 오른쪽 끝을 넘을 이름표(차트 끝 가까운 기한 등)는 선 왼쪽에 끝을 맞춘다 — 머리 밖으로 잘리지 않게.
+        const left = m.x + textW(m.label) > w;
+        return (
+          <text
+            key={m.key}
+            className={`gantt-mark is-${m.tone}`}
+            data-mark={m.key}
+            x={left ? m.x - 3 : m.x + 3}
+            y={55}
+            textAnchor={left ? 'end' : undefined}
+          >
+            {m.title && <title>{m.title}</title>}
+            {m.label}
+          </text>
+        );
+      })}
     </svg>
   );
 }

@@ -1,6 +1,5 @@
 // 여러 안 요약 표(현재 · Plan · 열린 복사본). 줄을 누르면 그 안이 비교가 된다. 값은 모두 서버 계산값.
 // 가로로 좁으면 표 안에서만 밀리고 「안」 칸은 고정이다.
-import type { KeyboardEvent } from 'react';
 import Badge from '../../shared/ui/Badge';
 import type { Peak, SideOut } from './compareApi';
 import { deltaText, dot, floatText, toneOf } from './rows';
@@ -11,25 +10,34 @@ function Row({ s, base, other, onPick }: { s: SideOut; base: string; other: stri
   const role = s.ref === base ? 'base' : s.ref === other ? 'other' : null;
   const pickable = s.ref !== base;
   const pick = () => pickable && onPick(s.ref);
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    e.preventDefault();
-    pick();
-  };
   return (
     <tr
       className={`${role ? `is-${role}` : ''}${pickable ? ' is-pickable' : ''}`}
       aria-current={role === 'other' ? 'true' : undefined}
-      tabIndex={pickable ? 0 : undefined}
       onClick={pick}
-      onKeyDown={onKey}
     >
       <td className="cmp-sticky cmp-plan">
         <span className={`cmp-swatch is-${role ?? 'none'}`} aria-hidden="true" />
-        {s.label}
-        {/* 반영된 복사본은 늘 낡으므로 낡음 배지를 띄우지 않는다. */}
-        {s.stale && s.status !== 'applied' && <Badge tone="warning">기준 일정이 바뀌었습니다</Badge>}
+        {/* 키보드·화면 읽기: 고를 수 있는 줄은 「안」 칸의 진짜 단추로 고른다(줄 누름은 마우스 편의). */}
+        {pickable ? (
+          <button
+            type="button"
+            className="cmp-plan-btn"
+            title="비교로 고르기"
+            onClick={(e) => {
+              e.stopPropagation();
+              pick();
+            }}
+          >
+            {s.label}
+          </button>
+        ) : (
+          s.label
+        )}
+        {/* 낡음 배지는 열린 복사본에만(반영된 것은 늘 낡고, 제출·버린 것은 낼 수 없다). */}
+        {s.stale && s.status === 'open' && <Badge tone="warning">기준 일정이 바뀌었습니다</Badge>}
         {s.status === 'submitted' && <Badge tone="info">승인 대기</Badge>}
+        {s.status === 'discarded' && <Badge>버린 복사본</Badge>}
       </td>
       <td className="cmp-num">{dot(s.finish)}</td>
       <td className={`cmp-num ${toneOf(s.plan_delta)}`}>{deltaText(s.plan_delta)}</td>
@@ -52,12 +60,14 @@ interface Props {
   sides: SideOut[];
   base: string;
   other: string | null;
+  /** 다시 읽는 중(앞 값을 흐리게). */
+  refreshing: boolean;
   onPick(ref: string): void;
 }
 
-export default function SummaryTable({ sides, base, other, onPick }: Props) {
+export default function SummaryTable({ sides, base, other, refreshing, onPick }: Props) {
   return (
-    <div className="cmp-sum">
+    <div className={`cmp-sum${refreshing ? ' is-refreshing' : ''}`}>
       <table className="cmp-table" aria-label="여러 안 요약">
         <thead>
           <tr>

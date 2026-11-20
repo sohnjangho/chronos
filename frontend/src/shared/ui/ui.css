@@ -15,6 +15,9 @@
 .ui-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .ui-btn-danger { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
 .ui-btn-danger:hover:not(:disabled) { background: var(--danger-hover); }
+/* 꺼진 주·위험 단추: 강조색 면 위 흐린 글은 읽히지 않는다 → 옅은 바탕 + 흐린 글(두 테마 글 대비 3:1 이상, 흐리게 하지 않음). */
+.ui-btn-primary:disabled,
+.ui-btn-danger:disabled { background: var(--bg-panel-alt); border-color: var(--border-strong); color: var(--fg-muted); opacity: 1; }
 
 .ui-badge {
   display: inline-block;

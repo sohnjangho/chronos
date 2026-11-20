@@ -45,7 +45,9 @@ export const V: VersionItem[] = [
 
 type Reply = { status: number; body: unknown };
 const asReply = (b: unknown): Reply => (b && typeof b === 'object' && 'status' in b && 'body' in b ? (b as Reply) : { status: 200, body: b });
-let replies: Record<'summary' | 'compare' | 'submit' | 'discard', Reply>;
+let replies: Record<'summary' | 'compare' | 'submit' | 'discard' | 'versions', Reply>;
+/** 붙잡아 둔 다음 응답(요약·비교). 풀 때까지 답하지 않는다. */
+let gates: Partial<Record<'summary' | 'compare', Promise<void>>> = {};
 type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 export let fetchMock: Mock<FetchFn>;
 
@@ -53,12 +55,28 @@ export const mockSummary = (b: unknown) => void (replies.summary = asReply(b));
 export const mockCompare = (b: unknown) => void (replies.compare = asReply(b));
 export const mockSubmit = (b: unknown) => void (replies.submit = asReply(b));
 export const mockDiscard = (b: unknown) => void (replies.discard = asReply(b));
+export const mockVersions = (b: unknown) => void (replies.versions = asReply(b));
 
-function respond(url: string, method: string): Response {
+/** 다음 요약·비교 응답을 부르는 쪽이 풀 때까지 붙잡는다. 돌려준 함수로 푼다. */
+export function holdNext(kind: 'summary' | 'compare'): () => void {
+  let release!: () => void;
+  gates[kind] = new Promise<void>((ok) => (release = ok));
+  return release;
+}
+
+async function gated(kind: 'summary' | 'compare', reply: () => Reply): Promise<Response> {
+  const gate = gates[kind];
+  delete gates[kind];
+  if (gate) await gate;
+  const x = reply();
+  return json(x.status, x.body);
+}
+
+async function respond(url: string, method: string): Promise<Response> {
   const r = (x: Reply) => json(x.status, x.body);
-  if (url === '/api/schedules/1/compare/summary') return r(replies.summary);
-  if (url.startsWith('/api/schedules/1/compare?')) return r(replies.compare);
-  if (url === '/api/schedules/1/versions') return json(200, V);
+  if (url === '/api/schedules/1/compare/summary') return gated('summary', () => replies.summary);
+  if (url.startsWith('/api/schedules/1/compare?')) return gated('compare', () => replies.compare);
+  if (url === '/api/schedules/1/versions') return r(replies.versions);
   if (url === '/api/schedules') return json(200, [{ id: 1, name: '5층 사무동 신축' }, { id: 2, name: '가상 부품 공장' }]);
   if (url === '/api/approvals/count') return json(200, { pending: 1 });
   if (method === 'POST' && /^\/api\/schedules\/1\/scenarios\/\d+\/submit$/.test(url)) return r(replies.submit);
@@ -74,8 +92,10 @@ export function stubCompareApi() {
     compare: { status: 200, body: C },
     submit: { status: 200, body: { approval_id: 7, applied: false, status: 'submitted' } },
     discard: { status: 200, body: { status: 'discarded' } },
+    versions: { status: 200, body: V },
   };
-  fetchMock = vi.fn<FetchFn>(async (input, init) => respond(String(input), init?.method ?? 'GET'));
+  gates = {};
+  fetchMock = vi.fn<FetchFn>((input, init) => respond(String(input), init?.method ?? 'GET'));
   vi.stubGlobal('fetch', fetchMock);
 }
 

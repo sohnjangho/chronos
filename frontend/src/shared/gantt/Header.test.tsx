@@ -47,3 +47,22 @@ test('week labels thin out when weeks are narrow; marks are written in the botto
   const narrow = render(<Header scale={makeScale('2027-03-01', '2027-05-30', 182, 0)} />); // 2px/일 → 주 14px
   expect([...narrow.container.querySelectorAll('.gantt-week')].map((t) => t.textContent)).toEqual(['3/1', '3/22', '4/12', '5/3', '5/24']);
 });
+
+test('a mark that would run past the right edge is written leftwards from its line', () => {
+  // 폭 560: 기한 540 은 글(어림 72px)이 넘친다 → 선 왼쪽(text-anchor end). Data Date 40 은 그대로 오른쪽.
+  const { container } = render(
+    <Header
+      scale={makeScale('2027-03-01', '2027-03-28', 560, 0)}
+      marks={[
+        { key: 'deadline', x: 540, label: '기한 03.28', tone: 'deadline' },
+        { key: 'data', x: 40, label: 'Data Date 03.03', tone: 'data' },
+      ]}
+    />,
+  );
+  const due = container.querySelector('[data-mark="deadline"]')!;
+  expect(due).toHaveAttribute('text-anchor', 'end');
+  expect(due).toHaveAttribute('x', '537');
+  const data = container.querySelector('[data-mark="data"]')!;
+  expect(data).toHaveAttribute('x', '43');
+  expect(data.getAttribute('text-anchor') ?? 'start').toBe('start');
+});

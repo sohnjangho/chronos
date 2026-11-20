@@ -10,7 +10,7 @@ import Compare from './Compare';
 import manifest from './index';
 import {
   C, CURRENT, DELAY, PLAN, RECOVERY, S,
-  compareUrls, lastBody, lastUrl, mockCompare, mockDiscard, mockSubmit, mockSummary, stubCompareApi, summaryCalls, writes,
+  compareUrls, holdNext, lastBody, lastUrl, mockCompare, mockDiscard, mockSubmit, mockSummary, mockVersions, stubCompareApi, summaryCalls, V, writes,
 } from './testKit';
 
 let openSpy: ReturnType<typeof vi.fn>;
@@ -39,6 +39,8 @@ const bar = (id: string, side: 'base' | 'other') => screen.findByTestId(`bar-${i
 const diffRow = (id: string) => screen.getByTestId(`diff-${id}`);
 const pane = (i: number) => screen.getAllByTestId('pane')[i];
 const submitButton = () => screen.findByRole('button', { name: '이 안을 반영 (승인함으로)' });
+const tools = () => screen.getByRole('group', { name: '비교판 도구' });
+const nextFrame = () => new Promise((ok) => requestAnimationFrame(() => ok(null)));
 
 test('summary table lists plans', async () => {
   mockSummary(S);
@@ -124,10 +126,23 @@ test('side by side scrolls together', async () => {
   await userEvent.click(screen.getByRole('button', { name: '좌우 비교' }));
   fireEvent.scroll(pane(0), { target: { scrollTop: 120 } });
   expect(pane(1).scrollTop).toBe(120);
+  await nextFrame();
   fireEvent.scroll(pane(1), { target: { scrollTop: 40 } });
   expect(pane(0).scrollTop).toBe(40);
   expect(within(pane(0)).getByTestId('bar-B-base')).toBeInTheDocument();
   expect(within(pane(1)).getByTestId('bar-B-other')).toHaveClass('pulled');
+});
+
+test('the scroll a pane gets from being synced does not sync back (no ping-pong)', async () => {
+  await shown();
+  await userEvent.click(screen.getByRole('button', { name: '좌우 비교' }));
+  fireEvent.scroll(pane(0), { target: { scrollTop: 120 } });
+  // 옮긴 판에서 돌아온 스크롤(브라우저가 끝에 맞춰 100 으로 멈춤)은 다시 옮기지 않는다
+  fireEvent.scroll(pane(1), { target: { scrollTop: 100 } });
+  expect(pane(0).scrollTop).toBe(120);
+  await nextFrame();
+  fireEvent.scroll(pane(1), { target: { scrollTop: 40 } }); // 사람이 굴린 것은 따라간다
+  expect(pane(0).scrollTop).toBe(40);
 });
 
 test('submit sends title then opens approvals', async () => {
@@ -142,6 +157,7 @@ test('submit sends title then opens approvals', async () => {
   expect(writes().at(-1)?.slice(0, 2)).toEqual(['POST', '/api/schedules/1/scenarios/5/submit']);
   expect(useApprovals.getState().ticks).toBeGreaterThan(before); // 승인 배지를 다시 읽음
   expect(screen.queryByRole('dialog')).toBeNull();
+  await waitFor(() => expect(tools()).toHaveFocus()); // 포커스가 body 로 떨어지지 않는다
 });
 
 test('a submit conflict shows the server message and a stale copy turns the send button off', async () => {
@@ -159,6 +175,24 @@ test('stale scenario cannot be submitted', async () => {
   show();
   expect(await submitButton()).toBeDisabled();
   expect(screen.getByText('기준 일정이 바뀌었습니다')).toBeVisible();
+  expect(await submitButton()).toHaveAccessibleDescription('기준 일정이 바뀌었습니다');
+});
+
+test('only open copies get the stale badge: a submitted stale copy shows 승인 대기 only', async () => {
+  mockSummary({ sides: [CURRENT, PLAN, { ...RECOVERY, stale: true, status: 'submitted' }] });
+  mockCompare({ ...C, other: { ...C.other, stale: true, status: 'submitted' } });
+  await shown();
+  expect(screen.queryByText('기준 일정이 바뀌었습니다')).toBeNull();
+  expect(screen.getAllByText('승인 대기').length).toBeGreaterThan(0);
+});
+
+test('a discarded copy says so and offers no copy actions', async () => {
+  mockCompare({ ...C, other: { ...C.other, stale: true, status: 'discarded' } });
+  await shown();
+  expect(screen.getByText('버린 복사본')).toBeVisible();
+  expect(screen.queryByText('기준 일정이 바뀌었습니다')).toBeNull();
+  expect(screen.queryByRole('button', { name: '이 안을 반영 (승인함으로)' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '복사본 버리기' })).toBeNull();
 });
 
 test('an applied copy is always stale but shows no stale badge and cannot be sent again', async () => {
@@ -197,10 +231,33 @@ test('without params the base is current and the other is the newest open copy',
   expect(compareUrls()).toHaveLength(1);
 });
 
-test('without an open copy the other is the Plan', async () => {
+test('a submitted copy also counts as open for the default other (server meaning of 열린)', async () => {
   mockSummary({ sides: [CURRENT, PLAN, { ...RECOVERY, status: 'submitted' }] });
   show();
+  await waitFor(() => expect(lastUrl()).toBe('/api/schedules/1/compare?base=current&other=s:5'));
+});
+
+test('without a copy the other is the Plan', async () => {
+  mockSummary({ sides: [CURRENT, PLAN] });
+  show();
   await waitFor(() => expect(lastUrl()).toBe('/api/schedules/1/compare?base=current&other=plan'));
+});
+
+test('without a Plan row the other is the previous version and Plan is not offered', async () => {
+  mockSummary({ sides: [CURRENT] });
+  show();
+  await waitFor(() => expect(lastUrl()).toBe('/api/schedules/1/compare?base=current&other=v:2'));
+  await screen.findByTestId('row-B');
+  await userEvent.click(screen.getByRole('button', { name: /^기준: / }));
+  const fixed = within(screen.getByRole('group', { name: '현재·Plan' }));
+  expect(fixed.getAllByRole('option').map((o) => o.textContent)).toEqual(['현재 일정 (버전 3)']);
+});
+
+test('without a Plan row or an earlier version the other is current', async () => {
+  mockSummary({ sides: [CURRENT] });
+  mockVersions([V[0]]);
+  show();
+  await waitFor(() => expect(lastUrl()).toBe('/api/schedules/1/compare?base=current&other=current'));
 });
 
 test('a malformed ref in params falls back to the defaults', async () => {
@@ -223,6 +280,25 @@ test('new params also re-read the summary so a copy the agent just made is liste
   rerender(<Compare windowId="w1" params={{ id: '1', base: 'current', other: 's:9' }} />);
   expect(await screen.findByRole('cell', { name: '만약에 · 크레인 2대' })).toBeVisible();
   expect(summaryCalls()).toBe(reads + 1);
+});
+
+test('each pickable summary row has a real button in its plan cell; the base row has none', async () => {
+  await shown();
+  expect(within(summaryRow('현재 일정 (버전 3)')).queryByRole('button')).toBeNull();
+  within(summaryRow('지연 반영안 (1건)')).getByRole('button', { name: '지연 반영안 (1건)' }).focus();
+  await userEvent.keyboard('{Enter}');
+  await waitFor(() => expect(lastUrl()).toBe('/api/schedules/1/compare?base=current&other=s:4'));
+});
+
+test('a refetch keeps the summary and the chart on screen with a 갱신 중 marker', async () => {
+  await shown();
+  const release = holdNext('compare');
+  await userEvent.click(within(summaryRow('지연 반영안 (1건)')).getByRole('button'));
+  expect(await screen.findByText('갱신 중')).toBeVisible();
+  expect(screen.getByTestId('row-B')).toBeVisible();
+  expect(screen.getByRole('cell', { name: '만회안 A · 병행 우선' })).toBeVisible();
+  release();
+  await waitFor(() => expect(screen.queryByText('갱신 중')).toBeNull());
 });
 
 test('clicking a summary row makes that plan the other', async () => {
@@ -261,10 +337,18 @@ test('discarding the copy asks first, deletes it and compares the next default',
   expect(writes()).toEqual([]);
   mockSummary({ sides: [CURRENT, PLAN, DELAY] });
   const reads = summaryCalls();
+  const release = holdNext('summary');
   await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '버리기' }));
+  // 다시 읽는 동안 앞 요약·차트는 그대로(빈 화면 아님)
+  expect(await screen.findByText('갱신 중')).toBeVisible();
+  expect(screen.getByRole('table', { name: '여러 안 요약' })).toBeVisible();
+  expect(screen.getByTestId('row-B')).toBeVisible();
+  release();
   await waitFor(() => expect(lastUrl()).toBe('/api/schedules/1/compare?base=current&other=s:4'));
   expect(writes()).toEqual([['DELETE', '/api/schedules/1/scenarios/5', undefined]]);
   expect(summaryCalls()).toBe(reads + 1);
+  expect(compareUrls().filter((u) => u.endsWith('other=s:5'))).toHaveLength(1); // 버린 복사본을 다시 읽지 않는다
+  await waitFor(() => expect(tools()).toHaveFocus());
 });
 
 test('a refused discard shows the server message', async () => {

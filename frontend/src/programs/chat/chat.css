@@ -184,8 +184,6 @@
 .ch-seeing { color: var(--fg-muted); font-size: var(--fs-12); }
 .is-narrow .ch-seeing { font-size: var(--fs-11); }
 .ch-send { flex: none; border-radius: 999px; }
-/* 공용 단추의 꺼진 모양(회색 글)은 강조색 면 위에서 읽기 어렵다 — 글은 흰색으로 두고 흐리게만. */
-.ch-root .ui-btn-primary:disabled { color: var(--on-accent); }
 
 /* ── 오른쪽 컨텍스트(330px) ── */
 .ch-ctx { display: flex; flex-direction: column; width: 330px; flex: none; min-height: 0; border-left: 1px solid var(--border); background: var(--bg-panel); }

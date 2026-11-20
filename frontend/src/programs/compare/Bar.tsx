@@ -1,5 +1,4 @@
 // 비교판 막대 하나(서버 날짜 → shared/gantt 눈금 자리). OD 0 은 ◆. 색은 class(기준 is-base · 비교는 change 이름).
-import Header from '../../shared/gantt/Header';
 import { barRect, x, type Scale } from '../../shared/gantt/scale';
 import type { RowCell } from './compareApi';
 import { dot } from './rows';
@@ -49,29 +48,3 @@ export function extentOf(scale: Scale, cells: (RowCell | null)[]): { from: numbe
 
 /** 기한 세로선 자리: 그날 끝(간트차트와 같음). */
 export const dueX = (scale: Scale, iso: string) => x(scale, iso) + scale.pxPerDay;
-
-/** 글 폭 어림(11px 굵은 글: 한글 11 · 그 밖 7). */
-const textW = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 11 : 7), 0);
-
-/**
- * 날짜 머리(shared/gantt Header) + 기한 이름표. 이름표는 머리 아래 표시 띠에 겹쳐 그리고,
- * 차트 오른쪽을 넘으면 선 왼쪽에 붙인다(머리 밖으로 잘리지 않게).
- */
-export function Axis({ scale, width, lines }: { scale: Scale; width: number; lines: { date: string; label: string }[] }) {
-  return (
-    <div className="cmp-axis">
-      <Header scale={scale} />
-      <svg className="gantt-svg cmp-duelabels" width={width} height={18} aria-hidden="true">
-        {lines.map((l) => {
-          const at = dueX(scale, l.date);
-          const left = at + 3 + textW(l.label) > width;
-          return (
-            <text key={l.label} className="gantt-mark is-deadline" x={left ? at - 3 : at + 3} y={13} textAnchor={left ? 'end' : 'start'}>
-              {l.label}
-            </text>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}

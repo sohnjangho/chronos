@@ -1,9 +1,10 @@
 // 같은 차트: 액티비티마다 윗줄 기준 막대 · 아랫줄 비교 막대(당김 초록 · 밀림 빨강 · 같음 회색), 기한 세로선.
 // 왼쪽 칸은 창 폭에 따라 줄인다(넓음: ID·이름·구분·시작 차이·종료 차이·OD / 보통: ID·이름·종료 차이 / 좁음: 이름).
 // 차트는 남은 폭에 꼭 맞춘다 — 창이 가로로 밀리지 않는다. 날짜 → px 는 shared/gantt 눈금만 쓴다.
+import Header from '../../shared/gantt/Header';
 import { makeScale, type Scale } from '../../shared/gantt/scale';
 import type { CompareOut, RowOut } from './compareApi';
-import Bar, { Axis, dueX, extentOf, ROW_H } from './Bar';
+import Bar, { dueX, extentOf, ROW_H } from './Bar';
 import { CHANGE_LABEL, deadlinesOf, deltaText, odText, spanOf, toneOf } from './rows';
 import { useWidth } from './useWidth';
 
@@ -92,7 +93,7 @@ export default function OverlayChart({ data, rows }: { data: CompareOut; rows: R
             </div>
           ))}
         </div>
-        <Axis scale={scale} width={chartW} lines={lines} />
+        <Header scale={scale} marks={lines.map((l) => ({ key: l.label, x: dueX(scale, l.date), label: l.label, tone: 'deadline' }))} />
       </div>
       {rows.length === 0 && <p className="cmp-empty">달라진 액티비티가 없습니다.</p>}
       <div className="cmp-ov-body" style={{ height: rows.length * ROW_H }}>

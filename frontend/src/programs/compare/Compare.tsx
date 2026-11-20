@@ -1,7 +1,7 @@
 // 「비교판」: 두 안(기준·비교)과 여러 안 요약을 나란히 본다. params: id(일정, 없으면 OS 의 지금 일정) ·
 // base(기본 current) · other(기본: 열린 복사본 가운데 가장 새것, 없으면 plan). 꼴이 틀린 ref 는 기본값으로.
 // 날짜·차이·기한·위반은 모두 서버 값(비교·요약 API)이고, 화면은 그리기만 한다.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useCurrentSchedule, type CurrentSchedule } from '../../os/currentSchedule';
 import type { ProgramProps } from '../../os/registry';
 import { useUiContext } from '../../os/uiContext';
@@ -48,8 +48,16 @@ function useScheduleName(id: number | null, current: CurrentSchedule | null): st
   return known ?? (found?.id === id ? found.name : null);
 }
 
-/** 보기 위 줄: 무엇을 보는지 · 범례 · [달라진 것만 | 전체]. */
-function ViewBar({ data, view, onlyChanged, setOnlyChanged }: { data: CompareOut; view: View; onlyChanged: boolean; setOnlyChanged(v: boolean): void }) {
+interface ViewProps {
+  view: View;
+  onlyChanged: boolean;
+  setOnlyChanged(v: boolean): void;
+  /** 다시 읽는 중(앞 값이 보이는 중) — 「갱신 중」 표시. */
+  refreshing: boolean;
+}
+
+/** 보기 위 줄: 무엇을 보는지 · 범례 · 갱신 중 · [달라진 것만 | 전체]. */
+function ViewBar({ data, view, onlyChanged, setOnlyChanged, refreshing }: ViewProps & { data: CompareOut }) {
   const kinds = new Set(data.rows.map((r) => r.change));
   const legend = [...(['pulled', 'pushed', 'same'] as const), ...(['added', 'duration'] as const).filter((k) => kinds.has(k))];
   const due = [data.base, data.other].some((s) => s.deadline && s.deadline_float !== null);
@@ -68,6 +76,11 @@ function ViewBar({ data, view, onlyChanged, setOnlyChanged }: { data: CompareOut
         </span>
       )}
       <div className="cmp-grow" />
+      {refreshing && (
+        <span className="cmp-refresh" role="status">
+          갱신 중
+        </span>
+      )}
       <div className="cmp-seg" role="group" aria-label="줄 거르기">
         <button type="button" aria-pressed={onlyChanged} onClick={() => setOnlyChanged(true)}>달라진 것만</button>
         <button type="button" aria-pressed={!onlyChanged} onClick={() => setOnlyChanged(false)}>전체</button>
@@ -76,14 +89,15 @@ function ViewBar({ data, view, onlyChanged, setOnlyChanged }: { data: CompareOut
   );
 }
 
-function ViewArea({ load, view, onlyChanged, setOnlyChanged }: { load: Load<CompareOut>; view: View; onlyChanged: boolean; setOnlyChanged(v: boolean): void }) {
+function ViewArea({ load, ...p }: ViewProps & { load: Load<CompareOut> }) {
   if (load.kind === 'loading') return <p className="cmp-empty">비교를 읽는 중…</p>;
   if (load.kind === 'failed') return <p className="cmp-empty is-error" role="alert">{load.message}</p>;
-  const rows = visibleRows(load.data.rows, onlyChanged);
+  const rows = visibleRows(load.data.rows, p.onlyChanged);
+  const view = p.view;
   return (
     <>
-      <ViewBar data={load.data} view={view} onlyChanged={onlyChanged} setOnlyChanged={setOnlyChanged} />
-      <div className="cmp-view">
+      <ViewBar data={load.data} {...p} />
+      <div className={`cmp-view${p.refreshing ? ' is-refreshing' : ''}`}>
         {view === 'overlay' && <OverlayChart data={load.data} rows={rows} />}
         {view === 'side' && <SideBySide data={load.data} rows={rows} />}
         {view === 'diff' && <DiffTable rows={rows} />}
@@ -103,25 +117,35 @@ function Board({ scheduleId, params }: { scheduleId: number; params?: Record<str
   const [view, setView] = useState<View>('overlay');
   const [onlyChanged, setOnlyChanged] = useState(false);
   const [modal, setModal] = useState<Modal>(null);
+  // 보내기·버리기 뒤에는 위 줄로 포커스를 옮긴다(겹화면을 연 단추가 사라지거나 꺼져 body 로 떨어지지 않게).
+  const toolsRef = useRef<HTMLDivElement>(null);
+  const [focusTools, setFocusTools] = useState(0);
+  useEffect(() => {
+    if (focusTools) toolsRef.current?.focus();
+  }, [focusTools]);
   const d = useCompareData(scheduleId, pick.base, pick.other, seen.n);
   const sides = d.summary.kind === 'ready' ? d.summary.data : [];
   const c = d.compare.kind === 'ready' ? d.compare.data : null;
   const copy = c && scenarioId(c.other.ref) !== null ? c.other : null;
+  const other = d.other ?? c?.other.ref ?? null; // 기본값을 다시 고르는 동안은 보이는 비교 그대로
   const known: SideOut[] = [...(c ? [c.base, c.other] : []), ...sides];
   const labelOf = (ref: string) => known.find((s) => s.ref === ref)?.label ?? FIXED_LABEL[ref] ?? (ref.startsWith('v:') ? `버전 ${ref.slice(2)}` : ref);
   const ask = (kind: 'submit' | 'discard') => copy && setModal({ kind, sid: scenarioId(copy.ref)!, name: copy.label });
   const close = () => setModal(null);
-  const after = (other: string | null, base?: string) => {
-    setPick((p) => ({ base: base ?? p.base, other }));
+  const after = (next: string | null, base?: string) => {
+    setPick((p) => ({ base: base ?? p.base, other: next }));
     setModal(null);
+    setFocusTools((n) => n + 1);
     d.reload();
   };
   return (
     <>
       <div className="cmp-scroll">
         <Toolbar
+          focusRef={toolsRef}
+          busy={d.refreshing}
           base={pick.base}
-          other={d.other}
+          other={other}
           labelOf={labelOf}
           groups={planGroups(sides, d.versions)}
           onBase={(base) => setPick((p) => ({ ...p, base }))}
@@ -134,8 +158,10 @@ function Board({ scheduleId, params }: { scheduleId: number; params?: Record<str
           onSubmit={() => ask('submit')}
         />
         {d.summary.kind === 'failed' && <p className="cmp-empty is-error" role="alert">{d.summary.message}</p>}
-        {sides.length > 0 && <SummaryTable sides={sides} base={pick.base} other={d.other} onPick={(other) => setPick((p) => ({ ...p, other }))} />}
-        <ViewArea load={d.compare} view={view} onlyChanged={onlyChanged} setOnlyChanged={setOnlyChanged} />
+        {sides.length > 0 && (
+          <SummaryTable sides={sides} base={pick.base} other={other} refreshing={d.refreshing} onPick={(ref) => setPick((p) => ({ ...p, other: ref }))} />
+        )}
+        <ViewArea load={d.compare} view={view} onlyChanged={onlyChanged} setOnlyChanged={setOnlyChanged} refreshing={d.refreshing} />
       </div>
       {/* 겹화면은 굴러가는 칸 밖(창 본문에 고정) — 아래로 굴린 뒤 열어도 보인다. */}
       {modal?.kind === 'whatif' && <WhatIfDialog onClose={close} />}

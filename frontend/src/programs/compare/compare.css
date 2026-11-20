@@ -15,6 +15,8 @@
 
 /* ── 위 줄 ── */
 .cmp-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+.cmp-tools:focus { outline: none; }
+.cmp-tools:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cmp-tools-picks, .cmp-tools-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; max-width: 100%; }
 .cmp-tools-picks > .cmp-muted { font-size: var(--fs-12); }
 .cmp-pick { position: relative; min-width: 0; max-width: 100%; }
@@ -63,6 +65,9 @@
 .cmp-sum .cmp-table { min-width: 940px; }
 .cmp-sum .cmp-plan { max-width: 320px; overflow: hidden; text-overflow: ellipsis; border-right: 1px solid var(--border); }
 .cmp-sum .cmp-plan .ui-badge { margin-left: 6px; }
+.cmp-plan-btn { max-width: 100%; padding: 0; font: inherit; color: inherit; text-align: left; background: none; border: 0; cursor: pointer; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.cmp-plan-btn:hover { text-decoration: underline; }
+.cmp-plan-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .cmp-sum .cmp-changes { max-width: 360px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-muted); }
 .cmp-sum tr.is-pickable { cursor: pointer; }
 .cmp-sum tr.is-pickable:hover td { background: var(--bg-panel-alt); }
@@ -83,6 +88,9 @@
 .cmp-viewbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 6px 14px; font-size: var(--fs-12); background: var(--bg-panel-alt); border-bottom: 1px solid var(--border); }
 .cmp-legend { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; color: var(--fg-muted); font-size: var(--fs-11); }
 .cmp-legend > span { display: inline-flex; align-items: center; white-space: nowrap; }
+/* 다시 읽는 동안: 앞 값을 흐리게 두고 「갱신 중」 */
+.cmp-refresh { font-size: var(--fs-11); font-weight: 500; color: var(--accent-text); white-space: nowrap; }
+.cmp-sum.is-refreshing, .cmp-view.is-refreshing { opacity: 0.6; }
 .cmp-scroll > .cmp-view { flex: 1 1 0; min-height: 300px; display: flex; flex-direction: column; }
 .cmp-view > * { flex: 1 1 0; min-height: 0; }
 
@@ -101,9 +109,6 @@
 .gantt-svg .cmp-delta.is-duration { fill: var(--warning-text); }
 .cmp-mid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 1 3; }
 .cmp-lines { position: absolute; top: 0; pointer-events: none; overflow: visible; }
-/* 기한 이름표: 날짜 머리 아래 띠(Header 의 표시 줄 자리)에 겹쳐 그린다. 오른쪽 끝이면 선 왼쪽으로. */
-.cmp-axis { position: relative; flex: none; }
-.cmp-duelabels { position: absolute; left: 0; bottom: 0; pointer-events: none; }
 
 .cmp-cols { display: grid; align-items: center; min-width: 0; }
 .cmp-cell { min-width: 0; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -156,8 +161,3 @@
 .cmp-field input { height: 36px; }
 .cmp-field input:focus, .cmp-field textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .cmp-error { margin: 0; font-size: var(--fs-12); }
-
-/* 꺼진 주 단추는 옅은 바탕 + 흐린 글(강조색 위 흐린 글은 읽히지 않는다). */
-.cmp-tools-acts .ui-btn-primary:disabled, .cmp-dialog-row .ui-btn-primary:disabled {
-  background: var(--bg-panel-alt); border-color: var(--border-strong); color: var(--fg-muted); opacity: 1;
-}
