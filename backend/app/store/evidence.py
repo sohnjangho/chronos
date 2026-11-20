@@ -20,6 +20,8 @@ from app.store.tables import EvidenceItem, EvidenceLink, EvidenceSearch, Schedul
 if TYPE_CHECKING:
     from app.llm.search import SearchHit
 
+WEATHER_MODE = "weather"  # info.weather 가 남기는 줄(근거 검색 한도와 따로 센다)
+
 
 @dataclass(frozen=True)
 class Found:
@@ -73,9 +75,14 @@ def last_user_message_at(session: Session, chat_session_id: int) -> datetime | N
     return found[-1] if found else None
 
 
-def searches_since(session: Session, chat_session_id: int, since: datetime | None) -> int:
-    """그 대화에서 since 뒤(같은 때 포함)에 한 검색 수(실패 포함). since 가 None 이면 그 대화의 모든 검색."""
-    query = select(func.count()).select_from(EvidenceSearch).where(EvidenceSearch.chat_session_id == chat_session_id)
+def searches_since(session: Session, chat_session_id: int, since: datetime | None, *, weather: bool = False) -> int:
+    """그 대화에서 since 뒤(같은 때 포함)에 한 검색 수(실패 포함). since 가 None 이면 그 대화의 모든 검색.
+
+    날씨 조회(mode WEATHER_MODE, info.weather)는 근거 검색과 따로 센다: weather=True 면 날씨 조회만, 아니면 그 밖만.
+    """
+    mode = EvidenceSearch.mode == WEATHER_MODE if weather else EvidenceSearch.mode != WEATHER_MODE
+    query = select(func.count()).select_from(EvidenceSearch).where(EvidenceSearch.chat_session_id == chat_session_id,
+                                                                    mode)
     if since is not None:
         query = query.where(EvidenceSearch.created_at >= since)
     return session.scalar(query) or 0
