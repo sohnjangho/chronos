@@ -25,11 +25,38 @@ from app.store.tables import DelayEvent as DelayEventRow
 from app.store.view import plan_of
 
 __all__ = [
-    "RESPONSIBILITIES", "DelayEventRow", "DelayedBase", "NotFound", "create", "delayed_base", "delete", "get",
-    "impact_json", "listed", "mark_reflected", "open_events", "refresh", "report", "save_impacts", "to_core", "update",
+    "NEED_BEFORE_MESSAGE",
+    "RESPONSIBILITIES",
+    "DelayEventRow",
+    "DelayedBase",
+    "NotFound",
+    "RecordError",
+    "create",
+    "delayed_base",
+    "delete",
+    "get",
+    "impact_json",
+    "listed",
+    "mark_reflected",
+    "open_events",
+    "record",
+    "refresh",
+    "report",
+    "save_impacts",
+    "to_core",
+    "update",
 ]
 
 RESPONSIBILITIES = ("owner", "ours", "force", "undecided")  # 발주처·우리·불가항력·정하지 않음
+NEED_BEFORE_MESSAGE = "실적에서 감지한 지연은 before_version 이 필요합니다."
+
+
+class RecordError(ValueError):
+    """사건을 적을 수 없음(한국어 message). 도구는 ToolError, API 는 422 invalid_delay 로 바꾼다."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
 
 
 def open_events(session: Session, schedule_id: int) -> list[DelayEventRow]:
@@ -129,6 +156,53 @@ def create(
     )
     session.add(row)
     session.flush()
+    return row
+
+
+def _prepared(session: Session, schedule_id: int, version: int) -> Schedule:
+    try:
+        schedule, conditions, _ = load(session, schedule_id, version)
+    except NotFound:
+        raise RecordError(f"없는 버전입니다: {version}") from None
+    return prepare_stored(schedule, conditions)
+
+
+def record(
+    session: Session,
+    *,
+    schedule_id: int,
+    activity_id: str,
+    start_date: date,
+    days: int,
+    cause: str,
+    responsibility: str,
+    daily_cost: int | None,
+    evidence: str,
+    source: str,
+    created_by: str,
+    before_version: int | None = None,
+) -> DelayEventRow:
+    """사건 하나를 적는다(도구 delay.record 와 API POST 가 같이 쓰는 길). flush 만.
+
+    source 'actual'(실적 입력에서 감지 — 이미 지금 버전에 들어 있음)은 before_version 이 있어야 하고(없거나 없는
+    버전이면 RecordError, 줄을 만들기 전), 바로 reflected(reflected_version = analyzed_version = 지금 버전)다.
+    영향 = core.delay.diff_impact(before_version 일정, 지금 일정)(둘 다 그 버전의 조건을 넣음). 그래서 열린 지연으로
+    다시 넣지 않는다(두 번 세지 않음). 그 밖의 source 는 열린 사건이고 before_version 은 쓰지 않는다.
+    액티비티 확인은 부른 쪽이 한다. 계산이 안 되는 일정이면 ScheduleError.
+    """
+    before = None
+    if source == "actual":
+        if before_version is None:
+            raise RecordError(NEED_BEFORE_MESSAGE)
+        before = _prepared(session, schedule_id, before_version)
+    row = create(session, schedule_id=schedule_id, activity_id=activity_id, start_date=start_date, days=days,
+                 cause=cause, responsibility=responsibility, daily_cost=daily_cost, evidence=evidence, source=source,
+                 created_by=created_by, status="open" if before is None else "reflected")
+    if before is not None:
+        _, _, n = load(session, schedule_id)
+        impact = core_delay.diff_impact(before, _prepared(session, schedule_id, n), event_id=_key(row.id), days=days,
+                                        daily_cost=daily_cost)
+        update(session, row, reflected_version=n, impact_json=impact_json(impact), analyzed_version=n)
     return row
 
 

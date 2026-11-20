@@ -26,6 +26,8 @@ class DelayIn(Strict):
     responsibility: Responsibility = "undecided"
     daily_cost: Cost | None = None
     evidence: Evidence = ""
+    source: Literal["user", "actual"] = "user"  # actual = 실적 입력에서 감지(이미 지금 버전에 들어 있음)
+    before_version: int | None = None  # source actual 이면 꼭: 실적 입력 전 버전
 
 
 class DelayPatch(Strict):

@@ -1,6 +1,7 @@
 """지연 기록 API: 기록·고침·지우기·분석·지연 반영안·미리 보기. 기록한 지연은 일정(Plan 포함)을 바꾸지 않는다."""
 
 from dataclasses import replace
+from datetime import date
 
 import pytest
 
@@ -401,3 +402,47 @@ def test_same_open_scenario_is_reused_only_when_identical(client, admin, sid3): 
     assert s2 != s1 and scenario(client, admin, sid3, {"event_ids": [e1]}).json()["scenario_id"] == s1
     names = {s["id"]: s["name"] for s in client.get(f"/api/schedules/{sid3}/scenarios", headers=admin).json()}
     assert (names[s1], names[s2]) == ("지연 반영안 (1건)", "지연 반영안 (2건)")
+
+
+# ── Follow-up: 실적에서 온 지연(source actual) ──────────────────────────
+
+
+def with_actual_b(session, sid: int) -> None:
+    """버전 2: A 끝남(3/1~3/3), B 진행 중(3/4 시작, 남은 4일 — 2일 늦음). 준공 3/5 → 3/9."""
+    schedule, conditions, _ = load(session, sid)
+    done = {"A": {"actual_start": date(2027, 3, 1), "actual_finish": date(2027, 3, 3), "progress": 1.0},
+            "B": {"actual_start": date(2027, 3, 4), "progress": 0.1, "rd": 4}}
+    acts = tuple(replace(a, **done.get(a.id, {})) for a in schedule.activities)
+    save_new_version(session, sid, replace(schedule, activities=acts), conditions, by_kind="agent", by_name="에이전트",
+                     note="실적", changes=[], base_version=1)
+
+
+ACTUAL = {**B2, "cause": "실적 입력에서 감지", "source": "actual", "before_version": 1}
+
+
+def test_actual_delay_from_the_api_is_reflected_and_not_counted_twice(client, admin, session, sid3):
+    with_actual_b(session, sid3)
+    r = post(client, admin, sid3, ACTUAL)
+    e = r["events"][0]
+    assert (e["source"], e["status"], e["reflected_version"], e["analyzed_version"], e["impact"]["finish_delta"]) == (
+        "actual", "reflected", 2, 2, 2)
+    # 이미 버전 2 에 들어 있는 지연이다: 열린 지연으로 다시 넣지 않는다
+    assert (r["finish"]["current"], r["finish"]["with_open"], r["totals"]["finish_impact"], r["totals"]["open_count"]) == (
+        "2027-03-09", "2027-03-09", 2, 0)
+    assert scenario(client, admin, sid3).json()["code"] == "no_open_delays"
+
+
+@pytest.mark.parametrize(("body", "message"), [
+    ({k: v for k, v in ACTUAL.items() if k != "before_version"}, "실적에서 감지한 지연은 before_version 이 필요합니다."),
+    ({**ACTUAL, "before_version": 9}, "없는 버전입니다: 9"),
+])
+def test_actual_delay_needs_a_known_before_version(client, admin, session, sid3, body, message):
+    r = post_raw(client, admin, sid3, body)
+    assert (r.status_code, r.json()) == (422, {"code": "invalid_delay", "message": message, "detail": None})
+    assert session.query(DelayEventRow).count() == 0
+
+
+def test_default_source_is_still_user_and_open(client, admin, sid3):
+    e = post(client, admin, sid3, B2)["events"][0]
+    assert (e["source"], e["status"], e["reflected_version"]) == ("user", "open", None)
+    assert post_raw(client, admin, sid3, {**B2, "source": "chat"}).json()["code"] == "invalid_request"

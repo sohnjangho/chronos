@@ -105,3 +105,23 @@ async def test_analyze_tool(ctx3):
     ]
     assert (o["finish"]["with_open"], o["finish"]["current"], o["totals"]["absorbed_events"]) == (
         "2027-03-09", "2027-03-05", 1)
+
+
+async def test_api_and_tool_record_an_actual_delay_the_same_way(client, admin, ctx, session):
+    """같은 두 일정에 같은 실적 지연: 도구와 API 가 같은 영향·합계·준공을 낸다(한 길, store.delays.record)."""
+    a, b = (store(session, make([task("A", 3), task("B", 2), task("C", 1)], [Relation("A", "B"), Relation("A", "C")]))
+            for _ in range(2))
+    for sid in (a, b):
+        schedule, conditions, _ = load(session, sid)
+        acts = tuple(replace(x, actual_start=date(2027, 3, 4), progress=0.1, rd=4) if x.id == "B" else
+                     replace(x, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 3), progress=1.0)
+                     if x.id == "A" else x for x in schedule.activities)
+        save_new_version(session, sid, replace(schedule, activities=acts), conditions, by_kind="agent",
+                         by_name="에이전트", note="실적", changes=[], base_version=1)
+    body = {"activity_id": "B", "days": 2, "cause": "실적 입력에서 감지", "start_date": "2027-03-04",
+            "source": "actual", "before_version": 1}
+    o = (await call("delay.record", body, replace(ctx, schedule_id=a))).output
+    session.commit()  # 루프가 도구 뒤에 하는 commit(API 는 다른 연결이다)
+    api = client.post(f"/api/schedules/{b}/delays", json=body, headers=admin).json()
+    assert api["events"][0]["impact"] == o["impact"] and api["totals"] == o["totals"]
+    assert api["events"][0]["status"] == o["status"] == "reflected"

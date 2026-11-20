@@ -116,8 +116,11 @@ def analyze(session: Session, schedule_id: int) -> DelaysOut:
 def create(session: Session, schedule_id: int, body: DelayIn, user: User) -> DelaysOut:
     _schedule(session, schedule_id)
     _known(session, schedule_id, body.activity_id)
-    delays.create(session, schedule_id=schedule_id, **body.model_dump(), source="user", created_by=user.name)
-    return _out(session, schedule_id)  # 새 사건은 분석 전이라 열린 사건을 모두 다시 분석한다
+    try:  # 도구 delay.record 와 같은 길: source actual 은 바로 reflected, 영향 = before_version → 지금 버전
+        _computed(lambda: delays.record(session, schedule_id=schedule_id, **body.model_dump(), created_by=user.name))
+    except delays.RecordError as e:
+        raise ApiError(422, "invalid_delay", e.message) from None
+    return _out(session, schedule_id)  # 새 열린 사건은 분석 전이라 열린 사건을 모두 다시 분석한다
 
 
 def patch(session: Session, schedule_id: int, eid: int, body: DelayPatch) -> DelaysOut:
