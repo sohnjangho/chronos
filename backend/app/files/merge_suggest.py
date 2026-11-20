@@ -91,12 +91,13 @@ def suggestions(session: Session) -> tuple[datetime | None, list[dict]]:
     stored = _load()
     have = {tuple(r) for r in session.execute(select(AxisValue.axis, AxisValue.value))}
     items = []
-    for item in stored.items:
+    for raw in stored.items:
         try:
-            if all((item["axis"], v) in have for v in item["from"]):
-                items.append(item)
-        except (KeyError, TypeError):  # 손으로 고친 파일 등 — 그 줄만 버린다
+            item = _Suggestion.model_validate(raw)
+        except ValidationError:  # 손으로 고친 파일 등 — 그 줄만 버린다
             continue
+        if item.from_ and all((item.axis, v) in have for v in item.from_):
+            items.append(item.model_dump(by_alias=True))
     return stored.made_at, items
 
 

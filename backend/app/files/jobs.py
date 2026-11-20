@@ -336,9 +336,16 @@ async def _failed(item: _Item, exc: Exception) -> None:
 async def _do(item: _Item) -> None:
     try:
         if item.kind == "file":
+            # 분류는 뜻 검색과 따로(Qdrant 가 꺼졌거나 임베딩이 실패해도). 한 번만 하고 예외를 내지 않는다.
+            # 끄는 중(취소)에는 분류하지 않는다 — 다음 시작 때 reload 가 다시 넣는다.
             try:
                 await _index_file(item.id)
-            finally:  # 분류는 뜻 검색과 따로(Qdrant 가 꺼졌거나 임베딩이 실패해도). 한 번만 하고 예외를 내지 않는다
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                await classify.after_index(item.id)
+                raise
+            else:
                 await classify.after_index(item.id)
         else:
             await _reindex_step(item.id)

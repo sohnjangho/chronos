@@ -484,3 +484,42 @@ async def test_bad_answer_keeps_the_previous_suggestions(client, admin, session,
     assert len(llm.bodies) == 2
     body = client.get("/api/files/merge-suggestions", headers=admin).json()
     assert body["items"] == [item] and body["made_at"].startswith(later.date().isoformat())
+
+
+async def test_hand_broken_suggestion_lines_are_dropped(client, admin, session):
+    item = _good(session)
+    path = Settings().data_dir / "files" / "merge_suggestions.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    broken = [
+        {"axis": "종류", "from": ["시방 서류"], "to": "시방서"},  # why 없음
+        {"axis": "종류", "from": [], "to": "시방서", "why": "x"},  # from 빈 목록
+        {"axis": ["종류"], "from": ["시방 서류"], "to": "시방서", "why": "x"},
+        {"axis": "종류", "from": "시방 서류", "to": "시방서", "why": "x"},
+    ]
+    path.write_text(json.dumps({"made_at": None, "items": [*broken, item]}, ensure_ascii=False), encoding="utf-8")
+    r = client.get("/api/files/merge-suggestions", headers=admin)
+    assert r.status_code == 200, r.text
+    assert r.json()["items"] == [item]
+
+
+async def test_cancelling_during_indexing_never_classifies(session, put, monkeypatch):
+    calls: list[int] = []
+
+    async def spy(file_id: int) -> None:
+        calls.append(file_id)
+
+    async def cancelled(file_id: int) -> None:
+        raise asyncio.CancelledError
+
+    async def broken(file_id: int) -> None:
+        raise RuntimeError
+
+    monkeypatch.setattr(classify, "after_index", spy)
+    f = put("양생", "a.txt")
+    monkeypatch.setattr(jobs, "_index_file", cancelled)
+    with pytest.raises(asyncio.CancelledError):  # 서버를 끈다
+        await jobs._do(jobs._Item("file", f.id))
+    assert calls == []
+    monkeypatch.setattr(jobs, "_index_file", broken)
+    await jobs._do(jobs._Item("file", f.id))  # 임베딩 실패는 그래도 분류
+    assert calls == [f.id]

@@ -234,14 +234,25 @@ async def test_no_key_in_logs_or_errors(session, ready, put, embedder, caplog, m
     assert KEY not in repr(session.execute(text("SELECT * FROM llm_calls")).all())
 
 
-def test_lifespan_starts_and_stops_the_worker(monkeypatch):
-    assert Settings().qdrant_url == ""  # 시험은 뜻 검색을 끈 채 돈다(tests/conftest.py) — 일꾼이 밖으로 나가지 않게
+def test_conftest_wrapper_keeps_the_lifespan_worker_off_in_tests(monkeypatch):
+    # 서버의 일꾼은 주소가 없어도 돈다. 여기서 꺼져 있는 것은 tests/conftest.py 의 jobs.start 감쌈 때문이다
+    # (시험이 jobs.drain 으로 돌리는 작업 줄을 앱 스레드의 일꾼이 가로채지 않게). 진짜 동작은 아래 시험.
+    assert Settings().qdrant_url == ""
     with TestClient(app):
         assert jobs._task is None
     monkeypatch.setenv("CHRONOS_QDRANT_URL", ":memory:")
     monkeypatch.setattr(vectors, "STORE", None)
     with TestClient(app):
         assert jobs._task is not None and vectors.STORE is not None
+    assert jobs._task is None
+
+
+def test_lifespan_starts_and_stops_the_worker_without_vectors(monkeypatch):
+    monkeypatch.setattr(jobs, "start", jobs.start.__wrapped__)  # 감쌈 없이 진짜 start
+    monkeypatch.setattr(vectors, "STORE", None)
+    assert Settings().qdrant_url == ""
+    with TestClient(app):
+        assert jobs._task is not None and vectors.STORE is None  # 뜻 검색만 꺼지고 일꾼은 돈다
     assert jobs._task is None
 
 
