@@ -2,6 +2,8 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useCurrentSchedule } from '../../os/currentSchedule';
+import { useSession } from '../../os/session';
+import { resetShellState } from '../../os/shellReset';
 import { useSchedulePreview } from '../../os/schedulePreview';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
@@ -9,7 +11,7 @@ import { json } from '../../test-helpers';
 import Conditions from './Conditions';
 import type { Cond, Preview } from './condApi';
 import manifest from './index';
-import { bodies, cond, fetchMock, INPUTS, m, makeView, mockPreview, openSpy, respond, setup, URL } from './testKit';
+import { bodies, cond, deferred, fetchMock, INPUTS, m, makeView, mockPreview, openSpy, respond, setup, URL } from './testKit';
 
 const PREVIEW = `${URL}/preview`;
 const qty = (name: string) => screen.getByRole('textbox', { name: `${name} 수량` });
@@ -71,7 +73,7 @@ describe('지시서 시험', () => {
   });
 
   test('infeasible preview hides confirm and offers the agent', async () => {
-    mockPreviewRoute(mockPreview({ feasible: false, violations: [{ condition_id: 'in.finish_by', message: '준공이 기한보다 20일 늦습니다.' }] }));
+    mockPreviewRoute(mockPreview({ feasible: false, violations: [{ condition_id: 'in.finish_by', message: '준공이 기한보다 20일 늦습니다.' }], edits: { 'in.finish_by': { date: '2027-06-30' } } }));
     await renderC();
     await userEvent.clear(screen.getByRole('textbox', { name: '준공 기한 날짜' }));
     await userEvent.type(screen.getByRole('textbox', { name: '준공 기한 날짜' }), '2027-06-30');
@@ -79,7 +81,9 @@ describe('지시서 시험', () => {
     expect(screen.queryByRole('button', { name: '확정' })).toBeNull();
     expect(screen.getByRole('button', { name: '에이전트에게 맞추게 하기' })).toBeVisible();
     expect(screen.getByRole('button', { name: '에이전트에게 맞추게 하기' })).toHaveClass('ui-btn-primary');
-    expect(within(screen.getByRole('alert')).getByText('준공 2027.11.30 이전: 준공이 기한보다 20일 늦습니다.')).toBeVisible();
+    // fix1 I6: 이름은 종류와 지금(미리 보기) 값으로 만든다
+    expect(within(screen.getByRole('alert')).getByText('준공 기한 2027.06.30: 준공이 기한보다 20일 늦습니다.')).toBeVisible();
+    expect(screen.getByRole('listitem', { name: '준공 기한 2027.06.30' })).toBeVisible();
     expect(bodies(PREVIEW)[0].changes).toEqual([{ id: 'in.finish_by', params: { date: '2027-06-30' } }]);
   });
 
@@ -309,5 +313,129 @@ describe('창', () => {
 
   test('the manifest is a 1400×860 work program with the real screen', () => {
     expect([manifest.id, manifest.kind, manifest.defaultSize]).toEqual(['conditions', 'work', { w: 1400, h: 860 }]);
+  });
+});
+
+describe('Fix round 1', () => {
+  const agentButton = () => screen.queryByRole('button', { name: '에이전트에게 맞추게 하기' });
+
+  test('I3 · only a domain change hides the agent; adding an input change brings it back', async () => {
+    mockPreviewRoute(mockPreview());
+    await renderC();
+    await userEvent.click(within(item('슬래브 거푸집')).getByRole('button', { name: '끄기' }));
+    await screen.findByText(/미리 보기 중/);
+    expect(agentButton()).toBeNull();
+    expect(screen.getByRole('button', { name: '확정' })).toBeVisible();
+    await setCrane('2');
+    await waitFor(() => expect(bodies(PREVIEW)).toHaveLength(2));
+    expect(await screen.findByRole('button', { name: '에이전트에게 맞추게 하기' })).toBeVisible();
+  });
+
+  test('I4 · after an applied commit the value fields show the reloaded stored values (slow GET)', async () => {
+    const reload = deferred();
+    let reads = 0;
+    const fresh = { ...makeView(INPUTS.map((c) => (c.id === 'in.crane' ? { ...c, params: { ...c.params, capacity: 2 } } : c))), version: 4 };
+    setup({
+      [URL]: () => (reads++ === 0 ? json(200, makeView()) : reload.route()),
+      [`POST ${PREVIEW}`]: respond(mockPreview()),
+      [`POST ${URL}/commit`]: respond({ applied: true, approval_id: 8, version: 4 }),
+    });
+    await renderC();
+    await setCrane('2');
+    await screen.findByText(/11\.24 → 11\.12/);
+    await userEvent.click(screen.getByRole('button', { name: '확정' }));
+    await waitFor(() => expect(reload.count()).toBe(1));
+    await act(async () => reload.resolve(0, fresh));
+    expect(await screen.findByText('확정했습니다 · 버전 4')).toBeVisible();
+    expect(qty('타워크레인')).toHaveValue('2');
+  });
+
+  test('I4 · a conflict reload also refills the fields with the new stored values (slow GET)', async () => {
+    const reload = deferred();
+    let reads = 0;
+    const fresh = { ...makeView(INPUTS.map((c) => (c.id === 'in.crane' ? { ...c, params: { ...c.params, capacity: 3 } } : c))), version: 4 };
+    setup({
+      [URL]: () => (reads++ === 0 ? json(200, makeView()) : reload.route()),
+      [`POST ${PREVIEW}`]: respond({ code: 'version_conflict', message: 'x', detail: { current: 4 } }, 409),
+    });
+    await renderC();
+    await setCrane('2');
+    await waitFor(() => expect(reload.count()).toBe(1));
+    await act(async () => reload.resolve(0, fresh));
+    expect(await screen.findByText('그 사이 일정이 바뀌어 다시 불러왔습니다.')).toBeVisible();
+    expect(qty('타워크레인')).toHaveValue('3');
+  });
+
+  test('I5 · a preview answer that arrives after the window closed does not refill the OS store', async () => {
+    const late = deferred();
+    setup({ [`POST ${PREVIEW}`]: late.route });
+    const view = await renderC();
+    await setCrane('2');
+    await waitFor(() => expect(late.count()).toBe(1));
+    view.unmount();
+    await act(async () => late.resolve(0, mockPreview({ moved: [m('A3010')] })));
+    expect(preview()).toBeNull();
+  });
+
+  test('I5 · …nor after logout', async () => {
+    const late = deferred();
+    setup({ [`POST ${PREVIEW}`]: late.route });
+    await renderC();
+    await setCrane('2');
+    await waitFor(() => expect(late.count()).toBe(1));
+    act(() => {
+      useSession.getState().logout();
+      resetShellState();
+    });
+    await act(async () => late.resolve(0, mockPreview({ moved: [m('A3010')] })));
+    expect(preview()).toBeNull();
+  });
+
+  test('I6 · date and number conditions are named from kind and value', async () => {
+    setup();
+    await renderC();
+    expect(item('준공 기한 2027.11.30')).toBeVisible();
+    expect(within(column('③ 내 규칙')).getByRole('listitem', { name: '액티비티 기간 10일 이하' })).toBeVisible();
+    // 기본 규칙(달력 종류지만 값이 없음)은 글 그대로
+    expect(within(column('① 기본 규칙')).getByRole('listitem', { name: '달력에 일할 수 있는 날이 있음' })).toBeVisible();
+  });
+
+  test('m4 · a wrong value blocks 확정 with the reason inline', async () => {
+    mockPreviewRoute(mockPreview());
+    await renderC();
+    await setCrane('2');
+    await screen.findByText(/11\.24 → 11\.12/);
+    await userEvent.clear(qty('철근공'));
+    await userEvent.type(qty('철근공'), '열 명');
+    expect(within(item('철근공')).getByText('0 이상 정수로 적어 주세요.')).toBeVisible();
+    expect(await screen.findByText('값이 틀린 칸이 있어 확정할 수 없습니다.')).toBeVisible();
+    await waitFor(() => expect(bodies(PREVIEW)).toHaveLength(2)); // 크레인 바꿈만 다시 미리 본다
+    await act(() => new Promise((r) => setTimeout(r, 50))); // 그 응답까지 받은 뒤에도
+    expect(screen.getByRole('button', { name: '확정' })).toBeDisabled();
+    await userEvent.clear(qty('철근공'));
+    await userEvent.type(qty('철근공'), '12');
+    await waitFor(() => expect(screen.getByRole('button', { name: '확정' })).toBeEnabled());
+    expect(screen.queryByText('값이 틀린 칸이 있어 확정할 수 없습니다.')).toBeNull();
+  });
+
+  test('m6 · arrow keys move through the state filter', async () => {
+    setup();
+    await renderC();
+    const all = screen.getByRole('radio', { name: '전체' });
+    expect(all).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('radio', { name: /^통과/ })).toHaveAttribute('tabindex', '-1');
+    all.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(screen.getByRole('radio', { name: /^통과/ })).toHaveFocus();
+    expect(screen.getByRole('radio', { name: /^통과/ })).toHaveAttribute('aria-checked', 'true');
+    await userEvent.keyboard('{ArrowLeft}{ArrowLeft}');
+    expect(screen.getByRole('radio', { name: /^꺼짐/ })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('m6 · unreadable conditions fold open with their reasons', async () => {
+    setup({ [URL]: { ...makeView(), invalid: [{ condition_id: 'x1', message: "'kind' 칸이 없습니다." }] } });
+    await renderC();
+    await userEvent.click(screen.getByText('읽을 수 없는 조건 1개 (점검하지 않음)'));
+    expect(screen.getByText("x1: 'kind' 칸이 없습니다.")).toBeVisible();
   });
 });

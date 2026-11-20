@@ -100,7 +100,10 @@
 .cd-chip.is-passed::before { background: var(--success); }
 .cd-chip.is-violated::before { background: var(--danger); }
 .cd-chip[aria-checked="true"] { border-color: var(--accent); background: var(--bg-selected); color: var(--accent-text); font-weight: 700; }
-.cd-invalid { color: var(--warning-text); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.cd-invalid { min-width: 0; color: var(--warning-text); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.cd-invalid summary { cursor: pointer; }
+.cd-invalid[open] { flex-basis: 100%; order: 10; }
+.cd-invalid ul { max-height: 120px; overflow-y: auto; margin: 4px 0 0; padding-left: 18px; }
 .cd-search {
   width: 220px;
   max-width: 100%;
@@ -163,6 +166,7 @@
 .cd-input.is-date { width: 112px; }
 .cd-input[aria-invalid="true"] { border-color: var(--danger); }
 .cd-unit { color: var(--fg-muted); }
+.cd-field-error { margin: 4px 0 0; color: var(--danger-text); font-size: var(--fs-12); overflow-wrap: anywhere; }
 .cd-meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 2px 8px; color: var(--fg-muted); font-size: var(--fs-12); }
 .cd-meta span { overflow-wrap: anywhere; }
 .cd-note { color: var(--accent-text); font-weight: 500; }

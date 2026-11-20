@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import type { ProgramProps } from '../../os/registry';
 import { useUiContext } from '../../os/uiContext';
@@ -15,6 +15,31 @@ const NO_SCHEDULE = '일정을 먼저 고르세요. 메뉴바에서 현장을 �
 function positiveId(raw: string | undefined): number | null {
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** 화살표로 상태 고르기를 옮긴다(라디오 묶음: 고른 것만 Tab 으로 닿고, 화살표가 고르며 옮긴다). */
+function arrowTo(e: KeyboardEvent<HTMLDivElement>, values: StateFilter[], state: StateFilter, setState: (s: StateFilter) => void) {
+  const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  const next = (values.indexOf(state) + step + values.length) % values.length;
+  setState(values[next]);
+  e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=radio]')[next]?.focus();
+}
+
+/** 읽을 수 없는 저장 조건(점검하지 않음): 접어 두고 펼치면 까닭. */
+function Unreadable({ items }: { items: CondView['invalid'] }) {
+  if (items.length === 0) return null;
+  return (
+    <details className="cd-invalid">
+      <summary>{`읽을 수 없는 조건 ${items.length}개 (점검하지 않음)`}</summary>
+      <ul>
+        {items.map((i, n) => (
+          <li key={`${i.condition_id}-${n}`}>{`${i.condition_id}: ${i.message}`}</li>
+        ))}
+      </ul>
+    </details>
+  );
 }
 
 /** 상태 고르기(수 포함) + 찾기. 고른 것과 찾는 글로 모든 칸을 거른다. */
@@ -35,14 +60,27 @@ function Filters({ shown, state, setState, query, setQuery }: {
   ];
   return (
     <div className="cd-filters">
-      <div className="cd-chips" role="radiogroup" aria-label="상태로 거르기">
+      <div
+        className="cd-chips"
+        role="radiogroup"
+        aria-label="상태로 거르기"
+        onKeyDown={(e) => arrowTo(e, chips.map(([v]) => v), state, setState)}
+      >
         {chips.map(([value, label]) => (
-          <button key={value} type="button" role="radio" aria-checked={state === value} className={`cd-chip is-${value}`} onClick={() => setState(value)}>
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={state === value}
+            tabIndex={state === value ? 0 : -1}
+            className={`cd-chip is-${value}`}
+            onClick={() => setState(value)}
+          >
             {label}
           </button>
         ))}
       </div>
-      {shown.invalid.length > 0 && <span className="cd-invalid">{`읽을 수 없는 조건 ${shown.invalid.length}개 (점검하지 않음)`}</span>}
+      <Unreadable items={shown.invalid} />
       <span className="cd-gap" />
       <input className="cd-search" type="search" aria-label="조건 찾기" placeholder="조건 찾기" value={query} onChange={(e) => setQuery(e.target.value)} />
     </div>
@@ -64,7 +102,7 @@ function Columns({ model, shown, state, query }: { model: ConditionsModel; shown
         saved={saved}
         edits={model.edits}
         resources={shown.resources}
-        generation={model.generation}
+        fieldsKey={model.fieldsKey}
         onEdit={model.edit}
       />
     );

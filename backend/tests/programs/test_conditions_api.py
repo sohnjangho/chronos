@@ -8,6 +8,7 @@ import pytest
 
 from app.core.model import Relation, Resource
 from app.harness.conditions import Condition
+from app.store.tables import ScheduleVersion
 from tests.schedules import make, store, task
 
 CRANE = Resource("crane", "타워크레인", "대", 1)
@@ -286,7 +287,8 @@ def test_user_cannot_preview_a_domain_toggle_either(client, user, sid):
 def test_a_change_that_leaves_no_workday_is_schedule_invalid(client, admin, sid):
     winter = cond("in.block", "input", "blocked_period", {"start_md": [1, 1], "end_md": [12, 31], "tag": "골조"}, "", "조건 화면")
     r = _post(client, admin, sid, "preview", [{"add": winter}])
-    assert r.status_code == 422 and (r.json()["code"], r.json()["message"]) == ("schedule_invalid", "일할 수 있는 날이 없는 달력입니다.")
+    assert r.status_code == 422 and (r.json()["code"], r.json()["message"]) == (
+        "schedule_invalid", "바꾼 조건으로는 일정을 계산할 수 없습니다: 일할 수 있는 날이 없는 달력입니다.")  # fix1 m2
 
 
 @pytest.mark.parametrize("action", ["preview", "commit", "ask-agent"])
@@ -364,7 +366,7 @@ def test_ask_agent_creates_a_chat_for_the_caller_with_the_request_text(client, a
     assert client.get(f"/api/chat/sessions/{body['chat_session_id']}", headers=user).status_code == 404
     assert body["text"] == (
         "'시험 일정' 일정의 조건을 아래처럼 바꾸려고 합니다. 이 조건에 맞게 일정을 고쳐 주세요.\n"
-        "- 준공 2027.12.31 이전(in.finish_by): 2027-12-31 → 2027-06-30\n"
+        "- 준공 기한 2027.06.30(in.finish_by): 2027-12-31 → 2027-06-30\n"  # fix1 I6: 값을 바꾸면 글을 다시 만든다
         "바꾼 조건으로 계산하면 준공 2027-08-13(그대로), 위반 1건입니다.\n"
         "- 준공이 기한보다 32일 늦습니다."
     )
@@ -384,3 +386,100 @@ def test_ask_agent_validates_the_changes_before_creating_a_chat(client, user, si
     assert client.get("/api/chat/sessions", headers=user).json() == []
     ok = _post(client, user, sid, "ask-agent", CRANE_TWO).json()
     assert [s["id"] for s in client.get("/api/chat/sessions", headers=user).json()] == [ok["chat_session_id"]]
+
+
+# ── Fix round 1 ────────────────────────────────────────────────────
+
+
+def _versions_of(client, headers, sid) -> list[dict]:
+    return client.get(f"/api/schedules/{sid}/versions", headers=headers).json()
+
+
+def test_i1_an_auto_applied_commit_is_recorded_as_the_user(client, admin, sid):
+    client.put("/api/settings/approval", json={"mode": "auto"}, headers=admin)
+    assert _post(client, admin, sid, "commit", CRANE_TWO).json()["applied"] is True
+    newest = _versions_of(client, admin, sid)[0]
+    assert (newest["n"], newest["by_kind"], newest["by_name"]) == (2, "user", "관리자")
+
+
+def test_i1_an_approved_commit_is_recorded_as_the_user(client, admin, user, sid):
+    approval_id = _post(client, user, sid, "commit", CRANE_TWO).json()["approval_id"]
+    client.post(f"/api/approvals/{approval_id}/decide", json={"decision": "approve"}, headers=admin)
+    newest = _versions_of(client, admin, sid)[0]
+    assert (newest["n"], newest["by_kind"], newest["by_name"]) == (2, "user", "관리자")  # by_name 은 승인한 사람(Task 11)
+
+
+def test_i2_a_preview_without_changes_is_the_schedule_view(client, admin, sid):
+    assert _post(client, admin, sid, "preview", []).json()["view"] == client.get(f"/api/schedules/{sid}", headers=admin).json()
+
+
+def test_i3_the_agent_text_covers_input_changes_and_mentions_domain_changes(client, admin, sid):
+    changes = [{"id": "dom.curing", "enabled": False}, *CRANE_TWO]
+    text = _post(client, admin, sid, "ask-agent", changes).json()["text"]
+    assert text == (
+        "'시험 일정' 일정의 조건을 아래처럼 바꾸려고 합니다. 이 조건에 맞게 일정을 고쳐 주세요.\n"
+        "- 타워크레인(in.crane): 1대 → 2대\n"
+        "바꾼 조건으로 계산하면 준공 2027-08-13 → 2027-07-02, 위반 0건입니다.\n"
+        "분야 규칙 변경은 [확정]으로 반영해 주세요."
+    )
+
+
+def test_i3_only_domain_changes_ask_to_fix_the_current_conditions(client, admin, sid):
+    text = _post(client, admin, sid, "ask-agent", [{"id": "dom.curing", "enabled": False}]).json()["text"]
+    assert text == ("'시험 일정' 일정을 지금 조건에 맞게 고쳐 주세요.\n지금 준공 2027-08-13, 위반 0건입니다.\n"
+                    "분야 규칙 변경은 [확정]으로 반영해 주세요.")
+
+
+def test_i6_a_changed_value_regenerates_the_condition_text(client, admin, sid):
+    client.put("/api/settings/approval", json={"mode": "auto"}, headers=admin)
+    late = [{"id": "in.finish_by", "params": {"date": "2027-09-30"}}]
+    assert _rows(_post(client, admin, sid, "preview", late).json()["conditions"])["in.finish_by"]["text"] == "준공 기한 2027.09.30"
+    assert _post(client, admin, sid, "commit", [*late, *CRANE_TWO]).json()["applied"] is True
+    rows = _rows(client.get(_url(sid), headers=admin).json())
+    assert (rows["in.finish_by"]["text"], rows["in.crane"]["text"]) == ("준공 기한 2027.09.30", "타워크레인 2대")
+    assert rows["in.safety"]["text"] == "안전 우선으로 여유 있게"  # 값이 없는 조건과 바꾸지 않은 조건은 글 그대로
+
+
+def _broken(session, sid) -> None:
+    """저장된 지금 버전의 조건만 고쳐 계산이 안 되게 한다(골조 꼬리표의 모든 날을 막음)."""
+    block = cond("in.block", "input", "blocked_period", {"start_md": [1, 1], "end_md": [12, 31], "tag": "골조"}, "", "문서")
+    row = session.get(ScheduleVersion, (sid, 1))
+    row.conditions_json = [*row.conditions_json, block]
+    session.commit()
+
+
+def test_m2_a_fix_can_be_previewed_when_the_stored_version_does_not_compute(client, admin, session, sid):
+    _broken(session, sid)
+    r = _post(client, admin, sid, "preview", [{"remove": "in.block"}])
+    assert r.status_code == 200
+    j = r.json()
+    assert j["before"] == {"finish": None, "critical_count": None, "violated": 1} and j["moved"] == []
+    assert (j["after"]["finish"], j["feasible"], j["view"]["plan_finish"]) == ("2027-08-13", True, None)
+
+
+def test_m2_commit_on_a_stored_version_that_does_not_compute_is_a_korean_422(client, admin, session, sid):
+    _broken(session, sid)
+    r = _post(client, admin, sid, "commit", [{"remove": "in.block"}])
+    assert r.status_code == 422 and (r.json()["code"], r.json()["message"]) == (
+        "schedule_invalid", "지금 저장된 일정을 계산할 수 없어 확정할 수 없습니다: 일할 수 있는 날이 없는 달력입니다.")
+
+
+def test_m3_changing_the_value_of_an_overridden_condition_keeps_it_overridden(client, admin, session):
+    early = cond("in.fin_a", "input", "finish_by", {"date": "2027-12-31"}, "준공 a", "문서", enabled=False,
+                 overridden_by="in.fin_b")
+    later = cond("in.fin_b", "input", "finish_by", {"date": "2027-11-30"}, "준공 b", "문서")
+    sid = store(session, office(), conditions=[early, later])
+    edit = {"id": "in.fin_a", "params": {"date": "2027-10-31"}}
+    row = _rows(_post(client, admin, sid, "preview", [edit]).json()["conditions"])["in.fin_a"]
+    assert (row["state"], row["overridden_by"]) == ("off", "in.fin_b")
+    freed = _rows(_post(client, admin, sid, "preview", [edit, {"remove": "in.fin_b"}]).json()["conditions"])["in.fin_a"]
+    assert (freed["state"], freed["params"]) == ("passed", {"date": "2027-10-31"})
+
+
+def test_m6_ask_agent_reuses_the_callers_latest_session_for_the_schedule(client, admin, user, session, sid):
+    first = _post(client, admin, sid, "ask-agent", CRANE_TWO).json()["chat_session_id"]
+    assert _post(client, admin, sid, "ask-agent", []).json()["chat_session_id"] == first
+    assert _post(client, user, sid, "ask-agent", []).json()["chat_session_id"] != first
+    other = store(session, office(), conditions=list(CONDITIONS))
+    assert _post(client, admin, other, "ask-agent", []).json()["chat_session_id"] != first
+    assert [s["id"] for s in client.get("/api/chat/sessions", headers=admin).json()].count(first) == 1

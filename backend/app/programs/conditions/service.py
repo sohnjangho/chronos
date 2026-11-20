@@ -1,17 +1,20 @@
 """조건·규칙: 겹별 보기·미리 보기·확정·에이전트에게 맞추게 하기.
 
 조건은 일정의 지금 버전에 저장된 dict 목록이다. 읽을 때마다 기본 규칙과 함께 조립(assemble_all)하고
-점검(check)한다. 화면 날짜·점검과 같은 준비(조건 넣기 → compute → level(shift=True))를 쓴다.
-- 미리 보기는 아무것도 저장하지 않는다.
-- 확정은 Task 11 의 승인 판단(assess)과 승인 건(store.approvals)으로 간다: 승인이 필요하면 pending 건,
-  아니면 그 자리에서 반영(status auto, 되돌릴 버전 restore_to).
-- 에이전트에게 맞추게 하기는 변경을 미리 보기처럼 확인한 뒤 그 사용자의 새 대화를 만들고 요청 글을 돌려준다
-  (턴은 시작하지 않는다. 사용자가 대화 화면에서 보낸다).
+점검(check)한다. 일정은 화면·점검과 같은 준비(harness.prepare)를 거쳐 run(compute → level(shift=True))한다.
+한 요청 안에서 한 조건 목록의 점검과 계산은 쓸 때 한 번만 한다(_Side). 점검(check)은 하네스 안에서 따로 계산한다.
+- 미리 보기는 아무것도 저장하지 않는다. 저장된 버전이 계산되지 않아도 고친 조건을 미리 볼 수 있다(before 는 None).
+- 확정은 Task 11 의 승인 판단(assess)과 승인 건(store.approvals, requested_kind "user")으로 간다: 승인이 필요하면
+  pending 건, 아니면 그 자리에서 반영(status auto, 되돌릴 버전 restore_to). 반영한 버전의 by_kind 는 "user".
+- 에이전트에게 맞추게 하기는 모든 변경을 확인한 뒤, 입력 조건 변경만 넣어 계산한 요청 글을 만든다(에이전트는 입력
+  조건만 바꿀 수 있다 — 분야 규칙 변경은 [확정]으로). 그 사용자가 이 일정에 쓰던 「조건 맞추기」 대화가 있으면
+  그것을, 없으면 새 대화를 쓴다(턴은 시작하지 않는다. 사용자가 대화 화면에서 보낸다).
 확인 차례: 401 → 본문 422 invalid_request → 404 → 409 version_conflict → 변경 422 invalid_change·403 admin_only
-→ 계산 422 schedule_invalid.
+→ 계산 422 schedule_invalid(까닭을 붙인 한국어).
 """
 
 from dataclasses import dataclass, replace
+from functools import cached_property
 
 from sqlalchemy.orm import Session
 
@@ -19,12 +22,12 @@ from app.agent.approval import Assessment, assess
 from app.core.cpm import CpmResult, ScheduleError
 from app.core.model import Schedule
 from app.errors import ApiError
-from app.harness.assemble import apply_to_schedule, assemble_all
+from app.harness.assemble import assemble_all, prepare
 from app.harness.checks import CheckReport, check
-from app.harness.conditions import Condition, read_conditions
+from app.harness.conditions import read_conditions
 from app.programs.conditions import states, words
-from app.programs.conditions.changes import apply_changes
-from app.programs.conditions.preview_view import moved, preview_view, side
+from app.programs.conditions.changes import apply_changes, input_only
+from app.programs.conditions.preview_view import moved, side
 from app.programs.conditions.schemas import (
     AskOut,
     ChangesIn,
@@ -37,11 +40,15 @@ from app.store.drafts import violation_json
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound, get_record, load, run, to_json
 from app.store.settings import approval_mode
-from app.store.tables import ScheduleRecord, User
+from app.store.tables import ChatSession, ScheduleRecord, User
 from app.store.versions import VersionConflict
+from app.store.view import plan_of, view_of
 
 CONFLICT_MESSAGE = "그 사이 일정이 바뀌었습니다. 다시 불러와 주세요."
 NO_CHANGE_MESSAGE = "바뀌는 것이 없습니다."
+AFTER_BROKEN = "바꾼 조건으로는 일정을 계산할 수 없습니다"
+STORED_BROKEN_COMMIT = "지금 저장된 일정을 계산할 수 없어 확정할 수 없습니다"
+STORED_BROKEN_AGENT = "지금 저장된 일정을 계산할 수 없어 에이전트에게 맡길 수 없습니다"
 
 
 @dataclass(frozen=True)
@@ -52,14 +59,40 @@ class _Loaded:
     n: int
 
 
-@dataclass(frozen=True)
 class _Side:
-    """한 조건 목록(저장된 것 또는 바꾼 것)의 조립과 점검."""
+    """한 조건 목록(저장된 것 또는 바꾼 것)의 조립. 점검(report)과 계산(computed)은 처음 쓸 때 한 번만 한다."""
 
-    stored: list[dict]
-    assembled: list[Condition]
-    unreadable: list[dict]
-    report: CheckReport
+    def __init__(self, schedule: Schedule, stored: list[dict]) -> None:
+        self.schedule, self.stored = schedule, stored
+        self.readable, self.unreadable = read_conditions(stored)
+        self.assembled = assemble_all(self.readable)
+
+    @cached_property
+    def report(self) -> CheckReport:
+        return check(self.schedule, self.assembled)
+
+    @cached_property
+    def ready(self) -> Schedule:
+        return prepare(self.schedule, self.readable)  # 화면·점검과 같은 준비
+
+    @cached_property
+    def computed(self) -> CpmResult | ScheduleError:
+        try:
+            return run(self.ready)
+        except ScheduleError as e:
+            return e
+
+    @property
+    def cpm(self) -> CpmResult | None:
+        return None if isinstance(self.computed, ScheduleError) else self.computed
+
+
+def _need(s: _Side, why: str) -> CpmResult:
+    """계산 결과. 계산이 안 되면 422 schedule_invalid "<why>: <core 까닭>"."""
+    if isinstance(s.computed, ScheduleError):
+        e = s.computed
+        raise ApiError(422, "schedule_invalid", f"{why}: {schedule_error_message(e)}", e.detail)
+    return s.computed
 
 
 def _load(session: Session, schedule_id: int, base_version: int | None = None) -> _Loaded:
@@ -71,21 +104,6 @@ def _load(session: Session, schedule_id: int, base_version: int | None = None) -
     if base_version is not None and base_version != n:
         raise ApiError(409, "version_conflict", CONFLICT_MESSAGE, {"current": n})
     return _Loaded(record, schedule, stored, n)
-
-
-def _side(schedule: Schedule, stored: list[dict]) -> _Side:
-    readable, unreadable = read_conditions(stored)
-    assembled = assemble_all(readable)
-    return _Side(stored, assembled, unreadable, check(schedule, assembled))
-
-
-def _computed(schedule: Schedule, s: _Side) -> tuple[Schedule, CpmResult]:
-    """조건을 넣은 일정과 화면 날짜. 계산이 안 되면 422 schedule_invalid."""
-    ready = apply_to_schedule(schedule, s.assembled)
-    try:
-        return ready, run(ready)
-    except ScheduleError as e:
-        raise ApiError(422, "schedule_invalid", schedule_error_message(e), e.detail) from None
 
 
 def _conditions_out(loaded: _Loaded, s: _Side, user: User) -> ConditionsOut:
@@ -100,28 +118,29 @@ def _conditions_out(loaded: _Loaded, s: _Side, user: User) -> ConditionsOut:
 
 def get_conditions(session: Session, schedule_id: int, user: User) -> ConditionsOut:
     loaded = _load(session, schedule_id)
-    return _conditions_out(loaded, _side(loaded.schedule, loaded.stored), user)
+    return _conditions_out(loaded, _Side(loaded.schedule, loaded.stored), user)
 
 
 def _changed(session: Session, schedule_id: int, body: ChangesIn, user: User) -> tuple[_Loaded, _Side, _Side]:
     """(불러온 것, 저장된 조건 쪽, 바꾼 조건 쪽). 확인 차례는 모듈 설명글."""
     loaded = _load(session, schedule_id, body.base_version)
-    after_stored = apply_changes(loaded.stored, body.changes, user)
-    return loaded, _side(loaded.schedule, loaded.stored), _side(loaded.schedule, after_stored)
+    after_stored = apply_changes(loaded.stored, body.changes, user, loaded.schedule.resources)
+    return loaded, _Side(loaded.schedule, loaded.stored), _Side(loaded.schedule, after_stored)
 
 
 def preview(session: Session, schedule_id: int, body: ChangesIn, user: User) -> PreviewOut:
     """바꾼 조건으로 계산한 일정·위반·움직인 액티비티. 저장하지 않는다."""
     loaded, before, after = _changed(session, schedule_id, body, user)
-    _, saved = _computed(loaded.schedule, before)
-    ready, cpm = _computed(loaded.schedule, after)
+    cpm = _need(after, AFTER_BROKEN)
+    saved = before.cpm  # 저장된 버전이 계산되지 않으면 None: 그래도 고친 조건은 미리 본다
     violations = after.report.violations
+    plan = plan_of(session, loaded.record.id, loaded.n, saved)
     return PreviewOut.model_validate({
         "feasible": not violations,
-        "view": preview_view(session, loaded.record, loaded.schedule, ready, cpm, loaded.n, saved),
+        "view": view_of(session, loaded.record.id, loaded.n, loaded.schedule, after.ready, cpm, plan),
         "before": side(saved, len(before.report.violations)),
         "after": side(cpm, len(violations)),
-        "moved": moved(loaded.schedule, saved, cpm),
+        "moved": moved(loaded.schedule, saved, cpm) if saved else [],
         "violations": [violation_json(v) for v in violations],
         "conditions": _conditions_out(loaded, after, user),
     })
@@ -133,7 +152,10 @@ def _effective(s: _Side) -> dict[str, tuple]:
 
 
 def _assess(session: Session, loaded: _Loaded, before: _Side, after: _Side) -> Assessment:
-    """Task 11 의 승인 판단·요약. 일정은 그대로이고 조건만 바뀐다. 읽지 못한 저장 조건도 invalid 로 센다."""
+    """Task 11 의 승인 판단·요약. 일정은 그대로이고 조건만 바뀐다. 읽지 못한 저장 조건도 invalid 로 센다.
+
+    assess 는 저장 모양 조건으로 양쪽을 다시 계산한다(Task 11 의 비교 그대로). 부르기 전에 양쪽이 계산되는지 본다.
+    """
     report = replace(after.report, invalid=after.unreadable + after.report.invalid)
     return assess(loaded.schedule, loaded.schedule, before.stored, after.stored, report, mode=approval_mode(session))
 
@@ -143,7 +165,8 @@ def commit(session: Session, schedule_id: int, body: ChangesIn, user: User) -> C
     loaded, before, after = _changed(session, schedule_id, body, user)
     if _effective(before) == _effective(after):
         raise ApiError(422, "no_change", NO_CHANGE_MESSAGE)
-    _computed(loaded.schedule, after)
+    _need(before, STORED_BROKEN_COMMIT)
+    _need(after, AFTER_BROKEN)
     result = _assess(session, loaded, before, after)
     rows = result.summary["conditions_changed"]
     row = approvals.create(
@@ -151,6 +174,7 @@ def commit(session: Session, schedule_id: int, body: ChangesIn, user: User) -> C
         schedule_id=loaded.record.id, draft_id=None, base_version=loaded.n, summary_json=result.summary,
         diff_json=result.diff, snapshot_json=to_json(loaded.schedule), conditions_json=after.stored, changes_json=[],
         status="pending", request=words.approval_request(rows), chat_session_id=None, requested_by=user.name,
+        requested_kind="user",
     )
     if not result.decision.needs_approval:
         try:
@@ -163,14 +187,26 @@ def commit(session: Session, schedule_id: int, body: ChangesIn, user: User) -> C
     return CommitOut(applied=row.status == "auto", version=row.version, approval_id=row.id)
 
 
-def ask_agent(session: Session, schedule_id: int, body: ChangesIn, user: User) -> AskOut:
-    """변경을 확인하고(미리 보기와 같은 확인) 그 사용자의 새 대화와 요청 글을 만든다."""
-    loaded, before, after = _changed(session, schedule_id, body, user)
-    _, saved = _computed(loaded.schedule, before)
-    _, cpm = _computed(loaded.schedule, after)
-    rows = _assess(session, loaded, before, after).summary["conditions_changed"]
-    text = words.agent_request(loaded.record.name, rows, (saved.finish, cpm.finish), after.report.violations)
-    chat = chats.create_chat(session, user_id=user.id, schedule_id=loaded.record.id)
-    chat.title = words.chat_title(loaded.record.name)
+def _chat_for(session: Session, user: User, record: ScheduleRecord) -> ChatSession:
+    """그 사용자가 이 일정에 쓰던 가장 최근 「조건 맞추기」 대화, 없으면 새 대화."""
+    title = words.chat_title(record.name)
+    for chat in chats.list_chats(session, user.id):  # 새것부터
+        if chat.schedule_id == record.id and chat.title == title:
+            return chat
+    chat = chats.create_chat(session, user_id=user.id, schedule_id=record.id)
+    chat.title = title
     session.commit()
-    return AskOut(chat_session_id=chat.id, text=text)
+    return chat
+
+
+def ask_agent(session: Session, schedule_id: int, body: ChangesIn, user: User) -> AskOut:
+    """모든 변경을 확인하고, 입력 조건 변경만 넣어 계산한 요청 글과 대화를 돌려준다."""
+    loaded, before, _ = _changed(session, schedule_id, body, user)  # 모든 변경 확인(403·422)
+    kept, domain_changed = input_only(loaded.stored, body.changes)
+    after = _Side(loaded.schedule, apply_changes(loaded.stored, kept, user, loaded.schedule.resources))
+    saved = _need(before, STORED_BROKEN_AGENT)
+    cpm = _need(after, AFTER_BROKEN)
+    rows = _assess(session, loaded, before, after).summary["conditions_changed"] if kept else []
+    text = words.agent_request(loaded.record.name, rows, (saved.finish, cpm.finish), after.report.violations,
+                               domain_changed)
+    return AskOut(chat_session_id=_chat_for(session, user, loaded.record).id, text=text)

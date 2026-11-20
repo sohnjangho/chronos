@@ -47,10 +47,38 @@ type Resources = CondView['resources'];
 
 const resourceOf = (c: Cond, resources: Resources) => resources.find((r) => r.id === c.params.resource_id);
 
-/** 조건의 이름: 자원 조건은 자원 이름, 그 밖은 조건 글(없으면 id). */
+const dot = (v: unknown) => String(v ?? '').replaceAll('-', '.');
+
+function holidays(v: unknown): string {
+  if (v === 'KR') return ' · 한국 공휴일 쉼';
+  return Array.isArray(v) && v.length ? ` · 공휴일 ${v.length}일` : '';
+}
+
+/**
+ * 조건의 이름. 값이 있는 종류는 종류와 지금 값으로 만든다(예 「준공 기한 2027.09.30」 — 서버 words.condition_text 와
+ * 같은 꼴, 자원은 자원 이름만: 수량은 칸에 보인다). 기본 규칙과 그 밖 종류는 조건 글(없으면 id).
+ */
 export function condLabel(c: Cond, resources: Resources): string {
-  if (c.kind === 'resource_cap') return resourceOf(c, resources)?.name ?? String(c.params.resource_id ?? c.id);
-  return c.text || c.id;
+  const p = c.params;
+  if (c.layer === 'base') return c.text || c.id; // 기본 규칙은 값이 없다(base.calendar 도 달력 종류지만 params {})
+  switch (c.kind) {
+    case 'resource_cap':
+      return resourceOf(c, resources)?.name ?? String(p.resource_id ?? c.id);
+    case 'finish_by':
+      return `준공 기한 ${dot(p.date)}`;
+    case 'start_after':
+      return `시작 가능일 ${dot(p.date)}`;
+    case 'milestone_by':
+      return `${String(p.activity_id ?? '')} 기한 ${dot(p.date)}`;
+    case 'min_gap':
+      return `'${String(p.after_tag ?? '')}' 뒤 ${p.unit === 'calendar_days' ? '달력일' : '근무일'} ${String(p.days)}일 비우기`;
+    case 'max_duration':
+      return `액티비티 기간 ${String(p.days)}일 이하`;
+    case 'calendar':
+      return `주 ${String(p.days_per_week)}일 근무${holidays(p.holidays)}`;
+    default:
+      return c.text || c.id;
+  }
 }
 
 export function unitOf(c: Cond, resources: Resources): string {
@@ -91,6 +119,11 @@ export function parseValue(key: string, raw: string): number | string | null {
     return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === text ? text : null;
   }
   return /^\d{1,4}$/.test(text) ? Number(text) : null;
+}
+
+/** 값 칸이 틀렸을 때 칸 아래에 보일 까닭. */
+export function invalidReason(key: string): string {
+  return key === 'date' ? '날짜는 2027-09-30 처럼 적어 주세요.' : '0 이상 정수로 적어 주세요.';
 }
 
 /** 'YYYY-MM-DD' → 'MM.DD'. 비교하는 날짜와 해가 다르면 'YYYY.MM.DD'. */

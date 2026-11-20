@@ -6,18 +6,23 @@
 - 내 규칙(mine): 이 계획에서는 읽기만(422).
 - 입력 조건(input): params(지금 params 에 덮어 합침, 형식 검사)·켜짐을 바꾸고, 더하고, 뺀다.
 바뀌지 않은 저장 조건 dict 는 받은 그대로 둔다(읽지 못한 dict 도 제자리에 남는다).
+값을 바꾸면 조건 글을 새 값으로 다시 만든다(words.condition_text). 값만 바꾸면 켜짐·진 표시는 그대로다
+(뒤 겹 조건에 진 조건은 계속 지고, 켜고 끄기를 눌러야 사용자가 정한 켜짐이 된다).
 """
 
 from collections.abc import Sequence
 
+from app.core.model import Resource
 from app.errors import ApiError
 from app.harness.conditions import (
     BASE_IDS,
     Condition,
     ConditionFormatError,
+    read_conditions,
     validate_params,
 )
 from app.programs.conditions.schemas import AddChange, Change, EditChange
+from app.programs.conditions.words import condition_text
 from app.store.tables import User
 
 
@@ -37,7 +42,7 @@ def _find(entries: list[object], cid: str) -> tuple[int, Condition]:
     raise _invalid(f"없는 조건입니다: {cid}")
 
 
-def _edited(c: Condition, change: EditChange, user: User) -> Condition:
+def _edited(c: Condition, change: EditChange, user: User, resources: Sequence[Resource]) -> Condition:
     if c.layer == "mine":
         raise _invalid(f"내 규칙은 이 화면에서 바꿀 수 없습니다: {c.id}")
     if c.layer == "domain":
@@ -48,9 +53,12 @@ def _edited(c: Condition, change: EditChange, user: User) -> Condition:
     params = c.params if change.params is None else {**c.params, **change.params}
     if (problem := validate_params(c.kind, params)) is not None:
         raise _invalid(f"{c.id}: {problem}")
-    enabled = c.enabled if change.enabled is None else change.enabled
-    # 사용자가 정한 켜짐이다. 진 표시는 조립할 때 다시 매긴다.
-    return Condition(c.id, c.layer, c.kind, params, c.text, c.source, enabled, None)
+    if change.enabled is None:  # 값만 바꿈: 켜짐·진 표시는 그대로(조립이 다시 매긴다)
+        enabled, winner = c.enabled, c.overridden_by
+    else:  # 사용자가 정한 켜짐
+        enabled, winner = change.enabled, None
+    text = c.text if params == c.params else (condition_text(c.kind, params, resources) or c.text)
+    return Condition(c.id, c.layer, c.kind, params, text, c.source, enabled, winner)
 
 
 def _added(entries: list[object], change: AddChange) -> dict:
@@ -72,8 +80,13 @@ def _removed(entries: list[object], cid: str) -> list[object]:
     return [d for d in entries if not (isinstance(d, dict) and d.get("id") == cid)]
 
 
-def apply_changes(stored: Sequence[object], changes: Sequence[Change], user: User) -> list[dict]:
-    """차례대로 넣은 새 조건 목록. 할 수 없는 변경이면 ApiError(422 invalid_change, 403 admin_only)."""
+def apply_changes(
+    stored: Sequence[object], changes: Sequence[Change], user: User, resources: Sequence[Resource]
+) -> list[dict]:
+    """차례대로 넣은 새 조건 목록. 할 수 없는 변경이면 ApiError(422 invalid_change, 403 admin_only).
+
+    resources 는 일정의 자원(자원 조건의 글을 다시 만들 때 이름·단위를 쓴다).
+    """
     entries = list(stored)
     for change in changes:
         if isinstance(change, AddChange):
@@ -84,7 +97,19 @@ def apply_changes(stored: Sequence[object], changes: Sequence[Change], user: Use
             raise _invalid("기본 규칙은 바꿀 수 없습니다.")
         if isinstance(change, EditChange):
             n, c = _find(entries, cid)
-            entries[n] = _edited(c, change, user).to_dict()
+            entries[n] = _edited(c, change, user, resources).to_dict()
         else:
             entries = _removed(entries, cid)
     return entries
+
+
+def input_only(stored: Sequence[object], changes: Sequence[Change]) -> tuple[list[Change], bool]:
+    """(입력 조건에 대한 변경만, 그 밖의 겹(분야 규칙) 변경이 있었는가). apply_changes 로 확인한 변경을 받는다."""
+    layers = {c.id: c.layer for c in read_conditions(stored)[0]}
+    kept: list[Change] = []
+    for change in changes:
+        if isinstance(change, AddChange):
+            layers[str(change.add.get("id"))] = "input"  # 같은 목록에서 더한 조건을 뒤에서 바꿀 수 있다
+        if not isinstance(change, EditChange) or layers.get(change.id) == "input":
+            kept.append(change)
+    return kept, len(kept) < len(changes)

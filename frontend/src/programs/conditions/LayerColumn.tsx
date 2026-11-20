@@ -19,7 +19,8 @@ interface ColumnProps {
   saved: Map<string, Cond>;
   edits: Record<string, Change>;
   resources: CondView['resources'];
-  generation: number;
+  /** 입력 칸 열쇠(바뀌면 칸을 저장값으로 새로 그린다). */
+  fieldsKey: string;
   onEdit(id: string, patch: EditPatch): void;
 }
 
@@ -30,7 +31,7 @@ export default function LayerColumn(props: ColumnProps) {
   const groups = total >= GROUP_FROM ? grouped(items) : [{ label: '', items }];
   const item = (c: Cond) => (
     <ConditionItem
-      key={`${c.id}-${props.generation}`}
+      key={`${c.id}-${props.fieldsKey}`}
       cond={c}
       saved={props.saved.get(c.id) ?? c}
       change={props.edits[c.id]}

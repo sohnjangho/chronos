@@ -32,23 +32,30 @@ function Violations({ model }: { model: ConditionsModel }) {
   );
 }
 
+/** 입력 조건을 바꿨는가(에이전트는 입력 조건만 바꿀 수 있다 — 분야 규칙만 바꿨으면 [확정]으로). */
+function inputEdited(model: ConditionsModel): boolean {
+  const input = new Set(model.view?.layers.input.map((c) => c.id) ?? []);
+  return Object.keys(model.edits).some((id) => input.has(id));
+}
+
 function Actions({ model }: { model: ConditionsModel }) {
   const editing = Object.keys(model.edits).length > 0;
   const p = model.preview;
   const savedViolations = (model.view?.summary.violated ?? 0) > 0;
-  // 바꿔 보는 중이면 미리 보기가 나온 뒤에만(서버가 그 변경을 확인한 뒤). 아니면 저장된 일정에 위반이 있을 때.
-  const showAgent = editing ? p !== null : savedViolations;
+  // 바꿔 보는 중이면 미리 보기가 나온 뒤, 입력 조건을 바꿨을 때만. 아니면 저장된 일정에 위반이 있을 때.
+  const showAgent = editing ? p !== null && inputEdited(model) : savedViolations;
   const agentFirst = editing ? p !== null && !p.feasible : savedViolations;
+  const held = model.busy || model.pending || model.hasInvalid; // 틀린 칸이 있으면 그 칸이 빠진 채 보내지 않는다
   return (
     <div className="cd-actions">
       {editing && <Button onClick={model.revert}>되돌리기</Button>}
       {showAgent && (
-        <Button variant={agentFirst ? 'primary' : 'default'} disabled={model.busy || model.pending} onClick={() => void model.ask()}>
+        <Button variant={agentFirst ? 'primary' : 'default'} disabled={held} onClick={() => void model.ask()}>
           에이전트에게 맞추게 하기
         </Button>
       )}
       {p?.feasible && (
-        <Button variant="primary" disabled={model.busy || model.pending} onClick={() => void model.commit()}>
+        <Button variant="primary" disabled={held} onClick={() => void model.commit()}>
           확정
         </Button>
       )}
@@ -82,6 +89,11 @@ export default function PreviewBar({ model }: { model: ConditionsModel }) {
           {editing && line && <Badge tone="info">미리 보기 중</Badge>}
           {editing && line && <span className="cd-preview-line">{line}</span>}
           {editing && !line && model.pending && <span className="cd-muted" role="status">미리 계산하는 중…</span>}
+          {model.hasInvalid && (
+            <span className="cd-problem" role="status">
+              값이 틀린 칸이 있어 확정할 수 없습니다.
+            </span>
+          )}
           {editing && model.problem && (
             <span className="cd-problem" role="alert">
               {model.problem}

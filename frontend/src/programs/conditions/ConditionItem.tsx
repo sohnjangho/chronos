@@ -3,7 +3,7 @@ import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import type { Change, Cond, CondView } from './condApi';
 import type { EditPatch } from './condStore';
-import { condLabel, fieldLabel, paramKey, parseValue, STATE_LABEL, STATE_TONE, unitOf, valueText } from './labels';
+import { condLabel, fieldLabel, invalidReason, paramKey, parseValue, STATE_LABEL, STATE_TONE, unitOf, valueText } from './labels';
 
 interface ItemProps {
   /** 보이는 상태(미리 보기 중이면 미리 보기의 것). */
@@ -74,9 +74,13 @@ function UsedBy({ cond }: { cond: Cond }) {
   );
 }
 
-/** 조건 하나: 이름(+값 칸) · 상태 배지 · 켜기/끄기 / 출처 · 바꾼 값 / 까닭 / 걸리는 액티비티(접음). */
+/**
+ * 조건 하나: 이름(+값 칸) · 상태 배지 · 켜기/끄기 / 틀린 값의 까닭 / 출처 · 바꾼 값 / 까닭 / 걸리는 액티비티(접음).
+ * 이름은 보이는 상태(미리 보기면 미리 보기 값)의 종류와 값으로 만든다. 값 칸의 이름은 저장된 조건으로 둔다.
+ */
 export default function ConditionItem({ cond, saved, change, resources, onEdit }: ItemProps) {
-  const label = condLabel(saved, resources);
+  const [bad, setBad] = useState(false);
+  const label = condLabel(cond, resources);
   const key = saved.editable === true ? paramKey(saved.kind) : null;
   const unit = unitOf(saved, resources);
   const enabled = change?.enabled ?? saved.enabled;
@@ -89,11 +93,14 @@ export default function ConditionItem({ cond, saved, change, resources, onEdit }
         <span className={saved.kind === 'resource_cap' ? 'cd-name is-strong' : 'cd-name'}>{label}</span>
         {key && (
           <ValueField
-            label={fieldLabel(saved, label)}
+            label={fieldLabel(saved, condLabel(saved, resources))}
             initial={saved.params[key]}
             valueKey={key}
             unit={key === 'date' ? '' : unit}
-            onValue={(v) => onEdit(saved.id, { params: v === null ? null : { [key]: v } })}
+            onValue={(v) => {
+              setBad(v === null);
+              onEdit(saved.id, v === null ? { params: null, invalid: true } : { params: { [key]: v }, invalid: false });
+            }}
           />
         )}
         <Badge tone={STATE_TONE[cond.state]}>{STATE_LABEL[cond.state]}</Badge>
@@ -103,6 +110,7 @@ export default function ConditionItem({ cond, saved, change, resources, onEdit }
           </Button>
         )}
       </div>
+      {bad && key && <p className="cd-field-error">{invalidReason(key)}</p>}
       <div className="cd-meta">
         <span>{saved.source}</span>
         {note && <span className="cd-note">{note}</span>}

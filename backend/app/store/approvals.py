@@ -78,14 +78,16 @@ def last_request(session: Session, chat_session_id: int | None) -> str:
 def apply(session: Session, row: Approval, *, by_name: str) -> None:
     """승인 건의 변경을 일정에 넣는다. flush 만 하고 commit 하지 않는다. row.schedule_id·row.version 을 채운다.
 
-    - change: base_version 위에 새 버전(by_kind "agent"). 그 사이 바뀌었으면 VersionConflict(아무것도 쓰지 않음).
+    새 버전·변경 이력의 by_kind 는 변경을 낸 쪽(row.requested_kind: "agent" | "user", 예전 줄은 "agent")이다.
+    - change: base_version 위에 새 버전. 그 사이 바뀌었으면 VersionConflict(아무것도 쓰지 않음).
     - first_save: 초안의 분야·정밀도로 새 일정(이름 = 제목)과 버전 1을 만들고 Plan 으로 둔다. 변경 이력 한 줄을 남기고
       초안을 쓴 것(used_at·schedule_id)으로 표시한다. 초안이 이미 쓰였으면 DraftUsed(아무것도 쓰지 않음).
     """
     schedule, conditions = from_json(row.snapshot_json), list(row.conditions_json)
+    by_kind = row.requested_kind or "agent"
     if row.kind == "change":
         row.version = save_new_version(
-            session, row.schedule_id, schedule, conditions, by_kind="agent", by_name=by_name, note=row.title,
+            session, row.schedule_id, schedule, conditions, by_kind=by_kind, by_name=by_name, note=row.title,
             changes=list(row.changes_json), base_version=row.base_version, commit=False,
         )
         return
@@ -94,10 +96,10 @@ def apply(session: Session, row: Approval, *, by_name: str) -> None:
         raise DraftUsed(draft.id)
     sid = create_schedule(
         session, name=row.title, domain=draft.domain, level=draft.level, schedule=schedule, conditions=conditions,
-        by_kind="agent", by_name=by_name, note=row.title, commit=False,
+        by_kind=by_kind, by_name=by_name, note=row.title, commit=False,
     )
     mark_plan(session, sid, 1, commit=False)
-    session.add(ChangeLog(schedule_id=sid, version_n=1, by_kind="agent", by_name=by_name, summary=row.title))
+    session.add(ChangeLog(schedule_id=sid, version_n=1, by_kind=by_kind, by_name=by_name, summary=row.title))
     draft.used_at, draft.schedule_id = datetime.now(UTC), sid
     row.schedule_id, row.version = sid, 1
     session.flush()

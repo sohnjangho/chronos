@@ -21,7 +21,7 @@ from app.store.schedules import (
     to_json,
 )
 
-__all__ = ["run", "view_data"]
+__all__ = ["plan_of", "run", "view_data", "view_of"]
 
 
 def _status(cal: WorkCalendar, a: Activity, row: CpmRow, plan: CpmRow | None) -> str:
@@ -72,11 +72,13 @@ def _activities(
     return rows
 
 
-def _plan(session: Session, schedule_id: int, n: int, cpm: CpmResult) -> CpmResult | None:
-    """Plan 버전의 계산 결과. 계산이 안 되는 Plan 이면 None(Plan 없음으로 본다)."""
+def plan_of(session: Session, schedule_id: int, n: int, current: CpmResult | None) -> CpmResult | None:
+    """Plan 버전의 계산 결과. Plan 이 버전 n 이면 current(버전 n 의 계산, 없으면 None).
+    그 밖에는 Plan 버전을 그 버전의 조건으로 계산한다. 계산이 안 되는 Plan 이면 None(Plan 없음으로 본다).
+    """
     plan_n = plan_version(session, schedule_id)
     if plan_n == n:
-        return cpm
+        return current
     schedule, conditions, _ = load(session, schedule_id, plan_n)
     try:
         return run(prepare_stored(schedule, conditions))
@@ -84,23 +86,21 @@ def _plan(session: Session, schedule_id: int, n: int, cpm: CpmResult) -> CpmResu
         return None
 
 
-def view_data(
-    session: Session, schedule_id: int, computed: tuple[int, CpmResult] | None = None
+def view_of(
+    session: Session,
+    schedule_id: int,
+    n: int,
+    schedule: Schedule,
+    ready: Schedule,
+    cpm: CpmResult,
+    plan: CpmResult | None,
 ) -> dict:
-    """지금 버전의 계산 포함 자료(ScheduleView 의 칸 그대로). 계산한 날짜는 date 객체다.
+    """메모리의 일정으로 만든 ScheduleView 자료(칸 그대로, 계산한 날짜는 date 객체). 저장된 것이 아니어도 된다.
 
-    computed=(버전 번호, 그 버전 일정의 run 결과) 를 주면, 지금 버전이 그 번호이고 저장된 조건이 일정을
-    바꾸지 않을 때(조건을 넣은 계산과 넣지 않은 계산이 같을 때) 다시 계산하지 않는다. 조건이 일정을 바꾸면
-    조건을 넣어 다시 계산한다. 일정 쓰기(`_write`)는 저장할 조건을 넣어 확인한 결과를 넘긴다.
-    Plan 이 계산되지 않으면 plan 칸은 모두 None, status 는 "new" 다.
-    없는 일정이면 NotFound, 지금 일정(조건을 넣은 것)이 깨졌으면 ScheduleError.
+    schedule = 저장 모양의 일정(액티비티·관계·자원 칸), ready = 조건을 넣은 일정(지연 일수를 세는 달력),
+    cpm = ready 의 run 결과, plan = Plan 계산(plan_of), n = 보일 버전 번호. 없는 일정이면 NotFound.
     """
     record = get_record(session, schedule_id)
-    schedule, conditions, n = load(session, schedule_id)
-    ready = prepare_stored(schedule, conditions)
-    reuse = computed is not None and computed[0] == n and ready == schedule
-    cpm = computed[1] if reuse else run(ready)
-    plan = _plan(session, schedule_id, n, cpm)
     activities = _activities(schedule, ready.calendar, cpm, plan)
     snapshot = to_json(schedule)
     return {
@@ -122,3 +122,22 @@ def view_data(
             "warning_count": sum(a["status"].startswith("late") for a in activities),
         },
     }
+
+
+def view_data(
+    session: Session, schedule_id: int, computed: tuple[int, CpmResult] | None = None
+) -> dict:
+    """지금 버전의 계산 포함 자료(ScheduleView 의 칸 그대로). 계산한 날짜는 date 객체다.
+
+    computed=(버전 번호, 그 버전 일정의 run 결과) 를 주면, 지금 버전이 그 번호이고 저장된 조건이 일정을
+    바꾸지 않을 때(조건을 넣은 계산과 넣지 않은 계산이 같을 때) 다시 계산하지 않는다. 조건이 일정을 바꾸면
+    조건을 넣어 다시 계산한다. 일정 쓰기(`_write`)는 저장할 조건을 넣어 확인한 결과를 넘긴다.
+    Plan 이 계산되지 않으면 plan 칸은 모두 None, status 는 "new" 다.
+    없는 일정이면 NotFound, 지금 일정(조건을 넣은 것)이 깨졌으면 ScheduleError.
+    """
+    get_record(session, schedule_id)
+    schedule, conditions, n = load(session, schedule_id)
+    ready = prepare_stored(schedule, conditions)
+    reuse = computed is not None and computed[0] == n and ready == schedule
+    cpm = computed[1] if reuse else run(ready)
+    return view_of(session, schedule_id, n, schedule, ready, cpm, plan_of(session, schedule_id, n, cpm))

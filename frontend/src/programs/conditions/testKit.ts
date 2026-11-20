@@ -60,15 +60,23 @@ export const m = (id: string): Moved => ({
 
 /** 서버(Task 18)와 같은 모양의 미리 보기. conditions 는 위반을 그 조건 줄에도 표시한다. */
 type ViolationIn = Pick<Violation, 'condition_id' | 'message'> & Partial2<Violation>;
-type PreviewIn = Partial2<Omit<Preview, 'before' | 'after' | 'violations'>> & { before?: Partial2<Side>; after?: Partial2<Side>; violations?: ViolationIn[] };
+type PreviewIn = Partial2<Omit<Preview, 'before' | 'after' | 'violations'>> & {
+  before?: Partial2<Side>;
+  after?: Partial2<Side>;
+  violations?: ViolationIn[];
+  /** 미리 보기 상태의 조건 값(서버처럼 conditions 의 params 에 넣는다). */
+  edits?: Record<string, Record<string, unknown>>;
+};
 
-export function mockPreview(over: PreviewIn = {}): Preview {
+export function mockPreview(input: PreviewIn = {}): Preview {
+  const { edits = {}, ...over } = input;
   const violations = over.violations ?? [];
   const view = makeView();
   for (const layer of Object.values(view.layers)) {
     for (const c of layer) {
       const v = violations.find((x) => x.condition_id === c.id);
       if (v) Object.assign(c, { state: 'violated', message: v.message });
+      if (edits[c.id]) c.params = { ...c.params, ...edits[c.id] };
     }
   }
   view.summary = { ...view.summary, violated: violations.length };
@@ -109,3 +117,13 @@ export const bodies = (path: string, method = 'POST') =>
   fetchMock.mock.calls
     .filter(([u, init]) => String(u) === path && (init?.method ?? 'GET') === method)
     .map(([, init]) => (init?.body ? JSON.parse(String(init.body)) : null));
+
+/** 시험이 나중에 풀어 주는 응답. resolve(body, status) 를 부를 때까지 기다린다. */
+export function deferred() {
+  const waiting: ((r: Response) => void)[] = [];
+  return {
+    route: () => new Promise<Response>((resolve) => waiting.push(resolve)),
+    count: () => waiting.length,
+    resolve: (n: number, body: unknown, status = 200) => waiting[n](json(status, body)),
+  };
+}

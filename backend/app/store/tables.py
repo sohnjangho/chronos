@@ -185,6 +185,9 @@ class Approval(Base):
     request: Mapped[str] = mapped_column(Text, default="")  # 대화의 마지막 사용자 글(200자)
     chat_session_id: Mapped[int | None] = mapped_column(default=None)  # 낸 대화 (FK 아님)
     requested_by: Mapped[str] = mapped_column(String(100))
+    # 변경을 낸 쪽: 'agent'(에이전트 도구) | 'user'(조건·규칙 화면 확정). 반영한 버전의 by_kind 가 된다.
+    # 기본값이 있어서 기존 DB 에는 시작할 때 칸이 더해진다(store.upgrade, 있던 줄은 'agent').
+    requested_kind: Mapped[str] = mapped_column(String(10), default="agent")
     decided_by: Mapped[str | None] = mapped_column(String(100), default=None)
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))

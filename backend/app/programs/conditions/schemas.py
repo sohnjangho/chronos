@@ -99,8 +99,8 @@ class ConditionsOut(BaseModel):
 
 
 class SideOut(BaseModel):
-    finish: date
-    critical_count: int
+    finish: date | None  # 계산이 안 되는 저장 버전이면 None
+    critical_count: int | None
     violated: int
 
 

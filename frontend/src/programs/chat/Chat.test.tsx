@@ -182,6 +182,18 @@ describe('Task 18 R5 · params.compose', () => {
     expect(lastBody().text).toBe('조건에 맞게 일정을 고쳐 주세요.\n- 타워크레인: 1대 → 2대');
   });
 
+  test('fix1 m5 · a remount with the same params does not fill the composer again', async () => {
+    routes['/api/chat/sessions/12'] = { ...SESSION, id: 12, running: false, pending_retries: [], messages: [] };
+    const params = { session: '12', compose: '조건에 맞게 일정을 고쳐 주세요.' };
+    const first = renderAt(480, params);
+    await waitFor(() => expect(composer()).toHaveValue('조건에 맞게 일정을 고쳐 주세요.'));
+    await userEvent.clear(composer());
+    first.unmount();
+    render(<Chat windowId="w1" params={params} />);
+    await waitFor(() => expect(callsTo('/api/chat/sessions/12').length).toBeGreaterThanOrEqual(2));
+    expect(composer()).toHaveValue('');
+  });
+
   test('new compose params on an open window replace the text', async () => {
     routes['/api/chat/sessions/12'] = { ...SESSION, id: 12, running: false, pending_retries: [], messages: [] };
     const view = renderAt(480);
