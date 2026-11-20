@@ -19,15 +19,19 @@ from tests.schedules import make, store, task
 def test_an_old_approvals_table_gets_requested_kind_agent(tmp_path):
     path = tmp_path / "old.db"
     engine = create_engine(f"sqlite:///{path}")
+    later = {"requested_kind", "link_kind", "link_id", "reset_plan", "rule_json"}  # Task 18·21 이 더한 칸
     old = Table("approvals", MetaData(), *(Column(c.name, c.type, primary_key=c.primary_key, nullable=c.nullable)
-                                         for c in Approval.__table__.columns if c.name != "requested_kind"))
+                                         for c in Approval.__table__.columns if c.name not in later))
     old.create(engine)
     with engine.begin() as conn:
         conn.execute(insert(old).values(
             id=1, kind="change", title="B 기간 4일", reasons_json=[], base_version=1, summary_json={}, diff_json=[],
             snapshot_json={}, conditions_json=[], changes_json=[], status="pending", retry=False, request="",
             requested_by="에이전트", note="", created_at=datetime(2026, 11, 20, 10, 0)))
-    assert add_missing_columns(engine, Base.metadata) == ["approvals.requested_kind"]
+    assert add_missing_columns(engine, Base.metadata) == [
+        "approvals.requested_kind", "approvals.link_kind", "approvals.link_id", "approvals.reset_plan",
+        "approvals.rule_json",
+    ]
     with closing(sqlite3.connect(path)) as db:
         assert db.execute("SELECT requested_kind FROM approvals").fetchall() == [("agent",)]
     engine.dispose()

@@ -4,7 +4,12 @@
 compute → level(shift=True) 한 결과(LevelResult.cpm)를 쓴다. 그래서 화면 날짜는 주요 자원 용량과 조건을
 지키고, 하네스 점검이 재는 일정과 같다. Plan 값도 Plan 버전(그 버전의 조건)에 같은 계산을 한 것이다.
 액티비티·관계·자원 칸은 저장된 일정 그대로 보여 준다(조건이 넣은 FNLT·용량은 보이지 않는다).
+달력(calendar)은 조건을 넣은 달력의 근무 요일과, 작업 금지 기간을 일정 기간 안의 날짜로 펼친 것이다.
+가중치(weight)는 일정의 weight_mode(duration·manual)를 따른다.
 """
+
+from calendar import isleap
+from datetime import date
 
 from sqlalchemy.orm import Session
 
@@ -37,21 +42,53 @@ def _status(cal: WorkCalendar, a: Activity, row: CpmRow, plan: CpmRow | None) ->
     return "on_plan"
 
 
-def _weights(schedule: Schedule) -> dict[str, float]:
-    """기간 비례 가중치. 마일스톤은 0, 기간 합이 0 이면 모두 0."""
-    total = sum(a.od for a in schedule.activities if a.kind == "task")
-    return {
-        a.id: round(a.od / total, 4) if total and a.kind == "task" else 0.0
-        for a in schedule.activities
-    }
+def _weights(schedule: Schedule, mode: str) -> dict[str, float]:
+    """공정률 가중치(소수 4자리, 합 0 이면 모두 0).
+
+    duration: 기간 비례, 마일스톤은 0. manual: manual_weight / (0 보다 큰 manual_weight 의 합), 없거나 0 이면 0.
+    """
+    if mode == "manual":
+        own = {a.id: a.manual_weight or 0.0 for a in schedule.activities}
+    else:
+        own = {a.id: float(a.od) if a.kind == "task" else 0.0 for a in schedule.activities}
+    total = sum(w for w in own.values() if w > 0)
+    return {i: round(w / total, 4) if total and w > 0 else 0.0 for i, w in own.items()}
+
+
+def _weight_missing(schedule: Schedule, mode: str) -> int:
+    """manual 모드에서 가중치를 넣지 않은(None) task 수. duration 모드는 0."""
+    if mode != "manual":
+        return 0
+    return sum(a.kind == "task" and a.manual_weight is None for a in schedule.activities)
+
+
+def _on(year: int, month_day: tuple[int, int]) -> date:
+    """그해의 그 월·일. 2월 29일이 없는 해는 2월 28일."""
+    month, day = month_day
+    if (month, day) == (2, 29) and not isleap(year):
+        day = 28
+    return date(year, month, day)
+
+
+def _blocked(calendar: CalendarSpec, start: date, finish: date) -> list[dict]:
+    """해마다 되풀이되는 작업 금지 기간을 날짜로 펼쳐 [start, finish] 와 겹치는 것만, 시작일 순.
+    해를 넘기는 기간(start_md > end_md)은 끝이 다음 해다."""
+    out = []
+    for p in calendar.blocked:
+        spill = 1 if p.start_md > p.end_md else 0  # 끝나는 해 - 시작하는 해
+        for year in range(start.year - spill, finish.year + 1):
+            first, last = _on(year, p.start_md), _on(year + spill, p.end_md)
+            if first <= finish and last >= start:
+                out.append({"tag": p.tag, "start": first, "finish": last})
+    return sorted(out, key=lambda x: x["start"])
 
 
 def _activities(
-    schedule: Schedule, calendar: CalendarSpec, cpm: CpmResult, plan: CpmResult | None
+    schedule: Schedule, calendar: CalendarSpec, cpm: CpmResult, plan: CpmResult | None, mode: str
 ) -> list[dict]:
-    """calendar 는 계산에 쓴 달력(조건을 넣은 것). 지연·앞섬 일수를 같은 달력으로 센다."""
+    """calendar 는 계산에 쓴 달력(조건을 넣은 것). 지연·앞섬 일수를 같은 달력으로 센다. mode = 가중치 방식."""
     cal = WorkCalendar(calendar)
-    weights = _weights(schedule)
+    weights = _weights(schedule, mode)
     rows = []
     for a in schedule.activities:
         row, p = cpm.rows[a.id], plan.rows.get(a.id) if plan else None
@@ -60,6 +97,8 @@ def _activities(
                 **activity_json(a),
                 "es": row.es,
                 "ef": row.ef,
+                "ls": row.ls,
+                "lf": row.lf,
                 "plan_start": p.es if p else None,
                 "plan_finish": p.ef if p else None,
                 "tf": row.tf,
@@ -101,7 +140,7 @@ def view_of(
     cpm = ready 의 run 결과, plan = Plan 계산(plan_of), n = 보일 버전 번호. 없는 일정이면 NotFound.
     """
     record = get_record(session, schedule_id)
-    activities = _activities(schedule, ready.calendar, cpm, plan)
+    activities = _activities(schedule, ready.calendar, cpm, plan, record.weight_mode)
     snapshot = to_json(schedule)
     return {
         "id": record.id,
@@ -112,6 +151,11 @@ def view_of(
         "data_date": schedule.data_date,
         "finish": cpm.finish,
         "plan_finish": plan.finish if plan else None,
+        "weight_mode": record.weight_mode,
+        "calendar": {
+            "days_per_week": ready.calendar.days_per_week,
+            "blocked": _blocked(ready.calendar, schedule.start, cpm.finish),
+        },
         "wbs": snapshot["wbs"],
         "activities": activities,
         "relations": snapshot["relations"],
@@ -120,6 +164,7 @@ def view_of(
             "critical_count": sum(a["critical"] for a in activities),
             "negative_float_count": sum(a["tf"] < 0 for a in activities),
             "warning_count": sum(a["status"].startswith("late") for a in activities),
+            "weight_missing": _weight_missing(schedule, record.weight_mode),
         },
     }
 

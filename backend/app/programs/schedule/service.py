@@ -18,8 +18,10 @@ from app.programs.schedule.schemas import (
     ActivityPatch,
     PredecessorsIn,
     ScheduleItem,
+    SchedulePatch,
     ScheduleView,
     VersionOut,
+    WeightModeIO,
 )
 from app.programs.schedule.view import build_view
 from app.store.messages import SCHEDULE_ERROR_MESSAGES
@@ -162,6 +164,21 @@ def set_predecessors(
         session, schedule_id, body.base_version, user,
         lambda s: edits.set_predecessors(s, aid, body.items),
     )
+
+
+def patch_schedule(session: Session, schedule_id: int, body: SchedulePatch, user: User) -> ScheduleView:
+    """일정 칸(Data Date) 고치기. 확인 차례와 오류는 액티비티 고치기와 같다."""
+    return _write(
+        session, schedule_id, body.base_version, user, lambda s: edits.set_data_date(s, body.data_date)
+    )
+
+
+def set_weight_mode(session: Session, schedule_id: int, body: WeightModeIO) -> WeightModeIO:
+    """가중치 방식 바꾸기. 버전을 만들지 않는다(일정 내용이 아니라 보는 방식)."""
+    _check_schedule(session, schedule_id)
+    get_record(session, schedule_id).weight_mode = body.mode
+    session.commit()
+    return WeightModeIO(mode=body.mode)
 
 
 def restore_version(

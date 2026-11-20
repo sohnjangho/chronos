@@ -1,6 +1,6 @@
 """모든 ORM 표. 다음 작업들도 여기에 표를 더한다."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import JSON, ForeignKey, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -87,6 +87,8 @@ class ScheduleRecord(Base):
     current_version: Mapped[int] = mapped_column(default=1)
     created_by: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    # 공정률 가중치: 'duration'(기간 비례) | 'manual'(액티비티 manual_weight). 버전에 들지 않는다.
+    weight_mode: Mapped[str] = mapped_column(String(10), default="duration")
 
 
 class ScheduleVersion(Base):
@@ -169,7 +171,7 @@ class Approval(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     schedule_id: Mapped[int | None] = mapped_column(default=None)  # 첫 저장은 승인 뒤에 정해진다 (FK 아님)
     draft_id: Mapped[int | None] = mapped_column(default=None)  # 첫 저장의 초안 (FK 아님)
-    kind: Mapped[str] = mapped_column(String(10))  # 'first_save' | 'change'
+    kind: Mapped[str] = mapped_column(String(10))  # 'first_save' | 'change' | 'rule'
     title: Mapped[str] = mapped_column(String(100))
     reasons_json: Mapped[list[str]] = mapped_column(JSON, default=list)
     base_version: Mapped[int]  # 이 버전 위에 쌓는다. 첫 저장은 0
@@ -192,6 +194,11 @@ class Approval(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     decided_at: Mapped[datetime | None] = mapped_column(default=None)
+    # 묶음 2. 이어진 것: 'scenario'(만약에 복사본 반영) | 'rule'(내 규칙) 과 그 id (FK 아님)
+    link_kind: Mapped[str | None] = mapped_column(String(10), default=None)
+    link_id: Mapped[int | None] = mapped_column(default=None)
+    reset_plan: Mapped[bool] = mapped_column(default=False)  # 반영한 버전을 Plan 으로 다시 잡는가
+    rule_json: Mapped[dict | None] = mapped_column(JSON, default=None)  # kind 'rule' 이 넣을 내 규칙
 
 
 class Setting(Base):
@@ -261,3 +268,146 @@ class WorkflowStep(Base):
     model: Mapped[str | None] = mapped_column(String(200), default=None)  # 이 호출을 낸 LLM 답의 모델
     tokens: Mapped[int] = mapped_column(default=0)  # 그 LLM 답의 입력 + 출력 토큰
     cost: Mapped[float | None] = mapped_column(default=None)
+
+
+# ── 묶음 2 (FK 없음) ────────────────────────────────────────────────
+
+
+class Scenario(Base):
+    """만약에 복사본: 저장된 일정과 따로 둔 일정 하나. 반영할 때만 승인(approval_id)으로 들어간다.
+
+    source: 'agent' | 'shorten'(단축안) | 'delay'(지연). status: 'open' | 'submitted' | 'applied' | 'discarded'.
+    """
+
+    __tablename__ = "scenarios"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(index=True)
+    base_version: Mapped[int]  # 이 버전에서 떠 왔다
+    name: Mapped[str] = mapped_column(String(100))
+    source: Mapped[str] = mapped_column(String(10))
+    snapshot_json: Mapped[dict] = mapped_column(JSON)  # store.schedules.to_json 결과
+    conditions_json: Mapped[list[dict]] = mapped_column(JSON)
+    moves_json: Mapped[list[dict]] = mapped_column(JSON, default=list)  # 적용한 단축 수
+    delay_event_ids: Mapped[list[int]] = mapped_column(JSON, default=list)  # 넣은 지연 사건
+    summary_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(10), default="open")
+    approval_id: Mapped[int | None] = mapped_column(default=None)
+    created_by: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class DelayEvent(Base):
+    """지연 사건 하나. status 'open'(아직 일정에 없음) → 'reflected'(반영한 버전 reflected_version).
+
+    responsibility: 'owner'(발주처) | 'ours' | 'force'(불가항력) | 'undecided'. source: 'chat' | 'actual' | 'user'.
+    """
+
+    __tablename__ = "delay_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(index=True)
+    activity_id: Mapped[str] = mapped_column(String(50))
+    start_date: Mapped[date]
+    days: Mapped[int]
+    cause: Mapped[str] = mapped_column(Text, default="")
+    responsibility: Mapped[str] = mapped_column(String(10), default="undecided")
+    daily_cost: Mapped[int | None] = mapped_column(default=None)  # 하루 금액(원)
+    evidence: Mapped[str] = mapped_column(String(200), default="")
+    source: Mapped[str] = mapped_column(String(10), default="chat")
+    status: Mapped[str] = mapped_column(String(10), default="open")
+    impact_json: Mapped[dict] = mapped_column(JSON, default=dict)  # 마지막 영향 계산
+    analyzed_version: Mapped[int | None] = mapped_column(default=None)  # 영향을 계산한 버전
+    reflected_version: Mapped[int | None] = mapped_column(default=None)
+    created_by: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class MyRule(Base):
+    """내 규칙 하나(조건 dict). scope 'domain' 이면 그 분야 일정 모두, 'schedule' 이면 schedule_id 만."""
+
+    __tablename__ = "my_rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scope: Mapped[str] = mapped_column(String(10))
+    domain: Mapped[str] = mapped_column(String(50))
+    schedule_id: Mapped[int | None] = mapped_column(default=None)
+    condition_json: Mapped[dict] = mapped_column(JSON)  # Condition.to_dict() 모양
+    enabled: Mapped[bool] = mapped_column(default=True)
+    approval_id: Mapped[int | None] = mapped_column(default=None)  # 넣게 한 승인 건
+    created_by: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class EvidenceSearch(Base):
+    """근거 검색 한 번(실패도 남긴다). 키는 담지 않는다."""
+
+    __tablename__ = "evidence_searches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_session_id: Mapped[int | None] = mapped_column(default=None, index=True)
+    query: Mapped[str] = mapped_column(Text)
+    mode: Mapped[str] = mapped_column(String(10))  # 'web' | 'scholar' …
+    ok: Mapped[bool]
+    error_code: Mapped[str | None] = mapped_column(String(20), default=None)
+    result_count: Mapped[int] = mapped_column(default=0)
+    latency_ms: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class EvidenceItem(Base):
+    """근거 검색 결과 한 줄."""
+
+    __tablename__ = "evidence_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    search_id: Mapped[int] = mapped_column(index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    url: Mapped[str] = mapped_column(String(1000))
+    hostname: Mapped[str] = mapped_column(String(200), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    published: Mapped[str | None] = mapped_column(String(20), default=None)
+    extra_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class EvidenceLink(Base):
+    """근거 한 줄이 받친 것: 일정·초안·조건·가정 가운데 있는 것."""
+
+    __tablename__ = "evidence_links"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    evidence_id: Mapped[int] = mapped_column(index=True)
+    schedule_id: Mapped[int | None] = mapped_column(default=None)
+    draft_id: Mapped[int | None] = mapped_column(default=None)
+    condition_id: Mapped[str | None] = mapped_column(String(100), default=None)
+    assumption_label: Mapped[str | None] = mapped_column(String(100), default=None)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class TraceEvent(Base):
+    """실행 추적 한 줄: 턴(turn_id) 안의 맥락 조립·LLM 호출·끝. 키는 담지 않는다.
+
+    kind: 'context' | 'llm' | 'end'. cost 는 제공자가 알려 줄 때만(없으면 None).
+    """
+
+    __tablename__ = "trace_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_session_id: Mapped[int] = mapped_column(index=True)
+    turn_id: Mapped[int] = mapped_column(index=True)
+    run_id: Mapped[int | None] = mapped_column(default=None)  # 실행 기록(workflow_runs)
+    seq: Mapped[int]  # 턴 안 차례
+    kind: Mapped[str] = mapped_column(String(10))
+    label: Mapped[str] = mapped_column(String(100), default="")
+    started_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    ms: Mapped[int | None] = mapped_column(default=None)
+    model: Mapped[str | None] = mapped_column(String(200), default=None)
+    input_tokens: Mapped[int] = mapped_column(default=0)
+    output_tokens: Mapped[int] = mapped_column(default=0)
+    cost: Mapped[float | None] = mapped_column(default=None)
+    ok: Mapped[bool] = mapped_column(default=True)
+    error: Mapped[str | None] = mapped_column(String(200), default=None)
+    input_text: Mapped[str] = mapped_column(Text, default="")
+    output_text: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))

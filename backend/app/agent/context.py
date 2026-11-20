@@ -30,6 +30,7 @@ from app.tools.registry import ToolResult
 logger = logging.getLogger(__name__)
 
 PROMPT = Path(__file__).parent / "prompts" / "system.md"
+GUIDES_DIR = PROMPT.parent / "guides"  # 기능마다 지시문 조각 하나(<기능>.md). "_" 로 시작하는 이름은 붙이지 않는다
 HISTORY_LIMIT = 30  # 모델이 보는 지난 메시지 수(이번 사용자 메시지 포함)
 RESULT_LIMIT = 4000  # 도구 결과 글의 길이 한도
 CUT_NOTE = "\n(뒤는 생략)"
@@ -118,14 +119,17 @@ def date_helper(rows: list[ChatMessage], base: date) -> list[str]:
 
 
 def system_prompt() -> str:
-    """prompts/system.md 에 분야 목록·정밀도 정의·분야 지식을 넣은 지시문."""
+    """prompts/system.md 에 분야 목록·정밀도 정의·분야 지식을 넣고, 끝에 지시문 조각(GUIDES_DIR/*.md,
+    이름이 "_" 로 시작하지 않는 것)을 이름 순으로 빈 줄 하나를 두고 붙인 지시문."""
     packs = [load(d) for d in domains()]
-    return (
+    base = (
         PROMPT.read_text(encoding="utf-8")
         .replace("{{domains}}", ", ".join(f"{p.id}({p.name})" for p in packs))
         .replace("{{levels}}", levels_prompt())
         .replace("{{packs}}", "\n\n".join(p.prompt() for p in packs))
     )
+    guides = sorted(f for f in GUIDES_DIR.glob("*.md") if not f.name.startswith("_"))
+    return "\n\n".join([base, *(f.read_text(encoding="utf-8") for f in guides)])
 
 
 def build_context(session: Session, user: User, chat_session_id: int, ui: UiContext) -> list[dict]:

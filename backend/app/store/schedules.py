@@ -2,7 +2,7 @@
 
 저장하는 것은 언제나 사용자가 만든 일정 그대로다. 자원 맞춤이 넣는 `pinned_start` 는
 계산 중에만 쓰는 값이라 저장하지 않는다(`to_json` 이 빼고, `from_json` 은 None 으로 둔다).
-기록한 지연의 시작 하한 `start_floor` 는 일정의 칸이라 저장한다(없는 키는 None).
+기록한 지연의 시작 하한 `start_floor` 와 공정률 가중치 `manual_weight` 는 일정의 칸이라 저장한다(없는 키는 None).
 """
 
 from datetime import date
@@ -58,6 +58,7 @@ def activity_json(a: Activity) -> dict:
         "resources": list(a.resources),
         "tags": list(a.tags),
         "start_floor": _iso(a.start_floor),
+        "manual_weight": a.manual_weight,
     }
 
 
@@ -107,6 +108,7 @@ def activity_from_json(d: dict) -> Activity:
         resources=tuple(d.get("resources", ())),
         tags=tuple(d.get("tags", ())),
         start_floor=_day(d.get("start_floor")),
+        manual_weight=d.get("manual_weight"),
     )
 
 

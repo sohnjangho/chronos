@@ -83,7 +83,7 @@ async def test_schedule_read_counts_conditions_and_only_critical_ids(ctx, sessio
 async def test_schedule_read_matches_schedule_api(client, admin, sched_ctx, sid):
     view = client.get(f"/api/schedules/{sid}", headers=admin).json()
     out = (await call("schedule.read", {}, sched_ctx)).output
-    assert out["finish"] == view["finish"] and out["summary"] == view["summary"]
+    assert out["finish"] == view["finish"] and out["summary"] == {k: view["summary"][k] for k in out["summary"]}
     assert out["critical"] == [a["id"] for a in view["activities"] if a["critical"]]
 
 

@@ -34,6 +34,8 @@ class Activity:
     # 기록한 지연이 정한 시작 하한("이 날 전에는 시작 못 함"). 사용자 조건(constraint)과 따로
     # 두며 저장한다. 실적이 있으면 계산에서 무시한다.
     start_floor: date | None = None
+    # 사용자가 넣은 공정률 가중치(일정의 weight_mode 가 manual 일 때 쓴다). core 계산은 쓰지 않는다. 저장한다.
+    manual_weight: float | None = None
 
 
 @dataclass(frozen=True)

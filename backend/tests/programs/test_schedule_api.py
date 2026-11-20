@@ -62,11 +62,12 @@ def test_view_has_computed_values(client, admin, sid):
     assert v["wbs"] == [{"code": "1", "name": "골조", "parent": None}]
     assert v["relations"] == [{"pred": "A", "succ": "B", "type": "FS", "lag": 0}]
     assert v["resources"] == [{"id": "crane", "name": "타워크레인", "unit": "대", "capacity": 1}]
-    assert v["summary"] == {"critical_count": 2, "negative_float_count": 0, "warning_count": 0}
+    assert v["summary"] == {"critical_count": 2, "negative_float_count": 0, "warning_count": 0, "weight_missing": 0}
     assert _act(v, "A") == {
         "id": "A", "name": "작업 A", "kind": "task", "wbs": "1", "od": 3, "rd": None,
         "progress": 0.0, "actual_start": None, "actual_finish": None, "constraint": None,
-        "resources": [], "tags": [], "start_floor": None, "es": "2027-03-01", "ef": "2027-03-03",
+        "resources": [], "tags": [], "start_floor": None, "manual_weight": None, "es": "2027-03-01",
+        "ef": "2027-03-03", "ls": "2027-03-01", "lf": "2027-03-03",
         "plan_start": "2027-03-01", "plan_finish": "2027-03-03", "tf": 0, "ff": 0,
         "critical": True, "status": "on_plan", "weight": 0.6,
     }
@@ -462,7 +463,7 @@ def test_changes_json_for_post_delete_and_put(client, admin, session, sid):
     added = {
         "id": "A1010", "name": "마감", "kind": "task", "wbs": "1", "od": 1, "rd": None, "progress": 0.0,
         "actual_start": None, "actual_finish": None, "constraint": None, "resources": [], "tags": [],
-        "start_floor": None,
+        "start_floor": None, "manual_weight": None,
     }
     assert _last_changes(session, sid) == [
         {"id": "A1010", "field": "activity", "from": None, "to": added},

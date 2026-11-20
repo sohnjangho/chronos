@@ -6,6 +6,7 @@
 
 import re
 from dataclasses import replace
+from datetime import date
 from typing import Any, NamedTuple
 
 from app.core.model import Activity, Relation, Schedule
@@ -26,6 +27,7 @@ LABELS = {
     "constraint": "제약",
     "tags": "꼬리표",
     "resources": "자원",
+    "manual_weight": "가중치",
 }
 
 _GENERATED_ID = re.compile(r"A(\d{4,})")
@@ -45,13 +47,15 @@ def _find(schedule: Schedule, aid: str) -> Activity:
     raise ApiError(404, "not_found", "액티비티를 찾을 수 없습니다.", {"activity": aid})
 
 
-def _show(value: Any) -> str:
+def _show(value: Any, field: str = "") -> str:
     if value is None or value == []:
         return "없음"
     if isinstance(value, dict):  # 제약
         return f"{value['type']} {value['date']}"
     if isinstance(value, list):
         return ", ".join(value)
+    if field == "manual_weight" and float(value).is_integer():  # 3.0 → "3"
+        return str(int(value))
     return str(value)
 
 
@@ -90,9 +94,21 @@ def patch_activity(schedule: Schedule, aid: str, fields: dict[str, Any]) -> Edit
     _check(schedule, new, set(fields))
     acts = tuple(new if a.id == aid else a for a in schedule.activities)
     note = f"{aid} " + ", ".join(
-        f"{LABELS[c['field']]} {_show(c['from'])} → {_show(c['to'])}" for c in changes
+        f"{LABELS[c['field']]} {_show(c['from'], c['field'])} → {_show(c['to'], c['field'])}"
+        for c in changes
     )
     return Edit(replace(schedule, activities=acts), changes, note)
+
+
+def set_data_date(schedule: Schedule, value: date | None) -> Edit:
+    """Data Date 를 value 로(None 이면 지움). 같으면 바뀐 것 없음."""
+    if schedule.data_date == value:
+        return Edit(schedule, [], "")
+    iso = value.isoformat() if value else None
+    old = schedule.data_date.isoformat() if schedule.data_date else None
+    changes = [{"id": None, "field": "data_date", "from": old, "to": iso}]
+    note = f"Data Date {iso}" if iso else "Data Date 지움"
+    return Edit(replace(schedule, data_date=value), changes, note)
 
 
 def next_id(schedule: Schedule) -> str:

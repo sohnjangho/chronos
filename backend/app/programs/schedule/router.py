@@ -11,8 +11,10 @@ from app.programs.schedule.schemas import (
     PredecessorsIn,
     RestoreIn,
     ScheduleItem,
+    SchedulePatch,
     ScheduleView,
     VersionOut,
+    WeightModeIO,
 )
 from app.security.deps import current_user
 from app.store.tables import User
@@ -34,6 +36,16 @@ def list_schedules(session: SessionDep) -> list[ScheduleItem]:
 @router.get("/{schedule_id}")
 def get_schedule(schedule_id: int, session: SessionDep) -> ScheduleView:
     return service.get_view(session, schedule_id)
+
+
+@router.patch("/{schedule_id}")
+def patch_schedule(schedule_id: int, body: SchedulePatch, session: SessionDep, user: UserDep) -> ScheduleView:
+    return service.patch_schedule(session, schedule_id, body, user)
+
+
+@router.put("/{schedule_id}/weight-mode")
+def set_weight_mode(schedule_id: int, body: WeightModeIO, session: SessionDep) -> WeightModeIO:
+    return service.set_weight_mode(session, schedule_id, body)
 
 
 @router.patch("/{schedule_id}/activities/{aid}")
