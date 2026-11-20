@@ -2,22 +2,30 @@
 
 받는 일정
 - 조건을 넣은 일정 그대로다(지연을 넣은 일정이면 그것이 기준이다). 기준 준공은 이 일정을
-  `level(shift=True)` 한 값이다. 크리티컬은 그 `LevelResult.cpm` 기준이다.
+  `level(shift=True)` 한 값이다.
+
+병행·압축을 볼 액티비티(후보 범위)
+- 맞춘 일정의 크리티컬(`lv.cpm`) ∪ 맞추기 전 크리티컬(`compute(schedule)`) ∪ 맞춤에서 밀린 것
+  (`lv.shifted`). 자원을 맞춘 일정은 `pinned_start` 앞에서 크리티컬이 끊겨 `lv.cpm` 만으로는
+  준공을 정하는 자원 사슬이 빠지기 때문이다(컨트롤러 판정 11-20).
 
 이동 세 가지(실적이 있는 액티비티는 건드리지 않는다)
-- parallel(병행): FS lag 0 관계에서 선행·후행 모두 크리티컬 task, 선행 od ≥ 4 →
+- parallel(병행): FS lag 0 관계에서 선행·후행 모두 후보 범위의 task, 선행 od ≥ 4 →
   `Relation(선행, 후행, "SS", ceil(선행 od / 2))`.
-- compress(압축): 크리티컬 task, od ≥ 5 → `od − ceil(od × 0.2)`. 액티비티마다 한 번.
+- compress(압축): 후보 범위의 task, od ≥ 5 → `od − ceil(od × 0.2)`. 액티비티마다 한 번.
 - add_resource(자원 추가): 용량 ≥ 1 인 자원을 쓰는 액티비티가 맞춤에서 밀렸고(`shifted`)
-  크리티컬이면 → 용량 + 1.
-- 후보는 ES 이른 크리티컬부터 `MAX_CANDIDATES` 개(묶음이 허용한 종류, 이미 넣은 id 는 뺀 뒤 센다).
+  `lv.cpm` 에서 크리티컬이면 → 용량 + 1.
+- 병행·압축 후보는 (첫 액티비티의 ES, 그 id, 이동 id) 순으로 `MAX_CANDIDATES` 개(묶음이 허용한
+  종류, 이미 넣은 id 는 뺀 뒤 센다). 자원 추가 후보는 자원마다 하나라 그 수와 따로 뒤에 붙인다.
 
 고르기(묶음마다 따로)
 - 지금 일정의 후보마다 이득(근무일, 지금 준공 − 넣은 뒤 준공)을 어림한다. parallel·compress 는
   맞춤 고정(`pinned_start`)을 둔 `lv.schedule` 에 넣고 `compute` 만, add_resource 는 `level` 까지.
 - 이득이 큰 것부터(같으면 parallel < add_resource < compress, 그다음 id) `level` 까지 다시
-  계산해 실제 이득 > 0 인 첫 후보를 넣는다. 넣은 뒤에는 다시 맞춘 일정의 새 크리티컬 패스에서
-  후보를 다시 만든다(이전 크리티컬 패스의 후보는 버린다). 이동마다 넣기 전·뒤 크리티컬 패스를 적는다.
+  계산해 실제 이득 > 0 인 첫 후보를 넣는다. 어림 이득 ≤ 0 인 후보는, 그 액티비티가 하나도
+  `lv.shifted` 에 없으면 다시 계산하지 않고 버린다(밀린 작업은 다시 맞춰야 줄어들 수 있다).
+- 넣은 뒤에는 다시 맞춘 일정의 새 크리티컬 패스·후보 범위에서 후보를 다시 만든다(이전
+  후보는 버린다). 이동마다 넣기 전·뒤 크리티컬 패스를 적는다.
 - 누적 실제 이득 ≥ target, 이동 수 = max_moves, 이득 있는 후보 없음 가운데 하나면 멈춘다.
 - 같은 이동 집합의 일정은 한 번만 맞춘다(묶음끼리 나눠 쓴다).
 
@@ -91,27 +99,32 @@ _ALL_KINDS = frozenset({"parallel", "compress", "add_resource"})
 _RANK = {"parallel": 0, "add_resource": 1, "compress": 2}  # 이득이 같을 때 앞서는 순서
 
 
-def _free(a: Activity, lv: LevelResult) -> bool:
-    """크리티컬이고 실적이 없는 task."""
+def _pool(schedule: Schedule, lv: LevelResult) -> set[str]:
+    """병행·압축 후보 범위: 맞춘 크리티컬 ∪ 맞추기 전 크리티컬 ∪ 맞춤에서 밀린 것."""
+    return set(lv.cpm.critical_path) | set(compute(schedule).critical_path) | set(lv.shifted)
+
+
+def _free(a: Activity, pool: set[str]) -> bool:
+    """후보 범위에 있고 실적이 없는 task."""
     no_actual = a.actual_start is None and a.actual_finish is None
-    return a.kind == "task" and no_actual and lv.cpm.rows[a.id].critical
+    return a.kind == "task" and no_actual and a.id in pool
 
 
-def _parallel_moves(schedule: Schedule, lv: LevelResult) -> Iterator[Move]:
+def _parallel_moves(schedule: Schedule, pool: set[str]) -> Iterator[Move]:
     acts = {a.id: a for a in schedule.activities}
     for r in schedule.relations:
         p, s = acts[r.pred], acts[r.succ]
-        if (r.type, r.lag) != ("FS", 0) or p.od < PARALLEL_MIN_OD or not (_free(p, lv) and _free(s, lv)):
+        if (r.type, r.lag) != ("FS", 0) or p.od < PARALLEL_MIN_OD or not (_free(p, pool) and _free(s, pool)):
             continue
         lag = math.ceil(p.od / 2)
         text = f"{p.name} 절반 지점에서 {s.name} 시작 (FS → SS+{lag})"
         yield Move(f"par:{p.id}>{s.id}", "parallel", (p.id, s.id), text, relation=Relation(p.id, s.id, "SS", lag))
 
 
-def _compress_moves(schedule: Schedule, lv: LevelResult) -> Iterator[Move]:
+def _compress_moves(schedule: Schedule, pool: set[str]) -> Iterator[Move]:
     ratio = Fraction(str(COMPRESS_RATIO))  # 0.2 × 35 같은 소수 오차 없이 올림한다
     for a in schedule.activities:
-        if a.od >= COMPRESS_MIN_OD and _free(a, lv):
+        if a.od >= COMPRESS_MIN_OD and _free(a, pool):
             od = a.od - math.ceil(a.od * ratio)
             text = f"{a.name} 기간 {a.od}일 → {od}일 (작업 시간을 늘림)"
             yield Move(f"cmp:{a.id}", "compress", (a.id,), text, od=od)
@@ -136,18 +149,24 @@ def _resource_moves(schedule: Schedule, lv: LevelResult) -> Iterator[Move]:
 def _candidates(
     schedule: Schedule, lv: LevelResult, kinds: frozenset[str], used: set[str]
 ) -> list[Move]:
-    """kinds 종류이고 used 에 없는 후보를 ES 이른 크리티컬부터 MAX_CANDIDATES 개."""
+    """kinds 종류이고 used 에 없는 후보.
+
+    병행·압축은 (첫 액티비티의 ES, 그 id, 이동 id) 순으로 MAX_CANDIDATES 개. 자원 추가는 자원마다
+    하나뿐이라 그 수에 넣지 않고 뒤에 붙인다(밀린 작업이 많으면 앞자리에서 밀려나지 않게).
+    """
+    pool = _pool(schedule, lv)
     moves = [
         m
-        for m in (*_parallel_moves(schedule, lv), *_resource_moves(schedule, lv), *_compress_moves(schedule, lv))
+        for m in (*_parallel_moves(schedule, pool), *_compress_moves(schedule, pool))
         if m.kind in kinds and m.id not in used
     ]
-    moves.sort(key=lambda m: (lv.cpm.rows[m.activity_ids[0]].es, _RANK[m.kind], m.id))
-    return moves[:MAX_CANDIDATES]
+    moves.sort(key=lambda m: (lv.cpm.rows[m.activity_ids[0]].es, m.activity_ids[0], m.id))
+    extra = [m for m in _resource_moves(schedule, lv) if m.kind in kinds and m.id not in used]
+    return moves[:MAX_CANDIDATES] + extra
 
 
 def candidate_moves(schedule: Schedule, lv: LevelResult) -> list[Move]:
-    """모든 종류의 후보. lv 는 level(schedule, compute(schedule)) 이어야 한다."""
+    """모든 종류의 후보(병행·압축 MAX_CANDIDATES 개 + 자원 추가). lv 는 level(schedule, compute(schedule))."""
     return _candidates(schedule, lv, _ALL_KINDS, set())
 
 
@@ -208,7 +227,10 @@ def _next_move(
     schedule, _ = search.state(done)
     cands = _candidates(schedule, lv, kinds, {m.id for m in applied})
     guesses = {m.id: search.guess(done, lv, m) for m in cands}
+    shifted = set(lv.shifted)
     for m in sorted(cands, key=lambda m: (-guesses[m.id], _RANK[m.kind], m.id)):
+        if guesses[m.id] <= 0 and shifted.isdisjoint(m.activity_ids):
+            continue  # 밀리지 않은 작업은 어림대로 줄지 않는다
         after = search.state(done | {m})[1]
         if search.gain(after.finish, lv.finish) > 0:
             return m, after

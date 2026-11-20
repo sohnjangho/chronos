@@ -101,7 +101,7 @@ def test_candidates_are_the_earliest_critical_work_up_to_the_limit():
     lv = level(s, compute(s))
     moves = candidate_moves(s, lv)
     assert len(moves) == MAX_CANDIDATES
-    assert [m.id for m in moves[:3]] == ["par:T00>T01", "cmp:T00", "par:T01>T02"]
+    assert [m.id for m in moves[:3]] == ["cmp:T00", "par:T00>T01", "cmp:T01"]     # ES, 액티비티 id, 이동 id 순
 
 
 def test_apply_moves_changes_relation_duration_and_capacity():
@@ -113,3 +113,17 @@ def test_apply_moves_changes_relation_duration_and_capacity():
     ]
     out = apply_moves(s, m)
     assert (out.relations, out.activities[1].od, out.resources[0].capacity) == ((Relation("A", "B", "SS", 3),), 3, 2)
+
+
+def test_parallel_on_resource_driven_chain_after_leveling():
+    """Fix 1: 맞춘 일정의 크리티컬은 C 하나라 A 는 빠지지만, 병행으로 C 를 당기면 크레인이 먼저 풀린다."""
+    s = replace(
+        sched([act("A", 6), act("B", 4, resources=("crane",)), act("C", 4, resources=("crane",))],
+              [Relation("A", "B"), Relation("A", "C")]),
+        resources=(CRANE,),
+    )   # 맞춤: A 3/1~3/8, B 3/9~3/12, C 는 크레인을 기다려 3/15~3/18
+    lv = level(s, compute(s))
+    assert (lv.cpm.critical_path, lv.shifted, lv.finish) == (("C",), ("C",), date(2027, 3, 18))
+    a = shorten(s, target=3).packages[0]
+    assert ([m.id for m in a.moves], a.finish, a.gain, a.reached) == (["par:A>C"], date(2027, 3, 15), 3, True)
+    assert (a.moves[0].critical_before, a.moves[0].critical_after) == (("C",), ("B",))
