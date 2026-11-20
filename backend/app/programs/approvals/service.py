@@ -2,7 +2,7 @@
 
 로그인한 누구나 같은 승인함을 보고 결정한다. 결정은 pending 인 건에만 한다(아니면 409). 두 사람이 같이 결정해도
 하나만 적힌다(store.approvals.record_decision 의 조건부 UPDATE, 진 쪽은 반영까지 되돌림).
-승인은 store.approvals.apply 로 반영한다(첫 저장은 새 일정 + Plan, 고침은 새 버전). 그 사이 일정이 바뀌었으면
+승인은 store.approvals.apply 로 반영한다(첫 저장은 새 일정 + 「처음 계획」 표시, 고침은 새 버전). 그 사이 일정이 바뀌었으면
 반영하지 않고 status 를 conflict 로 남긴 뒤 409 를 준다. 거부·충돌은 이어진 것(만약에 복사본)에도 알린다(store.links,
 결정과 같은 commit).
 """

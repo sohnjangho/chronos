@@ -4,7 +4,7 @@
 근무일은 저장된 조건을 넣은 달력(`prepare_stored`)과 액티비티의 꼬리표로 센다(일정 화면의 지연 일수와 같은 달력).
 Data Date 가 없으면 오늘(`context.today()`)을 쓴다. 날짜 d 의 값은 "d 날 아침 = 전날까지 한 일" 이다.
 공정률(Plan 선·실적 선·예측 선·SPI·WBS 표)은 Plan 이 있는 액티비티(기준 범위)만, 가중치를 그 안에서 다시 나눠 센다.
-그래서 Plan 선은 100% 에 닿는다. Plan 뒤에 더한 액티비티는 `added_after_plan` 에 따로 보인다.
+그래서 Plan 선은 100% 에 닿는다. Plan 이 계산되지 않은 액티비티는 `added_after_plan` 에 따로 보인다.
 """
 
 from dataclasses import asdict
@@ -247,7 +247,7 @@ def _in_plan(b: Bar) -> bool:
 
 
 def _rates(bars: list[Bar], wbs: list[dict], cal: WorkCalendar, data_date: date, unit: Unit) -> dict:
-    """공정률 칸들. 기준 범위(Plan 이 있는 액티비티)로 세고, Plan 뒤에 더한 것은 수와 실적만 따로 낸다."""
+    """공정률 칸들. 기준 범위(Plan 이 있는 액티비티)로 세고, Plan 이 계산되지 않은 것은 수와 실적만 따로 낸다."""
     base = [b for b in bars if _in_plan(b)]
     added = [b for b in bars if not _in_plan(b)]
     plan_at = {b.id: planned(b, cal, data_date) for b in base}

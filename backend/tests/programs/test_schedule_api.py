@@ -410,6 +410,22 @@ def test_restore_of_invalid_version_is_422_and_saves_nothing(client, admin, sess
     assert session.query(ChangeLog).filter_by(schedule_id=sid).count() == 1
 
 
+CRANE_ONE = {"id": "in.crane", "layer": "input", "kind": "resource_cap", "params": {"resource_id": "crane", "capacity": 1},
+             "text": "타워크레인 1대", "source": "프롬프트"}
+
+
+def test_plan_recomputed_without_actuals_keeps_the_conditions(client, admin, session):
+    """Data Date 가 있으면 Plan 을 다시 계산한다(view.plan_of 의 run(prepare_stored(...))). 일정의 크레인은 2대지만
+    조건이 1대로 줄여 X·Y 가 차례로 선다. 조건을 빼고 계산하면 Y 의 Plan 이 3/1~3/2 로 틀리게 나온다."""
+    s = make([task("X", 2, resources=("crane",)), task("Y", 2, resources=("crane",))],
+             resources=[Resource("crane", "타워크레인", "대", 2)])
+    sid = store(session, s, [CRANE_ONE])
+    v = client.patch(f"/api/schedules/{sid}", json={"data_date": "2027-03-01", "base_version": 1}, headers=admin).json()
+    assert v["data_date"] == "2027-03-01"
+    assert _plan_dates(v) == [("X", "2027-03-01", "2027-03-02"), ("Y", "2027-03-03", "2027-03-04")]
+    assert (v["plan_finish"], _act(v, "Y")["status"]) == ("2027-03-04", "on_plan")
+
+
 def test_approved_recorded_delays_do_not_move_plan(client, admin, session):
     """PM 결정 11-20: 기록한 지연은 Plan 을 옮기지 않는다. 진행 중 P(rd 늘림)와 시작 전 Q(start_floor)에 같은 3일
     지연을 기록해 승인하면 둘 다 late +3 이고 Plan(P·Q 3/1~3/5)은 그대로다."""

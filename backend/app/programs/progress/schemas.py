@@ -16,7 +16,7 @@ class FinishOut(BaseModel):
 
 
 class AddedOut(BaseModel):
-    """Plan 뒤에 더한 액티비티(Plan 선·SPI 에 넣지 않는다): 수와 그것들끼리의 실적 퍼센트."""
+    """Plan 이 계산되지 않은 액티비티(Plan 선·SPI 에 넣지 않는다): 수와 그것들끼리의 실적 퍼센트."""
 
     count: int
     actual_pct: float

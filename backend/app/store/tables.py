@@ -197,7 +197,7 @@ class Approval(Base):
     # 묶음 2. 이어진 것: 'scenario'(만약에 복사본 반영) | 'rule'(내 규칙) 과 그 id (FK 아님)
     link_kind: Mapped[str | None] = mapped_column(String(10), default=None)
     link_id: Mapped[int | None] = mapped_column(default=None)
-    reset_plan: Mapped[bool] = mapped_column(default=False)  # 반영한 버전을 Plan 으로 다시 잡는가
+    reset_plan: Mapped[bool] = mapped_column(default=False)  # 쓰지 않음(PM 11-20: Plan 다시 잡기 없앰, 늘 False)
     rule_json: Mapped[dict | None] = mapped_column(JSON, default=None)  # kind 'rule' 이 넣을 내 규칙
 
 

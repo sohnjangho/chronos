@@ -143,7 +143,10 @@ def list_versions(session: Session, schedule_id: int) -> list[ScheduleVersion]:
 
 
 def mark_plan(session: Session, schedule_id: int, n: int, *, commit: bool = True) -> None:
-    """n번 버전만 Plan 으로 둔다(같은 일정의 다른 버전은 is_plan False). 없는 버전이면 NotFound."""
+    """n번 버전에만 「처음 계획」 표시(is_plan)를 둔다(같은 일정의 다른 버전은 False). 없는 버전이면 NotFound.
+
+    표시는 버전 목록·비교 화면에만 쓰고 Plan 칸은 정하지 않는다(Plan = 지금 일정을 실적 없이 계산, store.view).
+    """
     get_version(session, schedule_id, n)
     for v in session.scalars(
         select(ScheduleVersion).where(ScheduleVersion.schedule_id == schedule_id)

@@ -81,7 +81,7 @@ def apply(session: Session, row: Approval, *, by_name: str) -> None:
 
     새 버전·변경 이력의 by_kind 는 변경을 낸 쪽(row.requested_kind: "agent" | "user", 예전 줄은 "agent")이다.
     - change: base_version 위에 새 버전. 그 사이 바뀌었으면 VersionConflict(아무것도 쓰지 않음).
-    - first_save: 초안의 분야·정밀도로 새 일정(이름 = 제목)과 버전 1을 만들고 Plan 으로 둔다. 변경 이력 한 줄을 남기고
+    - first_save: 초안의 분야·정밀도로 새 일정(이름 = 제목)과 버전 1을 만들고 「처음 계획」으로 표시한다(is_plan). 변경 이력 한 줄을 남기고
       초안을 쓴 것(used_at·schedule_id)으로 표시한다. 초안이 이미 쓰였으면 DraftUsed(아무것도 쓰지 않음).
     반영한 뒤 이어진 것(복사본·지연 사건)에 알린다(store.links.after_apply).
     """
