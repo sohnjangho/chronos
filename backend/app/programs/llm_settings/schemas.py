@@ -7,7 +7,9 @@ from app.llm.connections import normalize_base_url
 from app.store.timeutil import as_utc
 
 Provider = Literal["liner", "openai_compatible"]
-Purpose = Literal["light", "normal", "hard", "longdoc"]
+Purpose = Literal["light", "normal", "hard", "longdoc", "vision", "embedding"]
+# 모델 목록 거르기: chat(대화)·vision(그림 읽기 — 대화용과 같은 목록)·embedding(/v1/embeddings 지원)
+ModelsFor = Literal["chat", "vision", "embedding"]
 RoutingStrategy = Literal["cost", "balanced", "quality"]
 
 BaseUrl = Annotated[str, AfterValidator(normalize_base_url)]
@@ -112,6 +114,19 @@ class ModelsOut(BaseModel):
     models: list[ModelOut]
 
 
+class ConnectionModels(BaseModel):
+    """한 연결의 모델 목록(거른 것). 주소·키는 담지 않는다."""
+
+    connection_id: int
+    name: str
+    is_default: bool
+    models: list[ModelOut]
+
+
+class ModelsForOut(BaseModel):
+    connections: list[ConnectionModels]
+
+
 class AssignmentIn(BaseModel):
     purpose: Purpose
     connection_id: int
@@ -130,8 +145,16 @@ class AssignmentsIn(BaseModel):
     items: list[AssignmentIn]
 
 
+class ReindexOut(BaseModel):
+    """임베딩 모델을 바꿔 시작한 다시 넣기 작업(reindex_jobs). 진행은 GET /api/files/reindex."""
+
+    job_id: int
+    total: int
+
+
 class AssignmentsOut(BaseModel):
     items: list[AssignmentOut]
+    reindex: ReindexOut | None = None  # PUT 이 임베딩 모델을 바꿨을 때만
 
 
 class StatusOut(BaseModel):

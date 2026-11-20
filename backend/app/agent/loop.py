@@ -35,6 +35,7 @@ from app.agent.context import (
 from app.agent.events import AgentEvent, json_safe
 from app.agent.trace import TraceLog, context_parts
 from app.agent.workflow_log import TITLE_LIMIT, WorkflowLog
+from app.llm import assignments
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply, Usage
 from app.store import approvals, chats, questionnaires
 from app.store.llm_usage import UsageSum, last_call_id, usage_since
@@ -164,6 +165,7 @@ class _Turn:
         self.calls_seen = 0
         self.trace: TraceLog | None = None  # 실행 추적(app.agent.trace)
         self.llm_ev, self.llm_t0, self.last_text = None, 0.0, ""  # 지금 llm 사건·그 시작·마지막 답 글
+        self.chat_model: assignments.Assignment | None = None  # 이 대화에서 고른 모델(대화 호출에만, 설계 5-5)
 
     # ── 시작·끝 ──
 
@@ -178,6 +180,7 @@ class _Turn:
         if self.ui.schedule_id is not None:
             chat.schedule_id = self.ui.schedule_id
         self.schedule_id = chat.schedule_id
+        self.chat_model = assignments.chat_model(self.session, self.chat_id)
         request = wire("user", content)["content"]  # 모델이 읽는 글 그대로
         self.log = WorkflowLog(self.session, self.chat_id, title=title, request=request)
         message = chats.add_message(self.session, self.chat_id, "user", content)
@@ -234,8 +237,9 @@ class _Turn:
                 self.llm_ev = self.trace.llm_start(self.messages, "normal")
                 self.session.commit()  # llm 사건(ms 없음)을 호출 전에 쓴다
                 self.llm_t0 = time.perf_counter()
-                self.start(self.llm.chat("normal", self.messages, tools=registry.as_llm_tools(),
-                                         chat_session_id=self.chat_id))
+                with assignments.using_chat_model(self.chat_model):  # 이 호출 작업에만(도구 안 호출은 배정 그대로)
+                    self.start(self.llm.chat("normal", self.messages, tools=registry.as_llm_tools(),
+                                             chat_session_id=self.chat_id))
                 while (event := await self.waiting()) is not None:
                     yield event
                 reply = self.reply()

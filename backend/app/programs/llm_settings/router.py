@@ -1,7 +1,7 @@
 from dataclasses import asdict
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -15,6 +15,8 @@ from app.programs.llm_settings.schemas import (
     ConnectionSaved,
     ConnectionTestIn,
     ConnectionUpdate,
+    ModelsFor,
+    ModelsForOut,
     ModelsOut,
     ProbeOut,
     StatusOut,
@@ -84,6 +86,12 @@ def delete_connection(conn_id: int, session: SessionDep) -> Response:
     return Response(status_code=204)
 
 
+# 대화 모델 고르기(누구나)와 설정의 배정 표가 같이 쓴다.
+@router.get("/models", dependencies=[Depends(current_user)])
+def models_for(session: SessionDep, purpose: Annotated[ModelsFor, Query(alias="for")]) -> ModelsForOut:
+    return ModelsForOut(connections=service.models_for(session, purpose))
+
+
 @router.get("/assignments", dependencies=[AdminOnly])
 def get_assignments(session: SessionDep) -> AssignmentsOut:
     return AssignmentsOut(items=service.get_assignments(session))
@@ -91,8 +99,8 @@ def get_assignments(session: SessionDep) -> AssignmentsOut:
 
 @router.put("/assignments", dependencies=[AdminOnly])
 def put_assignments(body: AssignmentsIn, session: SessionDep) -> AssignmentsOut:
-    service.put_assignments(session, body)
-    return AssignmentsOut(items=service.get_assignments(session))
+    reindex = service.put_assignments(session, body)
+    return AssignmentsOut(items=service.get_assignments(session), reindex=reindex)
 
 
 @router.get("/status", dependencies=[Depends(current_user)])

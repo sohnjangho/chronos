@@ -5,11 +5,12 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from app.files import jobs
 from app.llm import connections
 from app.llm.connections import price_of
 from app.security.crypto import decrypt
 from app.security.tokens import issue_token
-from app.store.tables import LlmAssignment, LlmConnection, User
+from app.store.tables import LlmAssignment, LlmConnection, ReindexJob, User
 from tests.helpers import auth
 
 LINER = "https://platform.liner.com/api/v1"
@@ -317,6 +318,9 @@ def test_assignments_default_without_connection(client, admin):
         {"purpose": "normal", "connection_id": None, "model": "liner-claude-router", "routing_strategy": "balanced"},
         {"purpose": "hard", "connection_id": None, "model": "liner-claude-router", "routing_strategy": "quality"},
         {"purpose": "longdoc", "connection_id": None, "model": "liner-mark", "routing_strategy": None},
+        {"purpose": "vision", "connection_id": None, "model": "liner-claude-router", "routing_strategy": "balanced"},
+        {"purpose": "embedding", "connection_id": None, "model": "openai/text-embedding-3-small",
+         "routing_strategy": None},
     ]
 
 
@@ -463,3 +467,83 @@ def test_legacy_id_list_still_works(client, admin, session, conn_id):
     ]
     [conn] = client.get("/api/llm/connections", headers=admin).json()
     assert conn["chat_model_count"] == 2
+
+
+# 그림 읽기 · 임베딩 배정 · 모델 목록 거르기(Task 51)
+def test_assignments_include_vision_and_embedding(client, admin, conn_id):
+    items = client.get("/api/llm/assignments", headers=admin).json()["items"]
+    assert [i["purpose"] for i in items] == ["light", "normal", "hard", "longdoc", "vision", "embedding"]
+    vision = {"purpose": "vision", "connection_id": conn_id, "model": "liner-mark", "routing_strategy": None}
+    r = client.put("/api/llm/assignments", json={"items": [vision]}, headers=admin)
+    assert r.status_code == 200
+    assert {i["purpose"]: i for i in r.json()["items"]}["vision"] == vision
+
+
+EMBED_BODY = {"data": [
+    {"id": "liner-mark", "owned_by": "liner", "endpoints": ["/v1/chat/completions"]},
+    {"id": "openai/text-embedding-3-small", "owned_by": "openai", "endpoints": ["/v1/embeddings"]},
+    {"id": "openai/text-embedding-3-large", "owned_by": "openai", "endpoints": ["/v1/embeddings"]},
+    {"id": "openai/batch", "owned_by": "openai", "endpoints": ["/v1/batches"]},
+    {"id": "old-model"},  # endpoints 가 없으면 대화용으로 본다(예전 규칙)
+]}
+
+
+def _ids(client, headers, purpose):
+    r = client.get("/api/llm/models", params={"for": purpose}, headers=headers)
+    assert r.status_code == 200
+    return [(c["connection_id"], [m["id"] for m in c["models"]]) for c in r.json()["connections"]]
+
+
+def test_embedding_models_are_filtered(client, admin, user, monkeypatch):
+    _use_handler(monkeypatch, lambda request: httpx.Response(200, json=EMBED_BODY))
+    conn = _create(client, admin, "Liner 기본")
+    embedding = ["openai/text-embedding-3-small", "openai/text-embedding-3-large"]
+    assert _ids(client, admin, "embedding") == [(conn["id"], embedding)]
+    assert _ids(client, admin, "chat") == [(conn["id"], ["liner-mark", "old-model"])]
+    assert _ids(client, admin, "vision") == [(conn["id"], ["liner-mark", "old-model"])]
+    assert _ids(client, user, "chat") == [(conn["id"], ["liner-mark", "old-model"])]  # 대화 모델 고르기는 누구나
+    first = client.get("/api/llm/models", params={"for": "chat"}, headers=user).json()["connections"][0]
+    assert set(first) == {"connection_id", "name", "is_default", "models"}  # 주소·키는 주지 않는다
+    assert client.get("/api/llm/models", params={"for": "huge"}, headers=admin).status_code == 422
+
+
+def test_models_without_a_connection_is_empty(client, user):
+    assert client.get("/api/llm/models", params={"for": "chat"}, headers=user).json() == {"connections": []}
+
+
+@pytest.fixture
+def reindexed(monkeypatch, session):
+    """files.jobs.enqueue_reindex(model) 가짜. 약속(Task 48): reindex_jobs 줄을 바로 만들고 {job_id, total} 을 돌려준다."""
+    models: list[str] = []
+
+    def enqueue_reindex(model: str) -> dict:
+        models.append(model)
+        job = ReindexJob(model=model, collection=f"chunks__{model}", total=7)
+        session.add(job)
+        session.commit()
+        return {"job_id": job.id, "total": job.total}
+
+    monkeypatch.setattr(jobs, "enqueue_reindex", enqueue_reindex, raising=False)
+    return models
+
+
+def test_changing_embedding_starts_reindex(client, admin, conn_id, reindexed):
+    large = {"purpose": "embedding", "connection_id": conn_id, "model": "openai/text-embedding-3-large",
+             "routing_strategy": None}
+    r = client.put("/api/llm/assignments", json={"items": [large]}, headers=admin)
+    assert r.status_code == 200 and reindexed == ["openai/text-embedding-3-large"]
+    assert r.json()["reindex"] == {"job_id": 1, "total": 7}
+    assert {i["purpose"]: i for i in r.json()["items"]}["embedding"] == large
+
+    again = client.put("/api/llm/assignments", json={"items": [large]}, headers=admin)  # 같은 모델 → 다시 안 넣음
+    hard = {"purpose": "hard", "connection_id": conn_id, "model": "liner-mark", "routing_strategy": None}
+    other = client.put("/api/llm/assignments", json={"items": [hard]}, headers=admin)  # 임베딩 아닌 줄
+    assert again.json()["reindex"] is None and other.json()["reindex"] is None
+    assert reindexed == ["openai/text-embedding-3-large"]
+
+
+def test_default_embedding_model_stored_explicitly_does_not_reindex(client, admin, conn_id, reindexed):
+    same = {"purpose": "embedding", "connection_id": conn_id, "model": "openai/text-embedding-3-small",
+            "routing_strategy": None}
+    r = client.put("/api/llm/assignments", json={"items": [same]}, headers=admin)
+    assert r.json()["reindex"] is None and reindexed == []

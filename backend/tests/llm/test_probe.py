@@ -50,15 +50,15 @@ def test_models_keep_metadata():
     result = _probe(lambda request: httpx.Response(200, json=LINER_SHAPED))
     assert result.models == [
         {"id": "liner-mark", "name": "Liner: Liner Mark", "vendor": "liner", "vendor_name": "Liner",
-         "context_length": 1048576, "chat": True, "price": price_of("liner-mark")},
+         "context_length": 1048576, "chat": True, "price": price_of("liner-mark"), "embedding": False},
         {"id": "google/gemini-4-neon", "name": "Google: Gemini 4 Neon", "vendor": "google",
-         "vendor_name": "Google", "context_length": 1048576, "chat": True, "price": None},
+         "vendor_name": "Google", "context_length": 1048576, "chat": True, "price": None, "embedding": False},
         {"id": "~anthropic/claude-x", "name": "Claude X", "vendor": "anthropic", "vendor_name": "Anthropic",
-         "context_length": None, "chat": True, "price": None},
+         "context_length": None, "chat": True, "price": None, "embedding": False},
         {"id": "batch-thing", "name": "batch-thing", "vendor": "openai", "vendor_name": "OpenAI",
-         "context_length": None, "chat": False, "price": None},
+         "context_length": None, "chat": False, "price": None, "embedding": False},
         {"id": "plain-model", "name": "plain-model", "vendor": "liner", "vendor_name": "Liner",
-         "context_length": None, "chat": True, "price": None},
+         "context_length": None, "chat": True, "price": None, "embedding": False},
     ]
 
 
@@ -96,17 +96,30 @@ def test_stored_rows_without_a_server_name_are_repaired():
     assert normalize_models(stored)[0]["vendor_name"] == "DeepSeek"
 
 
+def test_embedding_flag_comes_from_endpoints():
+    """endpoints 에 /v1/embeddings 가 있으면 embedding=True, 없으면(endpoints 가 없어도) False."""
+    body = {"data": [
+        {"id": "openai/text-embedding-3-small", "owned_by": "openai", "endpoints": ["/v1/embeddings"]},
+        {"id": "liner-mark", "endpoints": ["/v1/chat/completions"]},
+        {"id": "plain-model"},
+    ]}
+    result = _probe(lambda request: httpx.Response(200, json=body))
+    assert [(m["id"], m["embedding"], m["chat"]) for m in result.models] == [
+        ("openai/text-embedding-3-small", True, False), ("liner-mark", False, True), ("plain-model", False, True)]
+    assert [m["embedding"] for m in normalize_models(result.models)] == [True, False, False]  # 저장 뒤에도 그대로
+
+
 def test_legacy_id_lists_are_normalized():
     """예전에 저장한 id 목록도 메타데이터 꼴로 읽는다(다음 시험 때까지 쓰이게)."""
     stored = ["liner-mark", "openai/gpt-x", {"id": "google/g", "name": "Google: G", "vendor": "google",
                                              "vendor_name": "Google", "context_length": 8, "chat": False}]
     assert normalize_models(stored) == [
         {"id": "liner-mark", "name": "liner-mark", "vendor": "liner", "vendor_name": "Liner",
-         "context_length": None, "chat": True, "price": price_of("liner-mark")},
+         "context_length": None, "chat": True, "price": price_of("liner-mark"), "embedding": False},
         {"id": "openai/gpt-x", "name": "openai/gpt-x", "vendor": "openai", "vendor_name": "OpenAI",
-         "context_length": None, "chat": True, "price": None},
+         "context_length": None, "chat": True, "price": None, "embedding": False},
         {"id": "google/g", "name": "Google: G", "vendor": "google", "vendor_name": "Google",
-         "context_length": 8, "chat": False, "price": None},
+         "context_length": 8, "chat": False, "price": None, "embedding": False},
     ]
 
 

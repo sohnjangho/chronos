@@ -15,6 +15,8 @@ def test_defaults_point_at_default_connection(session):
         Assignment("normal", conn.id, "liner-claude-router", "balanced"),
         Assignment("hard", conn.id, "liner-claude-router", "quality"),
         Assignment("longdoc", conn.id, "liner-mark", None),
+        Assignment("vision", conn.id, "liner-claude-router", "balanced"),
+        Assignment("embedding", conn.id, "openai/text-embedding-3-small", None),
     ]
 
 

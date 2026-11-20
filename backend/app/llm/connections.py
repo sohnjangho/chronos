@@ -24,6 +24,7 @@ _SENDABLE_SECRET = re.compile(r"[\x21-\x7e]{1,512}")
 
 
 CHAT_ENDPOINT = "/v1/chat/completions"
+EMBED_ENDPOINT = "/v1/embeddings"
 
 
 PRICES_PATH = Path(__file__).with_name("prices.yaml")
@@ -83,6 +84,7 @@ class ModelInfo(TypedDict):
     context_length: int | None
     chat: bool
     price: dict | None
+    embedding: bool  # /v1/embeddings 를 받는지(endpoints 가 없으면 거짓). 예전에 저장된 줄에는 없을 수 있다
 
 
 @dataclass(frozen=True)
@@ -160,6 +162,7 @@ def model_info(item: dict) -> ModelInfo:
         context_length=context if isinstance(context, int) and not isinstance(context, bool) else None,
         chat=CHAT_ENDPOINT in endpoints if isinstance(endpoints, list) else True,
         price=price_of(model_id),
+        embedding=isinstance(endpoints, list) and EMBED_ENDPOINT in endpoints,
     )
 
 
@@ -176,6 +179,7 @@ def _stored(item: dict) -> ModelInfo:
     """새 꼴로 저장된 줄. 서버 이름 없이 저장된 줄(name == id)은 업체 이름을 다시 만든다."""
     model = ModelInfo(**{key: item.get(key) for key in ModelInfo.__annotations__})
     model["price"] = price_of(model["id"])  # 저장된 값이 아니라 지금 가격표로
+    model["embedding"] = bool(item.get("embedding"))  # 이 칸 전에 저장된 줄은 거짓(다시 시험하면 채워짐)
     if model["name"] == model["id"]:
         model["vendor_name"] = readable_vendor(model["vendor"])
     return model
@@ -188,7 +192,7 @@ def normalize_models(stored: list | None) -> list[ModelInfo]:
         if isinstance(item, str):
             models.append(model_info({"id": item}))
         elif isinstance(item, dict) and "id" in item:
-            known = all(key in item for key in ModelInfo.__annotations__ if key != "price")
+            known = all(key in item for key in ModelInfo.__annotations__ if key not in ("price", "embedding"))
             models.append(_stored(item) if known else model_info(item))
     return _one_name_per_vendor(models)
 

@@ -12,6 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
+from app.files import jobs
 from app.llm import assignments, connections
 from app.llm.connections import (
     DEFAULT_BASE_URLS,
@@ -24,8 +25,11 @@ from app.programs.llm_settings.schemas import (
     AssignmentOut,
     AssignmentsIn,
     ConnectionCreate,
+    ConnectionModels,
     ConnectionTestIn,
     ConnectionUpdate,
+    ModelsFor,
+    ReindexOut,
     StatusOut,
 )
 from app.security.crypto import SecretUnreadable, decrypt, encrypt
@@ -199,12 +203,28 @@ def chat_model_count(conn: LlmConnection) -> int | None:
     return sum(1 for model in normalize_models(conn.models_json) if model["chat"])
 
 
+def _fits(model: ModelInfo, purpose: ModelsFor) -> bool:
+    if purpose == "embedding":
+        return bool(model.get("embedding"))
+    return model["chat"]  # 그림 입력 여부는 /models 가 알려 주지 않아 대화용 목록 그대로
+
+
+def models_for(session: Session, purpose: ModelsFor) -> list[ConnectionModels]:
+    """연결마다 저장된 모델 목록을 쓰임새로 거른다(연결 차례)."""
+    return [
+        ConnectionModels(connection_id=conn.id, name=conn.name, is_default=conn.is_default,
+                         models=[m for m in normalize_models(conn.models_json) if _fits(m, purpose)])
+        for conn in list_connections(session)
+    ]
+
+
 def get_assignments(session: Session) -> list[AssignmentOut]:
-    """네 쓰임새 모두. 저장 안 된 쓰임새는 기본 연결을 가리키는 기본값으로 채운다."""
+    """여섯 쓰임새 모두. 저장 안 된 쓰임새는 기본 연결을 가리키는 기본값으로 채운다."""
     return [AssignmentOut(**asdict(item)) for item in assignments.resolve_all(session)]
 
 
-def put_assignments(session: Session, data: AssignmentsIn) -> None:
+def put_assignments(session: Session, data: AssignmentsIn) -> ReindexOut | None:
+    """저장한다. 임베딩 모델이 바뀌었으면 저장(commit) 뒤 다시 넣기를 시작해 그 작업을 돌려준다."""
     ids = {item.connection_id for item in data.items}
     known = set(session.scalars(select(LlmConnection.id).where(LlmConnection.id.in_(ids))))
     missing = sorted(ids - known)
@@ -212,9 +232,13 @@ def put_assignments(session: Session, data: AssignmentsIn) -> None:
         raise ApiError(
             422, "invalid_request", "없는 연결을 골랐습니다.", {"connection_ids": missing}
         )
+    before = assignments.resolve(session, "embedding").model
     for item in data.items:
         session.merge(LlmAssignment(**item.model_dump()))
     session.commit()
+    after = assignments.resolve(session, "embedding").model
+    # Task 48: enqueue_reindex 는 reindex_jobs 줄을 바로 만들고 {job_id, total} 을 돌려준다.
+    return ReindexOut(**jobs.enqueue_reindex(after)) if after != before else None
 
 
 def status(session: Session) -> StatusOut:

@@ -54,7 +54,10 @@ _FAILURES = (
 )
 _MAX_SQL_INT = 2**63 - 1  # SQLite INTEGER 의 가장 큰 값
 # 쓰임새마다 답의 최대 길이(토큰). 모든 요청에 max_tokens 로 보낸다. 넘으면 finish_reason 이 "length" 다.
-MAX_TOKENS: dict[str, int] = {"light": 2000, "normal": 4000, "hard": 16000, "longdoc": 8000}
+# vision 은 normal 과 같다. embedding 은 chat 으로 부르지 않는다(키만 — 쓰임새 이름을 모두 갖추려고).
+MAX_TOKENS: dict[str, int] = {
+    "light": 2000, "normal": 4000, "hard": 16000, "longdoc": 8000, "vision": 4000, "embedding": 0,
+}
 
 
 @dataclass(frozen=True)

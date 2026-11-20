@@ -141,7 +141,8 @@ def test_vision_and_embedding_defaults(session):
 
     assert resolve(session, "vision") == Assignment("vision", None, "liner-claude-router", "balanced")
     assert resolve(session, "embedding") == Assignment("embedding", None, "openai/text-embedding-3-small", None)
-    assert [a.purpose for a in resolve_all(session)] == ["light", "normal", "hard", "longdoc"]  # 표 줄은 Task 52
+    assert [a.purpose for a in resolve_all(session)] == [
+        "light", "normal", "hard", "longdoc", "vision", "embedding"]  # 표 줄은 Task 51
 
 
 # ── Fix round 1 ─────────────────────────────────────────────────────

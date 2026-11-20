@@ -2,7 +2,7 @@ import type { Role } from '../../os/session';
 import type { Tone } from '../../shared/ui/Badge';
 
 export type Provider = 'liner' | 'openai_compatible';
-export type Purpose = 'light' | 'normal' | 'hard' | 'longdoc';
+export type Purpose = 'light' | 'normal' | 'hard' | 'longdoc' | 'vision' | 'embedding';
 export type Strategy = 'cost' | 'balanced' | 'quality';
 export type ApprovalMode = 'all' | 'important' | 'auto';
 
@@ -84,12 +84,14 @@ export function statusView(c: Pick<Connection, 'status' | 'model_count'>): { ton
   return { tone: 'neutral', text: '미확인' };
 }
 
-/** 작업 종류(시안 「작업별 모델 배정」의 글). 서버가 주는 차례(light·normal·hard·longdoc)와 같다. */
+/** 작업 종류(시안 「작업별 모델 배정」의 글). 서버가 주는 차례(light·normal·hard·longdoc·vision·embedding)와 같다. */
 export const PURPOSES: Record<Purpose, { label: string; desc: string }> = {
   light: { label: '가벼운 일', desc: '조건 뽑기, 분야 읽기, 문서에서 변화 뽑기' },
   normal: { label: '보통 일', desc: '대화, 워크플로우 짜기, 보고서 초안' },
   hard: { label: '어려운 일', desc: 'WBS·스케줄 생성, 단축안, 위반 고치기' },
   longdoc: { label: '긴 문서 읽기', desc: '계약서·회의록 통째로' },
+  vision: { label: '그림 읽기', desc: '그림이 붙은 대화, 사진·도면 읽기' },
+  embedding: { label: '임베딩', desc: '자료함 뜻 검색(바꾸면 파일을 다시 넣음)' },
 };
 
 /** 라우팅 기준. 저장 값은 Liner 의 값 이름 그대로, 화면 글은 한국어. */

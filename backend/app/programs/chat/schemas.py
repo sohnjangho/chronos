@@ -40,6 +40,22 @@ class MessageIn(BaseModel):
         return self
 
 
+class ChatModelIn(BaseModel):
+    """이 대화에만 쓸 모델(에이전트 루프의 대화 호출만 바꾼다)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    connection_id: int
+    model: str = Field(min_length=1, max_length=200)
+    routing_strategy: Literal["cost", "balanced", "quality"] | None = None
+
+
+class ChatModelOut(BaseModel):
+    connection_id: int
+    model: str
+    routing_strategy: Literal["cost", "balanced", "quality"] | None
+
+
 class ChatSessionOut(BaseModel):
     id: int
     title: str  # 첫 사용자 글 40자(질문지로 시작하면 "질문지 답"). 첫 메시지 전에는 빈 글
@@ -70,6 +86,7 @@ class RetryOut(BaseModel):
 
 class ChatSessionDetail(ChatSessionOut):
     running: bool  # 지금 턴이 돌고 있는가
+    model: ChatModelOut | None  # 이 대화에서 고른 모델. null 이면 설정의 대화 배정(normal)
     messages: list[MessageOut]  # 오래된 것부터 전부
     pending_retries: list[RetryOut]  # 오래된 것부터. 이어 가면(approval_id 로 메시지를 보내면) 빠진다
 

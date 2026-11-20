@@ -20,7 +20,10 @@ from app.agent.events import to_sse
 from app.agent.loop import run_turn
 from app.db import get_session
 from app.errors import ApiError
+from app.llm import assignments
 from app.programs.chat.schemas import (
+    ChatModelIn,
+    ChatModelOut,
     ChatSessionDetail,
     ChatSessionIn,
     ChatSessionItem,
@@ -31,7 +34,7 @@ from app.programs.chat.schemas import (
     StopOut,
 )
 from app.store import approvals, chats, questionnaires
-from app.store.tables import ChatSession, User
+from app.store.tables import ChatSession, LlmConnection, User
 from app.store.timeutil import as_utc
 
 NOT_FOUND_MESSAGE = "대화를 찾을 수 없습니다."
@@ -40,6 +43,7 @@ RESUMED_QUESTIONNAIRE_MESSAGE = "이미 이어서 처리한 질문지입니다."
 INVALID_APPROVAL_MESSAGE = "이 대화에서 다시 짜기로 거부한 승인 건이 아닙니다."
 RESUMED_APPROVAL_MESSAGE = "이미 이어서 처리한 승인 건입니다."
 TURN_RUNNING_MESSAGE = "앞의 요청을 처리하는 중입니다."
+UNKNOWN_CONNECTION_MESSAGE = "없는 연결을 골랐습니다."
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 
@@ -78,8 +82,33 @@ def detail(session: Session, user: User, chat_id: int) -> ChatSessionDetail:
                  decided_at=as_utc(r.decided_at))
         for r in approvals.pending_retries(session, [chat_id]).get(chat_id, [])
     ]
-    return ChatSessionDetail(**_out(chat).model_dump(), running=turns.is_running(chat_id), messages=messages,
-                             pending_retries=retries)
+    return ChatSessionDetail(**_out(chat).model_dump(), running=turns.is_running(chat_id),
+                             model=_model_out(session, chat_id), messages=messages, pending_retries=retries)
+
+
+def _model_out(session: Session, chat_id: int) -> ChatModelOut | None:
+    picked = assignments.chat_model(session, chat_id)
+    if picked is None:
+        return None
+    return ChatModelOut(connection_id=picked.connection_id, model=picked.model,
+                        routing_strategy=picked.routing_strategy)
+
+
+def set_model(session: Session, user: User, chat_id: int, body: ChatModelIn) -> ChatModelOut:
+    """이 대화에만 쓸 모델을 저장한다. 다음 턴의 대화 호출부터 쓴다."""
+    chat = _owned(session, user, chat_id)
+    if session.get(LlmConnection, body.connection_id) is None:
+        raise ApiError(422, "invalid_request", UNKNOWN_CONNECTION_MESSAGE, {"connection_ids": [body.connection_id]})
+    chat.model_connection_id, chat.model_name, chat.model_routing = body.connection_id, body.model, body.routing_strategy
+    session.commit()
+    return ChatModelOut(**body.model_dump())
+
+
+def clear_model(session: Session, user: User, chat_id: int) -> None:
+    """기본(설정의 대화 배정)으로 돌린다."""
+    chat = _owned(session, user, chat_id)
+    chat.model_connection_id = chat.model_name = chat.model_routing = None
+    session.commit()
 
 
 def stop(session: Session, user: User, chat_id: int) -> StopOut:
