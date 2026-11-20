@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
 from app.errors import ApiError
-from app.files import chunk, classify, jobs, kinds, search
+from app.files import chunk, classify, jobs, kinds, merge_suggest, search
 from app.llm import assignments
 from app.programs.files.schemas import (
     AxisValueOut,
@@ -320,5 +320,5 @@ def merge(session: Session, body: MergeIn) -> MergeOut:
 
 
 def merge_suggestions(session: Session) -> MergeSuggestionsOut:
-    made_at, items = classify.suggestions(session)
+    made_at, items = merge_suggest.suggestions(session)
     return MergeSuggestionsOut(made_at=made_at, items=[MergeSuggestionOut.model_validate(i) for i in items])

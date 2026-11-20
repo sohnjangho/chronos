@@ -205,11 +205,14 @@ async def test_worker_started_at_startup_indexes_uploads(session, ready, put, mo
         await jobs.stop()
 
 
-def test_start_does_nothing_when_vectors_are_off(monkeypatch):
+async def test_start_runs_the_worker_even_when_vectors_are_off(session, monkeypatch):
     monkeypatch.setenv("CHRONOS_QDRANT_URL", "")
     monkeypatch.setattr(vectors, "STORE", None)
-    jobs.start()  # 이벤트 루프 밖에서 불러도 아무것도 하지 않는다
-    assert vectors.STORE is None and jobs._task is None
+    jobs.start.__wrapped__()  # 진짜 start(tests/conftest.py 는 시험에서 주소가 없으면 띄우지 않는다)
+    try:
+        assert vectors.STORE is None and jobs._task is not None  # 뜻 검색만 끄고 일꾼은 돈다(분류는 Task 49)
+    finally:
+        await jobs.stop()
 
 
 async def test_purge_also_removes_vectors(client, admin, session, ready, put, store):
@@ -365,11 +368,14 @@ def test_instance_id_is_made_once_and_redoes_old_vectors(session, put):
     assert f.status == "indexed"  # 두 번째부터는 그대로
 
 
-def test_bad_qdrant_url_turns_meaning_search_off(session, monkeypatch, caplog):
+async def test_bad_qdrant_url_turns_meaning_search_off(session, monkeypatch, caplog):
     monkeypatch.setenv("CHRONOS_QDRANT_URL", "ftp://x")
     monkeypatch.setattr(vectors, "STORE", None)
-    jobs.start()  # 서버는 뜬다
-    assert vectors.STORE is None and jobs._task is None and "CHRONOS_QDRANT_URL" in caplog.text
+    jobs.start()  # 서버는 뜬다 — 뜻 검색만 끄고 일꾼은 돈다(분류는 Task 49)
+    try:
+        assert vectors.STORE is None and jobs._task is not None and "CHRONOS_QDRANT_URL" in caplog.text
+    finally:
+        await jobs.stop()
 
 
 def test_task51_put_assignments_is_409_while_reindex_runs(client, admin, session, ready):

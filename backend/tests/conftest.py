@@ -1,8 +1,12 @@
+import functools
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.config import Settings
 from app.db import get_session
+from app.files import classify, jobs, merge_suggest
 from app.main import app
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
@@ -21,6 +25,26 @@ def test_env(monkeypatch, tmp_path):
     # 뜻 검색(Qdrant)을 끈다: 앱이 뜰 때 뒤 작업 일꾼이 돌지 않고, 시험이 Qdrant·Liner 에 나가지 않는다.
     # 뜻 검색 시험은 app.files.vectors.STORE 와 app.llm.embeddings.TRANSPORT 를 가짜로 끼운다(tests/files).
     monkeypatch.setenv("CHRONOS_QDRANT_URL", "")
+
+
+@pytest.fixture(autouse=True)
+def quiet_file_worker(monkeypatch):
+    """파일 뒤 작업(Task 48·49). 분류 단계·합치기 제안은 끈다 — 일꾼이 Liner 를 부르지 않게(분류 시험이 다시 켠다).
+    서버의 일꾼은 뜻 검색이 꺼져도 늘 돌지만, 시험에서는 CHRONOS_QDRANT_URL 을 준 시험에서만 앱(lifespan)이 띄운다 —
+    앱 스레드의 일꾼이 시험이 jobs.drain 으로 돌리는 작업 줄을 가로채지 않게. 진짜 start 는 jobs.start.__wrapped__."""
+    real_start = jobs.start
+
+    @functools.wraps(real_start)
+    def start() -> None:
+        if Settings().qdrant_url:
+            real_start()
+
+    async def skip(*_args) -> None:
+        return None
+
+    monkeypatch.setattr(jobs, "start", start)
+    monkeypatch.setattr(classify, "after_index", skip)
+    monkeypatch.setattr(merge_suggest, "suggest_if_due", skip)
 
 
 @pytest.fixture

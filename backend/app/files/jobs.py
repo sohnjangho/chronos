@@ -12,6 +12,8 @@
   새 컬렉션으로 바뀌고 이 인스턴스의 다른 컬렉션은 지운다. 한 걸음이 다시 해도 안 되면 failed(검색은 옛 그대로).
 - 지금 모델(active_model) = 마지막으로 끝난(done) 다시 넣기의 모델, 없으면 기본 임베딩 모델. 배정(assignments)은 바꾸기를
   시작할 때 바로 새 모델이 되므로, 검색·파일 넣기는 배정이 아니라 이것을 따른다.
+- 파일마다 임베딩을 해 본 뒤(성공·실패·뜻 검색 꺼짐 모두) 분류 단계(files.classify.after_index — 요약이 없을 때 한 번)를
+  부른다. 이미 분류된 파일이 뒤에 임베딩되면 indexed 가 아니라 classified. 뜻 검색이 꺼져도 일꾼은 돈다.
 - DB 쓰기·읽기 묶음은 asyncio.to_thread 로(이벤트 루프를 SQLite 잠금 기다림에 묶지 않게), 묶음마다 새 세션.
 """
 
@@ -31,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db import get_session
-from app.files import classify, vectors
+from app.files import classify, merge_suggest, vectors
 from app.llm.assignments import DEFAULT_ASSIGNMENTS
 from app.llm.embeddings import EmbedFailed, embed
 from app.store.tables import FileChunk, FileRow, ReindexJob, Setting
@@ -210,9 +212,9 @@ def _mark_indexed(file_id: int, job_id: int | None, collection: str | None) -> N
     with _db() as session:
         row = session.get(FileRow, file_id)
         if row is not None and row.status == "extracted":
-            row.status = "indexed"
+            row.status = "classified" if row.summary else "indexed"  # 뜻 검색보다 먼저 분류됐을 수 있다(Task 49)
             if row.reason == NOT_READY:
-                row.reason = None
+                row.reason = classify.BIG_IMAGE if classify.big_image(row) else None
         job = session.get(ReindexJob, job_id) if job_id is not None and collection else None
         if job is not None and job.status == "running":
             job.collection = collection
@@ -334,8 +336,10 @@ async def _failed(item: _Item, exc: Exception) -> None:
 async def _do(item: _Item) -> None:
     try:
         if item.kind == "file":
-            await _index_file(item.id)
-            await classify.after_index(item.id)  # indexed 가 됐으면 분류(Task 49 — 실패해도 예외 없이 indexed 그대로)
+            try:
+                await _index_file(item.id)
+            finally:  # 분류는 뜻 검색과 따로(Qdrant 가 꺼졌거나 임베딩이 실패해도). 한 번만 하고 예외를 내지 않는다
+                await classify.after_index(item.id)
         else:
             await _reindex_step(item.id)
     except _QdrantDown:
@@ -391,7 +395,7 @@ async def _run(wake: asyncio.Event) -> None:
             if time.monotonic() - checked >= RECHECK_S:
                 checked = time.monotonic()
                 await recheck()
-                await classify.suggest_if_due()  # 값 합치기 제안(하루 한 번)
+                await merge_suggest.suggest_if_due()  # 값 합치기 제안(하루 한 번)
         except Exception as exc:  # noqa: BLE001 — 실패 처리마저 깨져도 일꾼은 멈추지 않는다. 그 파일은 다음 시작 때 다시
             logger.warning("뒤 작업 일꾼 오류 (%s)", type(exc).__name__)
         with contextlib.suppress(TimeoutError):
@@ -413,17 +417,15 @@ def _instance() -> str:
 
 
 def start() -> None:
-    """서버가 뜰 때(lifespan, 이벤트 루프 안). CHRONOS_QDRANT_URL 이 빈 값이거나 쓸 수 없으면 뜻 검색을 끄고(경고) 그대로 뜬다."""
+    """서버가 뜰 때(lifespan, 이벤트 루프 안). 일꾼은 늘 띄운다(분류·합치기 제안은 뜻 검색과 따로). CHRONOS_QDRANT_URL 이
+    빈 값이거나 쓸 수 없으면 뜻 검색만 끈다(STORE None, 잘못된 주소는 경고) — 파일은 extracted 로 남고 분류는 된다."""
     global _loop, _wake, _task
     url = Settings().qdrant_url
-    if not url:
-        return
-    try:
-        store = vectors.Store(url, _instance())
-    except Exception as exc:  # noqa: BLE001 — 주소가 잘못돼도 서버는 뜬다(뜻 검색만 끔)
-        logger.warning("CHRONOS_QDRANT_URL 을 쓸 수 없어 뜻 검색을 끕니다 (%s)", type(exc).__name__)
-        return
-    vectors.STORE = store
+    if url:
+        try:
+            vectors.STORE = vectors.Store(url, _instance())
+        except Exception as exc:  # noqa: BLE001 — 주소가 잘못돼도 서버는 뜬다(뜻 검색만 끔)
+            logger.warning("CHRONOS_QDRANT_URL 을 쓸 수 없어 뜻 검색을 끕니다 (%s)", type(exc).__name__)
     _loop, _wake = asyncio.get_running_loop(), asyncio.Event()
     reload()
     _task = asyncio.create_task(_run(_wake))

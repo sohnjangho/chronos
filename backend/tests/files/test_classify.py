@@ -1,5 +1,6 @@
 """분류 단계(app.files.classify, Task 49): 축 값 다시 쓰기·새 값 표시·그림 설명·실패·대화 카드·사람 고침·값 합치기."""
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -8,7 +9,8 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app.files import classify, jobs
+from app.config import Settings
+from app.files import classify, jobs, merge_suggest, vectors
 from app.store import chats, files
 from app.store.tables import (
     AxisValue,
@@ -22,10 +24,11 @@ from tests.embed_doubles import OLD, SMALL, vector
 from tests.llm_doubles import add_connection, chat_body
 from tests.loop_doubles import ScriptedLlm
 
-REAL_AFTER_INDEX = classify.after_index  # tests/files/conftest.py 가 시험마다 끈다 — 이 파일에서 다시 켠다
-REAL_SUGGEST = classify.suggest_if_due
+REAL_AFTER_INDEX = classify.after_index  # tests/conftest.py 가 시험마다 끈다 — 이 파일에서 다시 켠다
+REAL_SUGGEST = merge_suggest.suggest_if_due
 FAILED = "분류하지 못했습니다"
 BIG_IMAGE = "그림이 커서 설명을 만들지 않았습니다"
+NOT_READY = "뜻 검색 준비 안 됨"
 PNG = b"\x89PNG\r\n\x1a\n"
 TESTS_FIXTURES = Path(__file__).parent.parent / "fixtures" / "files"
 
@@ -54,7 +57,7 @@ def conn(session):
 @pytest.fixture
 def classify_on(monkeypatch):
     monkeypatch.setattr(classify, "after_index", REAL_AFTER_INDEX)
-    monkeypatch.setattr(classify, "suggest_if_due", REAL_SUGGEST)
+    monkeypatch.setattr(merge_suggest, "suggest_if_due", REAL_SUGGEST)
 
 
 def _indexed(session, row: FileRow) -> FileRow:
@@ -293,13 +296,102 @@ async def test_bad_json_counts_as_failure(session, conn, llm, put):
     assert (f.status, f.reason) == ("indexed", FAILED)
 
 
-async def test_deleted_or_unindexed_files_are_not_classified(session, conn, llm, put, admin_user, classify_on):
+async def test_deleted_files_are_not_classified(session, conn, llm, put, admin_user, classify_on):
     f = _indexed(session, put("양생", "a.txt"))
     files.soft_delete(session, f.id, admin_user)
     await classify.after_index(f.id)
-    g = put("배근", "b.txt")  # extracted(임베딩 전)
-    await classify.after_index(g.id)
     assert llm.bodies == []
+
+
+async def test_extracted_file_is_classified_without_vectors(session, conn, llm, put, classify_on):
+    assert vectors.STORE is None  # 뜻 검색 꺼짐(주소 빈 값·잘못된 주소)
+    f = put("양생 기준", "시방서.txt")
+    llm.push(answer(kind=["시방서"], summary="양생 기준"))
+    await jobs.drain()
+    session.expire_all()
+    assert (f.status, f.summary) == ("extracted", "양생 기준")  # extracted 그대로 — 뒤에 임베딩될 수 있게
+    assert files.axes_of(session, f.id)["종류"] == ["시방서"]
+
+
+async def test_worker_runs_and_classifies_when_vectors_are_off(session, conn, llm, put, monkeypatch, classify_on):
+    monkeypatch.setenv("CHRONOS_QDRANT_URL", "")
+    monkeypatch.setattr(vectors, "STORE", None)
+    llm.push(answer(kind=["시방서"]))
+    jobs.start.__wrapped__()  # 진짜 start(tests/conftest.py 의 시험용 감쌈 안쪽)
+    try:
+        f = put("양생 기준", "시방서.txt")
+        for _ in range(100):
+            await asyncio.sleep(0.02)
+            session.expire_all()
+            if f.summary:
+                break
+        assert (f.status, f.summary) == ("extracted", "한 줄 요약")
+    finally:
+        await jobs.stop()
+
+
+@pytest.fixture
+def qdrant_up(monkeypatch, store) -> dict:
+    """store.available 을 바꿔 끼운다: qdrant_up["ok"] = False 면 Qdrant 가 꺼진 것."""
+    state = {"ok": False}
+    monkeypatch.setattr(store, "available", lambda: state["ok"])
+    return state
+
+
+async def test_qdrant_down_still_classifies_and_keeps_the_file_waiting(session, ready, llm, put, qdrant_up,
+                                                                      classify_on):
+    f = put("동절기 타설", "계획.txt")
+    llm.push(answer(kind=["계획서"]))
+    await jobs.drain()
+    session.expire_all()
+    assert (f.status, f.reason, f.summary) == ("extracted", NOT_READY, "한 줄 요약")
+    assert jobs.waiting() == [f.id]  # 「다시 넣기」 줄에 남는다
+
+
+async def test_classified_first_then_embedded_ends_classified(session, ready, llm, put, store, qdrant_up,
+                                                             classify_on):
+    f = put("동절기 타설", "계획.txt")
+    llm.push(answer(kind=["계획서"]))
+    await jobs.drain()
+    qdrant_up["ok"] = True  # Qdrant 가 돌아왔다
+    assert await jobs.recheck() == 1
+    await jobs.drain()
+    session.expire_all()
+    assert (f.status, f.reason) == ("classified", None)
+    assert len(llm.bodies) == 1  # 두 번 분류하지 않는다
+    assert store.search(OLD, vector("겨울", SMALL), 5)[0][0] == files.chunks_of(session, f.id)[0].id
+
+
+async def test_summary_means_no_llm_on_restart_or_late_embedding(session, ready, llm, put, monkeypatch, classify_on):
+    left = _indexed(session, put("양생", "a.txt"))
+    left.summary = "이미 요약"
+    late = put("동절기 타설", "b.txt")  # 먼저 분류되고 아직 임베딩 안 됨
+    late.summary = "이미 요약"
+    session.commit()
+    monkeypatch.setattr(jobs, "_queue", [])  # 서버가 다시 떴다
+    jobs.reload()
+    await jobs.drain()
+    session.expire_all()
+    assert llm.bodies == []
+    assert (left.status, late.status) == ("indexed", "classified")
+
+
+async def test_big_image_reason_survives_late_embedding(session, ready, llm, admin_user, classify_on):
+    f = files.save_upload(session, PNG + b"\0" * (5 * 1024 * 1024), "큰사진.png", admin_user)
+    f.reason, f.summary = NOT_READY, "큰 사진"  # 분류는 됐고 뜻 검색이 늦었다
+    session.commit()
+    await jobs.drain()
+    session.expire_all()
+    assert (f.status, f.reason) == ("classified", BIG_IMAGE) and llm.bodies == []
+
+
+async def test_summary_is_one_line_and_never_empty(session, conn, llm, put):
+    f = _indexed(session, put("양생", "a.txt"))
+    llm.push(answer(summary="  콘크리트\n 양생   기준 "))
+    assert (await classify.classify(session, f.id)).summary == "콘크리트 양생 기준"
+    g = _indexed(session, put("배근", "배근_검측.txt"))
+    llm.push(answer(summary="  "))
+    assert (await classify.classify(session, g.id)).summary == "배근_검측.txt"  # 비면 파일 이름
 
 
 async def test_restart_classifies_files_left_indexed(session, ready, llm, put, monkeypatch, classify_on):
@@ -332,8 +424,8 @@ async def test_merge_suggestions_are_made_once_a_day_and_checked(client, admin, 
         {"axis": "공종", "from": ["골조"], "to": "골조", "why": "x"},  # 자기 자신 → 버림
     ]))
 
-    await classify.suggest_if_due()
-    await classify.suggest_if_due()  # 하루 안에는 다시 만들지 않는다
+    await merge_suggest.suggest_if_due()
+    await merge_suggest.suggest_if_due()  # 하루 안에는 다시 만들지 않는다
 
     assert len(llm.bodies) == 1 and "시방 서류" in llm.last_messages_text
     assert client.get("/api/files/merge-suggestions", headers=user).status_code == 403
@@ -348,18 +440,47 @@ async def test_merge_suggestions_are_made_once_a_day_and_checked(client, admin, 
 async def test_merge_suggestions_tell_the_agent_about_crowded_axes(session, conn, llm, monkeypatch, classify_on):
     _seed(session, "공종", *(f"공종{i:02d}" for i in range(31)))
     llm.push(_suggestions([]))
-    await classify.suggest_if_due()
+    await merge_suggest.suggest_if_due()
     assert "공종: 31개" in llm.last_messages_text
 
     # 하루가 지나면 다시
     later = datetime.now(UTC) + timedelta(days=1, minutes=1)
-    monkeypatch.setattr(classify, "_now", lambda: later)
+    monkeypatch.setattr(merge_suggest, "_now", lambda: later)
     llm.push(_suggestions([]))
-    await classify.suggest_if_due()
+    await merge_suggest.suggest_if_due()
     assert len(llm.bodies) == 2
 
 
 async def test_no_values_to_compare_means_no_llm_call(session, conn, llm, classify_on):
     _seed(session, "종류", "시방서")
-    await classify.suggest_if_due()
+    await merge_suggest.suggest_if_due()
     assert llm.bodies == []
+
+
+def _good(session) -> dict:
+    _seed(session, "종류", "시방서", "시방 서류")
+    return {"axis": "종류", "from": ["시방 서류"], "to": "시방서", "why": "같은 뜻"}
+
+
+async def test_broken_suggestions_file_counts_as_empty(client, admin, session, conn, llm, classify_on):
+    path = Settings().data_dir / "files" / "merge_suggestions.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{깨진", encoding="utf-8")
+    assert client.get("/api/files/merge-suggestions", headers=admin).json() == {"made_at": None, "items": []}
+    item = _good(session)
+    llm.push(_suggestions([item]))
+    await merge_suggest.suggest_if_due()  # 깨진 파일 = 아직 없음 → 새로 만든다
+    assert client.get("/api/files/merge-suggestions", headers=admin).json()["items"] == [item]
+
+
+async def test_bad_answer_keeps_the_previous_suggestions(client, admin, session, conn, llm, monkeypatch, classify_on):
+    item = _good(session)
+    llm.push(_suggestions([item]))
+    await merge_suggest.suggest_if_due()
+    later = datetime.now(UTC) + timedelta(days=1, minutes=1)
+    monkeypatch.setattr(merge_suggest, "_now", lambda: later)
+    llm.push(chat_body(json.dumps({"wrong": []})))
+    await merge_suggest.suggest_if_due()
+    assert len(llm.bodies) == 2
+    body = client.get("/api/files/merge-suggestions", headers=admin).json()
+    assert body["items"] == [item] and body["made_at"].startswith(later.date().isoformat())
