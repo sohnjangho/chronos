@@ -48,8 +48,8 @@ export default function StepDetail({ step }: { step: Step | null }) {
               <dd>{`${tokens(step.tokens)} · ${cost(step.cost)}`}</dd>
             </div>
           </dl>
-          <JsonView label="받은 것" text={step.input_json} empty="없음" />
-          <JsonView label="돌려준 것" text={step.output_json} empty={step.status === 'running' ? '아직 없습니다 (진행 중)' : '없음'} />
+          <JsonView key={`in-${step.n}`} label="받은 것" text={step.input_json} empty="없음" />
+          <JsonView key={`out-${step.n}`} label="돌려준 것" text={step.output_json} empty={step.status === 'running' ? '아직 없습니다 (진행 중)' : '없음'} />
         </>
       )}
     </section>

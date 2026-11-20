@@ -1,5 +1,5 @@
 // 탐색기 자료: 일정 목록 · 고른 일정의 요약과 버전 · 되돌리기 · 지우기(관리자).
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import { ApiError } from '../../shared/api';
 import { eulOf, exApi, type ScheduleSummary, type TreeSchedule, type Version } from './exApi';
@@ -12,27 +12,35 @@ export interface Notice {
 type View = { data: ScheduleSummary | null; error: string | null };
 const message = (e: unknown) => (e instanceof ApiError ? e.message : '요청을 처리할 수 없습니다.');
 
-/** 고른 일정의 요약(일정 보기)과 버전 목록. 늦게 온 앞 일정의 응답은 버린다. */
+/**
+ * 고른 일정의 요약(일정 보기)과 버전 목록. 고른 일정이 아닌 늦은 응답은 버린다.
+ * 버전을 읽지 못하면 versionsError 에 서버 글을 두고, retry 로 다시 읽는다.
+ */
 function useDetail(selected: number | null) {
   const [view, setView] = useState<View | null>(null);
   const [versions, setVersions] = useState<Version[] | null>(null);
-  const load = useCallback(async (id: number, live: () => boolean) => {
+  const [versionsError, setVersionsError] = useState<string | null>(null);
+  const current = useRef<number | null>(null);
+  const load = useCallback(async (id: number) => {
     const [v, vs] = await Promise.allSettled([exApi.view(id), exApi.versions(id)]);
-    if (!live()) return;
+    if (current.current !== id) return;
     setView(v.status === 'fulfilled' ? { data: v.value, error: null } : { data: null, error: message(v.reason) });
-    setVersions(vs.status === 'fulfilled' ? vs.value : []);
+    setVersions(vs.status === 'fulfilled' ? vs.value : null);
+    setVersionsError(vs.status === 'fulfilled' ? null : message(vs.reason));
   }, []);
   useEffect(() => {
+    current.current = selected;
     setView(null);
     setVersions(null);
-    if (selected === null) return;
-    let live = true;
-    void load(selected, () => live);
-    return () => {
-      live = false;
-    };
+    setVersionsError(null);
+    if (selected !== null) void load(selected);
   }, [selected, load]);
-  return { view, versions, reload: (id: number) => load(id, () => true) };
+  const retry = () => {
+    if (selected === null) return;
+    setVersionsError(null);
+    void load(selected);
+  };
+  return { view, versions, versionsError, retry, reload: load };
 }
 
 export function useExplorerData() {

@@ -137,6 +137,8 @@
 .apv-nums b { font-size: var(--fs-16); line-height: 24px; overflow-wrap: anywhere; }
 .apv-nums b.is-ok { color: var(--success-text); }
 .apv-nums b.is-bad { color: var(--danger-text); }
+.apv-nums b.is-warn { color: var(--warning-text); }
+.apv-nums b.is-neutral { color: var(--fg); }
 
 .apv-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--fs-12); }
 .apv-c-id { width: 76px; }

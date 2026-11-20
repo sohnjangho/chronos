@@ -38,8 +38,10 @@ function ScheduleTable({ rows, selected, onSelect }: { rows: TreeSchedule[]; sel
                 {s.name}
               </span>
             </td>
-            <td>{domainLabel(s.domain)}</td>
-            <td className="ex-opt">{levelLabel(s.level)}</td>
+            <td title={domainLabel(s.domain)}>{domainLabel(s.domain)}</td>
+            <td className="ex-opt" title={levelLabel(s.level)}>
+              {levelLabel(s.level)}
+            </td>
             <td>{s.version}</td>
             <td className={s.finish === null ? 'ex-muted-cell' : undefined}>{s.finish === null ? '계산 안 됨' : dot(s.finish)}</td>
             <td className="ex-opt">{stamp(s.updated_at)}</td>
@@ -125,6 +127,8 @@ export default function Explorer() {
           schedule={d.schedule}
           view={d.view}
           versions={d.versions}
+          versionsError={d.versionsError}
+          onRetry={d.retry}
           admin={admin}
           onOpen={() => d.schedule && openBoard(d.schedule)}
           onDelete={() => setAsk({ kind: 'delete' })}

@@ -7,6 +7,9 @@ interface Props {
   schedule: TreeSchedule | null;
   view: { data: ScheduleSummary | null; error: string | null } | null;
   versions: Version[] | null;
+  /** 버전을 읽지 못했을 때 서버 글. [다시 읽기]는 onRetry. */
+  versionsError: string | null;
+  onRetry(): void;
   admin: boolean;
   onOpen(): void;
   onDelete(): void;
@@ -17,6 +20,12 @@ function finishText(s: TreeSchedule, view: ScheduleSummary | null): string {
   if (s.finish === null) return '계산 안 됨';
   const plan = view?.plan_finish;
   return plan && plan !== s.finish ? `${dot(s.finish)} (Plan ${dot(plan)})` : dot(s.finish);
+}
+
+/** 「김하늘 · 직접 수정」. 이름이 종류 글과 같으면(「에이전트」) 한 번만. */
+function author(v: Version): string {
+  const kind = v.by_kind === 'agent' ? '에이전트' : '직접 수정';
+  return v.by_name === kind ? kind : `${v.by_name} · ${kind}`;
 }
 
 function badgeText(v: Version, current: number): string {
@@ -31,7 +40,7 @@ function Versions({ versions, current, onRestore }: { versions: Version[]; curre
           <Badge tone={v.n === current ? 'info' : 'neutral'}>{badgeText(v, current)}</Badge>
           <span className="ex-ver-b">
             <span className="ex-wrap">{v.note || '메모 없음'}</span>
-            <small className="ex-wrap">{`${v.by_name} · ${v.by_kind === 'agent' ? '에이전트' : '직접 수정'} · ${stamp(v.created_at)}`}</small>
+            <small className="ex-wrap">{`${author(v)} · ${stamp(v.created_at)}`}</small>
           </span>
           {v.n !== current && <Button onClick={() => onRestore(v.n)}>되돌리기</Button>}
         </li>
@@ -40,7 +49,7 @@ function Versions({ versions, current, onRestore }: { versions: Version[]; curre
   );
 }
 
-export default function VersionPanel({ schedule, view, versions, admin, onOpen, onDelete, onRestore }: Props) {
+export default function VersionPanel({ schedule, view, versions, versionsError, onRetry, admin, onOpen, onDelete, onRestore }: Props) {
   if (schedule === null) {
     return (
       <section className="ex-panel" aria-label="일정 정보">
@@ -85,7 +94,14 @@ export default function VersionPanel({ schedule, view, versions, admin, onOpen, 
         )}
       </div>
       <h4 className="ex-ver-h">버전</h4>
-      {versions === null ? <p className="ex-muted">불러오는 중…</p> : <Versions versions={versions} current={schedule.version} onRestore={onRestore} />}
+      {versionsError !== null && (
+        <p className="ex-error" role="alert">
+          <span className="ex-wrap">{`버전을 읽지 못했습니다: ${versionsError}`}</span>
+          <Button onClick={onRetry}>다시 읽기</Button>
+        </p>
+      )}
+      {versionsError === null && versions === null && <p className="ex-muted">불러오는 중…</p>}
+      {versions !== null && <Versions versions={versions} current={schedule.version} onRestore={onRestore} />}
     </section>
   );
 }

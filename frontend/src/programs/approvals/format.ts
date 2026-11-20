@@ -91,15 +91,20 @@ export function noReasonText(mode: Mode, auto: boolean): string {
 export const reasonTone = (r: string) =>
   r === 'structure_changed' ? 'warning' : r === 'first_save' || r === 'rule_save' || r === 'plan_reset' ? 'info' : 'danger';
 
-/** 조건 점검. 점검하지 않은 조건은 통과에 넣지 않고 따로 센다. */
-export function checkText(summary: Json): { text: string; bad: boolean } | null {
+/**
+ * 조건 점검. 점검하지 않은 조건은 통과에 넣지 않고 따로 센다. 색: 위반이 있으면 bad, 형식 틀림이 있으면 warn,
+ * 점검 안 함이 있으면 neutral, 모두 점검해 통과했을 때만 ok.
+ */
+export function checkText(summary: Json): { text: string; tone: 'ok' | 'neutral' | 'warn' | 'bad' } | null {
   const c = asObj(summary.check);
   if (Object.keys(c).length === 0) return null;
   const violations = asList(c.violations).length;
   const invalid = asNum(c.invalid) ?? 0;
-  const parts = [`통과 ${asNum(c.passed) ?? 0}`, `위반 ${violations}`, `점검 안 함 ${asNum(c.uncheckable) ?? 0}`];
+  const unchecked = asNum(c.uncheckable) ?? 0;
+  const parts = [`통과 ${asNum(c.passed) ?? 0}`, `위반 ${violations}`, `점검 안 함 ${unchecked}`];
   if (invalid) parts.push(`형식 틀림 ${invalid}`);
-  return { text: parts.join(' · '), bad: violations > 0 };
+  const tone = violations > 0 ? 'bad' : invalid > 0 ? 'warn' : unchecked > 0 ? 'neutral' : 'ok';
+  return { text: parts.join(' · '), tone };
 }
 
 /** 기한 여유(근무일). 기한 조건이 없으면 null. */

@@ -6,15 +6,24 @@ import { wfApi, type RunDetail, type RunItem } from './wfApi';
 export const POLL_MS = 2000;
 const message = (e: unknown) => (e instanceof ApiError ? e.message : '실행 기록을 읽을 수 없습니다.');
 
-/** id 실행이 도는 동안(id 가 null 이 아님) 2초마다 상세와 목록을 다시 읽는다. 끝나거나 언마운트하면 멈춘다. */
+/**
+ * id 실행이 도는 동안(id 가 null 이 아님) 상세와 목록을 다시 읽는다. 앞 읽기가 끝난 뒤 2초를 기다려 다음을
+ * 읽으므로 겹치지 않는다. 끝나거나(id 가 바뀜) 언마운트하면 멈춘다.
+ */
 function usePolling(id: number | null, loadRun: (id: number) => Promise<void>, loadRuns: () => Promise<void>) {
   useEffect(() => {
     if (id === null) return;
-    const timer = setInterval(() => {
-      void loadRun(id);
-      void loadRuns();
-    }, POLL_MS);
-    return () => clearInterval(timer);
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      await Promise.all([loadRun(id), loadRuns()]);
+      if (!stopped) timer = setTimeout(() => void tick(), POLL_MS);
+    };
+    timer = setTimeout(() => void tick(), POLL_MS);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [id, loadRun, loadRuns]);
 }
 

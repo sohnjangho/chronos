@@ -63,7 +63,7 @@ function Numbers({ item }: { item: Detail }) {
       </div>
       <div>
         <span>조건 점검</span>
-        <b className={check?.bad ? 'is-bad' : 'is-ok'}>{check?.text ?? '—'}</b>
+        <b className={check ? `is-${check.tone}` : undefined}>{check?.text ?? '—'}</b>
       </div>
       <div>
         <span>기한 여유 (근무일)</span>
@@ -124,7 +124,7 @@ function DiffTable({ item }: { item: Detail }) {
         {changed.map((c, i) => (
           <tr key={`c${i}`} className="apv-cond">
             <td>조건</td>
-            <td title={asText(c.id)}>{asText(c.name) || asText(c.id)}</td>
+            <td title={asText(c.name) || asText(c.id)}>{asText(c.name) || asText(c.id)}</td>
             <td className="apv-before">{asText(c.before) || '없음'}</td>
             <td className="apv-after">{asText(c.after) || '없음'}</td>
             <td />

@@ -90,6 +90,7 @@ describe('R6 실행 목록·단계 그림·단계 상세', () => {
     setup({ 12: run({ steps: [step(1, { output_json: big })] }) });
     await renderWorkflow();
     const output = within(detailPane()).getByRole('group', { name: '돌려준 것' });
+    expect(within(output).queryAllByText(/^항목 \d+$/)).toHaveLength(0); // 접힌 묶음은 아이들을 그리지 않는다(m3)
     await userEvent.click(within(output).getByText('목록 120개'));
     expect(within(output).getAllByText(/^항목 \d+$/)).toHaveLength(50);
     await userEvent.click(within(output).getByRole('button', { name: '나머지 70개 더 보기' }));
@@ -119,7 +120,7 @@ describe('R6 실행 목록·단계 그림·단계 상세', () => {
 
 describe('R6 실시간', () => {
   test('a running run is read again every 2 seconds and stops when it is done', async () => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
     let reads = 0;
     const done = run({ status: 'done', ended_at: new Date().toISOString(), steps: run().steps.map((x) => ({ ...x, status: 'done', ms: 300 })) });
     setup(undefined, { '/api/workflows/runs/12': () => json(200, ++reads >= 3 ? done : run()) });
@@ -134,11 +135,53 @@ describe('R6 실시간', () => {
   });
 
   test('closing the window stops the refresh', async () => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
     setup();
     const view = await renderWorkflow();
     view.unmount();
     await act(() => vi.advanceTimersByTimeAsync(6000));
     expect(callsTo('/api/workflows/runs/12')).toHaveLength(1);
+  });
+});
+
+describe('Fix round 1', () => {
+  test('m4: node title and tool name show in full on hover', async () => {
+    setup();
+    await renderWorkflow();
+    expect(within(node(0)).getByText('일정 읽기')).toHaveAttribute('title', '일정 읽기');
+    expect(within(node(0)).getByText('schedule.read')).toHaveAttribute('title', 'schedule.read');
+  });
+
+  test('m7: a folded group does not stay folded on the next step', async () => {
+    setup();
+    await renderWorkflow();
+    await userEvent.click(node(0));
+    const output = () => within(detailPane()).getByRole('group', { name: '돌려준 것' });
+    expect(within(output()).getByText('"A1010"')).toBeVisible();
+    await userEvent.click(within(output()).getByText('목록 2개'));
+    expect(within(output()).queryByText('"A1010"')).toBeNull();
+    await userEvent.click(node(1));
+    expect(within(output()).getByText('"A1010"')).toBeVisible();
+  });
+
+  test('m9: the next read waits for the previous one to finish', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    let release!: () => void;
+    let reads = 0;
+    setup(undefined, {
+      '/api/workflows/runs/12': () => {
+        reads += 1;
+        if (reads !== 2) return json(200, run());
+        return new Promise<Response>((r) => (release = () => r(json(200, run()))));
+      },
+    });
+    await renderWorkflow();
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(reads).toBe(2);
+    await act(() => vi.advanceTimersByTimeAsync(6000));
+    expect(reads).toBe(2);
+    await act(async () => release());
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(reads).toBe(3);
   });
 });

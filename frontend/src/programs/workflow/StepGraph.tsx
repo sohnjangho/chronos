@@ -70,8 +70,12 @@ export default function StepGraph({ steps, selected = null, onSelect }: Props) {
                   <span className="wf-node-n">
                     {`${circled(s.n)} ${programLabel(s.program)} · ${timeText(s)}${stacked ? ' (동시에)' : ''}`}
                   </span>
-                  <b className="wf-node-t">{toolLabel(s.tool)}</b>
-                  <span className="wf-node-m">{s.tool}</span>
+                  <b className="wf-node-t" title={toolLabel(s.tool)}>
+                    {toolLabel(s.tool)}
+                  </b>
+                  <span className="wf-node-m" title={s.tool}>
+                    {s.tool}
+                  </span>
                 </button>
               </li>
             );

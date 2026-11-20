@@ -108,7 +108,7 @@ describe('R7 탐색기', () => {
     const nav = screen.getByRole('navigation', { name: '일정 분류' });
     expect(within(nav).getByRole('button', { name: '전체 3' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(nav).getByRole('button', { name: '건설 2' })).toBeVisible();
-    await userEvent.click(within(nav).getByRole('button', { name: 'production 1' }));
+    await userEvent.click(within(nav).getByRole('button', { name: '생산 1' }));
     expect(within(table()).getAllByRole('row')).toHaveLength(2);
     await userEvent.click(within(nav).getByRole('button', { name: '전체 3' }));
     await userEvent.type(screen.getByRole('searchbox', { name: '이름으로 찾기' }), '물류');
@@ -199,5 +199,49 @@ describe('R7 탐색기', () => {
 
   test('the manifest opens the screen at 1100×720', () => {
     expect(manifest.defaultSize).toEqual({ w: 1100, h: 720 });
+  });
+});
+
+describe('Fix round 1', () => {
+  test('m2: domains read in Korean, unknown ones raw, and cut cells show the whole text on hover', async () => {
+    const rows = [
+      { ...TREE[0], id: 1, domain: 'construction' },
+      { ...TREE[0], id: 6, name: '라인 증설', domain: 'production' },
+      { ...TREE[0], id: 7, name: '신소재', domain: 'research' },
+      { ...TREE[0], id: 8, name: '가전 출시', domain: 'commercialization', level: 'L1' },
+      { ...TREE[0], id: 9, name: '선박 블록', domain: 'shipbuilding' },
+    ];
+    setup('admin', { '/api/explorer/tree': () => json(200, { schedules: rows }) });
+    await renderExplorer();
+    const nav = screen.getByRole('navigation', { name: '일정 분류' });
+    for (const name of ['건설 1', '생산 1', '연구개발 1', '사업화 1', 'shipbuilding 1']) expect(within(nav).getByRole('button', { name })).toBeVisible();
+    expect(within(nav).getByText('shipbuilding')).toHaveAttribute('title', 'shipbuilding');
+    const row = within(table()).getByText('가전 출시').closest('tr')!;
+    expect(within(row).getByText('사업화')).toHaveAttribute('title', '사업화');
+    expect(within(row).getByText('L1 마스터')).toHaveAttribute('title', 'L1 마스터');
+  });
+
+  test('m6: a version list that cannot be read says so and can be read again', async () => {
+    let fail = true;
+    setup('admin', {
+      '/api/schedules/1/versions': () => (fail ? json(500, { code: 'internal_error', message: '서버에서 문제가 생겼습니다.', detail: null }) : json(200, VERSIONS)),
+    });
+    await renderExplorer();
+    await pick('5층 사무동 신축');
+    const alert = await within(panel()).findByRole('alert');
+    expect(alert).toHaveTextContent('버전을 읽지 못했습니다: 서버에서 문제가 생겼습니다.');
+    fail = false;
+    await userEvent.click(within(alert).getByRole('button', { name: '다시 읽기' }));
+    expect(await within(panel()).findByText('처음 생성 (승인)')).toBeVisible();
+    expect(within(panel()).queryByRole('alert')).toBeNull();
+  });
+
+  test('m8: an author named like its kind is shown once', async () => {
+    setup('admin', { '/api/schedules/3/versions': [{ ...VERSIONS[1], by_name: '에이전트' }] });
+    await renderExplorer();
+    await pick('부품 공장 6월 생산');
+    const row = within(await within(panel()).findByRole('list', { name: '버전' })).getAllByRole('listitem')[0];
+    expect(row).toHaveTextContent('에이전트 · ');
+    expect(row).not.toHaveTextContent('에이전트 · 에이전트');
   });
 });

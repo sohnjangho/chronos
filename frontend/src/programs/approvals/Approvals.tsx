@@ -39,7 +39,7 @@ export default function Approvals({ params }: ProgramProps) {
             {d.detail.status === 'pending' && <DecisionBox key={d.detail.id} item={d.detail} onDecide={d.decide} />}
           </>
         ) : (
-          <p className="apv-empty">왼쪽에서 승인 건을 고르세요.</p>
+          <p className="apv-empty">{d.selected === null || d.notice?.tone === 'error' ? '왼쪽에서 승인 건을 고르세요.' : '불러오는 중…'}</p>
         )}
       </main>
     </div>
