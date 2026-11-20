@@ -2,7 +2,8 @@
 // 고치기는 모두 일정 저장소의 쓰기 줄(같은 일정을 보는 창들이 함께 씀)로 보내고 서버가 다시 계산한 일정으로 다시 그린다.
 // 조건·규칙 창의 미리 보기(OS useSchedulePreview)가 있으면 그 일정을 그리고, 움직인 것의 이전 자리를 점선으로 남긴다.
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { useSchedulePreview } from '../../os/schedulePreview';
+import { useSchedulePreview, type SchedulePreview } from '../../os/schedulePreview';
+import Button from '../../shared/ui/Button';
 import { dot } from '../../shared/schedule/format';
 import type { ScheduleView } from '../../shared/schedule/scheduleApi';
 import { useNotify, useSchedule, useSelect } from '../../shared/schedule/scope';
@@ -72,11 +73,19 @@ function Foot({ rows, total, locked }: { rows: number; total: number; locked: bo
   );
 }
 
-function PreviewBanner() {
+/** 미리 보기를 건 창마다 할 일. */
+const PREVIEW_TEXT: Record<SchedulePreview['source'], string> = {
+  conditions: '미리 보기 중 — 조건·규칙 창에서 확정하거나 되돌리세요',
+  delays: '지연 미리 보기 중 — 지연 기록 창에서 등록·고치면 반영됩니다',
+};
+
+/** 미리 보기 띠: 건 창(출처)에 맞는 안내 + [미리 보기 끄기](이 일정의 미리 보기를 지우고 고칠 수 있게 돌아간다). */
+function PreviewBanner({ scheduleId, source }: { scheduleId: number; source: SchedulePreview['source'] }) {
   return (
     <div className="gt-preview" role="status">
-      <b>미리 보기 중 — 조건·규칙 창에서 확정하거나 되돌리세요</b>
+      <b>{PREVIEW_TEXT[source]}</b>
       <span>미리 보기 중에는 고칠 수 없습니다</span>
+      <Button onClick={() => useSchedulePreview.getState().clear(scheduleId)}>미리 보기 끄기</Button>
     </div>
   );
 }
@@ -143,7 +152,7 @@ export default function GanttTab() {
         onZoom={vp.nav.zoom} onFit={vp.nav.fit} onExpandAll={g.expandAll} onCollapseAll={g.collapseAll} onPage={vp.nav.page}
         {...act}
       />
-      {preview && <PreviewBanner />}{noPlan && <NoPlanBanner />}
+      {preview && <PreviewBanner scheduleId={stored.id} source={preview.source} />}{noPlan && <NoPlanBanner />}
       <div className="gt-main" ref={mainRef}>
         <LeftGrid
           rows={g.rows} vp={vp} width={left} columns={cols.columns} texts={texts} selected={selected} editing={ed.editing}

@@ -29,7 +29,12 @@ export interface EditPatch {
 
 const messageOf = (e: unknown) => (e instanceof ApiError ? e.message : '요청을 처리할 수 없습니다.');
 const isConflict = (e: unknown) => e instanceof ApiError && e.code === 'version_conflict';
-const clearShared = (scheduleId: number | null) => scheduleId !== null && useSchedulePreview.getState().clear(scheduleId);
+/** 이 창(조건)이 건 미리 보기만 지운다 — 지연 기록 창이 건 미리 보기는 조건 창을 열거나 닫아도 그대로 둔다. */
+function clearShared(scheduleId: number | null) {
+  if (scheduleId === null) return;
+  const shared = useSchedulePreview.getState();
+  if (shared.previews[scheduleId]?.source === 'conditions') shared.clear(scheduleId);
+}
 
 /** 저장된 값과 같아진 바꿈인가(그러면 바꿈에서 뺀다). */
 function sameAsSaved(change: Change, saved: Cond | undefined): boolean {

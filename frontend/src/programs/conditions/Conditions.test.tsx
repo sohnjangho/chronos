@@ -226,6 +226,17 @@ describe('R2 · 일정판에 넘기는 미리 보기', () => {
     view.unmount();
     expect(preview()).toBeNull();
   });
+
+  // Task 36 리뷰: 지연 기록 창이 건 미리 보기는 조건 창을 열거나 다시 읽거나 닫아도 지우지 않는다(조건 창이 건 것만 지운다).
+  test('opening and closing the window leaves a delay preview alone', async () => {
+    setup();
+    useSchedulePreview.getState().set({ scheduleId: 1, view: mockPreview().view, moved: [], source: 'delays' });
+    const view = await renderC();
+    await screen.findByText('통과 8');
+    expect(preview()?.source).toBe('delays');
+    view.unmount();
+    expect(preview()?.source).toBe('delays');
+  });
 });
 
 describe('R6 · 겹마다 바꿀 수 있는 것', () => {

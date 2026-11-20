@@ -328,6 +328,21 @@ test('a lag number sits below the line, clear of the successor Plan bar', async 
   expect(num(lag, 'y') - 8).toBeGreaterThanOrEqual(planBottom); // 10px 글자의 위쪽(어림)이 Plan 막대 아래
 });
 
+// Task 36 리뷰: 미리 보기 띠는 건 창(출처)에 따라 말하고, 어느 쪽이든 [미리 보기 끄기]로 이 일정의 미리 보기를 지운다.
+test('the preview banner speaks for its source and 미리 보기 끄기 clears it', async () => {
+  await renderGantt();
+  act(() => useSchedulePreview.getState().set({ scheduleId: 1, view: makeView({ version: 1 }), moved: [], source: 'delays' }));
+  expect(screen.getByText('지연 미리 보기 중 — 지연 기록 창에서 등록·고치면 반영됩니다')).toBeInTheDocument();
+  expect(screen.queryByText(/조건·규칙 창에서/)).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: '미리 보기 끄기' }));
+  expect(useSchedulePreview.getState().previews[1]).toBeUndefined();
+  expect(screen.queryByText(/미리 보기 중/)).toBeNull();
+  act(() => useSchedulePreview.getState().set({ scheduleId: 1, view: makeView(), moved: [], source: 'conditions' }));
+  expect(screen.getByText('미리 보기 중 — 조건·규칙 창에서 확정하거나 되돌리세요')).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: '미리 보기 끄기' }));
+  expect(useSchedulePreview.getState().previews[1]).toBeUndefined();
+});
+
 test('a preview of another schedule is not drawn', async () => {
   await renderGantt();
   act(() => useSchedulePreview.getState().set({ scheduleId: 2, view: makeView({ id: 2 }), moved: [], source: 'conditions' }));
