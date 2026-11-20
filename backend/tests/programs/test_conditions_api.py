@@ -410,7 +410,11 @@ def test_i1_an_approved_commit_is_recorded_as_the_user(client, admin, user, sid)
 
 
 def test_i2_a_preview_without_changes_is_the_schedule_view(client, admin, sid):
-    assert _post(client, admin, sid, "preview", []).json()["view"] == client.get(f"/api/schedules/{sid}", headers=admin).json()
+    got = _post(client, admin, sid, "preview", []).json()["view"]
+    want = client.get(f"/api/schedules/{sid}", headers=admin).json()
+    # 미리 보기 view 는 store 의 보기 자료 그대로다. 일정 API 는 그 가운데 ScheduleView 칸만 보인다(예: start_floor 는 안 보임).
+    got["activities"] = [{k: a[k] for k in b} for a, b in zip(got["activities"], want["activities"], strict=True)]
+    assert {k: got[k] for k in want} == want
 
 
 def test_i3_the_agent_text_covers_input_changes_and_mentions_domain_changes(client, admin, sid):
