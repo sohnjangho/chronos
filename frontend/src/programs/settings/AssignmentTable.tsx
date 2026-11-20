@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FindPanel, ListNote, ModelCell, RowFoot, StrategySelect, usePicker, withModel, type ModelLists, type RowState } from './AssignmentParts';
+import { FindPanel, ModelCell, RowNote, RowFoot, StrategySelect, usePicker, withModel, type ModelLists, type RowState } from './AssignmentParts';
 import { llmApi } from './llmApi';
 import { isRouter, PURPOSES, type Assignment, type Connection, type LlmError, type ModelInfo } from './model';
 import { ErrorLine, toProblem } from './parts';
@@ -95,7 +95,7 @@ function AssignmentRow({ item, connections, lists, onSaved }: RowProps) {
         </span>
       </div>
       {finding && <FindPanel label={label} models={picker.all} onPick={pickFound} />}
-      <ListNote list={draft.connection_id === null ? undefined : lists[draft.connection_id]} />
+      <RowNote list={draft.connection_id === null ? undefined : lists[draft.connection_id]} current={picker.current} />
       {(dirty || state.error || state.done) && (
         <RowFoot state={state} dirty={dirty} canSave={canSave} onRevert={() => change(item)} onSave={save} />
       )}

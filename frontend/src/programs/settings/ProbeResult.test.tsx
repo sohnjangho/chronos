@@ -99,3 +99,19 @@ test('a failed test shows the server message and code', () => {
   expect(screen.getByText('bad_key')).toBeVisible();
   expect(screen.queryByRole('searchbox')).toBeNull();
 });
+
+test('an open group shows at most 50 rows with "N개 더 보기", and can be collapsed while searching', async () => {
+  const many = Array.from({ length: 120 }, (_, i) => info(`big/model-${i}`, `Big: Model ${i}`, 'big', 8192));
+  render(<ProbeResult probe={{ ok: true, latency_ms: 10, models: many, error: null }} />);
+  await userEvent.type(screen.getByRole('searchbox', { name: '모델 찾기' }), 'model');
+  const rows = () => within(screen.getByRole('table', { name: 'Big 모델' })).getAllByRole('row').length - 1;
+  expect(rows()).toBe(50);
+  await userEvent.click(screen.getByRole('button', { name: '70개 더 보기' }));
+  expect(rows()).toBe(100);
+  await userEvent.click(screen.getByRole('button', { name: '20개 더 보기' }));
+  expect(rows()).toBe(120);
+  expect(screen.queryByRole('button', { name: /더 보기$/ })).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Big 120개' }));
+  expect(screen.queryByRole('table', { name: 'Big 모델' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Big 120개' })).toHaveAttribute('aria-expanded', 'false');
+});

@@ -5,6 +5,7 @@
 
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import TypedDict
 
@@ -59,6 +60,32 @@ def normalize_base_url(base_url: str) -> str:
     return url
 
 
+# 서버가 모델 이름을 주지 않을 때 보일 업체 이름(흔한 업체). 표에 없으면 title-case.
+_VENDOR_NAMES = {
+    "liner": "Liner",
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "google": "Google",
+    "meta-llama": "Meta Llama",
+    "mistralai": "Mistral AI",
+    "x-ai": "xAI",
+    "deepseek": "DeepSeek",
+    "qwen": "Qwen",
+    "z-ai": "Z.ai",
+    "microsoft": "Microsoft",
+    "cohere": "Cohere",
+    "nvidia": "NVIDIA",
+    "amazon": "Amazon",
+    "perplexity": "Perplexity",
+    "moonshotai": "Moonshot AI",
+    "minimax": "MiniMax",
+}
+
+
+def readable_vendor(vendor: str) -> str:
+    return _VENDOR_NAMES.get(vendor, vendor.title())
+
+
 def _vendor_from_id(model_id: str) -> str:
     """id 의 "/" 앞(앞의 ~ 는 뗀다). "/" 가 없으면 Liner 의 모델."""
     prefix = model_id.split("/", 1)[0].lstrip("~") if "/" in model_id else ""
@@ -69,18 +96,36 @@ def model_info(item: dict) -> ModelInfo:
     """/models 의 항목 하나를 ModelInfo 로. 없는 값은 규칙대로 채운다."""
     model_id = str(item["id"])
     vendor = str(item.get("owned_by") or "").strip() or _vendor_from_id(model_id)
-    name = str(item.get("name") or model_id)
-    vendor_name = name.split(":", 1)[0].strip() if ":" in name else vendor.title()
+    given = str(item.get("name") or "").strip()
+    # ":" 앞을 업체 이름으로 쓰는 것은 서버가 준 이름일 때만이다(id 의 ":free" 같은 꼬리를 자르지 않게).
+    vendor_name = given.split(":", 1)[0].strip() if ":" in given else readable_vendor(vendor)
     endpoints = item.get("endpoints")
     context = item.get("context_length")
     return ModelInfo(
         id=model_id,
-        name=name,
+        name=given or model_id,
         vendor=vendor,
         vendor_name=vendor_name,
         context_length=context if isinstance(context, int) and not isinstance(context, bool) else None,
         chat=CHAT_ENDPOINT in endpoints if isinstance(endpoints, list) else True,
     )
+
+
+def _one_name_per_vendor(models: list[ModelInfo]) -> list[ModelInfo]:
+    """같은 업체의 모델은 가장 많이 나온 업체 이름 하나를 쓴다(묶음 머리와 찾기가 어긋나지 않게)."""
+    counts: dict[str, Counter[str]] = {}
+    for model in models:
+        counts.setdefault(model["vendor"], Counter())[model["vendor_name"]] += 1
+    best = {vendor: counter.most_common(1)[0][0] for vendor, counter in counts.items()}
+    return [ModelInfo(**{**model, "vendor_name": best[model["vendor"]]}) for model in models]
+
+
+def _stored(item: dict) -> ModelInfo:
+    """새 꼴로 저장된 줄. 서버 이름 없이 저장된 줄(name == id)은 업체 이름을 다시 만든다."""
+    model = ModelInfo(**{key: item[key] for key in ModelInfo.__annotations__})
+    if model["name"] == model["id"]:
+        model["vendor_name"] = readable_vendor(model["vendor"])
+    return model
 
 
 def normalize_models(stored: list | None) -> list[ModelInfo]:
@@ -90,18 +135,16 @@ def normalize_models(stored: list | None) -> list[ModelInfo]:
         if isinstance(item, str):
             models.append(model_info({"id": item}))
         elif isinstance(item, dict) and "id" in item:
-            if all(key in item for key in ModelInfo.__annotations__):
-                models.append(ModelInfo(**{key: item[key] for key in ModelInfo.__annotations__}))
-            else:
-                models.append(model_info(item))
-    return models
+            known = all(key in item for key in ModelInfo.__annotations__)
+            models.append(_stored(item) if known else model_info(item))
+    return _one_name_per_vendor(models)
 
 
 def _models(body: object) -> list[ModelInfo]:
     data = body.get("data") if isinstance(body, dict) else None
     if not isinstance(data, list):
         raise TypeError("models 응답에 data 목록이 없습니다.")
-    return [model_info(item) for item in data if isinstance(item, dict) and "id" in item]
+    return _one_name_per_vendor([model_info(item) for item in data if isinstance(item, dict) and "id" in item])
 
 
 def _elapsed_ms(start: float) -> int:

@@ -233,3 +233,12 @@ test('secret_required moves focus to the revealed key field; cancel clears that 
   await action('URL 수정');
   expect(within(card()).queryByLabelText(/API 키/)).toBeNull();
 });
+
+test('a long connection name in the delete panel may wrap', async () => {
+  const longName = 'L'.repeat(100);
+  renderAs('admin', undefined, { '/api/llm/connections': [connection({ name: longName })] });
+  const c = await screen.findByRole('article', { name: longName });
+  await userEvent.click(within(c).getByRole('button', { name: '삭제' }));
+  const panel = within(c).getByRole('group', { name: '연결 삭제 확인' });
+  expect(panel.querySelector('p')).toHaveClass('st-wrap');
+});

@@ -49,11 +49,45 @@ def test_models_keep_metadata():
          "vendor_name": "Google", "context_length": 1048576, "chat": True},
         {"id": "~anthropic/claude-x", "name": "Claude X", "vendor": "anthropic", "vendor_name": "Anthropic",
          "context_length": None, "chat": True},
-        {"id": "batch-thing", "name": "batch-thing", "vendor": "openai", "vendor_name": "Openai",
+        {"id": "batch-thing", "name": "batch-thing", "vendor": "openai", "vendor_name": "OpenAI",
          "context_length": None, "chat": False},
         {"id": "plain-model", "name": "plain-model", "vendor": "liner", "vendor_name": "Liner",
          "context_length": None, "chat": True},
     ]
+
+
+@pytest.mark.parametrize(
+    "vendor,readable",
+    [("liner", "Liner"), ("openai", "OpenAI"), ("anthropic", "Anthropic"), ("google", "Google"),
+     ("meta-llama", "Meta Llama"), ("mistralai", "Mistral AI"), ("x-ai", "xAI"), ("deepseek", "DeepSeek"),
+     ("qwen", "Qwen"), ("z-ai", "Z.ai"), ("microsoft", "Microsoft"), ("cohere", "Cohere"), ("nvidia", "NVIDIA"),
+     ("amazon", "Amazon"), ("perplexity", "Perplexity"), ("moonshotai", "Moonshot AI"), ("minimax", "MiniMax"),
+     ("some-new-lab", "Some-New-Lab")],
+)
+def test_vendor_names_are_readable_without_a_server_name(vendor, readable):
+    """서버가 name 을 주지 않으면 id 를 ":" 로 자르지 않고, 업체 열쇠를 읽기 좋은 이름으로 바꾼다."""
+    [model] = normalize_models([f"{vendor}/some-model:free"])
+    assert model["vendor"] == vendor and model["vendor_name"] == readable
+    assert model["name"] == f"{vendor}/some-model:free"
+
+
+def test_one_vendor_name_per_vendor():
+    """같은 업체의 모델은 한 업체 이름을 쓴다(가장 많이 나온 이름)."""
+    body = {"data": [
+        {"id": "meta-llama/a", "name": "Meta: Llama A", "owned_by": "meta-llama"},
+        {"id": "meta-llama/b", "name": "Meta Llama: Llama B", "owned_by": "meta-llama"},
+        {"id": "meta-llama/c", "name": "Meta Llama: Llama C", "owned_by": "meta-llama"},
+        {"id": "meta-llama/d", "owned_by": "meta-llama"},
+    ]}
+    result = _probe(lambda request: httpx.Response(200, json=body))
+    assert [m["vendor_name"] for m in result.models] == ["Meta Llama"] * 4
+
+
+def test_stored_rows_without_a_server_name_are_repaired():
+    """이름 없이 저장된 줄(name == id)의 업체 이름이 id 조각이면 읽기 좋은 이름으로 고쳐 읽는다."""
+    stored = [{"id": "deepseek/deepseek-r1:free", "name": "deepseek/deepseek-r1:free", "vendor": "deepseek",
+               "vendor_name": "deepseek/deepseek-r1", "context_length": None, "chat": True}]
+    assert normalize_models(stored)[0]["vendor_name"] == "DeepSeek"
 
 
 def test_legacy_id_lists_are_normalized():
@@ -63,7 +97,7 @@ def test_legacy_id_lists_are_normalized():
     assert normalize_models(stored) == [
         {"id": "liner-mark", "name": "liner-mark", "vendor": "liner", "vendor_name": "Liner",
          "context_length": None, "chat": True},
-        {"id": "openai/gpt-x", "name": "openai/gpt-x", "vendor": "openai", "vendor_name": "Openai",
+        {"id": "openai/gpt-x", "name": "openai/gpt-x", "vendor": "openai", "vendor_name": "OpenAI",
          "context_length": None, "chat": True},
         {"id": "google/g", "name": "Google: G", "vendor": "google", "vendor_name": "Google",
          "context_length": 8, "chat": False},

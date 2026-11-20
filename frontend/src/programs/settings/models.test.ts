@@ -102,3 +102,12 @@ test('vendor facets count what the other filters leave, in vendor order', () => 
     ['Google', 1],
   ]);
 });
+
+test('a vendor group takes the vendor-level name (the most common one), not the first model’s', () => {
+  const metas = [
+    m('meta-llama/a', 'Meta: A', 'meta-llama', 'Meta', null),
+    m('meta-llama/b', 'Meta Llama: B', 'meta-llama', 'Meta Llama', null),
+    m('meta-llama/c', 'Meta Llama: C', 'meta-llama', 'Meta Llama', null),
+  ];
+  expect(groupByVendor(metas).map((g) => g.vendor_name)).toEqual(['Meta Llama']);
+});

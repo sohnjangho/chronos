@@ -66,3 +66,13 @@ test('settings layout guards against horizontal overflow (checked on screen too)
   expect(settingsCss).toMatch(/\.st-root input,\s*\.st-root select\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%/);
   expect(settingsCss).toMatch(/\.st-grid2\s*\{[^}]*minmax\(0,\s*1fr\)/);
 });
+
+test('every place that shows user-supplied names, ids or URLs may break anywhere', () => {
+  const rule = (selector: string) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[,}\\s])${escaped}\\s*(,[^{]*)?\\{[^}]*overflow-wrap:\\s*anywhere`, 'm');
+  };
+  for (const selector of ['.st-wrap', '.st-card-name', '.st-facts dd', '.st-error', '.st-vgroup-head', '.st-vendor-list .st-check']) {
+    expect(settingsCss, selector).toMatch(rule(selector));
+  }
+});

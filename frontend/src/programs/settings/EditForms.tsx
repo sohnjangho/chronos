@@ -99,7 +99,7 @@ export function KeyForm({ conn, onSaved, onCancel }: FormProps) {
 export function DeletePanel({ name, onConfirm, onCancel }: { name: string; onConfirm(): void; onCancel(): void }) {
   return (
     <div className="st-confirm" role="group" aria-label="연결 삭제 확인">
-      <p>
+      <p className="st-wrap">
         「{name}」 연결을 지울까요? 이 연결을 쓰던 작업별 모델 배정은 기본값으로 돌아갑니다.
       </p>
       <div className="st-actions">

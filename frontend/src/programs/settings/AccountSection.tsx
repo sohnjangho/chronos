@@ -9,8 +9,8 @@ import { settingsApi } from './settingsApi';
 
 const ROLE_LABELS: Record<Role, string> = { admin: '관리자', user: '사용자' };
 const COLUMNS: Column<Account>[] = [
-  { key: 'name', header: '이름' },
-  { key: 'login_id', header: '아이디' },
+  { key: 'name', header: '이름', render: (a) => <span title={a.name}>{a.name}</span> },
+  { key: 'login_id', header: '아이디', render: (a) => <span title={a.login_id}>{a.login_id}</span> },
   { key: 'role', header: '등급', render: (a) => ROLE_LABELS[a.role] },
 ];
 
@@ -113,7 +113,7 @@ function EditAccountForm({ account, onDone, onCancel }: FormProps & { account: A
   };
   return (
     <section className="st-card st-edit" aria-label="계정 고치기">
-      <b>{account.login_id}</b>
+      <b className="st-wrap">{account.login_id}</b>
       <div className="st-grid2">
         <Field label="이름">
           <input value={name} onChange={(e) => setName(e.target.value)} />

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Button from '../../shared/ui/Button';
 import Table, { type Column } from '../../shared/ui/Table';
 import type { ModelInfo, Probe } from './model';
 import { ModelFilterBar, useModelFilter } from './ModelFilters';
@@ -11,16 +12,33 @@ const COLUMNS: Column<ModelInfo>[] = [
   { key: 'context', header: '문맥 길이', align: 'right', render: (m) => contextText(m.context_length) },
 ];
 
-/** 업체 한 묶음. 접혀 있고, 누르면 이름 · ID · 문맥 길이 표가 열린다. 찾는 중이면 열어 둔다. */
-function VendorGroupView({ group, forceOpen }: { group: VendorGroup; forceOpen: boolean }) {
-  const [open, setOpen] = useState(false);
-  const shown = forceOpen || open;
+/** 열린 묶음이 한 번에 보이는 줄 수. 넘으면 「N개 더 보기」. */
+const PAGE = 50;
+
+/**
+ * 업체 한 묶음. 처음에는 접혀 있고, 찾는 중이면 열린 채로 시작한다. 찾는 중에도 사용자가 접고 열 수 있다.
+ * 열면 이름 · ID · 문맥 길이 표를 50줄씩 보인다.
+ */
+function VendorGroupView({ group, openByDefault }: { group: VendorGroup; openByDefault: boolean }) {
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const [limit, setLimit] = useState(PAGE);
+  const shown = choice ?? openByDefault;
+  const rest = group.models.length - limit;
   return (
     <section className="st-vgroup">
-      <button type="button" className="st-vgroup-head" aria-expanded={shown} onClick={() => setOpen(!shown)}>
+      <button type="button" className="st-vgroup-head" aria-expanded={shown} onClick={() => setChoice(!shown)}>
         <span>{group.vendor_name}</span> <span className="st-muted">{group.models.length}개</span>
       </button>
-      {shown && <Table label={`${group.vendor_name} 모델`} columns={COLUMNS} rows={group.models} rowKey={(m) => m.id} />}
+      {shown && (
+        <>
+          <Table label={`${group.vendor_name} 모델`} columns={COLUMNS} rows={group.models.slice(0, limit)} rowKey={(m) => m.id} />
+          {rest > 0 && (
+            <Button className="st-more" onClick={() => setLimit(limit + PAGE)}>
+              {`${rest}개 더 보기`}
+            </Button>
+          )}
+        </>
+      )}
     </section>
   );
 }
@@ -39,7 +57,7 @@ function ModelBrowser({ probe }: { probe: Probe }) {
       <ModelFilterBar filter={filter} onChange={setFilter} facets={facets} count={results.length} />
       <div className="st-vgroups">
         {groupByVendor(results).map((g) => (
-          <VendorGroupView key={g.vendor} group={g} forceOpen={searching} />
+          <VendorGroupView key={g.vendor} group={g} openByDefault={searching} />
         ))}
         {results.length === 0 && <p className="st-muted">찾는 모델이 없습니다.</p>}
       </div>

@@ -457,7 +457,7 @@ def test_legacy_id_list_still_works(client, admin, session, conn_id):
     models = client.get(f"/api/llm/connections/{conn_id}/models", headers=admin).json()["models"]
     assert [(m["id"], m["vendor"], m["vendor_name"], m["chat"]) for m in models] == [
         ("liner-mark", "liner", "Liner", True),
-        ("openai/gpt-x", "openai", "Openai", True),
+        ("openai/gpt-x", "openai", "OpenAI", True),
     ]
     [conn] = client.get("/api/llm/connections", headers=admin).json()
     assert conn["chat_model_count"] == 2

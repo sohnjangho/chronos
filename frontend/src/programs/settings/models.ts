@@ -36,6 +36,13 @@ function vendorRank(a: VendorGroup, b: VendorGroup): number {
   return rank(a) - rank(b) || a.vendor_name.localeCompare(b.vendor_name);
 }
 
+/** 묶음의 업체 이름: 그 업체 모델들에서 가장 많이 나온 이름(같으면 먼저 나온 것). */
+function vendorLevelName(models: ModelInfo[]): string {
+  const counts = new Map<string, number>();
+  for (const m of models) counts.set(m.vendor_name, (counts.get(m.vendor_name) ?? 0) + 1);
+  return [...counts.entries()].reduce((best, cur) => (cur[1] > best[1] ? cur : best))[0];
+}
+
 /** 업체별로 묶는다. 묶음 안의 차례는 받은 차례. */
 export function groupByVendor(models: ModelInfo[]): VendorGroup[] {
   const groups = new Map<string, VendorGroup>();
@@ -44,6 +51,7 @@ export function groupByVendor(models: ModelInfo[]): VendorGroup[] {
     g.models.push(m);
     groups.set(m.vendor, g);
   }
+  for (const g of groups.values()) g.vendor_name = vendorLevelName(g.models);
   return [...groups.values()].sort(vendorRank);
 }
 

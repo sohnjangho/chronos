@@ -50,3 +50,11 @@ test('editing an account sends only what changed and shows the server message in
   expect(await within(form).findByText('관리자가 한 명은 있어야 합니다.')).toBeVisible();
   expect(sent(fetchMock, 'PATCH /api/auth/users/1')).toEqual([{ role: 'user' }]);
 });
+
+test('a long login id without hyphens may wrap in the edit form', async () => {
+  const longId = 'a'.repeat(50);
+  renderAs('admin', ACCOUNT, { '/api/auth/users': [{ id: 7, name: '긴아이디', role: 'user', login_id: longId }] });
+  await userEvent.click(await screen.findByText('긴아이디'));
+  const form = screen.getByRole('region', { name: '계정 고치기' });
+  expect(within(form).getByText(longId)).toHaveClass('st-wrap');
+});

@@ -25,8 +25,11 @@ const findLimit = 50;
  */
 export function usePicker(draft: Assignment, lists: ModelLists) {
   const all = modelsOf(lists[draft.connection_id ?? -1]);
-  const groups = useMemo(() => groupByVendor(all.filter((m) => m.chat)), [all]);
+  const chatGroups = useMemo(() => groupByVendor(all.filter((m) => m.chat)), [all]);
   const current = all.find((m) => m.id === draft.model);
+  // 지금 모델의 업체에 대화용 모델이 없으면 빈 묶음으로 더한다(업체 칸이 엉뚱한 업체를 보이지 않게).
+  const missing = current && !chatGroups.some((g) => g.vendor === current.vendor);
+  const groups = missing ? [...chatGroups, { vendor: current.vendor, vendor_name: current.vendor_name, models: [] }] : chatGroups;
   const [chosen, setVendor] = useState<string | null>(null);
   const vendor = groups.some((g) => g.vendor === chosen) ? (chosen as string) : (current?.vendor ?? groups[0]?.vendor ?? '');
   const vendorModels = groups.find((g) => g.vendor === vendor)?.models ?? [];
@@ -147,12 +150,25 @@ export function FindPanel({ label, models, onPick }: { label: string; models: Mo
   );
 }
 
-/** 고른 연결의 목록이 비었거나 못 불러왔을 때 그 줄에 알린다. */
-export function ListNote({ list }: { list: ModelList | undefined }) {
+function ListNote({ list }: { list: ModelList | undefined }) {
   if (!list) return null;
   if ('error' in list) return <ErrorLine error={list.error} />;
-  if (list.models.length > 0) return null;
-  return <p className="st-muted">이 연결에 불러온 모델이 없습니다. 연결 테스트를 먼저 해 주세요.</p>;
+  if (list.models.length === 0) return <p className="st-muted">이 연결에 불러온 모델이 없습니다. 연결 테스트를 먼저 해 주세요.</p>;
+  if (!list.models.some((m) => m.chat)) return <p className="st-muted">대화용 모델이 없습니다. 「대화용만」을 끄면 전체가 보입니다.</p>;
+  return null;
+}
+
+/**
+ * 줄 아래 알림: 대화용이 아닌 모델을 골랐으면 경고(고를 수는 있다), 그리고 고른 연결의 목록이
+ * 비었거나 · 못 불러왔거나 · 대화용이 하나도 없을 때의 안내.
+ */
+export function RowNote({ list, current }: { list: ModelList | undefined; current: ModelInfo | undefined }) {
+  return (
+    <>
+      {current && !current.chat && <p className="st-warn">대화용이 아닌 모델입니다. 에이전트가 쓰지 못할 수 있습니다.</p>}
+      <ListNote list={list} />
+    </>
+  );
 }
 
 export interface RowState {

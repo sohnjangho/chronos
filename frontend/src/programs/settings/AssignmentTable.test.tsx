@@ -271,3 +271,43 @@ test('a stored model that is not in the loaded list still shows as the current v
   expect(model.selectedOptions[0].text).toBe('retired/old-model');
   expect(within(light).queryByRole('button', { name: '저장' })).toBeNull();
 });
+
+const EMBED = info('embedco/vector-1', 'Embed: Vector 1', 'embedco', null, false);
+
+test('an assigned non-chat model whose vendor has no chat model still shows its vendor', async () => {
+  renderTable({
+    '/api/llm/connections/1/models': { models: [...MODELS, EMBED] },
+    '/api/llm/assignments': {
+      items: ASSIGNMENTS.items.map((i) => (i.purpose === 'light' ? { ...i, model: EMBED.id, routing_strategy: null } : i)),
+    },
+  });
+  const light = await screen.findByRole('group', { name: '가벼운 일' });
+  const vendor = (await within(light).findByRole('combobox', { name: '가벼운 일 업체' })) as HTMLSelectElement;
+  await waitFor(() => expect(vendor).toHaveValue('embedco'));
+  expect(vendor.selectedOptions[0].text).toBe('Embed (0)');
+  expect(within(light).getByRole('combobox', { name: '가벼운 일 모델' })).toHaveValue(EMBED.id);
+});
+
+test('choosing a non-chat model warns but is still allowed', async () => {
+  renderTable();
+  const light = await screen.findByRole('group', { name: '가벼운 일' });
+  await within(light).findByRole('combobox', { name: '가벼운 일 업체' });
+  expect(within(light).queryByText(/대화용이 아닌 모델입니다/)).toBeNull();
+  await userEvent.click(within(light).getByRole('button', { name: '가벼운 일 모델 찾기' }));
+  const panel = within(light).getByRole('group', { name: '가벼운 일 모델 찾기' });
+  await userEvent.click(within(panel).getByRole('checkbox', { name: '대화용만' }));
+  await userEvent.type(within(panel).getByRole('searchbox', { name: '모델 찾기' }), 'batch');
+  await userEvent.click(within(panel).getByRole('button', { name: 'OpenAI · Batch Only · 128K' }));
+  expect(within(light).getByText('대화용이 아닌 모델입니다. 에이전트가 쓰지 못할 수 있습니다.')).toBeVisible();
+  expect(within(light).getByRole('button', { name: '저장' })).toBeEnabled();
+});
+
+test('a connection whose models are all non-chat says how to see them', async () => {
+  renderTable({
+    '/api/llm/connections': [connection(), connection({ id: 2, name: '임베딩 전용', is_default: false })],
+    '/api/llm/connections/2/models': { models: [EMBED] },
+  });
+  const light = await screen.findByRole('group', { name: '가벼운 일' });
+  await userEvent.selectOptions(within(light).getByRole('combobox', { name: '가벼운 일 연결' }), '2');
+  expect(await within(light).findByText('대화용 모델이 없습니다. 「대화용만」을 끄면 전체가 보입니다.')).toBeVisible();
+});
