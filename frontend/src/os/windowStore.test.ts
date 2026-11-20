@@ -1,7 +1,7 @@
 import { lazy } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { register } from './registry';
-import { MENUBAR_H, resizeRect, useWindows, type Win } from './windowStore';
+import { activeWindow, ARRANGE_GAP, DOCK_RESERVE, MENUBAR_H, resizeRect, useWindows, workArea, type Win } from './windowStore';
 
 const program = (id: string, w: number, h: number) =>
   register({ id, name: id, icon: null, kind: 'work', defaultSize: { w, h }, component: lazy(() => import('./Placeholder')) });
@@ -164,7 +164,7 @@ test('resizeRect from the left and top keeps the opposite edge fixed', () => {
   expect(resizeRect(r, 'w', 100, 0)).toEqual({ x: 200, y: 100, w: 700, h: 600 });
   expect(resizeRect(r, 'w', 700, 0)).toEqual({ x: 540, y: 100, w: 360, h: 600 });
   expect(resizeRect(r, 'w', -500, 0)).toEqual({ x: 0, y: 100, w: 900, h: 600 });
-  expect(resizeRect(r, 'n', 0, -100)).toEqual({ x: 100, y: MENUBAR_H, w: 800, h: 656 });
+  expect(resizeRect(r, 'n', 0, -100)).toEqual({ x: 100, y: MENUBAR_H, w: 800, h: 700 - MENUBAR_H });
   expect(resizeRect(r, 'se', 50, -500)).toEqual({ x: 100, y: 100, w: 850, h: 240 });
   expect(resizeRect(r, 'nw', 10, 10)).toEqual({ x: 110, y: 110, w: 790, h: 590 });
 });
@@ -173,4 +173,97 @@ test('setBounds keeps the window inside the screen and above the minimum', () =>
   const a = s().open('a');
   s().setBounds(a, { x: -50, y: 0, w: 100, h: 5000 });
   expect(win(a)).toMatchObject({ x: 0, y: MENUBAR_H, w: 360, h: 1080 - MENUBAR_H });
+});
+
+test('the menubar is 48px and new windows start at y 68', () => {
+  expect(MENUBAR_H).toBe(48);
+  expect(win(s().open('a')).y).toBe(68);
+});
+
+test('clearActive leaves no active window until a window is raised again', () => {
+  const a = s().open('a');
+  s().clearActive();
+  expect(s().activeProgramId()).toBeNull();
+  expect(activeWindow(s())).toBeNull();
+  s().focus(a);
+  expect(s().activeProgramId()).toBe('a');
+  s().clearActive();
+  s().open('b');
+  expect(s().activeProgramId()).toBe('b');
+});
+
+test('a maximized window fills from the menubar to the bottom of the screen', () => {
+  expect(workArea()).toEqual({ x: 0, y: MENUBAR_H, w: 1920, h: 1080 - MENUBAR_H });
+});
+
+test('a right inset narrows the screen for clamping and maximizing', () => {
+  const a = s().open('a');
+  s().move(a, 1900, 100);
+  s().setInsetRight(420);
+  expect(win(a).x + win(a).w).toBeLessThanOrEqual(1500);
+  expect(workArea().w).toBe(1500);
+  s().setInsetRight(0);
+  expect(workArea().w).toBe(1920);
+});
+
+const visible = () => s().wins.filter((w) => !w.minimized);
+const area = { x: 0, y: MENUBAR_H, w: 1920, h: 1080 - MENUBAR_H - DOCK_RESERVE };
+
+test('split puts the active window on the left half and stacks the rest on the right', () => {
+  const a = s().open('a');
+  const b = s().open('b');
+  const c = s().open('c');
+  s().focus(a);
+  expect(s().arrange('split')).toBe(3);
+  const half = (area.w - 3 * ARRANGE_GAP) / 2;
+  expect(win(a)).toMatchObject({ x: ARRANGE_GAP, y: area.y + ARRANGE_GAP, w: Math.floor(half) });
+  expect(win(b).x).toBe(win(c).x);
+  expect(win(b).x).toBeGreaterThan(win(a).x + win(a).w);
+  expect(win(c).y).toBeGreaterThan(win(b).y + win(b).h - 1);
+  for (const w of visible()) expect(w.y + w.h).toBeLessThanOrEqual(area.y + area.h);
+});
+
+test('grid uses ceil(sqrt(n)) columns with equal cells and 8px gaps', () => {
+  ['a', 'b', 'c', 'd', 'e'].forEach((p) => s().open(p));
+  expect(s().arrange('grid')).toBe(5);
+  const ws = visible();
+  expect(new Set(ws.map((w) => w.w)).size).toBe(1);
+  expect(new Set(ws.map((w) => w.h)).size).toBe(1);
+  expect(new Set(ws.map((w) => w.x)).size).toBe(3);
+  expect(Math.min(...ws.map((w) => w.x))).toBe(ARRANGE_GAP);
+});
+
+test('cascade offsets windows by 28px and never shrinks below the minimum', () => {
+  const ids = ['a', 'b', 'c'].map((p) => s().open(p));
+  s().arrange('cascade');
+  expect(win(ids[1]).x - win(ids[0]).x).toBe(28);
+  expect(win(ids[1]).y - win(ids[0]).y).toBe(28);
+  for (const w of visible()) expect(w.w).toBeGreaterThanOrEqual(360);
+});
+
+test('arranging skips minimized windows and un-maximizes the rest', () => {
+  const a = s().open('a');
+  const b = s().open('b');
+  s().toggleMaximize(a);
+  s().minimize(b);
+  expect(s().arrange('grid')).toBe(1);
+  expect(win(a).maximized).toBe(false);
+  expect(win(b).minimized).toBe(true);
+});
+
+test('minimizeAll, closeActive, closeAll and nextWindow', () => {
+  const a = s().open('a');
+  const b = s().open('b');
+  const c = s().open('c');
+  s().nextWindow();
+  expect(s().activeProgramId()).toBe('a');
+  s().nextWindow();
+  expect(s().activeProgramId()).toBe('b');
+  s().closeActive();
+  expect(s().wins.map((w) => w.id)).toEqual([a, c]);
+  expect(s().minimizeAll()).toBe(2);
+  expect(s().activeProgramId()).toBeNull();
+  expect(s().closeAll()).toBe(2);
+  expect(s().wins).toEqual([]);
+  expect(b).toBe('w2');
 });

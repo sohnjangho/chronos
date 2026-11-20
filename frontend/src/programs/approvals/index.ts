@@ -6,6 +6,7 @@ import type { ProgramManifest } from '../../os/registry';
 const manifest: ProgramManifest = {
   id: 'approvals',
   name: '승인함',
+  tone: 'amber',
   kind: 'system',
   defaultSize: { w: 1200, h: 760 },
   badge: 'approvals',

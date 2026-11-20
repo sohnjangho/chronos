@@ -1,13 +1,22 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 
-export interface MenuEntry {
+/** 누를 수 있는 메뉴 항목. checked 를 주면 체크 항목(✓)이 된다. detail 은 둘째 줄 보조 글. */
+export interface MenuAction {
+  type?: 'item';
   label: string;
   run: () => void;
+  /** 보이는 단축키(예 "Ctrl+Alt+S"). 처리는 따로 한다. */
   shortcut?: string;
   disabled?: boolean;
+  checked?: boolean;
   /** 지금 고른 것(굵게). */
   current?: boolean;
+  detail?: string;
 }
+
+export type MenuEntry = MenuAction | { type: 'separator' } | { type: 'title'; label: string };
+
+export const SEPARATOR: MenuEntry = { type: 'separator' };
 
 export interface MenuSpec {
   key: string;
@@ -15,12 +24,12 @@ export interface MenuSpec {
   ariaLabel?: string;
   className?: string;
   items: MenuEntry[];
-  /** 항목 위에 보이는 안내(예 "일정 없음"). */
+  /** 항목 위에 보이는 안내. */
   note?: string;
   /** 펼칠 때 부른다(목록 새로 읽기 등). */
   onOpen?: () => void;
-  /** 이 메뉴 단추 바로 뒤에 놓을 것(예 맨 앞 프로그램 이름). */
-  after?: ReactNode;
+  /** 펼침을 단추 오른쪽 끝에 맞춘다(사용자 메뉴). */
+  alignRight?: boolean;
 }
 
 interface OpenState {
@@ -28,9 +37,11 @@ interface OpenState {
   focusFirst: boolean;
 }
 
-/** 펼친 메뉴의 켜진 항목 가운데 지금 것에서 d 만큼(끝에서 돌아감). 포커스가 항목 밖이면 처음·끝. */
-function stepFocus(menu: HTMLElement | null, d: 1 | -1) {
-  const list = menu ? [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')] : [];
+const ITEM_SELECTOR = '[role="menuitem"]:not(:disabled), [role="menuitemcheckbox"]:not(:disabled)';
+
+/** 펼친 메뉴의 켜진 항목 가운데 지금 것에서 d 만큼(끝에서 돌아감). 묶음 제목·구분선·꺼진 항목은 건너뛴다. */
+export function stepFocus(menu: HTMLElement | null, d: 1 | -1) {
+  const list = menu ? [...menu.querySelectorAll<HTMLButtonElement>(ITEM_SELECTOR)] : [];
   if (list.length === 0) return;
   const at = list.indexOf(document.activeElement as HTMLButtonElement);
   const next = at < 0 ? (d > 0 ? 0 : list.length - 1) : (at + d + list.length) % list.length;
@@ -88,10 +99,11 @@ function keyHandlers({ count, open, setOpen, show, closeToButton, menuRef }: Key
 }
 
 /**
- * 메뉴바의 펼침 메뉴 묶음. Enter·Space·↓ 로 열면 첫 항목에 포커스, ↑↓ 로 항목, ←→ 로 옆 메뉴,
- * Escape 는 닫고 메뉴 단추로 돌아간다. 바깥을 누르면 닫힌다. 꺼진 항목은 누를 수 없다.
+ * 메뉴바의 펼침 메뉴 묶음(macOS 메뉴바 방식). Enter·Space·↓ 로 열면 첫 항목에 포커스, ↑↓ 로 항목,
+ * ←→ 로 옆 메뉴, Escape 는 닫고 메뉴 단추로 돌아간다. 하나가 열린 동안 다른 메뉴 이름을 가리키면
+ * 그 메뉴로 바뀐다. 바깥을 누르면 닫힌다. 꺼진 항목은 누를 수 없다.
  */
-export default function MenuGroup({ menus }: { menus: MenuSpec[] }) {
+export default function MenuGroup({ menus, className }: { menus: MenuSpec[]; className?: string }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
@@ -105,11 +117,14 @@ export default function MenuGroup({ menus }: { menus: MenuSpec[] }) {
     if (open) buttons.current[open.index]?.focus();
     setOpen(null);
   };
-
   const { onButtonKeyDown, onMenuKeyDown } = keyHandlers({ count: menus.length, open, setOpen, show, closeToButton, menuRef });
 
   return (
-    <div ref={rootRef} className="os-mb-group">
+    <div
+      ref={rootRef}
+      className={['os-mb-group', className].filter(Boolean).join(' ')}
+      onBlur={(e) => open && !rootRef.current?.contains(e.relatedTarget as Node) && setOpen(null)}
+    >
       {menus.map((m, index) => (
         <div key={m.key} className="os-mb-menu">
           <button
@@ -122,11 +137,11 @@ export default function MenuGroup({ menus }: { menus: MenuSpec[] }) {
             aria-haspopup="menu"
             aria-expanded={open?.index === index}
             onClick={() => (open?.index === index ? setOpen(null) : show(index, false))}
+            onPointerEnter={() => open && open.index !== index && show(index, false)}
             onKeyDown={(e) => onButtonKeyDown(e, index)}
           >
             {m.label}
           </button>
-          {m.after}
           {open?.index === index && <MenuList menu={m} menuRef={menuRef} onKeyDown={onMenuKeyDown} onPick={closeToButton} />}
         </div>
       ))}
@@ -135,39 +150,59 @@ export default function MenuGroup({ menus }: { menus: MenuSpec[] }) {
 }
 
 interface MenuListProps {
-  menu: MenuSpec;
+  menu: Pick<MenuSpec, 'label' | 'ariaLabel' | 'items' | 'note' | 'alignRight'>;
   menuRef: RefObject<HTMLDivElement | null>;
   onKeyDown(e: KeyboardEvent): void;
   onPick(): void;
+  className?: string;
 }
 
-function MenuList({ menu, menuRef, onKeyDown, onPick }: MenuListProps) {
+/** 펼친 메뉴 내용. Dock 항목 메뉴도 이것을 쓴다. */
+export function MenuList({ menu, menuRef, onKeyDown, onPick, className }: MenuListProps) {
   const name = menu.ariaLabel ?? (typeof menu.label === 'string' ? menu.label : undefined);
+  const classes = ['os-menu', menu.alignRight && 'is-right', className].filter(Boolean).join(' ');
   return (
-    <div ref={menuRef} role="menu" aria-label={name} className="os-menu" onKeyDown={onKeyDown}>
+    <div ref={menuRef} role="menu" aria-label={name} className={classes} onKeyDown={onKeyDown}>
       {menu.note && <div className="os-menu-note">{menu.note}</div>}
-      {menu.items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          role="menuitem"
-          tabIndex={-1}
-          disabled={item.disabled}
-          aria-keyshortcuts={item.shortcut}
-          className={`os-menu-item${item.current ? ' is-current' : ''}`}
-          onClick={() => {
-            onPick();
-            item.run();
-          }}
-        >
-          <span>{item.label}</span>
-          {item.shortcut && (
-            <span className="os-menu-shortcut" aria-hidden="true">
-              {item.shortcut}
-            </span>
-          )}
-        </button>
+      {menu.items.map((entry, i) => (
+        <MenuRow key={entry.type === 'separator' ? `sep-${i}` : `${entry.label}-${i}`} entry={entry} onPick={onPick} />
       ))}
     </div>
+  );
+}
+
+function MenuRow({ entry, onPick }: { entry: MenuEntry; onPick(): void }) {
+  if (entry.type === 'separator') return <div role="separator" className="os-menu-sep" />;
+  if (entry.type === 'title') return <div className="os-menu-title">{entry.label}</div>;
+  const check = entry.checked !== undefined;
+  return (
+    <button
+      type="button"
+      role={check ? 'menuitemcheckbox' : 'menuitem'}
+      aria-checked={check ? entry.checked : undefined}
+      tabIndex={-1}
+      disabled={entry.disabled}
+      aria-keyshortcuts={entry.shortcut?.replace(/Ctrl/g, 'Control')}
+      className={`os-menu-item${entry.current ? ' is-current' : ''}`}
+      onClick={() => {
+        onPick();
+        entry.run();
+      }}
+    >
+      {check && (
+        <span className="os-menu-check" aria-hidden="true">
+          {entry.checked ? '✓' : ''}
+        </span>
+      )}
+      <span className="os-menu-label">
+        {entry.label}
+        {entry.detail && <span className="os-menu-detail">{entry.detail}</span>}
+      </span>
+      {entry.shortcut && (
+        <span className="os-menu-shortcut" aria-hidden="true">
+          {entry.shortcut}
+        </span>
+      )}
+    </button>
   );
 }

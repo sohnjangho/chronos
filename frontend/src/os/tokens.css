@@ -1,4 +1,4 @@
-/* 색·글꼴 값은 여기 변수만 쓴다(시안과 같은 값). */
+/* 색·글꼴 값은 여기 변수만 쓴다(밝은 테마는 시안과 같은 값). 어두운 테마는 <html data-theme="dark">. */
 :root {
   --bg-topbar: #14213d;
   --bg-app: #f3f5f8;
@@ -23,6 +23,43 @@
   --tone-success-bg: #dff3e6;
   --tone-warning-bg: #fbebd0;
   --tone-danger-bg: #fbe0e0;
+
+  /* 강조색·색 면 위의 글자(두 테마 모두 흰색) */
+  --on-accent: #fff;
+  /* 메뉴바·Dock 위(짙은 면) */
+  --on-topbar-fg: #eef2f8;
+  --on-topbar-muted: #aab4c6;
+  --on-topbar-hover: color-mix(in srgb, var(--on-accent) 12%, transparent);
+  --on-topbar-fill: color-mix(in srgb, var(--on-accent) 8%, transparent);
+  --on-topbar-line: color-mix(in srgb, var(--on-accent) 18%, transparent);
+  /* 펼침 메뉴 */
+  --menu-hover-bg: #eef2f7;
+  --menu-shadow: 0 4px 16px color-mix(in srgb, var(--bg-topbar) 14%, transparent);
+  /* Dock */
+  --dock-surface: color-mix(in srgb, var(--bg-topbar) 80%, transparent);
+  --dock-shadow: 0 20px 40px color-mix(in srgb, var(--bg-topbar) 45%, transparent);
+  --dock-active-tint: color-mix(in srgb, var(--accent) 22%, transparent);
+
+  /* 프로그램 아이콘 타일(밝음 → 어두움 대각선) */
+  --tile-blue-from: #5b97f5;
+  --tile-blue-to: #1f4fbf;
+  --tile-violet-from: #9a7bf5;
+  --tile-violet-to: #5a36c2;
+  --tile-teal-from: #3cc2b3;
+  --tile-teal-to: #0f7a6f;
+  --tile-indigo-from: #6f7cf0;
+  --tile-indigo-to: #3038b0;
+  --tile-amber-from: #f6b64a;
+  --tile-amber-to: #c46a12;
+  --tile-sky-from: #4cbcf0;
+  --tile-sky-to: #1670b0;
+  --tile-green-from: #4ccb86;
+  --tile-green-to: #16844c;
+  --tile-rose-from: #f27a96;
+  --tile-rose-to: #bf3456;
+  --tile-slate-from: #8c98ae;
+  --tile-slate-to: #4a5670;
+
   --radius-2: 6px;
   --radius-3: 8px;
   --radius-4: 12px;
@@ -36,7 +73,61 @@
   --fs-28: 28px;
   --fs-44: 44px;
   --row-h: 32px;
-  --topbar-h: 44px;
+  --topbar-h: 48px;
+  --dock-tile: 48px;
   /* 글꼴은 index.html 이 Google Fonts 에서 Noto Sans KR 400·500·700 을 불러온다. */
   --font-sans: "Noto Sans KR", system-ui, sans-serif;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-topbar: #0a1020;
+  --bg-app: #121826;
+  --bg-panel: #1a2232;
+  --bg-panel-alt: #151c2a;
+  --bg-selected: #1e3355;
+  --bg-desktop: linear-gradient(160deg, #060b16 0%, #0e1628 55%, #191b40 100%);
+  --fg: #e4e9f2;
+  --fg-muted: #9aa6ba;
+  --border: #2a3446;
+  --border-strong: #3b475d;
+  --accent: #4c8dff;
+  --accent-text: #85b0ff;
+  --danger: #e05b5b;
+  --danger-text: #ff9e9e;
+  --success: #34b56f;
+  --success-text: #7fd8a4;
+  --warning: #e3a03b;
+  --warning-text: #f3c47e;
+  --tone-info-bg: #1c2f50;
+  --tone-info-fg: #9cc0ff;
+  --tone-success-bg: #163828;
+  --tone-warning-bg: #3b2c12;
+  --tone-danger-bg: #3e1d1d;
+
+  --on-accent: #fff;
+  --on-topbar-fg: #e4e9f2;
+  --on-topbar-muted: #8f9bb0;
+  --menu-hover-bg: #243049;
+  --menu-shadow: 0 4px 16px color-mix(in srgb, var(--bg-topbar) 60%, transparent);
+  --dock-shadow: 0 20px 40px color-mix(in srgb, var(--bg-topbar) 70%, transparent);
+
+  --tile-blue-from: #4f8cf0;
+  --tile-blue-to: #1a43a6;
+  --tile-violet-from: #8f6fec;
+  --tile-violet-to: #4c2ca8;
+  --tile-teal-from: #33b3a5;
+  --tile-teal-to: #0c675e;
+  --tile-indigo-from: #6470e6;
+  --tile-indigo-to: #282f99;
+  --tile-amber-from: #eaa73e;
+  --tile-amber-to: #a95a0f;
+  --tile-sky-from: #42ade2;
+  --tile-sky-to: #135f97;
+  --tile-green-from: #42bb7b;
+  --tile-green-to: #127140;
+  --tile-rose-from: #e86e8a;
+  --tile-rose-to: #a52c4a;
+  --tile-slate-from: #7f8ba2;
+  --tile-slate-to: #3c475e;
 }

@@ -23,5 +23,5 @@ export default function Clock() {
     timer = setTimeout(tick, untilNextMinute());
     return () => clearTimeout(timer);
   }, []);
-  return <span className="os-mb-item">{formatClock(now)}</span>;
+  return <span className="os-mb-clock">{formatClock(now)}</span>;
 }

@@ -1,9 +1,10 @@
-import { useRef, type KeyboardEvent } from 'react';
+import { useRef, type KeyboardEvent, type ReactNode } from 'react';
 import './ui.css';
 
 export interface TabItem {
   id: string;
-  label: string;
+  /** 글이나 글 + 개수 배지 등. */
+  label: ReactNode;
 }
 
 export interface TabsProps {

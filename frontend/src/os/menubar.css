@@ -1,0 +1,182 @@
+/* 메뉴바(48px): 왼쪽 로고 · 앱 메뉴, 오른쪽 현장 선택 · 아이콘 단추 · 사용자 · 시계. 색은 tokens.css 변수만. */
+.os-menubar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  height: var(--topbar-h);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--bg-topbar);
+  color: var(--on-topbar-fg);
+  font-size: var(--fs-13);
+  line-height: 18px;
+}
+.os-mb-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+.os-mb-right { display: flex; align-items: center; gap: 12px; flex: none; }
+.os-mb-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.os-mb-menu { position: relative; display: flex; align-items: center; min-width: 0; }
+.os-mb-btn {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.os-mb-btn:hover,
+.os-mb-btn[aria-expanded="true"] { background: var(--on-topbar-hover); }
+.os-mb-btn:focus-visible,
+.os-tb:focus-visible,
+.os-site-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.os-mb-logo { width: 40px; justify-content: center; padding: 0; }
+.os-mb-app { display: block; max-width: 288px; overflow: hidden; text-overflow: ellipsis; font-weight: 700; line-height: 28px; }
+.os-mb-clock { margin-left: 8px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ── 펼침 메뉴 ── */
+.os-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  min-width: 192px;
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 4px;
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--menu-shadow);
+}
+.os-menu.is-right { left: auto; right: 0; }
+.os-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 28px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-13);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.os-menu-item:hover:not(:disabled),
+.os-menu-item:focus-visible { background: var(--menu-hover-bg); outline: 2px solid var(--accent); outline-offset: -2px; }
+.os-menu-item:disabled { color: var(--fg-muted); opacity: 0.6; cursor: not-allowed; }
+.os-menu-item.is-current { font-weight: 700; color: var(--accent-text); }
+.os-menu-check { width: 12px; flex: none; }
+.os-menu-label { display: flex; flex-direction: column; flex: 1; min-width: 0; padding: 5px 0; line-height: 18px; }
+.os-menu-detail { font-size: var(--fs-12); color: var(--fg-muted); }
+.os-menu-shortcut { margin-left: auto; font-size: var(--fs-12); color: var(--fg-muted); }
+.os-menu-sep { height: 1px; margin: 4px 0; background: var(--border); }
+.os-menu-title { padding: 6px 8px 2px; font-size: var(--fs-12); color: var(--fg-muted); }
+.os-menu-note { padding: 6px 8px; color: var(--fg-muted); }
+
+/* ── 아이콘 단추(32×32)와 모서리 배지 ── */
+.os-tb {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.os-tb:hover { background: var(--on-topbar-hover); }
+.os-tb-badge {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  height: 16px;
+  min-width: 16px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: var(--fs-12);
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.os-tb-badge.is-strong { font-weight: 600; }
+.os-tb[data-tip]:hover::after,
+.os-tb[data-tip]:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 10;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--fg);
+  box-shadow: var(--menu-shadow);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── 현장 선택 ── */
+.os-site { position: relative; }
+.os-site-btn {
+  height: 32px;
+  min-width: 220px;
+  max-width: 320px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--on-topbar-line);
+  border-radius: 6px;
+  background: var(--on-topbar-fill);
+  color: var(--on-topbar-fg);
+  font: inherit;
+  cursor: pointer;
+}
+.os-site-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.os-site-caret { color: var(--on-topbar-muted); }
+.os-site-none { color: var(--on-topbar-muted); white-space: nowrap; }
+.os-site-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 10; width: 320px; }
+
+/* ── 사용자 단추 ── */
+.os-user { height: 32px; gap: 6px; }
+.os-user-name { font-weight: 500; }
+.os-user-role { font-size: var(--fs-12); color: var(--on-topbar-muted); }
+.os-user-caret { font-size: var(--fs-14); color: var(--on-topbar-muted); }
+
+@media (max-width: 1279px) {
+  .os-menubar,
+  .os-mb-left,
+  .os-mb-right { gap: 8px; }
+  .os-mb-btn { padding: 0 4px; }
+  .os-site-btn { min-width: 160px; }
+}

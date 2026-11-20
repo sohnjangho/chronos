@@ -1,73 +1,105 @@
-import Badge from '../shared/ui/Badge';
 import { useApprovals } from './approvals';
 import Clock from './Clock';
-import MenuGroup, { type MenuSpec } from './MenuGroup';
+import { BellIcon, ChronosMark, InboxIcon, MoonIcon, PersonIcon, SearchIcon, SunIcon } from './icons';
+import MenuGroup from './MenuGroup';
+import { appNameMenu, helpMenu, logoMenu, programMenus, ROLE_NAMES, userMenuItems, windowMenu } from './menus';
 import { getProgram } from './registry';
 import ScheduleSelector from './ScheduleSelector';
 import { useSession } from './session';
-import { topWindow, useWindows } from './windowStore';
+import { useShell } from './shell';
+import { useTheme } from './theme';
+import { activeWindow, useWindows } from './windowStore';
+import { useZoom } from './zoom';
+import './menubar.css';
 
-const ROLE_NAMES = { admin: '관리자', user: '사용자' } as const;
-
-/** ChronOS 메뉴(정보·설정·잠금·로그아웃) 뒤에 맨 앞 프로그램의 이름과 펼침 메뉴. */
-function AppMenus({ onAbout }: { onAbout(): void }) {
-  const active = useWindows((s) => topWindow(s.wins));
-  const open = useWindows((s) => s.open);
+/** 앱 이름 · 활성 프로그램 메뉴(+ 보기) · 윈도우 · 도움말. ←→ 로 돌고, 열린 동안 가리키면 바뀐다. */
+function AppMenus() {
+  const wins = useWindows((s) => s.wins);
+  const deactivated = useWindows((s) => s.deactivated);
+  const levels = useZoom((s) => s.levels);
+  const active = activeWindow({ wins, deactivated });
   const program = active ? getProgram(active.programId) : undefined;
-  const system: MenuSpec = {
-    key: 'chronos',
-    label: 'ChronOS',
-    ariaLabel: 'ChronOS 메뉴',
-    className: 'os-mb-brand',
-    items: [
-      { label: '정보', run: onAbout },
-      { label: '설정', run: () => open('settings') },
-      { label: '잠금', run: () => useSession.getState().lock() },
-      { label: '로그아웃', run: () => useSession.getState().logout() },
-    ],
-    after: active && <span className="os-mb-app">{program?.name ?? active.programId}</span>,
-  };
-  const programMenus: MenuSpec[] = (active && program?.menus ? program.menus : []).map((menu) => ({
-    key: `menu-${menu.label}`,
-    label: menu.label,
-    items: menu.items.map((item) => ({
-      label: item.label,
-      shortcut: item.shortcut,
-      disabled: item.disabled,
-      run: () => active && item.action(active.id),
-    })),
-  }));
-  return <MenuGroup menus={[system, ...programMenus]} />;
+  const menus = [
+    appNameMenu(active, program),
+    ...(active ? programMenus(active, program, levels) : []),
+    windowMenu({ wins, deactivated }),
+    helpMenu(),
+  ];
+  return <MenuGroup menus={menus} className="os-mb-apps" />;
 }
 
-export default function MenuBar({ onAbout }: { onAbout(): void }) {
-  const user = useSession((s) => s.session?.user);
-  const open = useWindows((s) => s.open);
+const badgeText = (n: number) => (n > 99 ? '99+' : String(n));
+
+/** 검색 · 승인함 · 알림 · 테마: 32×32 아이콘 단추. 승인함·알림은 오른쪽 위 빨간 배지. */
+function TopButtons() {
   const pending = useApprovals((s) => s.pending);
+  const open = useWindows((s) => s.open);
+  const theme = useTheme((s) => s.theme);
+  const notices = 0; // 알림은 묶음 3에서 연결한다.
+  return (
+    <>
+      <button type="button" className="os-tb" aria-label="검색 (Ctrl+K)" data-tip="검색 (Ctrl+K)" onClick={() => useShell.getState().setPalette(true)}>
+        <SearchIcon />
+      </button>
+      <button
+        type="button"
+        className="os-tb"
+        aria-label={`승인함 — 대기 ${pending}건`}
+        data-tip={`승인 대기 ${pending}건`}
+        onClick={() => open('approvals')}
+      >
+        <InboxIcon />
+        {pending > 0 && <span className="os-tb-badge is-strong">{badgeText(pending)}</span>}
+      </button>
+      <button type="button" className="os-tb" aria-label={`알림 ${notices}건`} data-tip={`알림 ${notices}건`}>
+        <BellIcon />
+        {notices > 0 && <span className="os-tb-badge">{badgeText(notices)}</span>}
+      </button>
+      <button
+        type="button"
+        className="os-tb"
+        aria-label={theme === 'dark' ? '밝은 테마로' : '어두운 테마로'}
+        data-tip={theme === 'dark' ? '밝은 테마로' : '어두운 테마로'}
+        onClick={() => useTheme.getState().toggle()}
+      >
+        {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+      </button>
+    </>
+  );
+}
+
+function UserMenu() {
+  const session = useSession((s) => s.session);
+  if (!session) return null;
+  const { user, loginId } = session;
+  const name = `${user.name} ${ROLE_NAMES[user.role]}`;
+  const label = (
+    <>
+      <PersonIcon />
+      <span className="os-user-name">{user.name}</span>
+      <span className="os-user-role">{ROLE_NAMES[user.role]}</span>
+      <span className="os-user-caret" aria-hidden="true">
+        ▾
+      </span>
+    </>
+  );
+  return <MenuGroup menus={[{ key: 'user', label, ariaLabel: name, className: 'os-user', alignRight: true, items: userMenuItems(user, loginId) }]} />;
+}
+
+/** 메뉴바(48px): 왼쪽 로고 · 앱 메뉴들, 오른쪽 현장 선택 · 아이콘 단추 · 사용자 · 시계. */
+export default function MenuBar() {
   return (
     <header className="os-menubar">
-      <AppMenus onAbout={onAbout} />
-      <div className="os-mb-gap" />
-      <ScheduleSelector />
-      <button type="button" className="os-mb-btn" onClick={() => open('approvals')}>
-        승인
-        {pending > 0 && (
-          <>
-            {' '}
-            <Badge tone="danger" solid>
-              {pending}
-            </Badge>
-          </>
-        )}
-      </button>
-      {/* 알림 배지는 묶음 3에서 연결한다(지금은 0 이라 숨김). */}
-      <span className="os-mb-item">알림</span>
-      {user && (
-        <span className="os-mb-item">
-          {user.name} · {ROLE_NAMES[user.role]}
-        </span>
-      )}
-      <Clock />
+      <div className="os-mb-left">
+        <MenuGroup menus={[{ ...logoMenu(), label: <ChronosMark size={24} /> }]} />
+        <AppMenus />
+      </div>
+      <div className="os-mb-right">
+        <ScheduleSelector />
+        <TopButtons />
+        <UserMenu />
+        <Clock />
+      </div>
     </header>
   );
 }

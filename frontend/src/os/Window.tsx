@@ -5,10 +5,12 @@ import {
   useEffect,
   useRef,
   type PointerEvent as ReactPointerEvent,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
 import { getProgram } from './registry';
 import { resizeRect, useWindows, workArea, type Edge, type Win } from './windowStore';
+import { useZoom, zoomOf } from './zoom';
 
 const CANNOT_OPEN = '이 프로그램을 열 수 없습니다';
 
@@ -97,6 +99,7 @@ function TitleBar({ win, startDrag }: { win: Win; startDrag: StartDrag }) {
 export default function Window({ win, active }: { win: Win; active: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const startDrag = useDrag();
+  const zoom = useZoom((s) => zoomOf(s.levels, win.programId));
   const { focus, setBounds } = useWindows.getState();
   const rect = win.maximized ? workArea() : win;
 
@@ -129,7 +132,9 @@ export default function Window({ win, active }: { win: Win; active: boolean }) {
     >
       <TitleBar win={win} startDrag={startDrag} />
       <div className="os-win-body">
-        <ProgramView win={win} />
+        <div className="os-win-zoom" data-zoom={zoom} style={{ '--zoom': zoom / 100 } as CSSProperties}>
+          <ProgramView win={win} />
+        </div>
       </div>
       {!win.maximized &&
         EDGES.map((edge) => (

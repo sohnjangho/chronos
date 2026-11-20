@@ -6,6 +6,7 @@ import type { ProgramManifest } from '../../os/registry';
 const manifest: ProgramManifest = {
   id: 'schedule',
   name: '일정판',
+  tone: 'blue',
   kind: 'work',
   defaultSize: { w: 1600, h: 900 },
   icon: glyph('M4 4v16h16', 'M7 7h7', 'M10 11h8', 'M8 15h6'),

@@ -3,6 +3,7 @@ import { useApprovals } from './approvals';
 import Desktop from './Desktop';
 import Login from './Login';
 import { useSession } from './session';
+import { useTheme } from './theme';
 import { useWindows } from './windowStore';
 import './tokens.css';
 import './os.css';
@@ -14,6 +15,7 @@ export default function App() {
     if (signedIn) return;
     useWindows.getState().reset();
     useApprovals.setState({ pending: 0 });
+    useTheme.getState().load(null);
   }, [signedIn]);
   return signedIn ? <Desktop /> : <Login />;
 }

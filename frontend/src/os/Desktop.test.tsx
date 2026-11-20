@@ -21,8 +21,8 @@ const m = (id: string, over: Partial<ProgramManifest> = {}): ProgramManifest => 
 });
 
 const menubar = () => screen.getByRole('banner');
-const dock = () => screen.getByRole('navigation', { name: '프로그램 막대' });
-const dockIcon = (name: string) => within(dock()).getByRole('button', { name });
+const dock = () => screen.getByRole('toolbar', { name: '프로그램 막대' });
+const dockIcon = (name: string) => within(dock()).getByRole('button', { name: new RegExp(`^${name}(,|$)`) });
 const systemMenu = async (item: string) => {
   await userEvent.click(within(menubar()).getByRole('button', { name: 'ChronOS 메뉴' }));
   await userEvent.click(screen.getByRole('menuitem', { name: item }));
@@ -79,7 +79,7 @@ test('traffic lights minimize, maximize and close', async () => {
   await userEvent.click(dockIcon('일정판'));
   const dialog = screen.getByRole('dialog', { name: '일정판' });
   await userEvent.click(within(dialog).getByRole('button', { name: '확대' }));
-  expect(dialog).toHaveStyle({ left: '0px', top: '44px', width: '1920px' });
+  expect(dialog).toHaveStyle({ left: '0px', top: '48px', width: '1920px', height: '1032px' });
   await userEvent.click(within(dialog).getByRole('button', { name: '최소화' }));
   expect(dialog).not.toBeVisible();
   expect(within(menubar()).queryByText('일정판')).toBeNull();
@@ -119,10 +119,10 @@ test('dock shows running programs and admin-only programs only to admins', async
   render(<Desktop />);
   expect(dockIcon('개발 콘솔')).toBeInTheDocument();
   await userEvent.click(dockIcon('일정판'));
-  expect(dockIcon('일정판')).toHaveAttribute('data-running', 'true');
-  expect(dockIcon('질문지')).toHaveAttribute('data-running', 'false');
+  expect(dockIcon('일정판')).toHaveAccessibleName('일정판, 활성 창');
+  expect(dockIcon('질문지')).toHaveAccessibleName('질문지');
   act(() => signInAs('user', '김민지'));
-  expect(within(dock()).queryByRole('button', { name: '개발 콘솔' })).toBeNull();
+  expect(within(dock()).queryByRole('button', { name: /^개발 콘솔/ })).toBeNull();
 });
 
 function menuProgram() {
@@ -226,7 +226,7 @@ test('shrinking the browser keeps windows on screen, maximized ones included', a
   act(() => {
     window.dispatchEvent(new Event('resize'));
   });
-  expect(quest).toHaveStyle({ width: '1280px', height: `${720 - 44 - 96}px` });
+  expect(quest).toHaveStyle({ width: '1280px', height: `${720 - 48}px` });
   const sched = screen.getByRole('dialog', { name: '일정판' });
   expect(parseInt(sched.style.left) + parseInt(sched.style.width)).toBeLessThanOrEqual(1280);
   expect(parseInt(sched.style.top) + parseInt(sched.style.height)).toBeLessThanOrEqual(720);
@@ -301,9 +301,9 @@ test('tabbing into a background window does not steal focus from the focused con
   expect(close).toHaveFocus();
 });
 
-test('ChronOS menu: 정보 shows the product and version', async () => {
+test('ChronOS menu: ChronOS 정보 shows the product and version', async () => {
   render(<Desktop />);
-  await systemMenu('정보');
+  await systemMenu('ChronOS 정보');
   const about = screen.getByRole('dialog', { name: 'ChronOS 정보' });
   expect(within(about).getByText('버전 0.1.0')).toBeVisible();
   await userEvent.click(within(about).getByRole('button', { name: '닫기' }));
@@ -312,7 +312,7 @@ test('ChronOS menu: 정보 shows the product and version', async () => {
 
 test('ChronOS menu: 설정 opens settings', async () => {
   render(<Desktop />);
-  await systemMenu('설정');
+  await systemMenu('설정…');
   expect(screen.getByRole('dialog', { name: '설정' })).toBeInTheDocument();
 });
 
@@ -335,7 +335,7 @@ test('lock keeps windows and unlocks with the password of the current user', asy
   });
   render(<Desktop />);
   await userEvent.click(dockIcon('일정판'));
-  await systemMenu('잠금');
+  await systemMenu('화면 잠금');
   const lock = screen.getByRole('dialog', { name: '잠금 화면' });
   await userEvent.type(within(lock).getByLabelText('비밀번호'), 'wrong{Enter}');
   expect(await within(lock).findByText('아이디 또는 비밀번호가 맞지 않습니다.')).toBeVisible();

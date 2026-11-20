@@ -1,0 +1,83 @@
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
+import { registerPrograms } from '../programs';
+import { signInAs, stubFetch } from '../test-helpers';
+import Desktop from './Desktop';
+import { useDock } from './dockStore';
+import { useSession } from './session';
+import { useShell } from './shell';
+import { useWindows } from './windowStore';
+
+const drawer = () => screen.getByRole('dialog', { name: '앱 목록' });
+const dockNames = () =>
+  within(screen.getByRole('toolbar', { name: '프로그램 막대' }))
+    .getAllByRole('button')
+    .map((b) => b.getAttribute('aria-label')!.split(',')[0]);
+const orderNames = () => within(screen.getByRole('list', { name: 'Dock 차례' })).getAllByRole('listitem').map((li) => li.textContent);
+
+beforeAll(() => registerPrograms());
+beforeEach(() => {
+  localStorage.clear();
+  vi.stubGlobal('innerWidth', 1920);
+  vi.stubGlobal('innerHeight', 1080);
+  signInAs('user', '김민지');
+  stubFetch({ '/api/approvals/count': { pending: 0 }, '/api/schedules': [] });
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  useWindows.getState().reset();
+  useShell.setState({ drawer: 'closed' });
+  useDock.getState().load(null);
+  useSession.getState().logout();
+});
+
+test('the logo menu opens the drawer with every program and a focused search box', async () => {
+  render(<Desktop />);
+  await userEvent.click(screen.getByRole('button', { name: 'ChronOS 메뉴' }));
+  await userEvent.click(screen.getByRole('menuitem', { name: '앱 목록' }));
+  expect(within(drawer()).getAllByRole('button', { name: /^.+ 열기$/ })).toHaveLength(8);
+  const search = within(drawer()).getByRole('searchbox', { name: '프로그램 찾기' });
+  expect(search).toHaveFocus();
+  await userEvent.type(search, '일정');
+  expect(within(drawer()).getAllByRole('button', { name: /^.+ 열기$/ }).map((b) => b.textContent)).toEqual(['일정판']);
+  await userEvent.keyboard('{Enter}');
+  expect(useWindows.getState().activeProgramId()).toBe('schedule');
+  expect(screen.queryByRole('dialog', { name: '앱 목록' })).toBeNull();
+});
+
+test('clicking a program opens it; Escape closes the drawer', async () => {
+  render(<Desktop />);
+  act(() => useShell.getState().setDrawer('open'));
+  await userEvent.click(within(drawer()).getByRole('button', { name: '탐색기 열기' }));
+  expect(useWindows.getState().activeProgramId()).toBe('explorer');
+  act(() => useShell.getState().setDrawer('open'));
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog', { name: '앱 목록' })).toBeNull();
+});
+
+test('edit mode adds and removes Dock programs and reorders them by drag or keyboard; saved per user', async () => {
+  render(<Desktop />);
+  act(() => useShell.getState().setDrawer('open'));
+  await userEvent.click(within(drawer()).getByRole('button', { name: '편집' }));
+  const keep = within(drawer()).getByRole('checkbox', { name: '질문지 Dock에 두기' });
+  expect(keep).toBeChecked();
+  await userEvent.click(keep);
+  expect(dockNames()).not.toContain('질문지');
+  expect(orderNames()).not.toContain('질문지');
+  const item = (name: string) => within(screen.getByRole('list', { name: 'Dock 차례' })).getByText(name).closest('li')!;
+  fireEvent.dragStart(item('일정판'));
+  fireEvent.dragOver(item('에이전트 대화'));
+  fireEvent.drop(item('에이전트 대화'));
+  expect(orderNames()[0]).toBe('일정판');
+  item('일정판').focus();
+  await userEvent.keyboard('{Alt>}{ArrowRight}{/Alt}');
+  expect(orderNames().slice(0, 2)).toEqual(['에이전트 대화', '일정판']);
+  expect(item('일정판')).toHaveFocus();
+  expect(dockNames().slice(0, 3)).toEqual(['앱 목록', '에이전트 대화', '일정판']);
+  expect(JSON.parse(localStorage.getItem('chronos.dock.1')!).slice(0, 2)).toEqual(['chat', 'schedule']);
+  await userEvent.click(within(drawer()).getByRole('checkbox', { name: '질문지 Dock에 두기' }));
+  expect(dockNames().at(-1)).toBe('질문지');
+  await userEvent.click(within(drawer()).getByRole('button', { name: '완료' }));
+  expect(within(drawer()).queryByRole('list', { name: 'Dock 차례' })).toBeNull();
+});

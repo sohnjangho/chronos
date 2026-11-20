@@ -32,7 +32,7 @@ test('login success shows the desktop with the user name and role', async () => 
   const fetch = mockLogin(200, { token: 't', user: { id: 2, name: '김민지', role: 'user' } });
   render(<App />);
   await submit('kim', 'secret');
-  expect(await screen.findByText('김민지 · 사용자')).toBeVisible();
+  expect(await screen.findByRole('button', { name: '김민지 사용자' })).toBeVisible();
   expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({ login_id: 'kim', password: 'secret' });
   expect(useSession.getState().session).toMatchObject({ token: 't', loginId: 'kim' });
 });
@@ -41,7 +41,7 @@ test('logout returns to login and closes windows', async () => {
   mockLogin(200, {});
   signInAs('admin');
   render(<App />);
-  await userEvent.click(within(screen.getByRole('navigation', { name: '프로그램 막대' })).getByRole('button', { name: '일정판' }));
+  await userEvent.click(within(screen.getByRole('toolbar', { name: '프로그램 막대' })).getByRole('button', { name: /^일정판/ }));
   await userEvent.click(screen.getByRole('button', { name: 'ChronOS 메뉴' }));
   await userEvent.click(screen.getByRole('menuitem', { name: '로그아웃' }));
   expect(screen.getByRole('button', { name: '들어가기' })).toBeVisible();
