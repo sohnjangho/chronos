@@ -64,7 +64,8 @@ class SideOut(BaseModel):
     label: str  # "현재 일정 (버전 n)" · "Plan (버전 n)" · "버전 n" · 복사본 이름
     version: int  # 그 버전(복사본은 떠 온 버전)
     finish: str  # YYYY-MM-DD
-    plan_delta: int  # Plan 준공 → 이 안 준공
+    plan_delta: int | None  # Plan 준공 → 이 안 준공. Plan 이 계산되지 않으면 None
+    deadline: str | None  # 켜진 finish_by 가운데 가장 이른 기한(YYYY-MM-DD, 코드 계산). 없으면 None
     deadline_float: int | None  # 이 안 준공 → 가장 이른 켜진 finish_by(없으면 None, 늦으면 음수)
     critical_count: int
     violations: int  # 조건 위반 수

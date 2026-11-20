@@ -186,7 +186,7 @@ async def test_open_delays_are_in_the_base(ctx_chain, use_llm, session, sid_chai
     o = await shorten(ctx_chain, FailingLlm(), use_llm)
     assert (o["base_finish"], o["target"]) == ("2027-03-23", 5) and o["base"].startswith("s:")
     base = get(session, int(o["base"][2:]))
-    assert (base.source, base.name, base.delay_event_ids, base.status) == ("delay", "지연 반영안", [event], "open")
+    assert (base.source, base.name, base.delay_event_ids, base.status) == ("delay", "지연 반영안 (1건)", [event], "open")
     assert get(session, o["options"][0]["scenario_id"]).delay_event_ids == [event]
     assert all(x["finish"] < "2027-03-23" for x in o["options"])
 
@@ -198,6 +198,19 @@ async def test_an_open_delay_scenario_of_the_same_events_is_reused(ctx_chain, us
     second = await shorten(ctx_chain, FailingLlm(), use_llm)
     assert second["base"] == first["base"]
     assert session.query(Scenario).filter(Scenario.source == "delay").count() == 1
+
+
+async def test_an_edited_event_makes_a_new_delay_scenario(ctx_chain, use_llm, session, sid_chain):  # Fix 1 I1
+    """사건 id 가 같아도 일수를 고쳤으면 옛 스냅숏을 쓰지 않는다: B +2(3/23) → +5(3/26)."""
+    event = add_event(session, sid_chain, "B", 2)
+    first = await shorten(ctx_chain, FailingLlm(), use_llm)
+    session.commit()
+    session.get(DelayEvent, event).days = 5
+    session.commit()
+    second = await shorten(ctx_chain, FailingLlm(), use_llm)
+    base = get(session, int(second["base"][2:]))
+    assert second["base"] != first["base"] and (second["base_finish"], base.summary_json["finish"]) == (
+        "2027-03-26", "2027-03-26")
 
 
 async def test_without_open_delays(ctx_chain, use_llm, session, sid_chain):

@@ -3,11 +3,12 @@
 안(ref): `current`(지금 버전) · `plan`(지금 버전을 실적·기록한 지연 없이 계산한 것, store.view.plan_of 와 같은 계산 —
 PM 결정 11-20) · `v:<n>`(버전 n) · `s:<복사본 id>`(그 일정의 복사본). 모르는 ref 는 422 invalid_ref.
 날짜는 모두 저장 모양의 일정에 그 안의 저장 조건을 넣고(prepare_stored) compute → level(shift=True) 한 값이다(화면과 같다).
-- 안 요약: plan_delta = Plan 준공 → 이 안 준공, deadline_float = 이 안 준공 → 켜진 finish_by 가운데 가장 이른 기한
-  (없으면 None, 늦으면 음수). 둘 다 이 안의 조건 넣은 달력의 근무일. violations·uncheckable 은 하네스 점검의 개수,
+- 안 요약: plan_delta = Plan 준공 → 이 안 준공(Plan 이 계산되지 않으면 None — 그때 plan ref 만 422, 요약 표는 Plan 을 뺌),
+  deadline = 켜진 finish_by 가운데 가장 이른 기한(ISO, 없으면 None), deadline_float = 이 안 준공 → 그 기한
+  (없으면 None, 늦으면 음수). 차이는 모두 이 안의 조건 넣은 달력의 근무일. violations·uncheckable 은 하네스 점검의 개수,
   peak 는 store.scenarios 요약과 같은 자원 최고 부하. changes: 복사본은 이동 글, 버전은 그 버전의 note.
 - 줄: 기준 차례, 다음 비교에만 있는 것. 차이는 기준 쪽 달력(그 액티비티의 꼬리표)의 근무일로 other − base.
-계산이 안 되는 안이 있으면 422 schedule_invalid.
+계산이 안 되는 안이 있으면 422 schedule_invalid(detail = ScheduleError.detail).
 """
 
 import re
@@ -83,6 +84,18 @@ class _Board:
         self.session, self.schedule_id = session, schedule_id
         self.current = load(session, schedule_id)
         self._sides: dict[str, _Side] = {}
+        self._plan: tuple[date | None] | None = None  # (Plan 준공 또는 계산 안 됨 None,) — 한 번만 센다
+
+    def plan_finish(self) -> date | None:
+        """Plan 준공. 계산이 안 되면 None(plan_of 처럼 Plan 없음으로 본다)."""
+        if self._plan is None:
+            try:
+                plan = self.side("plan")
+                plan.compute()
+                self._plan = (plan.lv.finish,)
+            except ScheduleError:
+                self._plan = (None,)
+        return self._plan[0]
 
     def side(self, ref: str) -> _Side:
         """ref 의 안(계산 전). 모르는 ref 면 422 invalid_ref."""
@@ -116,17 +129,18 @@ class _Board:
                      changes=[m["text"] for m in sc.moves_json], stale=sc.base_version != n, status=sc.status)
 
     def out(self, ref: str) -> dict:
-        """안 요약(SideOut). 계산이 안 되면 ScheduleError."""
-        side, plan = self.side(ref), self.side("plan")
+        """안 요약(SideOut). 이 안이 계산되지 않으면 ScheduleError(Plan 이 계산되지 않으면 plan_delta 만 None)."""
+        side = self.side(ref)
         side.compute()
-        plan.compute()
+        plan_finish = self.plan_finish()
         cal = WorkCalendar(side.ready.calendar)
         assembled = assemble_all(read_conditions(side.conditions)[0])
         report = check(side.schedule, assembled)
         due, finish = earliest_due(assembled), side.lv.finish
         return {
             "ref": side.ref, "label": side.label, "version": side.version, "finish": finish.isoformat(),
-            "plan_delta": cal.workdays_between(plan.lv.finish, finish),
+            "plan_delta": cal.workdays_between(plan_finish, finish) if plan_finish else None,
+            "deadline": due.isoformat() if due else None,
             "deadline_float": cal.workdays_between(finish, due) if due else None,
             "critical_count": sum(row.critical for row in side.lv.cpm.rows.values()),
             "violations": len(report.violations), "uncheckable": len(report.uncheckable),
@@ -171,7 +185,7 @@ def _rows(base: _Side, other: _Side) -> list[dict]:
 
 
 def _explained(error: ScheduleError) -> ApiError:
-    return ApiError(422, "schedule_invalid", schedule_error_message(error))
+    return ApiError(422, "schedule_invalid", schedule_error_message(error), error.detail)
 
 
 def compare(session: Session, schedule_id: int, base_ref: str, other_ref: str) -> dict:
@@ -187,10 +201,12 @@ def compare(session: Session, schedule_id: int, base_ref: str, other_ref: str) -
 
 
 def summary(session: Session, schedule_id: int) -> dict:
-    """여러 안 요약 표: 현재 · Plan · 열린(open·submitted) 복사본 새것부터."""
+    """여러 안 요약 표: 현재 · Plan(계산되면) · 열린(open·submitted) 복사본 새것부터."""
     board = _Board(session, schedule_id)
-    refs = ["current", "plan", *(f"s:{row.id}" for row in scenarios.listed(session, schedule_id, SUMMARY_STATUSES))]
+    opened = [f"s:{row.id}" for row in scenarios.listed(session, schedule_id, SUMMARY_STATUSES)]
     try:
-        return {"sides": [board.out(ref) for ref in refs]}
+        current = board.out("current")
+        plan = [board.out("plan")] if board.plan_finish() is not None else []
+        return {"sides": [current, *plan, *(board.out(ref) for ref in opened)]}
     except ScheduleError as e:
         raise _explained(e) from None

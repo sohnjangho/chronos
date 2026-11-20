@@ -1,8 +1,8 @@
 """shorten.make — 단축안(만회안) 복사본을 만들고 비교판을 연다. 저장된 일정은 바꾸지 않는다.
 
 1. 기준 원본: 지금 버전에 열린 지연 사건을 넣은 것(store.delays.delayed_base, include_open_delays 가 거짓이면 사건 없이).
-   열린 사건이 있으면 그것만 넣은 "지연 반영안"(source delay)을 기준으로 둔다 — 같은 버전·같은 사건 묶음의 열린
-   지연 반영안이 있으면 그것을 쓴다.
+   열린 사건이 있으면 그것만 넣은 "지연 반영안 (n건)"(source delay)을 기준으로 둔다 — 같은 버전·같은 사건 묶음이고
+   스냅숏·조건까지 같은 열린 지연 반영안이 있으면 그것을 쓴다(사건을 고쳤으면 새로 만든다).
 2. 목표(근무일): target_days → 기준 준공이 켜진 finish_by 가운데 가장 이른 기한을 넘으면 기한까지 → Plan 준공
    (store.view.plan_of, 실적·기록한 지연 없이 계산)을 넘으면 Plan 까지 → 없으면 ToolError.
 3. core.shorten 의 묶음(이동이 있는 것)마다 복사본(source shorten): 일정 = apply_moves(기준 원본, resources=False),
@@ -33,7 +33,7 @@ from app.harness.conditions import Condition, condition_problem, read_conditions
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady
 from app.store import approvals, scenarios
 from app.store.delays import delayed_base
-from app.store.schedules import load, run
+from app.store.schedules import load, run, to_json
 from app.store.tables import Scenario
 from app.store.view import plan_of
 from app.tools.context import ToolContext, ToolError, explained_schedule_errors
@@ -41,7 +41,7 @@ from app.tools.registry import tool
 
 NO_TARGET_MESSAGE = "줄일 목표가 없습니다. 며칠 당길지 알려 주세요(target_days)."
 NOTHING_MESSAGE = "줄일 방법을 찾지 못했습니다. 실적이 없는 크리티컬 작업에 병행·압축·자원 추가를 할 곳이 없습니다."
-DELAY_NAME = "지연 반영안"
+DELAY_NAME = "지연 반영안 ({}건)"  # programs/delays 의 지연 반영안과 같은 이름
 CONDITION_SOURCE = "단축안"
 NOTE_PROMPT = PROMPT.parent / "shorten_note.md"
 # 설명 글에 이런 날짜가 있으면 그 설명은 버린다(LLM 은 날짜를 계산하지 않는다)
@@ -124,12 +124,21 @@ def _author(ctx: ToolContext) -> str:
     return ctx.user.name if ctx.user else approvals.AGENT_NAME
 
 
+def _same_delay(row: Scenario, db, snapshot: dict) -> bool:
+    """같은 버전·같은 사건 묶음이고 스냅숏·조건까지 같은 지연 반영안인가(사건 일수를 고치면 id 는 같아도 다르다)."""
+    return (row.source == "delay" and row.base_version == db.version
+            and sorted(row.delay_event_ids) == sorted(db.event_ids)
+            and row.snapshot_json == snapshot and row.conditions_json == db.conditions)
+
+
 def _delay_scenario(ctx: ToolContext, schedule_id: int, db) -> Scenario:
-    """같은 버전·같은 사건 묶음의 열린 지연 반영안. 없으면 만든다."""
+    """지금 사건을 그대로 넣은 열린 지연 반영안. 없으면 만든다(이름은 지연 화면과 같게)."""
+    snapshot = to_json(db.schedule)
     for row in scenarios.listed(ctx.session, schedule_id, ("open",)):
-        if row.source == "delay" and row.base_version == db.version and sorted(row.delay_event_ids) == sorted(db.event_ids):
+        if _same_delay(row, db, snapshot):
             return row
-    return scenarios.create(ctx.session, schedule_id=schedule_id, base_version=db.version, name=DELAY_NAME,
+    return scenarios.create(ctx.session, schedule_id=schedule_id, base_version=db.version,
+                            name=DELAY_NAME.format(len(db.event_ids)),
                             source="delay", schedule=db.schedule, conditions=db.conditions,
                             delay_event_ids=db.event_ids, created_by=_author(ctx))
 

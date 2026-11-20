@@ -71,10 +71,10 @@ def test_row_shape_and_order(client, admin, sid_chain, scenario_A):
 def test_sides(client, admin, sid_chain, scenario_A):
     r = compare(client, admin, sid_chain, "current", f"s:{scenario_A}").json()
     assert r["base"] == {"ref": "current", "label": "현재 일정 (버전 1)", "version": 1, "finish": "2027-03-19",
-                         "plan_delta": 0, "deadline_float": -3, "critical_count": 3, "violations": 1,
+                         "plan_delta": 0, "deadline": "2027-03-16", "deadline_float": -3, "critical_count": 3, "violations": 1,
                          "uncheckable": 0, "peak": None, "changes": [], "stale": False, "status": None}
     assert r["other"] == {"ref": f"s:{scenario_A}", "label": "만회안 A · 병행 우선", "version": 1,
-                          "finish": "2027-03-16", "plan_delta": -3, "deadline_float": 0, "critical_count": 3,
+                          "finish": "2027-03-16", "plan_delta": -3, "deadline": "2027-03-16", "deadline_float": 0, "critical_count": 3,
                           "violations": 0, "uncheckable": 0, "peak": None, "changes": [A_MOVE], "stale": False,
                           "status": "open"}
 
@@ -190,4 +190,25 @@ def test_uncomputable_current_is_422(client, admin, session, sid_chain):
     new_version(session, sid_chain, replace(broken, relations=(*broken.relations, Relation("C", "A"))), "고리")
     r = compare(client, admin, sid_chain, "current", "v:1")
     assert (r.status_code, r.json()["code"]) == (422, "schedule_invalid")
+    assert r.json()["detail"] == {"activities": ["A", "B", "C"]}  # Fix 1 M5: 어느 액티비티인지
     assert client.get(f"/api/schedules/{sid_chain}/compare/summary", headers=admin).status_code == 422
+
+
+def test_no_deadline_is_null(client, admin, session):
+    sid = store(session, make([task("A", 3)]))
+    side = client.get(f"/api/schedules/{sid}/compare/summary", headers=admin).json()["sides"][0]
+    assert (side["deadline"], side["deadline_float"]) == (None, None)
+
+
+def test_uncomputable_plan_only_fails_the_plan_ref(client, admin, session, sid_chain, monkeypatch):  # Fix 1 M2
+    """Plan 이 계산되지 않으면 plan_delta 는 null, 요약 표에서 Plan 은 빠지고, plan ref 만 422."""
+    from app.programs.scenarios import compare as compare_module
+
+    monkeypatch.setattr(compare_module, "_without_actuals",
+                        lambda s: replace(s, relations=(*s.relations, Relation("C", "A"))))
+    r = compare(client, admin, sid_chain, "v:1", "current")
+    assert r.status_code == 200 and (r.json()["base"]["plan_delta"], r.json()["other"]["plan_delta"]) == (None, None)
+    sides = client.get(f"/api/schedules/{sid_chain}/compare/summary", headers=admin).json()["sides"]
+    assert [s["ref"] for s in sides] == ["current"]
+    bad = compare(client, admin, sid_chain, "current", "plan")
+    assert (bad.status_code, bad.json()["code"]) == (422, "schedule_invalid")
