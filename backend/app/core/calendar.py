@@ -14,6 +14,8 @@ _MIN = date.min.toordinal()
 _END = date.max.toordinal() + 1  # 서수 범위 [_MIN, _END)
 # 미리 센 근무일을 붙들어 두는 범위의 상한(약 100년). 더 넓은 물음은 그때만 센다.
 _KEEP = 36600
+# 달력 하나가 붙들어 두는 꼬리표 조합(별칭 포함) 수의 상한. 넘으면 비우고 다시 센다.
+_MAX_TAG_KEYS = 128
 
 
 def _in_period(d: date, period: BlockedPeriod) -> bool:
@@ -113,7 +115,13 @@ class WorkCalendar:
     def _workdays(self, tags: tuple[str, ...]) -> _Workdays:
         found = self._by_tags.get(tags)
         if found is None:
-            found = self._by_tags[tags] = _Workdays(lambda o: self.is_workday(date.fromordinal(o), tags))
+            key = tuple(sorted(set(tags)))  # 순서·중복이 달라도 뜻이 같다(p.tag in tags)
+            found = self._by_tags.get(key)
+            if found is None:
+                found = _Workdays(lambda o: self.is_workday(date.fromordinal(o), key))
+            if len(self._by_tags) >= _MAX_TAG_KEYS:
+                self._by_tags.clear()
+            self._by_tags[key] = self._by_tags[tags] = found
         return found
 
     def _seek(self, d: date, step: timedelta, tags: tuple[str, ...]) -> date:

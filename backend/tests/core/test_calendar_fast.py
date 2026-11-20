@@ -5,7 +5,13 @@ import time
 from calendar import monthrange
 from datetime import date, timedelta
 
-from app.core.calendar import KOREA_HOLIDAYS_2027, NoWorkdayError, WorkCalendar
+from app.core.calendar import (
+    _KEEP,
+    _MAX_TAG_KEYS,
+    KOREA_HOLIDAYS_2027,
+    NoWorkdayError,
+    WorkCalendar,
+)
 from app.core.model import BlockedPeriod, CalendarSpec
 
 # ---- 기준: 바꾸기 전 app/core/calendar.py 의 WorkCalendar 를 그대로 옮긴 것 ----
@@ -251,6 +257,109 @@ def test_date_range_ends_match_oracle():
         assert_same(spec, "workdays_between", near_max, date.max, tags)
         assert_same(spec, "workdays_between", date.max, near_min.replace(year=9990), tags)
         assert_same(spec, "workdays_between", date.min, near_min, tags)
+
+
+# ---- 넓은 범위: 미리 센 범위를 다시 잡기·넓히기·붙들지 않기 ----
+
+TASEOL = (BlockedPeriod((12, 1), (2, 28), "타설"),)
+WIDE = (date(1900, 1, 1), date(2199, 12, 31))  # 입력 검사가 받는 날짜 범위 전체
+
+
+def unique_spec(k: int, dpw: int = 5, blocked: tuple[BlockedPeriod, ...] = TASEOL) -> CalendarSpec:
+    """다른 시험과 미리 센 목록을 같이 쓰지 않게 1800년 공휴일 하나로 달력을 구별한다."""
+    return CalendarSpec(dpw, KOREA_HOLIDAYS_2027 + (date(1800, 1, k),), blocked)
+
+
+def window(cal: WorkCalendar, tags: tuple[str, ...] = ()) -> tuple[int, int]:
+    """붙들어 둔 범위 [lo, hi) (서수)."""
+    lo, hi, _ = cal._workdays(tags)._win
+    return lo, hi
+
+
+def same(cal: WorkCalendar, old: OracleCalendar, method: str, *args) -> None:
+    assert outcome(getattr(cal, method), *args) == outcome(getattr(old, method), *args), (method, args)
+
+
+def test_full_validation_range_matches_oracle_and_is_not_kept():
+    spec = unique_spec(1)
+    cal, old = WorkCalendar(spec), OracleCalendar(spec)
+    assert WIDE[1].toordinal() - WIDE[0].toordinal() > _KEEP  # 붙들지 않는 길을 지난다
+    cal.workdays_between(date(2027, 3, 1), date(2027, 6, 1))  # 보통 범위를 먼저 잡아 둔다
+    kept = window(cal)
+    for tags in ((), ("타설",)):
+        same(cal, old, "workdays_between", WIDE[0], WIDE[1], tags)
+        same(cal, old, "workdays_between", WIDE[1], WIDE[0], tags)
+    assert window(cal) == kept  # 300년은 그때만 세고 붙든 범위는 그대로
+    assert window(cal, ("타설",)) == (0, 0)  # 처음 물음이 너무 넓어도 붙들지 않는다
+
+
+def test_far_jumps_reset_then_regrow_the_window():
+    """1900·2050·2199 를 번갈아 물으면 매번 그 자리로 다시 잡고(넓히지 않고), 가까운 물음엔 다시 넓힌다."""
+    spec = unique_spec(2)
+    cal, old = WorkCalendar(spec), OracleCalendar(spec)
+    tags = ("타설",)
+    for rnd in range(3):
+        for year in (1900, 2050, 2199):
+            d = date(year, 6, 1) + timedelta(days=37 * rnd)
+            o = d.toordinal()
+            same(cal, old, "shift", d, 40, tags)
+            lo1, hi1 = window(cal, tags)
+            assert lo1 <= o + 1 and hi1 - lo1 < 366  # 다시 잡음: 물은 범위만(자란 범위는 366일 이상)
+            same(cal, old, "workdays_between", d, d - timedelta(days=90), tags)
+            lo2, hi2 = window(cal, tags)
+            assert hi2 == hi1 and lo2 <= o - 89 < lo1  # 앞쪽으로 넓힘
+            same(cal, old, "shift", d, -25, tags)
+            same(cal, old, "add_workdays", d, 12, tags)
+            assert hi2 - lo2 <= _KEEP
+
+
+def test_window_of_exactly_keep_days_is_kept_then_reset_when_extended():
+    spec = unique_spec(3)
+    cal, old = WorkCalendar(spec), OracleCalendar(spec)
+    a = date(1950, 1, 1)
+    first = a.toordinal()
+    end = first + _KEEP
+    b = date.fromordinal(end)
+    same(cal, old, "workdays_between", a, b, ("타설",))  # 처음 물음이 정확히 _KEEP 일([a+1, b])이면 붙든다
+    assert window(cal, ("타설",)) == (first + 1, end + 1)
+    same(cal, old, "workdays_between", a, a + timedelta(days=1000))
+    assert window(cal) == (first + 1, first + 1001)
+    same(cal, old, "workdays_between", a + timedelta(days=1000), b)  # 뒤로 넓혀 정확히 _KEEP 일: 넓힌다
+    assert window(cal) == (first + 1, end + 1)
+    same(cal, old, "workdays_between", a - _DAY, b)  # 하루 더 넓은 물음은 그때만 센다
+    assert window(cal) == (first + 1, end + 1)
+    c = b + timedelta(days=10)
+    same(cal, old, "workdays_between", b, c)  # 끝 바로 뒤: 넓히면 _KEEP 를 넘으니 물은 범위로 다시 잡음
+    assert window(cal) == (end + 1, end + 11)
+    same(cal, old, "shift", c, -30)  # 그 뒤로는 다시 넓힌다
+    lo, hi = window(cal)
+    assert hi == end + 11 and lo < end + 1 and hi - lo >= 366
+    for n in (-5, 5, 300):
+        same(cal, old, "shift", b, n)
+        same(cal, old, "add_workdays", a, n)
+
+
+def test_tag_order_and_duplicates_share_one_list_and_tag_keys_are_capped():
+    spec = unique_spec(4, blocked=TASEOL + (BlockedPeriod((7, 1), (8, 31), "철골"),))
+    cal, old = WorkCalendar(spec), OracleCalendar(spec)
+    d = date(2027, 6, 20)
+    variants = (("타설", "철골"), ("철골", "타설"), ("타설", "철골", "타설"))
+    for tags in variants:
+        same(cal, old, "shift", d, 30, tags)
+        same(cal, old, "workdays_between", d, d + timedelta(days=200), tags)
+        same(cal, old, "next_workday", date(2027, 7, 3), tags)
+    assert cal._workdays(variants[0]) is cal._workdays(variants[1]) is cal._workdays(variants[2])
+    for i in range(300):  # 꼬리표 조합이 끝없이 늘어도 달력 하나가 붙드는 수는 상한 안
+        tags = ("타설", f"t{i}")  # 정렬하면 순서가 바뀌어 별칭까지 둘씩 들어간다
+        same(cal, old, "workdays_between", d, d + timedelta(days=40), tags)
+        assert len(cal._by_tags) <= _MAX_TAG_KEYS + 1  # 비운 뒤 원래 꼴과 정렬한 꼴 둘을 넣는다
+
+
+def test_normalized_tags_keep_the_callers_tags_in_errors():
+    spec = unique_spec(5, dpw=7, blocked=(BlockedPeriod((1, 1), (12, 31), "x"),))
+    for tags in (("y", "x"), ("x", "y", "x"), ("x",)):
+        assert_same(spec, "next_workday", date(2027, 3, 1), tags)
+        assert_same(spec, "shift", date(2027, 3, 1), -2, tags)
 
 
 # ---- 빠르기 ----
