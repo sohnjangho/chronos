@@ -146,6 +146,13 @@ class DisplaySpec(_Strict):
     deadline_label: Text = "준공"
     extra_columns: list[Literal["resources", "constraint", "es_ef", "ls_lf"]] = []
 
+    @field_validator("extra_columns")
+    @classmethod
+    def _unique(cls, value: list[str]) -> list[str]:
+        if dup := _duplicates(value):
+            raise ValueError(f"덧붙일 칸이 겹칩니다: {dup}")
+        return value
+
 
 def _rule(raw: dict) -> dict:
     """규칙 한 줄을 검사하고 Condition.to_dict 모양에서 _RULE_KEYS 칸만 남긴다(다시 읽어도 된다)."""

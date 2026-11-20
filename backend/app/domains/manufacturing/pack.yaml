@@ -3,6 +3,8 @@
 # 예시와 기준값은 가상의 부품 공장(프레스 브래킷 주문)을 기준으로 한다.
 # 설비 용량은 분야 규칙(resource_cap)으로 두지 않는다 — L1·L2 는 자원이 없어 늘 "없는 자원"이 되기 때문.
 # 설비 용량은 주요 자원 용량(조건·규칙의 자원 조건)으로 다룬다.
+# 기본 공정 흐름(프레스 브래킷): 블랭킹 → 성형 → 피어싱 → 용접 → 표면처리(외주) → 조립 → 검사 → 출하.
+# 열처리·CNC 가공은 제품에 따라 넣는 공정이라 기본 흐름이 아니다.
 
 id: manufacturing
 name: 생산
@@ -38,7 +40,7 @@ rules:
     layer: domain
     kind: min_gap
     params: {after_tag: 열처리, days: 1, unit: workdays}
-    text: 열처리 뒤 하루 이상 식힌 다음 다음 공정에 넣는다
+    text: 열처리(담금질·뜨임 전체) 뒤 하루 이상 식힌 다음 다음 공정에 넣는다. 간격은 열처리 전체가 끝난 뒤부터 센다
     source: 분야 규칙
   - id: manufacturing.fai_before_mass
     layer: domain
@@ -50,7 +52,7 @@ rules:
     layer: domain
     kind: text_only
     params: {}
-    text: 금형은 시사출(T1) 승인 뒤 양산에 쓴다
+    text: 금형은 트라이아웃(시타) 승인 뒤 양산에 쓴다
     source: 분야 규칙
   - id: manufacturing.inspect_before_ship
     layer: domain
@@ -61,19 +63,23 @@ rules:
 
 key_resources:
   - {id: press_line, name: 프레스 라인, unit: 라인, tags: [프레스]}
-  - {id: heat_furnace, name: 열처리로, unit: 기, tags: [열처리]}
-  - {id: cnc, name: CNC 가공기, unit: 대, tags: [가공]}
+  - {id: welding_cell, name: 용접 셀, unit: 셀, tags: [용접]}
   - {id: assembly_line, name: 조립 라인, unit: 라인, tags: [조립]}
   - {id: cmm, name: 3차원 측정기, unit: 대, tags: [검사]}
   - {id: mold_shop, name: 금형 제작반, unit: 조, tags: [금형]}
+  - {id: heat_furnace, name: 열처리로, unit: 기, tags: [열처리]}  # 제품에 따라
+  - {id: cnc, name: CNC 가공기, unit: 대, tags: [가공]}  # 제품에 따라
 
+# 키워드는 일부러 좁게 잡았다. 설계(금형 설계·지그·검사구 설계)나 수입 검사는 현장 설비를 쓰지 않는다.
 activity_types:
-  - {tag: 금형, name_keywords: [금형, 시사출], resources: [mold_shop]}
+  - {tag: 금형, name_keywords: [금형 제작, 트라이아웃, 시타], resources: [mold_shop]}
   - {tag: 프레스, name_keywords: [프레스, 블랭킹, 성형, 피어싱], resources: [press_line]}
-  - {tag: 열처리, name_keywords: [열처리, 담금질, 뜨임], resources: [heat_furnace]}
-  - {tag: 가공, name_keywords: [가공, 탭핑, 드릴], resources: [cnc]}
+  - {tag: 용접, name_keywords: [용접], resources: [welding_cell]}
+  - {tag: 표면처리, name_keywords: [표면처리, 전착, 아연도금], resources: []}  # 보통 외주
   - {tag: 조립, name_keywords: [조립], resources: [assembly_line]}
-  - {tag: 검사, name_keywords: [검사, 측정, 초도품], resources: [cmm]}
+  - {tag: 검사, name_keywords: [치수검사, 측정], resources: [cmm]}
+  - {tag: 열처리, name_keywords: [열처리, 담금질, 뜨임], resources: [heat_furnace]}
+  - {tag: 가공, name_keywords: [CNC, 탭핑, 드릴], resources: [cnc]}
   - {tag: 자재, name_keywords: [발주, 입고], resources: []}
   - {tag: 출하, name_keywords: [포장, 출하], resources: []}
 
@@ -85,48 +91,64 @@ wbs_template:
   - {code: "1.2", name: 금형, parent: "1"}
   - {code: "1.2.1", name: 금형 설계, parent: "1.2"}
   - {code: "1.2.2", name: 금형 제작, parent: "1.2"}
-  - {code: "1.2.3", name: 시사출(T1)·수정, parent: "1.2"}
+  - {code: "1.2.3", name: 트라이아웃(시타)·수정, parent: "1.2"}
   - {code: "2", name: 자재, parent: null}
   - {code: "2.1", name: 원자재 발주·입고, parent: "2"}
-  - {code: "2.2", name: 수입 검사, parent: "2"}
+  - {code: "2.2", name: 수입 검사(성적서·경도 확인), parent: "2"}
   - {code: "3", name: 생산, parent: null}
   - {code: "3.1", name: 프레스, parent: "3"}
   - {code: "3.1.1", name: 블랭킹, parent: "3.1"}
   - {code: "3.1.2", name: 성형·피어싱, parent: "3.1"}
-  - {code: "3.2", name: 열처리, parent: "3"}
-  - {code: "3.2.1", name: 담금질·뜨임, parent: "3.2"}
-  - {code: "3.3", name: 가공, parent: "3"}
-  - {code: "3.3.1", name: CNC 가공, parent: "3.3"}
-  - {code: "3.3.2", name: 탭핑, parent: "3.3"}
+  - {code: "3.2", name: 용접, parent: "3"}
+  - {code: "3.2.1", name: 스폿·CO2 용접, parent: "3.2"}
+  - {code: "3.3", name: 표면처리(외주), parent: "3"}
+  - {code: "3.3.1", name: 전착도장·아연도금 외주 왕복, parent: "3.3"}
   - {code: "3.4", name: 조립, parent: "3"}
   - {code: "3.4.1", name: 서브 조립, parent: "3.4"}
   - {code: "3.4.2", name: 최종 조립, parent: "3.4"}
+  - {code: "3.5", name: 열처리(제품에 따라), parent: "3"}
+  - {code: "3.5.1", name: 담금질·뜨임, parent: "3.5"}
+  - {code: "3.6", name: 가공(제품에 따라), parent: "3"}
+  - {code: "3.6.1", name: CNC 가공, parent: "3.6"}
+  - {code: "3.6.2", name: 탭핑, parent: "3.6"}
   - {code: "4", name: 품질·출하, parent: null}
-  - {code: "4.1", name: 초도품 검사(FAI), parent: "4"}
-  - {code: "4.2", name: 양산 검사, parent: "4"}
+  - {code: "4.1", name: 양산 전 초도품 치수검사(FAI), parent: "4"}
+  - {code: "4.2", name: 양산 검사(최종), parent: "4"}
   - {code: "4.3", name: 포장·출하, parent: "4"}
 
 assumption_defaults:
-  - key: workdays_per_week
-    label: 주 근무일
-    value: 5일
-    note: 토·일·법정 공휴일은 쉰다.
+  - key: material_lead_time
+    label: 원자재·부품 리드타임
+    value: 15 근무일
+    note: 강판 코일·구매 부품 발주에서 입고까지. 공급업체·부품 리드타임은 근거 검색(business)으로 확인한다.
+  - key: outsourcing_lead_time
+    label: 외주 가공 리드타임
+    value: 5 근무일
+    note: 표면처리(전착·아연도금) 외주 왕복 운송 포함.
+  - key: mold_lead_time
+    label: 금형 제작
+    value: 40 근무일
+    note: 중형 프로그레시브 금형 1벌, 설계 뒤 트라이아웃 전까지.
+  - key: lot_size
+    label: 로트 크기
+    value: 5,000개
+    note: 한 번에 생산하는 단위. 금형 교체·검사는 로트마다 한다.
+  - key: cycle_time
+    label: 프레스 사이클타임
+    value: 3초/개 (시간당 약 1,200개)
+    note: 공정 기간은 로트 크기 × 사이클타임 ÷ 설비종합효율로 잡는다.
+  - key: oee
+    label: 설비종합효율(OEE)
+    value: 75%
+    note: 계획 기본값(세계 수준 85%). 사이클타임으로 기간을 잡을 때 나눈다.
   - key: shifts_per_day
     label: 하루 교대
     value: 2교대
-    note: 기간은 근무일로 센다.
-  - key: oee
-    label: 설비 종합 효율
-    value: 85%
-    note: 공정 기간을 잡을 때 설비 가동률 기준. 공급사·부품 리드타임은 업무 검색(mode "business")으로 찾아 근거를 남긴다.
+    note: 하루 생산 능력에 영향을 준다. 공정 기간은 근무일로 세므로 기간 자체는 바뀌지 않는다.
   - key: setup_time
     label: 금형 교체
     value: 4시간
     note: 같은 날 안에서 처리한다.
-  - key: mold_lead_time
-    label: 금형 제작
-    value: 25일
-    note: 중형 프레스 금형 1벌, 시사출 전까지.
   - key: contingency_ratio
     label: 예비 기간 비율
     value: 10%
@@ -134,4 +156,4 @@ assumption_defaults:
   - key: orders_as_wbs
     label: 주문과 WBS
     value: 주문마다 맨 위 묶음 하나
-    note: 납기는 그 묶음 끝 마일스톤으로 둔다.
+    note: 납기는 그 묶음 끝 마일스톤으로 둔다. 주 근무일(5일)과 공휴일은 기본 달력을 따른다.

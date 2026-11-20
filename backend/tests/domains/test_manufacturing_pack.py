@@ -4,6 +4,7 @@
 from datetime import date
 
 import pytest
+from pydantic import ValidationError
 
 from app.agent.context import system_prompt
 from app.agent.generation import generate
@@ -62,7 +63,7 @@ def test_pack_reads():
 
 def test_resources_and_types_link():
     p = load("manufacturing")
-    assert {r.id for r in p.key_resources} == {"press_line", "heat_furnace", "cnc", "assembly_line", "cmm", "mold_shop"}
+    assert {r.id for r in p.key_resources} == {"press_line", "welding_cell", "assembly_line", "cmm", "mold_shop", "heat_furnace", "cnc"}
     assert next(t for t in p.activity_types if t.tag == "프레스").resources == ["press_line"]
 
 
@@ -104,3 +105,72 @@ async def test_generation_attaches_press_line(ctx, llm, liner):
 
 def test_system_prompt_lists_both():
     assert "construction(건설), manufacturing(생산)" in system_prompt()
+
+
+# ── 보완 1: 현실성 ──────────────────────────────────────────────────
+
+
+def _leaf_matches() -> dict[str, tuple[set[str], set[str]]]:
+    """WBS 잎 이름 → (붙을 작업 유형 tag, 그 유형이 연결한 자원 id)."""
+    p = load("manufacturing")
+    parents = {n.parent for n in p.wbs_template}
+    out = {}
+    for n in p.wbs_template:
+        if n.code in parents:
+            continue
+        types = [t for t in p.activity_types if any(k in n.name for k in t.name_keywords)]
+        out[n.name] = ({t.tag for t in types}, {r for t in types for r in t.resources})
+    return out
+
+
+def test_template_leaves_get_intended_tags_and_resources():
+    m = _leaf_matches()
+    expected = {
+        "도면 검토·공정 설계": (set(), set()),
+        "지그·검사구 설계": (set(), set()),
+        "금형 설계": (set(), set()),
+        "금형 제작": ({"금형"}, {"mold_shop"}),
+        "트라이아웃(시타)·수정": ({"금형"}, {"mold_shop"}),
+        "원자재 발주·입고": ({"자재"}, set()),
+        "수입 검사(성적서·경도 확인)": (set(), set()),
+        "블랭킹": ({"프레스"}, {"press_line"}),
+        "성형·피어싱": ({"프레스"}, {"press_line"}),
+        "스폿·CO2 용접": ({"용접"}, {"welding_cell"}),
+        "전착도장·아연도금 외주 왕복": ({"표면처리"}, set()),
+        "서브 조립": ({"조립"}, {"assembly_line"}),
+        "최종 조립": ({"조립"}, {"assembly_line"}),
+        "담금질·뜨임": ({"열처리"}, {"heat_furnace"}),
+        "CNC 가공": ({"가공"}, {"cnc"}),
+        "탭핑": ({"가공"}, {"cnc"}),
+        "양산 전 초도품 치수검사(FAI)": ({"검사"}, {"cmm"}),
+        "양산 검사(최종)": (set(), set()),
+        "포장·출하": ({"출하"}, set()),
+    }
+    assert m == expected
+
+
+def test_flow_and_optional_steps():
+    p = load("manufacturing")
+    names = {n.name for n in p.wbs_template}
+    assert {"용접", "표면처리(외주)", "열처리(제품에 따라)", "가공(제품에 따라)"} <= names
+    assert "시사출" not in "".join(k for t in p.activity_types for k in t.name_keywords)
+    assert "트라이아웃" in p.prompt()
+
+
+def test_lead_time_assumptions():
+    a = {x.key: x for x in load("manufacturing").assumption_defaults}
+    assert {"material_lead_time", "outsourcing_lead_time", "lot_size", "cycle_time", "mold_lead_time"} <= set(a)
+    assert "business" in a["material_lead_time"].note and "business" not in a["oee"].note
+    assert "OEE" in a["oee"].label and a["oee"].value == "75%" and "근무일" in a["mold_lead_time"].value
+    assert "workdays_per_week" not in a
+
+
+def test_display_spec_rejects_bad_values():
+    with pytest.raises(ValidationError):
+        DisplaySpec(extra_columns=["resources", "resources"])
+    with pytest.raises(ValidationError):
+        DisplaySpec(gantt_group_by="team")
+    with pytest.raises(ValidationError):
+        DisplaySpec(extra_columns=["wbs"])
+    with pytest.raises(ValidationError):
+        DisplaySpec(unknown="x")
