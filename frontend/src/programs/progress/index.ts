@@ -2,7 +2,7 @@ import { lazy } from 'react';
 import { glyph } from '../../os/glyph';
 import type { ProgramManifest } from '../../os/registry';
 
-// 「공정률」 계획·실적 공정률과 S-커브(계획 2 Task 32 가 채운다). params: id(일정, 없으면 OS 의 지금 일정).
+// 「공정률」 계획·실적 공정률과 S-커브(진행 API). params: id(일정, 없으면 OS 의 지금 일정).
 const manifest: ProgramManifest = {
   id: 'progress',
   name: '공정률',
