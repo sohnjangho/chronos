@@ -7,8 +7,8 @@ import GroupNav from './GroupNav';
 import QuestionCard from './QuestionCard';
 import Submitted from './Submitted';
 import type { QView } from './qApi';
-import { firstOpen, flatten, positiveId } from './model';
-import { useQuestionnaire } from './useQuestionnaire';
+import { firstOpen, flatten, positiveId, type FocusRequest } from './model';
+import { useQuestionnaire, type Load } from './useQuestionnaire';
 import './questionnaire.css';
 
 const NO_CHAT = '제출했습니다. 대화창에서 이어서 요청해 주세요.';
@@ -19,7 +19,7 @@ const NO_CHAT = '제출했습니다. 대화창에서 이어서 요청해 주세�
  */
 export default function Questionnaire({ windowId, params }: ProgramProps) {
   const id = positiveId(params?.id);
-  const { load, notice, answer, submit, markSubmitted } = useQuestionnaire(id);
+  const { load, notice, pending, answer, submit, markSubmitted, retry } = useQuestionnaire(id);
   const [doneNote, setDoneNote] = useState<string | null>(null);
   useEffect(() => setDoneNote(null), [id]);
   const title = load.kind === 'ready' ? load.view.title : null;
@@ -27,16 +27,7 @@ export default function Questionnaire({ windowId, params }: ProgramProps) {
     useWindows.getState().setTitle(windowId, title ? `질문지 — ${title}` : '질문지');
   }, [windowId, title]);
 
-  if (load.kind !== 'ready') {
-    const text = load.kind === 'loading' ? '질문지를 읽는 중…' : load.kind === 'missing' ? '질문지를 찾을 수 없습니다.' : load.message;
-    return (
-      <div className="qn-root">
-        <p className="qn-empty" role={load.kind === 'failed' ? 'alert' : undefined}>
-          {text}
-        </p>
-      </div>
-    );
-  }
+  if (load.kind !== 'ready') return <Status load={load} onRetry={retry} />;
   const view = load.view;
   const fromParams = positiveId(params?.session);
   const session = fromParams ?? view.chat_session_id;
@@ -49,6 +40,7 @@ export default function Questionnaire({ windowId, params }: ProgramProps) {
           key={view.id}
           view={view}
           notice={notice}
+          pending={pending}
           onAnswer={answer}
           onChat={() => useWindows.getState().open('chat', session ? { session: String(session) } : undefined)}
           onSubmit={async () => {
@@ -69,46 +61,63 @@ export default function Questionnaire({ windowId, params }: ProgramProps) {
   );
 }
 
+/** 읽는 중 · 없음 · 읽기 실패([다시 읽기]). */
+function Status({ load, onRetry }: { load: Exclude<Load, { kind: 'ready' }>; onRetry(): void }) {
+  const text = load.kind === 'loading' ? '질문지를 읽는 중…' : load.kind === 'missing' ? '질문지를 찾을 수 없습니다.' : load.message;
+  return (
+    <div className="qn-root">
+      <div className="qn-empty">
+        <p role={load.kind === 'failed' ? 'alert' : undefined}>{text}</p>
+        {load.kind === 'failed' && <Button onClick={onRetry}>다시 읽기</Button>}
+      </div>
+    </div>
+  );
+}
+
 interface AnsweringProps {
   view: QView;
   notice: string | null;
+  /** 질문마다 보냈지만 아직 응답이 오지 않은 값(서버 답보다 먼저 보인다). */
+  pending: Record<string, string | null>;
   onAnswer(questionId: string, value: string | null): Promise<boolean>;
   onChat(): void;
   onSubmit(): Promise<boolean>;
 }
 
+/**
+ * 지금 질문(id 와 그때의 자리). 보던 질문이 사라지면(이어지는 질문이 빠짐) 그 자리에서 가장 가까운 질문을 보인다.
+ * focus 는 이 질문으로 옮긴 방식(목차에서 고르면 초점은 목차에 둔다).
+ */
+function useCurrent(all: ReturnType<typeof flatten>) {
+  const [cur, setCur] = useState(() => {
+    const first = firstOpen(all);
+    return { id: first?.id ?? null, at: first ? all.indexOf(first) : 0, focus: null as FocusRequest | null };
+  });
+  const found = all.findIndex((q) => q.id === cur.id);
+  const at = found >= 0 ? found : Math.max(0, Math.min(cur.at, all.length - 1));
+  const go = (index: number, target?: FocusRequest['target']) =>
+    setCur((c) => ({ id: all[index].id, at: index, focus: target ? { n: (c.focus?.n ?? 0) + 1, target } : null }));
+  return { at, focus: cur.focus, go, goId: (qid: string, target?: FocusRequest['target']) => go(all.findIndex((q) => q.id === qid), target) };
+}
+
 /** 답하는 중: 왼쪽 목차 · 오른쪽 한 질문과 이미 채운 것 · 아래 이동·대화·제출. */
-function Answering({ view, notice, onAnswer, onChat, onSubmit }: AnsweringProps) {
+function Answering({ view, notice, pending, onAnswer, onChat, onSubmit }: AnsweringProps) {
   const all = flatten(view);
-  const [currentId, setCurrentId] = useState(() => firstOpen(all)?.id ?? null);
-  const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
-  const at = Math.max(0, all.findIndex((q) => q.id === currentId));
+  const { at, focus, go, goId } = useCurrent(all);
   const cur = all[at];
   if (!cur) return <p className="qn-empty">질문이 없습니다.</p>;
-  const go = (qid: string) => {
-    setCurrentId(qid);
-    setFocus(null);
-  };
-  const edit = (qid: string) => {
-    setCurrentId(qid);
-    setFocus((f) => ({ id: qid, n: (f?.n ?? 0) + 1 }));
-  };
   const last = at === all.length - 1;
   const { answered, total } = view.progress;
   const group = view.groups.find((g) => g.name === cur.group);
+  const chosen = cur.id in pending ? pending[cur.id] : (cur.answer?.value ?? null);
   return (
     <div className="qn-body">
-      <GroupNav view={view} currentId={cur.id} onPick={go} />
+      <GroupNav view={view} currentId={cur.id} onPick={(qid) => goId(qid)} />
       <div className="qn-main">
         <div className="qn-scroll">
-          <p className="qn-pos">{`${cur.group} · ${cur.pos}번째 질문 (${cur.size}개 중)`}</p>
-          <QuestionCard
-            key={cur.id}
-            question={cur}
-            focusRequest={focus?.id === cur.id ? focus.n : undefined}
-            onAnswer={(value) => onAnswer(cur.id, value)}
-          />
-          <FilledList prefilled={view.prefilled} answered={group?.questions.filter((q) => q.answer) ?? []} onEdit={edit} />
+          <p className="qn-pos" aria-live="polite">{`${cur.group} · ${cur.pos}번째 질문 (${cur.size}개 중)`}</p>
+          <QuestionCard key={cur.id} question={cur} chosen={chosen} focusRequest={focus ?? undefined} onAnswer={(value) => onAnswer(cur.id, value)} />
+          <FilledList prefilled={view.prefilled} answered={group?.questions.filter((q) => q.answer) ?? []} onEdit={(qid) => goId(qid, 'input')} />
         </div>
         {notice && (
           <p className="qn-notice" role="alert">
@@ -116,8 +125,8 @@ function Answering({ view, notice, onAnswer, onChat, onSubmit }: AnsweringProps)
           </p>
         )}
         <Actions
-          prev={at > 0 ? () => go(all[at - 1].id) : null}
-          next={last ? null : () => go(all[at + 1].id)}
+          prev={at > 0 ? () => go(at - 1, 'heading') : null}
+          next={last ? null : () => go(at + 1, 'heading')}
           answered={answered}
           assumed={total - answered}
           onChat={onChat}

@@ -13,6 +13,12 @@ export function flatten(view: QView): Placed[] {
   return view.groups.flatMap((g) => g.questions.map((q, i) => ({ ...q, group: g.name, pos: i + 1, size: g.questions.length })));
 }
 
+/** 초점을 옮길 곳: 질문 제목([이전]·[다음 질문]) 또는 그 질문의 입력([고치기]). n 이 바뀔 때마다 옮긴다. */
+export interface FocusRequest {
+  n: number;
+  target: 'heading' | 'input';
+}
+
 /** 처음으로 답하지 않은 질문. 모두 답했으면 첫 질문. */
 export function firstOpen<T extends QQuestion>(questions: T[]): T | undefined {
   return questions.find((q) => !q.answer) ?? questions[0];

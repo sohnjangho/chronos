@@ -161,25 +161,123 @@ describe('R1 · R4 한 질문씩', () => {
   });
 
   test('answers are sent one after another, never two at once', async () => {
-    let release!: () => void;
-    const first = new Promise<void>((r) => (release = r));
-    let calls = 0;
-    const state = setup({}, {
-      'PATCH /api/questionnaires/1/answers': async (init?: RequestInit) => {
-        calls += 1;
-        const { question_id, value } = JSON.parse(String(init?.body));
-        if (calls === 1) await first;
-        state.answers[question_id] = value;
-        return json(200, buildView(state));
-      },
-    });
+    const held = holdFirstPatch();
     await renderQ();
     await userEvent.click(within(options()).getByRole('button', { name: /철골/ }));
     await userEvent.click(within(options()).getByRole('button', { name: /철근콘크리트/ }));
-    expect(calls).toBe(1);
-    await act(async () => release());
-    await waitFor(() => expect(calls).toBe(2));
+    expect(held.calls()).toBe(1);
+    await act(async () => held.release());
+    await waitFor(() => expect(held.calls()).toBe(2));
     expect(patches().map((p) => p.value)).toEqual(['steel', 'rc']);
+    await waitFor(() => expect(within(options()).getByRole('button', { name: /철근콘크리트/ })).toHaveAttribute('aria-pressed', 'true'));
+    expect(within(options()).getByRole('button', { name: /철골/ })).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
+describe('Fix round 1', () => {
+  test('I1 a fast re-click back to the answered option is sent, and that option ends pressed', async () => {
+    const held = holdFirstPatch({ answers: { structure: 'rc' } });
+    await renderQ();
+    await userEvent.click(within(nav()).getByRole('button', { name: /건물의 구조 형식/ }));
+    await userEvent.click(within(options()).getByRole('button', { name: /철골/ }));
+    expect(within(options()).getByRole('button', { name: /철골/ })).toHaveAttribute('aria-pressed', 'true'); // 보낸 값을 바로 보인다
+    await userEvent.click(within(options()).getByRole('button', { name: /철근콘크리트/ }));
+    await act(async () => held.release());
+    await waitFor(() => expect(patches().map((p) => p.value)).toEqual(['steel', 'rc']));
+    await waitFor(() => expect(within(options()).getByRole('button', { name: /철근콘크리트/ })).toHaveAttribute('aria-pressed', 'true'));
+    expect(within(options()).getByRole('button', { name: /철골/ })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('I1 [가정대로 두기] follows the answer on its way, not only the server', async () => {
+    const held = holdFirstPatch();
+    await renderQ();
+    expect(screen.getByRole('button', { name: '가정대로 두기' })).toBeDisabled();
+    await userEvent.click(within(options()).getByRole('button', { name: /철골/ }));
+    expect(screen.getByRole('button', { name: '가정대로 두기' })).toBeEnabled();
+    await userEvent.click(screen.getByRole('button', { name: '가정대로 두기' }));
+    expect(screen.getByRole('button', { name: '가정대로 두기' })).toBeDisabled();
+    await act(async () => held.release());
+    await waitFor(() => expect(patches().map((p) => p.value)).toEqual(['steel', null]));
+    expect(within(options()).getByRole('button', { name: /철골/ })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('m2 a server reply does not overwrite text typed after sending', async () => {
+    const held = holdFirstPatch();
+    await renderQ();
+    await goTo('토요일 작업은 어떻게 하나요?');
+    await userEvent.type(freeInput(), '격주');
+    await userEvent.keyboard('{Enter}');
+    await userEvent.type(freeInput(), ' 오전만');
+    await act(async () => held.release());
+    await waitFor(() => expect(within(nav()).getByRole('button', { name: /토요일 작업.*격주/ })).toBeVisible());
+    expect(freeInput()).toHaveValue('격주 오전만');
+  });
+
+  test('m5 [다음 질문]·[이전] move focus to the question heading and announce the position', async () => {
+    setup();
+    await renderQ();
+    const pos = () => screen.getByText(/번째 질문/);
+    expect(pos()).toHaveAttribute('aria-live', 'polite');
+    await userEvent.click(screen.getByRole('button', { name: '다음 질문' }));
+    expect(question()).toHaveTextContent('지하층이 있나요?');
+    expect(question()).toHaveFocus();
+    expect(pos()).toHaveTextContent('범위 · 2번째 질문 (2개 중)');
+    for (let i = 0; i < 3; i++) await userEvent.click(screen.getByRole('button', { name: '다음 질문' }));
+    expect(screen.getByRole('button', { name: '다음 질문' })).toBeDisabled();
+    expect(question()).toHaveFocus(); // 끝에서 단추가 꺼져도 초점이 body 로 떨어지지 않는다
+    for (let i = 0; i < 4; i++) await userEvent.click(screen.getByRole('button', { name: '이전' }));
+    expect(screen.getByRole('button', { name: '이전' })).toBeDisabled();
+    expect(question()).toHaveTextContent('건물의 구조 형식은 무엇인가요?');
+    expect(question()).toHaveFocus();
+  });
+
+  test('m6 when the visible question disappears, stay at the nearest remaining position', async () => {
+    setup({}, {}, (s) => {
+      if (s.answers.start_date) s.questions = s.questions.filter((q) => q.id !== 'start_date');
+    });
+    await renderQ();
+    await goTo('착공일은 언제인가요?');
+    await userEvent.click(within(options()).getByRole('button', { name: '2027-04-01 (목) 착공' }));
+    await waitFor(() => expect(question()).toHaveTextContent('주 며칠 일하나요?'));
+    expect(screen.getByText('질문 4개 중 0개 답함 · 나머지 4개는 가정으로')).toBeVisible();
+  });
+
+  test('m7 if the answer saved on leaving the field fails, submit is not sent and the error shows', async () => {
+    setup({}, {
+      'PATCH /api/questionnaires/1/answers': () => json(422, { code: 'invalid_answer', message: '답은 1~500자로 적어 주세요.', detail: null }),
+    });
+    await renderQ();
+    await goTo('토요일 작업은 어떻게 하나요?');
+    await userEvent.type(freeInput(), '격주');
+    await userEvent.click(submitBtn());
+    expect(await screen.findByRole('alert')).toHaveTextContent('답은 1~500자로 적어 주세요.');
+    await act(() => new Promise((r) => setTimeout(r, 30)));
+    expect(callsTo('/api/questionnaires/1/submit', 'POST')).toHaveLength(0);
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(submitBtn()).toBeEnabled();
+  });
+
+  test('m8 a load failure offers [다시 읽기]', async () => {
+    let fail = true;
+    const state = setup();
+    setup({}, {
+      '/api/questionnaires/1': () => (fail ? json(500, { code: 'internal', message: '서버 오류입니다.', detail: null }) : json(200, buildView(state))),
+    });
+    render(<Questionnaire windowId="w1" params={PARAMS} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('서버 오류입니다.');
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: '다시 읽기' }));
+    expect(await screen.findByRole('navigation', { name: '질문 목차' })).toBeVisible();
+  });
+
+  test('m8 prefilled rows have no [고치기]; answered rows do', async () => {
+    setup({ answers: { structure: 'rc' } });
+    await renderQ();
+    const filled = screen.getByRole('region', { name: '이미 채운 것' });
+    const prefilledRow = within(filled).getByText('분야').closest('li')!;
+    expect(within(prefilledRow).queryByRole('button')).toBeNull();
+    const answeredRow = within(filled).getByText('건물의 구조 형식은 무엇인가요?').closest('li')!;
+    expect(within(answeredRow).getByRole('button', { name: '고치기' })).toBeVisible();
   });
 });
 
@@ -312,6 +410,24 @@ describe('R6 프로그램', () => {
     expect(await screen.findByRole('navigation', { name: '질문 목차' })).toBeVisible();
   });
 });
+
+/** 첫 PATCH 를 release() 까지 붙잡아 두는 가짜 서버. 나머지는 바로 답한다. */
+function holdFirstPatch(over: Parameters<typeof setup>[0] = {}) {
+  let release!: () => void;
+  const first = new Promise<void>((r) => (release = r));
+  let calls = 0;
+  const state = setup(over, {
+    'PATCH /api/questionnaires/1/answers': async (init?: RequestInit) => {
+      calls += 1;
+      const { question_id, value } = JSON.parse(String(init?.body));
+      if (calls === 1) await first;
+      if (value === null) delete state.answers[question_id];
+      else state.answers[question_id] = String(value).trim();
+      return json(200, buildView(state));
+    },
+  });
+  return { release: () => release(), calls: () => calls };
+}
 
 /** GET 을 뺀 요청들(보낸 차례). */
 function writes(): string[] {
