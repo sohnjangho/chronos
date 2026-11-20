@@ -1,0 +1,173 @@
+/* 탐색기(시안 「탐색기」의 일정 목록과 버전 패널). 색·글꼴은 tokens.css 변수만 쓴다.
+   넘침 막기: 줄·칸은 min-width:0, 긴 이름은 표에서는 말줄임(title 로 전체)·패널에서는 줄바꿈, 길면 창 안에서
+   세로로만 스크롤한다. 창 본문이 좁으면(1000 미만) 양옆을 좁히고 표의 덜 중요한 칸(정밀도·고친 때)을 숨긴다. */
+.ex-root {
+  container-type: inline-size;
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-panel);
+  color: var(--fg);
+  font-size: var(--fs-13);
+  line-height: 18px;
+  word-break: keep-all;
+}
+.ex-root button { font-family: inherit; }
+.ex-root button:focus-visible,
+.ex-root input:focus-visible,
+.ex-table tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ex-wrap { min-width: 0; overflow-wrap: anywhere; }
+.ex-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex-muted { margin: 0; padding: 16px; color: var(--fg-muted); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.ex-gap { flex: 1; }
+
+.ex-bar { flex: none; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); min-width: 0; }
+.ex-crumb { flex: none; color: var(--fg-muted); }
+.ex-search {
+  flex: 0 1 200px;
+  min-width: 120px;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--fs-12);
+}
+.ex-notice { flex: none; margin: 0; padding: 8px 14px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.ex-notice.is-ok { background: var(--tone-success-bg); color: var(--success-text); }
+.ex-notice.is-error { background: var(--tone-danger-bg); color: var(--danger-text); }
+
+.ex-body { flex: 1; min-height: 0; display: flex; }
+
+/* ── 왼쪽 분류 ── */
+.ex-tree {
+  width: 210px;
+  flex: none;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.ex-grp { padding: 12px 12px 4px; color: var(--fg-muted); font-size: var(--fs-11); }
+.ex-navs { margin: 0; padding: 0; list-style: none; }
+.ex-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: var(--radius-3);
+  background: none;
+  color: var(--fg);
+  font-size: var(--fs-13);
+  text-align: left;
+  cursor: pointer;
+}
+.ex-nav:hover { background: var(--menu-hover-bg); }
+.ex-nav[aria-pressed="true"] { background: var(--bg-selected); color: var(--tone-info-fg); font-weight: 500; }
+.ex-count { margin-left: auto; color: var(--fg-muted); font-size: var(--fs-12); }
+
+/* ── 가운데 일정 표 ── */
+.ex-list { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; }
+.ex-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.ex-table th {
+  position: sticky;
+  top: 0;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--bg-panel-alt);
+  color: var(--fg-muted);
+  font-size: var(--fs-11);
+  font-weight: 500;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+/* 고정 칸 폭은 안쪽 여백을 포함한다(이름 칸이 나머지를 모두 쓴다). */
+.ex-table th,
+.ex-table td { box-sizing: border-box; }
+.ex-c-domain { width: 72px; }
+.ex-c-level { width: 76px; }
+.ex-c-ver { width: 52px; }
+.ex-c-date { width: 96px; }
+.ex-table td {
+  height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--bg-app);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+}
+.ex-table td:first-child { color: var(--fg); }
+.ex-table tbody tr { cursor: pointer; }
+.ex-table tbody tr:hover td { background: var(--bg-panel-alt); }
+.ex-table tr[aria-current="true"] td { background: var(--bg-selected); }
+.ex-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex-muted-cell { font-style: italic; }
+
+/* ── 오른쪽 요약·버전 ── */
+.ex-panel {
+  width: 290px;
+  flex: none;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border-left: 1px solid var(--border);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.ex-panel > .ex-muted { padding: 0; }
+.ex-panel-h { margin: 0; font-size: var(--fs-14); line-height: 20px; }
+.ex-kv { margin: 8px 0 0; }
+.ex-kv > div { display: flex; gap: 8px; padding: 5px 0; font-size: var(--fs-12); min-width: 0; }
+.ex-kv dt { width: 70px; flex: none; color: var(--fg-muted); }
+.ex-kv dd { flex: 1; min-width: 0; margin: 0; }
+.ex-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.ex-ver-h { margin: 16px 0 4px; font-size: var(--fs-13); }
+.ex-vers { margin: 0; padding: 0; list-style: none; }
+.ex-ver { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--bg-app); font-size: var(--fs-12); min-width: 0; }
+.ex-ver .ui-badge { flex: none; }
+.ex-ver .ui-btn { flex: none; }
+.ex-ver-b { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ex-ver-b small { color: var(--fg-muted); font-size: var(--fs-11); }
+
+/* ── 확인 겹화면(창 안) ── */
+.ex-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg-topbar) 35%, transparent);
+}
+.ex-dialog {
+  width: 100%;
+  max-width: 420px;
+  box-sizing: border-box;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-4);
+  background: var(--bg-panel);
+  box-shadow: var(--menu-shadow);
+}
+.ex-dialog-h { margin: 0 0 8px; font-size: var(--fs-15); }
+.ex-dialog-b p { margin: 0; overflow-wrap: anywhere; }
+.ex-dialog-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.ex-dialog-row .ui-btn { height: 32px; padding: 0 14px; }
+
+@container (max-width: 1000px) {
+  .ex-tree { width: 160px; }
+  .ex-panel { width: 250px; }
+  .ex-opt { display: none; }
+}
