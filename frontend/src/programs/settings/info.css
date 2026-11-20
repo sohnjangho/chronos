@@ -1,0 +1,6 @@
+/* ── 정보 API 연결: 시험 결과(요약 + 서비스마다 한 줄) ── */
+.st-info-result { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.st-info-services { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.st-info-services > li { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 0; border-top: 1px solid var(--bg-app); }
+.st-info-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.st-info-line b { overflow-wrap: anywhere; }

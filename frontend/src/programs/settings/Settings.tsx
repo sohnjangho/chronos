@@ -3,6 +3,7 @@ import type { ProgramProps } from '../../os/registry';
 import { useSession } from '../../os/session';
 import AccountSection from './AccountSection';
 import ApprovalSection, { MeSection } from './ApprovalSection';
+import InfoSection from './InfoSection';
 import LlmSection, { AssignSection } from './LlmSection';
 import { resolveSection, visibleSections, type SectionId } from './model';
 import './settings.css';
@@ -10,6 +11,7 @@ import './settings.css';
 const VIEWS: Record<SectionId, () => ReactNode> = {
   me: () => <MeSection />,
   llm: () => <LlmSection />,
+  info: () => <InfoSection />,
   assign: () => <AssignSection />,
   account: () => <AccountSection />,
   approval: () => <ApprovalSection />,

@@ -23,6 +23,7 @@ test('admin sees the mockup sections and opens LLM 연결 first', () => {
   expect(within(nav()).getAllByRole('button').map((b) => b.textContent)).toEqual([
     '내 정보',
     'LLM 연결',
+    '정보 API 연결',
     '작업별 모델 배정',
     '계정 (관리자·사용자)',
     '승인 수준',
@@ -78,10 +79,10 @@ test('program menus list the sections for the role and open them in the settings
   expect(manifest.menus?.[0].items.map((i) => i.label)).toEqual(['내 정보']);
   signInAs('admin');
   const items = manifest.menus?.[0].items ?? [];
-  expect(items.map((i) => i.label)).toEqual(['내 정보', 'LLM 연결', '작업별 모델 배정', '계정 (관리자·사용자)', '승인 수준']);
+  expect(items.map((i) => i.label)).toEqual(['내 정보', 'LLM 연결', '정보 API 연결', '작업별 모델 배정', '계정 (관리자·사용자)', '승인 수준']);
   act(() => void useWindows.getState().open('settings'));
   const id = useWindows.getState().wins[0].id;
-  act(() => items[2].action(id));
+  act(() => items[3].action(id));
   expect(useWindows.getState().wins).toHaveLength(1);
   expect(useWindows.getState().wins[0].params).toEqual({ section: 'assign' });
 });

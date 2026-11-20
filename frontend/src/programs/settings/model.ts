@@ -116,12 +116,13 @@ export const APPROVAL_MODES: { value: ApprovalMode; label: string; desc: string 
 
 export const approvalLabel = (m: ApprovalMode) => APPROVAL_MODES.find((x) => x.value === m)?.label ?? m;
 
-export type SectionId = 'me' | 'llm' | 'assign' | 'account' | 'approval';
+export type SectionId = 'me' | 'llm' | 'info' | 'assign' | 'account' | 'approval';
 
 /** 설정 구역. 차례는 왼쪽 목록·메뉴 차례. */
 export const SECTIONS: { id: SectionId; label: string; adminOnly: boolean }[] = [
   { id: 'me', label: '내 정보', adminOnly: false },
   { id: 'llm', label: 'LLM 연결', adminOnly: true },
+  { id: 'info', label: '정보 API 연결', adminOnly: true },
   { id: 'assign', label: '작업별 모델 배정', adminOnly: true },
   { id: 'account', label: '계정 (관리자·사용자)', adminOnly: true },
   { id: 'approval', label: '승인 수준', adminOnly: true },

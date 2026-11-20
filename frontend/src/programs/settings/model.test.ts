@@ -25,6 +25,8 @@ test('resolveSection: known sections open, admin-only ones fall back to 내 정�
   expect(resolveSection('assign', 'admin')).toBe('assign');
   expect(resolveSection('approval', 'admin')).toBe('approval');
   expect(resolveSection('llm', 'user')).toBe('me');
+  expect(resolveSection('info', 'admin')).toBe('info');
+  expect(resolveSection('info', 'user')).toBe('me');
   expect(resolveSection('approval', 'user')).toBe('me');
   expect(resolveSection('me', 'admin')).toBe('me');
   // 없거나 모르는 구역이면 관리자는 LLM 연결(시안), 사용자는 내 정보.

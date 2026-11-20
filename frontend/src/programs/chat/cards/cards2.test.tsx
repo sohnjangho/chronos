@@ -47,6 +47,11 @@ describe('evidence', () => {
     expect(screen.getByText('법령')).toBeVisible();
     expect(screen.getByText('분야 검색 실패 → 웹 검색')).toBeVisible();
   });
+
+  test('weather evidence shows the 날씨 badge', () => {
+    renderCard('card', { kind: 'evidence', query: '서울 12월 평균기온', mode: 'weather', results: [] });
+    expect(screen.getByText('날씨')).toBeVisible();
+  });
 });
 
 describe('actual recorded', () => {

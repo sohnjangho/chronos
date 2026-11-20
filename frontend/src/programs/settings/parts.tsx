@@ -36,6 +36,7 @@ export function SecretField({
   onChange,
   disabled,
   autoFocus,
+  hint,
 }: {
   label: string;
   value: string;
@@ -43,9 +44,11 @@ export function SecretField({
   disabled?: boolean;
   /** 새로 나타난 칸이면 포커스를 옮긴다. */
   autoFocus?: boolean;
+  /** 칸 아래 작은 안내 줄. */
+  hint?: string;
 }) {
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <input
         type="password"
         autoComplete="new-password"
