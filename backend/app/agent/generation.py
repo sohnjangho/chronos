@@ -7,6 +7,8 @@ LLM 은 구조와 기간·선후 관계만 낸다. 날짜·여유·조건 통과
 멈춤: 위반 0 인 초안(ok) · 회차가 max_rounds 에 닿음(가장 나은 안) · LLM 실패(그때까지 가장 나은 안, 없으면 초안 없음).
 쓰기: 초안은 맨 끝에 한 번만 넣고 commit 한다. LLM 을 부르는 동안 쓰지 않는다.
 개략 일정(L1·L2)은 자원을 다루지 않는다: resource_cap 입력 조건은 빼고 warnings 에 알린다.
+파일에서 가져온 행(fixed, Task 53)이 있으면 WBS 를 청하지 않고 그 행이 전부다: 파일 값이 LLM 답보다 앞서고, LLM 은
+빈 칸만 정한다(가정 출처 「추정」). 빈 칸이 없으면 LLM 을 부르지 않는다. 파일 날짜 제약은 fixed 가 넣는다.
 """
 
 from collections.abc import Sequence
@@ -43,6 +45,7 @@ from app.agent.generation_steps import (
 from app.core.cpm import CpmResult, ScheduleError
 from app.core.model import Schedule
 from app.domains.loader import DomainPack, load
+from app.files.schedule_import import ImportedRows
 from app.harness.assemble import assemble
 from app.harness.checks import CheckReport, Violation
 from app.harness.checks import check as check_schedule
@@ -102,14 +105,15 @@ class _Scored:
 
 class _Loop:
     def __init__(self, ctx: ToolContext, llm: LlmClient, pack: DomainPack, brief: Brief, s: Setting,
-                 conditions: list[Condition], notes: list[str]) -> None:
+                 conditions: list[Condition], notes: list[str], fixed: ImportedRows | None = None) -> None:
         self.ctx, self.llm, self.pack, self.brief, self.setting = ctx, llm, pack, brief, s
         self.conditions = conditions
         self.notes = notes  # 생성 전에 정한 알림(뺀 조건 등)
         self.stored = [c.to_dict() for c in conditions]
         self.chat_session_id: int | None = getattr(ctx, "chat_session_id", None)  # 문맥이 대화 id 를 가질 때만
         self.rounds: list[GenRound] = []
-        self.wbs: list[WbsIn] | None = None
+        self.fixed = fixed  # 파일에서 가져온 행(있으면 그 WBS 를 쓰고, 파일 값이 LLM 답보다 앞선다)
+        self.wbs: list[WbsIn] | None = [WbsIn(**n) for n in fixed.wbs] if fixed else None
         self.draft: DraftReply | None = None  # 마지막으로 읽은 초안(고칠 바탕)
         self.drafted = False  # 스케줄 초안을 한 번이라도 청했나(다음부터는 고침)
         self.feedback = ""  # 다음 부름에 줄 문제
@@ -139,6 +143,8 @@ class _Loop:
             scored = self.score(await self.ask_draft())
             if scored is not None and not scored.report.violations:
                 return
+            if self.fixed is not None and not self.fixed.blanks:  # 파일 값뿐 — LLM 이 고칠 칸이 없다
+                return
 
     def stop_check(self) -> None:
         if self.ctx.stop_requested():
@@ -158,6 +164,8 @@ class _Loop:
         return True
 
     async def ask_draft(self) -> LlmReply:
+        if self.fixed is not None and not self.fixed.blanks:  # 빈 칸이 없으면 LLM 을 부르지 않는다
+            return self.fixed.merge(None)
         wbs = [n.model_dump() for n in self.wbs or ()]
         if not self.drafted:
             self.drafted = True
@@ -180,11 +188,15 @@ class _Loop:
     def score(self, reply: LlmReply) -> _Scored | None:
         """초안을 읽고 계산·점검한다. 깨졌으면 None 이고 그 까닭이 다음 고침으로 간다."""
         try:
+            if self.fixed is not None:
+                reply = self.fixed.merge(reply)  # 파일 값으로 덮는다(빈 칸 행이 빠졌으면 DraftProblem)
             self.draft, self.wbs = read_draft(reply, self.wbs or [])
         except DraftProblem as problem:
             self.broken(problem)
             return None
         schedule = build(self.draft, self.wbs, self.setting)
+        if self.fixed is not None:
+            schedule = self.fixed.constrain(schedule)
         count = len(schedule.activities)
         try:
             cpm, report = self.measure(schedule, count)
@@ -228,6 +240,8 @@ class _Loop:
     def result(self, assumptions: list[dict], failure: str | None = None, stopped: bool = False) -> GenResult:
         """끝 결과. failure 는 LLM 실패 안내 글, stopped 는 멈춤(둘 다 그때까지 가장 나은 초안이 있으면 저장한다)."""
         best = self.best
+        if best is not None and self.fixed is not None:  # 추정한 칸(출처 「추정」)
+            assumptions = [*assumptions, *self.fixed.estimates(best.schedule)]
         base = {"conditions": self.conditions, "rounds": self.rounds, "assumptions": assumptions}
         if best is None:
             reason = STOPPED_REASON if stopped else f"일정을 만들지 못했습니다. {failure}" if failure else NO_DRAFT_REASON
@@ -291,6 +305,7 @@ async def generate(
     inputs: Sequence[Condition] = (),
     assumptions: Sequence[dict] = (),
     max_rounds: int = 5,
+    fixed: ImportedRows | None = None,
 ) -> GenResult:
     """요청·알고 있는 것·입력 조건·가정으로 일정 초안을 만든다(모듈 설명글 참고).
 
@@ -298,6 +313,7 @@ async def generate(
     점검한 초안이 있으면 가장 나은 것을 저장한다(없으면 schedule=None). 결과 초안은 schedule_drafts 에만
     넣는다(일정 저장은 승인 뒤). ctx.stop_requested() 가 참이면 다음 LLM 호출 전에 멈추고 같은 식으로
     끝낸다(가장 나은 초안이 있으면 저장, 없으면 reason "중단했습니다.").
+    fixed(파일에서 가져온 행)를 주면 그 행으로 초안을 만든다(모듈 설명글 참고).
     """
     pack = load(domain)
     inputs, notes = _for_level(level, inputs)
@@ -308,7 +324,7 @@ async def generate(
     s = setting(pack, level, start, condition_tags(conditions))
     effective = [c for c in conditions if c.layer not in ("base", "domain") and c.enabled]
     brief = Brief(level, request, [dict(f) for f in facts], noted, effective, list(s.known_tags))
-    loop = _Loop(ctx, llm, pack, brief, s, conditions, notes)
+    loop = _Loop(ctx, llm, pack, brief, s, conditions, notes, fixed)
     try:
         await loop.run(max_rounds)
     except (LlmNotReady, LlmFailed) as error:

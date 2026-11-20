@@ -222,6 +222,13 @@ describe('scenario, rule and additions', () => {
   });
 });
 
+// 공정표 파일 요약 카드(Task 53 서버 사건). 제대로 된 그림은 Task 55 — 지금은 흐린 줄 대신 제목만 보이는 자리.
+test('schedule file card shows its title instead of the muted unknown line', () => {
+  renderCard('card', { kind: 'schedule_file', file_id: 12, sheet: '공정표', rows: 120, columns_found: ['작업명'], missing: ['기간'] });
+  expect(screen.getByRole('region', { name: '공정표 파일' })).toBeVisible();
+  expect(screen.queryByText(/보일 수 없는 카드/)).toBeNull();
+});
+
 // 서버 원본을 맥에서 직접 읽는다(vite 는 frontend 밖 파일을 import 하지 못하고, 이 저장소에는 node 형 정의가 없어 이름을 글로 넘긴다).
 // Docker 의 frontend 컨테이너에는 backend 폴더가 없다 — 그때는 건너뛴다.
 interface Fs {

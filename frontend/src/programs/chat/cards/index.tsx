@@ -53,6 +53,7 @@ export const CARDS: Record<string, ComponentType<CardProps>> = {
   'card:scenario_created': ScenarioCard,
   'card:rule_saved': RuleSavedCard,
   'card:visual': VisualCard,
+  'card:schedule_file': () => <Card title="공정표 파일">{null}</Card>, // Task 53 서버 사건의 자리 — 그림은 Task 55
   approval: ApprovalCard,
   questionnaire: QuestionnaireCard,
 };
