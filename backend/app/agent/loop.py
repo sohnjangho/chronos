@@ -29,13 +29,12 @@ from app.agent.context import (
     arguments_text,
     build_context,
     result_text,
-    submission_text,
     wire,
 )
 from app.agent.events import AgentEvent, json_safe
 from app.agent.workflow_log import TITLE_LIMIT, WorkflowLog
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply, Usage
-from app.store import chats, questionnaires
+from app.store import approvals, chats, questionnaires
 from app.store.llm_usage import UsageSum, last_call_id, usage_since
 from app.store.tables import User
 from app.tools import registry
@@ -47,6 +46,8 @@ MAX_STEPS = 12  # 한 턴의 LLM 호출 수 한도
 PING_INTERVAL_S = 15.0  # 이만큼 아무 사건이 없으면 ping
 SAVED_EVENTS = frozenset({"card", "questionnaire", "approval"})  # event 메시지로 저장하는 도구 사건
 QUESTIONNAIRE_TITLE = "질문지 답"
+REJECTED_TITLE = "승인 거부 뒤 다시 짜기"
+_TITLES = {"questionnaire_submitted": QUESTIONNAIRE_TITLE, "approval_rejected": REJECTED_TITLE}  # 글이 아닌 시작
 PING = AgentEvent("ping", {})
 _MAX_SQL_INT = 2**63 - 1
 
@@ -124,7 +125,10 @@ async def _next_event(task: asyncio.Future, queue: asyncio.Queue, interval: floa
     return None if queue.empty() else queue.get_nowait()
 
 
-def _user_content(session: Session, text: str | None, questionnaire_id: int | None) -> dict:
+def _user_content(session: Session, text: str | None, questionnaire_id: int | None, approval_id: int | None) -> dict:
+    if approval_id is not None:  # 거부하고 다시 짜게 한 승인 건(대화 API 가 확인했다)
+        row = approvals.get(session, approval_id)
+        return {"kind": "approval_rejected", "approval_id": approval_id, "title": row.title, "note": row.note}
     if questionnaire_id is None:
         return {"kind": "text", "text": json_safe(text or "")}
     result = questionnaires.results(questionnaires.get(session, questionnaire_id))
@@ -158,19 +162,18 @@ class _Turn:
 
     # ── 시작·끝 ──
 
-    def begin(self, text: str | None, questionnaire_id: int | None) -> None:
+    def begin(self, text: str | None, questionnaire_id: int | None, approval_id: int | None) -> None:
         """사용자 메시지를 저장하고(대화 제목·일정도 정함) commit 한 뒤 LLM 에 보낼 메시지를 만든다."""
         self.calls_before = last_call_id(self.session)
         chat = chats.get_chat(self.session, self.chat_id)
-        content = _user_content(self.session, text, questionnaire_id)
-        is_text = content["kind"] == "text"
-        title = content["text"].strip()[:TITLE_LIMIT] if is_text else QUESTIONNAIRE_TITLE
+        content = _user_content(self.session, text, questionnaire_id, approval_id)
+        title = _TITLES.get(content["kind"]) or content["text"].strip()[:TITLE_LIMIT]
         if not chat.title:
             chat.title = title
         if self.ui.schedule_id is not None:
             chat.schedule_id = self.ui.schedule_id
         self.schedule_id = chat.schedule_id
-        request = content["text"] if is_text else submission_text(content)
+        request = wire("user", content)["content"]  # 모델이 읽는 글 그대로
         self.log = WorkflowLog(self.session, self.chat_id, title=title, request=request)
         chats.add_message(self.session, self.chat_id, "user", content)
         self.session.commit()
@@ -349,17 +352,19 @@ async def run_turn(
     llm: LlmClient | None = None,
     max_steps: int = MAX_STEPS,
     questionnaire_id: int | None = None,
+    approval_id: int | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """한 턴을 돌며 사건을 내보낸다. 마지막 사건은 늘 done({}).
 
-    text 또는 questionnaire_id(제출된 질문지의 답·가정으로 이어 가기) 가운데 하나를 준다.
-    대화가 이 사용자의 것인지, 질문지가 맞는지, 이미 도는 턴이 있는지는 부르는 쪽(대화 API)이 확인한다.
+    text·questionnaire_id(제출된 질문지의 답·가정으로 이어 가기)·approval_id(거부하고 다시 짜게 한 승인 건으로
+    이어 가기) 가운데 하나를 준다.
+    대화가 이 사용자의 것인지, 질문지·승인 건이 맞는지, 이미 도는 턴이 있는지는 부르는 쪽(대화 API)이 확인한다.
     턴을 시작하다 실패해도 error(internal_error)·done 으로 끝난다.
     스트림이 닫히거나(연결 끊김) 취소되면 실행을 stopped 로 닫고 그대로 끝난다(더 내보내지 않는다).
     """
     turn = _Turn(session, user, chat_session_id, ui, llm or default_llm(session))
     try:
-        turn.begin(text, questionnaire_id)
+        turn.begin(text, questionnaire_id, approval_id)
         async with aclosing(turn.events(max_steps)) as events:
             async for event in events:
                 yield event

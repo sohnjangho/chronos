@@ -1,0 +1,120 @@
+"""승인 건(approvals): 만들기·읽기·목록·반영·결정 기록.
+
+한 줄 = 에이전트가 낸 변경 하나. kind 'first_save'(초안을 새 일정으로) | 'change'(일정 고침, base_version 위에).
+반영할 내용(snapshot_json·conditions_json·changes_json)과 화면에 보일 것(summary_json·diff_json)을 낼 때 정해 둔다.
+status: pending → approved | rejected(retry 면 에이전트가 다시 짠다) | conflict, 또는 처음부터 auto(자동 적용).
+"""
+
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session
+
+from app.store.drafts import get_draft
+from app.store.schedules import NotFound, create_schedule, from_json
+from app.store.tables import Approval, ChangeLog, ChatMessage
+from app.store.versions import mark_plan, save_new_version
+
+__all__ = [
+    "AGENT_NAME", "REQUEST_LIMIT", "STATUS_GROUPS", "NotFound", "apply", "create", "get", "last_request", "listed",
+    "pending_count", "pending_for_draft", "record_decision", "was_resumed",
+]
+
+AGENT_NAME = "에이전트"  # 자동 적용한 버전의 작성자
+REQUEST_LIMIT = 200
+STATUS_GROUPS = {"pending": ("pending",), "decided": ("approved", "rejected", "conflict"), "auto": ("auto",)}
+
+
+def create(session: Session, **fields: Any) -> Approval:
+    """승인 표에 한 줄을 넣고 flush 한다(id 가 생긴다). commit 은 부르는 쪽이 한다. 칸은 tables.Approval."""
+    row = Approval(**fields)
+    session.add(row)
+    session.flush()
+    return row
+
+
+def get(session: Session, approval_id: int) -> Approval:
+    """없으면 NotFound."""
+    row = session.get(Approval, approval_id)
+    if row is None:
+        raise NotFound(approval_id)
+    return row
+
+
+def listed(session: Session, group: str) -> list[Approval]:
+    """STATUS_GROUPS 의 한 묶음(pending·decided·auto), 새것부터."""
+    query = select(Approval).where(Approval.status.in_(STATUS_GROUPS[group])).order_by(Approval.id.desc())
+    return list(session.scalars(query))
+
+
+def pending_count(session: Session) -> int:
+    return session.scalar(select(func.count()).select_from(Approval).where(Approval.status == "pending"))
+
+
+def pending_for_draft(session: Session, draft_id: int) -> bool:
+    """이 초안의 승인 건이 아직 결정을 기다리는가."""
+    query = select(Approval.id).where(Approval.draft_id == draft_id, Approval.status == "pending")
+    return session.scalar(query) is not None
+
+
+def last_request(session: Session, chat_session_id: int | None) -> str:
+    """대화의 마지막 사용자 글(kind text), 앞 200자. 대화가 없거나 글이 없으면 빈 글."""
+    if chat_session_id is None:
+        return ""
+    query = (
+        select(ChatMessage.content_json)
+        .where(ChatMessage.session_id == chat_session_id, ChatMessage.role == "user")
+        .order_by(ChatMessage.id.desc())
+    )
+    text = next((c.get("text", "") for c in session.scalars(query) if c.get("kind") == "text"), "")
+    return text[:REQUEST_LIMIT]
+
+
+def apply(session: Session, row: Approval, *, by_name: str) -> None:
+    """승인 건의 변경을 일정에 넣는다. flush 만 하고 commit 하지 않는다. row.schedule_id·row.version 을 채운다.
+
+    - change: base_version 위에 새 버전(by_kind "agent"). 그 사이 바뀌었으면 VersionConflict(아무것도 쓰지 않음).
+    - first_save: 초안의 분야·정밀도로 새 일정(이름 = 제목)과 버전 1을 만들고 Plan 으로 둔다. 변경 이력 한 줄을 남기고
+      초안을 쓴 것(used_at·schedule_id)으로 표시한다.
+    """
+    schedule, conditions = from_json(row.snapshot_json), list(row.conditions_json)
+    if row.kind == "change":
+        row.version = save_new_version(
+            session, row.schedule_id, schedule, conditions, by_kind="agent", by_name=by_name, note=row.title,
+            changes=list(row.changes_json), base_version=row.base_version, commit=False,
+        )
+        return
+    draft = get_draft(session, row.draft_id)
+    sid = create_schedule(
+        session, name=row.title, domain=draft.domain, level=draft.level, schedule=schedule, conditions=conditions,
+        by_kind="agent", by_name=by_name, note=row.title, commit=False,
+    )
+    mark_plan(session, sid, 1, commit=False)
+    session.add(ChangeLog(schedule_id=sid, version_n=1, by_kind="agent", by_name=by_name, summary=row.title))
+    draft.used_at, draft.schedule_id = datetime.now(UTC), sid
+    row.schedule_id, row.version = sid, 1
+    session.flush()
+
+
+def record_decision(session: Session, row: Approval, status: str, *, by: str, note: str, retry: bool = False) -> bool:
+    """결정(approved·rejected·conflict)을 적는다 — DB 에서 아직 pending 일 때만(조건부 UPDATE 한 문).
+
+    다른 사람이 먼저 결정했으면 아무것도 바꾸지 않고 False(부르는 쪽이 rollback 한다). commit 은 부르는 쪽이 한다.
+    """
+    result = session.execute(
+        update(Approval)
+        .where(Approval.id == row.id, Approval.status == "pending")
+        .values(status=status, decided_by=by, note=note, retry=retry, decided_at=datetime.now(UTC))
+        .execution_options(synchronize_session=False)
+    )
+    session.expire(row, ["status", "decided_by", "note", "retry", "decided_at"])  # 다음에 읽을 때 DB 값으로
+    return result.rowcount == 1
+
+
+def was_resumed(session: Session, chat_id: int, approval_id: int) -> bool:
+    """이 승인 건의 거부로 이미 대화를 이어 갔는가(approval_rejected 메시지가 있는가)."""
+    query = select(ChatMessage.content_json).where(ChatMessage.session_id == chat_id, ChatMessage.role == "user")
+    return any(
+        c.get("kind") == "approval_rejected" and c.get("approval_id") == approval_id for c in session.scalars(query)
+    )

@@ -94,8 +94,8 @@ def _date_texts(rows: list[ChatMessage]) -> list[str]:
         if row.role != "user":
             continue
         content = row.content_json
-        if content.get("kind") != "questionnaire_submitted":
-            return [*texts, content.get("text", "")]
+        if content.get("kind") != "questionnaire_submitted":  # 글, 또는 승인 거부(그 이유 글)
+            return [*texts, content.get("text") or content.get("note", "")]
         if not texts:
             texts = [f"{a['value']} {a['label']}" for a in content["answers"]]
     return texts
@@ -205,6 +205,16 @@ def submission_text(content: dict) -> str:
     return "\n".join(lines)
 
 
+def rejection_text(content: dict) -> str:
+    """승인 거부(다시 짜기) 메시지를 모델이 읽을 한국어로."""
+    return "\n".join([
+        f"승인 요청이 거부됨 (승인 {content['approval_id']}: {content['title']}).",
+        f"거부 이유: {content['note']}",
+        "이 이유를 반영해 다시 짠 뒤 out__submit_change 로 다시 낸다.",
+        "일정 고침이면 일정을 다시 읽고 지금 버전을 base_version 으로 쓴다.",
+    ])
+
+
 def arguments_text(arguments: dict | None, raw: str | None) -> str:
     """도구 호출 인자를 LLM 에 다시 보낼 글: 받은 원문 → 인자 dict 의 JSON → "{}". "null" 은 보내지 않는다."""
     if raw is not None:
@@ -227,6 +237,8 @@ def wire(role: str, content: dict) -> dict:
     if role == "user":
         if content.get("kind") == "questionnaire_submitted":
             return {"role": "user", "content": submission_text(content)}
+        if content.get("kind") == "approval_rejected":
+            return {"role": "user", "content": rejection_text(content)}
         return {"role": "user", "content": content.get("text", "")}
     if role == "tool":
         return {"role": "tool", "tool_call_id": content["tool_call_id"], "content": content["content"]}

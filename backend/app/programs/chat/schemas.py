@@ -23,18 +23,20 @@ class UiIn(BaseModel):
 
 
 class MessageIn(BaseModel):
-    """text(사용자 글) 와 questionnaire_id(제출한 질문지로 이어 가기) 가운데 하나만 보낸다."""
+    """text(사용자 글)·questionnaire_id(제출한 질문지로 이어 가기)·approval_id(거부하고 다시 짜게 한 승인 건으로
+    이어 가기) 가운데 하나만 보낸다."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     text: str | None = Field(default=None, min_length=1, max_length=MAX_TEXT)
     ui: UiIn = Field(default_factory=UiIn)
     questionnaire_id: int | None = None
+    approval_id: int | None = None
 
     @model_validator(mode="after")
     def _exactly_one_input(self) -> "MessageIn":
-        if (self.text is None) == (self.questionnaire_id is None):
-            raise ValueError("text 와 questionnaire_id 가운데 하나만 보냅니다.")
+        if sum(x is not None for x in (self.text, self.questionnaire_id, self.approval_id)) != 1:
+            raise ValueError("text·questionnaire_id·approval_id 가운데 하나만 보냅니다.")
         return self
 
 

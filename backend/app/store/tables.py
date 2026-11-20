@@ -152,6 +152,50 @@ class ScheduleDraft(Base):
     report_json: Mapped[dict] = mapped_column(JSON)  # 마지막 점검(CheckReport) 모양
     assumptions_json: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [{label, value, source}]
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    used_at: Mapped[datetime | None] = mapped_column(default=None)  # 승인되어 일정으로 저장된 때
+    schedule_id: Mapped[int | None] = mapped_column(default=None)  # 그때 만든 일정 (FK 아님)
+
+
+class Approval(Base):
+    """에이전트가 낸 변경 하나(첫 저장 또는 일정 고침)와 그 결정. 모양은 app/store/approvals.py 가 정한다.
+
+    status: pending(승인 대기) | approved | rejected | conflict(승인하려 했으나 그 사이 일정이 바뀜) | auto(자동 적용).
+    """
+
+    __tablename__ = "approvals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int | None] = mapped_column(default=None)  # 첫 저장은 승인 뒤에 정해진다 (FK 아님)
+    draft_id: Mapped[int | None] = mapped_column(default=None)  # 첫 저장의 초안 (FK 아님)
+    kind: Mapped[str] = mapped_column(String(10))  # 'first_save' | 'change'
+    title: Mapped[str] = mapped_column(String(100))
+    reasons_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    base_version: Mapped[int]  # 이 버전 위에 쌓는다. 첫 저장은 0
+    summary_json: Mapped[dict] = mapped_column(JSON)  # 화면 요약(준공·크리티컬·조건 변화·점검·기한 여유)
+    diff_json: Mapped[list[dict]] = mapped_column(JSON, default=list)  # 바뀌는 액티비티 [{activity_id, …}]
+    snapshot_json: Mapped[dict] = mapped_column(JSON)  # 반영할 일정(store.schedules.to_json)
+    conditions_json: Mapped[list[dict]] = mapped_column(JSON, default=list)  # 반영할 조건 목록
+    changes_json: Mapped[list[dict]] = mapped_column(JSON, default=list)  # 변경 이력에 남길 [{id, field, from, to}]
+    status: Mapped[str] = mapped_column(String(10), default="pending")
+    retry: Mapped[bool] = mapped_column(default=False)  # 거부하면서 에이전트에게 다시 짜게 했는가
+    version: Mapped[int | None] = mapped_column(default=None)  # 반영해서 생긴 버전
+    restore_to: Mapped[int | None] = mapped_column(default=None)  # 자동 적용을 되돌릴 버전
+    request: Mapped[str] = mapped_column(Text, default="")  # 대화의 마지막 사용자 글(200자)
+    chat_session_id: Mapped[int | None] = mapped_column(default=None)  # 낸 대화 (FK 아님)
+    requested_by: Mapped[str] = mapped_column(String(100))
+    decided_by: Mapped[str | None] = mapped_column(String(100), default=None)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    decided_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+class Setting(Base):
+    """작업 공간 설정 한 줄(key → value). 지금은 approval_mode 하나."""
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    value: Mapped[str] = mapped_column(String(200))
 
 
 class ChatSession(Base):

@@ -25,13 +25,15 @@ from app.programs.chat.schemas import (
     MessageOut,
     StopOut,
 )
-from app.store import chats, questionnaires
+from app.store import approvals, chats, questionnaires
 from app.store.tables import ChatSession, User
 from app.store.timeutil import as_utc
 
 NOT_FOUND_MESSAGE = "대화를 찾을 수 없습니다."
 INVALID_QUESTIONNAIRE_MESSAGE = "이 대화에서 제출한 질문지가 아닙니다."
 RESUMED_QUESTIONNAIRE_MESSAGE = "이미 이어서 처리한 질문지입니다."
+INVALID_APPROVAL_MESSAGE = "이 대화에서 다시 짜기로 거부한 승인 건이 아닙니다."
+RESUMED_APPROVAL_MESSAGE = "이미 이어서 처리한 승인 건입니다."
 TURN_RUNNING_MESSAGE = "앞의 요청을 처리하는 중입니다."
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
@@ -84,29 +86,45 @@ def _check_questionnaire(session: Session, chat_id: int, qid: int) -> None:
         raise ApiError(422, "invalid_questionnaire", RESUMED_QUESTIONNAIRE_MESSAGE)
 
 
+def _check_approval(session: Session, chat_id: int, approval_id: int) -> None:
+    """거부하고 다시 짜게 했고(rejected·retry) 이 대화에서 낸 것이며 아직 이어 가지 않은 승인 건만 받는다."""
+    try:
+        row = approvals.get(session, approval_id)
+    except approvals.NotFound:
+        row = None
+    if row is None or row.status != "rejected" or not row.retry or row.chat_session_id != chat_id:
+        raise ApiError(422, "invalid_approval", INVALID_APPROVAL_MESSAGE)
+    if approvals.was_resumed(session, chat_id, approval_id):
+        raise ApiError(422, "invalid_approval", RESUMED_APPROVAL_MESSAGE)
+
+
 def start_turn(session: Session, user: User, chat_id: int, body: MessageIn) -> StreamingResponse:
-    """확인(404 → 422 질문지 → 409) 뒤 턴을 맡고 SSE 응답을 돌려준다(기다리는 동안 `: ping` 주석 줄)."""
+    """확인(404 → 422 질문지·승인 건 → 409) 뒤 턴을 맡고 SSE 응답을 돌려준다(기다리는 동안 `: ping` 주석 줄)."""
     _owned(session, user, chat_id)
     if body.questionnaire_id is not None:
         _check_questionnaire(session, chat_id, body.questionnaire_id)
+    if body.approval_id is not None:
+        _check_approval(session, chat_id, body.approval_id)
     try:
         held = turns.claim(chat_id)
     except turns.TurnRunning:
         raise ApiError(409, "turn_running", TURN_RUNNING_MESSAGE) from None
     ui = UiContext(body.ui.program, body.ui.schedule_id, body.ui.selected_activity)
-    stream = turn_stream(chat_id, user.id, body.text, ui, body.questionnaire_id, held)
+    stream = turn_stream(chat_id, user.id, body.text, ui, body.questionnaire_id, held, body.approval_id)
     weakref.finalize(stream, turns.release, chat_id, held)  # 시작도 못 하고 버려진 응답도 턴을 놓게
     return StreamingResponse(stream, media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 async def turn_stream(
-    chat_id: int, user_id: int, text: str | None, ui: UiContext, questionnaire_id: int | None, held: turns.Claim
+    chat_id: int, user_id: int, text: str | None, ui: UiContext, questionnaire_id: int | None, held: turns.Claim,
+    approval_id: int | None = None,
 ) -> AsyncIterator[str]:
     """턴의 사건을 SSE 글로. 스트림이 끝나거나 닫히면(연결 끊김) 턴을 놓는다."""
     try:
         with contextmanager(get_session)() as session:
             user = session.get(User, user_id)
-            turn = run_turn(session, user, chat_id, text, ui, questionnaire_id=questionnaire_id)
+            turn = run_turn(session, user, chat_id, text, ui, questionnaire_id=questionnaire_id,
+                            approval_id=approval_id)
             async with aclosing(turn) as events:
                 async for event in events:
                     yield to_sse(event)
