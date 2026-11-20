@@ -1,4 +1,5 @@
-import { useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react';
+import type { ProgramProps } from '../../os/registry';
 import Button from '../../shared/ui/Button';
 import { useChat } from './chatStore';
 import { useEffectiveUi, useSeeing } from './seeing';
@@ -38,9 +39,13 @@ function SendOrStop({ streaming, stopping, empty }: { streaming: boolean; stoppi
 /**
  * 입력창. Enter 로 보내고 Shift+Enter 는 줄바꿈(한글 조합 중 Enter 는 보내지 않음).
  * 답이 도는 동안 [보내기]가 [중단]으로 바뀐다. 서버가 거절하면(예: 앞 요청 처리 중) 그 글을 아래에 보이고 적은 글을 돌려준다.
+ * 창 params.compose 가 오면(새 params 마다) 그 글을 입력창에 넣는다. 보내기는 사용자가 누른다.
  */
-export default function Composer() {
+export default function Composer({ params }: { params?: ProgramProps['params'] }) {
   const [text, setText] = useState('');
+  useEffect(() => {
+    if (params?.compose) setText(params.compose);
+  }, [params]);
   const thread = useChat((s) => (s.currentId === null ? undefined : s.threads[s.currentId]));
   const notice = useChat((s) => (s.currentId === null ? s.notice : (s.threads[s.currentId]?.notice ?? null)));
   const seeing = useSeeing(useEffectiveUi());

@@ -24,7 +24,8 @@ function useWide(windowId: string): boolean {
 
 /**
  * params: session(그 대화 열기) · resume_questionnaire(제출한 질문지로 이어 가기) · resume_approval(다시 짜기로
- * 거부한 승인 건으로 이어 가기). 열린 창에 새 params 가 오면(같은 값이어도) 다시 따른다.
+ * 거부한 승인 건으로 이어 가기) · compose(입력창에 미리 넣을 글, 보내지는 않는다 — Composer 가 읽는다).
+ * 열린 창에 새 params 가 오면(같은 값이어도) 다시 따른다.
  */
 function useFollowParams(params: ProgramProps['params']) {
   useEffect(() => {
@@ -90,7 +91,7 @@ export default function Chat({ windowId, params }: ProgramProps) {
       <div className="ch-main">
         {wide ? <ConvHeader /> : <SessionBar />}
         <Conversation />
-        <Composer />
+        <Composer params={params} />
       </div>
       {wide && <ContextPanel />}
     </div>

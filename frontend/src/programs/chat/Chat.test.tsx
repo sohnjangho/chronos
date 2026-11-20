@@ -167,6 +167,30 @@ describe('R1 · params.session', () => {
   });
 });
 
+describe('Task 18 R5 · params.compose', () => {
+  const composer = () => screen.getByRole('textbox', { name: '에이전트에게 요청' });
+
+  test('pre-fills the composer of the given session and sends nothing by itself', async () => {
+    routes['/api/chat/sessions/12'] = { ...SESSION, id: 12, title: '조건 맞추기 — 5층 사무동 신축', running: false, pending_retries: [], messages: [] };
+    renderAt(480, { session: '12', compose: '조건에 맞게 일정을 고쳐 주세요.\n- 타워크레인: 1대 → 2대' });
+    await waitFor(() => expect(composer()).toHaveValue('조건에 맞게 일정을 고쳐 주세요.\n- 타워크레인: 1대 → 2대'));
+    expect(callsTo('/api/chat/sessions/12')).toHaveLength(1);
+    expect(callsTo('/api/chat/sessions/12/messages', 'POST')).toHaveLength(0);
+    feed([['done', {}]], 12);
+    await userEvent.click(screen.getByRole('button', { name: '보내기' }));
+    await waitFor(() => expect(callsTo('/api/chat/sessions/12/messages', 'POST')).toHaveLength(1));
+    expect(lastBody().text).toBe('조건에 맞게 일정을 고쳐 주세요.\n- 타워크레인: 1대 → 2대');
+  });
+
+  test('new compose params on an open window replace the text', async () => {
+    routes['/api/chat/sessions/12'] = { ...SESSION, id: 12, running: false, pending_retries: [], messages: [] };
+    const view = renderAt(480);
+    await userEvent.type(composer(), '적던 글');
+    view.rerender(<ChatAgain params={{ session: '12', compose: '새 요청' }} />);
+    await waitFor(() => expect(composer()).toHaveValue('새 요청'));
+  });
+});
+
 function ChatAgain({ params }: { params: Record<string, string> }) {
   return <Chat windowId="w1" params={params} />;
 }

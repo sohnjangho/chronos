@@ -1,0 +1,84 @@
+// 일정 미리 보기: 조건·규칙 창이 저장하지 않고 계산한 일정을 일정판(간트)에 넘기는 OS 저장소.
+// 프로그램끼리는 import 하지 않으므로 여기(os)에 둔다. 간트는 previews[일정 id] 가 있으면 그 일정을 그리고,
+// moved 의 before 자리에 이전 위치를 점선 막대로 남긴다. 로그아웃(resetShellState)·조건 창 닫기·되돌리기·확정에서 지운다.
+import { create } from 'zustand';
+
+/** 미리 보기 일정의 액티비티(서버 ScheduleView 의 activities 한 줄). 날짜는 'YYYY-MM-DD'. */
+export interface PreviewActivity {
+  id: string;
+  name: string;
+  kind: string;
+  wbs: string;
+  od: number;
+  rd: number | null;
+  progress: number;
+  actual_start: string | null;
+  actual_finish: string | null;
+  constraint: { type: string; date: string } | null;
+  resources: string[];
+  tags: string[];
+  es: string;
+  ef: string;
+  plan_start: string | null;
+  plan_finish: string | null;
+  tf: number;
+  ff: number;
+  critical: boolean;
+  status: string;
+  weight: number;
+}
+
+/** 서버 ScheduleView 와 같은 모양. version 은 기준 버전 그대로다(저장하지 않았다). plan_* 은 저장된 Plan 버전. */
+export interface PreviewView {
+  id: number;
+  name: string;
+  domain: string;
+  level: string;
+  version: number;
+  data_date: string | null;
+  finish: string;
+  plan_finish: string | null;
+  wbs: { code: string; name: string; parent: string | null }[];
+  activities: PreviewActivity[];
+  relations: { pred: string; succ: string; type: string; lag: number }[];
+  resources: { id: string; name: string; unit: string; capacity: number }[];
+  summary: { critical_count: number; negative_float_count: number; warning_count: number };
+}
+
+/** 시작이나 끝이 움직인 액티비티. before 는 저장된 조건으로 한 위치(간트의 점선 막대). */
+export interface MovedActivity {
+  activity_id: string;
+  name: string;
+  before: { start: string; finish: string };
+  after: { start: string; finish: string };
+}
+
+export interface SchedulePreview {
+  scheduleId: number;
+  view: PreviewView;
+  moved: MovedActivity[];
+  source: 'conditions';
+}
+
+interface SchedulePreviewState {
+  /** 일정 id → 그 일정의 미리 보기(일정마다 하나). */
+  previews: Record<number, SchedulePreview>;
+  /** 미리 보기를 넣는다(같은 일정이면 바꾼다). */
+  set(preview: SchedulePreview): void;
+  /** 그 일정의 미리 보기를 지운다. */
+  clear(scheduleId: number): void;
+  reset(): void;
+}
+
+export const useSchedulePreview = create<SchedulePreviewState>((set) => ({
+  previews: {},
+  set: (preview) => set((s) => ({ previews: { ...s.previews, [preview.scheduleId]: preview } })),
+  clear: (scheduleId) =>
+    set((s) => {
+      if (!(scheduleId in s.previews)) return {};
+      const previews = { ...s.previews };
+      delete previews[scheduleId];
+      return { previews };
+    }),
+  reset: () => set({ previews: {} }),
+}));

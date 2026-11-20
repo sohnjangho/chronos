@@ -10,6 +10,7 @@ from app.programs.approvals.router import router as approvals_router
 from app.programs.approvals.router import settings_router as approval_settings_router
 from app.programs.auth.router import router as auth_router
 from app.programs.chat.router import router as chat_router
+from app.programs.conditions.router import router as conditions_router
 from app.programs.llm_settings.router import router as llm_settings_router
 from app.programs.questionnaire.router import router as questionnaire_router
 from app.programs.schedule.router import router as schedule_router
@@ -35,6 +36,7 @@ app.include_router(approvals_router)
 app.include_router(approval_settings_router)
 app.include_router(auth_router)
 app.include_router(chat_router)
+app.include_router(conditions_router)
 app.include_router(llm_settings_router)
 app.include_router(questionnaire_router)
 app.include_router(schedule_router)
