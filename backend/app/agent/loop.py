@@ -70,6 +70,7 @@ NOT_READY = _Outcome("failed", {
     "message": "LLM 연결이 필요합니다. 설정에서 연결해 주세요.",
     "action": {"open": "settings", "params": {"section": "llm"}},
 })
+VISION_NOT_READY = _Outcome("failed", {**NOT_READY.error, "message": image_turn.NOT_READY_MESSAGE})  # 그림 턴
 INTERNAL = _Outcome("failed", {"code": "internal_error", "message": "처리 중 문제가 생겼습니다."})
 
 
@@ -241,15 +242,21 @@ class _Turn:
                     return
                 for event in self.vision.flush(self.session, self.messages):  # 끼울 그림·그림 읽기 안내
                     yield event
-                self.llm_ev = self.trace.llm_start(image_turn.for_trace(self.messages), self.vision.purpose)
-                self.session.commit()  # llm 사건(ms 없음)을 호출 전에 쓴다
-                self.llm_t0 = time.perf_counter()
-                with assignments.using_chat_model(self.chat_model):  # 이 호출 작업에만(도구 안 호출은 배정 그대로)
-                    self.start(self.llm.chat(self.vision.purpose, self.messages, tools=registry.as_llm_tools(),
-                                             chat_session_id=self.chat_id))
-                while (event := await self.waiting()) is not None:
-                    yield event
-                reply = self.reply()
+                while True:  # 그림을 보낸 호출이 거절되면 그림을 글로 바꿔 한 번 더(image_turn.Vision.fallback)
+                    self.llm_ev = self.trace.llm_start(image_turn.for_trace(self.messages), self.vision.purpose)
+                    self.session.commit()  # llm 사건(ms 없음)을 호출 전에 쓴다
+                    self.llm_t0 = time.perf_counter()
+                    with assignments.using_chat_model(self.chat_model):  # 이 호출 작업에만(도구 안 호출은 배정 그대로)
+                        self.start(self.llm.chat(self.vision.purpose, self.messages, tools=registry.as_llm_tools(),
+                                                 chat_session_id=self.chat_id))
+                    while (event := await self.waiting()) is not None:
+                        yield event
+                    reply = self.reply()
+                    if reply is not None or not self.vision.fallback(self.messages, self.outcome.error):
+                        break
+                    self.outcome = DONE
+                    if self.stopping():
+                        return
                 if reply is None:
                     return
                 text = json_safe(reply.text)
@@ -300,8 +307,8 @@ class _Turn:
         answer = None
         try:
             answer = task.result()
-        except LlmNotReady:
-            self.outcome = NOT_READY
+        except LlmNotReady as e:
+            self.outcome = VISION_NOT_READY if self.vision.on and e.reason == "no_connection" else NOT_READY
         except LlmFailed as e:
             self.outcome = _llm_failed(e)
         error = self.outcome.error["message"] if answer is None else None
@@ -355,7 +362,7 @@ class _Turn:
         """도구 결과를 기록한다: 단계 닫기, 모아 둔 사건을 event 메시지로, tool 메시지 — 한 번에 commit."""
         result = self.task.result()
         self.task = None
-        self.vision.after_tool(call.name, result)
+        result = self.vision.after_tool(call.name, result)  # 붙이지 않은 그림은 결과에 까닭(image_note)
         if not result.ok:
             self.session.rollback()  # 실패한 도구가 남긴 쓰기는 저장하지 않는다
         stopped = result.ok and turns.stop_requested(self.chat_id)  # 도는 동안 멈춤을 눌렀다

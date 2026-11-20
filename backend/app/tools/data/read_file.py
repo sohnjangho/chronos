@@ -4,14 +4,15 @@
   「없는 파일입니다.」(ToolError — 턴은 이어 간다).
 - query 를 주면 그 파일 안에서 뜻+낱말 검색 상위 PARTS 개(app.files.search.search 의 file_ids). 없으면 page 의 조각,
   page 도 없으면 앞 PARTS 조각. page: PDF 는 그 쪽(「n쪽」), 엑셀은 n번째 시트, 그 밖은 1쪽(전체)뿐.
-- 조각 글은 PART_LIMIT 자까지 — 조각끼리 100자 겹치므로 이어진 조각은 잃는 글이 없고, 5개가 도구 결과 한도(4,000자) 안에 든다.
+- 조각 글은 PART_LIMIT 자까지 — 5개와 나머지 칸이 도구 결과 한도(4,000자) 안에 넉넉히 든다.
 - image=true 이고 그림 파일이면 image true — 루프가 그 그림을 다음 메시지에 끼우고 그 단계부터 턴 끝까지
-  「그림 읽기」 모델로 부른다(app.agent.image_turn). 그림이 너무 크면 false.
+  「그림 읽기」 모델로 부른다(app.agent.image_turn). 그림이 아니거나 base64 가 한도를 넘으면 image false 와
+  image_note(까닭). 이 턴에 이미 붙인 그림·그림이 거절된 턴이면 루프가 같은 꼴로 바꾼다(Vision.after_tool).
 """
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.agent.image_turn import IMAGE_MAX_BYTES
+from app.agent import image_turn
 from app.files.search import search
 from app.store import files as file_store
 from app.store.tables import FileChunk, FileRow
@@ -19,9 +20,11 @@ from app.tools.context import ToolContext, ToolError
 from app.tools.registry import tool
 
 PARTS = 5
-PART_LIMIT = 700
+PART_LIMIT = 600
 NOT_FOUND = "없는 파일입니다."
 DELETED = "지워진 파일입니다."
+NOT_A_PICTURE = "그림 파일이 아니라 그림을 붙이지 않았습니다."
+TOO_BIG = "그림이 커서 붙이지 않았습니다. 설명 글(parts)을 쓰세요."
 
 
 class ReadIn(BaseModel):
@@ -48,6 +51,7 @@ class ReadOut(BaseModel):
     pages: int | None  # PDF 쪽 수 · 엑셀 시트 수
     parts: list[PartOut]
     image: bool  # true 면 다음 메시지에 그 그림이 붙는다
+    image_note: str | None = None  # image 를 청했지만 붙이지 않은 까닭
 
 
 def _row(ctx: ToolContext, file_id: int) -> FileRow:
@@ -76,6 +80,17 @@ def _page(row: FileRow, pieces: list[FileChunk], page: int) -> list[FileChunk]:
     return pieces
 
 
+def _image(row: FileRow, wanted: bool) -> tuple[bool, str | None]:
+    """(그림을 붙일까, 안 붙이면 그 까닭). 청하지 않았으면 (False, None)."""
+    if not wanted:
+        return False, None
+    if row.kind != "image":
+        return False, NOT_A_PICTURE
+    if not image_turn.fits(row.size):
+        return False, TOO_BIG
+    return True, None
+
+
 async def _parts(ctx: ToolContext, row: FileRow, args: ReadIn) -> list[tuple[str, str]]:
     if args.query is not None:
         hits = await search(ctx.session, args.query, limit=PARTS, file_ids=[row.id])
@@ -96,6 +111,6 @@ async def _parts(ctx: ToolContext, row: FileRow, args: ReadIn) -> list[tuple[str
 async def read_file(args: ReadIn, ctx: ToolContext) -> ReadOut:
     row = _row(ctx, args.file_id)
     parts = [PartOut(locator=locator, text=text[:PART_LIMIT]) for locator, text in await _parts(ctx, row, args)]
-    image = args.image and row.kind == "image" and row.size <= IMAGE_MAX_BYTES
+    image, note = _image(row, args.image)
     return ReadOut(file_id=row.id, name=row.name, kind=row.kind, status=row.status, reason=row.reason,
-                   pages=row.pages, parts=parts, image=image)
+                   pages=row.pages, parts=parts, image=image, image_note=note)

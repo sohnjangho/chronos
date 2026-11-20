@@ -5,7 +5,9 @@
 
 import base64
 import json
+import math
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -14,7 +16,7 @@ from app.agent.loop import run_turn
 from app.files import jobs
 from app.llm.client import LlmClient
 from app.store import chats, files
-from app.store.tables import ChatSessionFile, LlmCall, TraceEvent, User
+from app.store.tables import ChatSessionFile, LlmAssignment, LlmCall, TraceEvent, User
 from app.tools import registry
 from tests.fixtures.files import make
 from tests.llm_doubles import add_connection
@@ -145,6 +147,95 @@ async def test_plain_files_do_not_switch_model(session, run, chat_id, admin_user
     events = await run(llm, "메모 봐 줘", file_ids=[memo.id])
     assert "notice" not in [e.type for e in events] and purposes(session, chat_id) == ["normal"]
     assert llm.last_body["messages"][1]["content"] == f"메모 봐 줘\n(붙인 파일: #{memo.id} 메모.txt)"
+
+
+# ── Fix round 1: base64 기준 상한 · 거절되면 글로 한 번 더 · 연결 없음 · 같은 그림 두 번 ──
+
+
+def refused(status: int) -> httpx.Response:
+    return httpx.Response(status, json={"error": {"message": "image rejected"}})
+
+
+def llm_errors(session, chat_id) -> list[str | None]:
+    session.expire_all()
+    return [c.error_code for c in session.scalars(select(LlmCall).where(LlmCall.chat_session_id == chat_id)
+                                                  .order_by(LlmCall.id))]
+
+
+@pytest.mark.parametrize("raw_fits_only", [True, False])
+async def test_cap_counts_base64_length(session, run, chat_id, photo, monkeypatch, raw_fits_only):
+    from app.agent import image_turn
+
+    encoded = 4 * math.ceil(photo.size / 3)
+    monkeypatch.setattr(image_turn, "IMAGE_MAX_BYTES", photo.size if raw_fits_only else encoded)
+    llm = ScriptedLlm([reply("네")])
+    await run(llm, "이 사진 봐 줘", file_ids=[photo.id])
+    assert image_urls(llm.last_body) == ([] if raw_fits_only else [DATA_URI])
+
+
+async def test_provider_refusal_retries_once_without_pictures(session, run, chat_id, photo):
+    llm = ScriptedLlm([refused(400), reply("그림 없이 답합니다.")])
+    events = await run(llm, "이 사진 봐 줘", file_ids=[photo.id])
+    assert [len(image_urls(b)) for b in llm.bodies] == [1, 0]
+    note = f"(그림 #{photo.id} 1103.jpg: 모델이 그림을 받지 못해 보내지 않았습니다)"
+    assert note in json.dumps(llm.bodies[1], ensure_ascii=False)
+    assert [e.type for e in events if e.type in ("text", "error")] == ["text"]
+    assert purposes(session, chat_id) == ["vision", "vision"] and llm_errors(session, chat_id) == ["bad_request", None]
+
+
+async def test_refusal_is_retried_only_once(session, run, chat_id, photo):
+    llm = ScriptedLlm([refused(400), refused(400), reply("안 불림")])
+    events = await run(llm, "이 사진 봐 줘", file_ids=[photo.id])
+    assert len(llm.bodies) == 2 and events[-2].type == "error" and events[-2].data["reason"] == "bad_request"
+
+
+@pytest.mark.parametrize("status", [401, 429, 500])
+async def test_auth_or_limit_errors_are_not_retried(session, run, chat_id, photo, status):
+    llm = ScriptedLlm([refused(status), reply("안 불림")])
+    events = await run(llm, "이 사진 봐 줘", file_ids=[photo.id])
+    assert len(llm.bodies) == 1 and events[-2].type == "error"
+
+
+async def test_text_turn_refusal_is_not_retried(session, run, chat_id):
+    llm = ScriptedLlm([refused(400), reply("안 불림")])
+    events = await run(llm, "안녕")
+    assert len(llm.bodies) == 1 and events[-2].data["reason"] == "bad_request"
+
+
+async def test_vision_without_connection_says_so(session, run, chat_id, photo):
+    session.add(LlmAssignment(purpose="vision", connection_id=None, model="liner-claude-router"))
+    session.commit()
+    events = await run(ScriptedLlm([reply("안 불림")]), "이 사진 봐 줘", file_ids=[photo.id])
+    error = next(e for e in events if e.type == "error")
+    assert error.data["code"] == "llm_not_ready" and error.data["message"] == (
+        "그림 읽기 모델 연결이 없습니다 — 설정 → 작업별 모델 배정에서 「그림 읽기」를 정해 주세요")
+    assert error.data["action"] == {"open": "settings", "params": {"section": "llm"}}
+    events = await run(ScriptedLlm([reply("네")]), "글만 보냅니다")  # 그림 없는 턴은 그대로
+    assert "error" not in [e.type for e in events]
+
+
+async def test_same_picture_is_not_attached_twice(session, run, chat_id, photo):
+    llm = ScriptedLlm([
+        calls("files.read", {"file_id": photo.id, "image": True}),
+        reply("봤습니다."),
+    ])
+    await run(llm, "이 사진 봐 줘", file_ids=[photo.id])  # 메시지에 붙인 그림을 다시 열려 함
+    assert [len(image_urls(b)) for b in llm.bodies] == [1, 1]
+    result = json.loads(llm.bodies[1]["messages"][-1]["content"])
+    assert result["image"] is False and result["image_note"] == "이 턴에 이미 붙인 그림입니다. 앞의 그림을 보세요."
+
+
+async def test_reopened_picture_is_attached_once(session, run, chat_id, photo):
+    files.link(session, chat_id, photo.id)
+    llm = ScriptedLlm([
+        calls("files.read", {"file_id": photo.id, "image": True}),
+        calls("files.read", {"file_id": photo.id, "image": True}, call_id="call_2"),
+        reply("봤습니다."),
+    ])
+    await run(llm, "아까 사진 다시 봐 줘")
+    assert [len(image_urls(b)) for b in llm.bodies] == [0, 1, 1]
+    second = json.loads(llm.bodies[2]["messages"][-1]["content"])
+    assert second["image"] is False and "이미 붙인 그림" in second["image_note"]
 
 
 # ── 대화 API ────────────────────────────────────────────────────────

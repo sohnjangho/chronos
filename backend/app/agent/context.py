@@ -41,6 +41,7 @@ NOT_RUN = json.dumps({"error": "실행하지 않았습니다(턴이 중간에 �
 _LAYERS = (("base", "기본"), ("domain", "분야"), ("mine", "내 규칙"), ("input", "입력"))
 RULES_SHOWN, RULE_TEXT_LIMIT = 10, 60  # 대화 맥락에 보일 내 규칙 수·글 길이
 FILES_SHOWN, SUMMARY_LIMIT = 20, 120  # 「이 대화에 붙인 파일」 줄의 파일 수(최근 것)·한 줄 요약 길이
+NAME_LIMIT = REASON_LIMIT = 60  # 그 줄의 파일 이름·까닭 길이
 AXIS_ORDER = ("종류", "공종", "현장", "시기", "출처")  # 분류 축 차례(설계 5-2). 그 밖의 축은 뒤에
 FILE_STATUS = {"received": "읽는 중", "extracted": "읽음", "indexed": "저장됨", "classified": "분류됨", "failed": "실패"}
 RULE_TITLE_PREFIX = "내 규칙 저장 — "  # rules.propose 가 만드는 승인 건 제목의 앞(tools/out/propose_rule.TITLE_PREFIX)
@@ -233,18 +234,20 @@ def _axis_rank(axis: str) -> int:
     return AXIS_ORDER.index(axis) if axis in AXIS_ORDER else len(AXIS_ORDER)
 
 
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 def _file_text(session: Session, f: FileRow) -> str:
-    head = f"#{f.id} {f.name}"
+    head = f"#{f.id} {_clip(f.name, NAME_LIMIT)}"
     if f.deleted_at is not None:
         return f"{head} (지워짐)"
     axes = file_store.axes_of(session, f.id)
     values = "·".join(v for axis in sorted(axes, key=_axis_rank) for v in axes[axis])
-    status = FILE_STATUS.get(f.status, f.status) + (f" — {f.reason}" if f.reason else "")
+    status = FILE_STATUS.get(f.status, f.status) + (f" — {_clip(f.reason, REASON_LIMIT)}" if f.reason else "")
     text = f"{head} ({' · '.join(p for p in (f.kind, values, status) if p)})"
     summary = (f.summary or "").strip()
-    if summary:
-        text += f' "{summary[:SUMMARY_LIMIT]}{"…" if len(summary) > SUMMARY_LIMIT else ""}"'
-    return text
+    return f'{text} "{_clip(summary, SUMMARY_LIMIT)}"' if summary else text
 
 
 # ── 대화 기록 ───────────────────────────────────────────────────────

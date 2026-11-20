@@ -4,18 +4,21 @@
 """
 
 import io
+import json
 
 import pytest
 from pypdf import PdfWriter
 from sqlalchemy import select
 
-from app.agent import loop
+from app.agent import image_turn, loop
 from app.agent.context import UiContext, build_context
+from app.agent.trace import context_parts
 from app.files import jobs
 from app.files.search import search
 from app.llm.client import LlmClient
 from app.store import chats, files
 from app.store.tables import FileAxis, FileRow, User, WorkflowRun
+from app.tools import registry
 from app.tools.context import ToolContext
 from app.tools.registry import call
 from tests.fixtures.files import make
@@ -108,6 +111,24 @@ async def test_context_shows_latest_20_files(session, admin_user, chat_id, put):
     assert line.startswith(f"- 이 대화에 붙인 파일: #{rows[2].id} 메모02.txt (text · 읽음)")
 
 
+async def test_long_names_and_reasons_are_cut(session, admin_user, chat_id, put):
+    name = "가" * 100 + ".txt"
+    memo = put("골조", name, chat_id)
+    memo.reason = "나" * 100
+    session.commit()
+    [line] = files_lines(session, admin_user, chat_id)
+    assert f"#{memo.id} {'가' * 60}… (text · 읽음 — {'나' * 60}…)" in line
+
+
+async def test_trace_counts_the_files_line(session, admin_user, chat_id, put):
+    put("골조 1층 기둥", "메모.txt", chat_id)
+    tools = registry.as_llm_tools()
+    parts = {p["name"]: p["chars"] for p in context_parts(session, admin_user, chat_id, UiContext(), tools)}
+    system = build_context(session, admin_user, chat_id, UiContext())[0]["content"]
+    text_parts = ["지시문", "분야 지식", "정밀도", "지금 상황", "날짜 도우미"]
+    assert sum(parts[n] for n in text_parts) == len(system) - 4
+
+
 async def test_no_files_no_line(session, admin_user, chat_id):
     assert files_lines(session, admin_user, chat_id) == []
 
@@ -157,7 +178,8 @@ async def test_read_file_query_stays_inside_that_file(chat_ctx, chat_id, put):
 async def test_read_file_first_five_parts_and_missing_page(chat_ctx, put):
     long = put("\n".join(f"{n}번째 줄 " + "가" * 300 for n in range(20)), "긴메모.txt")
     r = await call("files.read", {"file_id": long.id}, chat_ctx)
-    assert len(r.output["parts"]) == 5 and all(len(p["text"]) <= 700 for p in r.output["parts"])
+    assert len(r.output["parts"]) == 5 and all(len(p["text"]) <= 600 for p in r.output["parts"])
+    assert len(json.dumps(r.output, ensure_ascii=False)) < 4000  # 도구 결과 한도 안
     missing = await call("files.read", {"file_id": long.id, "page": 2}, chat_ctx)
     assert missing.ok is False and missing.error == "없는 쪽입니다(이 파일은 1쪽까지입니다)."
 
@@ -167,12 +189,18 @@ async def test_read_unknown_file(chat_ctx):
     assert r.ok is False and r.error == "없는 파일입니다."
 
 
-async def test_read_image_flag_only_for_pictures(chat_ctx, put):
+async def test_read_image_flag_only_for_pictures(chat_ctx, put, monkeypatch):
     memo = put("골조", "메모.txt")
     photo = put(make.png(), "1103.jpg")
-    assert (await call("files.read", {"file_id": memo.id, "image": True}, chat_ctx)).output["image"] is False
-    assert (await call("files.read", {"file_id": photo.id, "image": True}, chat_ctx)).output["image"] is True
-    assert (await call("files.read", {"file_id": photo.id}, chat_ctx)).output["image"] is False
+    text = (await call("files.read", {"file_id": memo.id, "image": True}, chat_ctx)).output
+    assert (text["image"], text["image_note"]) == (False, "그림 파일이 아니라 그림을 붙이지 않았습니다.")
+    shown = (await call("files.read", {"file_id": photo.id, "image": True}, chat_ctx)).output
+    assert (shown["image"], shown["image_note"]) == (True, None)
+    plain = (await call("files.read", {"file_id": photo.id}, chat_ctx)).output
+    assert (plain["image"], plain["image_note"]) == (False, None)
+    monkeypatch.setattr(image_turn, "IMAGE_MAX_BYTES", photo.size)  # 원본은 들어가도 base64 는 넘는다
+    big = (await call("files.read", {"file_id": photo.id, "image": True}, chat_ctx)).output
+    assert (big["image"], big["image_note"]) == (False, "그림이 커서 붙이지 않았습니다. 설명 글(parts)을 쓰세요.")
 
 
 # ── files.search ────────────────────────────────────────────────────

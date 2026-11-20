@@ -184,11 +184,12 @@ def _count_parts(session: Session, user: User, chat_session_id: int, ui: UiConte
     knowledge = "\n\n".join(load(d).prompt() for d in domains())
     levels = levels_prompt()
     rows = recent_messages(session, chat_session_id, context.HISTORY_LIMIT)
+    attached = context.files_line(session, chat_session_id)  # 지금 상황 끝의 「이 대화에 붙인 파일」 줄(앞 줄바꿈 1자)
     chars = {
         "지시문": len(context.system_prompt()) - len(knowledge) - len(levels),
         "분야 지식": len(knowledge),
         "정밀도": len(levels),
-        "지금 상황": len(context.situation(session, user, ui)),
+        "지금 상황": len(context.situation(session, user, ui)) + (len(attached) + 1 if attached else 0),
         "날짜 도우미": len("\n".join(context.date_helper(rows, context.today()))),
         "대화": len(json.dumps(context.history(rows), ensure_ascii=False)),
         "도구 목록": len(json.dumps(tools, ensure_ascii=False)),
