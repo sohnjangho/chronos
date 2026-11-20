@@ -2,6 +2,7 @@ import { useEffect, type CSSProperties } from 'react';
 import { useApprovalPolling } from './approvals';
 import AppDrawer from './AppDrawer';
 import ApprovalWidget from './ApprovalWidget';
+import AttentionWidget from './AttentionWidget';
 import ContextPanel from './ContextPanel';
 import ShellDialogs from './Dialogs';
 import Dock from './Dock';
@@ -44,6 +45,7 @@ export default function Desktop() {
       >
         <MenuBar />
         <ApprovalWidget />
+        <AttentionWidget />
         <div className="os-windows">
           {wins.map((w) => (
             <Window key={w.id} win={w} active={w === active} />
