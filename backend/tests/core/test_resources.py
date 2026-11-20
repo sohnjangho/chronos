@@ -352,3 +352,13 @@ def test_two_hundred_activities_level_quickly():
     assert took < 2.0, took
     assert r.overloads == () and len(r.shifted) > 50
     assert all(r.dates[i] == (row.es, row.ef) for i, row in r.cpm.rows.items())
+
+
+def test_leveling_keeps_the_start_floor_of_a_pushed_successor():
+    # A·B 가 crane 을 다툰다. B 는 3/3~3/4 로 밀리지만 그 후행 C 는 시작 하한 3/8 에 그대로 있다
+    s = replace(sched([act("A", 2, resources=("crane",)), act("B", 2, resources=("crane",)), act("D", 3),
+                       act("C", 1, start_floor=date(2027, 3, 8))],
+                      [Relation("A", "D"), Relation("B", "C")]), resources=(R,))
+    r = level(s, compute(s))
+    assert r.dates["B"] == (date(2027, 3, 3), date(2027, 3, 4)) and r.dates["C"] == (date(2027, 3, 8), date(2027, 3, 8))
+    assert r.shifted == ("B",) and r.schedule.activities[3].start_floor == date(2027, 3, 8)

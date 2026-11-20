@@ -5,14 +5,10 @@
 넣기(`insert_delay`)
 - 시작 전 task: 기간(od)은 그대로, 시작을 미룬다. 넣기 전 **맞춘** 일정
   (`level(s, compute(s), shift=True)`)의 ES — 사용자가 보는 시작 — 를 그 액티비티 달력
-  (꼬리표 포함)의 근무일로 `days` 만큼 민 날을 시작 하한으로 건다.
-  - constraint 가 없거나 SNET → `SNET(max(기존, 하한))`.
-  - FNLT → 그 제약은 두고, 앞에 숨은 0일 시작 마일스톤 `~<ID>`(SNET=하한, `~<ID>` → `<ID>` FS)
-    를 넣는다. 이미 있으면 그 SNET 을 올린다. 결과의 id 목록에서는 `~` 로 시작하는 id 를 뺀다.
+  (꼬리표 포함)의 근무일로 `days` 만큼 민 날을 `start_floor = max(기존 start_floor, 하한)` 로
+  건다. 사용자 조건(SNET·FNLT)은 건드리지 않는다.
 - 진행 중(actual_start 있음, actual_finish 없음): `rd = (rd 또는 od) + days`.
 - 끝남·마일스톤: 넣지 않고 그 까닭(`FINISHED_NOTE`·`MILESTONE_NOTE`)을 돌려준다.
-- `~` 로 시작하는 사용자 id 는 받지 않는다(`DelayInputError`): 사건이 겨누는 id 와,
-  `analyze` 가 받은 일정의 액티비티 id.
 - `start` 는 차례와 표시에만 쓴다.
 
 재기(`diff_impact`)
@@ -27,15 +23,13 @@ from datetime import date
 
 from app.core.calendar import WorkCalendar
 from app.core.cpm import compute
-from app.core.model import Activity, Constraint, Relation, Schedule
+from app.core.model import Activity, Schedule
 from app.core.resources import LevelResult, Peak, level
 
 _Dates = dict[str, tuple[date, date]]
 
 FINISHED_NOTE = "이미 끝난 액티비티입니다. 지연이 실적에 들어 있습니다."
 MILESTONE_NOTE = "마일스톤에는 기간을 더할 수 없습니다. 앞 작업에 기록해 주세요."
-HIDDEN = "~"  # 숨은 도우미 마일스톤 id 의 머리
-_HIDDEN_ID = "'~' 로 시작하는 액티비티 id 는 쓸 수 없습니다."
 
 
 @dataclass(frozen=True)
@@ -104,8 +98,6 @@ def ordered(events: Iterable[DelayEvent]) -> list[DelayEvent]:
 
 
 def _target(schedule: Schedule, event: DelayEvent) -> Activity:
-    if event.activity_id.startswith(HIDDEN):
-        raise DelayInputError(event.id, _HIDDEN_ID)
     a = next((x for x in schedule.activities if x.id == event.activity_id), None)
     if a is None:
         raise DelayInputError(event.id, f"없는 액티비티입니다: {event.activity_id}")
@@ -119,35 +111,16 @@ def _with(schedule: Schedule, new: Activity) -> Schedule:
     return replace(schedule, activities=acts)
 
 
-def _raised(c: Constraint | None, bound: date) -> Constraint:
-    """SNET(max(기존, 하한)). 기존이 없으면 하한."""
-    return Constraint("SNET", bound if c is None else max(c.date, bound))
-
-
-def _hold(schedule: Schedule, a: Activity, bound: date) -> Schedule:
-    """FNLT 는 그대로 두고 앞의 숨은 시작 마일스톤으로 시작을 미룬다."""
-    hid = HIDDEN + a.id
-    old = next((x for x in schedule.activities if x.id == hid), None)
-    if old is not None:
-        return _with(schedule, replace(old, constraint=_raised(old.constraint, bound)))
-    gate = Activity(hid, hid, "start_ms", a.wbs, 0, constraint=Constraint("SNET", bound))
-    return replace(
-        schedule,
-        activities=schedule.activities + (gate,),
-        relations=schedule.relations + (Relation(hid, a.id),),
-    )
-
-
 def _leveled_dates(schedule: Schedule) -> _Dates:
     return level(schedule, compute(schedule), shift=True).dates
 
 
 def _push_start(schedule: Schedule, a: Activity, days: int, dates: _Dates) -> Schedule:
     es = dates[a.id][0]  # 맞춘 일정의 시작
-    bound = WorkCalendar(schedule.calendar).shift(es, days, a.tags)
-    if a.constraint is not None and a.constraint.type == "FNLT":
-        return _hold(schedule, a, bound)
-    return _with(schedule, replace(a, constraint=_raised(a.constraint, bound)))
+    floor = WorkCalendar(schedule.calendar).shift(es, days, a.tags)
+    if a.start_floor is not None:
+        floor = max(a.start_floor, floor)
+    return _with(schedule, replace(a, start_floor=floor))
 
 
 def insert_delay(schedule: Schedule, event: DelayEvent) -> tuple[Schedule, str | None]:
@@ -167,7 +140,9 @@ def _insert(
     if a.actual_start is not None:
         rd = (a.rd if a.rd is not None else a.od) + event.days
         return _with(schedule, replace(a, rd=rd)), None
-    return _push_start(schedule, a, event.days, dates or _leveled_dates(schedule)), None
+    if dates is None:
+        dates = _leveled_dates(schedule)
+    return _push_start(schedule, a, event.days, dates), None
 
 
 @dataclass(frozen=True)
@@ -184,20 +159,15 @@ def _measure(schedule: Schedule) -> _State:
     return _State(schedule, level(schedule, cpm, shift=True), level(schedule, cpm, shift=False).overloads)
 
 
-def _shown(state: _State) -> list[Activity]:
-    """일정 차례의 액티비티. 숨은 도우미는 뺀다."""
-    return [a for a in state.schedule.activities if not a.id.startswith(HIDDEN)]
-
-
 def _affected(before: _State, after: _State) -> tuple[str, ...]:
     b, a = before.level.dates, after.level.dates
-    return tuple(x.id for x in _shown(after) if x.id in b and b[x.id] != a[x.id])
+    return tuple(x.id for x in after.schedule.activities if x.id in b and b[x.id] != a[x.id])
 
 
 def _milestones(cal: WorkCalendar, before: _State, after: _State) -> tuple[MilestoneShift, ...]:
     b, a = before.level.dates, after.level.dates
     out = []
-    for x in _shown(after):
+    for x in after.schedule.activities:
         if x.kind != "task" and x.id in b and b[x.id][1] != a[x.id][1]:
             old, new = b[x.id][1], a[x.id][1]
             out.append(MilestoneShift(x.id, old, new, cal.workdays_between(old, new)))
@@ -250,8 +220,8 @@ def _impact(
         finish_delta=delta,
         absorbed=max(0, days - max(0, delta)) if applied else 0,
         milestones=_milestones(cal, before, after),
-        critical_added=tuple(x.id for x in _shown(after) if x.id in crit_a and x.id not in crit_b),
-        critical_removed=tuple(x.id for x in _shown(before) if x.id in crit_b and x.id not in crit_a),
+        critical_added=tuple(x.id for x in after.schedule.activities if x.id in crit_a and x.id not in crit_b),
+        critical_removed=tuple(x.id for x in before.schedule.activities if x.id in crit_b and x.id not in crit_a),
         affected=_affected(before, after),
         new_clashes=_new_clashes(before, after),
         cost=_cost(daily_cost, applied, delta),
@@ -283,8 +253,6 @@ def diff_impact(
 def analyze(schedule: Schedule, events: Sequence[DelayEvent]) -> DelayAnalysis:
     """`ordered` 차례로 하나씩 넣어 가며 각 사건의 몫을 잰다. ScheduleError 는 그대로 나간다."""
     events = ordered(events)
-    if events and any(a.id.startswith(HIDDEN) for a in schedule.activities):
-        raise DelayInputError(events[0].id, _HIDDEN_ID)  # 숨은 도우미와 헷갈리지 않게
     for e in events:  # 받은 일정 기준으로 계산 전에 다 확인한다
         _target(schedule, e)
     base = state = _measure(schedule)

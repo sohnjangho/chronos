@@ -78,7 +78,7 @@ def _rich() -> Schedule:
             actual_start=date(2027, 3, 9), actual_finish=date(2027, 3, 12),
             constraint=Constraint("FNLT", date(2027, 4, 1)),
         ),
-        Activity("F", "준공", "finish_ms", "1", 0),
+        Activity("F", "준공", "finish_ms", "1", 0, start_floor=date(2027, 4, 5)),
     )
     rels = (
         Relation("S", "A"), Relation("A", "B", "SS", 2), Relation("B", "F", "FF", -1),
@@ -99,6 +99,15 @@ def test_roundtrip_keeps_every_field_and_is_plain_json():
     d = to_json(s)
     assert json.loads(json.dumps(d)) == d
     assert from_json(d) == s
+
+
+def test_start_floor_is_persisted(session):
+    s = _rich()
+    assert to_json(s)["activities"][3]["start_floor"] == "2027-04-05"
+    assert from_json(to_json(s)).activities[3].start_floor == date(2027, 4, 5)
+    sid = store(session, s)
+    loaded, _, _ = load(session, sid)
+    assert loaded.activities[3].start_floor == date(2027, 4, 5)
 
 
 def test_pinned_start_is_never_persisted(session):
@@ -217,7 +226,7 @@ def test_from_json_fills_defaults_for_missing_keys(sample_schedule):
     d = to_json(sample_schedule)
     del d["data_date"], d["calendar"]["holidays"], d["calendar"]["blocked"]
     for a in d["activities"]:
-        for key in ("rd", "progress", "actual_start", "actual_finish", "constraint", "resources", "tags"):
+        for key in ("rd", "progress", "actual_start", "actual_finish", "constraint", "resources", "tags", "start_floor"):
             del a[key]
     del d["resources"]
     for r in d["relations"]:

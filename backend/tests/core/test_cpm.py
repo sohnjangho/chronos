@@ -344,3 +344,41 @@ def test_pinned_start_is_a_lower_bound_and_keeps_fnlt_float():
     assert compute(sched([started], [])).rows["A"].es == date(2027, 3, 1)
     done = act("B", 2, pinned_start=date(2027, 3, 8), actual_finish=date(2027, 3, 12))
     assert compute(sched([act("A", 3), done], [Relation("A", "B")])).rows["B"].es == date(2027, 3, 4)
+
+
+# ── 시작 하한 start_floor (기록한 지연) ─────────────────────────────
+
+
+def test_start_floor_is_a_lower_bound_on_its_own_workday():
+    r = compute(sched([act("A", 3), act("B", 2, start_floor=date(2027, 3, 6))], [Relation("A", "B")]))
+    assert (r.rows["B"].es, r.rows["B"].ef) == (date(2027, 3, 8), date(2027, 3, 9))   # 토요일 → 월요일
+    r = compute(sched([act("A", 3), act("B", 2, start_floor=date(2027, 3, 2))], [Relation("A", "B")]))
+    assert r.rows["B"].es == date(2027, 3, 4)   # 선행이 더 늦으면 선행을 따른다
+
+
+def test_start_floor_with_snet_takes_the_later_one():
+    snet = Constraint("SNET", date(2027, 3, 10))
+    later_snet = act("B", 2, constraint=snet, start_floor=date(2027, 3, 8))
+    assert compute(sched([act("A", 3), later_snet], [Relation("A", "B")])).rows["B"].es == date(2027, 3, 10)
+    later_floor = act("B", 2, constraint=snet, start_floor=date(2027, 3, 12))
+    assert compute(sched([act("A", 3), later_floor], [Relation("A", "B")])).rows["B"].es == date(2027, 3, 12)
+
+
+def test_start_floor_past_fnlt_keeps_the_fnlt_and_shows_negative_float():
+    fnlt = Constraint("FNLT", date(2027, 3, 10))
+    b = act("B", 2, constraint=fnlt, start_floor=date(2027, 3, 10))
+    row = compute(sched([act("A", 3), b], [Relation("A", "B")])).rows["B"]
+    assert (row.es, row.ef, row.lf, row.tf) == (date(2027, 3, 10), date(2027, 3, 11), date(2027, 3, 10), -1)
+
+
+def test_start_floor_and_data_date_take_the_later_one():
+    s = sched([act("A", 2, start_floor=date(2027, 3, 8))], [])
+    assert compute(replace(s, data_date=date(2027, 3, 10))).rows["A"].es == date(2027, 3, 10)
+    assert compute(replace(s, data_date=date(2027, 3, 2))).rows["A"].es == date(2027, 3, 8)
+
+
+def test_start_floor_is_ignored_once_there_are_actuals():
+    started = act("A", 3, start_floor=date(2027, 3, 8), actual_start=date(2027, 3, 1))
+    assert compute(sched([started], [])).rows["A"].es == date(2027, 3, 1)
+    done = act("B", 2, start_floor=date(2027, 3, 8), actual_finish=date(2027, 3, 12))
+    assert compute(sched([act("A", 3), done], [Relation("A", "B")])).rows["B"].es == date(2027, 3, 4)

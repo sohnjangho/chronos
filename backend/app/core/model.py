@@ -29,8 +29,11 @@ class Activity:
     constraint: Constraint | None = None
     resources: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
-    # 자원 맞춤이 정한 시작 하한. constraint 와 따로 둔다.
+    # 자원 맞춤이 정한 시작 하한. constraint 와 따로 둔다. 계산 중에만 쓰고 저장하지 않는다.
     pinned_start: date | None = None
+    # 기록한 지연이 정한 시작 하한("이 날 전에는 시작 못 함"). 사용자 조건(constraint)과 따로
+    # 두며 저장한다. 실적이 있으면 계산에서 무시한다.
+    start_floor: date | None = None
 
 
 @dataclass(frozen=True)

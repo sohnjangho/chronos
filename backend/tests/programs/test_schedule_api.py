@@ -462,6 +462,7 @@ def test_changes_json_for_post_delete_and_put(client, admin, session, sid):
     added = {
         "id": "A1010", "name": "마감", "kind": "task", "wbs": "1", "od": 1, "rd": None, "progress": 0.0,
         "actual_start": None, "actual_finish": None, "constraint": None, "resources": [], "tags": [],
+        "start_floor": None,
     }
     assert _last_changes(session, sid) == [
         {"id": "A1010", "field": "activity", "from": None, "to": added},

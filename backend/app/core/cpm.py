@@ -210,6 +210,8 @@ def _early_dates(net: _Net, a: Activity, early: _Dates) -> tuple[date, date]:
         bounds.append(_earliest(net.cal, a.constraint.date, _AM, start_side, a.tags))
     if a.pinned_start and not a.actual_finish:  # 자원 맞춤이 정한 하한(실적이 있으면 무시)
         bounds.append(_earliest(net.cal, a.pinned_start, _AM, start_side, a.tags))
+    if a.start_floor and not a.actual_finish:  # 기록한 지연이 정한 하한(실적이 있으면 무시)
+        bounds.append(_earliest(net.cal, a.start_floor, _AM, start_side, a.tags))
     if net.data_date and not a.actual_finish:  # 안 끝난 일은 Data Date 앞에 놓이지 않는다
         bounds.append(_earliest(net.cal, net.data_date, _AM, start_side, a.tags))
     bounds += [_start_bound(net, a, r, early) for r in net.preds[a.id]]

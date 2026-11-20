@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import date
+from time import perf_counter
 
 import pytest
 
@@ -24,7 +25,7 @@ from app.core.model import (
     Relation,
     Resource,
 )
-from tests.core.helpers import act, sched
+from tests.core.helpers import act, big_schedule, sched
 
 # CAL5 = 주 5일·공휴일 없음, 2027-03-01 월
 BASE = sched([act("A", 3), act("B", 2), act("C", 1)], [Relation("A", "B"), Relation("A", "C")])   # A 3/1~3/3, B 3/4~3/5, C 3/4, 준공 3/5
@@ -49,12 +50,15 @@ def test_not_started_task_starts_later_with_the_same_duration():       # PM 결�
     s = analyze(BASE, [ev("e1", "B", 4, 2)])
     after = insert_delay(BASE, ev("e1", "B", 4, 2))[0]
     b = next(a for a in after.activities if a.id == "B")
-    assert b.od == 2 and b.constraint == Constraint("SNET", date(2027, 3, 8))   # 맞춘 ES 3/4 → 2 근무일 뒤 3/8
+    assert b.od == 2 and b.start_floor == date(2027, 3, 8) and b.constraint is None   # 맞춘 ES 3/4 → 2 근무일 뒤 3/8
     assert s.impacts[0].finish_after == date(2027, 3, 9)
-def test_not_started_task_with_fnlt_keeps_it_and_hides_the_helper_milestone():
+def test_not_started_task_with_fnlt_keeps_it_and_sets_the_floor():
     s = sched([act("A", 3), replace(act("B", 2), constraint=Constraint("FNLT", date(2027, 3, 12)))], [Relation("A", "B")])
     i = analyze(s, [ev("e", "B", 4, 2)]).impacts[0]
-    assert i.finish_after == date(2027, 3, 9) and all(not x.startswith("~") for x in i.affected + i.critical_added)
+    assert i.finish_after == date(2027, 3, 9) and i.affected == ("B",)
+    after = insert_delay(s, ev("e", "B", 4, 2))[0]
+    assert after.activities[1].constraint == Constraint("FNLT", date(2027, 3, 12)) and after.activities[1].start_floor == date(2027, 3, 8)
+    assert len(after.activities) == 2 and after.relations == s.relations
 def test_in_progress_adds_to_remaining():
     s = replace(sched([act("A", 3, actual_start=date(2027, 3, 1), rd=1), act("B", 2), act("C", 1)], [Relation("A", "B"), Relation("A", "C")]), data_date=date(2027, 3, 2))
     i = analyze(s, [ev("e", "A", 2, 2)]).impacts[0]                      # 준공 3/4 → 3/8
@@ -74,6 +78,7 @@ def test_new_resource_clash_and_leveling():
     s = replace(sched([act("A", 2, resources=("crane",)), act("X", 3), act("D", 2, resources=("crane",))], [Relation("X", "D")]), resources=(R,))
     i = analyze(s, [ev("e", "A", 1, 2)]).impacts[0]                      # A 가 3/3~3/4 로 밀려 D(3/4~) 와 겹침 → 맞춤이 D 를 3/5~3/8 로
     assert i.new_clashes == (Clash("crane", date(2027, 3, 4), 1, 1),) and (i.finish_delta, i.absorbed) == (1, 1)
+    assert i.affected == ("A", "D") and i.critical_removed == ("X",)   # D 가 밀려 X 에 여유 1일
 def test_bad_input_raises():
     with pytest.raises(DelayInputError) as e:
         analyze(BASE, [ev("e", "Z", 4, 1)])
@@ -100,15 +105,15 @@ def test_zero_days_message_and_event_id():
 
 
 def test_pushed_start_leaves_float_to_its_predecessor():
-    # B 의 시작을 SNET 으로 미루면 A 는 B 를 기다리지 않아도 되므로 여유 2일이 생긴다
+    # B 의 시작 하한을 미루면 A 는 B 를 기다리지 않아도 되므로 여유 2일이 생긴다
     i = analyze(BASE, [ev("e1", "B", 4, 2)]).impacts[0]
     assert i.critical_removed == ("A",)
 
 
-def test_existing_snet_is_raised_to_the_new_bound():
+def test_user_snet_is_left_and_the_floor_is_set():
     s = sched([act("A", 3), replace(act("B", 2), constraint=Constraint("SNET", date(2027, 3, 10)))], [Relation("A", "B")])
     b = next(a for a in insert_delay(s, ev("e", "B", 10, 2))[0].activities if a.id == "B")
-    assert b.constraint == Constraint("SNET", date(2027, 3, 12))   # 맞춘 ES 3/10 → 2 근무일 뒤 3/12
+    assert b.constraint == Constraint("SNET", date(2027, 3, 10)) and b.start_floor == date(2027, 3, 12)   # 맞춘 ES 3/10 → 2 근무일 뒤 3/12
 
 
 def test_in_progress_without_rd_adds_to_original_duration():
@@ -119,36 +124,21 @@ def test_in_progress_without_rd_adds_to_original_duration():
     assert (i.finish_before, i.finish_after, i.finish_delta) == (date(2027, 3, 5), date(2027, 3, 9), 2)
 
 
-def test_fnlt_helper_milestone_is_built_once_and_moved_by_a_second_delay():
+def test_second_delay_raises_the_floor():
     once = insert_delay(FNLT_B, ev("e1", "B", 4, 2))[0]
     twice = insert_delay(once, ev("e2", "B", 8, 1))[0]
     b = next(a for a in twice.activities if a.id == "B")
-    helpers = [a for a in twice.activities if a.id == "~B"]
     assert b.constraint == Constraint("FNLT", date(2027, 3, 12)) and b.od == 2
-    assert len(helpers) == 1 and helpers[0].kind == "start_ms"
-    assert helpers[0].constraint == Constraint("SNET", date(2027, 3, 9))   # 그때 맞춘 ES 3/8 → 1 근무일 뒤 3/9
-    assert twice.relations.count(Relation("~B", "B")) == 1
+    assert b.start_floor == date(2027, 3, 9)   # 그때 맞춘 ES 3/8 → 1 근무일 뒤 3/9
+    assert len(twice.activities) == 2 and twice.relations == FNLT_B.relations
     r = analyze(FNLT_B, [ev("e1", "B", 4, 2), ev("e2", "B", 8, 1)])
     assert [x.finish_delta for x in r.impacts] == [2, 1] and r.final_finish == date(2027, 3, 10)
 
 
-TILDE = "'~' 로 시작하는 액티비티 id 는 쓸 수 없습니다."
-
-
-def test_event_on_a_tilde_id_is_rejected():
-    with pytest.raises(DelayInputError) as e:
-        analyze(FNLT_B, [ev("e1", "B", 4, 2), ev("e2", "~B", 8, 1)])
-    assert (e.value.event_id, e.value.message) == ("e2", TILDE)
-    with pytest.raises(DelayInputError) as e:
-        insert_delay(BASE, ev("e3", "~A", 4, 1))
-    assert (e.value.event_id, e.value.message) == ("e3", TILDE)
-
-
-def test_schedule_with_a_tilde_id_is_rejected_not_hidden():
+def test_no_activity_id_is_reserved():
     s = sched([act("A", 3), act("~X", 1)], [Relation("A", "~X")])
-    with pytest.raises(DelayInputError) as e:
-        analyze(s, [ev("late", "A", 5, 1), ev("early", "A", 1, 1)])
-    assert (e.value.event_id, e.value.message) == ("early", TILDE)   # 차례상 첫 사건
+    i = analyze(s, [ev("e", "A", 1, 1)]).impacts[0]
+    assert i.affected == ("A", "~X") and i.finish_delta == 1
 
 
 def test_milestone_event_is_not_inserted_and_costs_nothing():
@@ -180,7 +170,7 @@ def test_start_is_pushed_by_the_activity_own_workdays():
     cal = CalendarSpec(5, blocked=(BlockedPeriod((3, 5), (3, 5), "타설"),))
     s = sched([act("A", 3), act("B", 2, tags=("타설",))], [Relation("A", "B")], cal=cal)
     b = next(a for a in insert_delay(s, ev("e", "B", 4, 2))[0].activities if a.id == "B")
-    assert b.constraint == Constraint("SNET", date(2027, 3, 9))   # 맞춘 ES 3/4, 3/5 는 B 의 쉬는 날 → 3/8, 3/9
+    assert b.start_floor == date(2027, 3, 9)   # 맞춘 ES 3/4, 3/5 는 B 의 쉬는 날 → 3/8, 3/9
 
 
 def test_delay_moves_a_leveled_task_from_its_leveled_start():         # 컨트롤러 판정 11-20
@@ -188,6 +178,32 @@ def test_delay_moves_a_leveled_task_from_its_leveled_start():         # 컨트�
     s = replace(sched([act("A", 2, resources=("crane",)), act("B", 2, resources=("crane",))], []), resources=(R,))
     # 맞추기 전 A·B 모두 3/1, 맞춘 뒤 A 3/1~3/2, B 3/3~3/4 (2일 밀림)
     b = next(a for a in insert_delay(s, ev("e", "B", 3, 3))[0].activities if a.id == "B")
-    assert b.constraint == Constraint("SNET", date(2027, 3, 8))   # 맞춘 시작 3/3 → 3 근무일 뒤 3/8 (맞추기 전 3/1 기준이면 3/4)
+    assert b.start_floor == date(2027, 3, 8)   # 맞춘 시작 3/3 → 3 근무일 뒤 3/8 (맞추기 전 3/1 기준이면 3/4)
     i = analyze(s, [ev("e", "B", 3, 3)]).impacts[0]
     assert (i.finish_before, i.finish_after, i.finish_delta, i.absorbed) == (date(2027, 3, 4), date(2027, 3, 9), 3, 0)
+
+
+def test_not_started_task_with_a_data_date_moves_from_its_planned_start():   # M-3
+    s = replace(BASE, data_date=date(2027, 3, 3))                          # A 3/3~3/5, B 3/8~3/9, 준공 3/9
+    b = next(a for a in insert_delay(s, ev("e", "B", 8, 2))[0].activities if a.id == "B")
+    assert b.start_floor == date(2027, 3, 10)
+    i = analyze(s, [ev("e", "B", 8, 2)]).impacts[0]
+    assert (i.finish_before, i.finish_after, i.finish_delta) == (date(2027, 3, 9), date(2027, 3, 11), 2)
+
+
+def test_floor_skips_a_holiday():                                             # M-3
+    s = replace(BASE, calendar=CalendarSpec(5, holidays=(date(2027, 3, 5),)))   # B 3/4~3/8, 준공 3/8
+    b = next(a for a in insert_delay(s, ev("e", "B", 4, 2))[0].activities if a.id == "B")
+    assert b.start_floor == date(2027, 3, 9)                               # 3/4 → 3/8(1), 3/9(2)
+    i = analyze(s, [ev("e", "B", 4, 2)]).impacts[0]
+    assert (i.finish_before, i.finish_after, i.finish_delta) == (date(2027, 3, 8), date(2027, 3, 10), 2)
+
+
+def test_two_hundred_activities_five_events_quickly():                       # M-4
+    s = big_schedule()
+    events = [ev(f"e{k}", aid, 1 + k, 2) for k, aid in enumerate(["W0-10", "W1-20", "W2-30", "W3-40", "W0-45"])]
+    t0 = perf_counter()
+    r = analyze(s, events)
+    took = perf_counter() - t0
+    assert len(r.impacts) == 5 and all(x.applied for x in r.impacts) and r.total_delta >= 0
+    assert took < 5.0, took   # 맥에서 약 0.42 s
