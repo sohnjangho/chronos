@@ -49,6 +49,9 @@ export async function renderGantt(params: Record<string, string> = { id: '1' }) 
 const q = (sel: string) => document.querySelector<SVGElement | HTMLElement>(sel);
 export const bar = (aid: string) => q(`[data-bar="${aid}"]`);
 export const actualBar = (aid: string) => q(`[data-actual="${aid}"]`);
+/** 둘째 줄(Actual·예측)의 예측 막대. */
+export const forecastBar = (aid: string) => q(`[data-forecast="${aid}"]`);
+export const ghostTrack = (aid: string) => q(`[data-ghost-track="${aid}"]`);
 export const ghost = (aid: string) => q(`[data-ghost="${aid}"]`);
 export const handle = (aid: string) => q(`[data-resize="${aid}"]`);
 export const link = (key: string) => q(`[data-link="${key}"]`);
@@ -76,4 +79,17 @@ export function bigView(n = 200): ScheduleView {
     finish: day(n + 6),
     plan_finish: day(n + 6),
   });
+}
+
+/**
+ * 지연 일정(가상): A2020 진행 중·지연 — Plan 05.06~07.14, 실적 시작 05.11, 지금 계산 05.11~07.20.
+ * A3010 시작 전·밀림 — Plan 07.15~09.01, 지금 계산 07.21~09.07. A3020 여유 18 — LF 09.01.
+ */
+export function delayedView(): ScheduleView {
+  const over: Record<string, Partial<Activity>> = {
+    A2020: { es: '2027-05-11', ef: '2027-07-20', ls: '2027-05-11', lf: '2027-07-20' },
+    A3010: { es: '2027-07-21', ef: '2027-09-07', ls: '2027-07-21', lf: '2027-09-07' },
+    A3020: { ls: '2027-07-09', lf: '2027-09-01' },
+  };
+  return makeView({ activities: makeView().activities.map((a) => ({ ...a, ...over[a.id] })) });
 }

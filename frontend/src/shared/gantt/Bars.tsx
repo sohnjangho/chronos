@@ -1,11 +1,16 @@
 // 간트 막대 조각(SVG). y 는 그 줄의 위쪽, 줄 높이는 ROW_H. 색은 gantt.css(토큰 변수)가 정한다.
 // 간트·CPM·비교 판이 같이 쓴다. data-* 는 시험·내보내기·고치기가 막대를 찾는 이름이다.
+// 액티비티 줄은 두 칸이다(PM 결정 11-20): 위 = Plan, 아래 = 「Actual·예측」(실적 진하게 + 예측 옅게).
 import type { ReactNode, SVGProps } from 'react';
 import './gantt.css';
 
 export const ROW_H = 30;
-const BAR_Y = 8;
-const BAR_H = 12;
+const BAR_H = 10;
+/** 줄 안 두 칸의 위쪽: Plan 칸 · Actual·예측 칸. */
+const LANE_Y = { plan: 4, track: 16 } as const;
+export type Lane = keyof typeof LANE_Y;
+/** 관계선이 닿는 높이(Actual·예측 칸 가운데). */
+export const TRACK_MID = LANE_Y.track + BAR_H / 2;
 
 /** 줄 바탕(고른 줄 표시·누르기). */
 export function Band({ y, w, className, ...rest }: { y: number; w: number; className?: string } & SVGProps<SVGRectElement>) {
@@ -17,36 +22,38 @@ interface BarProps extends Omit<SVGProps<SVGGElement>, 'x' | 'y' | 'id'> {
   x: number;
   w: number;
   y: number;
-  critical?: boolean;
-  /** 0~1. 막대 앞쪽을 진하게 채운다. */
-  progress?: number;
   children?: ReactNode;
 }
 
-/** 일반 막대 + 진도 채움. children 은 막대 위에 겹칠 것(끌기 손잡이 등). */
-export function Bar({ id, x, w, y, critical, progress = 0, children, ...g }: BarProps) {
-  const tone = critical ? ' critical' : '';
+/** Plan 막대(위 칸). children 은 막대 위에 겹칠 것(끌기 손잡이 등). */
+export function Bar({ id, x, w, y, children, ...g }: BarProps) {
   return (
     <g {...g}>
-      <rect className={`gantt-bar${tone}`} data-bar={id} x={x} y={y + BAR_Y} width={Math.max(w, 1)} height={BAR_H} rx={2} />
-      {progress > 0 && (
-        <rect className={`gantt-progress${tone}`} data-progress={id} x={x} y={y + BAR_Y} width={w * Math.min(progress, 1)} height={BAR_H} rx={2} />
-      )}
+      <rect className="gantt-bar" data-bar={id} x={x} y={y + LANE_Y.plan} width={Math.max(w, 1)} height={BAR_H} rx={2} />
       {children}
     </g>
   );
 }
 
-/** 막대 오른쪽 끝의 끌기 손잡이(보이지 않는 넓은 칸 + 얇은 표시). */
+/** 아래 칸의 막대: 실적(진하게, data-actual) 또는 예측(옅게, data-forecast — CPM 층이면 크리티컬 빨강). */
+export function TrackBar({ id, x, w, y, kind, critical }: { id: string; x: number; w: number; y: number; kind: 'actual' | 'forecast'; critical?: boolean }) {
+  const data = kind === 'actual' ? { 'data-actual': id } : { 'data-forecast': id };
+  const cls = kind === 'actual' ? 'gantt-actualbar' : `gantt-forecast${critical ? ' critical' : ''}`;
+  return <rect className={cls} {...data} x={x} y={y + LANE_Y.track} width={Math.max(w, 2)} height={BAR_H} rx={2} />;
+}
+
+/** Plan 막대 오른쪽 끝의 끌기 손잡이(보이지 않는 넓은 칸 + 얇은 표시). */
 export function EndHandle({ id, x, y, ...rest }: { id: string; x: number; y: number } & Omit<SVGProps<SVGRectElement>, 'x' | 'y' | 'id'>) {
-  return <rect className="gantt-handle" data-resize={id} x={x - 4} y={y + BAR_Y - 2} width={8} height={BAR_H + 4} {...rest} />;
+  return <rect className="gantt-handle" data-resize={id} x={x - 4} y={y + LANE_Y.plan - 2} width={8} height={BAR_H + 4} {...rest} />;
 }
 
 const diamond = (cx: number, cy: number, r: number) => `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
 
-/** 마일스톤 ◆. */
-export function Milestone({ id, cx, y, critical }: { id: string; cx: number; y: number; critical?: boolean }) {
-  return <path className={`gantt-ms${critical ? ' critical' : ''}`} data-ms={id} d={diamond(cx, y + ROW_H / 2, 6)} />;
+/** 마일스톤 ◆: Plan 칸(data-ms) 또는 Actual·예측 칸(data-ms-track, 실적 is-actual · 예측 is-forecast). */
+export function Milestone({ id, cx, y, lane = 'plan', kind, critical }: { id: string; cx: number; y: number; lane?: Lane; kind?: 'actual' | 'forecast'; critical?: boolean }) {
+  const cls = ['gantt-ms', lane === 'plan' ? 'is-plan' : `is-${kind}`, critical ? 'critical' : ''].filter(Boolean).join(' ');
+  const data = lane === 'plan' ? { 'data-ms': id } : { 'data-ms-track': id };
+  return <path className={cls} {...data} d={diamond(cx, y + LANE_Y[lane] + BAR_H / 2, 5)} />;
 }
 
 /** 기한 ◇(조건의 날짜). */
@@ -63,15 +70,10 @@ export function Summary({ id, x, w, y }: { id: string; x: number; w: number; y: 
   return <rect className="gantt-summary" data-summary={id} x={x} y={y + 12} width={Math.max(w, 1)} height={6} rx={3} />;
 }
 
-/** 막대 아래 가는 Actual 줄. */
-export function ActualLine({ id, x, w, y }: { id: string; x: number; w: number; y: number }) {
-  return <rect className="gantt-actual" data-actual={id} x={x} y={y + 22} width={Math.max(w, 2)} height={4} rx={1} />;
-}
-
-/** 여유 꼬리: 막대 끝(종료 다음 날 0시)부터 LF 끝까지, 막대 아래 가는 줄. */
+/** 여유 꼬리: 예측 막대 끝(EF 다음 날 0시)부터 LF 끝까지, 아래 칸 밑의 가는 줄. */
 export function FloatTail({ id, x, w, y, title }: { id: string; x: number; w: number; y: number; title: string }) {
   return (
-    <rect className="gantt-float" data-float={id} x={x} y={y + 26} width={Math.max(w, 1)} height={2}>
+    <rect className="gantt-float" data-float={id} x={x} y={y + LANE_Y.track + BAR_H + 1} width={Math.max(w, 1)} height={2}>
       <title>{title}</title>
     </rect>
   );
@@ -86,9 +88,9 @@ export function Blocked({ tag, x, w, h, title }: { tag: string; x: number; w: nu
   );
 }
 
-/** 점선 막대(미리 보기 이전 자리·끌기 중 새 자리). */
-export function Ghost({ x, w, y, ...rest }: { x: number; w: number; y: number } & Omit<SVGProps<SVGRectElement>, 'x' | 'y'>) {
-  return <rect className="gantt-ghost" x={x} y={y + BAR_Y} width={Math.max(w, 2)} height={BAR_H} rx={2} {...rest} />;
+/** 점선 막대(미리 보기 이전 자리·끌기 중 새 자리). lane: 어느 칸(Plan·Actual·예측)에. */
+export function Ghost({ x, w, y, lane = 'plan', ...rest }: { x: number; w: number; y: number; lane?: Lane } & Omit<SVGProps<SVGRectElement>, 'x' | 'y'>) {
+  return <rect className="gantt-ghost" x={x} y={y + LANE_Y[lane]} width={Math.max(w, 2)} height={BAR_H} rx={2} {...rest} />;
 }
 
 /** 자원 줄·자원 묶음 줄 안의 옅은 막대(겹치면 진해진다). */
@@ -100,10 +102,13 @@ export function LaneBar({ x, w, y, h = BAR_H, title, ...rest }: { x: number; w: 
   );
 }
 
-/** 막대 옆 이름. */
-export function Label({ x, y, text, tone }: { x: number; y: number; text: string; tone?: 'danger' }) {
+/** 이름 글 폭 어림(11px 글꼴: 한글 11 · 그 밖 6.5). 차트 끝에서 잘리지 않게 놓을 쪽을 정할 때만 쓴다. */
+export const labelWidth = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 11 : 6.5), 0);
+
+/** 막대 옆 이름. anchor 'end' 면 x 에서 왼쪽으로 쓴다(차트 오른쪽 끝). */
+export function Label({ x, y, text, tone, anchor }: { x: number; y: number; text: string; tone?: 'danger'; anchor?: 'end' }) {
   return (
-    <text className={`gantt-label${tone ? ` is-${tone}` : ''}`} x={x} y={y + 19}>
+    <text className={`gantt-label${tone ? ` is-${tone}` : ''}`} x={x} y={y + 19} textAnchor={anchor}>
       {text}
     </text>
   );

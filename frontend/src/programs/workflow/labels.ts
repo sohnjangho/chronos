@@ -1,5 +1,5 @@
 // 서버 이름(도구·프로그램·상태)을 화면 글로, 시간·토큰을 짧은 글로. 모르는 이름은 받은 그대로 보인다.
-import { getProgram } from '../../os/registry';
+import { getProgram, resolveProgram } from '../../os/registry';
 
 const TOOLS: Record<string, string> = {
   'generate.extract_conditions': '조건 뽑기',
@@ -14,8 +14,9 @@ const TOOLS: Record<string, string> = {
 };
 export const toolLabel = (tool: string) => TOOLS[tool] ?? tool;
 
-/** 도구가 속한 프로그램 이름(없으면 뒷단 도구). */
-export const programLabel = (program: string | null) => (program === null ? '뒷단 도구' : (getProgram(program)?.name ?? program));
+/** 도구가 속한 프로그램 이름(없으면 뒷단 도구). 옛 단계의 없어진 id(일정판 schedule)는 지금 프로그램 이름으로. */
+export const programLabel = (program: string | null) =>
+  program === null ? '뒷단 도구' : (getProgram(resolveProgram(program).id)?.name ?? program);
 
 export const STEP_STATUS: Record<string, string> = { running: '실행 중', done: '완료', failed: '실패', stopped: '멈춤', pending: '대기' };
 export const stepStatus = (s: string) => STEP_STATUS[s] ?? s;

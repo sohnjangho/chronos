@@ -1,6 +1,8 @@
 """첫 도구 셋: schedule.read · calc.cpm · ui.open_window."""
 
+import re
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -30,8 +32,10 @@ def sched_ctx(ctx, sid):
 
 def test_specs():
     specs = {t.name: t for t in list_tools()}
-    assert (specs["schedule.read"].program, specs["schedule.read"].mutates) == ("schedule", False)
-    assert (specs["calc.cpm"].program, specs["calc.cpm"].mutates) == ("schedule", False)
+    # Task 16b 리뷰 I1: 일정판(schedule)이 나뉘었다 — 일정 읽기는 스케줄, 경로 계산은 CPM 프로그램 도구.
+    assert (specs["schedule.read"].program, specs["schedule.read"].mutates) == ("schedule-table", False)
+    assert (specs["calc.cpm"].program, specs["calc.cpm"].mutates) == ("cpm", False)
+    assert all(specs[n].program in OPENABLE for n in ("schedule.read", "calc.cpm"))
     assert (specs["ui.open_window"].program, specs["ui.open_window"].mutates) == (None, False)
     assert all(specs[n].description for n in ("schedule.read", "calc.cpm", "ui.open_window"))
 
@@ -69,6 +73,26 @@ def test_open_window_offers_the_screen_programs_by_id_and_name():
     for text in ("schedule-table(스케줄", "gantt(간트차트", "cpm(CPM", "progress(공정률"):
         assert text in spec.description
     assert "일정판" not in spec.description
+
+
+FRONTEND_PROGRAMS = Path(__file__).resolve().parents[3] / "frontend" / "src" / "programs"
+
+
+def _registered_ids() -> list[str]:
+    """화면 등록부(frontend/src/programs/index.ts 가 import 하는 프로그램)의 manifest id."""
+    index = (FRONTEND_PROGRAMS / "index.ts").read_text(encoding="utf-8")
+    folders = re.findall(r"^import \w+ from '\./([\w-]+)';", index, re.MULTILINE)
+    manifests = [(FRONTEND_PROGRAMS / f / "index.ts").read_text(encoding="utf-8") for f in folders]
+    return [re.search(r"^\s+id: '([^']+)'", m, re.MULTILINE)[1] for m in manifests]
+
+
+# Task 16b 리뷰 minor 4: 에이전트가 열 수 있는 프로그램 = 화면에 등록한 프로그램. Docker 의 backend 컨테이너에는
+# frontend 가 붙어 있지 않아 건너뛴다(맥에서 직접 돌릴 때 본다).
+@pytest.mark.skipif(not FRONTEND_PROGRAMS.is_dir(), reason="frontend 폴더가 없다(Docker backend 컨테이너)")
+def test_open_window_lists_exactly_the_registered_screen_programs():
+    spec = {t.name: t for t in list_tools()}["ui.open_window"]
+    enum = spec.input_model.model_json_schema()["properties"]["program"]["enum"]
+    assert sorted(enum) == sorted(_registered_ids())
 
 
 @pytest.mark.parametrize("program", ["schedule", "schedule-board", "x"])

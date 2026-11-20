@@ -21,7 +21,7 @@ const viewportX = (el: Element | null, attr = 'x') => num(el, attr) - chartBody(
 test('toolbar has the 8-2 tools and no dead buttons (each disabled one says why)', async () => {
   await renderGantt();
   const names = within(toolbar()).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent);
-  for (const n of ['Plan', 'Actual', 'CPM', '축소', '확대', '맞춤', '선택 맞춤', 'Data Date', '오늘', '이전 기간', '다음 기간', 'WBS', '자원', '모두 펼치기', '모두 접기', '열', '범례', '되돌리기', '다시 하기', 'CSV 내보내기', '그림 내보내기'])
+  for (const n of ['Plan', 'Actual·예측', 'CPM', '축소', '확대', '맞춤', '선택 맞춤', 'Data Date', '오늘', '이전 기간', '다음 기간', 'WBS', '자원', '모두 펼치기', '모두 접기', '열', '범례', '되돌리기', '다시 하기', 'CSV 내보내기', '그림 내보내기'])
     expect(names).toContain(n);
   expect(names).not.toContain('일정');
   for (const b of within(toolbar()).getAllByRole('button')) if ((b as HTMLButtonElement).disabled) expect(b.getAttribute('title')).toBeTruthy();
@@ -127,8 +127,10 @@ test('범례 explains every mark, including what the resource strip does not sho
   await renderGantt();
   await userEvent.click(tool('범례'));
   const legend = screen.getByRole('dialog', { name: '범례' });
-  for (const t of ['크리티컬', '진도', 'Actual', '실적 없이', '마일스톤', '기한', 'Data Date', '오늘', '쉬는 날', '작업 금지', '여유 꼬리', '관계선', '미리 보기', '자원 줄'])
+  for (const t of ['크리티컬', 'Actual·예측', '실적 없이', '예측', '마일스톤', '기한', 'Data Date', '오늘', '쉬는 날', '작업 금지', '여유 꼬리', '관계선', '미리 보기', '자원 줄'])
     expect(legend).toHaveTextContent(t);
+  // PM 결정: 둘째 줄은 실적(진하게)·예측(옅게, 지금 계산의 EF 까지), CPM 층은 예측 막대에 붙는다.
+  expect(legend).toHaveTextContent('지연은 예측 막대가 Plan 막대보다 길어져 보입니다');
   expect(legend).toHaveTextContent('필요량');
   expect(legend).not.toHaveTextContent('Plan 버전'); // PM 결정 11-20: 회색 Plan 버전 줄은 없앴다
 });

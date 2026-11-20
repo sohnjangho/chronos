@@ -11,6 +11,8 @@ export const CONFLICT_NOTICE = '그 사이 일정이 바뀌어 다시 불러왔�
 export interface Notice {
   tone: 'error' | 'info';
   text: string;
+  /** 창 안의 동작에서 난 안내(틀린 칸 글·오늘이 기간 밖 등)면 그 창 id — 그 창에만 보인다. 없으면(서버 거절·되돌리기 등) 모든 창. */
+  windowId?: string;
 }
 
 /** 되돌리기·다시 하기 한 칸: 일정이 expect 버전일 때 restore 버전의 내용으로 새 버전을 만든다. */
@@ -32,6 +34,8 @@ export interface ScheduleState {
   selected: string | null;
   /** 고른 창의 id. 다른 창은 그 줄로 따라간다(초점은 옮기지 않는다). 창이 아닌 곳에서 골랐으면 null. */
   selectedBy: string | null;
+  /** 고를 때마다 하나씩 는다 — 같은 줄을 다시 골라도 다른 창이 다시 따라가게. */
+  selectedN: number;
   /** 그 행을 보이게 하라는 요청(n 이 바뀔 때마다 한 번). by = 요청한 창(null 이면 모든 창). */
   reveal: { aid: string; n: number; by: string | null } | null;
   notice: Notice | null;
@@ -64,6 +68,7 @@ const INITIAL = {
   loadError: null,
   selected: null,
   selectedBy: null,
+  selectedN: 0,
   reveal: null,
   notice: null,
   pending: 0,
@@ -206,8 +211,9 @@ function makeStore(id: number): ScheduleStore {
       },
       undoLast: () => travel('undo'),
       redoLast: () => travel('redo'),
-      select: (aid, by = null) => set({ selected: aid, selectedBy: aid === null ? null : by }),
-      revealActivity: (aid, by = null) => set((s) => ({ selected: aid, selectedBy: by, reveal: { aid, n: (s.reveal?.n ?? 0) + 1, by } })),
+      select: (aid, by = null) => set((s) => ({ selected: aid, selectedBy: aid === null ? null : by, selectedN: s.selectedN + 1 })),
+      revealActivity: (aid, by = null) =>
+        set((s) => ({ selected: aid, selectedBy: by, selectedN: s.selectedN + 1, reveal: { aid, n: (s.reveal?.n ?? 0) + 1, by } })),
       setNotice: (notice) => set({ notice }),
       reset: w.reset,
     };

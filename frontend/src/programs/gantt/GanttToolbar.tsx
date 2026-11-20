@@ -30,7 +30,7 @@ export interface ToolbarProps {
 
 const LAYERS: { key: keyof Layers; label: string; swatch: string }[] = [
   { key: 'plan', label: 'Plan', swatch: 'is-plan' },
-  { key: 'actual', label: 'Actual', swatch: 'is-actual' },
+  { key: 'actual', label: 'Actual·예측', swatch: 'is-actual' },
   { key: 'cpm', label: 'CPM', swatch: 'is-cpm' },
 ];
 
@@ -38,7 +38,7 @@ function LayerChips({ layers, onLayer }: Pick<ToolbarProps, 'layers' | 'onLayer'
   return (
     <>
       {LAYERS.map((l) => {
-        const off = l.key === 'cpm' && !layers.plan;
+        const off = l.key === 'cpm' && !layers.actual;
         return (
           <button
             key={l.key}
@@ -46,7 +46,7 @@ function LayerChips({ layers, onLayer }: Pick<ToolbarProps, 'layers' | 'onLayer'
             className="gt-chip"
             aria-pressed={layers[l.key]}
             disabled={off}
-            title={off ? 'CPM 층은 Plan 막대 위에 그립니다. Plan 을 켜세요.' : undefined}
+            title={off ? 'CPM 층은 Actual·예측 막대 위에 그립니다. Actual·예측을 켜세요.' : undefined}
             onClick={() => onLayer(l.key)}
           >
             <span className={`gt-swatch ${l.swatch}`} aria-hidden="true" />
@@ -73,15 +73,16 @@ function ColumnPanel({ visible, onVisible }: Pick<ToolbarProps, 'visible' | 'onV
 }
 
 const LEGEND: [string, string][] = [
-  ['is-plan', 'Plan 막대 — 지금 일정을 실적 없이 계산한 날짜(Plan 시작~종료). 고치거나 승인하면 바뀐다. 앞쪽 진한 부분이 진도'],
-  ['is-cpm', '크리티컬(CPM 층) — 여유 0 이하. 관계선도 CPM 층에서 그리며, 두 끝이 모두 크리티컬이면 빨강'],
-  ['is-float', '여유 꼬리(CPM 층) — Plan 막대 끝에서 LF(늦은 종료)까지 막대 아래 회색 줄'],
-  ['is-actual', 'Actual — 막대 아래 초록 줄(시작~종료, 끝나지 않았으면 Data Date 까지)'],
-  ['is-ms', '마일스톤 ◆ · 기한 ◇(마일스톤 기한 조건) · 준공 기한 빨간 점선(finish_by 조건)'],
+  ['is-plan', 'Plan(위 칸) — 지금 일정을 실적 없이 계산한 날짜(Plan 시작~종료). 고치거나 승인하면 바뀝니다'],
+  ['is-actual', 'Actual·예측(아래 칸) — 진한 초록은 실적: 실제 시작~실제 종료, 진행 중이면 Data Date 까지'],
+  ['is-forecast', '예측 — 옅은 점선 막대: 실적이 끝난 곳(시작 전이면 시작)부터 지금 계산의 종료(EF)까지. 지연은 예측 막대가 Plan 막대보다 길어져 보입니다'],
+  ['is-cpm', '크리티컬(CPM 층) — 예측 막대를 빨강으로(지금 계산에서 여유 0 이하). 관계선도 아래 칸을 이으며 두 끝이 모두 크리티컬이면 빨강'],
+  ['is-float', '여유 꼬리(CPM 층) — 예측 막대 끝(EF)에서 LF(늦은 종료)까지 아래 칸 밑의 회색 줄'],
+  ['is-ms', '마일스톤 ◆(위 칸 Plan · 아래 칸 실적이나 예측) · 기한 ◇(마일스톤 기한 조건) · 준공 기한 빨간 점선(finish_by 조건)'],
   ['is-data', 'Data Date 주황 세로선 · 오늘 파란 세로선'],
   ['is-weekend', '쉬는 날 — 근무 달력(주 5일 토·일, 주 6일 일요일) 음영. 공휴일은 일정 자료에 없어 그리지 않는다'],
   ['is-blocked', '작업 금지 기간 — 옅은 빨간 음영(조건의 금지 기간)'],
-  ['is-ghost', '미리 보기 점선 — 조건·규칙 미리 보기 전 자리, 끄는 중의 새 자리'],
+  ['is-ghost', '미리 보기 점선 — 미리 보기 전(저장된) 자리, 바뀐 칸에만(Plan 칸·아래 칸 따로). 끄는 중의 새 자리'],
   ['is-lane', '자원 줄 — 그 자원을 쓰는 액티비티 기간(겹치면 진함). 날마다 필요량·용량 넘침은 서버가 계산해 주면 그린다(다음 묶음)'],
 ];
 

@@ -1,11 +1,11 @@
 // 직접 고치기(R8): 막대 끝 끌기 → OD, 막대 끌기 → SNET, 두 번 누르기 → 표와 같은 칸 편집기. 모두 일정판 쓰기 줄로.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { useSchedulePreview } from '../../os/schedulePreview';
 import { CONFLICT_NOTICE, forgetSchedules } from '../../shared/schedule/scheduleStore';
 import { holdNextWrite, makeView, mockPatch, schedule, writes } from './testKit';
-import { bar, handle, leftRow, pxPerDay, renderGantt, setupGantt } from './testKit';
+import { bar, handle, leftRow, pxPerDay, renderGantt, setupGantt, tool } from './testKit';
 
 beforeEach(() => setupGantt());
 afterEach(() => {
@@ -44,6 +44,29 @@ test('while dragging the edge the new OD and a dashed outline are shown; release
   expect(writes()).toEqual([]);
 });
 
+// Task 17 리뷰 I3: 막대 날 수 비율로 어림하면 끈 거리만큼 틀어진다(수·금 3일 막대를 4주 끌면 「OD 3 → 31」, 서버는 12일 더 뒤에 끝냄).
+// 끈 구간의 날마다 서버 근무 달력(주 근무일 수·그 액티비티 태그의 작업 금지 기간)으로 쉬는 날을 빼고 센다. 날짜는 서버가 다시 계산한다.
+test('the OD estimate counts workdays in the dragged span with the server calendar', async () => {
+  const short = { od: 3, plan_start: '2027-08-11', plan_finish: '2027-08-13', es: '2027-08-11', ef: '2027-08-13', tags: [] as string[] };
+  setupGantt(withActivity('A3030', short));
+  const first = await renderGantt();
+  fireEvent.pointerDown(handle('A3030')!, { clientX: 400, button: 0 });
+  fireEvent.pointerMove(document.body, { clientX: 400 + 28 * pxPerDay() }); // 금 08.13 → 금 09.10: 4주 = 20 근무일
+  expect(screen.getByText('OD 3 → 23')).toBeInTheDocument();
+  fireEvent.pointerUp(document.body, { clientX: 400 + 28 * pxPerDay() });
+  await waitFor(() => expect(writes()).toEqual([['PATCH', '/api/schedules/1/activities/A3030', { od: 23, base_version: 1 }]]));
+  first.unmount();
+  forgetSchedules();
+  // 그 액티비티의 태그에 걸린 작업 금지 기간(08.16~08.20, 5 근무일)도 뺀다.
+  const blocked = { calendar: { days_per_week: 5, blocked: [{ tag: '타설', start: '2027-08-16', finish: '2027-08-20' }] } };
+  setupGantt({ ...withActivity('A3030', { ...short, tags: ['타설'] }), ...blocked });
+  await renderGantt();
+  fireEvent.pointerDown(handle('A3030')!, { clientX: 400, button: 0 });
+  fireEvent.pointerMove(document.body, { clientX: 400 + 28 * pxPerDay() });
+  expect(screen.getByText('OD 3 → 18')).toBeInTheDocument();
+  fireEvent.pointerUp(document.body, { clientX: 400 });
+});
+
 test('dragging the bar later sets a start floor (SNET) at the date under the new start', async () => {
   await renderGantt();
   fireEvent.pointerDown(bar('A3010')!, { clientX: 400, button: 0 });
@@ -60,6 +83,17 @@ test('dragging earlier than the logic allows without a SNET explains instead of 
   drag(bar('A3010'), -3 * pxPerDay());
   expect(writes()).toEqual([]);
   expect(screen.getByRole('status')).toHaveTextContent('SNET 제약은 시작을 늦추기만 합니다');
+});
+
+// Task 17 리뷰 M5: 시작 날이 그대로면(하루가 안 되게 끎) 보내지도 알리지도 않는다.
+test('a drag that does not change the start day neither sends nor explains', async () => {
+  await renderGantt();
+  for (let i = 0; i < 5; i += 1) fireEvent.click(tool('확대'));
+  expect(pxPerDay()).toBeGreaterThan(6);
+  drag(bar('A3010'), 3);
+  expect(writes()).toEqual([]);
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(schedule().selected).toBe('A3010');
 });
 
 test('an existing SNET can be moved earlier', async () => {
@@ -183,4 +217,32 @@ test('the 선행 cell checks ids against the schedule like the table and does no
   expect(writes()).toEqual([]);
   expect(screen.getByRole('alert')).toHaveTextContent('없는 액티비티입니다: A9999');
   localStorage.clear();
+});
+
+// Task 17 리뷰 M6: 끌기를 멈추면(pointercancel·Esc) 보내지 않고, 창이 닫혀도 창 전체 듣기를 지운다.
+test('a cancelled drag (pointercancel or Escape) sends nothing', async () => {
+  await renderGantt();
+  fireEvent.pointerDown(handle('A3010')!, { clientX: 400, button: 0 });
+  fireEvent.pointerMove(document.body, { clientX: 400 + 7 * pxPerDay() });
+  expect(document.querySelector('[data-drag="A3010"]')).toBeInTheDocument();
+  fireEvent.pointerCancel(document.body);
+  expect(document.querySelector('[data-drag]')).toBeNull();
+  fireEvent.pointerUp(document.body, { clientX: 400 + 7 * pxPerDay() });
+  fireEvent.pointerDown(bar('A3010')!, { clientX: 400, button: 0 });
+  fireEvent.pointerMove(document.body, { clientX: 400 + 7 * pxPerDay() });
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(document.querySelector('[data-drag]')).toBeNull();
+  fireEvent.pointerUp(document.body, { clientX: 400 + 7 * pxPerDay() });
+  expect(writes()).toEqual([]);
+});
+
+test('closing the window during a drag removes its window listeners', async () => {
+  const view = await renderGantt();
+  const removed = vi.spyOn(window, 'removeEventListener');
+  fireEvent.pointerDown(bar('A3010')!, { clientX: 400, button: 0 });
+  view.unmount();
+  const types = removed.mock.calls.map(([t]) => t);
+  for (const t of ['pointermove', 'pointerup', 'pointercancel', 'keydown']) expect(types).toContain(t);
+  fireEvent.pointerUp(document.body, { clientX: 500 });
+  expect(writes()).toEqual([]);
 });

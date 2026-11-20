@@ -3,7 +3,7 @@ import { linkPath, type LinkEnd, type RelType } from './layout';
 import './gantt.css';
 
 export interface LinkItem {
-  /** 'pred>succ'. */
+  /** 'pred>succ:TYPE'(같은 두 액티비티 사이에 종류가 다른 관계가 있을 수 있다). */
   key: string;
   from: LinkEnd;
   to: LinkEnd;
@@ -14,8 +14,8 @@ export interface LinkItem {
   title: string;
 }
 
-/** 관계선(꺾은선 + 화살표). 간격이 있으면 들어가는 곳 앞에 +n 을 적는다. */
-export default function Links({ items, rowH }: { items: LinkItem[]; rowH: number }) {
+/** 관계선(꺾은선 + 화살표). 간격이 있으면 들어가는 곳 앞에 +n 을 적는다. mid: 줄 위쪽에서 선이 닿는 높이. */
+export default function Links({ items, rowH, mid = rowH / 2 }: { items: LinkItem[]; rowH: number; mid?: number }) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const marker = (critical: boolean) => `url(#${uid}${critical ? 'c' : 'n'})`;
   return (
@@ -32,11 +32,11 @@ export default function Links({ items, rowH }: { items: LinkItem[]; rowH: number
         const ex = toEnd ? l.to.x + l.to.w : l.to.x;
         return (
           <g key={l.key}>
-            <path data-link={l.key} className={`gantt-link${l.critical ? ' critical' : ''}`} d={linkPath(l.from, l.to, l.type, rowH)} markerEnd={marker(l.critical)}>
+            <path data-link={l.key} className={`gantt-link${l.critical ? ' critical' : ''}`} d={linkPath(l.from, l.to, l.type, rowH, mid)} markerEnd={marker(l.critical)}>
               <title>{l.title}</title>
             </path>
             {l.lag !== 0 && (
-              <text className="gantt-lag" x={toEnd ? ex + 8 : ex - 8} y={l.to.row * rowH + rowH / 2 - 4} textAnchor={toEnd ? 'start' : 'end'}>
+              <text className="gantt-lag" x={toEnd ? ex + 8 : ex - 8} y={l.to.row * rowH + mid - 4} textAnchor={toEnd ? 'start' : 'end'}>
                 {l.lag > 0 ? `+${l.lag}` : String(l.lag)}
               </text>
             )}

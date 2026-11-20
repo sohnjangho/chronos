@@ -31,7 +31,7 @@ class ReadScheduleOut(BaseModel):
 @tool(
     "schedule.read",
     "지금 일정의 요약을 읽는다: 이름·수준·버전·준공일·액티비티 수·주공정 액티비티·조건 수.",
-    program="schedule",
+    program="schedule-table",  # 화면 프로그램 id(일정판이 나뉜 뒤 — Task 16b)
 )
 def read_schedule(args: NoArgs, ctx: ToolContext) -> ReadScheduleOut:
     schedule_id = ctx.require_schedule_id()

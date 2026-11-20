@@ -27,6 +27,12 @@ export function useSchedule<T>(selector: (s: ScheduleState) => T): T {
   return useStore(useScope().store, selector);
 }
 
+/** 이 창에만 보일 안내(창 안의 동작에서 난 것). 서버가 거절한 것은 저장소가 모든 창에 보인다. */
+export function useNotify(): (tone: 'error' | 'info', text: string) => void {
+  const { store, windowId } = useScope();
+  return useCallback((tone: 'error' | 'info', text: string) => store.getState().setNotice({ tone, text, windowId }), [store, windowId]);
+}
+
 /** 이 창에서 고르기. 같은 일정을 보는 다른 창은 그 줄로 따라간다. */
 export function useSelect(): (aid: string | null) => void {
   const { store, windowId } = useScope();

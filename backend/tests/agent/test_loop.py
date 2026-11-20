@@ -159,12 +159,12 @@ async def test_tool_turn_event_order(run, sid):
     start, end = ev[2].data, ev[3].data
     run_id = ev[1].data["run_id"]
     assert start == {
-        "run_id": run_id, "n": 1, "call_id": "call_1", "tool": "schedule.read", "program": "schedule",
+        "run_id": run_id, "n": 1, "call_id": "call_1", "tool": "schedule.read", "program": "schedule-table",
         "arguments": "{}",
     }
     assert end["ok"] is True and end["error"] is None and end["tool"] == "schedule.read" and end["ms"] >= 0
     assert (end["run_id"], end["n"], end["call_id"]) == (run_id, 1, "call_1")
-    step = {"n": 1, "tool": "schedule.read", "program": "schedule"}
+    step = {"n": 1, "tool": "schedule.read", "program": "schedule-table"}
     assert ev[1].data == {"run_id": run_id, "status": "running", "steps": [{**step, "status": "running"}]}
     assert ev[4].data == {"run_id": run_id, "status": "running", "steps": [{**step, "status": "done"}]}
     assert ev[6].data == {"run_id": run_id, "status": "done", "steps": [{**step, "status": "done"}]}
@@ -181,7 +181,7 @@ async def test_step_records_why_program_model_tokens_cost_and_ms(run, session, s
     first = calls("schedule.read", {}, text=why, model="m-1", prompt_tokens=7, completion_tokens=3, cost=0.01)
     await run(ScriptedLlm([first, reply("끝")]), "몇 개야?", ui=UiContext("schedule", sid, None))
     step = session.query(WorkflowStep).one()
-    assert (step.n, step.tool, step.program, step.status) == (1, "schedule.read", "schedule", "done")
+    assert (step.n, step.tool, step.program, step.status) == (1, "schedule.read", "schedule-table", "done")
     assert step.why == why.strip()[:200] and len(step.why) == 200
     assert (step.model, step.tokens, step.cost) == ("m-1", 10, 0.01) and step.ms >= 0
     assert json.loads(step.input_json) == {} and json.loads(step.output_json)["activity_count"] == 2

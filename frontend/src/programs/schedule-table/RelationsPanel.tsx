@@ -3,7 +3,7 @@ import PickList from '../../os/PickList';
 import Badge from '../../shared/ui/Badge';
 import type { Activity, PredItem, RelType, ScheduleView } from '../../shared/schedule/scheduleApi';
 import type { ScheduleState } from '../../shared/schedule/scheduleStore';
-import { useSchedule, useScheduleStore } from '../../shared/schedule/scope';
+import { useSchedule, useScheduleStore, useWindowId } from '../../shared/schedule/scope';
 import Popover from '../../shared/schedule/Popover';
 import { wbsLabel, wbsTree } from '../../shared/schedule/rows';
 
@@ -19,13 +19,13 @@ const predsOf = (view: ScheduleView, succ: string): PredItem[] =>
  * 관계 link 를 고치거나(patch) 지운다(null). 목록은 보낼 차례가 왔을 때의 일정으로 만든다 — 앞 요청이 아직
  * 가는 중에 누른 것도 앞 요청의 결과 위에 얹힌다. 그 사이 그 관계가 없어졌으면 보내지 않는다.
  */
-function editRelation(store: ScheduleState, link: Link, patch: Partial<PredItem> | null) {
+function editRelation(store: ScheduleState, windowId: string, link: Link, patch: Partial<PredItem> | null) {
   return store.setPredecessors(link.succ, (view) => {
     const items = predsOf(view, link.succ);
     const i = items.findIndex((it) => it.pred === link.pred && it.type === link.type && it.lag === link.lag);
     if (i < 0) {
       // 줄 서 있던 쓰기가 이 관계를 이미 바꿨다 — 조용히 되돌리지 않고 알린다.
-      store.setNotice({ tone: 'error', text: LINK_GONE });
+      store.setNotice({ tone: 'error', text: LINK_GONE, windowId });
       return null;
     }
     return patch === null ? items.filter((_, k) => k !== i) : items.map((it, k) => (k === i ? { ...it, ...patch } : it));
@@ -56,15 +56,16 @@ function linksOf(view: ScheduleView, aid: string, side: 'pred' | 'succ'): Link[]
 
 function LagInput({ link }: { link: Link }) {
   const store = useScheduleStore();
+  const windowId = useWindowId();
   const name = `${link.pred} → ${link.succ}`;
   const save = (input: HTMLInputElement) => {
     const text = input.value.trim();
     if (!/^-?\d+$/.test(text)) {
-      store.getState().setNotice({ tone: 'error', text: LAG_ERROR });
+      store.getState().setNotice({ tone: 'error', text: LAG_ERROR, windowId });
       input.value = String(link.lag);
     } else if (Number(text) !== link.lag) {
       // 서버가 거절하면 원래 간격으로 돌린다.
-      void editRelation(store.getState(), link, { lag: Number(text) }).then((ok) => ok || (input.value = String(link.lag)));
+      void editRelation(store.getState(), windowId, link, { lag: Number(text) }).then((ok) => ok || (input.value = String(link.lag)));
     }
   };
   return (
@@ -95,6 +96,7 @@ const REL_HEAD = (
 
 function RelTable({ title, links, view }: { title: '선행' | '후행'; links: Link[]; view: ScheduleView }) {
   const store = useScheduleStore();
+  const windowId = useWindowId();
   const names = new Map(view.activities.map((a) => [a.id, a.name]));
   return (
     <table className="sch-rel-table" aria-label={title}>
@@ -115,7 +117,7 @@ function RelTable({ title, links, view }: { title: '선행' | '후행'; links: L
               <td>{l.other}</td>
               <td title={names.get(l.other)}>{names.get(l.other)}</td>
               <td>
-                <select aria-label={`${name} 관계`} value={l.type} onChange={(e) => void editRelation(store.getState(), l, { type: e.target.value as RelType })}>
+                <select aria-label={`${name} 관계`} value={l.type} onChange={(e) => void editRelation(store.getState(), windowId, l, { type: e.target.value as RelType })}>
                   {TYPES.map((t) => (
                     <option key={t}>{t}</option>
                   ))}
@@ -125,7 +127,7 @@ function RelTable({ title, links, view }: { title: '선행' | '후행'; links: L
                 <LagInput link={l} />
               </td>
               <td>
-                <button type="button" className="sch-x" aria-label={`${name} 관계 지우기`} onClick={() => void editRelation(store.getState(), l, null)}>
+                <button type="button" className="sch-x" aria-label={`${name} 관계 지우기`} onClick={() => void editRelation(store.getState(), windowId, l, null)}>
                   ×
                 </button>
               </td>

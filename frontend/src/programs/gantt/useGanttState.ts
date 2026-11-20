@@ -60,21 +60,21 @@ export function useGanttColumns() {
 }
 
 /** 선행 칸은 스케줄처럼 지금 일정의 액티비티 ID 와 맞춰 본다. 틀리면 그 부분을 짚어 알리고 보내지 않는다. */
-function predsKnown(store: ScheduleState, col: ColumnDef, text: string): boolean {
+function predsKnown(store: ScheduleState, windowId: string, col: ColumnDef, text: string): boolean {
   if (col.key !== 'preds') return true;
   try {
     parse(text, new Set(store.view?.activities.map((x) => x.id)));
     return true;
   } catch (e) {
     if (!(e instanceof ParseError)) throw e;
-    store.setNotice({ tone: 'error', text: e.message });
+    store.setNotice({ tone: 'error', text: e.message, windowId });
     return false;
   }
 }
 
-/** 바뀐 글이면(선행 칸은 ID 를 맞춰 본 뒤) 일정 저장소로 보낸다. */
-function commitIfChanged(store: ScheduleState, row: GanttRow, col: ColumnDef, text: string, initial: string) {
-  if (row.activity && text.trim() !== initial.trim() && predsKnown(store, col, text)) void commitCell(store, row.activity, col, text);
+/** 바뀐 글이면(선행 칸은 ID 를 맞춰 본 뒤) 일정 저장소로 보낸다. 틀린 글 안내는 이 창에만. */
+function commitIfChanged(store: ScheduleState, windowId: string, row: GanttRow, col: ColumnDef, text: string, initial: string) {
+  if (row.activity && text.trim() !== initial.trim() && predsKnown(store, windowId, col, text)) void commitCell(store, windowId, row.activity, col, text);
 }
 
 /** 왼쪽 표의 그 줄로 키보드 초점을 옮긴다(그린 뒤에). */
@@ -91,6 +91,7 @@ function useFocusRow(vp: Viewport) {
 /** 칸 고치기(표와 같은 편집기·같은 요청)와 키보드 초점. locked(미리 보기 중)이면 열지 않는다. */
 export function useEditing(rows: GanttRow[], columns: ColumnDef[], locked: boolean, vp: Viewport, toggle: (key: string, open?: boolean) => void) {
   const store = useScheduleStore();
+  const windowId = useWindowId();
   const select = useSelect();
   const [editing, setEditing] = useState<Editing | null>(null);
   const focusRow = useFocusRow(vp);
@@ -103,7 +104,7 @@ export function useEditing(rows: GanttRow[], columns: ColumnDef[], locked: boole
   const onCommit = (row: GanttRow, col: ColumnDef, text: string, initial: string, how: EditEnd) => {
     setEditing(null);
     if (how !== 'leave') focusRow(row.key);
-    commitIfChanged(store.getState(), row, col, text, initial);
+    commitIfChanged(store.getState(), windowId, row, col, text, initial);
   };
   const onCancel = (row: GanttRow, how: EditEnd) => {
     setEditing(null);
@@ -143,8 +144,7 @@ export function useReveal(view: ScheduleView, rows: GanttRow[], groupBy: GroupBy
   const store = useScheduleStore();
   const windowId = useWindowId();
   const reveal = useSchedule((s) => s.reveal);
-  const selected = useSchedule((s) => s.selected);
-  const selectedBy = useSchedule((s) => s.selectedBy);
+  const selectedN = useSchedule((s) => s.selectedN);
   const seen = useRef(store.getState().reveal);
   const target = useRef<string | null>(store.getState().selected);
   const show = useCallback(
@@ -166,8 +166,9 @@ export function useReveal(view: ScheduleView, rows: GanttRow[], groupBy: GroupBy
     if (reveal) showRef.current(reveal.aid);
   }, [reveal]);
   useEffect(() => {
+    const { selected, selectedBy } = store.getState();
     if (selected && selectedBy !== windowId) showRef.current(selected);
-  }, [selected, selectedBy, windowId]);
+  }, [selectedN, store, windowId]);
   useLayoutEffect(() => {
     if (!target.current) return;
     const i = rows.findIndex((r) => r.activity?.id === target.current);

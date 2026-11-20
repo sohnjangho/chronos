@@ -30,7 +30,7 @@ class CpmOut(BaseModel):
     "calc.cpm",
     "지금 일정을 계산한다: 액티비티마다 빠른·늦은 시작과 종료(es·ef·ls·lf), 여유(tf·ff), "
     "주공정 여부, 그리고 준공일.",
-    program="schedule",
+    program="cpm",  # 화면 프로그램 id(일정판이 나뉜 뒤 — Task 16b)
 )
 def run_cpm(args: NoArgs, ctx: ToolContext) -> CpmOut:
     with explained_schedule_errors():

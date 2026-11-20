@@ -30,10 +30,11 @@ function Stats() {
   );
 }
 
-function NoticeBar() {
+/** 알림 줄. 다른 창의 동작에서 난 안내(windowId 가 다른 것)는 보이지 않는다. */
+function NoticeBar({ windowId }: { windowId: string }) {
   const store = useScheduleStore();
   const notice = useSchedule((s) => s.notice);
-  if (!notice) return null;
+  if (!notice || (notice.windowId && notice.windowId !== windowId)) return null;
   return (
     <div className={`sch-notice is-${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>
       <span>{notice.text}</span>
@@ -57,7 +58,7 @@ function useActivityParam(windowId: string, activity: string | undefined, params
     applied.current = params;
     const s = store.getState();
     if (s.view?.activities.some((a) => a.id === activity)) s.revealActivity(activity, windowId);
-    else s.setNotice({ tone: 'error', text: `액티비티를 찾을 수 없습니다: ${activity}` });
+    else s.setNotice({ tone: 'error', text: `액티비티를 찾을 수 없습니다: ${activity}`, windowId });
   }, [store, windowId, activity, params, ready]);
 }
 
@@ -102,7 +103,7 @@ function Held({ windowId, params, programId, name, children }: FrameProps) {
           <Stats />
         </div>
       )}
-      <NoticeBar />
+      <NoticeBar windowId={windowId} />
       {/* 일정이 바뀌면 프로그램 화면을 새로 그린다(찾기·접기 같은 화면 상태가 다른 일정으로 넘어가지 않게). */}
       <div className="sch-body" key={store.getState().scheduleId}>
         {body}

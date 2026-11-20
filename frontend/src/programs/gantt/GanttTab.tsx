@@ -5,8 +5,7 @@ import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as Rea
 import { useSchedulePreview } from '../../os/schedulePreview';
 import { dot } from '../../shared/schedule/format';
 import type { ScheduleView } from '../../shared/schedule/scheduleApi';
-import type { ScheduleState } from '../../shared/schedule/scheduleStore';
-import { useSchedule, useScheduleStore, useSelect } from '../../shared/schedule/scope';
+import { useNotify, useSchedule, useSelect } from '../../shared/schedule/scope';
 import type { ColumnDef } from '../../shared/schedule/columns';
 import { download, toCsv } from '../../shared/schedule/csv';
 import Chart from './Chart';
@@ -15,7 +14,7 @@ import { exportImage } from './exportSheet';
 import GanttToolbar from './GanttToolbar';
 import LeftGrid from './LeftGrid';
 import { useConditionMarks } from './marks';
-import { cellTexts, planOf, rangeOf, rowIndex, todayIso, vmarks } from './model';
+import { cellTexts, planOf, previewGhosts, rangeOf, rowIndex, todayIso, vmarks } from './model';
 import ResourceStrip from './ResourceStrip';
 import { useDrag } from './useDrag';
 import { useEditing, useGanttColumns, useLayersAndRows, useReveal } from './useGanttState';
@@ -82,19 +81,33 @@ function PreviewBanner() {
   );
 }
 
-/** 보일 일정: 이 일정의 조건 미리 보기가 있으면 그것(모양이 ScheduleView 와 같다), 없으면 저장된 일정. 그 저장소와 이 창의 고르기도 준다. */
+/**
+ * 보일 일정: 이 일정의 미리 보기(조건·지연)가 있으면 그것(모양이 ScheduleView 와 같다), 없으면 저장된 일정.
+ * 이전 자리 점선은 저장된 보기와 견주어 두 칸 모두(moved[] 는 쓰지 않는다). 이 창의 고르기·안내도 준다.
+ */
 function useShown() {
-  const store = useScheduleStore();
   const select = useSelect();
+  const notify = useNotify();
   const stored = useSchedule((s) => s.view)!;
   const preview = useSchedulePreview((s) => s.previews[stored.id]);
-  const view = preview ? (preview.view as unknown as ScheduleView) : stored;
-  const ghosts = useMemo(() => new Map((preview?.moved ?? []).map((mv) => [mv.activity_id, mv.before])), [preview]);
-  return { store, select, stored, view, preview, ghosts };
+  const view = preview ? (preview.view as ScheduleView) : stored;
+  const ghosts = useMemo(() => previewGhosts(stored, view), [stored, view]);
+  const noPlan = view.activities.length > 0 && view.activities.every((a) => !planOf(a));
+  return { select, notify, stored, view, preview, ghosts, noPlan };
+}
+
+/** 모든 액티비티의 Plan 이 없을 때 창에 한 번 알린다(줄마다 쓰지 않는다). */
+function NoPlanBanner() {
+  return (
+    <div className="gt-preview gt-noplan" role="status">
+      <b>Plan 을 계산할 수 없어 Plan 줄이 비어 있습니다</b>
+      <span>Actual·예측 줄은 지금 계산 그대로 보입니다</span>
+    </div>
+  );
 }
 
 export default function GanttTab() {
-  const { store, select, stored, view, preview, ghosts } = useShown();
+  const { select, notify, stored, view, preview, ghosts, noPlan } = useShown();
   const selected = useSchedule((s) => s.selected);
   const g = useLayersAndRows(view);
   const marks = useConditionMarks(stored.id, stored.version);
@@ -103,7 +116,7 @@ export default function GanttTab() {
   const cols = useGanttColumns();
   const ed = useEditing(g.rows, cols.columns, !!preview, vp, g.toggle);
   useReveal(view, g.rows, g.groupBy, g.setCollapsed, vp);
-  const { drag, begin } = useDrag(vp.scale);
+  const { drag, begin } = useDrag(vp.scale, view.calendar);
   const texts = useMemo(() => cellTexts(view), [view]);
   const mainRef = useRef<HTMLDivElement>(null);
   const [leftW, setLeftW] = useState(470);
@@ -112,12 +125,12 @@ export default function GanttTab() {
 
   const today = todayIso();
   const m: ChartModel = {
-    view, rows: g.rows, scale: vp.scale, total: vp.total, layers: g.layers, selected, ghosts,
+    view, rows: g.rows, scale: vp.scale, total: vp.total, layers: g.layers, selected, ghosts, noPlan,
     dues: new Map(marks.milestoneBy.map((d) => [d.activityId, marks.milestoneBy.filter((x) => x.activityId === d.activityId)])),
     rowOf: rowIndex(g.rows), vmarks: vmarks(view, marks, vp.scale, today, vp.total), editable: !preview, drag,
     onBar: begin, onEdit: (key) => ed.onEdit(key, cols.visible.includes('od') ? 'od' : 'name'), onPick: select,
   };
-  const act = toolbarActions({ store: store.getState(), stored, view, m, vp, range, today, selected, columns: cols.columns });
+  const act = toolbarActions({ notify, stored, view, m, vp, range, today, selected, columns: cols.columns });
 
   return (
     <div className="gt-tab">
@@ -130,7 +143,7 @@ export default function GanttTab() {
         onZoom={vp.nav.zoom} onFit={vp.nav.fit} onExpandAll={g.expandAll} onCollapseAll={g.collapseAll} onPage={vp.nav.page}
         {...act}
       />
-      {preview && <PreviewBanner />}
+      {preview && <PreviewBanner />}{noPlan && <NoPlanBanner />}
       <div className="gt-main" ref={mainRef}>
         <LeftGrid
           rows={g.rows} vp={vp} width={left} columns={cols.columns} texts={texts} selected={selected} editing={ed.editing}
@@ -140,14 +153,15 @@ export default function GanttTab() {
         <Splitter value={left} max={maxLeft} onChange={setLeftW} />
         <Chart m={m} vp={vp} />
       </div>
-      <ResourceStrip view={view} scale={vp.scale} total={vp.total} nameWidth={left + SPLIT_W} vp={vp} />
+      <ResourceStrip view={view} scale={vp.scale} total={vp.total} nameWidth={left + SPLIT_W} vp={vp} plan={g.layers.plan} />
       <Foot rows={g.rows.length} total={view.activities.length} locked={!!preview} />
     </div>
   );
 }
 
 interface ActionCtx {
-  store: ScheduleState;
+  /** 이 창에만 보일 안내. */
+  notify(tone: 'error' | 'info', text: string): void;
   stored: ScheduleView;
   view: ScheduleView;
   m: ChartModel;
@@ -159,20 +173,21 @@ interface ActionCtx {
 }
 
 /** 도구줄의 맞춤·이동·내보내기. CSV 는 저장된 일정(미리 보기 아님)을 스케줄표와 같은 안전한 CSV 로. */
-function toolbarActions({ store, stored, view, m, vp, range, today, selected, columns }: ActionCtx) {
+function toolbarActions({ notify, stored, view, m, vp, range, today, selected, columns }: ActionCtx) {
   return {
+    /** 고른 액티비티의 두 칸(Plan·지금 계산)이 모두 들어오게. */
     onFitSelected() {
       const a = view.activities.find((x) => x.id === selected);
-      const p = a && planOf(a);
-      if (!a || !p) return;
-      vp.nav.fitRange(p.start, p.finish);
+      if (!a) return;
+      const p = planOf(a);
+      vp.nav.fitRange(p && p.start < a.es ? p.start : a.es, p && p.finish > a.ef ? p.finish : a.ef);
       const i = m.rowOf.get(a.id);
       if (i !== undefined) vp.nav.toRow(i);
     },
     onDataDate: () => view.data_date && vp.nav.toDate(view.data_date),
     onToday() {
       if (m.vmarks.some((v) => v.kind === 'today')) vp.nav.toDate(today);
-      else store.setNotice({ tone: 'info', text: `오늘(${dot(today)})은 이 일정 기간 밖입니다(${dot(range.start)} ~ ${dot(range.end)}).` });
+      else notify('info', `오늘(${dot(today)})은 이 일정 기간 밖입니다(${dot(range.start)} ~ ${dot(range.end)}).`);
     },
     onCsv() {
       const texts = cellTexts(stored);

@@ -89,8 +89,7 @@ function useReveal(show: (a: Activity, all: boolean) => void, bodyRef: RefObject
   const store = useScheduleStore();
   const windowId = useWindowId();
   const reveal = useSchedule((s) => s.reveal);
-  const selected = useSchedule((s) => s.selected);
-  const selectedBy = useSchedule((s) => s.selectedBy);
+  const selectedN = useSchedule((s) => s.selectedN);
   const seen = useRef(store.getState().reveal);
   const target = useRef<string | null>(null);
   const go = useCallback(
@@ -108,8 +107,9 @@ function useReveal(show: (a: Activity, all: boolean) => void, bodyRef: RefObject
     if (reveal && (reveal.by === null || reveal.by === windowId)) go(reveal.aid, true);
   }, [reveal, windowId, go]);
   useEffect(() => {
+    const { selected, selectedBy } = store.getState();
     if (selected && selectedBy !== windowId) go(selected, false);
-  }, [selected, selectedBy, windowId, go]);
+  }, [selectedN, store, windowId, go]);
   useEffect(() => {
     if (!target.current) return;
     const tr = [...(bodyRef.current?.rows ?? [])].find((r) => r.dataset.key === target.current);
@@ -129,23 +129,24 @@ async function addAfter(store: ScheduleState, sel: Activity | undefined, view: S
  * 칸에 적은 글을 보낸다. 선행 칸은 먼저 지금 일정의 액티비티 ID 와 정확히 맞춰 본다(서버 ID 는 자유 글이라
  * 꼴만으로 거르지 않는다). 없는 ID·종류 빠진 간격은 보내지 않고 이름을 짚어 알린다.
  */
-async function commitChecked(store: ScheduleState, a: Activity, col: ColumnDef, text: string): Promise<unknown> {
+async function commitChecked(store: ScheduleState, windowId: string, a: Activity, col: ColumnDef, text: string): Promise<unknown> {
   if (col.key === 'preds') {
     const ids = new Set(store.view?.activities.map((x) => x.id));
     try {
       parse(text, ids);
     } catch (e) {
       if (!(e instanceof ParseError)) throw e;
-      return store.setNotice({ tone: 'error', text: e.message });
+      return store.setNotice({ tone: 'error', text: e.message, windowId });
     }
   }
-  return commitCell(store, a, col, text);
+  return commitCell(store, windowId, a, col, text);
 }
 
 /** 칸 고치기 보내기(줄이 다시 그려지지 않게 함수가 바뀌지 않는다)와 [+ 행 추가](새 줄의 이름 칸을 바로 연다). */
 function useActions(sel: Activity | undefined, view: ScheduleView, edit: (e: { aid: string; col: ColKey }) => void) {
   const store = useScheduleStore();
-  const onCommit = useCallback((a: Activity, col: ColumnDef, text: string) => commitChecked(store.getState(), a, col, text), [store]);
+  const windowId = useWindowId();
+  const onCommit = useCallback((a: Activity, col: ColumnDef, text: string) => commitChecked(store.getState(), windowId, a, col, text), [store, windowId]);
   const add = async () => {
     const aid = await addAfter(store.getState(), sel, view);
     if (aid) edit({ aid, col: 'name' });

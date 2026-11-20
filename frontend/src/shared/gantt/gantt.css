@@ -20,16 +20,19 @@
 .gantt-blocked { fill: var(--danger); opacity: 0.08; }
 .gantt-float { fill: var(--fg-muted); opacity: 0.7; }
 
+/* 위 칸 Plan · 아래 칸 Actual(진하게)·예측(옅게 + 점선 테두리). CPM 층의 크리티컬 빨강은 예측에만. */
 .gantt-bar { fill: var(--accent); fill-opacity: 0.45; }
-.gantt-bar.critical { fill: var(--danger); }
-.gantt-progress { fill: var(--accent); pointer-events: none; }
-.gantt-progress.critical { fill: var(--danger); }
+.gantt-actualbar { fill: var(--success); pointer-events: none; }
+.gantt-forecast { fill: var(--success); fill-opacity: 0.22; stroke: var(--success); stroke-width: 1; stroke-dasharray: 3 2; pointer-events: none; }
+.gantt-forecast.critical { fill: var(--danger); fill-opacity: 0.28; stroke: var(--danger); }
 .gantt-handle { fill: transparent; cursor: ew-resize; }
 .gantt-handle:hover { fill: var(--fg); fill-opacity: 0.25; }
 .gantt-summary { fill: var(--neutral-strong); }
-.gantt-actual { fill: var(--success); pointer-events: none; }
 .gantt-ms { fill: var(--fg); }
-.gantt-ms.critical { fill: var(--danger); }
+.gantt-ms.is-plan { fill: var(--accent); }
+.gantt-ms.is-actual { fill: var(--success); }
+.gantt-ms.is-forecast { fill: var(--success); fill-opacity: 0.35; stroke: var(--success); stroke-width: 1; }
+.gantt-ms.is-forecast.critical { fill: var(--danger); stroke: var(--danger); }
 .gantt-due { fill: var(--bg-panel); stroke: var(--danger); stroke-width: 1.5; }
 .gantt-ghost { fill: none; stroke: var(--fg-muted); stroke-width: 1.5; stroke-dasharray: 4 3; pointer-events: none; }
 .gantt-ghost.is-drag { stroke: var(--accent); }

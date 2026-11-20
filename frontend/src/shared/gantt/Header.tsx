@@ -15,18 +15,23 @@ export interface HeaderMark {
 /** 글 폭 어림(12px 굵은 글꼴: 한글 11 · 그 밖 7) + 앞 여백 6 · 뒤 2. */
 const textW = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 11 : 7), 8);
 
-/** 칸이 좁아 이름이 들어가지 않는 달은 비우고, 그 달이 연도를 달고 있었으면 다음 달이 연도를 단다. */
+/**
+ * 달 이름: 연도를 달 달(첫 달·1월, 또는 앞 달에서 넘겨받음)은 'YYYY년 M월' → 'YY.M' 차례로 들어가는 것을, 그 밖은 'M월'.
+ * 연도가 들어가지 않으면 그 달은 'M월'(들어가면)로 쓰고 연도는 다음 달에 한 번만 넘긴다 — 넘겨받은 달에도 안 들어가면 버린다
+ * (좁은 창에서 연도를 계속 넘겨 모든 달이 빈칸이 되지 않게). 'M월' 도 안 들어가면 빈칸.
+ */
 function monthLabels(scale: Scale) {
   let carry: string | null = null;
   return months(scale).map((m) => {
-    const year = m.label.includes('년') ? m.label.split(' ')[0] : carry;
-    const label = year && !m.label.includes('년') ? `${year} ${m.label}` : m.label;
-    if (textW(label) <= m.w) {
-      carry = null;
-      return { ...m, label };
-    }
-    carry = year;
-    return { ...m, label: '' };
+    const own = m.label.includes('년') ? m.label.split(' ')[0] : null;
+    const year = own ?? carry;
+    const month = m.label.split(' ').at(-1)!;
+    carry = null;
+    const tries = year ? [`${year} ${month}`, `${year.slice(2, 4)}.${month.replace('월', '')}`] : [];
+    const withYear = tries.find((t) => textW(t) <= m.w);
+    if (withYear) return { ...m, label: withYear };
+    if (own) carry = own;
+    return { ...m, label: textW(month) <= m.w ? month : '' };
   });
 }
 

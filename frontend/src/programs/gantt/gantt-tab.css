@@ -12,6 +12,7 @@
 .gt-swatch { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--fg-muted); }
 .gt-swatch.is-plan { background: var(--accent); }
 .gt-swatch.is-actual { background: var(--success); }
+.gt-swatch.is-forecast { background: none; border: 1px dashed var(--success); }
 .gt-swatch.is-cpm { background: var(--danger); }
 .gt-swatch.is-ms { transform: rotate(45deg) scale(0.8); background: var(--fg); }
 .gt-swatch.is-data { width: 3px; background: var(--warning); }

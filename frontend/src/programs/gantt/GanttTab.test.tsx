@@ -6,7 +6,8 @@ import { useUiContext } from '../../os/uiContext';
 import { forgetSchedules } from '../../shared/schedule/scheduleStore';
 import manifest from './index';
 import {
-  actualBar, bar, chartBody, fetchMock, FINISH_BY, ghost, leftHeaders, leftRow, link, makeView, num, pxPerDay, renderGantt, schedule, setupGantt, tool,
+  actualBar, bar, chartBody, delayedView, fetchMock, FINISH_BY, forecastBar, ghost, ghostTrack, leftHeaders, leftRow, link, makeView, num, pxPerDay,
+  renderGantt, schedule, setupGantt, tool,
 } from './testKit';
 
 beforeEach(() => setupGantt());
@@ -33,74 +34,117 @@ test('the 간트차트 window shows its toolbar, left grid columns and chart', a
   expect(screen.getByText('4월')).toBeInTheDocument();
 });
 
-test('CPM layer off hides links and critical color', async () => {
-  await renderGantt();
-  expect(bar('A2020')).toHaveClass('critical');
-  expect(document.querySelectorAll('[data-link]').length).toBeGreaterThan(0);
-  await userEvent.click(screen.getByRole('button', { name: 'CPM' }));
-  expect(document.querySelectorAll('[data-link]')).toHaveLength(0);
-  expect(bar('A2020')).not.toHaveClass('critical');
-});
+// PM 결정(11-20, Task 17 리뷰 I1): 액티비티마다 두 줄 — 1줄 Plan(plan_start~plan_finish), 2줄 「Actual·예측」
+// (실적은 진하게 실제 시작~실제 종료 또는 Data Date, 거기서 지금 계산의 EF 까지는 예측으로 옅게, 시작 전은 ES~EF 예측만).
+// 날짜는 모두 서버 값의 자리다(화면은 날짜를 계산하지 않는다).
+const end = (el: Element | null) => num(el, 'x') + num(el, 'width');
+const dataX = () => num(document.querySelector('[data-vline="data"]'), 'x1');
 
-test('actual layer draws progress under the plan bar', async () => {
+test('each activity has a Plan row and an Actual·예측 row; a delay shows as the forecast running past Plan', async () => {
+  setupGantt(delayedView());
   await renderGantt();
-  expect(actualBar('A2020')).toBeInTheDocument();
+  const ppd = pxPerDay();
+  // A2020 진행 중: Plan 05.06~07.14, 실적 05.11~Data Date, 예측 Data Date~07.20(Plan 끝보다 6일 뒤).
+  expect(dataX() - num(bar('A2020'), 'x')).toBeCloseTo(26 * ppd, 1);
+  expect(num(bar('A2020'), 'width')).toBeCloseTo(70 * ppd, 1);
+  expect(num(actualBar('A2020'), 'x') - num(bar('A2020'), 'x')).toBeCloseTo(5 * ppd, 1);
+  expect(end(actualBar('A2020'))).toBeCloseTo(dataX(), 1);
+  expect(num(forecastBar('A2020'), 'x')).toBeCloseTo(dataX(), 1);
+  expect(end(forecastBar('A2020')) - end(bar('A2020'))).toBeCloseTo(6 * ppd, 1);
+  // A3010 시작 전: 예측만(07.21~09.07), Plan 보다 6일 뒤로 밀림.
   expect(actualBar('A3010')).toBeNull();
-  // 끝나지 않은 A2020 은 Data Date 까지, 끝난 A1030 은 Actual 종료까지.
-  const dd = document.querySelector('[data-vline="data"]')!;
-  expect(num(actualBar('A2020'), 'x') + num(actualBar('A2020'), 'width')).toBeCloseTo(num(dd, 'x1'), 0);
-  await userEvent.click(screen.getByRole('button', { name: 'Actual' }));
-  expect(actualBar('A2020')).toBeNull();
-  expect(bar('A2020')).toBeInTheDocument();
+  expect(num(forecastBar('A3010'), 'x') - num(bar('A3010'), 'x')).toBeCloseTo(6 * ppd, 1);
+  expect(end(forecastBar('A3010')) - end(bar('A3010'))).toBeCloseTo(6 * ppd, 1);
+  // A1020 끝남: 실적만.
+  expect(actualBar('A1020')).toBeInTheDocument();
+  expect(forecastBar('A1020')).toBeNull();
+  // 두 줄은 위아래로 나뉜다.
+  expect(num(bar('A3010'), 'y') + num(bar('A3010'), 'height')).toBeLessThanOrEqual(num(forecastBar('A3010'), 'y'));
+  expect(bar('A2020')!.closest('[data-progress]')).toBeNull();
+  expect(document.querySelector('[data-progress]')).toBeNull(); // Plan 줄에는 실적(진도)을 칠하지 않는다
 });
 
-test('relation lines: critical path in red, lags in the title, only with the CPM layer', async () => {
+test('the CPM layer colours the forecast bar (current critical) and draws float tails from EF to LF; Plan bars stay plain', async () => {
+  setupGantt(delayedView());
   await renderGantt();
-  expect(link('A2020>A3010')).toHaveClass('critical');
-  expect(link('A2020>A3020')).not.toHaveClass('critical');
-  expect(link('A2020>A3020')!.querySelector('title')).toHaveTextContent('A2020 → A3020 SS+30');
-  expect(link('A1030>A1040')!.getAttribute('d')).toMatch(/^M /);
+  const ppd = pxPerDay();
+  expect(forecastBar('A2020')).toHaveClass('critical');
+  expect(bar('A2020')).not.toHaveClass('critical');
+  const tail = document.querySelector('[data-float="A3020"]')!;
+  expect(num(tail, 'x')).toBeCloseTo(end(forecastBar('A3020')), 1); // EF 08.06 다음 날 0시
+  expect(end(tail) - end(forecastBar('A3020'))).toBeCloseTo(26 * ppd, 1); // ~ LF 09.01 끝
+  expect(tail.querySelector('title')).toHaveTextContent('여유 18일 · LF 2027.09.01');
+  expect(document.querySelector('[data-float="A2020"]')).toBeNull();
+  await userEvent.click(tool('CPM'));
+  expect(forecastBar('A2020')).not.toHaveClass('critical');
+  expect(document.querySelector('[data-float]')).toBeNull();
+  expect(document.querySelectorAll('[data-link]')).toHaveLength(0);
 });
 
-test('Plan only (Actual off) still shows the CPM layer; Plan off hides bars and turns CPM off with a reason', async () => {
+test('relation lines join the Actual·예측 bars; red when both ends are critical, lags in the title', async () => {
+  setupGantt(delayedView());
   await renderGantt();
-  await userEvent.click(tool('Actual'));
-  expect(bar('A2020')).toHaveClass('critical');
-  expect(link('A2020>A3010')).toBeInTheDocument();
-  await userEvent.click(tool('Actual'));
+  const d = link('A2020>A3010:FS')!.getAttribute('d')!;
+  const [sx, sy] = d.split(' ').slice(1, 3).map(Number);
+  expect(sx).toBeCloseTo(end(forecastBar('A2020')), 0); // FS: 선행 예측 끝에서
+  expect(sy).toBeGreaterThan(num(forecastBar('A2020'), 'y'));
+  expect(Number(d.split(' ').at(-1))).toBeCloseTo(num(forecastBar('A3010'), 'x'), 0); // 후행 예측 시작으로
+  expect(link('A2020>A3010:FS')).toHaveClass('critical');
+  expect(link('A2020>A3020:SS')).not.toHaveClass('critical');
+  expect(link('A2020>A3020:SS')!.querySelector('title')).toHaveTextContent('A2020 → A3020 SS+30');
+});
+
+// Task 17 리뷰 M4: 같은 두 액티비티 사이에 종류가 다른 관계가 둘이면 선도 둘(열쇠에 종류).
+test('two relations of different types between the same pair draw two lines', async () => {
+  const v = makeView();
+  v.relations = [...v.relations, { pred: 'A2020', succ: 'A3020', type: 'FF', lag: 5 }];
+  setupGantt(v);
+  await renderGantt();
+  expect(link('A2020>A3020:SS')).toBeInTheDocument();
+  expect(link('A2020>A3020:FF')).toBeInTheDocument();
+});
+
+test('the layer toggles say Plan · Actual·예측 · CPM; CPM sits on Actual·예측 and turns off with a reason', async () => {
+  await renderGantt();
+  expect(screen.getByRole('toolbar', { name: '간트 도구' }).querySelectorAll('.gt-chip[aria-pressed]').length).toBeGreaterThanOrEqual(3);
   await userEvent.click(tool('Plan'));
   expect(bar('A2020')).toBeNull();
+  expect(forecastBar('A3010')).toBeInTheDocument();
+  expect(link('A2020>A3010:FS')).toBeInTheDocument(); // Plan 을 꺼도 CPM 층은 예측 막대에 남는다
+  await userEvent.click(tool('Plan'));
+  await userEvent.click(tool('Actual·예측'));
+  expect(actualBar('A2020')).toBeNull();
+  expect(forecastBar('A3010')).toBeNull();
   expect(document.querySelectorAll('[data-link]')).toHaveLength(0);
-  expect(actualBar('A2020')).toBeInTheDocument();
+  expect(bar('A2020')).toBeInTheDocument();
   expect(tool('CPM')).toBeDisabled();
-  expect(tool('CPM')).toHaveAttribute('title', expect.stringContaining('Plan'));
+  expect(tool('CPM')).toHaveAttribute('title', expect.stringContaining('Actual·예측'));
 });
 
-test('bars show progress fill, milestones as ◆ with names, summary bars on wbs rows', async () => {
+test('milestones are ◆ in both rows, summary bars on wbs rows', async () => {
   await renderGantt();
-  const fill = document.querySelector('[data-progress="A2020"]')!;
-  expect(num(fill, 'width')).toBeCloseTo(0.36 * num(bar('A2020'), 'width'), 1);
   expect(document.querySelector('[data-ms="A1010"]')).toBeInTheDocument();
-  expect(document.querySelector('[data-ms="A4030"]')).toBeInTheDocument();
+  expect(document.querySelector('[data-ms-track="A1010"]')).toHaveClass('is-actual'); // 끝난 착공
+  expect(document.querySelector('[data-ms-track="A4030"]')).toHaveClass('is-forecast'); // 준공 예측
   expect(bar('A4030')).toBeNull();
   expect(screen.getAllByText('준공').length).toBeGreaterThan(1); // 왼쪽 표 + ◆ 옆 이름
   expect(document.querySelector('[data-summary="2"]')).toBeInTheDocument();
 });
 
-// PM 결정(11-20): 화면 날짜는 Plan(지금 일정을 실적 없이 계산한 것)과 Actual 두 벌. 막대는 plan_start~plan_finish 이고
-// 지금 계산(ES~EF, 실적을 넣은 것)이나 처음 Plan 버전은 따로 그리지 않는다.
-test('Plan bars are drawn at plan_start~plan_finish, not at ES~EF, and there is no gray Plan-version line', async () => {
+test('Plan bars are drawn at plan_start~plan_finish and the float tail runs from EF to LF, not from the Plan end', async () => {
   const acts = makeView().activities.map((a) =>
-    a.id === 'A3010' ? { ...a, es: '2027-07-20', ef: '2027-09-06', ls: '2027-07-20', lf: '2027-09-20', tf: 10 } : a.id === 'A4030' ? { ...a, es: '2027-11-29', ef: '2027-11-29' } : a,
+    a.id === 'A3010' ? { ...a, es: '2027-07-20', ef: '2027-09-06', ls: '2027-07-20', lf: '2027-09-20', tf: 10, critical: false } : a.id === 'A4030' ? { ...a, es: '2027-11-29', ef: '2027-11-29' } : a,
   );
   setupGantt(makeView({ activities: acts }));
   await renderGantt();
-  const dd = num(document.querySelector('[data-vline="data"]'), 'x1'); // Data Date 2027.06.01
-  expect(num(bar('A3010'), 'x') - dd).toBeCloseTo(44 * pxPerDay(), 1); // Plan 시작 07.15
-  expect(num(bar('A3010'), 'width')).toBeCloseTo(49 * pxPerDay(), 1); // 07.15 ~ 09.01
+  const ppd = pxPerDay();
+  expect(num(bar('A3010'), 'x') - dataX()).toBeCloseTo(44 * ppd, 1); // Plan 시작 07.15
+  expect(num(bar('A3010'), 'width')).toBeCloseTo(49 * ppd, 1); // 07.15 ~ 09.01
   const msX = Number(document.querySelector('[data-ms="A4030"]')!.getAttribute('d')!.split(' ')[1]);
-  expect(msX - dd).toBeCloseTo(177 * pxPerDay(), 1); // ◆ = Plan 종료 11.24 끝
-  expect(num(document.querySelector('[data-float="A3010"]'), 'x')).toBeCloseTo(num(bar('A3010'), 'x') + num(bar('A3010'), 'width'), 1);
+  expect(msX - dataX()).toBeCloseTo(177 * ppd, 1); // ◆ = Plan 종료 11.24 끝
+  const tail = document.querySelector('[data-float="A3010"]')!;
+  expect(num(tail, 'x')).toBeCloseTo(end(forecastBar('A3010')), 1); // EF 09.06 다음 날 0시
+  expect(num(tail, 'width')).toBeCloseTo(14 * ppd, 1); // 09.07 ~ 09.20: 여유 10 근무일
   expect(document.querySelector('[data-planmark]')).toBeNull();
 });
 
@@ -109,9 +153,30 @@ test('an activity without Plan dates has no Plan bar and says so beside its row'
   setupGantt(makeView({ activities: acts }));
   await renderGantt();
   expect(bar('A3030')).toBeNull();
-  expect(link('A2020>A3030')).toBeNull();
+  expect(forecastBar('A3030')).toBeInTheDocument();
   expect(screen.getByText('승강기 설치 · Plan 없음')).toBeInTheDocument();
   expect(bar('A3020')).toBeInTheDocument();
+  expect(screen.queryByText(/Plan 을 계산할 수 없어/)).toBeNull();
+});
+
+// Task 17 리뷰 M12: 모든 액티비티의 Plan 이 없으면 줄마다가 아니라 창에 한 번 알린다.
+test('when no activity has Plan dates the window says so once', async () => {
+  setupGantt(makeView({ activities: makeView().activities.map((a) => ({ ...a, plan_start: null, plan_finish: null, status: 'new' })), plan_finish: null }));
+  await renderGantt();
+  expect(screen.getAllByText(/Plan 을 계산할 수 없어/)).toHaveLength(1);
+  expect(screen.queryByText(/· Plan 없음/)).toBeNull();
+  expect(forecastBar('A3010')).toBeInTheDocument();
+});
+
+// Task 17 리뷰 M7: 차트 오른쪽 끝의 이름은 잘리지 않게 막대 왼쪽에 쓴다.
+test('a label that would run past the right edge is written to the left of its bar', async () => {
+  const acts = makeView().activities.map((a) => (a.id === 'A4030' ? { ...a, name: '준공 및 사용 승인 서류 제출과 인수인계' } : a));
+  setupGantt(makeView({ activities: acts }));
+  await renderGantt();
+  const label = [...document.querySelectorAll('.gantt-label')].find((t) => t.textContent?.startsWith('준공 및'))!;
+  expect(label).toHaveAttribute('text-anchor', 'end');
+  const msX = Number(document.querySelector('[data-ms="A4030"]')!.getAttribute('d')!.split(' ')[1]);
+  expect(num(label, 'x')).toBeLessThan(msX);
 });
 
 test('Data Date line and weekend shading', async () => {
@@ -178,29 +243,40 @@ test('a wbs group folds from its toggle and keeps its summary bar', async () => 
   expect(document.querySelector('[data-summary="2"]')).toBeInTheDocument();
 });
 
-test('conditions preview draws preview dates, dashed ghosts at the old place and a banner until cleared', async () => {
+// 미리 보기(컨트롤러 결정): 저장된 보기(저장소)와 미리 보기 보기를 액티비티마다 서버 값으로 견주어, 바뀐 줄의 이전 자리를 점선으로 —
+// Plan 줄은 plan_*, Actual·예측 줄은 es/ef. moved[] 는 쓰지 않는다(목록·글용).
+test('a conditions preview moves Plan and forecast bars and leaves dotted old places in both rows until cleared', async () => {
   await renderGantt();
-  const before = num(bar('A3010'), 'x');
+  const before = { plan: num(bar('A3010'), 'x'), track: num(forecastBar('A3010'), 'x') };
   const moved = { es: '2027-07-20', ef: '2027-09-06', plan_start: '2027-07-20', plan_finish: '2027-09-06' };
   const activities = makeView().activities.map((a) => (a.id === 'A3010' ? { ...a, ...moved } : a));
-  act(() =>
-    useSchedulePreview.getState().set({
-      scheduleId: 1,
-      view: makeView({ activities, finish: '2027-11-29' }),
-      moved: [{ activity_id: 'A3010', name: '외장 패널', before: { start: '2027-07-15', finish: '2027-09-01' }, after: { start: '2027-07-20', finish: '2027-09-06' } }],
-      source: 'conditions',
-    }),
-  );
+  act(() => useSchedulePreview.getState().set({ scheduleId: 1, view: makeView({ activities, finish: '2027-11-29' }), moved: [], source: 'conditions' }));
   expect(screen.getByText('미리 보기 중 — 조건·규칙 창에서 확정하거나 되돌리세요')).toBeInTheDocument();
+  const ppd = pxPerDay();
   // 준공이 늦어져 맞춤 눈금이 바뀐다 — 점선은 저장된 자리(7.15), 막대는 미리 보기 자리(7.20).
-  const dd = num(document.querySelector('[data-vline="data"]'), 'x1');
-  expect(num(ghost('A3010'), 'x') - dd).toBeCloseTo(44 * pxPerDay(), 1);
-  expect(num(bar('A3010'), 'x') - num(ghost('A3010'), 'x')).toBeCloseTo(5 * pxPerDay(), 1);
+  expect(num(ghost('A3010'), 'x') - dataX()).toBeCloseTo(44 * ppd, 1);
+  expect(num(bar('A3010'), 'x') - num(ghost('A3010'), 'x')).toBeCloseTo(5 * ppd, 1);
+  expect(num(forecastBar('A3010'), 'x') - num(ghostTrack('A3010'), 'x')).toBeCloseTo(5 * ppd, 1);
   expect(ghost('A3020')).toBeNull();
+  expect(ghostTrack('A3020')).toBeNull();
   act(() => useSchedulePreview.getState().clear(1));
   expect(screen.queryByText(/미리 보기 중/)).toBeNull();
   expect(ghost('A3010')).toBeNull();
-  expect(num(bar('A3010'), 'x')).toBeCloseTo(before, 1);
+  expect(ghostTrack('A3010')).toBeNull();
+  expect(num(bar('A3010'), 'x')).toBeCloseTo(before.plan, 1);
+  expect(num(forecastBar('A3010'), 'x')).toBeCloseTo(before.track, 1);
+});
+
+test('a preview that moves only the current computation (a delay) leaves Plan alone and dots only the forecast row', async () => {
+  await renderGantt();
+  const activities = makeView().activities.map((a) => (a.id === 'A3010' ? { ...a, es: '2027-07-20', ef: '2027-09-06' } : a));
+  const bogus = [{ activity_id: 'A3020', name: '전기·기계 배관', before: { start: '2027-01-01', finish: '2027-01-02' }, after: { start: '2027-01-03', finish: '2027-01-04' } }];
+  act(() => useSchedulePreview.getState().set({ scheduleId: 1, view: makeView({ activities }), moved: bogus, source: 'conditions' }));
+  expect(ghost('A3010')).toBeNull();
+  expect(ghostTrack('A3010')).toBeInTheDocument();
+  expect(num(forecastBar('A3010'), 'x') - num(ghostTrack('A3010'), 'x')).toBeCloseTo(5 * pxPerDay(), 1);
+  expect(ghost('A3020')).toBeNull(); // moved[] 로는 그리지 않는다
+  expect(ghostTrack('A3020')).toBeNull();
 });
 
 test('a preview of another schedule is not drawn', async () => {
@@ -218,6 +294,17 @@ test('resource strip shows each key resource and when it is used, without invent
   expect(lane.querySelector('[data-use="A2020"] title')).toHaveTextContent('A2020 지상 1~5층 골조');
   expect(strip.querySelectorAll('.over')).toHaveLength(0);
   expect(strip.textContent).not.toMatch(/필요|최고/);
+});
+
+// Task 17 리뷰 M8: 자원 막대는 Plan 날짜라 Plan 층을 끄면 함께 숨는다(자원 묶음 줄·아래 자원 줄 모두).
+test('resource lane bars follow the Plan layer toggle', async () => {
+  await renderGantt();
+  await userEvent.click(tool('자원'));
+  expect(document.querySelectorAll('[data-lane-bar]').length).toBeGreaterThan(0);
+  expect(document.querySelectorAll('[data-use]').length).toBeGreaterThan(0);
+  await userEvent.click(tool('Plan'));
+  expect(document.querySelectorAll('[data-lane-bar]')).toHaveLength(0);
+  expect(document.querySelectorAll('[data-use]')).toHaveLength(0);
 });
 
 test('the resource strip is not shown when the schedule has no resources', async () => {
@@ -266,7 +353,7 @@ test('CPM layer draws a float tail from EF to LF (server LS/LF); none when criti
   setupGantt(makeView({ activities: acts }));
   await renderGantt();
   const tail = document.querySelector('[data-float="A3020"]')!;
-  const b = bar('A3020')!;
+  const b = forecastBar('A3020')!;
   expect(num(tail, 'x')).toBeCloseTo(num(b, 'x') + num(b, 'width'), 1); // EF 다음 날 0시
   expect(num(tail, 'x') + num(tail, 'width') - num(b, 'x')).toBeCloseTo(80 * pxPerDay(), 1); // 6.14 ~ 9.01 끝
   expect(tail.querySelector('title')).toHaveTextContent('여유 18일 · LF 2027.09.01');

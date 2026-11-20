@@ -74,9 +74,9 @@ export function toRequest(col: ColKey, raw: string): EditRequest {
   }
 }
 
-/** 적은 글을 요청으로 바꿔 일정 저장소로 보낸다. 틀린 글은 보내지 않고 알림. */
-export async function commitCell(store: ScheduleState, a: Activity, col: ColumnDef, text: string): Promise<unknown> {
+/** 적은 글을 요청으로 바꿔 일정 저장소로 보낸다. 틀린 글은 보내지 않고 고친 창(windowId)에만 알림. */
+export async function commitCell(store: ScheduleState, windowId: string, a: Activity, col: ColumnDef, text: string): Promise<unknown> {
   const req = toRequest(col.key, text);
-  if ('error' in req) return store.setNotice({ tone: 'error', text: req.error });
+  if ('error' in req) return store.setNotice({ tone: 'error', text: req.error, windowId });
   return 'preds' in req ? store.setPredecessors(a.id, req.preds) : store.patchActivity(a.id, req.patch);
 }

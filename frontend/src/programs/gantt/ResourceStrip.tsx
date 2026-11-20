@@ -9,7 +9,17 @@ import type { Viewport } from './useViewport';
 
 const LANE_H = 24;
 
-export default function ResourceStrip({ view, scale, total, nameWidth, vp }: { view: ScheduleView; scale: Scale; total: number; nameWidth: number; vp: Viewport }) {
+interface StripProps {
+  view: ScheduleView;
+  scale: Scale;
+  total: number;
+  nameWidth: number;
+  vp: Viewport;
+  /** Plan 층이 켜졌는가(막대는 Plan 날짜라 끄면 숨긴다 — 이름·수는 남는다). */
+  plan: boolean;
+}
+
+export default function ResourceStrip({ view, scale, total, nameWidth, vp, plan }: StripProps) {
   if (view.resources.length === 0) return null;
   const used = new Map(view.resources.map((r) => [r.id, view.activities.filter((a) => a.resources.includes(r.id))]));
   return (
@@ -27,7 +37,7 @@ export default function ResourceStrip({ view, scale, total, nameWidth, vp }: { v
           {view.resources.map((r, i) => (
             <g key={r.id} data-res={r.id}>
               {used.get(r.id)!.map((a) => {
-                const p = planOf(a);
+                const p = plan ? planOf(a) : null;
                 if (!p) return null;
                 const b = barRect(scale, p.start, p.finish);
                 return <LaneBar key={a.id} data-use={a.id} x={b.x} w={b.w} y={i * LANE_H + 6} h={LANE_H - 12} title={`${a.id} ${a.name} ${dot(p.start)}~${dot(p.finish)}`} />;

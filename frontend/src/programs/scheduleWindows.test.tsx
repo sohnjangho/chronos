@@ -108,3 +108,31 @@ test('closing the gantt keeps the table, its edits and its history', async () =>
   expect(schedule().undo).toHaveLength(1);
   expect(cell('A3010', 'OD')).toBeInTheDocument();
 });
+
+// 16b 리뷰 minor 1: 창 안의 동작에서 난 안내(오늘이 기간 밖·선행 칸 틀림 등)는 그 창에만, 서버가 거절한 것은 그 일정의 모든 창에.
+test('a notice from an action in one window shows only there; a server rejection shows in every window', async () => {
+  const { table: t, gantt: g } = await openBoth();
+  await userEvent.click(within(ganttTools()).getByRole('button', { name: '오늘' }));
+  expect(within(g.container).getByRole('status')).toHaveTextContent('이 일정 기간 밖입니다');
+  expect(within(t.container).queryByRole('status')).toBeNull();
+  await editCell('A3010', '선행', 'Z9999');
+  expect(within(t.container).getByRole('alert')).toHaveTextContent('Z9999');
+  expect(within(g.container).queryByRole('alert')).toBeNull();
+  mockPatch(422, { code: 'invalid_activity', message: '실제 종료일이 실제 시작일보다 앞설 수 없습니다.', detail: null });
+  await editCell('A3010', 'OD', '40');
+  await waitFor(() => expect(within(g.container).getByRole('alert')).toHaveTextContent('실제 종료일이'));
+  expect(within(t.container).getByRole('alert')).toHaveTextContent('실제 종료일이');
+});
+
+// 16b 리뷰 minor 2: 다른 창에서 같은 액티비티를 다시 고르면 다시 따라간다.
+test('picking the same activity again in the other window follows again', async () => {
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  await openBoth();
+  await userEvent.click(leftRow('A4010')!);
+  await waitFor(() => expect(scroll.mock.contexts.at(-1)).toBe(row('A4010')));
+  scroll.mockClear();
+  await userEvent.click(leftRow('A4010')!);
+  await waitFor(() => expect(scroll).toHaveBeenCalled());
+  expect(scroll.mock.contexts.at(-1)).toBe(row('A4010'));
+});
