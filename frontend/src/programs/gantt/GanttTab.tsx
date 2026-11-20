@@ -3,6 +3,7 @@
 // 조건·규칙 창의 미리 보기(OS useSchedulePreview)가 있으면 그 일정을 그리고, 움직인 것의 이전 자리를 점선으로 남긴다.
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useSchedulePreview, type SchedulePreview } from '../../os/schedulePreview';
+import { ROW_H } from '../../shared/gantt/Bars';
 import Button from '../../shared/ui/Button';
 import { dot } from '../../shared/schedule/format';
 import type { ScheduleView } from '../../shared/schedule/scheduleApi';
@@ -137,6 +138,7 @@ export default function GanttTab() {
     view, rows: g.rows, scale: vp.scale, total: vp.total, layers: g.layers, selected, ghosts, noPlan,
     dues: new Map(marks.milestoneBy.map((d) => [d.activityId, marks.milestoneBy.filter((x) => x.activityId === d.activityId)])),
     rowOf: rowIndex(g.rows), vmarks: vmarks(view, marks, vp.scale, today, vp.total), editable: !preview, drag,
+    labelY: vp.top - vp.first * ROW_H,
     onBar: begin, onEdit: (key) => ed.onEdit(key, cols.visible.includes('od') ? 'od' : 'name'), onPick: select,
   };
   const act = toolbarActions({ notify, stored, view, m, vp, range, today, selected, columns: cols.columns });

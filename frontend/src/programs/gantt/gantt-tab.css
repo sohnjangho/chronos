@@ -20,7 +20,17 @@
 .gt-swatch.is-ghost { background: none; border: 1.5px dashed var(--fg-muted); }
 .gt-swatch.is-lane { background: var(--accent); opacity: 0.35; }
 .gt-swatch.is-float { height: 2px; background: var(--fg-muted); }
-.gt-swatch.is-blocked { background: var(--tone-danger-bg); border: 1px solid var(--danger); }
+.gt-swatch.is-blocked { background: repeating-linear-gradient(45deg, var(--danger) 0 1px, var(--tone-danger-bg) 1px 4px); border: 1px solid var(--danger); }
+
+/* 작업 금지 띠(BlockedBands): 빗금 + 위 이름표, 그 꼬리표 줄은 더 진하게. 막대를 누르는 데 방해하지 않는다. */
+.gt-blocked { pointer-events: none; }
+.gt-hatch-bg { fill: var(--danger); fill-opacity: 0.05; }
+.gt-hatch { stroke: var(--danger); stroke-width: 1.5; stroke-opacity: 0.35; }
+.gt-band-row { fill: var(--danger); fill-opacity: 0.16; }
+.gantt-svg .gt-band-label {
+  font-size: var(--fs-11); font-weight: 700; fill: var(--danger-text); pointer-events: none;
+  paint-order: stroke; stroke: var(--bg-panel); stroke-width: 3px; stroke-linejoin: round;
+}
 .gt-legend { margin: 0; list-style: none; width: 380px; max-width: calc(100vw - 32px); max-height: 340px; overflow-y: auto; flex-wrap: nowrap; gap: 8px; }
 .gt-legend li { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-12); line-height: 1.5; overflow-wrap: anywhere; }
 .gt-cols { flex-direction: row; flex-wrap: wrap; width: 320px; max-width: calc(100vw - 32px); column-gap: 16px; row-gap: 6px; }

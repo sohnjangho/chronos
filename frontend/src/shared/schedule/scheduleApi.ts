@@ -62,6 +62,13 @@ export interface Resource {
   capacity: number;
 }
 
+/** 그 일정 분야의 표시 설정(분야 묶음의 display, 모르는 분야면 서버 기본값). extra_columns: resources·constraint·es_ef·ls_lf. */
+export interface DisplayView {
+  gantt_group_by: 'wbs' | 'resource';
+  deadline_label: string;
+  extra_columns: string[];
+}
+
 export interface ScheduleView {
   id: number;
   name: string;
@@ -80,6 +87,8 @@ export interface ScheduleView {
   summary: { critical_count: number; negative_float_count: number; warning_count: number; weight_missing?: number };
   /** 조건을 넣은 근무 달력(묶음 2 서버부터): 주 근무일 수, 일정 기간 안의 작업 금지 기간. */
   calendar?: { days_per_week: number; blocked: { tag: string; start: string; finish: string }[] };
+  /** 분야 표시 설정(Task 40 서버부터): 간트 처음 묶는 기준·기한 세로선 이름·스케줄표에 처음 켤 칸. */
+  display?: DisplayView;
 }
 
 export interface PredItem {

@@ -350,3 +350,26 @@ test('the table shows its row count', async () => {
   expect(screen.getByText(/15 행 · 액티비티 11개/)).toBeVisible();
   expect(table()).toBeVisible();
 });
+
+// Task 40: 분야 표시 설정의 덧붙일 칸(생산: 주요 자원). 저장된 열 고르기가 있으면 그것을 따른다.
+describe('분야 표시 설정', () => {
+  const factory = () => viewWith({ display: { gantt_group_by: 'resource', deadline_label: '납기', extra_columns: ['resources'] } });
+
+  test('table starts with the domain extra columns', async () => {
+    setup(factory());
+    await renderSchedule();
+    expect(screen.getByRole('columnheader', { name: '주요 자원' })).toBeVisible();
+  });
+
+  test('a saved column choice wins over the domain extra columns', async () => {
+    localStorage.setItem('chronos.schedule.columns.1', JSON.stringify(['od']));
+    setup(factory());
+    await renderSchedule();
+    expect(screen.queryByRole('columnheader', { name: '주요 자원' })).toBeNull();
+  });
+
+  test('without domain display the optional columns stay off', async () => {
+    await renderSchedule();
+    expect(screen.queryByRole('columnheader', { name: '주요 자원' })).toBeNull();
+  });
+});

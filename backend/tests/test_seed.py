@@ -72,7 +72,7 @@ def test_seed_twice_gives_the_same_result(session):
     again = _demo(session)
     assert load(session, again.id) == first
     assert session.scalar(select(func.count()).select_from(ScheduleVersion).where(ScheduleVersion.schedule_id == again.id)) == 2
-    assert session.scalar(select(func.count()).select_from(ScheduleVersion)) == 2  # 옛 버전은 지웠다
+    assert session.scalar(select(func.count()).select_from(ScheduleVersion)) == 3  # 옛 버전은 지웠다(사무동 2 · 공장 1)
 
 
 def test_seed_leaves_other_schedules_and_calls_no_llm(session, sid):

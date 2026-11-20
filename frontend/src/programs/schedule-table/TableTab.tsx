@@ -19,13 +19,20 @@ const PREF = 'schedule.columns';
 const NEW_ACTIVITY = { name: '새 액티비티', kind: 'task' as const, od: 5 };
 const NO_TEXT = { preds: '', wbsLabel: '', resources: '' };
 
-/** 사용자별로 기억하는 보이는 칸(모르는 값이면 기본). 가중치 직접 입력 방식이면 가중치 칸을 고칠 수 있다. */
-function useVisibleColumns(manual: boolean) {
+/** 분야 표시 설정의 덧붙일 칸 → 표 칸(늦은 날짜 ls_lf 는 표 칸이 없어 건너뛴다). */
+const EXTRA: Record<string, ColKey[]> = { resources: ['resources'], constraint: ['constraint'], es_ef: ['es', 'ef'] };
+
+/**
+ * 사용자별로 기억하는 보이는 칸. 저장된 것이 없거나 모르는 값이면 기본 칸 + 그 분야의 덧붙일 칸(extra).
+ * 가중치 직접 입력 방식이면 가중치 칸을 고칠 수 있다.
+ */
+function useVisibleColumns(manual: boolean, extra: string[]) {
   const userId = useSession((s) => s.session?.user.id ?? null);
   const [visible, setVisible] = useState<ColKey[]>(() => {
     const saved = loadPref(PREF, userId);
     const known = new Set(COLUMNS.map((c) => c.key));
-    return Array.isArray(saved) && saved.every((k) => known.has(k)) ? (saved as ColKey[]) : DEFAULT_VISIBLE;
+    if (Array.isArray(saved) && saved.every((k) => known.has(k))) return saved as ColKey[];
+    return [...DEFAULT_VISIBLE, ...extra.flatMap((e) => EXTRA[e] ?? [])];
   });
   const change = (keys: ColKey[]) => {
     setVisible(keys);
@@ -190,7 +197,7 @@ export default function TableTab() {
   const view = useSchedule((s) => s.view)!;
   const selected = useSchedule((s) => s.selected);
   const weightMode = view.weight_mode ?? 'duration';
-  const { visible, change, columns } = useVisibleColumns(weightMode === 'manual');
+  const { visible, change, columns } = useVisibleColumns(weightMode === 'manual', view.display?.extra_columns ?? []);
   const store = useScheduleStore();
   const texts = useTexts(view);
   const bodyRef = useRef<HTMLTableSectionElement>(null);

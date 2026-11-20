@@ -122,7 +122,7 @@ export function useViewport(range: { start: string; end: string }, rowCount: num
 
   const first = Math.max(0, Math.floor(top / ROW_H) - OVERSCAN);
   const last = Math.min(rowCount - 1, Math.ceil((top + size.h) / ROW_H) + OVERSCAN);
-  return { bodyRef, headRef, leftRef, resRef, scale, total, size, scrollbarH, first, last, sync, nav };
+  return { bodyRef, headRef, leftRef, resRef, scale, total, size, scrollbarH, top, first, last, sync, nav };
 }
 
 export type Viewport = ReturnType<typeof useViewport>;

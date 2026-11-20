@@ -8,6 +8,7 @@ Plan 을 옮기지 않고 상태(late +n)로만 보인다. 처음 계획(is_plan
 액티비티·관계·자원 칸은 저장된 일정 그대로 보여 준다(조건이 넣은 FNLT·용량은 보이지 않는다).
 달력(calendar)은 조건을 넣은 달력의 근무 요일과, 작업 금지 기간을 일정 기간 안의 날짜로 펼친 것이다.
 가중치(weight)는 일정의 weight_mode(duration·manual)를 따른다.
+표시 설정(display)은 그 일정 분야 묶음의 display(간트 묶음 기준·납기 이름·덧붙일 칸), 모르는 분야면 기본값이다.
 """
 
 from calendar import isleap
@@ -19,6 +20,8 @@ from sqlalchemy.orm import Session
 from app.core.calendar import WorkCalendar
 from app.core.cpm import CpmResult, CpmRow, ScheduleError
 from app.core.model import Activity, CalendarSpec, Schedule
+from app.domains.loader import DisplaySpec, UnknownDomain
+from app.domains.loader import load as load_pack
 from app.harness.assemble import prepare_stored
 from app.store.schedules import (
     activity_json,
@@ -83,6 +86,15 @@ def _blocked(calendar: CalendarSpec, start: date, finish: date) -> list[dict]:
             if first <= finish and last >= start:
                 out.append({"tag": p.tag, "start": first, "finish": last})
     return sorted(out, key=lambda x: x["start"])
+
+
+def _display(domain: str) -> dict:
+    """그 분야 묶음의 표시 설정. 묶음이 없는 분야면 기본값."""
+    try:
+        spec = load_pack(domain).display
+    except UnknownDomain:
+        spec = DisplaySpec()
+    return spec.model_dump()
 
 
 def _activities(
@@ -170,6 +182,7 @@ def view_of(
         "finish": cpm.finish,
         "plan_finish": plan.finish if plan else None,
         "weight_mode": record.weight_mode,
+        "display": _display(record.domain),
         "calendar": {
             "days_per_week": ready.calendar.days_per_week,
             "blocked": _blocked(ready.calendar, schedule.start, cpm.finish),

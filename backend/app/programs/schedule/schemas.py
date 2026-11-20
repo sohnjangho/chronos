@@ -163,6 +163,14 @@ class CalendarView(BaseModel):
     blocked: list[BlockedView]
 
 
+class DisplayView(BaseModel):
+    """그 일정 분야의 표시 설정(분야 묶음의 display, 모르는 분야면 기본값)."""
+
+    gantt_group_by: Literal["wbs", "resource"]
+    deadline_label: str
+    extra_columns: list[str]
+
+
 class ScheduleView(BaseModel):
     """계산값을 담은 일정. 날짜는 자원 맞춤까지 마친 값이다."""
 
@@ -175,6 +183,7 @@ class ScheduleView(BaseModel):
     finish: date
     plan_finish: date | None  # Plan 이 계산되지 않으면 null
     weight_mode: WeightMode
+    display: DisplayView
     calendar: CalendarView
     wbs: list[WbsOut]
     activities: list[ActivityView]

@@ -15,9 +15,10 @@ import type { Editing } from './LeftGrid';
 import type { Layers } from './model';
 import type { Viewport } from './useViewport';
 
+/** 층·묶는 기준·접기. 처음 묶는 기준은 그 분야의 표시 설정(없으면 WBS), 사용자가 바꾸면 그대로 둔다. */
 export function useLayersAndRows(view: ScheduleView) {
   const [layers, setLayers] = useState<Layers>({ plan: true, actual: true, cpm: true });
-  const [groupBy, setGroupBy] = useState<GroupBy>('wbs');
+  const [groupBy, setGroupBy] = useState<GroupBy>(() => view.display?.gantt_group_by ?? 'wbs');
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const rows = useMemo(() => rowsFor(view, groupBy, collapsed), [view, groupBy, collapsed]);
   const toggle = useCallback((key: string, open?: boolean) => {

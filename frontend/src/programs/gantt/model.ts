@@ -158,12 +158,16 @@ export interface VMark {
 
 const md = (iso: string) => dot(iso).slice(5);
 
-/** 세로선과 머리 이름표: Data Date(그날 0시) · 준공 기한(그날 끝) · 오늘(보이는 기간 안일 때만). */
+/**
+ * 세로선과 머리 이름표: Data Date(그날 0시) · 준공 기한(그날 끝) · 오늘(보이는 기간 안일 때만).
+ * 기한 이름은 그 분야의 표시 설정(생산 「납기」, 건설 「준공」), 없으면 「기한」.
+ */
 export function vmarks(view: ScheduleView, marks: ConditionMarks, scale: Scale, today: string, total: number): VMark[] {
   const out: VMark[] = [];
+  const due = view.display?.deadline_label ?? '기한';
   if (view.data_date) out.push({ kind: 'data', key: 'data', x: x(scale, view.data_date), label: `Data Date ${md(view.data_date)}` });
   for (const f of marks.finishBy)
-    out.push({ kind: 'deadline', key: `deadline-${f.id}`, x: x(scale, f.date) + scale.pxPerDay, label: `기한 ${md(f.date)}`, title: `${f.text} — 기한 ${dot(f.date)}` });
+    out.push({ kind: 'deadline', key: `deadline-${f.id}`, x: x(scale, f.date) + scale.pxPerDay, label: `${due} ${md(f.date)}`, title: `${f.text} — ${due} ${dot(f.date)}` });
   const t = x(scale, today);
   if (t >= 0 && t <= total) out.push({ kind: 'today', key: 'today', x: t, label: '오늘' });
   return out;

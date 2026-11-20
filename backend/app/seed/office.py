@@ -1,33 +1,22 @@
-"""시연용 씨앗 자료. `python -m app.seed demo` 로 가상 예시 일정을 만든다.
+"""씨앗 일정 「5층 사무동 신축」(건설·L3): 액티비티 59개, 조건 14개(기본 4·분야 4·입력 6), 주요 자원 3개.
 
-- 지금 있는 것: 「5층 사무동 신축」(건설·L3) — 액티비티 60개, 조건 14개(기본 4·분야 4·입력 6), 주요 자원 3개.
-  버전 1 = 처음 계획(실적 없음, 「처음 계획」 표시), 버전 2 = 실적 일부와 Data Date 를 넣은 것.
-- 여러 번 돌려도 같다: 같은 이름의 일정과 그 일정에 딸린 줄을 먼저 지우고 새로 만든다. 다른 일정은 건드리지 않는다.
-- LLM 을 부르지 않는다. 날짜는 넣지 않고(시작일·실적만) 계산은 core 가 한다.
-- 일정을 더하려면 함수 하나(세션 → 일정 id)를 만들어 DEMO 에 넣는다(예: 생산 분야 일정).
-- 사람·회사·현장은 모두 가상이다.
+버전 1 = 처음 계획(실적 없음, 「처음 계획」 표시), 버전 2 = 실적 일부와 Data Date 를 넣은 것.
 """
 
-import sys
-from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import date
 
-from sqlalchemy import Engine, create_engine, delete, select, update
 from sqlalchemy.orm import Session
 
-from app.config import Settings
-from app.core.model import Activity, CalendarSpec, Relation, Resource, Schedule, WbsNode
+from app.core.model import Activity, CalendarSpec, Resource, Schedule, WbsNode
 from app.domains.loader import load as load_pack
 from app.harness.assemble import assemble, holidays_of
 from app.harness.conditions import Condition
+from app.seed.rows import BY, Row, activity
 from app.store.diff import schedule_changes
 from app.store.schedules import create_schedule, run
-from app.store.tables import Base, ChatSession, ScheduleRecord
-from app.store.upgrade import add_missing_columns
 from app.store.versions import mark_plan, save_new_version
 
-BY = "시연 자료"
 OFFICE = "5층 사무동 신축"
 START = date(2027, 3, 2)  # 3월 1일(삼일절) 다음 날 착공
 DATA_DATE = date(2027, 4, 17)  # 실적 기준일(토요일, 주 6일 달력의 근무일)
@@ -57,9 +46,7 @@ _WBS = (
 _CRANE, _REBAR, _FORM = "tower_crane", "rebar_crew", "form_crew"
 _USES = {"철근": (_REBAR, _CRANE), "거푸집": (_FORM, _CRANE), "골조": (_CRANE,), "외장": (_CRANE,)}
 
-# (id, 이름, WBS, 기간(근무일), 선행 [(id, 관계, lag)], 꼬리표). 선행 글 "A1010" 은 FS lag 0.
-_Row = tuple[str, str, str, int, tuple, tuple[str, ...]]
-_FOUNDATION: tuple[_Row, ...] = (
+_FOUNDATION: tuple[Row, ...] = (
     ("A1000", "착공", "1.1.1", 0, (), ()),
     ("A1010", "가설 울타리 설치", "1.1.1", 5, ("A1000",), ()),
     ("A1020", "현장 사무실 설치", "1.1.1", 4, ("A1010",), ()),
@@ -74,7 +61,7 @@ _FOUNDATION: tuple[_Row, ...] = (
     ("A1100", "기초 거푸집", "1.3.2", 5, (("A1090", "SS", 2),), ("거푸집",)),
     ("A1110", "기초 콘크리트 타설", "1.3.3", 2, ("A1090", "A1100"), ("타설",)),
 )
-_FINISHING: tuple[_Row, ...] = (
+_FINISHING: tuple[Row, ...] = (
     ("A1300", "옥탑 골조", "2.3.1", 6, ("A1254",), ("골조",)),
     ("A1310", "골조 완료", "2.3.1", 0, ("A1300",), ()),
     ("A1320", "지붕 방수", "2.3.2", 6, ("A1300",), ()),
@@ -109,12 +96,12 @@ _FINISHING: tuple[_Row, ...] = (
 )
 
 
-def _frame_rows() -> tuple[_Row, ...]:
+def _frame_rows() -> tuple[Row, ...]:
     """지상 1~5층 골조: 층마다 철근 배근(4) → 거푸집(SS+1, 4) → 타설(1). 다음 층은 아래층 타설 뒤.
 
     id: A12{층}0 철근 · A12{층}2 거푸집 · A12{층}4 타설.
     """
-    rows: list[_Row] = []
+    rows: list[Row] = []
     below = "A1110"
     for floor in range(1, 6):
         rebar, form, pour = (f"A12{floor}{k}" for k in (0, 2, 4))
@@ -127,19 +114,11 @@ def _frame_rows() -> tuple[_Row, ...]:
     return tuple(rows)
 
 
-def _activity(row: _Row) -> tuple[Activity, list[Relation]]:
-    aid, name, wbs, od, preds, tags = row
-    kind = "task" if od else ("start_ms" if not preds else "finish_ms")
-    uses = dict.fromkeys(r for t in tags for r in _USES.get(t, ()))
-    rels = [Relation(p, aid) if isinstance(p, str) else Relation(p[0], aid, p[1], p[2]) for p in preds]
-    return Activity(aid, name, kind, wbs, od, resources=tuple(uses), tags=tags), rels
-
-
 def _office_plan() -> Schedule:
     activities, relations = [], []
     for row in (*_FOUNDATION, *_frame_rows(), *_FINISHING):
-        activity, rels = _activity(row)
-        activities.append(activity)
+        act, rels = activity(row, _USES)
+        activities.append(act)
         relations += rels
     cal = load_pack("construction").default_calendar
     return Schedule(
@@ -207,67 +186,8 @@ def office_building(session: Session) -> int:
                           conditions=conditions, by_kind="user", by_name=BY, note="처음 계획", commit=False)
     mark_plan(session, sid, 1, commit=False)
     actual = _with_actuals(plan)
-    run(actual, conditions)
+    run(actual, conditions)  # 실적을 넣은 일정이 계산되는지 확인(깨지면 ScheduleError, 저장하지 않음 — save_new_version 은 확인하지 않는다)
     save_new_version(session, sid, actual, conditions, by_kind="user", by_name=BY,
                      note=f"실적 입력(Data Date {DATA_DATE.isoformat()})",
                      changes=schedule_changes(plan, actual), base_version=1, commit=False)
     return sid
-
-
-# ── 지우고 만들기 ────────────────────────────────────────────────────────
-
-DEMO: tuple[tuple[str, Callable[[Session], int]], ...] = ((OFFICE, office_building),)
-
-
-def _clear(session: Session, name: str) -> None:
-    """그 이름의 일정과 일정에 딸린 줄(schedule_id 칸이 있는 모든 표)을 지운다. 대화는 남기고 일정 연결만 끊는다."""
-    ids = list(session.scalars(select(ScheduleRecord.id).where(ScheduleRecord.name == name)))
-    if not ids:
-        return
-    session.execute(update(ChatSession).where(ChatSession.schedule_id.in_(ids)).values(schedule_id=None))
-    for table in reversed(Base.metadata.sorted_tables):
-        column = table.columns.get("schedule_id")
-        if column is not None and table.name != ChatSession.__tablename__:
-            session.execute(delete(table).where(column.in_(ids)))
-    session.execute(delete(ScheduleRecord).where(ScheduleRecord.id.in_(ids)))
-
-
-def seed_demo(session: Session) -> list[int]:
-    """시연 일정을 모두 지우고 다시 만든다(한 트랜잭션). 만든 일정 id 를 차례로 준다."""
-    try:
-        for name, _ in DEMO:
-            _clear(session, name)
-        ids = [make(session) for _, make in DEMO]
-        session.commit()
-    except BaseException:
-        session.rollback()
-        raise
-    return ids
-
-
-def _engine() -> Engine:
-    """앱과 같은 DB 파일. 표가 없으면 만든다(첫 관리자는 앱이 뜰 때 만든다)."""
-    settings = Settings()
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(f"sqlite:///{settings.data_dir / 'chronos.db'}")
-    Base.metadata.create_all(engine)
-    add_missing_columns(engine, Base.metadata)
-    return engine
-
-
-def main(argv: Sequence[str]) -> int:
-    if list(argv) != ["demo"]:
-        print("사용법: python -m app.seed demo", file=sys.stderr)
-        return 2
-    engine = _engine()
-    try:
-        with Session(engine) as session:
-            ids = seed_demo(session)
-    finally:
-        engine.dispose()
-    print(f"시연 일정 {len(ids)}개를 만들었습니다: {', '.join(name for name, _ in DEMO)}")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))

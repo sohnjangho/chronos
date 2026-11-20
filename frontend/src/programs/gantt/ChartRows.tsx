@@ -3,13 +3,14 @@
 // CPM 층(크리티컬 빨강·여유 꼬리 EF→LF·관계선)은 아래 칸에 붙는다. 날짜는 모두 서버 값의 자리다.
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
-  Band, Bar, Blocked, Due, EndHandle, FloatTail, Ghost, GhostMilestone, Label, labelWidth, LaneBar, Milestone, ROW_H, Summary, TRACK_MID, TrackBar, VLine,
+  Band, Bar, Due, EndHandle, FloatTail, Ghost, GhostMilestone, Label, labelWidth, LaneBar, Milestone, ROW_H, Summary, TRACK_MID, TrackBar, VLine,
   Weekends,
 } from '../../shared/gantt/Bars';
 import Links from '../../shared/gantt/Links';
 import { barRect, weekends, x, type Scale } from '../../shared/gantt/scale';
 import { dot, statusBadge } from '../../shared/schedule/format';
 import type { Activity, ScheduleView } from '../../shared/schedule/scheduleApi';
+import { BlockedBands, BlockedLabels } from './BlockedBands';
 import type { GanttRow } from './grouping';
 import { anchorOf, linkItems, planOf, trackOf, type Layers, type Track, type VMark } from './model';
 import { dragLabel, dragRules, draggedOdRect, draggedStart, type DragMode, type DragState } from './useDrag';
@@ -31,6 +32,8 @@ export interface ChartModel {
   dues: Map<string, { date: string; text: string }[]>;
   rowOf: Map<string, number>;
   vmarks: VMark[];
+  /** 작업 금지 이름표를 놓을 높이(그리는 줄들 안의 보이는 맨 위). 없으면 0(그림 내보내기). */
+  labelY?: number;
   /** 끌어 고칠 수 있는가(미리 보기 중·그림 내보내기에서는 아니다). */
   editable: boolean;
   drag?: DragState | null;
@@ -191,6 +194,7 @@ function GroupShapes({ m, row, y }: { m: ChartModel; row: GanttRow; y: number })
 export default function ChartRows({ m, first, last }: { m: ChartModel; first: number; last: number }) {
   const h = (last - first + 1) * ROW_H;
   const shown = m.rows.slice(first, last + 1);
+  const blocked = m.view.calendar?.blocked ?? [];
   return (
     <>
       {shown.map((row, i) => {
@@ -207,10 +211,7 @@ export default function ChartRows({ m, first, last }: { m: ChartModel; first: nu
           />
         );
       })}
-      {(m.view.calendar?.blocked ?? []).map((b) => {
-        const r = barRect(m.scale, b.start, b.finish);
-        return <Blocked key={`${b.tag}-${b.start}`} tag={b.tag} x={r.x} w={r.w} h={h} title={`작업 금지(${b.tag}) ${dot(b.start)}~${dot(b.finish)}`} />;
-      })}
+      <BlockedBands blocked={blocked} scale={m.scale} rows={shown} h={h} />
       {m.scale.pxPerDay >= 3 && <Weekends days={weekends(m.scale, m.view.calendar?.days_per_week)} pxPerDay={m.scale.pxPerDay} h={h} />}
       {m.vmarks.map((v) => (
         <VLine key={v.key} kind={v.kind} x={v.x} h={h} />
@@ -221,6 +222,7 @@ export default function ChartRows({ m, first, last }: { m: ChartModel; first: nu
           {row.kind === 'group' ? <GroupShapes m={m} row={row} y={i * ROW_H} /> : <ActivityShapes m={m} row={row} y={i * ROW_H} />}
         </g>
       ))}
+      <BlockedLabels blocked={blocked} scale={m.scale} total={m.total} y={Math.min(Math.max(0, m.labelY ?? 0), Math.max(0, h - ROW_H))} />
     </>
   );
 }
