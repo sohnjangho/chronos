@@ -22,8 +22,8 @@
 - 지금 일정의 후보마다 이득(근무일, 지금 준공 − 넣은 뒤 준공)을 어림한다. parallel·compress 는
   맞춤 고정(`pinned_start`)을 둔 `lv.schedule` 에 넣고 `compute` 만, add_resource 는 `level` 까지.
 - 이득이 큰 것부터(같으면 parallel < add_resource < compress, 그다음 id) `level` 까지 다시
-  계산해 실제 이득 > 0 인 첫 후보를 넣는다. 어림 이득 ≤ 0 인 후보는, 그 액티비티가 하나도
-  `lv.shifted` 에 없으면 다시 계산하지 않고 버린다(밀린 작업은 다시 맞춰야 줄어들 수 있다).
+  계산해 실제 이득 > 0 인 첫 후보를 넣는다. 어림 이득이 0 이하여도 건너뛰지 않는다(맞춤 고정
+  때문에 어림은 0 이어도 다시 맞추면 줄어들 수 있다).
 - 넣은 뒤에는 다시 맞춘 일정의 새 크리티컬 패스·후보 범위에서 후보를 다시 만든다(이전
   후보는 버린다). 이동마다 넣기 전·뒤 크리티컬 패스를 적는다.
 - 누적 실제 이득 ≥ target, 이동 수 = max_moves, 이득 있는 후보 없음 가운데 하나면 멈춘다.
@@ -227,10 +227,7 @@ def _next_move(
     schedule, _ = search.state(done)
     cands = _candidates(schedule, lv, kinds, {m.id for m in applied})
     guesses = {m.id: search.guess(done, lv, m) for m in cands}
-    shifted = set(lv.shifted)
     for m in sorted(cands, key=lambda m: (-guesses[m.id], _RANK[m.kind], m.id)):
-        if guesses[m.id] <= 0 and shifted.isdisjoint(m.activity_ids):
-            continue  # 밀리지 않은 작업은 어림대로 줄지 않는다
         after = search.state(done | {m})[1]
         if search.gain(after.finish, lv.finish) > 0:
             return m, after

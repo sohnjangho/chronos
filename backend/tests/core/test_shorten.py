@@ -115,15 +115,52 @@ def test_apply_moves_changes_relation_duration_and_capacity():
     assert (out.relations, out.activities[1].od, out.resources[0].capacity) == ((Relation("A", "B", "SS", 3),), 3, 2)
 
 
+RESOURCE_CHAIN = replace(
+    sched([act("A", 6), act("B", 4, resources=("crane",)), act("C", 4, resources=("crane",))],
+          [Relation("A", "B"), Relation("A", "C")]),
+    resources=(CRANE,),
+)   # 맞춤: A 3/1~3/8, B 3/9~3/12, C 는 크레인을 기다려 3/15~3/18
+
+
+def _leveled_finish(s, m):
+    out = apply_moves(s, [m])
+    return level(out, compute(out)).finish
+
+
 def test_parallel_on_resource_driven_chain_after_leveling():
-    """Fix 1: 맞춘 일정의 크리티컬은 C 하나라 A 는 빠지지만, 병행으로 C 를 당기면 크레인이 먼저 풀린다."""
-    s = replace(
-        sched([act("A", 6), act("B", 4, resources=("crane",)), act("C", 4, resources=("crane",))],
-              [Relation("A", "B"), Relation("A", "C")]),
-        resources=(CRANE,),
-    )   # 맞춤: A 3/1~3/8, B 3/9~3/12, C 는 크레인을 기다려 3/15~3/18
-    lv = level(s, compute(s))
+    """Fix 1: 맞춘 일정의 크리티컬은 C 하나라 A 는 빠지지만, A 에서 갈라지는 병행도 후보가 되어 준공이 당겨진다."""
+    lv = level(RESOURCE_CHAIN, compute(RESOURCE_CHAIN))
     assert (lv.cpm.critical_path, lv.shifted, lv.finish) == (("C",), ("C",), date(2027, 3, 18))
-    a = shorten(s, target=3).packages[0]
-    assert ([m.id for m in a.moves], a.finish, a.gain, a.reached) == (["par:A>C"], date(2027, 3, 15), 3, True)
-    assert (a.moves[0].critical_before, a.moves[0].critical_after) == (("C",), ("B",))
+    assert {m.id for m in candidate_moves(RESOURCE_CHAIN, lv) if m.kind == "parallel"} == {"par:A>B", "par:A>C"}
+    a = shorten(RESOURCE_CHAIN, target=3).packages[0]
+    assert (len(a.moves), a.finish, a.gain, a.reached) == (1, date(2027, 3, 15), 3, True)
+
+
+def test_unshifted_move_is_rechecked_and_wins_an_equal_gain_by_id():
+    """Fix 2: par:A>B 는 A·B 가 밀리지 않아 어림 이득이 0 이지만 다시 맞추면 par:A>C 와 같은 3일. 같으면 id 순."""
+    lv = level(RESOURCE_CHAIN, compute(RESOURCE_CHAIN))
+    assert not {"A", "B"} & set(lv.shifted)
+    real = {m.id: _leveled_finish(RESOURCE_CHAIN, m) for m in candidate_moves(RESOURCE_CHAIN, lv) if m.kind == "parallel"}
+    assert real == {"par:A>B": date(2027, 3, 15), "par:A>C": date(2027, 3, 15)}
+    m = shorten(RESOURCE_CHAIN, target=3).packages[0].moves[0]
+    assert (m.id, m.relation, m.critical_before, m.critical_after) == ("par:A>B", Relation("A", "B", "SS", 3), ("C",), ("C",))
+
+
+def test_max_moves_stops_the_package():
+    a = shorten(CHAIN, target=10, max_moves=1).packages[0]
+    assert ([m.id for m in a.moves], a.gain, a.reached) == (["par:A>B"], 3, False)
+
+
+def test_equal_gains_prefer_parallel_then_add_resource_then_compress():
+    s = replace(
+        sched([act("W", 1), act("S", 5, resources=("crane",)), act("P", 4), act("Q", 6), act("K", 3, resources=("crane",))],
+              [Relation("W", "S"), Relation("S", "P"), Relation("P", "Q")]),
+        resources=(CRANE,),
+    )   # 맞춤: K 가 크레인을 먼저 써서 S 3/4~3/10, P 3/11~3/16, Q 3/17~3/24
+    lv = level(s, compute(s))
+    first = {m.id for m in candidate_moves(s, lv) if _leveled_finish(s, m) == date(2027, 3, 22)}
+    assert first == {"par:P>Q", "par:S>P", "res:crane", "cmp:Q"}          # 첫 단계는 넷 다 이득 2
+    _, b, c = shorten(s, target=8).packages
+    assert b.moves[0].id == "res:crane"                                   # add_resource < compress
+    assert [m.id for m in c.moves] == ["par:P>Q", "par:S>P", "res:crane", "cmp:Q"]   # parallel(같으면 id) 이 먼저
+    assert (c.finish, c.gain, c.reached) == (date(2027, 3, 12), 8, True)
