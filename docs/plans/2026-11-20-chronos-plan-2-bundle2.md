@@ -56,7 +56,7 @@
 - **Data Date 기준:** 공정률·S-커브의 날짜 d 값은 "d 날 아침 = 전날까지 한 일" 이다. cpm 의 Data Date 규칙(남은 일을 Data Date 부터 센다)과 같은 뜻.
 - **프로그램 라우터:** Task 24 이후 `app/programs/<이름>/router.py` 의 이름이 `router` 로 끝나는 `APIRouter` 는 자동 등록된다. `main.py` 는 고치지 않는다.
 - **화면:** 새 프로그램은 `src/programs/<id>/`. 화면 맥락은 `useUiContext.getState().publish(windowId, {program, schedule_id, selected_activity})`, 창 제목은 `setTitle(windowId, "<프로그램> — <일정 이름>")`. `params.id` 가 없으면 `useCurrentSchedule` 의 일정을 연다.
-- **계산 규칙 [제안]:** 지연 넣기·단축안·공정률 규칙은 설계 20장에 따라 이 계획이 정했다. PM 이 고칠 수 있다.
+- **계산 규칙 [PM 확인 11-20]:** 지연 넣기는 시작 전 작업이면 시작을 미루고(기간 그대로) 진행 중이면 남은 기간에 더한다. 단축안은 제안대로(병행 FS→SS+선행 기간 절반, 압축 20%, 자원 +1). 만회안 승인 때 Plan 다시 잡기는 기본 꺼짐·체크로 켬. 공정률은 Data Date 아침 기준(제안).
 
 ### 화면 검수 (PM 지시 2026-11-20 — 모든 화면 작업의 구현·리뷰에 적용)
 1. 넘침 없음: 창 기본 크기와 그보다 작은 크기(약 900×600, 최소 크기까지)에서 어떤 요소도 창 밖으로 넘치지 않는다. 가로 스크롤 없음(계획 1 간트처럼 네트워크 그림·차트 영역 안에서 그림을 옮기는 것은 창 넘침이 아니다 — 이 계획의 해석), 입력 칸·표·단추가 잘리거나 삐져나오지 않음. 내용이 길면 창 안에서 세로로 스크롤한다.
@@ -221,7 +221,7 @@ def analyze(schedule: Schedule, events: Sequence[DelayEvent]) -> DelayAnalysis
 ```
 규칙 [제안]:
 - 받는 일정은 **조건을 넣은 일정**(부르는 쪽이 `prepare_stored`). core 는 조건을 모른다.
-- 넣기: 시작 전 task → `od + days`. 진행 중(`actual_start` 있음, `actual_finish` 없음) → `rd = (rd if rd is not None else od) + days`. 끝남 → 넣지 않음(`FINISHED_NOTE`). 마일스톤 → 넣지 않음(`MILESTONE_NOTE`). 없는 액티비티 → `DelayInputError(id, "없는 액티비티입니다: Z")`, `days < 1` → `DelayInputError(id, "지연 일수는 1일 이상이어야 합니다.")`. `start` 는 차례와 표시에만 쓴다.
+- 넣기 [PM 결정 11-20: 시작 전 작업은 **시작을 미룬다**]: 시작 전 task → 기간(od)은 그대로 두고 시작을 미룬다. 넣기 전 계산(`compute`)의 그 액티비티 ES 를 근무일로 `days` 만큼 민 날을 시작 하한으로 건다 — `constraint` 가 없거나 SNET 이면 `SNET(max(기존, 하한))`; FNLT 가 있으면 그 제약은 두고, 앞에 숨은 0일 시작 마일스톤 `"~<ID>"`(SNET=하한, `~<ID>` → `<ID>` FS)를 넣어 셈한 뒤 결과의 `affected`·`milestones`·`critical_*` 에서는 `~` 로 시작하는 id 를 뺀다. 진행 중(`actual_start` 있음, `actual_finish` 없음) → 이미 시작했으므로 `rd = (rd if rd is not None else od) + days`. 끝남 → 넣지 않음(`FINISHED_NOTE`). 마일스톤 → 넣지 않음(`MILESTONE_NOTE`). 없는 액티비티 → `DelayInputError(id, "없는 액티비티입니다: Z")`, `days < 1` → `DelayInputError(id, "지연 일수는 1일 이상이어야 합니다.")`. `start` 는 차례와 표시에만 쓴다.
 - 계산: `lv = level(s, compute(s), shift=True)`; 준공 = `lv.cpm.finish`, 크리티컬 = `lv.cpm` 의 critical, 날짜 = `lv.cpm.rows` 의 (es, ef).
 - `finish_delta` = `WorkCalendar(schedule.calendar).workdays_between(finish_before, finish_after)`. `absorbed` = applied 이면 `max(0, days − max(0, finish_delta))`, 아니면 0.
 - `milestones`: kind != task 인데 EF 가 바뀐 것(일정 차례). `affected`: (es, ef) 가 바뀐 id(일정 차례).
@@ -244,6 +244,16 @@ def test_events_are_inserted_in_start_order_each_with_its_share():
     r = analyze(BASE, [ev("b", "B", 3, 2), ev("c", "C", 2, 1)])
     assert [x.event_id for x in r.impacts] == ["c", "b"] and [x.finish_delta for x in r.impacts] == [0, 2]
     assert (r.final_finish, r.total_delta, r.total_absorbed) == (date(2027, 3, 9), 2, 1)
+def test_not_started_task_starts_later_with_the_same_duration():       # PM 결정 11-20
+    s = analyze(BASE, [ev("e1", "B", 4, 2)])
+    after = insert_delay(BASE, ev("e1", "B", 4, 2))[0]
+    b = next(a for a in after.activities if a.id == "B")
+    assert b.od == 2 and b.constraint == Constraint("SNET", date(2027, 3, 8))   # ES 3/4 → 2 근무일 뒤 3/8
+    assert s.impacts[0].finish_after == date(2027, 3, 9)
+def test_not_started_task_with_fnlt_keeps_it_and_hides_the_helper_milestone():
+    s = sched([act("A", 3), replace(act("B", 2), constraint=Constraint("FNLT", date(2027, 3, 12)))], [Relation("A", "B")])
+    i = analyze(s, [ev("e", "B", 4, 2)]).impacts[0]
+    assert i.finish_after == date(2027, 3, 9) and all(not x.startswith("~") for x in i.affected + i.critical_added)
 def test_in_progress_adds_to_remaining():
     s = replace(sched([act("A", 3, actual_start=date(2027, 3, 1), rd=1), act("B", 2), act("C", 1)], [Relation("A", "B"), Relation("A", "C")]), data_date=date(2027, 3, 2))
     i = analyze(s, [ev("e", "A", 2, 2)]).impacts[0]                      # 준공 3/4 → 3/8
