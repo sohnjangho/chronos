@@ -634,6 +634,31 @@ test('condition shows its sources as links', () => { render(item({ evidence: [{ 
 
 ---
 
+### Task 27b: 분야 근거 검색 — Liner MCP `search_legal`·`search_business` [opus] · G3 (Task 27 뒤)
+
+**[PM 결정 11-20]** 모델 API = 생각과 말, Search API(web·scholar) = 일반 근거, **MCP 분야 도구 = 분야 전문 근거**로 나눠 쓴다. 건설의 인허가·법정 기간·작업 제한은 `search_legal`, 생산의 공급업체·자재 리드타임은 `search_business`. (`deep_research_agent` 조사 맡기기는 계획 3 사업화 분야와 함께.)
+
+**Files:** Create `backend/app/llm/mcp_client.py`, `backend/scripts/probe_liner_mcp.py`, `backend/tests/llm/test_mcp_client.py`; Modify `backend/app/llm/search.py`(Task 27), `backend/app/tools/data/search_evidence.py`(Task 27), `backend/app/agent/prompts/guides/evidence.md`, `backend/app/domains/construction/pack.yaml`(근거 안내 한 줄), `backend/app/domains/production/pack.yaml`(Task 28, 근거 안내 한 줄) + 그 시험
+
+**Interfaces — Consumes:** Task 27 `evidence.search`·`store/evidence.py`·카드 `evidence`, Task 6 연결(키는 서버에만)
+**Produces:**
+- 먼저 실측(Step 0): `backend/scripts/probe_liner_mcp.py` — DB 기본 연결의 키로 `https://platform.liner.com/api/v1/mcp` 에 `Authorization: Bearer <key>` · Streamable HTTP(JSON-RPC 2.0 `POST`, `Accept: application/json, text/event-stream`)로 `initialize` → `notifications/initialized` → `tools/list` → `tools/call search_legal {"query": "건축물 착공신고 처리 기한"}` → `tools/call search_business {"query": "철근 공급업체 납기"}` (모두 5번 이하). 키는 출력·기록하지 않는다. 결과(되는지·응답 모양·걸린 시간)를 `docs/dev-journal/2026-11.md` 에 적는다. **안 되면 Task 27b 는 여기서 멈추고 보고한다(기능을 넣지 않는다).**
+- `mcp_client.py`(새 의존성 없이 httpx): `async def call_tool(base_url: str, secret: str, name: str, arguments: dict, *, timeout: float = 30) -> list[dict]` — 세션 열기(`initialize`, 응답 헤더 `Mcp-Session-Id` 가 있으면 이후 요청에 붙임) → `tools/call` → 결과의 content(text JSON 또는 structured)에서 검색 결과 `[{title, url, description, date}]` 를 뽑는다. 응답이 `text/event-stream` 이면 `data:` 줄의 JSON-RPC 결과를 읽는다. JSON-RPC 오류·HTTP 오류·시간 초과는 Task 27 의 검색 오류와 같은 안내로 바꾼다. `MCP_URL` 은 연결의 base_url 에서 `/mcp` 를 붙여 만든다.
+- `evidence.search` 의 `mode` 에 `"legal" | "business"` 를 더한다 → MCP `search_legal`·`search_business`. 저장(`evidence_searches.mode`)·카드·한도(요청당 3번, web/scholar 와 합산)는 Task 27 과 같다. MCP 가 실패하면 같은 질의로 web 을 한 번 시도하고 카드에 「분야 검색 실패 → 웹 검색」을 적는다(그것도 한도에 센다).
+- `guides/evidence.md`: 언제 어느 mode 를 쓰는지 — 인허가·법정 기간·작업 금지·안전 규정 → legal, 공급업체·자재·부품 리드타임 → business, 학술 기준 → scholar, 그 밖 → web. 분야 묶음 YAML 의 근거 안내 한 줄이 같은 것을 말한다.
+
+- [ ] **Step 0: 실측** (위). 안 되면 멈춤.
+- [ ] **Step 1: 실패하는 시험** (`httpx.MockTransport`)
+```python
+async def test_call_tool_json_response(): r = await call_tool(BASE, "k", "search_legal", {"query": "q"}, transport=mock_json([{"title": "건축법 시행령", "url": "https://law.example/1"}])); assert r[0]["title"] == "건축법 시행령"
+async def test_call_tool_sse_response(): r = await call_tool(BASE, "k", "search_business", {"query": "q"}, transport=mock_sse(...)); assert r[0]["url"].startswith("https://")
+async def test_session_id_is_reused(): ...  # initialize 응답의 Mcp-Session-Id 가 tools/call 헤더에 붙는다
+async def test_bearer_header_and_no_key_in_errors(): ...  # Authorization: Bearer k, 오류 글에 키 없음
+async def test_evidence_legal_mode_records_and_cards(): ...  # mode "legal" → 저장·카드 mode "legal"
+async def test_legal_failure_falls_back_to_web_once_and_counts(): ...
+```
+- [ ] **Step 2~5:** 실패 확인 → 구현 → 통과 확인 → 커밋 `feat: 분야 근거 검색(Liner MCP 법령·기업)`
+
 ### Task 28: 생산 분야 묶음 [sonnet] · G2
 
 **Files:** Create `backend/app/domains/manufacturing/pack.yaml`, `backend/tests/domains/test_manufacturing_pack.py`; Modify `backend/app/domains/loader.py`(`DisplaySpec`), `backend/app/domains/construction/pack.yaml`(`display`)
@@ -1235,7 +1260,7 @@ assert progress_after["cpm"]["finish_variance"]["days"] <= progress_before["cpm"
 
 - [ ] 테일넷 주소로 띄우고 씨앗 `demo` 를 넣는다. 실제 Liner 연결로 처음부터 끝까지: 대화로 지연 말하기 → 영향 카드·지연 기록 → 만회 계획 요청 → 비교판에서 안 고르기 → 승인 → CPM·진행 탭이 바뀜. 걸린 시간·모델 호출 수·토큰·단축안 추천이 LLM 에서 왔는지(실패 시 코드 고름)를 일지에 적는다.
 - [ ] 두 번째 분야: 대화 "가상 부품 공장에서 브래킷 2만 개 주문 일정 만들어 줘, 9월 10일 납기" → 질문지 → 생성(L3, manufacturing) → 승인 → 간트가 설비별로 묶이고 프레스 정기 보수 띠가 보인다. L3 생성 중 근거 검색이 1~3번 쓰였는지, 가정에 출처가 붙었는지 확인한다(실패하면 "근거 검색 실패"로 표시되는지).
-- [ ] 근거 검색 실측 1번(web, `include_knowledge: false`)과 Liner MCP `search_legal` 시험 1번(Bearer, 결과만 일지에 — 기능은 넣지 않는다, 설계 21-2).
+- [ ] 근거 검색 실측 1번(web, `include_knowledge: false`)과 분야 근거(legal·business, Task 27b) 각 1번 — 생성 중 근거 카드와 조건 출처 링크로 보이는지.
 - [ ] 개발 콘솔에서 위 턴의 구조·추적·사용량을 캡처해 기획서 "Liner 활용" 근거로 둔다.
 - [ ] 한도 안에 통과하지 못하면 `prompts/guides/*.md`·`shorten_note.md` 를 고친다(코드 구조는 그대로). 전후를 일지에.
 - [ ] PM 에게 화면을 보여 확인받는다(시안 대비 메모 포함). PR 과 보고서 `~/reports/pr_YYYYMMDD_HHMM.md`(Task 21~42).
@@ -1259,4 +1284,4 @@ assert progress_after["cpm"]["finish_variance"]["days"] <= progress_before["cpm"
 | 17 생산 분야(용어·달력·분야 규칙·주요 자원·작업 유형·WBS 틀·기준값·납기 ◆·설비 정지 구간·자원으로 묶기·가상 예시) | 28, 40 |
 | 6 바탕화면 위젯 "주의할 일정"(계획 1 Task 12 에서 넘김) | 41 |
 | 18-1 코드 규정 · 19-1 제출 준비 | 전 작업, 42 |
-| 뒤 계획으로 넘긴 것 | 지연 보고서 만들기·주간 보고서(묶음 4) · 진행 탭 "보고서에 넣기"(묶음 3 보고서) · 영향의 "다른 일정" 전파(묶음 3 일정 사이 연결) · CPM 오른쪽 "변동 분석" 패널(묶음 4) · 개발 콘솔 나머지 일곱 탭(묶음 4) · 생산 분야 기본 스킬(묶음 3 스킬) · 법령 검색(Liner MCP `search_legal` — Checkpoint C 에서 실측만) |
+| 뒤 계획으로 넘긴 것 | 지연 보고서 만들기·주간 보고서(묶음 4) · 진행 탭 "보고서에 넣기"(묶음 3 보고서) · 영향의 "다른 일정" 전파(묶음 3 일정 사이 연결) · CPM 오른쪽 "변동 분석" 패널(묶음 4) · 개발 콘솔 나머지 일곱 탭(묶음 4) · 생산 분야 기본 스킬(묶음 3 스킬) · 사업화 `deep_research_agent` 조사 맡기기(계획 3) |
