@@ -53,16 +53,17 @@ async def test_filters_by_axis_values(session, ready, put):
 
 async def test_qdrant_down_keeps_keyword_search_and_requeues(session, embedder, put, monkeypatch):
     add_connection(session)
-    monkeypatch.setattr(vectors, "STORE", vectors.Store("http://127.0.0.1:1"))  # Qdrant 가 꺼져 있다
+    monkeypatch.setattr(vectors, "STORE", vectors.Store("http://127.0.0.1:1", "t"))  # Qdrant 가 꺼져 있다
     f = put("동절기 콘크리트 타설")
     await jobs.drain()
     session.expire_all()
     assert (f.status, f.reason, jobs.waiting()) == ("extracted", NOT_READY, [f.id])
+    assert embedder.requests == []  # Qdrant 가 안 되면 파일 임베딩을 부르지 않는다
     hits = await search(session, "콘크리트")
     assert hits and {h.source for h in hits} == {"keyword"}
-    assert embedder.requests == []  # Qdrant 가 안 되면 임베딩도 부르지 않는다
+    assert embedder.bodies[-1]["input"] == ["콘크리트"]  # 검색은 available() 없이 해 보고 실패하면 낱말만(M1)
 
-    monkeypatch.setattr(vectors, "STORE", vectors.Store(":memory:"))  # 서버가 돌아왔다
+    monkeypatch.setattr(vectors, "STORE", vectors.Store(":memory:", "t"))  # 서버가 돌아왔다
     assert await jobs.recheck() == 1
     await jobs.drain()
     session.expire_all()

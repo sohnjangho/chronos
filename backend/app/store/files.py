@@ -78,12 +78,17 @@ def _write_raw(path: Path, data: bytes) -> None:
     tmp.replace(path)
 
 
-def _fill(session: Session, row: FileRow, path: Path) -> None:
-    """글을 뽑아 조각·낱말 색인을 넣고 status·reason·pages 를 정한다(flush 까지)."""
+def _extract(path: Path, kind: str) -> extracting.Extracted | extracting.ExtractError:
     try:
-        got = extracting.extract(path, row.kind)
+        return extracting.extract(path, kind)
     except extracting.ExtractError as e:
-        row.status, row.reason = "failed", e.reason
+        return e
+
+
+def _fill(session: Session, row: FileRow, got: extracting.Extracted | extracting.ExtractError) -> None:
+    """뽑은 글로 조각·낱말 색인을 넣고 status·reason·pages 를 정한다(flush 까지). 뽑지 못했으면 failed."""
+    if isinstance(got, extracting.ExtractError):
+        row.status, row.reason = "failed", got.reason
         return
     pieces = [FileChunk(file_id=row.id, seq=c.seq, locator=c.locator, text=c.text) for c in chunking.chunks(got.text_parts)]
     session.add_all(pieces)
@@ -115,6 +120,7 @@ def save_upload(session: Session, data: bytes, name: str, user: User) -> FileRow
         return found
     path = raw_path(sha256)
     _write_raw(path, data)
+    got = _extract(path, kind)  # 쓰기 잠금 전에 — 느린 글 뽑기(PDF·엑셀)가 다른 쓰기(뒤 작업 기록 등)를 막지 않게
     row = FileRow(sha256=sha256, name=name, ext=kinds.ext_of(name).lstrip("."), kind=kind, size=len(data),
                   status="received", uploaded_by=user.id)
     session.add(row)
@@ -123,7 +129,7 @@ def save_upload(session: Session, data: bytes, name: str, user: User) -> FileRow
     except IntegrityError:  # 같은 내용이 동시에 들어왔다
         session.rollback()
         return _existing(session, sha256, user)
-    _fill(session, row, path)
+    _fill(session, row, got)
     session.commit()
     if row.status == "extracted":
         jobs.enqueue(row.id)

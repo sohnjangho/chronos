@@ -1,7 +1,7 @@
 """뜻+낱말 검색: 뜻(Qdrant)과 낱말(FTS5, store.files.keyword_search)을 RRF(k=60)로 합친다.
 
 - 뜻 쪽은 jobs.active_model(다시 넣기 중이면 옛 모델)로 물음을 임베딩해 그 모델 컬렉션에서 찾는다. 점수(코사인)가
-  MIN_SCORE 보다 낮은 조각은 버린다. 뜻 검색을 껐거나 Qdrant 가 안 되거나 물음 임베딩이 실패하면 낱말 쪽만.
+  MIN_SCORE 보다 낮은 조각은 버린다. 뜻 검색을 껐거나 물음 임베딩(QUERY_TIMEOUT_S)·Qdrant 찾기가 실패하면 낱말 쪽만.
 - filters = {축: [값…]}: 축마다 값 가운데 하나를 가진 파일, 축끼리는 모두(AND). 빈 목록인 축은 거르지 않는다.
 - prefer_file_ids(지금 대화에 붙인 파일)의 조각은 점수 ×PREFER. 숨긴(지운) 파일의 조각은 나오지 않는다.
 - 받은 세션은 읽기만 한다.
@@ -26,6 +26,7 @@ RRF_K = 60
 PREFER = 1.5
 MIN_SCORE = 0.2  # 코사인. 실측 없음 — 뜻이 먼 조각이 RRF 순위만으로 올라오지 않게(PM 조정 대상)
 POOL = 4  # 양쪽에서 limit × POOL 개까지 본다
+QUERY_TIMEOUT_S = 10.0  # 물음 임베딩 — 늦으면 낱말 쪽만
 
 Source = Literal["vector", "keyword", "both"]
 
@@ -63,12 +64,12 @@ def _visible(session: Session, chunk_ids: list[int]) -> dict[int, FileChunk]:
 async def _meaning(session: Session, query: str, pool: int, file_ids: list[int] | None) -> list[FileChunk]:
     """뜻 쪽 조각(점수 큰 차례). 쓸 수 없으면 []."""
     store = vectors.STORE
-    if store is None or not await asyncio.to_thread(store.available):
+    if store is None:
         return []
     model = jobs.active_model(session)
     try:
-        [vector] = await embed(session, [query], model=model)
-        found = await asyncio.to_thread(store.search, vectors.collection_for(model, len(vector)), vector, pool,
+        [vector] = await embed(session, [query], model=model, timeout_s=QUERY_TIMEOUT_S)
+        found = await asyncio.to_thread(store.search, store.collection_for(model, len(vector)), vector, pool,
                                         None if file_ids is None else {"file_id": file_ids})
     except EmbedFailed:
         return []

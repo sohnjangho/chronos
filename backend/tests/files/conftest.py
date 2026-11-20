@@ -30,7 +30,7 @@ def embedder(monkeypatch) -> FakeEmbedder:
 
 @pytest.fixture
 def store(monkeypatch) -> vectors.Store:
-    memory = vectors.Store(":memory:")
+    memory = vectors.Store(":memory:", "t")
     monkeypatch.setattr(vectors, "STORE", memory)
     return memory
 

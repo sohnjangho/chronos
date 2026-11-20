@@ -5,17 +5,20 @@
 - 파일 하나: 조각을 지금 모델(active_model)로 임베딩해 그 컬렉션에 넣고 status indexed. 다시 넣기 중이면 새 모델 컬렉션에도
   넣는다(두 컬렉션 모두). 조각이 없는 파일은 임베딩 없이 indexed.
 - 실패하면 status extracted + reason 「뜻 검색 준비 안 됨」(다른 까닭이 이미 있으면 그대로)이고 RETRY_S 뒤 다시(MAX_RETRIES 번).
-  그래도 안 되거나 Qdrant 가 안 되면 「다시 넣기」 줄(waiting)에 남는다. RECHECK_S 마다 Qdrant 가 되면 작업 줄로 옮긴다.
+  다시 해도 나아지지 않는 실패(GIVE_UP_CODES — 키·크레딧·연결·요청 모양)는 다시 하지 않는다. 다 썼거나 Qdrant 가 안 되면
+  「다시 넣기」 줄(waiting)에 남는다. RECHECK_S 마다 Qdrant 가 되면 작업 줄로 옮기고, 거기서 꺼낸 것은 한 번만 해 본다.
 - 다시 넣기(enqueue_reindex): reindex_jobs 한 줄을 바로 만든다. 시작 때 가장 큰 조각 id 까지를 BATCH 개씩 새 모델로 새
   컬렉션에 넣는다 — 한 걸음마다 줄 끝으로 돌아가므로 그 사이 들어온 파일 작업이 먼저 돈다. 다 넣으면 done → 검색이 새 모델·
-  새 컬렉션으로 바뀌고 다른 chunks__ 컬렉션은 지운다. 한 걸음이 MAX_RETRIES 번 다시 해도 안 되면 failed(검색은 옛 그대로).
+  새 컬렉션으로 바뀌고 이 인스턴스의 다른 컬렉션은 지운다. 한 걸음이 다시 해도 안 되면 failed(검색은 옛 그대로).
 - 지금 모델(active_model) = 마지막으로 끝난(done) 다시 넣기의 모델, 없으면 기본 임베딩 모델. 배정(assignments)은 바꾸기를
   시작할 때 바로 새 모델이 되므로, 검색·파일 넣기는 배정이 아니라 이것을 따른다.
+- DB 쓰기·읽기 묶음은 asyncio.to_thread 로(이벤트 루프를 SQLite 잠금 기다림에 묶지 않게), 묶음마다 새 세션.
 """
 
 import asyncio
 import contextlib
 import logging
+import secrets
 import threading
 import time
 from contextlib import contextmanager
@@ -23,7 +26,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -31,7 +34,7 @@ from app.db import get_session
 from app.files import vectors
 from app.llm.assignments import DEFAULT_ASSIGNMENTS
 from app.llm.embeddings import EmbedFailed, embed
-from app.store.tables import FileChunk, FileRow, ReindexJob
+from app.store.tables import FileChunk, FileRow, ReindexJob, Setting
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +43,24 @@ BATCH = 64  # 다시 넣기 한 걸음의 조각 수
 RETRY_S = 30.0
 MAX_RETRIES = 3
 RECHECK_S = 300.0  # 「다시 넣기」 줄을 볼 간격(5분)
+GIVE_UP_CODES = frozenset({"bad_key", "no_credit", "no_connection", "secret_unreadable", "bad_request"})
+INSTANCE_KEY = "qdrant_instance"  # settings 표: 이 서버의 Qdrant 컬렉션 앞말
+
+
+REFUSED = {
+    "running": "이미 다시 넣는 중입니다.",
+    "down": "뜻 검색 저장소(Qdrant)에 연결할 수 없습니다.",
+    "off": "뜻 검색이 꺼져 있습니다(CHRONOS_QDRANT_URL).",
+}
 
 
 class ReindexRefused(Exception):
-    """다시 넣기를 시작할 수 없다(Qdrant 에 연결할 수 없음·뜻 검색 꺼짐·이미 다시 넣는 중)."""
+    """다시 넣기를 시작할 수 없다. code: running(이미 다시 넣는 중) · down(Qdrant 에 연결할 수 없음) · off(뜻 검색 꺼짐)."""
+
+    def __init__(self, code: Literal["running", "down", "off"]) -> None:
+        super().__init__(REFUSED[code])
+        self.code = code
+        self.message = REFUSED[code]
 
 
 class _QdrantDown(Exception):
@@ -110,22 +127,33 @@ def _span(session: Session) -> tuple[int, int]:
     return count, top or 0
 
 
+def _pieces(session: Session, *where, limit: int | None = None) -> list[tuple[int, int, str]]:
+    """[(조각 id, 파일 id, 글)] 조각 id 차례."""
+    query = select(FileChunk.id, FileChunk.file_id, FileChunk.text).where(*where).order_by(FileChunk.id).limit(limit)
+    return [tuple(row) for row in session.execute(query)]
+
+
 def enqueue_reindex(model: str) -> dict[str, int]:
     """임베딩 모델을 바꾼다: reindex_jobs 한 줄을 바로 만들고 {job_id, total(조각 수)}. 시작할 수 없으면 ReindexRefused."""
     store = vectors.STORE
-    if store is None or not store.available():
-        raise ReindexRefused("뜻 검색 저장소(Qdrant)에 연결할 수 없습니다.")
+    if store is None:
+        raise ReindexRefused("off")
+    if not store.available():
+        raise ReindexRefused("down")
     with _db() as session:
-        if _running(session) is not None:
-            raise ReindexRefused("이미 다시 넣는 중입니다.")
-        total, top = _span(session)
-        job = ReindexJob(model=model, collection="", total=total)
+        job = ReindexJob(model=model, collection="", total=0)
         session.add(job)
+        # 쓰기 잠금을 먼저 잡는다: 둘이 동시에 시작하지 않고, 센 뒤에 들어온 조각은 그 파일 작업이 두 컬렉션에 넣는다.
+        session.flush()
+        if session.scalar(select(ReindexJob.id).where(ReindexJob.status == "running", ReindexJob.id != job.id)):
+            session.rollback()
+            raise ReindexRefused("running")
+        job.total, top = _span(session)
         session.commit()
         with _lock:
             _cursors[job.id] = (0, top)
         _push(_Item("reindex", job.id))
-        return {"job_id": job.id, "total": total}
+        return {"job_id": job.id, "total": job.total}
 
 
 def reload() -> None:
@@ -156,65 +184,109 @@ def forget(file_id: int) -> None:
         logger.warning("Qdrant 점 지우기 실패: 파일 %d (%s)", file_id, type(exc).__name__)
 
 
-async def _store_vectors(session: Session, store: vectors.Store, model: str, pieces: list) -> str:
+async def _store_vectors(store: vectors.Store, model: str, pieces: list[tuple[int, int, str]]) -> str:
     """pieces [(조각 id, 파일 id, 글)] 를 model 로 임베딩해 그 모델 컬렉션에 넣고 컬렉션 이름을 돌려준다."""
-    found = await embed(session, [text for _, _, text in pieces], model=model)
-    collection = vectors.collection_for(model, len(found[0]))
+    with _db() as session:  # embed 는 배정·연결을 읽기만 한다(기록은 따로 스레드에서)
+        found = await embed(session, [text for _, _, text in pieces], model=model)
+    collection = store.collection_for(model, len(found[0]))
     points = [vectors.Point(chunk_id, file_id, v) for (chunk_id, file_id, _), v in zip(pieces, found, strict=True)]
     await asyncio.to_thread(store.upsert, collection, points)
     return collection
 
 
-async def _index_file(file_id: int) -> None:
-    store = vectors.STORE
+def _file_work(file_id: int) -> tuple[list[tuple[int, int, str]], str, tuple[int, str] | None] | None:
+    """(조각들, 지금 모델, 진행 중 다시 넣기 (id, 모델)). 할 일이 없으면 None(지운 파일·이미 넣음)."""
     with _db() as session:
         row = session.get(FileRow, file_id)
-        if store is None or row is None or row.status != "extracted":
-            return  # 뜻 검색 끔 · 지운 파일 · 이미 넣음
-        query = select(FileChunk.id, FileChunk.file_id, FileChunk.text).where(FileChunk.file_id == file_id)
-        pieces = list(session.execute(query.order_by(FileChunk.seq)).all())
-        if pieces:
-            if not await asyncio.to_thread(store.available):
-                raise _QdrantDown
-            job, model = _running(session), active_model(session)
-            await _store_vectors(session, store, model, pieces)
-            if job is not None and job.model != model:  # 다시 넣기 중이면 새 컬렉션에도
-                job.collection = await _store_vectors(session, store, job.model, pieces)
-        row.status = "indexed"
-        if row.reason == NOT_READY:
-            row.reason = None
+        if row is None or row.status != "extracted":
+            return None
+        job = _running(session)
+        return _pieces(session, FileChunk.file_id == file_id), active_model(session), (job.id, job.model) if job else None
+
+
+def _mark_indexed(file_id: int, job_id: int | None, collection: str | None) -> None:
+    with _db() as session:
+        row = session.get(FileRow, file_id)
+        if row is not None and row.status == "extracted":
+            row.status = "indexed"
+            if row.reason == NOT_READY:
+                row.reason = None
+        job = session.get(ReindexJob, job_id) if job_id is not None and collection else None
+        if job is not None and job.status == "running":
+            job.collection = collection
         session.commit()
+
+
+async def _index_file(file_id: int) -> None:
+    store = vectors.STORE
+    work = None if store is None else await asyncio.to_thread(_file_work, file_id)
+    if work is None:
+        return  # 뜻 검색 끔 · 지운 파일 · 이미 넣음
+    pieces, model, job = work
+    collection = None
+    if pieces:
+        if not await asyncio.to_thread(store.available):
+            raise _QdrantDown
+        await _store_vectors(store, model, pieces)
+        if job is not None and job[1] != model:  # 다시 넣기 중이면 새 컬렉션에도
+            collection = await _store_vectors(store, job[1], pieces)
+    await asyncio.to_thread(_mark_indexed, file_id, job[0] if job else None, collection)
+
+
+def _step_work(job_id: int) -> tuple[str, list[tuple[int, int, str]], int] | None:
+    """(새 모델, 다음 조각들, 시작 때 가장 큰 조각 id). 끝났거나 없는 작업이면 None."""
+    with _db() as session:
+        job = session.get(ReindexJob, job_id)
+        if job is None or job.status != "running":
+            return None
+        with _lock:
+            cursor = _cursors.get(job_id)
+        after, top = cursor if cursor is not None else (0, _span(session)[1])
+        return job.model, _pieces(session, FileChunk.id > after, FileChunk.id <= top, limit=BATCH), top
+
+
+def _record_step(job_id: int, collection: str, count: int) -> None:
+    with _db() as session:
+        job = session.get(ReindexJob, job_id)
+        if job is not None and job.status == "running":
+            job.collection, job.done = collection, job.done + count
+            session.commit()
 
 
 async def _reindex_step(job_id: int) -> None:
     store = vectors.STORE
-    with _db() as session:
-        job = session.get(ReindexJob, job_id)
-        if job is None or job.status != "running":
-            return
-        with _lock:
-            cursor = _cursors.get(job_id)
-        after, top = cursor if cursor is not None else (0, _span(session)[1])
-        query = select(FileChunk.id, FileChunk.file_id, FileChunk.text).where(FileChunk.id > after, FileChunk.id <= top)
-        pieces = list(session.execute(query.order_by(FileChunk.id).limit(BATCH)).all())
-        if not pieces:
-            await _finish(session, store, job)
-            return
-        job.collection = await _store_vectors(session, store, job.model, pieces)
-        job.done += len(pieces)
-        session.commit()
-        with _lock:
-            _cursors[job_id] = (pieces[-1][0], top)
+    work = await asyncio.to_thread(_step_work, job_id)
+    if work is None:
+        return
+    model, pieces, top = work
+    if not pieces:
+        await _finish(store, job_id)
+        return
+    collection = await _store_vectors(store, model, pieces)
+    await asyncio.to_thread(_record_step, job_id, collection, len(pieces))
+    with _lock:
+        _cursors[job_id] = (pieces[-1][0], top)
     _push(_Item("reindex", job_id))  # 줄 끝으로 — 그 사이 들어온 파일 작업이 먼저
 
 
-async def _finish(session: Session, store: vectors.Store, job: ReindexJob) -> None:
-    """바꾼다(done) → 옛 컬렉션을 지운다. 지우지 못하면 경고만(다음 바꾸기 때 지운다)."""
-    job.status, job.finished_at = "done", datetime.now(UTC)
-    keep = job.collection
-    session.commit()
+def _close_job(job_id: int, status: Literal["done", "failed"]) -> str | None:
+    """running 이면 닫고 그 컬렉션 이름을, 아니면 None."""
     with _lock:
-        _cursors.pop(job.id, None)
+        _cursors.pop(job_id, None)
+    with _db() as session:
+        job = session.get(ReindexJob, job_id)
+        if job is None or job.status != "running":
+            return None
+        job.status, job.finished_at = status, datetime.now(UTC)
+        session.commit()
+        return job.collection
+
+
+async def _finish(store: vectors.Store, job_id: int) -> None:
+    """바꾼다(done) → 이 인스턴스의 다른 컬렉션을 지운다. 지우지 못하면 경고만(다음 바꾸기 때 지운다)."""
+    keep = await asyncio.to_thread(_close_job, job_id, "done")
+    if keep is None:
+        return
     try:
         for name in await asyncio.to_thread(store.collections):
             if name != keep:
@@ -231,23 +303,20 @@ def _note_not_ready(file_id: int) -> None:
             session.commit()
 
 
-def _give_up(job_id: int) -> None:
-    with _db() as session:
-        job = session.get(ReindexJob, job_id)
-        if job is not None and job.status == "running":
-            job.status, job.finished_at = "failed", datetime.now(UTC)
-            session.commit()
-    with _lock:
-        _cursors.pop(job_id, None)
+async def _quietly(work, *args) -> None:
+    """DB 기록(스레드에서). 잠김 등으로 실패해도 줄은 그대로 두고 경고만."""
+    try:
+        await asyncio.to_thread(work, *args)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("뒤 작업 기록 실패 (%s)", type(exc).__name__)
 
 
-def _failed(item: _Item, exc: Exception) -> None:
-    """다시 할 차례에 넣거나(RETRY_S 뒤), 다 썼으면 파일은 「다시 넣기」 줄로·다시 넣기는 failed."""
+async def _failed(item: _Item, exc: Exception) -> None:
+    """줄에 먼저 되돌린다(RETRY_S 뒤 다시 · 다 썼거나 나아지지 않는 실패면 파일은 「다시 넣기」 줄, 다시 넣기는 failed).
+    그다음 파일의 「뜻 검색 준비 안 됨」을 남긴다 — 이 기록이 실패해도 줄에서 빠지지 않는다."""
     code = exc.code if isinstance(exc, EmbedFailed) else type(exc).__name__
     logger.warning("뒤 작업 실패: %s %d (%s, %d번째)", item.kind, item.id, code, item.retries + 1)
-    if item.kind == "file":
-        _note_not_ready(item.id)
-    if item.retries < MAX_RETRIES:
+    if item.retries < MAX_RETRIES and code not in GIVE_UP_CODES:
         item.retries, item.not_before = item.retries + 1, time.monotonic() + RETRY_S
         with _lock:
             _queue.append(item)
@@ -255,7 +324,9 @@ def _failed(item: _Item, exc: Exception) -> None:
         with _lock:
             _waiting.add(item.id)
     else:
-        _give_up(item.id)
+        await _quietly(_close_job, item.id, "failed")
+    if item.kind == "file":
+        await _quietly(_note_not_ready, item.id)
 
 
 async def _do(item: _Item) -> None:
@@ -266,11 +337,11 @@ async def _do(item: _Item) -> None:
             await _reindex_step(item.id)
     except _QdrantDown:
         logger.warning("Qdrant 를 쓸 수 없어 다시 넣기 줄에 둡니다: 파일 %d", item.id)
-        _note_not_ready(item.id)
         with _lock:
             _waiting.add(item.id)
+        await _quietly(_note_not_ready, item.id)
     except Exception as exc:  # noqa: BLE001 — 일꾼은 멈추지 않는다. 종류·code 만 남긴다(키가 담길 수 있는 글은 남기지 않는다)
-        _failed(item, exc)
+        await _failed(item, exc)
 
 
 def _take() -> _Item | None:
@@ -289,14 +360,14 @@ async def drain() -> None:
 
 
 async def recheck() -> int:
-    """「다시 넣기」 줄: Qdrant 가 되면 모두 작업 줄로 옮긴다. 옮긴 파일 수."""
+    """「다시 넣기」 줄: Qdrant 가 되면 모두 작업 줄로 옮긴다(한 번씩만 해 본다). 옮긴 파일 수."""
     store = vectors.STORE
     with _lock:
         ids = sorted(_waiting)
     if not ids or store is None or not await asyncio.to_thread(store.available):
         return 0
     for file_id in ids:
-        _push(_Item("file", file_id))
+        _push(_Item("file", file_id, retries=MAX_RETRIES))
     return len(ids)
 
 
@@ -317,19 +388,38 @@ async def _run(wake: asyncio.Event) -> None:
             if time.monotonic() - checked >= RECHECK_S:
                 checked = time.monotonic()
                 await recheck()
-        except Exception as exc:  # noqa: BLE001 — 실패 처리마저 깨져도(DB 잠김 등) 일꾼은 멈추지 않는다. 그 파일은 다음 시작 때 다시
+        except Exception as exc:  # noqa: BLE001 — 실패 처리마저 깨져도 일꾼은 멈추지 않는다. 그 파일은 다음 시작 때 다시
             logger.warning("뒤 작업 일꾼 오류 (%s)", type(exc).__name__)
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(wake.wait(), timeout=_pause())
 
 
+def _instance() -> str:
+    """이 서버(DB)의 Qdrant 컬렉션 앞말(8자). 처음이면 만들어 settings 에 남기고, 앞말 없이 넣었던(이 고침 전)
+    indexed 파일을 extracted 로 되돌려 새 컬렉션에 다시 넣게 한다."""
+    with _db() as session:
+        row = session.get(Setting, INSTANCE_KEY)
+        if row is not None:
+            return row.value
+        value = secrets.token_hex(4)
+        session.add(Setting(key=INSTANCE_KEY, value=value))
+        session.execute(update(FileRow).where(FileRow.status == "indexed").values(status="extracted"))
+        session.commit()
+        return value
+
+
 def start() -> None:
-    """서버가 뜰 때(lifespan, 이벤트 루프 안). CHRONOS_QDRANT_URL 이 빈 값이면 뜻 검색을 끄고 아무것도 하지 않는다."""
+    """서버가 뜰 때(lifespan, 이벤트 루프 안). CHRONOS_QDRANT_URL 이 빈 값이거나 쓸 수 없으면 뜻 검색을 끄고(경고) 그대로 뜬다."""
     global _loop, _wake, _task
     url = Settings().qdrant_url
     if not url:
         return
-    vectors.STORE = vectors.Store(url)
+    try:
+        store = vectors.Store(url, _instance())
+    except Exception as exc:  # noqa: BLE001 — 주소가 잘못돼도 서버는 뜬다(뜻 검색만 끔)
+        logger.warning("CHRONOS_QDRANT_URL 을 쓸 수 없어 뜻 검색을 끕니다 (%s)", type(exc).__name__)
+        return
+    vectors.STORE = store
     _loop, _wake = asyncio.get_running_loop(), asyncio.Event()
     reload()
     _task = asyncio.create_task(_run(_wake))

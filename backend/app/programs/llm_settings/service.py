@@ -38,6 +38,7 @@ from app.store.tables import LlmAssignment, LlmConnection
 
 logger = logging.getLogger(__name__)
 NO_REINDEX_MESSAGE = "다시 넣기를 시작할 수 없어 임베딩 모델을 바꾸지 않았습니다."
+ALREADY_REINDEXING = "이미 다시 넣는 중이라 임베딩 모델을 바꾸지 않았습니다. 끝난 뒤 다시 해 주세요."
 
 # 키가 이보다 짧으면 끝 4자리도 보여주지 않는다(거의 전부가 드러나므로).
 MIN_SECRET_CHARS_FOR_LAST4 = 8
@@ -236,13 +237,18 @@ def _check_embedding(session: Session, connection_id: int, model: str) -> None:
 def _start_reindex(model: str) -> ReindexOut:
     """Task 48 의 다시 넣기를 시작한다(reindex_jobs 줄을 바로 만들고 {job_id, total} 을 돌려준다).
 
-    함수가 없거나 실패하면 503 — 부른 쪽은 배정을 저장하지 않는다(벡터와 배정이 어긋나지 않게).
+    이미 다시 넣는 중이면 409, 함수가 없거나 그 밖에 실패하면 503 — 부른 쪽은 배정을 저장하지 않는다(벡터와 배정이 어긋나지 않게).
     """
     enqueue = getattr(jobs, "enqueue_reindex", None)
     if enqueue is None:
         raise ApiError(503, "reindex_unavailable", NO_REINDEX_MESSAGE)
     try:
         return ReindexOut(**enqueue(model))
+    except jobs.ReindexRefused as exc:
+        if exc.code == "running":
+            raise ApiError(409, "already_running", ALREADY_REINDEXING) from None
+        logger.warning("다시 넣기 시작 실패: %s", exc.code)
+        raise ApiError(503, "reindex_unavailable", NO_REINDEX_MESSAGE) from None
     except Exception as exc:  # noqa: BLE001 — 어떤 실패든 배정을 바꾸지 않고 알린다(종류만 남김)
         logger.warning("다시 넣기 시작 실패: %s", type(exc).__name__)
         raise ApiError(503, "reindex_unavailable", NO_REINDEX_MESSAGE) from None

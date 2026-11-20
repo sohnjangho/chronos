@@ -129,7 +129,9 @@ async def _send(
         # 예외 내용은 남기지 않는다(요청 머리글을 들고 있을 수 있다). 종류만 남긴다.
         logger.warning("임베딩 실패: model=%s code=%s (%s)", target.model, code, type(exc).__name__)
     error = LlmError(code, MESSAGES[code]) if code is not None else None
-    client._record("embedding", target, None, int((time.perf_counter() - start) * 1000), reply, error)
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    # 기록은 스레드에서(새 세션) — SQLite 잠금을 기다려도 이벤트 루프가 멈추지 않게
+    await asyncio.to_thread(client._record, "embedding", target, None, latency_ms, reply, error)
     if code is not None:
         # except 밖에서 던져 원래 예외(요청 객체를 들고 있다)가 따라붙지 않게 한다.
         raise EmbedFailed(code)

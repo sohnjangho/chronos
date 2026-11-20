@@ -7,8 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.programs.files import service
-from app.programs.files.schemas import FileOut, PreviewOut, UploadOut
-from app.security.deps import current_user
+from app.programs.files.schemas import (
+    FileOut,
+    PreviewOut,
+    ReindexStartOut,
+    ReindexStatusOut,
+    UploadOut,
+)
+from app.security.deps import current_user, require_admin
 from app.store.tables import User
 
 # 로그인한 누구나(보는 범위는 지금 회사 전체). 지우기는 올린 사람·관리자, 완전히 지우기는 관리자(service).
@@ -26,6 +32,20 @@ async def upload(request: Request, session: SessionDep, user: UserDep) -> Upload
         files = [v for v in form.getlist("files") if not isinstance(v, str)]
         chat_id = form.get("chat_id")
         return await run_in_threadpool(service.upload, session, user, files, chat_id)
+
+
+# /reindex 는 /{file_id} 보다 먼저(경로 차례로 맞춘다).
+@router.get("/reindex")
+def reindex_status(session: SessionDep) -> ReindexStatusOut:
+    """지금 검색 모델·배정 모델·마지막 다시 넣기(진행률)."""
+    return service.reindex_status(session)
+
+
+@router.post("/reindex", status_code=202, dependencies=[Depends(require_admin)])
+def start_reindex(session: SessionDep) -> ReindexStartOut:
+    """배정 모델로 다시 넣기를 (다시) 시작한다(관리자). 진행 중 409 already_running · 할 일 없음 409 nothing_to_do ·
+    Qdrant 가 안 되거나 뜻 검색이 꺼졌으면 503."""
+    return service.start_reindex(session)
 
 
 @router.get("/{file_id}")

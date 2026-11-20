@@ -7,13 +7,15 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
+from sqlalchemy.exc import OperationalError
 
 from app.config import Settings
+from app.files import extract as extracting
 from app.files import jobs, vectors
 from app.files.search import search
 from app.main import app
 from app.store import files
-from app.store.tables import ReindexJob
+from app.store.tables import FileChunk, FileRow, ReindexJob, Setting
 from tests.embed_doubles import LARGE, NEW, OLD, SMALL, vector
 from tests.llm_doubles import KEY
 
@@ -25,7 +27,7 @@ class SpyStore(vectors.Store):
     """메모리 Qdrant + 어느 컬렉션에 어느 조각을 넣었는지 적는다."""
 
     def __init__(self) -> None:
-        super().__init__(":memory:")
+        super().__init__(":memory:", "t")
         self.upserts: list[tuple[str, int]] = []
 
     def upsert(self, collection, points):
@@ -144,16 +146,19 @@ async def test_reindex_moves_in_batches_and_lets_files_in_between(session, ready
 
 async def test_enqueue_reindex_refuses_when_it_cannot_start(session, ready, monkeypatch):
     jobs.enqueue_reindex(LARGE)
-    with pytest.raises(jobs.ReindexRefused):  # 이미 다시 넣는 중
+    with pytest.raises(jobs.ReindexRefused) as e:  # 이미 다시 넣는 중
         jobs.enqueue_reindex(SMALL)
+    assert e.value.code == "running"
     session.get(ReindexJob, 1).status = "done"
     session.commit()
-    monkeypatch.setattr(vectors, "STORE", vectors.Store("http://127.0.0.1:1"))
-    with pytest.raises(jobs.ReindexRefused):  # Qdrant 가 꺼져 있다
+    monkeypatch.setattr(vectors, "STORE", vectors.Store("http://127.0.0.1:1", "t"))
+    with pytest.raises(jobs.ReindexRefused) as e:  # Qdrant 가 꺼져 있다
         jobs.enqueue_reindex(SMALL)
+    assert e.value.code == "down"
     monkeypatch.setattr(vectors, "STORE", None)
-    with pytest.raises(jobs.ReindexRefused):  # 뜻 검색을 껐다
+    with pytest.raises(jobs.ReindexRefused) as e:  # 뜻 검색을 껐다
         jobs.enqueue_reindex(SMALL)
+    assert e.value.code == "off"
     assert len(session.scalars(select(ReindexJob)).all()) == 1
 
 
@@ -271,7 +276,104 @@ def test_task51_put_assignments_starts_a_real_reindex(client, admin, session, re
 
 
 def test_task51_put_assignments_is_refused_when_qdrant_is_down(client, admin, session, ready, monkeypatch):
-    monkeypatch.setattr(vectors, "STORE", vectors.Store("http://127.0.0.1:1"))
+    monkeypatch.setattr(vectors, "STORE", vectors.Store("http://127.0.0.1:1", "t"))
     r = client.put("/api/llm/assignments", json={"items": [_embedding_model_listed(session, ready)]}, headers=admin)
     assert r.status_code == 503 and r.json()["message"] == "다시 넣기를 시작할 수 없어 임베딩 모델을 바꾸지 않았습니다."
     assert session.scalars(select(ReindexJob)).all() == []
+
+
+# ── Fix round 1 ─────────────────────────────────────────────────────
+
+
+def _many_files(session, admin_user, n: int) -> list[int]:
+    """글 조각이 하나씩 있는 extracted 파일 n 개를 DB 에 바로 넣고 작업 줄에 넣는다(올리기보다 빠르게)."""
+    rows = [FileRow(sha256=f"{i:064x}", name=f"{i}.txt", ext="txt", kind="text", size=1, status="extracted",
+                    uploaded_by=admin_user.id) for i in range(n)]
+    session.add_all(rows)
+    session.flush()
+    session.add_all([FileChunk(file_id=r.id, seq=0, locator="본문", text=f"철근 배근 {r.id}") for r in rows])
+    session.commit()
+    for r in rows:
+        jobs.enqueue(r.id)
+    return [r.id for r in rows]
+
+
+async def test_hopeless_errors_wait_without_retries_and_each_sweep_tries_once(
+    session, ready, embedder, admin_user, monkeypatch
+):
+    monkeypatch.setattr(jobs, "RETRY_S", 0)  # 다시 하기가 있으면 곧바로 보이게
+    n = 1000
+    ids = _many_files(session, admin_user, n)
+    embedder.push(*[httpx.Response(401)] * n)  # bad_key — 다시 해도 나아지지 않는다
+    await jobs.drain()
+    assert len(embedder.requests) == n and jobs.waiting() == ids  # 파일마다 1번(4번이 아니라)
+
+    embedder.push(*[httpx.Response(503)] * n)  # 다시 넣기 줄에서 꺼낸 것은 다시 할 수 있는 실패라도 한 번만
+    assert await jobs.recheck() == n
+    await jobs.drain()
+    assert len(embedder.requests) == 2 * n and jobs.waiting() == ids and jobs._queue == []
+
+
+async def test_slow_extraction_does_not_hold_the_write_lock(session, put, monkeypatch):
+    other = put("철근 배근")
+    real = extracting.extract
+    seen = []
+
+    def slow_extract(path, kind):
+        jobs._note_not_ready(other.id)  # 글을 뽑는 동안 일꾼이 다른 파일을 기록한다(잠금을 쥐고 있으면 5초 뒤 locked)
+        seen.append(kind)
+        return real(path, kind)
+
+    monkeypatch.setattr(extracting, "extract", slow_extract)
+    f = put("동절기 타설")
+    session.expire_all()
+    assert seen == ["text"] and other.reason == NOT_READY and f.status == "extracted"
+
+
+async def test_lock_error_never_drops_a_file_from_the_queue(session, ready, put, embedder, monkeypatch):
+    def locked(file_id):
+        raise OperationalError("UPDATE files", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(jobs, "_note_not_ready", locked)
+    embedder.push(httpx.Response(500))
+    f = put("동절기 타설")
+    await jobs.drain()
+    assert [(i.kind, i.id, i.retries) for i in jobs._queue] == [("file", f.id, 1)]
+
+
+async def test_finish_drops_only_this_instances_collections(session, ready, put, store, monkeypatch):
+    other = vectors.Store(":memory:", "u", client=store.client)  # 같은 Qdrant 를 쓰는 다른 서버
+    other.upsert(other.collection_for(SMALL, 8), [vectors.Point(1, 1, vector("동절기", SMALL))])
+    put("동절기 타설")
+    await jobs.drain()
+    jobs.enqueue_reindex(LARGE)
+    await jobs.drain()
+    assert store.collections() == [NEW] and other.collections() == ["chunks__u__openai_text-embedding-3-small__8"]
+
+
+def test_instance_id_is_made_once_and_redoes_old_vectors(session, put):
+    f = put("동절기 타설")
+    f.status = "indexed"  # 앞말 없는 컬렉션에 넣었던 파일(이 고침 전)
+    session.commit()
+    first = jobs._instance()
+    session.expire_all()
+    assert f.status == "extracted" and session.get(Setting, jobs.INSTANCE_KEY).value == first and len(first) == 8
+    f.status = "indexed"
+    session.commit()
+    assert jobs._instance() == first
+    session.expire_all()
+    assert f.status == "indexed"  # 두 번째부터는 그대로
+
+
+def test_bad_qdrant_url_turns_meaning_search_off(session, monkeypatch, caplog):
+    monkeypatch.setenv("CHRONOS_QDRANT_URL", "ftp://x")
+    monkeypatch.setattr(vectors, "STORE", None)
+    jobs.start()  # 서버는 뜬다
+    assert vectors.STORE is None and jobs._task is None and "CHRONOS_QDRANT_URL" in caplog.text
+
+
+def test_task51_put_assignments_is_409_while_reindex_runs(client, admin, session, ready):
+    jobs.enqueue_reindex(SMALL)
+    r = client.put("/api/llm/assignments", json={"items": [_embedding_model_listed(session, ready)]}, headers=admin)
+    assert r.status_code == 409 and r.json()["code"] == "already_running"
+    assert session.scalar(select(ReindexJob.model).order_by(ReindexJob.id.desc())) == SMALL

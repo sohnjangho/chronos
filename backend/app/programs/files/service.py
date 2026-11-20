@@ -7,14 +7,24 @@
 from typing import BinaryIO
 
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
 from app.errors import ApiError
 from app.files import chunk, jobs, kinds
-from app.programs.files.schemas import FileOut, PreviewOut, UploadItem, UploadOut
+from app.llm import assignments
+from app.programs.files.schemas import (
+    FileOut,
+    PreviewOut,
+    ReindexJobOut,
+    ReindexStartOut,
+    ReindexStatusOut,
+    UploadItem,
+    UploadOut,
+)
 from app.store import chats, files
-from app.store.tables import FileChunk, FileRow, User
+from app.store.tables import FileChunk, FileRow, ReindexJob, User
 
 MAX_FILES = 10
 MAX_FIELDS = 5  # 파일 아닌 칸(chat_id)
@@ -30,6 +40,7 @@ NO_FILES = "올릴 파일을 골라 주세요."
 BAD_CHAT_ID = "chat_id 가 올바르지 않습니다."
 DELETE_FORBIDDEN = "올린 사람이나 관리자만 지울 수 있습니다."
 PURGE_FORBIDDEN = "관리자만 완전히 지울 수 있습니다."
+NOTHING_TO_REINDEX = "지금 검색에 쓰는 모델이 배정된 임베딩 모델과 같아 다시 넣을 것이 없습니다."
 
 
 def _size(f: BinaryIO) -> int:
@@ -157,3 +168,30 @@ def delete(session: Session, user: User, file_id: int, purge: bool) -> None:
         files.soft_delete(session, file_id, user)
     except files.NotAllowed:
         raise ApiError(403, "forbidden", DELETE_FORBIDDEN) from None
+
+
+def _latest_job(session: Session) -> ReindexJob | None:
+    return session.scalar(select(ReindexJob).order_by(ReindexJob.id.desc()).limit(1))
+
+
+def reindex_status(session: Session) -> ReindexStatusOut:
+    job = _latest_job(session)
+    return ReindexStatusOut(
+        active_model=jobs.active_model(session), assigned_model=assignments.resolve(session, "embedding").model,
+        job=ReindexJobOut.model_validate(job) if job is not None else None,
+    )
+
+
+def start_reindex(session: Session) -> ReindexStartOut:
+    """배정된 임베딩 모델로 다시 넣기를 (다시) 시작한다 — 실패한 바꾸기를 이어 하거나 지금 모델로 다시 넣을 때."""
+    assigned = assignments.resolve(session, "embedding").model
+    job = _latest_job(session)
+    status = job.status if job is not None else None
+    if status not in ("running", "failed") and assigned == jobs.active_model(session):
+        raise ApiError(409, "nothing_to_do", NOTHING_TO_REINDEX)
+    try:
+        return ReindexStartOut(**jobs.enqueue_reindex(assigned))
+    except jobs.ReindexRefused as e:
+        if e.code == "running":
+            raise ApiError(409, "already_running", e.message) from None
+        raise ApiError(503, "reindex_unavailable", e.message) from None

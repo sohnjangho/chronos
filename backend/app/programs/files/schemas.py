@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class UploadItem(BaseModel):
@@ -40,3 +40,28 @@ class PreviewOut(BaseModel):
     pages: int
     text: str  # 그 쪽·시트의 뽑은 글(조각 겹침을 지운 것). 그림은 빈 글(원본은 /raw)
     truncated: bool
+
+
+class ReindexJobOut(BaseModel):
+    """다시 넣기(임베딩 모델 바꾸기) 한 번. status: running|done|failed."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    model: str
+    status: str
+    total: int  # 넣을 조각 수
+    done: int
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class ReindexStatusOut(BaseModel):
+    active_model: str  # 지금 검색에 쓰는 모델(마지막으로 끝난 다시 넣기의 모델)
+    assigned_model: str  # 배정(설정)의 임베딩 모델
+    job: ReindexJobOut | None  # 마지막 다시 넣기(없으면 null)
+
+
+class ReindexStartOut(BaseModel):
+    job_id: int
+    total: int

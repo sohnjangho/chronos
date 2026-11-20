@@ -1,4 +1,7 @@
-"""뜻 검색 벡터(Qdrant). 컬렉션은 모델·차원마다 하나(`chunks__<모델 정리>__<차원>`), 점 하나 = 글 조각 하나.
+"""뜻 검색 벡터(Qdrant). 컬렉션은 인스턴스·모델·차원마다 하나(`chunks__<인스턴스>__<모델 정리>__<차원>`), 점 하나 = 글 조각 하나.
+
+- 인스턴스 = 이 서버(DB)의 id(jobs 가 settings 표에 한 번 만든다). 같은 Qdrant 를 여러 서버(PM 앱·개발·시험)가 함께 써도
+  collections·delete_file·지우기는 제 인스턴스 컬렉션만 건드린다.
 
 - 점 id = 조각 id(file_chunks.id), payload 는 file_id 만. 분류 축은 SQLite(file_axes)에 있고 분류 뒤·언제든 바뀌므로,
   축 거르기는 files.search 가 축 값 → 파일 id 로 바꿔 {"file_id": [...]} 로 거른다.
@@ -8,6 +11,7 @@
 """
 
 import re
+import warnings
 from dataclasses import dataclass
 
 from qdrant_client import QdrantClient, models
@@ -23,24 +27,32 @@ class Point:
     vector: list[float]
 
 
-def collection_for(model: str, dim: int) -> str:
+def collection_for(model: str, dim: int, instance: str) -> str:
     """모델 이름은 소문자로 하고 영문·숫자·_·- 밖의 글자 묶음을 _ 로 바꾼다."""
     name = re.sub(r"[^a-z0-9_-]+", "_", model.lower()).strip("_")
-    return f"{PREFIX}{name}__{dim}"
+    return f"{PREFIX}{instance}__{name}__{dim}"
 
 
 class Store:
-    """url 이 ":memory:" 면 메모리 Qdrant(시험), 아니면 Qdrant 서버(http)."""
+    """url 이 ":memory:" 면 메모리 Qdrant(시험), 아니면 Qdrant 서버(http). client 를 주면 그것을 함께 쓴다(시험).
 
-    def __init__(self, url: str) -> None:
-        if url == ":memory:":
-            self._client = QdrantClient(location=":memory:")
+    주소가 잘못됐으면 만들 때 예외(LocationParseError·ValueError 등)."""
+
+    def __init__(self, url: str, instance: str, *, client: QdrantClient | None = None) -> None:
+        self.instance = instance
+        if client is not None:
+            self.client = client
+        elif url == ":memory:":
+            self.client = QdrantClient(location=":memory:")
         else:
-            self._client = QdrantClient(url=url, timeout=TIMEOUT_S, check_compatibility=False)
+            self.client = QdrantClient(url=url, timeout=TIMEOUT_S, check_compatibility=False)
+
+    def collection_for(self, model: str, dim: int) -> str:
+        return collection_for(model, dim, self.instance)
 
     def available(self) -> bool:
         try:
-            self._client.get_collections()
+            self.client.get_collections()
         except Exception:  # noqa: BLE001 — 어떤 실패든 「쓸 수 없음」
             return False
         return True
@@ -49,11 +61,14 @@ class Store:
         """같은 조각 id 는 바꿔 넣는다. 컬렉션이 없으면 첫 벡터 길이로 만든다."""
         if not points:
             return
-        if not self._client.collection_exists(collection):
+        if not self.client.collection_exists(collection):
             params = models.VectorParams(size=len(points[0].vector), distance=models.Distance.COSINE)
-            self._client.create_collection(collection, vectors_config=params)
+            self.client.create_collection(collection, vectors_config=params)
+            with warnings.catch_warnings():  # 메모리 Qdrant 는 「색인이 효과 없음」을 알린다
+                warnings.simplefilter("ignore", UserWarning)
+                self.client.create_payload_index(collection, "file_id", models.PayloadSchemaType.INTEGER)
         structs = [models.PointStruct(id=p.chunk_id, vector=p.vector, payload={"file_id": p.file_id}) for p in points]
-        self._client.upsert(collection, points=structs, wait=True)
+        self.client.upsert(collection, points=structs, wait=True)
 
     def search(
         self, collection: str, vector: list[float], limit: int, filter: dict[str, list] | None = None
@@ -63,25 +78,26 @@ class Store:
         빈 값 목록이 있거나 컬렉션이 없으면 [].
         """
         conditions = [models.FieldCondition(key=k, match=models.MatchAny(any=list(v))) for k, v in (filter or {}).items()]
-        if any(not values for values in (filter or {}).values()) or not self._client.collection_exists(collection):
+        if any(not values for values in (filter or {}).values()) or not self.client.collection_exists(collection):
             return []
-        found = self._client.query_points(collection, query=vector, limit=limit, with_payload=False,
+        found = self.client.query_points(collection, query=vector, limit=limit, with_payload=False,
                                           query_filter=models.Filter(must=conditions) if conditions else None)
         return [(int(p.id), p.score) for p in found.points]
 
     def collections(self) -> list[str]:
-        """우리 컬렉션(chunks__ 로 시작)만."""
-        return [c.name for c in self._client.get_collections().collections if c.name.startswith(PREFIX)]
+        """이 인스턴스의 컬렉션만."""
+        mine = f"{PREFIX}{self.instance}__"
+        return [c.name for c in self.client.get_collections().collections if c.name.startswith(mine)]
 
     def drop(self, collection: str) -> None:
-        self._client.delete_collection(collection)
+        self.client.delete_collection(collection)
 
     def delete_file(self, file_id: int) -> None:
-        """모든 우리 컬렉션에서 그 파일의 점을 지운다."""
+        """이 인스턴스의 모든 컬렉션에서 그 파일의 점을 지운다."""
         match = models.FieldCondition(key="file_id", match=models.MatchValue(value=file_id))
         selector = models.FilterSelector(filter=models.Filter(must=[match]))
         for name in self.collections():
-            self._client.delete(name, points_selector=selector, wait=True)
+            self.client.delete(name, points_selector=selector, wait=True)
 
 
 STORE: Store | None = None

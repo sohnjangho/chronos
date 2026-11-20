@@ -48,6 +48,8 @@ export CHRONOS_SECRET_KEY="e2e-$(openssl rand -hex 24)"
 export CHRONOS_ADMIN_ID="demo-admin"
 export CHRONOS_ADMIN_PASSWORD="demo-pass-e2e"
 export CHRONOS_FAKE_LLM=1
+# 뜻 검색(Qdrant) 끔: 일꾼이 PM 앱의 Qdrant(127.0.0.1:6333)를 건드리지 않게 — 화면 시험은 낱말 검색만
+export CHRONOS_QDRANT_URL=""
 
 echo "==> 씨앗 일정 넣기 (${CHRONOS_DATA_DIR})"
 (cd "${ROOT}/backend" && "${PY}" -m app.seed demo)

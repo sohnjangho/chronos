@@ -13,9 +13,9 @@ DIMS = {SMALL: 8, LARGE: 12}
 MEANINGS = (("동절기", 0), ("겨울", 0), ("강도", 1), ("배관", 2), ("접속", 4), ("SNET", 3), ("철근", 5))
 OTHER = 6
 COST = 1.16e-06
-# 가짜 임베딩이 만드는 컬렉션 이름(작은 모델 8차원 · 큰 모델 12차원)
-OLD = "chunks__openai_text-embedding-3-small__8"
-NEW = "chunks__openai_text-embedding-3-large__12"
+# 가짜 임베딩이 만드는 컬렉션 이름(시험 인스턴스 t · 작은 모델 8차원 · 큰 모델 12차원)
+OLD = "chunks__t__openai_text-embedding-3-small__8"
+NEW = "chunks__t__openai_text-embedding-3-large__12"
 
 
 def meaning(text: str) -> int:
