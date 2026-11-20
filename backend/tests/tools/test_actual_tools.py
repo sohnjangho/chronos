@@ -148,7 +148,8 @@ async def test_card_event(ctx_ab, events, sid_ab):
     o = await record({"activity_id": "A", "progress": 0.2, "data_date": DD}, ctx_ab)
     assert [e.data.get("kind", e.type) for e in events] == ["actual_recorded"]
     assert events[0].data == {"kind": "actual_recorded", "schedule_id": sid_ab, "activity_id": "A", "name": "작업 A",
-                              "progress": 0.2, "assumed": o["assumed"], "delay": o["delay"], "version": 2}
+                              "progress": 0.2, "assumed": o["assumed"], "delay": o["delay"], "version": 2,
+                              "before_version": 1}
 
 
 async def test_same_actual_again_is_no_change(ctx_ab):

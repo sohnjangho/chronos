@@ -9,7 +9,7 @@
 - 실적 날짜 > Data Date · 종료 < 시작 · 마일스톤 진도 0·1 밖 · 없는 id 는 ToolError.
 저장은 propose(kind change, force_auto=True) — 준공이 바뀌어도 바로 반영하고 승인 표에 auto·restore_to 줄을 남긴다.
 지연: 그 액티비티의 Plan 대비 늦음(근무일)이 저장 뒤에 늘었으면 delay = {activity_id, late_days(는 일수), finish_delta}.
-사건: card {kind: "actual_recorded", schedule_id, activity_id, name, progress, assumed, delay, version}.
+사건: card {kind: "actual_recorded", schedule_id, activity_id, name, progress, assumed, delay, version, before_version}.
 """
 
 from dataclasses import replace
@@ -207,5 +207,6 @@ def record_actual(args: RecordActualIn, ctx: ToolContext) -> RecordActualOut:
     )
     ctx.emit(AgentEvent("card", {"kind": "actual_recorded", "schedule_id": schedule_id, "activity_id": target.id,
                                  "name": target.name, "progress": updated.progress, "assumed": assumed,
-                                 "delay": delay.model_dump() if delay else None, "version": out.version}))
+                                 "delay": delay.model_dump() if delay else None, "version": out.version,
+                                 "before_version": n}))
     return out
