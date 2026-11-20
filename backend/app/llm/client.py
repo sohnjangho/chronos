@@ -18,6 +18,7 @@ from typing import Literal
 import httpx
 from sqlalchemy.orm import Session
 
+from app.llm import fake
 from app.llm.assignments import Purpose, resolve
 from app.llm.connections import secret_is_sendable
 from app.llm.errors import LlmError, explain
@@ -26,6 +27,15 @@ from app.security.crypto import SecretUnreadable, decrypt
 from app.store.tables import LlmCall, LlmConnection
 
 logger = logging.getLogger(__name__)
+
+
+def warn_if_fake() -> None:
+    """가짜 LLM 이 켜져 있으면 경고 한 줄(서버가 뜰 때 이 모듈을 읽으며 한 번 부른다)."""
+    if fake.enabled():
+        logger.warning("%s=1 — 가짜 LLM(app.llm.fake)을 씁니다. 시험·시연 전용, Liner 를 부르지 않습니다.", fake.ENV)
+
+
+warn_if_fake()
 
 NotReadyReason = Literal["no_connection", "secret_unreadable"]
 _NOT_READY: dict[str, str] = {
@@ -252,7 +262,10 @@ class LlmClient:
         self, session: Session, *, transport: httpx.AsyncBaseTransport | None = None
     ) -> None:
         self._session = session
-        self._transport = transport  # 시험에서 httpx.MockTransport 를 넣는다
+        # 시험에서 httpx.MockTransport 를 넣는다. 안 넣었고 CHRONOS_FAKE_LLM=1 이면 가짜 Liner(시험·시연 전용).
+        if transport is None and fake.enabled():
+            transport = fake.transport()
+        self._transport = transport
 
     def _target(self, purpose: Purpose) -> _Target:
         # 부른 쪽 세션에 쌓인 변경을 flush 하지 않는다. flush 하면 그 연결이 SQLite 쓰기 잠금을
