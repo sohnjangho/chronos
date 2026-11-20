@@ -88,7 +88,7 @@ def test_create_list_and_read_sessions(client, admin, sid):
     listed = client.get("/api/chat/sessions", headers=admin).json()
     assert [s["id"] for s in listed] == [empty["id"], body["id"]]  # 새것부터
     detail = client.get(f"/api/chat/sessions/{body['id']}", headers=admin).json()
-    assert detail == {**body, "running": False, "messages": []}
+    assert detail == {**body, "running": False, "messages": [], "pending_retries": []}  # pending_retries: Task 11
 
 
 def test_messages_are_kept_and_the_title_is_the_first_text(client, admin, chat_id, scripted):

@@ -17,13 +17,17 @@ from app.store.tables import Approval, ChangeLog, ChatMessage
 from app.store.versions import mark_plan, save_new_version
 
 __all__ = [
-    "AGENT_NAME", "REQUEST_LIMIT", "STATUS_GROUPS", "NotFound", "apply", "create", "get", "last_request", "listed",
-    "pending_count", "pending_for_draft", "record_decision", "was_resumed",
+    "AGENT_NAME", "REQUEST_LIMIT", "STATUS_GROUPS", "DraftUsed", "NotFound", "apply", "create", "get", "last_request",
+    "listed", "pending_count", "pending_for_draft", "pending_retries", "record_decision", "was_resumed",
 ]
 
 AGENT_NAME = "에이전트"  # 자동 적용한 버전의 작성자
 REQUEST_LIMIT = 200
 STATUS_GROUPS = {"pending": ("pending",), "decided": ("approved", "rejected", "conflict"), "auto": ("auto",)}
+
+
+class DraftUsed(Exception):
+    """첫 저장을 반영하려는데 초안이 이미 일정으로 저장됐다(초안은 한 번만 쓴다)."""
 
 
 def create(session: Session, **fields: Any) -> Approval:
@@ -76,7 +80,7 @@ def apply(session: Session, row: Approval, *, by_name: str) -> None:
 
     - change: base_version 위에 새 버전(by_kind "agent"). 그 사이 바뀌었으면 VersionConflict(아무것도 쓰지 않음).
     - first_save: 초안의 분야·정밀도로 새 일정(이름 = 제목)과 버전 1을 만들고 Plan 으로 둔다. 변경 이력 한 줄을 남기고
-      초안을 쓴 것(used_at·schedule_id)으로 표시한다.
+      초안을 쓴 것(used_at·schedule_id)으로 표시한다. 초안이 이미 쓰였으면 DraftUsed(아무것도 쓰지 않음).
     """
     schedule, conditions = from_json(row.snapshot_json), list(row.conditions_json)
     if row.kind == "change":
@@ -86,6 +90,8 @@ def apply(session: Session, row: Approval, *, by_name: str) -> None:
         )
         return
     draft = get_draft(session, row.draft_id)
+    if draft.used_at is not None:
+        raise DraftUsed(draft.id)
     sid = create_schedule(
         session, name=row.title, domain=draft.domain, level=draft.level, schedule=schedule, conditions=conditions,
         by_kind="agent", by_name=by_name, note=row.title, commit=False,
@@ -112,9 +118,36 @@ def record_decision(session: Session, row: Approval, status: str, *, by: str, no
     return result.rowcount == 1
 
 
+def _resumed(session: Session, chat_ids: list[int]) -> set[tuple[int, int]]:
+    """(대화 id, 승인 건 id): 그 대화에서 이미 이어 간 거부(approval_rejected 메시지)."""
+    query = select(ChatMessage.session_id, ChatMessage.content_json).where(
+        ChatMessage.session_id.in_(chat_ids),
+        ChatMessage.role == "user",
+        ChatMessage.content_json["kind"].as_string() == "approval_rejected",
+    )
+    return {(chat_id, c.get("approval_id")) for chat_id, c in session.execute(query)}
+
+
 def was_resumed(session: Session, chat_id: int, approval_id: int) -> bool:
     """이 승인 건의 거부로 이미 대화를 이어 갔는가(approval_rejected 메시지가 있는가)."""
-    query = select(ChatMessage.content_json).where(ChatMessage.session_id == chat_id, ChatMessage.role == "user")
-    return any(
-        c.get("kind") == "approval_rejected" and c.get("approval_id") == approval_id for c in session.scalars(query)
+    return (chat_id, approval_id) in _resumed(session, [chat_id])
+
+
+def pending_retries(session: Session, chat_ids: list[int]) -> dict[int, list[Approval]]:
+    """대화마다 아직 이어 가지 않은 '거부하고 다시 짜기' 건(status rejected·retry), 오래된 것부터.
+
+    대화 주인만 이어 갈 수 있으므로, 다른 사람이 결정한 건은 주인이 대화 화면에서 보고 시작한다.
+    """
+    if not chat_ids:
+        return {}
+    resumed = _resumed(session, chat_ids)
+    query = (
+        select(Approval)
+        .where(Approval.chat_session_id.in_(chat_ids), Approval.status == "rejected", Approval.retry)
+        .order_by(Approval.id)
     )
+    out: dict[int, list[Approval]] = {}
+    for row in session.scalars(query):
+        if (row.chat_session_id, row.id) not in resumed:
+            out.setdefault(row.chat_session_id, []).append(row)
+    return out

@@ -7,13 +7,20 @@ import pytest
 from sqlalchemy import select
 
 from app.core.model import Relation
-from app.store import chats
+from app.store import approvals, chats
 from app.store.schedules import load
 from app.store.settings import set_approval_mode
 from app.store.tables import Approval, ScheduleDraft, ScheduleRecord, ScheduleVersion
 from app.store.versions import list_versions
 from app.tools.registry import call, list_tools
-from tests.approval_doubles import assembled, crane, make_draft, net, note_only
+from tests.approval_doubles import (
+    assembled,
+    crane,
+    finish_by,
+    make_draft,
+    net,
+    note_only,
+)
 from tests.schedules import store
 
 STALE = "그 사이 일정이 바뀌었습니다. 일정을 다시 읽고 고쳐 주세요."
@@ -74,26 +81,27 @@ async def test_draft_is_a_first_save_that_waits_for_approval(cx, session, events
     assert session.scalars(select(ScheduleRecord)).all() == []  # 승인 전에는 일정이 없다
 
 
-async def test_used_draft_is_refused(cx, session):
-    did = make_draft(session)
+async def test_used_draft_is_refused(cx, session, chat):
+    did = make_draft(session, chat_session_id=chat)
     session.get(ScheduleDraft, did).used_at = datetime.now(UTC)
     session.commit()
     r = await call("out.submit_change", {"draft_id": did, "title": "사무동"}, cx)
     assert (r.ok, r.error) == (False, "이미 저장한 초안입니다.")
 
 
-async def test_draft_already_waiting_for_approval_is_refused(cx, session):
-    did = make_draft(session)
+async def test_draft_already_waiting_for_approval_is_refused(cx, session, chat):
+    did = make_draft(session, chat_session_id=chat)
     assert (await call("out.submit_change", {"draft_id": did, "title": "사무동"}, cx)).ok
     r = await call("out.submit_change", {"draft_id": did, "title": "사무동"}, cx)
     assert (r.ok, r.error) == (False, "이미 승인을 기다리는 초안입니다.")
 
 
-async def test_missing_or_broken_draft_is_refused(cx, session):
+async def test_missing_or_broken_draft_is_refused(cx, session, chat):
     r = await call("out.submit_change", {"draft_id": 999, "title": "사무동"}, cx)
     assert (r.ok, r.error) == (False, "초안을 찾을 수 없습니다.")
     broken = net(extra_rels=(Relation("D", "A"),))  # 고리
-    r = await call("out.submit_change", {"draft_id": make_draft(session, broken), "title": "사무동"}, cx)
+    r = await call("out.submit_change", {"draft_id": make_draft(session, broken, chat_session_id=chat), "title": "사무동"},
+                   cx)
     assert (r.ok, r.error) == (False, "선후 관계가 고리를 이룹니다.")
 
 
@@ -190,14 +198,14 @@ async def test_update_replaces_name_and_predecessors(cx, session, net_id):
         (update("Z", od=1), "없는 액티비티입니다: Z"),
         ({"op": "delete_activity", "id": "Z"}, "없는 액티비티입니다: Z"),
         (update("C", preds=[{"pred": "D"}]), "선후 관계가 고리를 이룹니다."),
-        (update("C", preds=[{"pred": "Q"}]), "없는 액티비티를 가리키는 관계가 있습니다."),
+        (update("C", preds=[{"pred": "Q"}]), "없는 액티비티를 가리킵니다: Q"),
         ({"op": "add_activity", "activity": {"id": "A", "name": "중복", "od": 1, "preds": []}},
          "같은 ID의 액티비티가 있습니다."),
         ({"op": "add_activity", "activity": {"id": "E", "name": "e", "od": 1, "preds": [], "wbs": "9"}},
          "없는 WBS 코드입니다: 9"),
         ({"op": "add_activity", "activity": {"id": "E", "name": "e", "od": 1, "preds": [], "resources": ["pump"]}},
          "없는 자원입니다: pump"),
-        (update("C", od=1), "바뀐 것이 없습니다."),
+        (update("C", od=1), "바뀌는 것이 없습니다."),
     ],
     ids=["unknown_update", "unknown_delete", "cycle", "dangling", "duplicate", "unknown_wbs", "unknown_resource",
          "no_change"],
@@ -273,9 +281,9 @@ async def test_approval_mode_setting_decides(cx, session, net_id):
     assert (r.output["applied"], r.output["reasons"]) == (False, [])  # all 은 늘 승인
 
 
-async def test_first_save_in_auto_mode_creates_the_plan(cx, session, events):
+async def test_first_save_in_auto_mode_creates_the_plan(cx, session, events, chat):
     set_approval_mode(session, "auto")
-    did = make_draft(session, conditions=(crane(1),))
+    did = make_draft(session, conditions=(crane(1),), chat_session_id=chat)
     r = await call("out.submit_change", {"draft_id": did, "title": "사무동 신축"}, cx)
     assert r.ok, r.error
     sid = r.output["schedule_id"]
@@ -289,3 +297,56 @@ async def test_first_save_in_auto_mode_creates_the_plan(cx, session, events):
     row = session.get(Approval, r.output["approval_id"])
     assert (row.status, row.restore_to, row.schedule_id) == ("auto", None, sid)
     assert events[0].data["kind"] == "auto_applied" and events[0].data["schedule_id"] == sid
+
+
+# ══ Fix round 1 ════════════════════════════════════════════════════
+
+BAD_DEADLINE = {**finish_by("2027-02-30"), "id": "in.finish_by.bad"}
+BAD_PERIOD = {"id": "in.blocked_period.bad", "layer": "input", "kind": "blocked_period",
+              "params": {"start_md": [13, 1], "end_md": [2, 28], "tag": "타설"}, "text": "겨울 타설 금지",
+              "source": "프롬프트"}
+
+
+async def test_malformed_stored_conditions_do_not_break_submission(cx, session):
+    """I1·m2: 읽지 못하는 저장 조건(없는 날짜·없는 월)이 있어도 낼 수 있고, 요약의 invalid 가 그것을 센다."""
+    sid = store(session, net(), [BAD_DEADLINE, BAD_PERIOD, *assembled(crane(1))])
+    r = await call("out.submit_change", change(sid, update("B", od=8)), cx)
+    assert r.ok, r.error
+    summary = session.get(Approval, r.output["approval_id"]).summary_json
+    assert summary["check"] == {"passed": 5, "violations": [], "uncheckable": 0, "invalid": 2}
+    assert summary["finish_float"] == {"before": None, "after": None}
+
+
+async def test_draft_of_another_chat_is_refused(cx, session, ctx):
+    """m1: 다른 대화(또는 대화 밖)에서 만든 초안은 이 대화에서 낼 수 없다."""
+    other = chats.create_chat(session, user_id=ctx.user.id).id
+    for owner in (other, None):
+        r = await call("out.submit_change", {"draft_id": make_draft(session, chat_session_id=owner), "title": "x"}, cx)
+        assert (r.ok, r.error) == (False, "이 대화의 초안이 아닙니다.")
+
+
+async def test_apply_refuses_a_draft_that_was_already_used(cx, session, chat):
+    """m1: 반영하는 자리에서도 한 번만 — 그 사이 초안이 쓰였으면 DraftUsed, 일정은 생기지 않는다."""
+    did = make_draft(session, chat_session_id=chat)
+    r = await call("out.submit_change", {"draft_id": did, "title": "사무동"}, cx)
+    session.get(ScheduleDraft, did).used_at = datetime.now(UTC)
+    with pytest.raises(approvals.DraftUsed):
+        approvals.apply(session, session.get(Approval, r.output["approval_id"]), by_name="관리자")
+    assert session.scalars(select(ScheduleRecord)).all() == []
+
+
+async def test_predecessor_on_a_deleted_activity_is_named(cx, net_id):
+    """m3: 지운 액티비티를 선행으로 가리키면 그 id 를 알린다."""
+    ops = [{"op": "delete_activity", "id": "C"}, update("D", preds=[{"pred": "B"}, {"pred": "C"}])]
+    r = await call("out.submit_change", change(net_id, *ops), cx)
+    assert (r.ok, r.error) == (False, "없는 액티비티를 가리킵니다: C")
+
+
+async def test_same_conditions_in_another_order_change_nothing(cx, session):
+    """m4: 조건 비교는 차례와 상관없다(id → 값). 같은 조건을 다른 차례로 보내면 바뀌는 것이 없다."""
+    sid = store(session, net(), assembled(crane(1), finish_by("2027-03-19")))
+    r = await call("out.submit_change", change(sid, conditions=[finish_by("2027-03-19"), crane(1)]), cx)
+    assert (r.ok, r.error) == (False, "바뀌는 것이 없습니다.")
+    r = await call("out.submit_change", change(sid, update("C", od=1), conditions=[finish_by("2027-03-19"), crane(1)]), cx)
+    assert (r.ok, r.error) == (False, "바뀌는 것이 없습니다.")
+    assert list_versions(session, sid)[0].n == 1 and session.scalars(select(Approval)).all() == []

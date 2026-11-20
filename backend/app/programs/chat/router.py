@@ -9,6 +9,7 @@ from app.programs.chat import service
 from app.programs.chat.schemas import (
     ChatSessionDetail,
     ChatSessionIn,
+    ChatSessionItem,
     ChatSessionOut,
     MessageIn,
     StopOut,
@@ -24,7 +25,7 @@ UserDep = Annotated[User, Depends(current_user)]
 
 
 @router.get("/sessions")
-def list_chat_sessions(session: SessionDep, user: UserDep) -> list[ChatSessionOut]:
+def list_chat_sessions(session: SessionDep, user: UserDep) -> list[ChatSessionItem]:
     return service.list_sessions(session, user)
 
 

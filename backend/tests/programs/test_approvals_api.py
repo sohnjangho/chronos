@@ -7,7 +7,7 @@ from app.agent import loop
 from app.errors import ApiError
 from app.llm.client import LlmClient
 from app.store import chats
-from app.store.tables import Approval, ChangeLog, ScheduleDraft, User
+from app.store.tables import Approval, ChangeLog, ScheduleDraft, ScheduleRecord, User
 from tests.approval_doubles import crane, make_draft, submit
 from tests.llm_doubles import add_connection
 from tests.loop_doubles import ScriptedLlm, calls, reply
@@ -92,7 +92,8 @@ def test_reject_keeps_schedule_and_stores_note(client, admin, pending, session):
 
 def test_approving_a_first_save_creates_the_schedule_from_the_draft(client, admin, pending_first, chat_id, session):
     r = decide(client, pending_first, admin)
-    assert r.json() == {"status": "approved", "version": 1, "schedule_id": 1, "chat_session_id": chat_id}
+    assert r.json() == {"status": "approved", "version": 1, "schedule_id": 1, "chat_session_id": chat_id,
+                        "owner_is_decider": True}
     view = client.get("/api/schedules/1", headers=admin).json()
     assert (view["name"], view["domain"], view["level"], view["finish"]) == ("사무동 신축", "construction", "L3", "2027-03-10")
     v1 = client.get("/api/schedules/1/versions", headers=admin).json()[0]
@@ -111,7 +112,8 @@ def test_approving_a_first_save_creates_the_schedule_from_the_draft(client, admi
 
 def test_approving_a_change_saves_a_new_agent_version(client, admin, pending, sid, chat_id):
     r = decide(client, pending, admin, note="좋습니다")
-    assert r.json() == {"status": "approved", "version": 2, "schedule_id": sid, "chat_session_id": chat_id}
+    assert r.json() == {"status": "approved", "version": 2, "schedule_id": sid, "chat_session_id": chat_id,
+                        "owner_is_decider": True}
     view = client.get(f"/api/schedules/{sid}", headers=admin).json()
     assert (view["version"], view["finish"]) == (2, "2027-03-09")
     v2 = client.get(f"/api/schedules/{sid}/versions", headers=admin).json()[0]
@@ -130,7 +132,8 @@ def test_conflict_is_recorded_and_cannot_be_decided_again(client, admin, pending
 
 def test_reject_does_not_touch_the_schedule(client, admin, pending, sid, chat_id):
     r = decide(client, pending, admin, "reject", "  크레인 추가는 안 됨  ")
-    assert r.json() == {"status": "rejected", "version": None, "schedule_id": sid, "chat_session_id": chat_id}
+    assert r.json() == {"status": "rejected", "version": None, "schedule_id": sid, "chat_session_id": chat_id,
+                        "owner_is_decider": True}
     detail = client.get(f"/api/approvals/{pending}", headers=admin).json()
     assert (detail["status"], detail["note"], detail["retry"]) == ("rejected", "크레인 추가는 안 됨", False)
     assert client.get(f"/api/schedules/{sid}", headers=admin).json()["version"] == 1
@@ -326,3 +329,52 @@ def test_agent_turn_submits_a_draft_and_the_approval_card_is_kept(client, admin,
     assert event["content"]["type"] == "approval" and set(event["content"]["data"]) == {"id", "title", "reasons", "summary"}
     item = client.get(f"/api/approvals/{aid}", headers=admin).json()
     assert (item["status"], item["request"], item["chat_session_id"]) == ("pending", "저장해 줘", chat_id)
+
+
+# ══ Fix round 1 ════════════════════════════════════════════════════
+
+
+def test_retry_decided_by_someone_else_waits_for_the_chat_owner(client, admin, user, pending, chat_id, scripted):
+    """I2: 대화 주인이 아닌 사람이 다시 짜게 하면, 주인의 대화에 '다시 짜기 요청' 으로 남고 주인만 이어 간다."""
+    r = decide(client, pending, user, "reject_retry", "준공은 그대로 두고 다시")
+    assert r.json()["owner_is_decider"] is False and r.json()["chat_session_id"] == chat_id
+    listed = {s["id"]: s for s in client.get("/api/chat/sessions", headers=admin).json()}
+    assert listed[chat_id]["pending_retries"] == 1
+    detail = client.get(f"/api/chat/sessions/{chat_id}", headers=admin).json()
+    [retry] = detail["pending_retries"]
+    assert set(retry) == {"approval_id", "title", "note", "decided_by_name", "decided_at"}
+    assert (retry["approval_id"], retry["title"], retry["note"], retry["decided_by_name"]) == (
+        pending, "B 기간 4일", "준공은 그대로 두고 다시", "일반 사용자")
+    assert retry["decided_at"].endswith("Z")
+    assert resume(client, chat_id, user, pending).status_code == 404  # 남의 대화로는 턴을 돌리지 않는다
+    assert resume(client, chat_id, admin, pending).status_code == 200
+    assert client.get(f"/api/chat/sessions/{chat_id}", headers=admin).json()["pending_retries"] == []
+    assert client.get("/api/chat/sessions", headers=admin).json()[0]["pending_retries"] == 0
+
+
+def test_only_retry_rejections_are_pending_retries(client, admin, pending, pending_first, chat_id):
+    decide(client, pending, admin, "reject", "아니요")
+    r = decide(client, pending_first, admin, "reject_retry", "다시")
+    assert r.json()["owner_is_decider"] is True  # 주인이 결정했으면 화면이 바로 이어 간다
+    retries = client.get(f"/api/chat/sessions/{chat_id}", headers=admin).json()["pending_retries"]
+    assert [x["approval_id"] for x in retries] == [pending_first]
+
+
+def test_a_new_chat_has_no_pending_retries(client, admin):
+    created = client.post("/api/chat/sessions", json={}, headers=admin).json()
+    assert set(created) == {"id", "title", "schedule_id", "created_at"}
+    assert client.get("/api/chat/sessions", headers=admin).json()[0]["pending_retries"] == 0
+    assert client.get(f"/api/chat/sessions/{created['id']}", headers=admin).json()["pending_retries"] == []
+
+
+def test_approving_a_first_save_whose_draft_was_used_meanwhile(client, admin, pending_first, session):
+    """m1: 그 사이 초안이 쓰였으면 반영하지 않고 409 draft_used, status conflict."""
+    row = session.get(Approval, pending_first)
+    session.get(ScheduleDraft, row.draft_id).used_at = row.created_at
+    session.commit()
+    r = decide(client, pending_first, admin)
+    assert r.status_code == 409
+    assert r.json() == {"code": "draft_used", "message": "이미 저장한 초안입니다.", "detail": None}
+    assert client.get(f"/api/approvals/{pending_first}", headers=admin).json()["status"] == "conflict"
+    session.expire_all()
+    assert session.scalars(select(ScheduleRecord)).all() == []

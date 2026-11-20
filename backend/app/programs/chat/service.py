@@ -1,5 +1,8 @@
 """대화 화면: 대화 만들기·목록·읽기, 메시지 보내기(턴의 사건을 SSE 로 흘려보냄), 멈춤.
 
+다른 사람이 '거부하고 다시 짜기' 로 결정한 승인 건은 대화 주인의 목록·상세에 pending_retries 로 보이고,
+주인이 approval_id 로 메시지를 보내야 이어 간다(남의 이름으로 턴을 돌리지 않는다).
+
 대화는 만든 사용자만 본다(다른 사람에게는 404). 한 대화에서는 턴이 하나만 돈다(돌고 있으면 409).
 턴은 요청 세션이 아니라 스트림이 여는 세션으로 돈다(응답을 보내는 동안 이어지므로).
 """
@@ -20,9 +23,11 @@ from app.errors import ApiError
 from app.programs.chat.schemas import (
     ChatSessionDetail,
     ChatSessionIn,
+    ChatSessionItem,
     ChatSessionOut,
     MessageIn,
     MessageOut,
+    RetryOut,
     StopOut,
 )
 from app.store import approvals, chats, questionnaires
@@ -56,8 +61,10 @@ def create(session: Session, user: User, body: ChatSessionIn | None) -> ChatSess
     return _out(chats.create_chat(session, user_id=user.id, schedule_id=body.schedule_id if body else None))
 
 
-def list_sessions(session: Session, user: User) -> list[ChatSessionOut]:
-    return [_out(c) for c in chats.list_chats(session, user.id)]
+def list_sessions(session: Session, user: User) -> list[ChatSessionItem]:
+    rows = chats.list_chats(session, user.id)
+    retries = approvals.pending_retries(session, [c.id for c in rows])
+    return [ChatSessionItem(**_out(c).model_dump(), pending_retries=len(retries.get(c.id, []))) for c in rows]
 
 
 def detail(session: Session, user: User, chat_id: int) -> ChatSessionDetail:
@@ -66,7 +73,13 @@ def detail(session: Session, user: User, chat_id: int) -> ChatSessionDetail:
         MessageOut(id=m.id, role=m.role, content=m.content_json, created_at=as_utc(m.created_at))
         for m in chats.messages(session, chat_id)
     ]
-    return ChatSessionDetail(**_out(chat).model_dump(), running=turns.is_running(chat_id), messages=messages)
+    retries = [
+        RetryOut(approval_id=r.id, title=r.title, note=r.note, decided_by_name=r.decided_by or "",
+                 decided_at=as_utc(r.decided_at))
+        for r in approvals.pending_retries(session, [chat_id]).get(chat_id, [])
+    ]
+    return ChatSessionDetail(**_out(chat).model_dump(), running=turns.is_running(chat_id), messages=messages,
+                             pending_retries=retries)
 
 
 def stop(session: Session, user: User, chat_id: int) -> StopOut:

@@ -18,7 +18,7 @@ from app.programs.approvals.schemas import (
     DecideOut,
     ModeIO,
 )
-from app.store import approvals
+from app.store import approvals, chats
 from app.store.settings import approval_mode, set_approval_mode
 from app.store.tables import Approval, User
 from app.store.versions import VersionConflict
@@ -27,6 +27,7 @@ NOT_FOUND_MESSAGE = "승인 건을 찾을 수 없습니다."
 CONFLICT_MESSAGE = "그 사이 일정이 바뀌었습니다. 에이전트에게 다시 요청해 주세요."
 ALREADY_DECIDED_MESSAGE = "이미 결정된 건입니다."
 NOTE_REQUIRED_MESSAGE = "다시 짜게 하려면 이유를 적어 주세요."
+DRAFT_USED_MESSAGE = "이미 저장한 초안입니다."
 
 
 def _get(session: Session, approval_id: int) -> Approval:
@@ -74,11 +75,23 @@ def _approve(session: Session, row: Approval, user: User, note: str) -> None:
     except VersionConflict as e:
         _close(session, row, "conflict", user, note)  # 반영하지 않고 충돌로 남긴다
         raise ApiError(409, "version_conflict", CONFLICT_MESSAGE, {"current": e.current}) from None
+    except approvals.DraftUsed:
+        _close(session, row, "conflict", user, note)
+        raise ApiError(409, "draft_used", DRAFT_USED_MESSAGE) from None
     _close(session, row, "approved", user, note)
 
 
+def _owner_is(session: Session, row: Approval, user: User) -> bool:
+    if row.chat_session_id is None:
+        return False
+    try:
+        return chats.get_chat(session, row.chat_session_id).user_id == user.id
+    except chats.NotFound:
+        return False
+
+
 def decide(session: Session, approval_id: int, body: DecideIn, user: User) -> DecideOut:
-    """확인 차례: 404 → 409 already_decided → 422 note_required → 반영(409 version_conflict 가능)."""
+    """확인 차례: 404 → 409 already_decided → 422 note_required → 반영(409 version_conflict·draft_used 가능)."""
     row = _get(session, approval_id)
     if row.status != "pending":
         raise ApiError(409, "already_decided", ALREADY_DECIDED_MESSAGE)
@@ -89,7 +102,7 @@ def decide(session: Session, approval_id: int, body: DecideIn, user: User) -> De
     else:
         _close(session, row, "rejected", user, body.note, retry=body.decision == "reject_retry")
     return DecideOut(status=row.status, version=row.version, schedule_id=row.schedule_id,
-                     chat_session_id=row.chat_session_id)
+                     chat_session_id=row.chat_session_id, owner_is_decider=_owner_is(session, row, user))
 
 
 def get_mode(session: Session) -> ModeIO:

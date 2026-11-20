@@ -2,6 +2,7 @@
 
 메시지 content_json 모양(role 별):
 - user:      {"kind": "text", "text"} | {"kind": "questionnaire_submitted", "questionnaire_id", "answers", "assumed"}
+             | {"kind": "approval_rejected", "approval_id", "title", "note"}  (거부하고 다시 짜게 한 승인 건으로 이어 감)
 - assistant: {"kind": "text", "text"} | {"kind": "tool_calls", "text", "tool_calls": [{"id", "name", "arguments"}]}
              (name 은 등록부 이름, arguments 는 LLM 에 다시 보낼 JSON 글)
 - tool:      {"kind": "tool_result", "tool_call_id", "name", "ok", "content"}  (content 는 LLM 에 보낸 글)

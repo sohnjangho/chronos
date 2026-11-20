@@ -26,7 +26,7 @@ from app.core.cpm import CpmResult
 from app.core.model import Schedule
 from app.harness.assemble import assemble_all, prepare_stored
 from app.harness.checks import CheckReport
-from app.harness.conditions import Condition, read_conditions
+from app.harness.conditions import Condition, condition_problem, read_conditions
 from app.store.diff import pred_json
 from app.store.drafts import violation_json
 from app.store.schedules import activity_json, run
@@ -65,7 +65,8 @@ class _Side:
 
 def _side(schedule: Schedule, stored: list[dict]) -> _Side:
     ready = prepare_stored(schedule, stored)
-    conditions = assemble_all(read_conditions(stored)[0])
+    # 형식이 맞는 조건만 비교·요약에 쓴다(틀린 조건은 일정에도 들어가지 않는다 — apply_to_schedule 과 같은 거름)
+    conditions = [c for c in assemble_all(read_conditions(stored)[0]) if condition_problem(c) is None]
     return _Side(schedule, conditions, WorkCalendar(ready.calendar), run(ready))
 
 

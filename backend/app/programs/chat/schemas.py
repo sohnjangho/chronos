@@ -47,6 +47,10 @@ class ChatSessionOut(BaseModel):
     created_at: datetime
 
 
+class ChatSessionItem(ChatSessionOut):
+    pending_retries: int  # 대화 주인이 시작할 '다시 짜기 요청' 수(아래 RetryOut)
+
+
 class MessageOut(BaseModel):
     id: int
     role: Literal["user", "assistant", "tool", "event"]
@@ -54,9 +58,20 @@ class MessageOut(BaseModel):
     created_at: datetime
 
 
+class RetryOut(BaseModel):
+    """다른 사람이 '거부하고 다시 짜기' 로 결정해, 대화 주인이 approval_id 로 이어 가기를 기다리는 승인 건."""
+
+    approval_id: int
+    title: str
+    note: str  # 거부 이유
+    decided_by_name: str
+    decided_at: datetime
+
+
 class ChatSessionDetail(ChatSessionOut):
     running: bool  # 지금 턴이 돌고 있는가
     messages: list[MessageOut]  # 오래된 것부터 전부
+    pending_retries: list[RetryOut]  # 오래된 것부터. 이어 가면(approval_id 로 메시지를 보내면) 빠진다
 
 
 class StopOut(BaseModel):

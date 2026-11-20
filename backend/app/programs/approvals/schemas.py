@@ -26,6 +26,7 @@ class DecideOut(BaseModel):
     version: int | None  # 승인으로 생긴 버전
     schedule_id: int | None  # 대상 일정(첫 저장은 승인으로 생긴 일정)
     chat_session_id: int | None  # 거부하고 다시 짜기면 이 대화에 approval_id 로 이어 간다
+    owner_is_decider: bool  # 결정한 사람이 그 대화의 주인인가(아니면 주인이 대화 화면에서 '다시 짜기 요청' 을 시작한다)
 
 
 class ApprovalOut(BaseModel):

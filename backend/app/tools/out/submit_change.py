@@ -35,7 +35,8 @@ STALE_MESSAGE = "그 사이 일정이 바뀌었습니다. 일정을 다시 읽�
 USED_DRAFT_MESSAGE = "이미 저장한 초안입니다."
 WAITING_DRAFT_MESSAGE = "이미 승인을 기다리는 초안입니다."
 NO_DRAFT_MESSAGE = "초안을 찾을 수 없습니다."
-NO_CHANGE_MESSAGE = "바뀐 것이 없습니다."
+OTHER_CHAT_DRAFT_MESSAGE = "이 대화의 초안이 아닙니다."
+NO_CHANGE_MESSAGE = "바뀌는 것이 없습니다."
 
 Od = Annotated[int, Field(ge=0, le=MAX_OD, strict=True)]
 
@@ -131,6 +132,8 @@ def _from_draft(ctx: ToolContext, draft_id: int) -> _Proposal:
         draft = get_draft(ctx.session, draft_id)
     except NotFound:
         raise ToolError(NO_DRAFT_MESSAGE) from None
+    if draft.chat_session_id != ctx.chat_session_id:  # 둘 다 없으면(대화 밖) 같다고 본다
+        raise ToolError(OTHER_CHAT_DRAFT_MESSAGE)
     if draft.used_at is not None:
         raise ToolError(USED_DRAFT_MESSAGE)
     if approvals.pending_for_draft(ctx.session, draft_id):
@@ -179,6 +182,10 @@ def _apply_ops(schedule: Schedule, ops: list[UpdateOp | AddOp | DeleteOp]) -> Sc
         acts[n] = replace(a, od=a.od if op.od is None else op.od, name=op.name or a.name)
         if op.preds is not None:
             rels = [r for r in rels if r.succ != op.id] + _relations(op.id, op.preds)
+    ids = {a.id for a in acts}
+    missing = sorted({r.pred for r in rels if r.pred not in ids})  # 없는 id·지운 액티비티를 선행으로 가리킴
+    if missing:
+        raise ToolError(f"없는 액티비티를 가리킵니다: {', '.join(missing)}")
     return replace(schedule, activities=tuple(acts), relations=tuple(rels))
 
 
@@ -206,11 +213,16 @@ def _from_changes(ctx: ToolContext, args: SubmitIn) -> _Proposal:
     return _Proposal("change", before, stored, after, conditions, args.schedule_id, None, n)
 
 
+def _effective(stored: list[dict]) -> dict[str, tuple]:
+    """조립한 조건을 id → (종류, 값, 켜짐) 으로(차례·글·진 표시와 상관없이 비교하려고)."""
+    return {c.id: (c.kind, c.params, c.enabled) for c in assemble_all(read_conditions(stored)[0])}
+
+
 def _unchanged(p: _Proposal, changes: list[dict]) -> bool:
     """고침인데 일정도 조건도 그대로인가."""
     if p.before is None or changes:
         return False
-    return read_conditions(p.before_conditions)[0] == read_conditions(p.after_conditions)[0]
+    return _effective(p.before_conditions) == _effective(p.after_conditions)
 
 
 def _out(row: Approval, applied: bool) -> SubmitOut:
@@ -238,7 +250,9 @@ def submit_change(args: SubmitIn, ctx: ToolContext) -> SubmitOut:
     changes = schedule_changes(p.before, p.after) if p.before is not None else []
     if _unchanged(p, changes):
         raise ToolError(NO_CHANGE_MESSAGE)
-    report = check(p.after, assemble_all(read_conditions(p.after_conditions)[0]))
+    conditions, unreadable = read_conditions(p.after_conditions)
+    report = check(p.after, assemble_all(conditions))
+    report = replace(report, invalid=unreadable + report.invalid)  # 읽지 못한 저장 조건도 센다(harness.check 와 같음)
     result = assess(p.before, p.after, p.before_conditions, p.after_conditions, report,
                     mode=approval_mode(ctx.session))
     row = approvals.create(
@@ -256,6 +270,8 @@ def submit_change(args: SubmitIn, ctx: ToolContext) -> SubmitOut:
         approvals.apply(ctx.session, row, by_name=approvals.AGENT_NAME)
     except VersionConflict:
         raise ToolError(STALE_MESSAGE) from None
+    except approvals.DraftUsed:
+        raise ToolError(USED_DRAFT_MESSAGE) from None
     row.status = "auto"
     row.restore_to = p.base_version if p.kind == "change" else None  # 첫 저장은 되돌릴 버전이 없다
     ctx.emit(AgentEvent("card", {"kind": "auto_applied", "schedule_id": row.schedule_id, "version": row.version,

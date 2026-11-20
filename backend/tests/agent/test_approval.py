@@ -222,3 +222,27 @@ def test_system_prompt_teaches_submitting_and_not_claiming_a_save():
     text = system_prompt()
     assert "out__submit_change 에 draft_id 와 짧은 제목" in text
     assert "저장했다고 말하지 않는다" in text and "out.submit_change" not in text
+
+
+# ══ Fix round 1 ════════════════════════════════════════════════════
+
+BAD_DEADLINE = {**finish_by("2027-02-30"), "id": "in.finish_by.bad"}  # 읽히지 않는 날짜
+BAD_PERIOD = {"id": "in.blocked_period.bad", "layer": "input", "kind": "blocked_period",
+              "params": {"start_md": [13, 1], "end_md": [2, 28], "tag": "타설"}, "text": "겨울 타설 금지",
+              "source": "프롬프트"}
+
+
+def test_malformed_deadline_and_period_do_not_break_the_summary(s, s_finish_plus4):
+    """I1: 형식이 틀린 기한·금지 기간이 섞여 있어도 판단·요약이 예외 없이 나온다(그 조건은 쓰지 않는다)."""
+    result = assess(s, s_finish_plus4, [BAD_DEADLINE, BAD_PERIOD], [BAD_DEADLINE, BAD_PERIOD, crane(1)], OK)
+    assert result.decision.reasons == ["finish_changed", "condition_changed"]
+    assert result.summary["finish_float"] == {"before": None, "after": None}
+    assert result.summary["conditions_changed"] == [
+        {"id": "in.resource_cap.crane", "name": "타워크레인", "before": None, "after": "1대"}
+    ]
+
+
+def test_finish_float_is_negative_when_the_finish_is_late(s, s_finish_plus4):
+    """I1: 준공(3/16)이 기한(3/12)보다 늦으면 여유는 음수 — 늦은 근무일 수(3/15, 3/16)."""
+    due = [finish_by("2027-03-12")]
+    assert assess(s, s_finish_plus4, due, due, OK).summary["finish_float"] == {"before": 2, "after": -2}
