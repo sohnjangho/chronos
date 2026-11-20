@@ -2,7 +2,7 @@ import { lazy } from 'react';
 import { glyph } from '../../os/glyph';
 import type { ProgramManifest } from '../../os/registry';
 
-// 「CPM」 네트워크(계획 2 Task 31 이 채운다). params: id(일정, 없으면 OS 의 지금 일정) · activity.
+// 「CPM」 네트워크(계획 2 Task 31). params: id(일정, 없으면 OS 의 지금 일정) · activity.
 const manifest: ProgramManifest = {
   id: 'cpm',
   name: 'CPM',
