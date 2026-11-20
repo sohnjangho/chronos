@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { loadPref, savePref } from '../../../os/prefs';
 import { useSession } from '../../../os/session';
 import type { Activity, PredItem, ScheduleView } from '../scheduleApi';
+import type { ColumnDef } from './columns';
 import { useSchedule } from '../scheduleStore';
 import { COLUMNS, DEFAULT_VISIBLE, FIXED, type ColKey } from './columns';
 import { download, toCsv } from './csv';
 import Grid from './Grid';
-import { format } from './predecessors';
+import { format, parse, ParseError } from './predecessors';
 import RelationsPanel from './RelationsPanel';
 import { ancestors, buildRows, NO_FILTER, wbsLabel, wbsTree, weightedProgress, type RowFilter } from './rows';
 import Toolbar, { DeleteConfirm } from './Toolbar';
@@ -103,14 +104,46 @@ async function addAfter(sel: Activity | undefined, view: ScheduleView): Promise<
   return wbs ? useSchedule.getState().addActivity({ ...NEW_ACTIVITY, wbs, ...(sel && { after: sel.id }) }) : null;
 }
 
-function Foot({ rows, total }: { rows: number; total: number }) {
+/**
+ * 칸에 적은 글을 보낸다. 선행 칸은 먼저 지금 일정의 액티비티 ID 와 정확히 맞춰 본다(서버 ID 는 자유 글이라
+ * 꼴만으로 거르지 않는다). 없는 ID·종류 빠진 간격은 보내지 않고 이름을 짚어 알린다.
+ */
+async function commitChecked(a: Activity, col: ColumnDef, text: string): Promise<unknown> {
+  if (col.key === 'preds') {
+    const ids = new Set(useSchedule.getState().view?.activities.map((x) => x.id));
+    try {
+      parse(text, ids);
+    } catch (e) {
+      if (!(e instanceof ParseError)) throw e;
+      return useSchedule.getState().setNotice({ tone: 'error', text: e.message });
+    }
+  }
+  return commitCell(a, col, text);
+}
+
+/** 삭제 확인을 띄운 액티비티. 고른 줄이 바뀌면 닫는다(같은 줄로 돌아와도 다시 뜨지 않는다). */
+function useAsking(selected: string | null) {
+  const [asking, setAsking] = useState<string | null>(null);
+  useEffect(() => setAsking(null), [selected]);
+  return [asking, setAsking] as const;
+}
+
+const PRED_HINT = '선행: A2010, A1040 SS+15 처럼 적습니다 · 띄어쓰기·쉼표가 든 ID 는 아래 관계 패널의 [+ 선행 추가]로 넣습니다';
+
+function Foot({ rows, total, editingPreds }: { rows: number; total: number; editingPreds: boolean }) {
   const pending = useSchedule((s) => s.pending);
   return (
     <div className="sch-foot">
       <span>{`${rows} 행 · 액티비티 ${total}개`}</span>
       {pending > 0 && <span className="sch-saving">저장 중…</span>}
       <span className="sch-gap" />
-      <span className="sch-muted">두 번 누르거나 Enter 로 고칩니다 · Esc 취소 · ↑↓ 줄 옮김</span>
+      {editingPreds ? (
+        <span className="sch-muted" title={PRED_HINT}>
+          {PRED_HINT}
+        </span>
+      ) : (
+        <span className="sch-muted">두 번 누르거나 Enter 로 고칩니다 · Esc 취소 · ↑↓ 줄 옮김</span>
+      )}
     </div>
   );
 }
@@ -126,7 +159,7 @@ export default function TableTab() {
   const cursor = useCursor(bodyRef, columns);
 
   const sel = view.activities.find((a) => a.id === selected);
-  const [asking, setAsking] = useState<string | null>(null);
+  const [asking, setAsking] = useAsking(selected);
   const add = async () => {
     const aid = await addAfter(sel, view);
     if (aid) cursor.setEditing({ aid, col: 'name' });
@@ -158,12 +191,12 @@ export default function TableTab() {
           selected={selected}
           bodyRef={bodyRef}
           {...cursor}
-          onCommit={commitCell}
+          onCommit={commitChecked}
           onToggle={rs.onToggle}
           onActiveCol={cursor.setActiveCol}
         />
       </div>
-      <Foot rows={rs.rows.length} total={view.activities.length} />
+      <Foot rows={rs.rows.length} total={view.activities.length} editingPreds={cursor.editing?.col === 'preds'} />
       <RelationsPanel />
     </div>
   );

@@ -301,6 +301,55 @@ describe('fix 1', () => {
   });
 });
 
+describe('fix 2 N1: 선행 칸은 있는 액티비티 ID 로 확인', () => {
+  /** 서버 ID 는 자유 글이다 — 소문자·하이픈·한글 ID 를 가진 액티비티를 넣은 일정. */
+  function viewWithFreeIds() {
+    const view = makeView();
+    const base = view.activities[6];
+    view.activities.push(
+      { ...base, id: 'a1040', name: '소문자 ID 작업' },
+      { ...base, id: 'B-12', name: '하이픈 ID 작업' },
+      { ...base, id: '가설-01', name: '한글 ID 작업' },
+    );
+    return view;
+  }
+
+  test('lower-case, hyphenated and Korean ids that exist are put', async () => {
+    setup(viewWithFreeIds());
+    await renderSchedule();
+    await editCell('A2020', '선행', 'a1040 SS+2, B-12, 가설-01');
+    await waitFor(() =>
+      expect(writes().at(-1)?.[2]).toEqual({
+        items: [
+          { pred: 'a1040', type: 'SS', lag: 2 },
+          { pred: 'B-12', type: 'FS', lag: 0 },
+          { pred: '가설-01', type: 'FS', lag: 0 },
+        ],
+        base_version: 1,
+      }),
+    );
+  });
+
+  test.each([
+    ['a2010', '없는 액티비티입니다: a2010'],
+    ['A2010+3', '관계 종류가 빠졌습니다: A2010+3 (예: A2010 SS+3)'],
+  ])('%s is not sent and is named', async (text, message) => {
+    setup(viewWithFreeIds());
+    await renderSchedule();
+    await editCell('A2020', '선행', text);
+    expect(await screen.findByText(message)).toBeVisible();
+    expect(writes()).toEqual([]);
+    expect(cell('A2020', '선행')).toHaveTextContent('A2010, A1040');
+  });
+
+  test('while editing 선행 the hint says how to enter ids with spaces or commas', async () => {
+    await renderSchedule();
+    expect(screen.queryByText(/띄어쓰기·쉼표가 든 ID/)).toBeNull();
+    await userEvent.dblClick(cell('A2020', '선행'));
+    expect(screen.getByText(/띄어쓰기·쉼표가 든 ID 는 아래 관계 패널의 \[\+ 선행 추가\]로 넣습니다/)).toBeVisible();
+  });
+});
+
 describe('보내는 차례 (R8)', () => {
   test('edits are sent one at a time on the newest version', async () => {
     await renderSchedule();

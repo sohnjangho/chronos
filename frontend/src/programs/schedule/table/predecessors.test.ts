@@ -26,18 +26,35 @@ test('lower-case types, spaces and a trailing comma are accepted', () => {
   ]);
 });
 
-// fix 1 m1: 종류 없는 간격·소문자 ID 는 틀린 부분을 짚어 거절한다.
-test.each([
-  ['A1+3', 'A1+3'],
-  ['A1-2', 'A1-2'],
-  ['a1', 'a1'],
-  ['A2010, a1040 SS+15', 'a1040 SS+15'],
-])('parse rejects %s naming the part', (text, part) => {
-  expect(() => parse(text)).toThrow(ParseError);
-  expect(() => parse(text)).toThrow(`선행 형식이 맞지 않습니다: ${part}`);
+// fix 2 N1: ID 는 자유 글(소문자·하이픈·한글도 된다). ID 목록을 주면 그 목록과 정확히(대소문자 구분) 맞춰 본다.
+const IDS = new Set(['A1', 'A2010', 'a1040', 'B-12', '가설-01']);
+
+test('lower-case, hyphenated and Korean ids are accepted when the activity exists', () => {
+  expect(parse('a1040 ss+2, B-12, 가설-01 FF-1', IDS)).toEqual([
+    { pred: 'a1040', type: 'SS', lag: 2 },
+    { pred: 'B-12', type: 'FS', lag: 0 },
+    { pred: '가설-01', type: 'FF', lag: -1 },
+  ]);
 });
 
-test('a type without a lag means lag 0', () => expect(parse('A1 SF')).toEqual([{ pred: 'A1', type: 'SF', lag: 0 }]));
+test('without an id list the token is not checked against activities', () => {
+  expect(parse('a1')).toEqual([{ pred: 'a1', type: 'FS', lag: 0 }]);
+});
+
+test.each([
+  ['a1', '없는 액티비티입니다: a1'],
+  ['A2010, a2010', '없는 액티비티입니다: a2010'],
+  ['A1+3', '관계 종류가 빠졌습니다: A1+3 (예: A1 SS+3)'],
+  ['A2010-2', '관계 종류가 빠졌습니다: A2010-2 (예: A2010 SS-2)'],
+  ['A9 SS+1', '없는 액티비티입니다: A9'],
+])('with an id list %s is rejected by name', (text, message) => {
+  expect(() => parse(text, IDS)).toThrow(ParseError);
+  expect(() => parse(text, IDS)).toThrow(message);
+});
+
+test('an id that really contains a sign and digits is still found', () => {
+  expect(parse('B-12', IDS)).toEqual([{ pred: 'B-12', type: 'FS', lag: 0 }]);
+});
 
 test('the error names the part that is wrong and is a ParseError', () => {
   expect(() => parse('A1, B2 SS 15')).toThrow(ParseError);

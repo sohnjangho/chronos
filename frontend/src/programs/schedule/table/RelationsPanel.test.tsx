@@ -141,3 +141,17 @@ test('the selected activity badge carries its full name as title', async () => {
   await userEvent.click(row('A2020'));
   expect(within(relationsPanel()).getByTitle('A2020 지상 1~5층 골조')).toBeVisible();
 });
+
+// fix 2 N2: 줄 서 있던 쓰기가 이미 바꾼 관계를 고치려 하면 조용히 되돌리지 않고 알린다.
+test('editing a relation that a queued write removed says so', async () => {
+  await renderSchedule();
+  await userEvent.click(row('A2020'));
+  const release = holdNextWrite();
+  await userEvent.click(within(preds()).getByRole('button', { name: 'A2010 → A2020 관계 지우기' }));
+  await userEvent.selectOptions(within(preds()).getByRole('combobox', { name: 'A2010 → A2020 관계' }), 'SS');
+  const next = makeView({ version: 2 });
+  next.relations = next.relations.filter((r) => !(r.pred === 'A2010' && r.succ === 'A2020'));
+  release(next);
+  expect(await screen.findByText('그 사이 관계가 바뀌어 고치지 못했습니다')).toBeVisible();
+  expect(writes()).toHaveLength(1);
+});

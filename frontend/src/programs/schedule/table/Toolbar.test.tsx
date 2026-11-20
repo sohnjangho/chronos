@@ -81,6 +81,19 @@ test('삭제 can be cancelled', async () => {
   expect(button('삭제')).toHaveFocus();
 });
 
+// fix 2 N3: 고른 줄이 바뀌면 삭제 확인을 닫는다(같은 줄로 돌아와도 다시 뜨지 않는다).
+test('the delete confirmation closes when the selection changes', async () => {
+  await renderSchedule();
+  await userEvent.click(row('A3030'));
+  await userEvent.click(button('삭제'));
+  expect(screen.getByRole('alertdialog', { name: '삭제 확인' })).toBeVisible();
+  await userEvent.click(row('A3010'));
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  await userEvent.click(row('A3030'));
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(writes()).toEqual([]);
+});
+
 describe('찾기·거르기', () => {
   test('search keeps matching ids or names and their WBS rows', async () => {
     await renderSchedule();

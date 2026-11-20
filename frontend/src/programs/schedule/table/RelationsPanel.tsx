@@ -8,6 +8,7 @@ import { wbsLabel, wbsTree } from './rows';
 
 const TYPES: RelType[] = ['FS', 'SS', 'FF', 'SF'];
 const LAG_ERROR = '간격은 정수(일)로 넣어 주세요.';
+const LINK_GONE = '그 사이 관계가 바뀌어 고치지 못했습니다';
 
 /** succ 의 선행 목록(저장된 차례). */
 const predsOf = (view: ScheduleView, succ: string): PredItem[] =>
@@ -21,7 +22,11 @@ function editRelation(link: Link, patch: Partial<PredItem> | null) {
   return useSchedule.getState().setPredecessors(link.succ, (view) => {
     const items = predsOf(view, link.succ);
     const i = items.findIndex((it) => it.pred === link.pred && it.type === link.type && it.lag === link.lag);
-    if (i < 0) return null;
+    if (i < 0) {
+      // 줄 서 있던 쓰기가 이 관계를 이미 바꿨다 — 조용히 되돌리지 않고 알린다.
+      useSchedule.getState().setNotice({ tone: 'error', text: LINK_GONE });
+      return null;
+    }
     return patch === null ? items.filter((_, k) => k !== i) : items.map((it, k) => (k === i ? { ...it, ...patch } : it));
   });
 }
