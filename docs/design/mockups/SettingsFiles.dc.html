@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>설정 파일 시안</title>
+<meta name="viewport" content="width=1920">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<!--
+  계획 3 · Task 54 시안 (고르기 전). 설정 — 「그림 읽기」·「임베딩」 배정 줄, 임베딩 바꾸기 확인 창·다시 넣기 진행률, 「정보 API 연결」.
+  안 A/B/C 는 위 탭, 밝게·어둡게는 위 단추. 주소 끝 ?opt=B&theme=dark. FHD(1920×1080) 한 화면 기준. 자료는 모두 가상의 예시다.
+  노란 ①② 꼬리표는 시안 설명용(한 화면에 「고른 직후」와 「시작한 뒤」를 같이 보이려고 붙임) — 실제 화면에는 없다.
+-->
+<style>
+:root{--bg-topbar:#14213d;--bg-app:#f3f5f8;--bg-panel:#fff;--bg-panel-alt:#f7f9fb;--bg-selected:#e3edfb;--fg:#1c2333;--fg-muted:#5b6577;--fg-faint:#8a94a6;--border:#d9dfe8;--border-strong:#b9c2d0;--line:#eef2f7;--btn-line:#cfd6e0;--accent:#2f6fdb;--accent-text:#2a64c7;--danger:#c93b3b;--danger-text:#9b2c2c;--success:#1f9d55;--success-text:#17703f;--warning:#d98a1c;--warning-text:#8a5411;--tone-info-bg:#e3edfb;--tone-info-fg:#1f4f9e;--tone-success-bg:#dff3e6;--tone-warning-bg:#fbebd0;--tone-danger-bg:#fbe0e0;--on-accent:#fff;--neutral-bg:#eef2f7;--page:#e6eaf0;--main-bg:#fbfcfd;--shadow:0 4px 16px rgba(20,33,61,.12);--shadow-lg:0 16px 40px rgba(20,33,61,.24)}
+:root[data-theme=dark]{color-scheme:dark;--bg-topbar:#0a1020;--bg-app:#121826;--bg-panel:#1a2232;--bg-panel-alt:#151c2a;--bg-selected:#1e3355;--fg:#e4e9f2;--fg-muted:#9aa6ba;--fg-faint:#6f7b90;--border:#2a3446;--border-strong:#3b475d;--line:#222b3b;--btn-line:#3b475d;--accent:#336fd9;--accent-text:#85b0ff;--danger:#c73d3d;--danger-text:#ff9e9e;--success:#34b56f;--success-text:#7fd8a4;--warning:#e3a03b;--warning-text:#f3c47e;--tone-info-bg:#1c2f50;--tone-info-fg:#9cc0ff;--tone-success-bg:#163828;--tone-warning-bg:#3b2c12;--tone-danger-bg:#3e1d1d;--neutral-bg:#243049;--page:#0b101c;--main-bg:#161e2c;--shadow:0 4px 16px rgba(0,0,0,.45);--shadow-lg:0 16px 40px rgba(0,0,0,.65)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--fg);font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+button{font:inherit;cursor:pointer;color:inherit}
+a{color:var(--accent-text)}
+.pg-top{height:56px;display:flex;align-items:center;gap:8px;padding:0 24px;background:var(--bg-topbar);color:#eef2f8}
+.pg-top h1{font-size:15px;margin:0 14px 0 0;font-weight:700}
+.otab{border:1px solid rgba(255,255,255,.2);background:transparent;color:#aab4c6;border-radius:8px;padding:6px 12px;font-size:13px}
+.otab.on{background:rgba(255,255,255,.14);color:#fff;font-weight:700;border-color:rgba(255,255,255,.45)}
+.pg-gap{flex:1}
+.stage{display:flex;gap:24px;padding:16px 24px;height:1024px}
+.notes{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+.nt{background:var(--bg-panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.nt h2{font-size:15px;margin:0 0 6px}
+.nt h3{font-size:12px;color:var(--fg-muted);margin:0 0 6px;font-weight:500}
+.nt ul{margin:0;padding-left:18px}.nt li{margin:3px 0}
+.chk li{list-style:none;margin-left:-18px}.chk li::before{content:"✓ ";color:var(--success-text);font-weight:700}
+.win{width:1508px;height:992px;flex:none;background:var(--bg-panel);border:1px solid var(--border-strong);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow);position:relative}
+.tb{height:36px;flex:none;background:var(--bg-app);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.btn{border:1px solid var(--btn-line);background:var(--bg-panel);border-radius:6px;padding:5px 10px;font-size:12px;white-space:nowrap}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:500}
+.btn.dng{color:var(--danger-text)}
+.nav{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 12px;border-radius:8px}
+.nav.on{background:var(--bg-selected);color:var(--tone-info-fg);font-weight:700}
+.navg{font-size:11px;color:var(--fg-muted);padding:12px 12px 4px}
+.side{width:220px;flex:none;border-right:1px solid var(--border);background:var(--bg-panel-alt);padding:8px}
+.main{flex:1;min-width:0;padding:18px 22px;background:var(--main-bg);overflow:hidden}
+.card{border:1px solid var(--border);border-radius:12px;padding:14px 16px;background:var(--bg-panel)}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.b-ok{background:var(--tone-success-bg);color:var(--success-text)}
+.b-info{background:var(--tone-info-bg);color:var(--tone-info-fg)}
+.b-warn{background:var(--tone-warning-bg);color:var(--warning-text)}
+.b-fail{background:var(--tone-danger-bg);color:var(--danger-text)}
+.b-dark{background:var(--bg-topbar);color:#fff}
+.new{background:var(--accent);color:var(--on-accent);border-radius:4px;padding:0 4px;font-size:10px;font-weight:700;line-height:15px;display:inline-block;margin-left:4px;vertical-align:1px}
+.muted{color:var(--fg-muted)}.faint{color:var(--fg-faint)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.sel{border:1px solid var(--border-strong);border-radius:6px;padding:5px 10px;background:var(--bg-panel);font-size:12px;white-space:nowrap;display:inline-block}
+.sel.chg{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
+.r{display:flex;align-items:center;min-height:50px;border-bottom:1px solid var(--line);gap:10px;padding:6px 0}
+.r.h{min-height:26px;color:var(--fg-muted);font-size:11px}
+.r.nw{background:color-mix(in srgb,var(--accent) 6%,transparent);margin:0 -16px;padding:6px 16px}
+.kvg{display:grid;grid-template-columns:76px 1fr;gap:5px 10px;font-size:12px}
+.kvg>span:nth-child(odd){color:var(--fg-muted)}
+.pbar{height:6px;border-radius:3px;background:color-mix(in srgb,var(--accent) 20%,transparent);overflow:hidden}.pbar i{display:block;height:100%;background:var(--accent)}
+.spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--accent);border-right-color:transparent;flex:none;display:inline-block;vertical-align:-1px}
+.dlg{background:var(--bg-panel);border:1px solid var(--border-strong);border-radius:14px;box-shadow:var(--shadow-lg);padding:18px 20px}
+.dlg h3{margin:0 0 8px;font-size:16px}
+.cmp{display:grid;grid-template-columns:52px 1fr;gap:4px 10px;font-size:12px;background:var(--bg-panel-alt);border-radius:8px;padding:10px 12px;margin:10px 0}
+.svc{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:12px}
+.ann{position:absolute;z-index:9;background:#ffd84d;color:#3a2e00;font-size:11px;font-weight:700;border-radius:4px;padding:1px 7px;box-shadow:0 1px 3px rgba(0,0,0,.25);white-space:nowrap}
+.seg{display:inline-flex;border:1px solid var(--btn-line);border-radius:6px;overflow:hidden;font-size:11px}
+.seg span{padding:2px 8px;border-right:1px solid var(--btn-line);white-space:nowrap}.seg span:last-child{border-right:0}
+.seg .on{background:var(--accent);color:var(--on-accent)}
+.stp{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-muted)}
+.stp i{width:20px;height:20px;border-radius:50%;background:var(--neutral-bg);display:inline-flex;align-items:center;justify-content:center;font-style:normal;font-weight:700;font-size:11px}
+.stp.on{color:var(--tone-info-fg);font-weight:700}.stp.on i{background:var(--accent);color:#fff}
+.stp.ok i{background:var(--success);color:#fff}
+.in{height:32px;border:1px solid var(--border-strong);border-radius:8px;padding:0 10px;font:inherit;width:100%;background:var(--bg-panel);color:var(--fg)}
+.lab{font-size:12px;color:var(--fg-muted);margin-bottom:4px;display:block}
+.opt[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="pg-top">
+  <h1>설정 — 그림 읽기 · 임베딩 · 정보 API 시안</h1>
+  <button class="otab" data-o="A">A 지금 두 단 그대로</button>
+  <button class="otab" data-o="B">B 넓은 표 · 단계 띠 · 메뉴 나눔</button>
+  <button class="otab" data-o="C">C 카드 배정 · 프리셋 마법사</button>
+  <span class="pg-gap"></span>
+  <button class="otab" data-t="light">밝게</button>
+  <button class="otab" data-t="dark">어둡게</button>
+</div>
+
+<!-- ================================================================ A -->
+<section class="opt stage" data-opt="A">
+<div class="win">
+  <div class="tb"><button class="lt" aria-label="닫기" style="background:#ff5f57"></button><button class="lt" aria-label="최소화" style="background:#febc2e"></button><button class="lt" aria-label="확대" style="background:#28c840"></button><div class="tt">설정</div></div>
+  <div style="flex:1;min-height:0;display:flex">
+    <div class="side">
+      <div class="navg">나</div><button class="nav">내 정보</button>
+      <div class="navg">관리자</div>
+      <button class="nav on">LLM 연결 · 모델 배정</button>
+      <button class="nav">정보 API 연결<span class="new">새</span></button>
+      <button class="nav">계정 (관리자·사용자)</button>
+      <button class="nav">승인 수준</button>
+    </div>
+    <div class="main" style="display:flex;gap:20px;position:relative">
+      <!-- 왼쪽: 연결 둘 -->
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center"><b style="font-size:16px;flex:1">LLM 연결</b><button class="btn pri">+ 연결 추가</button></div>
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:8px"><b style="font-size:14px">Liner 기본</b><span class="badge b-info">Liner</span><span class="badge b-dark">기본 연결</span><div style="flex:1"></div><span class="badge b-ok">연결됨 · 모델 512개 · 임베딩 3개</span></div>
+          <div class="kvg" style="margin-top:10px"><span>URL</span><span class="mono">https://platform.liner.com/api/v1</span><span>API 키</span><span class="mono">••••••••••••••••4f2a</span></div>
+          <div style="display:flex;gap:6px;margin-top:10px"><button class="btn">연결 테스트</button><button class="btn">키 교체</button><div style="flex:1"></div><button class="btn dng">삭제</button></div>
+        </div>
+        <div style="display:flex;align-items:center;margin-top:8px"><b style="font-size:16px;flex:1">정보 API 연결</b><span class="muted" style="font-size:12px;margin-right:8px">에이전트가 쓰는 바깥 정보 · 관리자</span><button class="btn pri">+ 연결 추가</button></div>
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:8px"><b style="font-size:14px">기상청 날씨</b><span class="badge b-info">공공데이터포털 · 기상청</span><div style="flex:1"></div><span class="badge b-warn">일부 연결 · 2개 중 1개</span></div>
+          <div class="kvg" style="margin-top:10px"><span>주소</span><span class="mono">https://apis.data.go.kr/1360000</span><span>서비스 키</span><span class="mono">••••••••••••••••a91c <span class="faint" style="font-family:inherit">· 인코딩 키 · 로그에 남기지 않음</span></span><span>쓰는 도구</span><span>info.weather — 과거 10년 그 달 통계 · 3일 예보</span></div>
+          <div style="margin-top:10px">
+            <div class="svc"><span class="badge b-ok">연결됨</span><b style="width:110px">ASOS 일자료</b><span class="muted">지난 날씨 · 지점 번호 · 오늘 21:40 · 312ms</span></div>
+            <div class="svc"><span class="badge b-fail">실패</span><b style="width:110px">단기예보</b><span style="color:var(--danger-text)">이 키로는 서비스 승인이 안 됐습니다 — 공공데이터포털에서 「단기예보」 활용 신청을 확인하세요 (SERVICE_KEY_IS_NOT_REGISTERED)</span></div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:10px"><button class="btn">연결 테스트</button><button class="btn">키 교체</button><div style="flex:1"></div><button class="btn dng">삭제</button></div>
+        </div>
+        <div class="muted" style="font-size:12px">숫자(평균기온·영하일수 등)는 코드가 계산해 근거로만 붙입니다. 날짜 계산에는 넣지 않습니다.</div>
+
+        <!-- ① 확인 창(가운데 뜸) -->
+        <div class="dlg" style="position:absolute;left:150px;top:572px;width:520px;z-index:4">
+          <h3>임베딩 모델을 바꿀까요?</h3>
+          <div>자료 <b>214개</b> · 조각 <b>5,830개</b>를 새 모델로 다시 넣습니다.</div>
+          <div class="cmp"><span class="muted">지금</span><span class="mono">openai/text-embedding-3-small · 1536차원</span><span class="muted">새 모델</span><span class="mono" style="color:var(--accent-text)">openai/text-embedding-3-large · 3072차원</span></div>
+          <div style="font-size:12px;line-height:19px">예상 시간 <b>약 7분</b> · 비용 참고 <b>약 $0.17</b> <span class="faint">(조각 5,830개 × 평균 220토큰, Liner 공개 가격표 11.18)</span></div>
+          <div style="font-size:12px;line-height:19px;margin-top:6px" class="muted">다 끝날 때까지 찾기는 지금 모델로 합니다. 끝나면 새 모델로 바꾸고 옛 자료는 지웁니다. 그 사이 새로 올린 파일은 두 곳에 모두 넣습니다.</div>
+          <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end"><button class="btn">취소</button><button class="btn pri">다시 넣기 시작</button></div>
+        </div>
+        <span class="ann" style="left:150px;top:556px">① 임베딩 모델을 고르면</span>
+      </div>
+
+      <!-- 오른쪽: 배정 표 -->
+      <div style="width:560px;flex:none;display:flex;flex-direction:column;gap:12px">
+        <b style="font-size:16px">작업별 모델 배정</b>
+        <div class="card" style="padding:8px 16px">
+          <div class="r h"><span style="flex:1">에이전트가 하는 일</span><span style="width:230px">모델 · 라우터</span><span style="width:84px">기준</span></div>
+          <div class="r"><span style="flex:1"><b>가벼운 일</b><br><span class="muted" style="font-size:12px">조건 뽑기, 분야 읽기, 자료 분류</span></span><span style="width:230px"><span class="sel">liner-claude-router ▾</span></span><span style="width:84px"><span class="sel">비용 우선 ▾</span></span></div>
+          <div class="r"><span style="flex:1"><b>보통 일</b><br><span class="muted" style="font-size:12px">대화, 워크플로우 짜기, 보고서 초안</span></span><span style="width:230px"><span class="sel">liner-claude-router ▾</span></span><span style="width:84px"><span class="sel">균형 ▾</span></span></div>
+          <div class="r"><span style="flex:1"><b>어려운 일</b><br><span class="muted" style="font-size:12px">WBS·스케줄 생성, 단축안, 위반 고치기</span></span><span style="width:230px"><span class="sel">liner-claude-router ▾</span></span><span style="width:84px"><span class="sel">품질 우선 ▾</span></span></div>
+          <div class="r"><span style="flex:1"><b>긴 문서 읽기</b><br><span class="muted" style="font-size:12px">계약서·회의록 통째로</span></span><span style="width:230px"><span class="sel">liner-mark ▾</span></span><span style="width:84px" class="muted">105만 토큰</span></div>
+          <div class="r nw"><span style="flex:1"><b>그림 읽기</b><span class="new">새</span><br><span class="muted" style="font-size:12px">붙인 그림 보기, 자료함 그림 설명 쓰기 · 그림이 붙은 턴은 이 모델로 답함</span></span><span style="width:230px"><span class="sel">liner-claude-router ▾</span></span><span style="width:84px"><span class="sel">균형 ▾</span></span></div>
+          <div class="r nw" style="border-bottom:0;flex-wrap:wrap"><span style="flex:1"><b>임베딩</b><span class="new">새</span><br><span class="muted" style="font-size:12px">자료함 뜻 검색 · 바꾸면 자료를 전부 다시 넣음</span></span><span style="width:314px"><span class="sel chg mono">openai/text-embedding-3-large ▾</span><br><span class="muted" style="font-size:11px">3072차원 · 지금 3-small 1536차원</span></span>
+            <!-- ② 진행률 -->
+            <div style="flex-basis:100%;margin-top:8px;border:1px solid var(--accent);border-radius:10px;padding:10px 12px;background:var(--tone-info-bg);position:relative">
+              <span class="ann" style="left:-6px;top:-12px">② 시작한 뒤</span>
+              <div style="display:flex;align-items:center;gap:8px;color:var(--tone-info-fg);font-size:12px"><span class="spin"></span><b>다시 넣는 중 54%</b><span>3,120 / 5,830 조각 · 남은 시간 약 3분</span></div>
+              <div class="pbar" style="margin:8px 0 6px"><i style="width:54%"></i></div>
+              <div style="font-size:12px;color:var(--tone-info-fg)">찾기는 다 끝날 때까지 지금 모델(text-embedding-3-small)로 · 같은 진행률이 자료함 머리에도 보입니다</div>
+            </div>
+          </div>
+        </div>
+        <div class="muted" style="font-size:12px">임베딩 줄은 /v1/embeddings 를 지원하는 모델만 보입니다(3개). 그림 읽기 기본값은 실측에서 그림 토큰이 liner-mark 의 약 1/20.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="nt"><h2>A · 지금 두 단 그대로</h2><div class="muted">이미 고른 설정 시안(LLM 연결 | 모델 배정 두 단)에 줄 둘과 카드 하나만 더합니다. 왼쪽 메뉴 「정보 API 연결」은 같은 쪽의 그 구역으로 갑니다.</div></div>
+  <div class="nt"><h3>배치</h3><ul>
+    <li>배정 표: 「그림 읽기」·「임베딩」 두 줄을 아래에 더함(새 줄은 옅은 파랑)</li>
+    <li>확인 창: 가운데 뜨는 창(모달)</li>
+    <li>진행률: 임베딩 줄 바로 아래 펼침</li>
+    <li>정보 API: LLM 연결 아래 같은 모양의 카드 — 서비스마다 상태 줄</li>
+  </ul></div>
+  <div class="nt"><h3>보이는 상태</h3><ul class="chk">
+    <li>그림 읽기 · 임베딩 줄(「새」)</li>
+    <li>확인 창 — 자료 214개 · 조각 5,830개 · 시간 · 비용 참고</li>
+    <li>다시 넣기 54% · 찾기는 옛 모델로</li>
+    <li>정보 API 카드 — 서비스 하나 연결됨 · 하나 실패(까닭)</li>
+  </ul></div>
+  <div class="nt"><h3>좋은 점 · 아쉬운 점</h3><ul><li>고친 설정 화면과 거의 같음 — 가장 적게 바뀜</li><li>한 쪽에 내용이 많아 빽빽함</li><li>진행률이 표 안이라 표가 길어짐</li></ul></div>
+</div>
+</section>
+
+<!-- ================================================================ B -->
+<section class="opt stage" data-opt="B" hidden>
+<div style="width:1508px;flex:none;display:flex;flex-direction:column;gap:14px;position:relative">
+<div class="win" style="height:600px">
+  <div class="tb"><button class="lt" aria-label="닫기" style="background:#ff5f57"></button><button class="lt" aria-label="최소화" style="background:#febc2e"></button><button class="lt" aria-label="확대" style="background:#28c840"></button><div class="tt">설정 — 작업별 모델 배정</div></div>
+  <div style="flex:1;min-height:0;display:flex">
+    <div class="side">
+      <div class="navg">나</div><button class="nav">내 정보</button>
+      <div class="navg">관리자</div>
+      <button class="nav">LLM 연결</button>
+      <button class="nav on">작업별 모델 배정</button>
+      <button class="nav">정보 API 연결<span class="new">새</span></button>
+      <button class="nav">계정 (관리자·사용자)</button>
+      <button class="nav">승인 수준</button>
+    </div>
+    <div class="main" style="display:flex;flex-direction:column;gap:10px;padding-right:362px">
+      <div style="display:flex;align-items:center;gap:10px"><b style="font-size:16px">작업별 모델 배정</b><span class="muted" style="font-size:12px">줄마다 저장합니다</span></div>
+      <!-- ② 단계 띠 -->
+      <div class="card" style="padding:10px 14px;border-color:var(--accent);position:relative">
+        <span class="ann" style="left:-6px;top:-12px">② 시작한 뒤 — 맨 위 띠</span>
+        <div style="display:flex;align-items:center;gap:10px"><span class="spin"></span><b>임베딩 다시 넣는 중</b><span class="mono muted">text-embedding-3-small → text-embedding-3-large</span></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+          <span class="stp ok"><i>✓</i>새 모음 만들기</span><span class="faint">—</span>
+          <span class="stp on"><i>2</i>다시 넣기 54% · 3,120 / 5,830</span><span class="faint">—</span>
+          <span class="stp"><i>3</i>찾기를 새 모델로</span><span class="faint">—</span>
+          <span class="stp"><i>4</i>옛 모음 지우기</span>
+        </div>
+        <div class="pbar" style="margin-top:8px"><i style="width:54%"></i></div>
+        <div style="font-size:12px;margin-top:5px" class="muted">남은 시간 약 3분 · 찾기는 3단계 전까지 지금 모델로 · 그 사이 올린 파일은 두 모음에 모두 넣음</div>
+      </div>
+      <div class="card" style="padding:4px 14px">
+        <div class="r h"><span style="width:110px">하는 일</span><span style="flex:1">쓰는 곳 · 참고</span><span style="width:76px">연결</span><span style="width:250px">모델</span><span style="width:96px">기준</span></div>
+        <div class="r h" style="min-height:22px;font-weight:700">대화 · 일정</div>
+        <div class="r" style="min-height:34px"><b style="width:110px">가벼운 일</b><span style="flex:1;font-size:12px;line-height:16px" class="muted">조건 뽑기, 분야 읽기, 자료 분류</span><span style="width:76px">Liner 기본</span><span style="width:250px"><span class="sel">liner-claude-router ▾</span></span><span style="width:96px"><span class="sel">비용 우선 ▾</span></span></div>
+        <div class="r" style="min-height:34px"><b style="width:110px">보통 일</b><span style="flex:1;font-size:12px;line-height:16px" class="muted">대화, 워크플로우, 보고서 초안 · 대화창 「모델 ▾」 기본</span><span style="width:76px">Liner 기본</span><span style="width:250px"><span class="sel">liner-claude-router ▾</span></span><span style="width:96px"><span class="sel">균형 ▾</span></span></div>
+        <div class="r" style="min-height:34px"><b style="width:110px">어려운 일</b><span style="flex:1;font-size:12px;line-height:16px" class="muted">WBS·스케줄 생성, 단축안, 위반 고치기</span><span style="width:76px">Liner 기본</span><span style="width:250px"><span class="sel">liner-claude-router ▾</span></span><span style="width:96px"><span class="sel">품질 우선 ▾</span></span></div>
+        <div class="r" style="min-height:34px"><b style="width:110px">긴 문서 읽기</b><span style="flex:1;font-size:12px;line-height:16px" class="muted">계약서·회의록 통째로<br><span class="faint" style="font-size:11px">105만 토큰</span></span><span style="width:76px">Liner 기본</span><span style="width:250px"><span class="sel">liner-mark ▾</span></span><span style="width:96px" class="faint">—</span></div>
+        <div class="r h" style="min-height:22px;font-weight:700">파일 · 자료함 <span class="new">새</span></div>
+        <div class="r" style="min-height:34px"><b style="width:110px">그림 읽기</b><span style="flex:1;font-size:12px;line-height:16px" class="muted">붙인 그림 보기 · 그림 설명 쓰기 · 그림 턴 답<br><span class="faint" style="font-size:11px">그림 토큰 liner-mark 의 약 1/20</span></span><span style="width:76px">Liner 기본</span><span style="width:250px"><span class="sel">liner-claude-router ▾</span></span><span style="width:96px"><span class="sel">균형 ▾</span></span></div>
+        <div class="r" style="min-height:34px;border-bottom:0"><b style="width:110px">임베딩</b><span style="flex:1;font-size:12px;line-height:16px" class="muted">자료함 뜻 검색 · 바꾸면 전부 다시 넣음<br><span class="faint" style="font-size:11px">3072차원 · 214개 · 5,830조각</span></span><span style="width:76px">Liner 기본</span><span style="width:250px"><span class="sel chg mono">openai/text-embedding-3-large ▾</span></span><span style="width:96px" class="faint">—</span></div>
+      </div>
+    </div>
+  </div>
+  <!-- ① 옆에서 나오는 확인 판 -->
+  <div style="position:absolute;right:0;top:36px;bottom:0;width:340px;background:var(--bg-panel);border-left:1px solid var(--border-strong);box-shadow:-12px 0 32px rgba(20,33,61,.22);padding:18px 20px;z-index:4">
+    <span class="ann" style="left:12px;top:6px">① 임베딩 모델을 고르면 — 옆 판</span>
+    <h3 style="margin:16px 0 8px;font-size:16px">임베딩 모델 바꾸기</h3>
+    <div>자료 <b>214개</b> · 조각 <b>5,830개</b>를 새 모델로 다시 넣습니다.</div>
+    <div class="cmp"><span class="muted">지금</span><span class="mono">text-embedding-3-small<br>1536차원</span><span class="muted">새 모델</span><span class="mono" style="color:var(--accent-text)">text-embedding-3-large<br>3072차원</span></div>
+    <div class="kvg" style="grid-template-columns:70px 1fr"><span>예상 시간</span><b>약 7분</b><span>비용 참고</span><span><b>약 $0.17</b> <span class="faint">· 5,830 × 평균 220토큰</span></span><span>그 동안</span><span>찾기는 지금 모델로 · 끝나면 바꾸고 옛 것은 지움</span></div>
+    <div style="display:flex;gap:8px;margin-top:16px"><button class="btn">취소</button><div style="flex:1"></div><button class="btn pri">다시 넣기 시작</button></div>
+  </div>
+</div>
+<div class="win" style="height:378px">
+  <div class="tb"><button class="lt" aria-label="닫기" style="background:#ff5f57"></button><button class="lt" aria-label="최소화" style="background:#febc2e"></button><button class="lt" aria-label="확대" style="background:#28c840"></button><div class="tt">설정 — 정보 API 연결</div></div>
+  <div style="flex:1;min-height:0;display:flex">
+    <div class="side" style="padding-top:14px"><div class="navg">관리자</div><button class="nav">작업별 모델 배정</button><button class="nav on">정보 API 연결<span class="new">새</span></button></div>
+    <div class="main">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><b style="font-size:16px">정보 API 연결</b><span class="muted" style="font-size:12px">에이전트 도구가 쓰는 바깥 정보 · 키는 암호화, 끝 4자리만 보임</span><div style="flex:1"></div><button class="btn pri">+ 연결 추가</button></div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="r h" style="padding:0 14px;background:var(--bg-panel-alt)"><span style="width:180px">연결</span><span style="width:150px">서비스</span><span style="width:90px">상태</span><span style="flex:1">마지막 확인</span><span style="width:210px"></span></div>
+        <div class="r" style="padding:6px 14px"><span style="width:180px"><b>기상청 날씨</b><br><span class="muted" style="font-size:12px">공공데이터포털 · 키 …a91c</span></span><span style="width:150px">ASOS 일자료</span><span style="width:90px"><span class="badge b-ok">연결됨</span></span><span style="flex:1" class="muted">오늘 21:40 · 312ms · 지난 날씨(지점 번호·기간)</span><span style="width:210px;display:flex;gap:6px;justify-content:flex-end"><button class="btn">연결 테스트</button><button class="btn">키 교체</button></span></div>
+        <div class="r" style="padding:6px 14px"><span style="width:180px"></span><span style="width:150px">단기예보</span><span style="width:90px"><span class="badge b-fail">실패</span></span><span style="flex:1;color:var(--danger-text)">이 키로는 서비스 승인이 안 됐습니다 — 공공데이터포털에서 「단기예보」 활용 신청을 확인하세요</span><span style="width:210px;display:flex;gap:6px;justify-content:flex-end"><button class="btn">다시 테스트</button><button class="btn dng">삭제</button></span></div>
+        <div class="r" style="padding:6px 14px;border-bottom:0;min-height:40px"><span class="faint" style="font-size:12px">쓰는 도구 info.weather — 과거 10년 그 달 통계(코드가 계산) · 3일 예보. 숫자는 근거로만, 날짜 계산에 넣지 않음. 다른 정보 API 는 대회 뒤.</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<div class="notes">
+  <div class="nt"><h2>B · 넓은 표 · 단계 띠 · 메뉴 나눔</h2><div class="muted">배정을 한 쪽 전체 표로 넓히고 「대화·일정」과 「파일·자료함」 묶음으로 나눕니다. 정보 API 는 자기 메뉴(아래 창).</div></div>
+  <div class="nt"><h3>배치</h3><ul>
+    <li>배정 표: 열을 다 펼친 넓은 표(연결 · 모델 · 기준 · 참고), 새 묶음 「파일 · 자료함」</li>
+    <li>확인: 오른쪽에서 나오는 판 — 표를 밀어내고 옆에 붙음(표를 보면서 고름)</li>
+    <li>진행률: 쪽 맨 위 네 단계 띠(새 모음 → 다시 넣기 → 찾기 바꾸기 → 옛 것 지우기)</li>
+    <li>정보 API: 연결 × 서비스 표 — 서비스마다 한 줄</li>
+  </ul></div>
+  <div class="nt"><h3>보이는 상태</h3><ul class="chk">
+    <li>그림 읽기 · 임베딩 줄(「새」 묶음)</li>
+    <li>확인 판 — 214개 · 5,830조각 · 시간 · 비용 참고</li>
+    <li>다시 넣기 2단계 54% · 찾기는 옛 모델로</li>
+    <li>서비스별 연결됨 · 실패(까닭)</li>
+  </ul></div>
+  <div class="nt"><h3>좋은 점 · 아쉬운 점</h3><ul><li>다시 넣기에서 지금 어디쯤인지 가장 분명함</li><li>배정과 정보 API 가 다른 쪽 — 오가야 함</li><li>표가 넓어 작은 창에서는 줄바꿈 필요</li></ul></div>
+</div>
+</section>
+
+<!-- ================================================================ C -->
+<section class="opt stage" data-opt="C" hidden>
+<div class="win">
+  <div class="tb"><button class="lt" aria-label="닫기" style="background:#ff5f57"></button><button class="lt" aria-label="최소화" style="background:#febc2e"></button><button class="lt" aria-label="확대" style="background:#28c840"></button><div class="tt">설정</div></div>
+  <div style="flex:1;min-height:0;display:flex">
+    <div class="side">
+      <div class="navg">나</div><button class="nav">내 정보</button>
+      <div class="navg">관리자</div>
+      <button class="nav">LLM 연결</button>
+      <button class="nav on">모델 · 정보 연결</button>
+      <button class="nav">계정 (관리자·사용자)</button>
+      <button class="nav">승인 수준</button>
+    </div>
+    <div class="main" style="display:flex;gap:20px">
+      <!-- 카드 배정 -->
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center"><b style="font-size:16px;flex:1">작업별 모델 배정</b><span class="muted" style="font-size:12px">카드마다 저장</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="card"><b>가벼운 일</b><div class="muted" style="font-size:12px">조건 뽑기, 분야 읽기, 자료 분류</div><div style="display:flex;gap:6px;margin-top:10px;align-items:center"><span class="sel">liner-claude-router ▾</span><span class="seg"><span class="on">비용</span><span>균형</span><span>품질</span></span></div></div>
+          <div class="card"><b>보통 일</b><div class="muted" style="font-size:12px">대화, 워크플로우, 보고서 초안</div><div style="display:flex;gap:6px;margin-top:10px;align-items:center"><span class="sel">liner-claude-router ▾</span><span class="seg"><span>비용</span><span class="on">균형</span><span>품질</span></span></div></div>
+          <div class="card"><b>어려운 일</b><div class="muted" style="font-size:12px">WBS·스케줄 생성, 단축안, 위반 고치기</div><div style="display:flex;gap:6px;margin-top:10px;align-items:center"><span class="sel">liner-claude-router ▾</span><span class="seg"><span>비용</span><span>균형</span><span class="on">품질</span></span></div></div>
+          <div class="card"><b>긴 문서 읽기</b><div class="muted" style="font-size:12px">계약서·회의록 통째로</div><div style="display:flex;gap:6px;margin-top:10px;align-items:center"><span class="sel">liner-mark ▾</span><span class="faint" style="font-size:12px">105만 토큰</span></div></div>
+          <div class="card" style="border-color:color-mix(in srgb,var(--accent) 45%,var(--border))"><b>그림 읽기</b><span class="new">새</span><div class="muted" style="font-size:12px">붙인 그림 보기 · 그림 설명 쓰기 · 그림이 붙은 턴의 답</div><div style="display:flex;gap:6px;margin-top:10px;align-items:center"><span class="sel">liner-claude-router ▾</span><span class="seg"><span>비용</span><span class="on">균형</span><span>품질</span></span></div><div class="faint" style="font-size:11px;margin-top:6px">실측: 그림 토큰이 liner-mark 의 약 1/20</div></div>
+          <!-- 임베딩: 카드 안에서 바로 확인 -->
+          <div class="card" style="border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent);position:relative">
+            <span class="ann" style="right:10px;top:-10px">① 고르면 카드 안에서 확인</span>
+            <b>임베딩</b><span class="new">새</span><div class="muted" style="font-size:12px">자료함 뜻 검색</div>
+            <div style="display:flex;gap:6px;margin-top:10px;align-items:center"><span class="sel chg mono">openai/text-embedding-3-large ▾</span><span class="faint" style="font-size:12px">3072차원</span></div>
+            <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px;font-size:12px;line-height:19px">
+              자료 <b>214개</b> · 조각 <b>5,830개</b>를 새 모델로 다시 넣습니다.<br>
+              <span class="muted">예상 약 7분 · 비용 참고 약 $0.17 · 끝날 때까지 찾기는 지금 모델(3-small)로</span>
+              <div style="display:flex;gap:6px;margin-top:8px"><button class="btn pri">다시 넣기 시작</button><button class="btn">취소</button></div>
+            </div>
+          </div>
+        </div>
+        <!-- ② 아래 작업 줄 -->
+        <div class="card" style="padding:12px 14px;position:relative;display:flex;align-items:center;gap:14px">
+          <span class="ann" style="left:-6px;top:-12px">② 시작한 뒤 — 쪽 아래 작업 줄</span>
+          <div style="width:52px;height:52px;border-radius:50%;background:conic-gradient(var(--accent) 0 54%,color-mix(in srgb,var(--accent) 18%,transparent) 54% 100%);display:flex;align-items:center;justify-content:center;flex:none"><span style="width:40px;height:40px;border-radius:50%;background:var(--bg-panel);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px">54%</span></div>
+          <div style="flex:1"><b>임베딩 다시 넣는 중</b> <span class="muted">· 3,120 / 5,830 조각 · 남은 시간 약 3분</span><div class="muted" style="font-size:12px;margin-top:2px">찾기는 다 끝날 때까지 지금 모델로 · 끝나면 바꾸고 옛 자료는 지웁니다 · 자료함 머리에도 같은 표시</div></div>
+        </div>
+      </div>
+
+      <!-- 정보 API: 프리셋 마법사 -->
+      <div style="width:470px;flex:none;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center"><b style="font-size:16px;flex:1">정보 API 연결</b><span class="muted" style="font-size:12px">관리자</span></div>
+        <div class="card" style="border-color:var(--accent);box-shadow:var(--shadow)">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><b style="font-size:14px">연결 추가</b><span class="stp ok"><i>1</i>종류</span><span class="faint">—</span><span class="stp ok"><i>2</i>키</span><span class="faint">—</span><span class="stp on"><i>3</i>서비스별 테스트</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <button class="btn" style="text-align:left;padding:10px 12px;border-color:var(--accent);background:var(--bg-selected);white-space:normal"><b>기상청 · 공공데이터포털</b><br><span class="muted" style="font-size:12px">ASOS 일자료 · 단기예보 · 주소 미리 채움</span></button>
+            <button class="btn" style="text-align:left;padding:10px 12px;opacity:.55;white-space:normal" disabled><b>다른 정보 API</b><br><span class="muted" style="font-size:12px">대회 뒤에 더합니다</span></button>
+          </div>
+          <label style="display:block;margin-top:10px"><span class="lab">이름</span><input class="in" value="기상청 날씨"></label>
+          <label style="display:block;margin-top:8px"><span class="lab">서비스 키(인코딩 키) — 저장하면 암호화되고 끝 4자리만 보입니다</span><input class="in mono" type="password" value="xxxxxxxxxxxxxxxxxxxxxxxxxxxx"></label>
+          <div style="margin-top:12px">
+            <div class="svc" style="border-top:0"><span class="badge b-ok">연결됨</span><b style="width:96px">ASOS 일자료</b><span class="muted">312ms · 서울(108) 2025.12 31일 받음</span></div>
+            <div class="svc"><span class="badge b-fail">실패</span><b style="width:96px">단기예보</b><span style="color:var(--danger-text)">이 키로는 서비스 승인이 안 됐습니다 — 공공데이터포털에서 「단기예보」 활용 신청을 확인하세요</span></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px"><button class="btn">이전</button><button class="btn">다시 테스트</button><div style="flex:1"></div><button class="btn">취소</button><button class="btn pri">저장 (1개 서비스만 켬)</button></div>
+        </div>
+        <div class="card" style="padding:12px 14px">
+          <div style="display:flex;align-items:center;gap:8px"><b>기상청 날씨 (예전 것)</b><span class="badge b-ok">연결됨 · 2개</span><div style="flex:1"></div><button class="btn">연결 테스트</button></div>
+          <div class="muted" style="font-size:12px;margin-top:4px">키 …a91c · 확인 어제 18:02 · 쓰는 도구 info.weather</div>
+        </div>
+        <div class="muted" style="font-size:12px">숫자(평균기온·영하일수·강수일수)는 코드가 계산해 근거로만 붙입니다. 키는 요청 주소에만 담고 로그에 남기지 않습니다.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="nt"><h2>C · 카드 배정 · 프리셋 마법사</h2><div class="muted">배정을 카드 격자로, 확인은 카드 안에서 바로. 정보 API 는 LLM 연결 추가 마법사와 같은 세 단계(종류 → 키 → 서비스별 테스트).</div></div>
+  <div class="nt"><h3>배치</h3><ul>
+    <li>배정: 2열 카드 여섯, 기준은 버튼 셋</li>
+    <li>확인: 창이 뜨지 않고 임베딩 카드가 펼쳐짐</li>
+    <li>진행률: 쪽 아래 작업 줄(원 그래프)</li>
+    <li>정보 API: 오른쪽 단 — 프리셋 고르기 마법사 + 있는 연결 카드</li>
+  </ul></div>
+  <div class="nt"><h3>보이는 상태</h3><ul class="chk">
+    <li>그림 읽기 · 임베딩 카드(「새」)</li>
+    <li>카드 안 확인 — 214개 · 5,830조각 · 시간 · 비용 참고</li>
+    <li>다시 넣기 54% · 찾기는 옛 모델로</li>
+    <li>서비스별 테스트 연결됨 · 실패(까닭)</li>
+  </ul></div>
+  <div class="nt"><h3>좋은 점 · 아쉬운 점</h3><ul><li>여섯 일이 한눈에, 클릭이 적음</li><li>확인 창이 없어 "전부 다시 넣는다"는 무게가 약해 보일 수 있음</li><li>지금 고른 설정 시안(표)과 모양이 달라짐 — 이미 만든 화면을 고쳐야 함</li></ul></div>
+</div>
+</section>
+
+<script>
+(function(){
+  var q=new URLSearchParams(location.search);
+  function opt(o){document.querySelectorAll('.opt').forEach(function(s){s.hidden=s.dataset.opt!==o});document.querySelectorAll('[data-o]').forEach(function(b){b.classList.toggle('on',b.dataset.o===o)})}
+  function theme(t){document.documentElement.dataset.theme=t;document.querySelectorAll('[data-t]').forEach(function(b){b.classList.toggle('on',b.dataset.t===t)})}
+  document.querySelectorAll('[data-o]').forEach(function(b){b.onclick=function(){opt(b.dataset.o)}});
+  document.querySelectorAll('[data-t]').forEach(function(b){b.onclick=function(){theme(b.dataset.t)}});
+  opt(q.get('opt')||'A');theme(q.get('theme')||'light');
+})();
+</script>
+</body>
+</html>
