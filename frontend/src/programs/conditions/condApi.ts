@@ -55,9 +55,10 @@ export interface Violation {
 
 export type Moved = MovedActivity;
 
+/** 미리 보기의 한쪽. 저장본을 계산할 수 없으면(서버 m2) before 의 finish·critical_count 가 null 이다. */
 export interface Side {
-  finish: string;
-  critical_count: number;
+  finish: string | null;
+  critical_count: number | null;
   violated: number;
 }
 

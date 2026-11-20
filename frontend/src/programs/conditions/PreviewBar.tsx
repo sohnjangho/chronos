@@ -4,11 +4,17 @@ import Button from '../../shared/ui/Button';
 import type { ConditionsModel } from './condStore';
 import { allConds, condLabel, shortDate } from './labels';
 
-/** 미리 보기 줄: 「미리 보기 중 · 준공 11.24 → 11.12 · 위반 n」. */
+/** 준공 하나. 계산할 수 없는 쪽(null)이면 none 글. other 는 해가 다른지 볼 맞은편 준공. */
+const finishText = (finish: string | null, other: string | null, none: string) =>
+  finish ? shortDate(finish, other ?? undefined) : none;
+
+/** 미리 보기 줄: 「미리 보기 중 · 준공 11.24 → 11.12 · 위반 n」(저장본을 계산할 수 없으면 그렇다고 적는다). */
 function previewLine(model: ConditionsModel): string | null {
   const p = model.preview;
   if (!p) return null;
-  return `준공 ${shortDate(p.before.finish, p.after.finish)} → ${shortDate(p.after.finish, p.before.finish)} · 위반 ${p.after.violated}`;
+  const before = finishText(p.before.finish, p.after.finish, '(지금 저장본은 계산할 수 없음)');
+  const after = finishText(p.after.finish, p.before.finish, '(계산할 수 없음)');
+  return `준공 ${before} → ${after} · 위반 ${p.after.violated}`;
 }
 
 /** 위반 안내(계산만으로는 못 맞춤). 줄마다 「조건 이름: 까닭」. */

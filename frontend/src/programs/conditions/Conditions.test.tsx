@@ -439,3 +439,31 @@ describe('Fix round 1', () => {
     expect(screen.getByText("x1: 'kind' 칸이 없습니다.")).toBeVisible();
   });
 });
+
+describe('Fix round 2', () => {
+  test('a stored version that cannot be computed previews without breaking the window', async () => {
+    mockPreviewRoute(mockPreview({ before: { finish: null, critical_count: null, violated: 1 }, moved: [] }));
+    await renderC();
+    await setCrane('2');
+    expect(await screen.findByText('준공 (지금 저장본은 계산할 수 없음) → 11.12 · 위반 0')).toBeVisible();
+    expect(screen.getByRole('button', { name: '확정' })).toBeVisible();
+    expect(preview()?.moved).toEqual([]);
+  });
+
+  test('if reloading after an applied commit fails, the window keeps the old values and says so', async () => {
+    let reads = 0;
+    setup({
+      [URL]: () => (reads++ === 0 ? json(200, makeView()) : json(503, { code: 'unavailable', message: '서버를 잠시 쓸 수 없습니다.', detail: null })),
+      [`POST ${PREVIEW}`]: respond(mockPreview()),
+      [`POST ${URL}/commit`]: respond({ applied: true, approval_id: 8, version: 4 }),
+    });
+    await renderC();
+    await setCrane('2');
+    await screen.findByText(/11\.24 → 11\.12/);
+    await userEvent.click(screen.getByRole('button', { name: '확정' }));
+    expect(await screen.findByText('확정했습니다 · 버전 4 — 다시 불러오지 못했습니다: 서버를 잠시 쓸 수 없습니다.')).toBeVisible();
+    expect(reads).toBe(2);
+    expect(column('④ 입력 조건')).toBeVisible();
+    expect(qty('타워크레인')).toHaveValue('1');
+  });
+});

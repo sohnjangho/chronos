@@ -11,6 +11,7 @@ import { allConds } from './labels';
 
 export const DEBOUNCE_MS = 300;
 export const CONFLICT_NOTE = '그 사이 일정이 바뀌어 다시 불러왔습니다.';
+const CONFLICT_FAILED = '그 사이 일정이 바뀌었는데 다시 불러오지 못했습니다';
 
 export type Load = { kind: 'loading' } | { kind: 'ready'; view: CondView } | { kind: 'failed'; message: string };
 export interface Notice {
@@ -49,13 +50,17 @@ function merged(prev: Change | undefined, id: string, patch: EditPatch): Change 
 function useLoad(scheduleId: number | null) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const live = useRef(scheduleId);
-  const reload = useCallback(async () => {
-    if (scheduleId === null) return;
+  /** 다시 읽는다. 실패하면 그 글을 돌려주고, 이미 보이던 겹은 그대로 둔다(처음 읽기 실패만 화면 전체 오류). */
+  const reload = useCallback(async (): Promise<string | null> => {
+    if (scheduleId === null) return null;
     try {
       const view = await getConditions(scheduleId);
       if (live.current === scheduleId) setLoad({ kind: 'ready', view });
+      return null;
     } catch (e) {
-      if (live.current === scheduleId) setLoad({ kind: 'failed', message: messageOf(e) });
+      const message = messageOf(e);
+      if (live.current === scheduleId) setLoad((prev) => (prev.kind === 'ready' ? prev : { kind: 'failed', message }));
+      return message;
     }
   }, [scheduleId]);
   useEffect(() => {
@@ -124,15 +129,16 @@ export function useConditionsModel(scheduleId: number | null) {
     setInvalid({});
     refill();
   }, [refill]);
-  /** 다시 불러온 뒤에 칸을 새 저장값으로 채운다(불러오기가 늦어도). */
+  /** 다시 불러온 뒤에 칸을 저장값으로 다시 채운다(늦어도, 실패해도 — 실패면 앞 값 그대로). 실패 글을 돌려준다. */
   const reloadAndRefill = useCallback(async () => {
-    await reload();
+    const failed = await reload();
     refill();
+    return failed;
   }, [reload, refill]);
   const conflict = useCallback(async () => {
     revert();
-    await reloadAndRefill();
-    setNotice({ text: CONFLICT_NOTE, tone: 'info' });
+    const failed = await reloadAndRefill();
+    setNotice(failed ? { text: `${CONFLICT_FAILED}: ${failed}`, tone: 'error' } : { text: CONFLICT_NOTE, tone: 'info' });
   }, [revert, reloadAndRefill]);
   const onConflict = useCallback(() => void conflict(), [conflict]);
   const { preview, pending, problem } = usePreview(scheduleId, view, edits, onConflict);
@@ -186,8 +192,9 @@ export function useConditionsModel(scheduleId: number | null) {
       const r = await commitConditions(scheduleId!, version, changes);
       revert();
       if (!r.applied) return setNotice({ text: '승인함으로 보냈습니다. 승인되면 반영됩니다.', tone: 'info', approvalId: r.approval_id });
-      await reloadAndRefill();
-      setNotice({ text: `확정했습니다 · 버전 ${r.version}`, tone: 'info' });
+      const failed = await reloadAndRefill();
+      const done = `확정했습니다 · 버전 ${r.version}`;
+      setNotice(failed ? { text: `${done} — 다시 불러오지 못했습니다: ${failed}`, tone: 'error' } : { text: done, tone: 'info' });
     });
 
   const ask = () =>
