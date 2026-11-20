@@ -9,10 +9,11 @@ LLM 은 구조와 기간·선후 관계만 낸다. 날짜·여유·조건 통과
 개략 일정(L1·L2)은 자원을 다루지 않는다: resource_cap 입력 조건은 빼고 warnings 에 알린다.
 파일에서 가져온 행(fixed, Task 53)이 있으면 WBS 를 청하지 않고 그 행이 전부다: 파일 값이 LLM 답보다 앞서고, LLM 은
 빈 칸만 정한다(가정 출처 「추정」). 빈 칸이 없으면 LLM 을 부르지 않는다. 파일 날짜 제약은 fixed 가 넣는다.
+가져오기는 정밀도와 상관없이 주요 자원을 붙이지 않는다(파일에 없는 자원 맞춤이 파일 날짜를 옮기지 않게).
 """
 
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 from typing import Literal
 
@@ -45,7 +46,7 @@ from app.agent.generation_steps import (
 from app.core.cpm import CpmResult, ScheduleError
 from app.core.model import Schedule
 from app.domains.loader import DomainPack, load
-from app.files.schedule_import import ImportedRows
+from app.files.schedule_import import REPAIR_NOTE, ImportedRows
 from app.harness.assemble import assemble
 from app.harness.checks import CheckReport, Violation
 from app.harness.checks import check as check_schedule
@@ -173,6 +174,8 @@ class _Loop:
             return await ask(self.llm, messages, SCHEDULE_SCHEMA, self.chat_session_id)
         draft = [a.model_dump() for a in self.draft.activities] if self.draft else None
         messages = repair_messages(self.pack, self.brief, wbs, draft, self.feedback)
+        if self.fixed is not None:  # repair.md 의 「activities 전부」 를 덮는다: '?' 칸 행만
+            messages[-1]["content"] += f"\n{REPAIR_NOTE}"
         return await ask(self.llm, messages, REPAIR_SCHEMA, self.chat_session_id)
 
     def compute(self, schedule: Schedule) -> CpmResult | None:
@@ -322,6 +325,8 @@ async def generate(
     start, start_note = start_date(conditions, facts, date.today())
     noted = [*(dict(a) for a in assumptions), *start_note]
     s = setting(pack, level, start, condition_tags(conditions))
+    if fixed is not None:
+        s = replace(s, resources=())  # 가져오기: 자원 자동 붙이기 끄기(모든 정밀도)
     effective = [c for c in conditions if c.layer not in ("base", "domain") and c.enabled]
     brief = Brief(level, request, [dict(f) for f in facts], noted, effective, list(s.known_tags))
     loop = _Loop(ctx, llm, pack, brief, s, conditions, notes, fixed)

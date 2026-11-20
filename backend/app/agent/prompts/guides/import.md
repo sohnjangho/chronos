@@ -1,9 +1,10 @@
 ## 공정표 파일 가져오기
 
 - 먼저 묻고 가져온다. 대화에 붙은 표 파일(csv·tsv·xlsx)이 공정표일 수 있으면 schedule__import 를 confirmed false 로 부른다(file_id, 엑셀이면 sheet). 공정표면 요약 카드가 뜬다: 액티비티 수(rows)·찾은 열·빠진 것을 한두 문장으로 말하고 "[일정 초안으로 가져오기]를 누르거나 가져오라고 하시면 일정 초안으로 가져옵니다." 라고 묻고 멈춘다. 공정표가 아니면(is_schedule false) 카드 없이 근거로만 쓴다. 엑셀에 다른 시트(sheets)가 있으면 맞는 시트로 한 번 더 볼 수 있다.
-- 사용자가 「이 파일로 일정 초안을 만들어 줘(#id)」 라고 하거나 가져오라고 하면 같은 file_id·sheet 로 confirmed true 를 부른다. domain 은 대화에서 정한 분야(모르면 표 내용으로 고른다), level 은 액티비티 수가 맞는 정밀도다.
-- step asked 면 빈 칸을 묻는 질문지(또는 질문 카드)가 열렸다. "질문지에 답해 주세요. 답하지 않은 것은 적어 둔 가정으로 진행합니다." 한 문장만 말하고 턴을 끝낸다. "질문지 제출됨" 이 오면 같은 file_id·sheet·domain·level 로 confirmed true 와 answers(답한 것 [{question, answer}])·assumed(가정한 것 [{question, assumption}])를 넣어 다시 부른다.
+- 사용자가 「이 파일로 일정 초안을 만들어 줘(#id)」 라고 하거나 가져오라고 하면 같은 file_id·sheet 로 confirmed true 를 부른다. 확인 결과의 columns(카드에 보인 열 대응)를 그대로 넘긴다 — 그래야 보여 준 열 대응으로 가져온다. domain 은 대화에서 정한 분야(모르면 표 내용으로 고른다), level 은 액티비티 수가 맞는 정밀도다.
+- step asked 면 빈 칸을 묻는 질문지(또는 질문 카드)가 열렸다. "질문지에 답해 주세요. 답하지 않은 것은 적어 둔 가정으로 진행합니다." 한 문장만 말하고 턴을 끝낸다.
+- 가져오기 질문지가 제출되면("질문지 제출됨") schedule__import 를 다시 부른다: 같은 file_id·sheet·domain·level·columns 에 confirmed true, answers(답한 것 [{question, answer}])·assumed(가정한 것 [{question, assumption}]). 이때 generate__extract_conditions 는 부르지 않는다(일정 만들기 4번이 아니다).
 - step drafted 면 draft 를 일정 만들기 결과처럼 짧게 요약한다: 준공일, 액티비티 수, 크리티컬 액티비티 수, 남은 위반, 점검하지 않은 조건 수. 파일에 있던 값은 바꾸지 않았고, 추정한 칸은 가정(source "추정")에 있다 — 몇 개를 추정했는지 말한다.
 - 초안은 이 도구가 이미 승인함에 냈다. out__submit_change 를 다시 부르지 않는다. approval.applied 가 false 면 "승인함에서 승인을 기다립니다" 라고 하고 저장했다고 말하지 않는다.
 - 날짜는 계산하지 않는다. 파일의 날짜와 도구 결과의 날짜만 그대로 말한다. 파일 날짜를 제약(SNET·FNLT)으로 둘지는 도구가 판단한다.
-- 도구가 실패하면(읽을 수 없는 칸·행 수 한도·고리 등) 그 까닭을 그대로 전하고, 표를 고쳐 다시 올려 달라고 한다.
+- 도구가 실패하면(읽을 수 없는 칸·액티비티 400개 한도·빈 칸 행 150개 한도·고리 등) 그 까닭을 그대로 전하고, 표를 고치거나 범위를 좁혀 다시 올려 달라고 한다.

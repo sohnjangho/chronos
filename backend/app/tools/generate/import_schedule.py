@@ -9,6 +9,7 @@
   승인함)로 낸다. 날짜는 코드가 계산한다. 초안·승인 건을 저장하므로 mutates.
 """
 
+import asyncio
 from dataclasses import dataclass
 from typing import Literal
 
@@ -75,6 +76,22 @@ class AssumedIn(BaseModel):
     assumption: str
 
 
+class ColumnsIn(BaseModel):
+    """확인 단계가 돌려준 columns(열 대응 + 파일 날짜를 제약으로 둘지) 그대로."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id_col: str | None = None
+    name_col: str | None = None
+    wbs_col: str | None = None
+    duration_col: str | None = None
+    pred_col: str | None = None
+    start_col: str | None = None
+    finish_col: str | None = None
+    start_constraint: bool = False
+    finish_constraint: bool = False
+
+
 class ImportIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -89,6 +106,9 @@ class ImportIn(BaseModel):
     )
     answers: list[AnswerIn] = Field(default_factory=list, description="질문지에 답한 것 [{question, answer}]")
     assumed: list[AssumedIn] = Field(default_factory=list, description="답하지 않아 가정한 것 [{question, assumption}]")
+    columns: ColumnsIn | None = Field(
+        default=None, description="가져올 때: 확인 결과의 columns 그대로. 주면 열 대응을 다시 판단하지 않는다"
+    )
 
 
 class ImportOut(BaseModel):
@@ -101,6 +121,7 @@ class ImportOut(BaseModel):
     rows: int  # 코드가 센 액티비티 행 수
     columns_found: list[str]
     missing: list[str]
+    columns: dict | None = None  # 열 대응·날짜 판단(카드와 같다) — 가져올 때 그대로 넘긴다
     questionnaire: dict | None = None  # asked: ask.questionnaire 의 결과
     draft: RunOut | None = None  # drafted: generate.run 과 같은 모양(가정의 source "추정" = 추정한 칸)
     approval: dict | None = None  # drafted: out.submit_change 의 결과(applied=false 면 승인 대기)
@@ -171,7 +192,7 @@ def _out(step: str, table: Table, is_schedule: bool, reason: str, card: dict | N
     card = card or {"rows": len(table.rows), "columns_found": [], "missing": []}
     return ImportOut(step=step, is_schedule=is_schedule, reason=reason, file_id=table.file_id, sheet=table.sheet,
                      sheets=table.sheets, rows=card["rows"], columns_found=card["columns_found"],
-                     missing=card["missing"], **more)
+                     missing=card["missing"], columns=card.get("columns"), **more)
 
 
 async def _check(ctx: ToolContext, llm: LlmClient, table: Table) -> ImportOut:
@@ -179,6 +200,8 @@ async def _check(ctx: ToolContext, llm: LlmClient, table: Table) -> ImportOut:
     if not found.is_schedule:
         return _out("checked", table, False, found.reason)
     card = imports.card(table, await _plan(llm, table, ctx))
+    if card["blank_rows"] > imports.BLANK_LIMIT:  # 추정을 부르기 전에 멈춘다(빈 칸 수는 열 대응에 달려 있다)
+        raise ImportProblem(imports.TOO_MANY_BLANKS.format(card["blank_rows"]))
     ctx.emit(AgentEvent("card", {"kind": "schedule_file", **card}))
     return _out("checked", table, True, found.reason, card)
 
@@ -198,7 +221,7 @@ async def _draft(ctx: ToolContext, llm: LlmClient, args: ImportIn, rows: Importe
     assumed = [{"label": a.question, "value": a.assumption, "source": "가정"} for a in args.assumed]
     try:
         result = await generate(ctx, llm, domain=args.domain, level=args.level, request=_request(rows), facts=facts,
-                                assumptions=assumed, fixed=rows)
+                                assumptions=assumed, fixed=rows, max_rounds=2)  # 파일 값이 많아 고칠 것이 적다
     except UnknownDomain:
         raise ToolError(f"없는 분야입니다: {args.domain}") from None
     out = run_out(result)
@@ -207,10 +230,14 @@ async def _draft(ctx: ToolContext, llm: LlmClient, args: ImportIn, rows: Importe
 
 
 async def _import(ctx: ToolContext, llm: LlmClient, table: Table, args: ImportIn) -> ImportOut:
-    plan = await _plan(llm, table, ctx)
-    rows = imports.convert(table, plan)
+    plan = imports.plan_from(args.columns.model_dump(), table) if args.columns else await _plan(llm, table, ctx)
+    rows = imports.convert(table, plan)  # 액티비티 400·빈 칸 150 한도는 여기서 — 추정 LLM 전
     card = imports.card(table, plan)
-    if rows.blanks and plan.blanks == "ask" and plan.questions and not (args.answers or args.assumed):
+    answered = bool(args.answers or args.assumed)
+    if rows.blanks and not answered and args.columns:  # 열 대응은 넘긴 것 그대로, 빈 칸을 물을지만 판단을 받는다
+        judged = await _plan(llm, table, ctx)
+        plan = plan.model_copy(update={"blanks": judged.blanks, "questions": judged.questions, "reason": judged.reason})
+    if rows.blanks and plan.blanks == "ask" and plan.questions and not answered:
         return _out("asked", table, True, plan.reason, card, questionnaire=await _ask(ctx, args, plan, rows))
     draft = await _draft(ctx, llm, args, rows)
     approval = None
@@ -226,7 +253,7 @@ async def _import(ctx: ToolContext, llm: LlmClient, table: Table, args: ImportIn
     "schedule.import",
     "공정표 파일(csv·tsv·xlsx)을 일정 초안으로 가져온다. 먼저 confirmed=false 로 부르면 표를 끝까지 읽고 공정표인지 판단해, "
     "공정표면 요약 카드(액티비티 수·찾은 열·빠진 것·[일정 초안으로 가져오기])를 대화에 띄운다 — 가져오지는 않는다. "
-    "사용자가 가져오기를 고르거나 가져오라고 하면 confirmed=true 와 domain·level 로 다시 부른다. 물을 빈 칸이 있으면 "
+    "사용자가 가져오기를 고르거나 가져오라고 하면 confirmed=true 와 domain·level, 확인 결과의 columns 로 다시 부른다. 물을 빈 칸이 있으면 "
     "질문지를 열고 멈춘다(step asked) — 제출되면 answers·assumed 를 넣어 다시 부른다. 아니면 빈 칸만 추정해 초안을 "
     "만들고 승인함에 낸다(step drafted, draft·approval). 파일 값은 그대로 두고, 추정한 칸은 가정(source 추정)에 남는다. "
     "날짜는 코드가 계산한다. approval.applied=false 면 승인을 기다리는 중이니 저장했다고 말하지 않는다.",
@@ -237,7 +264,9 @@ async def import_schedule(args: ImportIn, ctx: ToolContext) -> ImportOut:
         raise ToolError(NEED_LEVEL)
     llm = package.client_for(ctx)
     try:
-        table = imports.read_table(ctx.session, args.file_id, args.sheet)
+        table = await asyncio.to_thread(imports.read_table, ctx.session, args.file_id, args.sheet)  # 원본 전체 — 루프를 막지 않게
+        if len(table.rows) > imports.MAX_ACTIVITIES:  # 코드가 센다 — 판단(LLM)을 부르기 전에
+            raise ImportProblem(imports.TOO_MANY_ROWS.format(len(table.rows)))
         return await (_import(ctx, llm, table, args) if args.confirmed else _check(ctx, llm, table))
     except ImportProblem as e:
         raise ToolError(e.message) from None

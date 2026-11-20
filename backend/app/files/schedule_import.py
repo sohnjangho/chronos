@@ -2,10 +2,8 @@
 
 판단(공정표인가·열의 뜻·빈 칸을 물을지·파일 날짜를 제약으로 둘지)은 에이전트가 하고 부르기는 도구(schedule.import)가 한다.
 여기는 계산 쪽: 행 수·빈 칸 수·기간/선행/날짜 읽기·WBS 나무·파일 값 덮기. LLM 이 낸 숫자·날짜는 쓰지 않는다.
-- 표 읽기: 글 뽑기(Task 47)는 앞 200행뿐이라 원본을 다시 다 읽는다(첫 행이 머리, 행 ROW_LIMIT·액티비티 MAX_ACTIVITIES 까지).
-  칸 읽기·인코딩·압축 폭탄 검사는 글 뽑기(app.files.extract)의 것을 그대로 쓴다.
-- 기간은 근무일 정수(「5」「5일」「5d」), 선행은 화면 shared/schedule/predecessors.ts 와 같은 꼴(「A1010, A1040 SS+15」),
-  날짜는 「2027-03-02」「2027.3.2」「2027년 3월 2일」 꼴.
+- 표 읽기: 글 뽑기(app.files.extract — 칸·인코딩·압축 폭탄 검사를 같이 씀)는 앞 200행뿐이라 원본을 다시 다 읽는다.
+- 기간은 근무일 정수(「5일」), 선행은 화면 shared/schedule/predecessors.ts 꼴(「A1, A4 SS+15」), 숫자는 ASCII 만.
 - 빈 칸: 기간 칸이 비었거나 기간 열이 없으면 기간을, 선행 열이 없으면 선행을 추정한다. 선행 열이 있으면 빈 칸은 「선행 없음」(파일 값).
 """
 
@@ -40,11 +38,15 @@ NEEDED = ("name_col", "duration_col", "pred_col")  # 없으면 카드의 「빠�
 NOT_TABLE = "표 파일(csv·tsv·xlsx)만 공정표로 가져올 수 있습니다."
 TOO_MANY = f"행이 {ROW_LIMIT:,}개를 넘어 가져올 수 없습니다. 표를 나눠 올려 주세요."
 UNREAD = "표를 판단하지 못했습니다. 다시 시도해 주세요."
+BLANK_LIMIT = 150  # 빈 칸 행이 이보다 많으면 추정하지 않는다(한 번의 추정 답이 max_tokens 안에 들게)
+TOO_MANY_ROWS = "액티비티가 {}개입니다. 한 번에 " + f"{MAX_ACTIVITIES}개까지 가져올 수 있습니다 — 표를 나눠 주세요."
+TOO_MANY_BLANKS = "빈 칸이 있는 행이 {}개로 많습니다 — 기간·선행 열을 채우거나 시트·범위를 좁혀 주세요"
+REPAIR_NOTE = "가져온 공정표의 고침이다: '고친 초안 전체'·'전체 초안' 대신 '?' 칸이 있던 행만 activities 에 낸다(id 그대로)."
 
-_DURATION = re.compile(r"(\d+)(?:\.0+)?\s*(?:일|근무일|d|days?)?", re.IGNORECASE)
-_PART = re.compile(r"(\S+)(?:\s+(FS|SS|FF|SF)([+-]\d+)?)?", re.IGNORECASE)
-_LAG_ONLY = re.compile(r"(\S+?)([+-]\d+)")
-_DAY = re.compile(r"(\d{4})\s*(?:[-./]|년)\s*(\d{1,2})\s*(?:[-./]|월)\s*(\d{1,2})\s*일?(?:[ T].*)?")
+_DURATION = re.compile(r"(\d+)(?:\.0+)?\s*(?:일|근무일|d|days?)?", re.IGNORECASE | re.ASCII)
+_PART = re.compile(r"(\S+)(?:\s+(FS|SS|FF|SF)([+-]\d+)?)?", re.IGNORECASE | re.ASCII)
+_LAG_ONLY = re.compile(r"(\S+?)([+-]\d+)", re.ASCII)
+_DAY = re.compile(r"(\d{4})\s*(?:[-./]|년)\s*(\d{1,2})\s*(?:[-./]|월)\s*(\d{1,2})\s*일?(?:[ T].*)?", re.ASCII)
 
 
 class ImportProblem(Exception):
@@ -183,13 +185,15 @@ def _cells(table: Table, p: Plan) -> list[tuple[int, dict[str, str]]]:
 
 
 def card(table: Table, p: Plan) -> dict:
-    """요약 카드의 숫자와 열 이름(코드가 센다). kind 는 도구가 붙인다."""
+    """요약 카드(코드가 센다): 행 수·찾은 열·빠진 것·열 대응·한도(over_limit: 행 > 400, blank_rows·blank_limit). kind 는 도구가."""
     rows = _cells(table, p)
     found = list(dict.fromkeys(getattr(p, c) for c in COLUMNS if getattr(p, c)))
     missing = [LABELS[c] for c in NEEDED if getattr(p, c) is None]
     if p.duration_col and (blank := sum(1 for _, got in rows if not got["duration_col"])):
         missing.append(f"기간 빈 칸 {blank}개")
-    return {"file_id": table.file_id, "sheet": table.sheet, "rows": len(rows), "columns_found": found, "missing": missing}
+    blanks = sum(1 for _, got in rows if not got["duration_col"] or table.index(p.pred_col) is None)
+    return {"file_id": table.file_id, "sheet": table.sheet, "rows": len(rows), "columns_found": found, "missing": missing,
+            "columns": p.model_dump(include={*COLUMNS, "start_constraint", "finish_constraint"}), "over_limit": len(rows) > MAX_ACTIVITIES, "blank_rows": blanks, "blank_limit": BLANK_LIMIT}
 
 
 def duration(text: str) -> int:
@@ -227,12 +231,9 @@ def day(text: str) -> date:
 
 
 def pred_text(items: list[dict]) -> str:
-    """선행 목록 → 표의 글(FS 0 은 ID 만)."""
-    def one(p: dict) -> str:
-        if p["type"] == "FS" and p["lag"] == 0:
-            return p["pred"]
-        return f"{p['pred']} {p['type']}" + (f"{p['lag']:+d}" if p["lag"] else "")
-    return ", ".join(one(p) for p in items)
+    """선행 목록 → 표의 글(FS 0 은 ID 만, 간격 0 은 종류까지)."""
+    return ", ".join(p["pred"] if (p["type"], p["lag"]) == ("FS", 0)
+                     else f"{p['pred']} {p['type']}" + (f"{p['lag']:+d}" if p["lag"] else "") for p in items)
 
 
 @dataclass(frozen=True)
@@ -281,11 +282,8 @@ class ImportedRows:
         return sum(r.blank for r in self.rows)
 
     def merge(self, reply: LlmReply | None) -> LlmReply:
-        """LLM 답에 파일 값을 덮는다(파일의 행만, 파일 차례). reply 가 None 이면 파일 값만(빈 칸이 없을 때).
-
-        답을 읽을 수 없으면(JSON 아님·잘림) 그대로 둔다 — 생성 루프가 깨진 초안으로 본다.
-        빈 칸이 있는 행이 답에 없으면 DraftProblem(같은 고침 루프로 돌려보낸다).
-        """
+        """LLM 답에 파일 값을 덮는다(파일 행만·파일 차례, None 이면 파일 값만). 읽을 수 없는 답(JSON 아님·잘림)은 그대로
+        두고(깨진 초안), 빈 칸 행이 답에 없으면 DraftProblem(같은 고침 루프로 돌려보낸다)."""
         reply = reply or LlmReply("", [], "file", Usage(0, 0, None), parsed={})
         if not isinstance(reply.parsed, dict) or reply.finish_reason == "length":
             return reply
@@ -374,8 +372,7 @@ def convert(table: Table, p: Plan) -> ImportedRows:
         raise ImportProblem("작업 이름 열을 찾지 못해 가져올 수 없습니다.")
     rows = _cells(table, p)
     if not rows or len(rows) > MAX_ACTIVITIES:
-        raise ImportProblem("가져올 행이 없습니다." if not rows else
-                            f"액티비티가 {len(rows)}개입니다. 한 번에 {MAX_ACTIVITIES}개까지 가져올 수 있습니다 — 표를 나눠 주세요.")
+        raise ImportProblem(TOO_MANY_ROWS.format(len(rows)) if rows else "가져올 행이 없습니다.")
     has = {c: table.index(getattr(p, c)) is not None for c in COLUMNS}
     ids = [(got["id_col"] or f"R{n}") if has["id_col"] else str(k) for k, (n, got) in enumerate(rows, start=1)]
     problems: list[str] = []
@@ -394,6 +391,8 @@ def convert(table: Table, p: Plan) -> ImportedRows:
     if problems:
         more = f" 외 {len(problems) - 8}개" if len(problems) > 8 else ""
         raise ImportProblem(f"읽을 수 없는 칸이 있습니다: {'; '.join(problems[:8])}{more}. 표를 고쳐 다시 올려 주세요.")
+    if (blank := sum(r.blank for r in out)) > BLANK_LIMIT:  # LLM 을 부르기 전에(코드가 센다)
+        raise ImportProblem(TOO_MANY_BLANKS.format(blank))
     if looped := _cycle(out):
         raise ImportProblem(f"선행 관계가 고리를 이룹니다: {', '.join(looped[:10])}. 표를 고쳐 다시 올려 주세요.")
     return ImportedRows(table.title, tuple(out), _wbs_nodes([r.wbs for r in out], table.title),

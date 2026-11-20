@@ -178,3 +178,13 @@ def test_agent_column_names_must_be_in_the_header(session, admin_user):
     assert (got.id_col, got.name_col, got.duration_col, got.blanks) == ("ID", None, "기간", "ask")  # 없는 열은 null
     with pytest.raises(ImportProblem, match="표를 판단하지 못했습니다"):
         plan_from({"blanks": "maybe"}, table)
+
+
+def test_full_width_digits_are_refused():
+    """M4: 화면 문법과 같이 ASCII 숫자만 — 전각 숫자(「SS+１５」「５」)는 읽지 않는다."""
+    with pytest.raises(ValueError, match="선행 형식이 맞지 않습니다"):
+        predecessors("A1 SS+１５", {"A1"})
+    with pytest.raises(ValueError):
+        duration("５")
+    with pytest.raises(ValueError):
+        day("２０２７-03-02")

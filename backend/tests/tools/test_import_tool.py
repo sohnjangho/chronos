@@ -7,6 +7,7 @@
 import hashlib
 import io
 import json
+import threading
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -14,6 +15,8 @@ from openpyxl import Workbook
 from sqlalchemy import select
 
 import app.tools.generate as generate_tools
+from app.agent import context
+from app.files import schedule_import
 from app.llm.client import MAX_TOKENS, LlmClient
 from app.store.drafts import get_draft
 from app.store.files import raw_path
@@ -93,6 +96,14 @@ def big_xlsx() -> bytes:
     return buf.getvalue()
 
 
+BIG_COLUMNS = {
+    "id_col": "작업 ID", "name_col": "작업명", "wbs_col": "WBS", "duration_col": None, "pred_col": "선행 작업",
+    "start_col": "시작일", "finish_col": "종료일", "start_constraint": False, "finish_constraint": False,
+}
+CSV_COLUMNS = {**BIG_COLUMNS, "id_col": "ID", "name_col": "작업", "wbs_col": None, "duration_col": "기간",
+               "pred_col": "선행", "start_col": "시작", "finish_col": "종료"}
+
+
 def plan(**over) -> dict:
     """열 대응·빈 칸·날짜 판단(큰 엑셀의 열 이름)."""
     return reply({
@@ -136,9 +147,11 @@ async def test_detect_card_counts_rows_by_code(ctx, events, llm, session):
     assert cards == [{
         "kind": "schedule_file", "file_id": fid, "sheet": "공정표", "rows": 120,
         "columns_found": ["작업 ID", "작업명", "WBS", "선행 작업", "시작일", "종료일"], "missing": ["기간"],
+        "columns": BIG_COLUMNS, "over_limit": False, "blank_rows": 120, "blank_limit": 150,
     }]
     out = r.output
     assert (out["step"], out["is_schedule"], out["rows"], out["sheets"]) == ("checked", True, 120, ["공정표", "메모"])
+    assert out["columns"] == BIG_COLUMNS  # 확인 단계의 열 대응 — 가져올 때 그대로 넘긴다(M7)
     assert [b["max_tokens"] for b in llm.bodies] == [MAX_TOKENS["normal"]] * 2  # 판단은 normal
     assert all(b["response_format"]["json_schema"]["strict"] for b in llm.bodies)
     assert session.scalars(select(ScheduleDraft)).all() == []  # 확인만 — 먼저 묻고 가져온다
@@ -290,3 +303,109 @@ async def test_unreadable_cells_stop_the_import_with_row_numbers(ctx, llm, sessi
     r = await call("schedule.import", importing(fid), ctx)
     assert not r.ok and "5행 기간 '2주'" in r.error
     assert session.scalars(select(ScheduleDraft)).all() == []
+
+
+# ---- Fix round 1 (리뷰) ----
+
+# 셋이 나란히(선행 없음), 모두 타워크레인 낱말(골조·철근·외장). 빈 칸 없음.
+PARALLEL_CSV = (
+    "ID,작업,기간,선행,시작,종료\n"
+    "A,1층 골조,5,,2027-03-02,2027-03-06\n"
+    "B,2층 철근 배근,3,,2027-03-02,2027-03-04\n"
+    "C,외장 패널,4,,2027-03-02,2027-03-05\n"
+)
+
+
+async def test_import_never_attaches_resources(ctx, llm, session):
+    """I1: L3 에서도 주요 자원을 붙이지 않는다 — 파일 날짜·준공 그대로, LLM 0번(열 대응을 넘겼고 빈 칸 없음)."""
+    fid = put(session, PARALLEL_CSV.encode(), "골조_병행.csv", "table")
+    r = await call("schedule.import", importing(fid, level="L3", columns=CSV_COLUMNS), ctx)
+    assert r.ok, r.error
+    assert llm.bodies == []
+    draft = get_draft(session, r.output["draft"]["draft_id"])
+    assert draft.schedule_json["resources"] == [] and all(a["resources"] == [] for a in draft.schedule_json["activities"])
+    cpm = run(from_json(draft.schedule_json), draft.conditions_json)
+    got = {i: (cpm.rows[i].es.isoformat(), cpm.rows[i].ef.isoformat()) for i in "ABC"}
+    assert got == {"A": ("2027-03-02", "2027-03-06"), "B": ("2027-03-02", "2027-03-04"), "C": ("2027-03-02", "2027-03-05")}
+    assert r.output["draft"]["finish"] == "2027-03-06"
+
+
+def many_blank_csv(n: int) -> bytes:
+    lines = ["ID,작업,기간,선행", *(f"A{i},공종 {i},,{f'A{i - 1}' if i > 1 else ''}" for i in range(1, n + 1))]
+    return "\n".join(lines).encode()
+
+
+async def test_too_many_blank_rows_are_refused_at_the_check_step(ctx, events, llm, session):
+    """I2: 빈 칸 행이 150개를 넘으면 확인 단계에서 멈춘다(추정 LLM 을 부르기 전, 카드 없음)."""
+    fid = put(session, many_blank_csv(151), "빈칸_많은_공정표.csv", "table")
+    llm.push(reply({"is_schedule": True, "reason": "공정표"}),
+             csv_plan(wbs_col=None, start_col=None, finish_col=None))
+    r = await call("schedule.import", {"file_id": fid}, ctx)
+    assert not r.ok
+    assert r.error == "빈 칸이 있는 행이 151개로 많습니다 — 기간·선행 열을 채우거나 시트·범위를 좁혀 주세요"
+    assert [e for e in events if e.type == "card"] == [] and len(llm.bodies) == 2  # 판단(공정표·열 대응)뿐
+
+
+async def test_repair_asks_only_for_blank_rows(ctx, llm, session):
+    """I2: 가져오기의 고침 지시는 repair.md 의 「activities 전부」 대신 '?' 칸 행만 내라고 한다."""
+    fid = put(session, PRED_CSV.encode(), "기초_공정.csv", "table")
+    llm.push(csv_plan(), estimate(est("B", 4)), estimate(est("B", 4), est("D", 2)))
+    r = await call("schedule.import", importing(fid), ctx)
+    assert r.ok, r.error
+    assert schedule_import.REPAIR_NOTE in user_text(llm, 2)
+    assert schedule_import.REPAIR_NOTE not in user_text(llm, 1)  # 처음 초안에는 요청 글의 규칙만
+
+
+async def test_import_repairs_at_most_twice(ctx, llm, session):
+    """I3: 가져오기는 max_rounds=2 — 두 번 깨지면 멈춘다(LLM: 열 대응 1 + 초안 2)."""
+    fid = put(session, PRED_CSV.encode(), "기초_공정.csv", "table")
+    llm.push(csv_plan(), *(estimate(est("B", 4)) for _ in range(4)))
+    r = await call("schedule.import", importing(fid), ctx)
+    assert r.ok, r.error
+    assert [x["violations"] for x in r.output["draft"]["rounds"]] == [-1, -1] and len(llm.bodies) == 3
+
+
+async def test_more_than_400_rows_is_refused_before_any_judgment(ctx, events, llm, session):
+    """M5: 행이 400개를 넘으면 확인 단계에서 LLM 판단 전에 멈춘다."""
+    lines = ["ID,작업,기간,선행", *(f"A{i},공종 {i},3," for i in range(1, 402))]
+    fid = put(session, "\n".join(lines).encode(), "아주_큰_공정표.csv", "table")
+    r = await call("schedule.import", {"file_id": fid}, ctx)
+    assert not r.ok and "401개" in r.error and "400개까지" in r.error
+    assert llm.bodies == [] and events == []
+
+
+async def test_import_reuses_the_columns_shown_on_the_card(ctx, llm, session):
+    """M7: columns 를 받으면 열 대응을 다시 판단하지 않는다(빈 칸 판단만 묻고, 그 답의 열 대응은 쓰지 않는다)."""
+    fid = put(session, PRED_CSV.encode(), "기초_공정.csv", "table")
+    wrong = csv_plan(duration_col="종료", start_constraint=True)  # 열 대응·날짜 판단이 달라져도 넘긴 것을 쓴다
+    llm.push(wrong, estimate(est("B", 4), est("D", 2)))
+    r = await call("schedule.import", importing(fid, columns=CSV_COLUMNS), ctx)
+    assert r.ok, r.error
+    draft = get_draft(session, r.output["draft"]["draft_id"])
+    assert {a["id"]: a["od"] for a in draft.schedule_json["activities"]} == {"S": 0, "A": 5, "B": 4, "C": 3, "D": 2, "F": 0}
+    assert all(a["constraint"] is None for a in draft.schedule_json["activities"])
+    assert r.output["columns"] == CSV_COLUMNS
+
+
+def test_guide_says_to_call_import_again_after_the_questionnaire():
+    """M8: 가져오기 질문지가 제출되면 schedule__import 를 confirmed true·답과 함께 다시 부르고, 조건 뽑기는 부르지 않는다."""
+    text = (context.GUIDES_DIR / "import.md").read_text(encoding="utf-8")
+    line = next(x for x in text.splitlines() if "제출" in x and "generate__extract_conditions" in x)
+    assert "schedule__import" in line and "confirmed true" in line and "answers" in line and "부르지 않는다" in line
+
+
+async def test_table_is_read_off_the_event_loop(ctx, llm, session, monkeypatch):
+    """M10: 표 읽기(원본 전체)는 asyncio.to_thread 로 — 이벤트 루프를 막지 않는다."""
+    seen = []
+    real = schedule_import.read_table
+
+    def spy(*args):
+        seen.append(threading.current_thread() is threading.main_thread())
+        return real(*args)
+
+    monkeypatch.setattr(schedule_import, "read_table", spy)
+    fid = put(session, MATERIALS_CSV.encode(), "자재_목록.csv", "table")
+    llm.push(reply({"is_schedule": False, "reason": "자재 표"}))
+    r = await call("schedule.import", {"file_id": fid}, ctx)
+    assert r.ok, r.error
+    assert seen == [False]
