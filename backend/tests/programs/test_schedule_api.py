@@ -4,6 +4,7 @@ from datetime import datetime
 
 import pytest
 
+from app.core.cpm import ScheduleError
 from app.core.model import BlockedPeriod, CalendarSpec, Relation, Resource
 from app.programs.schedule import edits, service
 from app.store.schedules import to_json
@@ -115,14 +116,33 @@ def test_unknown_schedule_activity_or_version_is_404(client, admin, sid):
 # ── 상태·Plan ───────────────────────────────────────────────────────
 
 
-def test_status_late_early_and_warnings(client, admin, sid):
+def _plan_dates(view):
+    return [(a["id"], a["plan_start"], a["plan_finish"]) for a in view["activities"]]
+
+
+def test_editing_od_moves_plan_dates(client, admin, sid):
+    """PM 결정 11-20: Plan = 지금 일정을 실적 없이 계산한 것. 기간을 고치면 Plan 도 같이 움직인다."""
     v = _patch(client, admin, sid, "A", 1, od=5).json()
-    assert (_act(v, "A")["status"], _act(v, "B")["status"]) == ("late +2", "late +2")
-    assert v["plan_finish"] == "2027-03-05" and v["finish"] == "2027-03-09"
-    assert v["summary"]["warning_count"] == 2
-    v = _patch(client, admin, sid, "A", 2, od=2).json()
-    assert (_act(v, "A")["status"], _act(v, "B")["status"]) == ("early -1", "early -1")
-    assert v["summary"]["warning_count"] == 0
+    assert _plan_dates(v) == [("A", "2027-03-01", "2027-03-05"), ("B", "2027-03-08", "2027-03-09")]
+    assert v["plan_finish"] == v["finish"] == "2027-03-09"
+    assert (_act(v, "A")["status"], _act(v, "B")["status"], v["summary"]["warning_count"]) == ("on_plan", "on_plan", 0)
+
+
+def test_actuals_do_not_move_plan_but_change_status(client, admin, sid):
+    """실적(실제 시작·종료·진도·남은 기간)과 Data Date 는 Plan 을 움직이지 않고 상태만 바꾼다.
+
+    버전 2 에서 A 를 4일로 고친 뒤의 Plan: A 3/1~3/4, B 3/5~3/8.
+    """
+    plan = [("A", "2027-03-01", "2027-03-04"), ("B", "2027-03-05", "2027-03-08")]
+    assert _plan_dates(_patch(client, admin, sid, "A", 1, od=4).json()) == plan
+    _patch(client, admin, sid, "A", 2, actual_start="2027-03-01", progress=0.2, rd=4)
+    v = client.patch(f"/api/schedules/{sid}", json={"data_date": "2027-03-03", "base_version": 3}, headers=admin).json()
+    assert _plan_dates(v) == plan and v["plan_finish"] == "2027-03-08"
+    assert v["finish"] == "2027-03-10"  # A 는 Data Date 3/3 부터 남은 4일 → 3/8, B 3/9~3/10
+    assert (_act(v, "A")["status"], _act(v, "B")["status"], v["summary"]["warning_count"]) == ("late +2", "late +2", 2)
+    v = _patch(client, admin, sid, "A", 4, actual_finish="2027-03-02", progress=1).json()
+    assert _plan_dates(v) == plan  # A 는 3/2 에 끝남, B 3/3~3/4
+    assert (_act(v, "A")["status"], _act(v, "B")["status"], v["summary"]["warning_count"]) == ("done", "early -2", 0)
 
 
 def test_negative_float_is_counted(client, admin, sid):
@@ -140,7 +160,8 @@ def test_new_activity_status_and_generated_ids(client, admin, sid):
     assert r.status_code == 200, r.json()
     v = r.json()
     new = _act(v, "A1010")
-    assert (new["status"], new["plan_start"], new["plan_finish"], new["es"]) == ("new", None, None, "2027-03-08")
+    assert (new["status"], new["plan_start"], new["plan_finish"], new["es"]) == (
+        "on_plan", "2027-03-08", "2027-03-09", "2027-03-08")  # 더한 액티비티도 Plan 이 있다
     assert {"pred": "B", "succ": "A1010", "type": "FS", "lag": 0} in v["relations"]
     assert [a["id"] for a in v["activities"]] == ["A", "B", "A1010"]
     body = {"name": "x", "kind": "task", "wbs": "1", "od": 1, "base_version": 2}
@@ -152,13 +173,14 @@ def test_new_activity_status_and_generated_ids(client, admin, sid):
     assert client.post(f"/api/schedules/{sid}/activities", json=body, headers=admin).json()["activities"][-1]["id"] == "A1040"
 
 
-def test_plan_version_is_the_marked_one(client, admin, session, sid):
+def test_marked_plan_version_does_not_drive_plan(client, admin, session, sid):
+    """is_plan 표시(처음 계획)는 Plan 칸을 정하지 않는다: Plan 은 지금 버전(A 6일)에서 계산한다."""
     _patch(client, admin, sid, "A", 1, od=5)
     _patch(client, admin, sid, "A", 2, od=6)
     session.get(ScheduleVersion, (sid, 2)).is_plan = True
     session.commit()
     v = _get(client, admin, sid)
-    assert (v["plan_finish"], _act(v, "A")["plan_finish"], _act(v, "A")["status"]) == ("2027-03-09", "2027-03-05", "late +1")
+    assert (v["plan_finish"], _act(v, "A")["plan_finish"], _act(v, "A")["status"]) == ("2027-03-10", "2027-03-08", "on_plan")
 
 
 def test_leveled_dates_appear_in_view(client, admin, session):
@@ -344,18 +366,36 @@ CYCLE = make([task("A", 1), task("B", 1)], [Relation("A", "B"), Relation("B", "A
 
 
 def _corrupt_v1_after_valid_edit(client, admin, session, sid):
-    """버전 2(올바름)를 만든 뒤 Plan 인 버전 1 을 계산이 안 되는 일정으로 바꿔 쓴다."""
+    """버전 2(올바름)를 만든 뒤 버전 1(처음 계획)을 계산이 안 되는 일정으로 바꿔 쓴다."""
     assert _patch(client, admin, sid, "A", 1, od=5).status_code == 200
     session.get(ScheduleVersion, (sid, 1)).snapshot_json = to_json(CYCLE)
     session.commit()
 
 
-def test_invalid_plan_snapshot_gives_null_plan_fields(client, admin, session, sid):
+def test_a_broken_first_version_does_not_touch_plan(client, admin, session, sid):
+    """Plan 은 지금 버전에서 계산한다: 계산이 안 되는 버전 1 은 Plan 칸과 상관없다."""
     _corrupt_v1_after_valid_edit(client, admin, session, sid)
     for v in (_get(client, admin, sid), _patch(client, admin, sid, "B", 2, od=3).json()):
-        assert v["plan_finish"] is None and v["finish"] is not None
-        assert {(a["plan_start"], a["plan_finish"], a["status"]) for a in v["activities"]} == {(None, None, "new")}
+        assert v["plan_finish"] is not None and v["plan_finish"] == v["finish"]
+        assert {a["status"] for a in v["activities"]} == {"on_plan"}
     assert _get(client, admin, sid)["version"] == 3
+
+
+def test_uncomputable_plan_gives_null_plan_fields(client, admin, sid, monkeypatch):
+    """실적을 뺀 일정이 계산되지 않으면 Plan 없음: plan 칸은 모두 None, status 는 "new"."""
+    from app.store import view
+
+    real_run = view.run
+
+    def run_failing_without_actuals(s):
+        if all(a.actual_start is None for a in s.activities):
+            raise ScheduleError("cycle", {"activities": ["A", "B"]})
+        return real_run(s)
+
+    monkeypatch.setattr(view, "run", run_failing_without_actuals)
+    for v in (_patch(client, admin, sid, "A", 1, actual_start="2027-03-01", rd=4).json(), _get(client, admin, sid)):
+        assert v["plan_finish"] is None and v["finish"] == "2027-03-08"
+        assert {(a["plan_start"], a["plan_finish"], a["status"]) for a in v["activities"]} == {(None, None, "new")}
 
 
 def test_restore_of_invalid_version_is_422_and_saves_nothing(client, admin, session, sid):
@@ -368,12 +408,13 @@ def test_restore_of_invalid_version_is_422_and_saves_nothing(client, admin, sess
     assert session.query(ChangeLog).filter_by(schedule_id=sid).count() == 1
 
 
-def test_marked_plan_feeds_plan_fields(client, admin, session, sid):
+def test_marked_plan_stays_in_the_version_list(client, admin, session, sid):
+    """mark_plan 표시는 버전 목록에 남고(처음 계획), Plan 칸은 지금 버전(A 6일)에서 계산한다."""
     _patch(client, admin, sid, "A", 1, od=5)
     _patch(client, admin, sid, "A", 2, od=6)
     mark_plan(session, sid, 2)
     v = _get(client, admin, sid)
-    assert (v["plan_finish"], _act(v, "A")["plan_finish"]) == ("2027-03-09", "2027-03-05")
+    assert (v["plan_finish"], _act(v, "A")["plan_finish"]) == ("2027-03-10", "2027-03-08")
     assert [x["is_plan"] for x in _versions(client, admin, sid)] == [False, True, False]
 
 
@@ -496,12 +537,17 @@ def test_conflict_at_save_time_is_409(client, admin, session, sid, sample_schedu
 
 
 def test_write_reuses_the_checked_computation(client, admin, sid, monkeypatch):
-    """쓰기 뒤 화면은 지금 일정을 다시 계산하지 않는다(Plan 버전 1 만 계산)."""
+    """쓰기 뒤 화면은 지금 일정을 다시 계산하지 않는다. 실적이 없으면 Plan 도 그 계산 그대로이고,
+    실적이 있으면 실적을 뺀 지금 일정만 한 번 계산한다."""
     from app.store import view
 
     calls = []
     real_run = view.run
     monkeypatch.setattr(view, "run", lambda s: calls.append(s) or real_run(s))
     v = _patch(client, admin, sid, "A", 1, od=5).json()
-    assert v["finish"] == "2027-03-09" and v["plan_finish"] == "2027-03-05"
-    assert len(calls) == 1 and calls[0].activities[0].od == 3  # 버전 1(Plan) 의 A
+    assert v["finish"] == v["plan_finish"] == "2027-03-09"
+    assert calls == []
+    v = _patch(client, admin, sid, "A", 2, actual_start="2027-03-01", rd=6).json()
+    assert (v["finish"], v["plan_finish"]) == ("2027-03-10", "2027-03-09")
+    [plan] = calls  # 버전 3 의 A(5일)에서 실적을 뺀 것
+    assert (plan.activities[0].od, plan.activities[0].actual_start, plan.activities[0].rd) == (5, None, None)

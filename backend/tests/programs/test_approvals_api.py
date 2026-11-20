@@ -120,6 +120,16 @@ def test_approving_a_change_saves_a_new_agent_version(client, admin, pending, si
     assert (v2["by_kind"], v2["by_name"], v2["note"]) == ("agent", "관리자", "B 기간 4일")
 
 
+def test_approving_a_change_moves_plan(client, admin, pending, sid):
+    """PM 결정 11-20: Plan 은 지금 일정을 실적 없이 계산한 것 — 승인한 변경(B 4일)은 Plan 도 옮긴다."""
+    assert client.get(f"/api/schedules/{sid}", headers=admin).json()["plan_finish"] == "2027-03-05"
+    decide(client, pending, admin)
+    view = client.get(f"/api/schedules/{sid}", headers=admin).json()
+    b = next(a for a in view["activities"] if a["id"] == "B")
+    assert (view["plan_finish"], b["plan_start"], b["plan_finish"], b["status"]) == (
+        "2027-03-09", "2027-03-04", "2027-03-09", "on_plan")
+
+
 def test_conflict_is_recorded_and_cannot_be_decided_again(client, admin, pending, sid):
     client.patch(f"/api/schedules/{sid}/activities/A", json={"od": 9, "base_version": 1}, headers=admin)
     r = decide(client, pending, admin)

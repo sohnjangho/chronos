@@ -7,7 +7,9 @@ import pytest
 from fastapi import FastAPI
 
 from app.agent import context
+from app.core.calendar import WorkCalendar
 from app.core.model import Activity, CalendarSpec, Relation, Schedule, WbsNode
+from app.core.progress import Bar
 from app.main import include_program_routers
 from app.programs.progress import service
 from app.store.schedules import load
@@ -196,26 +198,62 @@ def test_program_routers_are_discovered(client, admin):
 
 @pytest.fixture
 def sid_added(session, sid_progress) -> int:
-    """sid_progress 버전 2 에 Plan 뒤에 더한 C(15일, wbs 1, 실적 시작 3/1·진도 0.5·남은 14일 → 3/22)를 버전 3 으로.
-    C 가 준공을 정해 크리티컬이고 A·B 는 여유가 생긴다."""
+    """sid_progress 버전 2 에 나중에 더한 C(15일, wbs 1, 실적 시작 3/1·진도 0.5·남은 14일 → 3/22)를 버전 3 으로.
+    C 가 준공을 정해 크리티컬이고 A·B 는 여유가 생긴다. Plan(실적 없이 계산한 지금 일정)의 C 는 3/1~3/19."""
     v2, _, n = load(session, sid_progress)
     c = Activity("C", "작업 C", "task", "1", 15, rd=14, progress=0.5, actual_start=date(2027, 3, 1))
     _save(session, sid_progress, replace(v2, activities=(*v2.activities, c)), n)
     return sid_progress
 
 
-def test_activity_added_after_the_plan_is_reported_apart(client, admin, sid_added):
-    """R4: Plan 선·실적 선·SPI 는 Plan 이 있는 A·B 만(가중치 0.2·0.2 → 0.5·0.5 로 다시 나눔). C 는 따로."""
+def test_activity_added_later_is_in_the_plan(client, admin, sid_added):
+    """PM 결정 11-20: Plan 은 지금 일정을 실적 없이 계산한 것이라 나중에 더한 C 도 Plan 이 있다(added_after_plan 0).
+    가중치 A·B·C = 0.2·0.2·0.6. 3/3 아침 Plan: A 2/5·C 2/15 → 16%, 실적: A 0.2·C 0.5 → 34%."""
     p = get_progress(client, admin, sid_added)
+    assert (p["plan_now"], p["actual_now"]) == (16.0, 34.0)
+    assert p["added_after_plan"] == {"count": 0, "actual_pct": 0.0}
+    assert p["curve"][-1]["plan_cum"] == 100.0
+    assert p["counts"]["total"] == 3
+
+
+def test_critical_variance_counts_a_task_added_later(client, admin, sid_added):
+    """크리티컬은 C 뿐: 지금 3/1~3/22(16일) − Plan 3/1~3/19(15일) = 1."""
+    assert get_progress(client, admin, sid_added)["cpm"]["critical_variance"] == {"days": 1, "max_id": "C"}
+
+
+def _bar(i, kind, wbs, weight, plan, now, **actuals) -> Bar:
+    return Bar(id=i, kind=kind, wbs=wbs, weight=weight, plan_start=plan[0] if plan else None,
+               plan_finish=plan[1] if plan else None, start=now[0], finish=now[1],
+               actual_start=actuals.get("actual_start"), actual_finish=None, progress=actuals.get("progress", 0.0), tags=())
+
+
+def _bars_with_one_unplanned() -> list[Bar]:
+    """A·B·M 은 Plan 이 있고 C(실적 시작 3/1·진도 0.5) 는 Plan 이 없다(Plan 이 계산되지 않은 경우의 막대 모양)."""
+    d = lambda day: date(2027, 3, day)
+    return [
+        _bar("A", "task", "1", 0.2, (d(1), d(5)), (d(1), d(8)), actual_start=d(1), progress=0.2),
+        _bar("B", "task", "2", 0.2, (d(8), d(12)), (d(9), d(15))),
+        _bar("M", "finish_ms", "2", 0.0, (d(12), d(12)), (d(22), d(22))),
+        _bar("C", "task", "1", 0.6, None, (d(1), d(22)), actual_start=d(1), progress=0.5),
+    ]
+
+
+def test_bars_without_a_plan_are_reported_apart():
+    """R4(뜻 유지): Plan 선·실적 선·SPI 는 Plan 이 있는 A·B 만(가중치 0.2·0.2 → 0.5·0.5 로 다시 나눔). C 는 따로.
+    PM 결정 11-20 뒤로는 Plan 이 계산되지 않을 때만 생기는 모양이라 _rates 로 바로 잰다."""
+    wbs = [{"code": "1", "name": "기초", "parent": None}, {"code": "2", "name": "골조", "parent": None}]
+    p = service._rates(_bars_with_one_unplanned(), wbs, WorkCalendar(CalendarSpec(5)), date(2027, 3, 3), "week")
     assert (p["plan_now"], p["actual_now"], p["spi"]) == (20.0, 10.0, 0.5)
     assert p["added_after_plan"] == {"count": 1, "actual_pct": 50.0}
     assert p["curve"][-1]["plan_cum"] == 100.0
     assert p["wbs"][0] == {"code": "1", "name": "기초", "weight": 0.5, "plan": 40.0, "actual": 20.0, "diff": -20.0}
-    assert p["counts"]["total"] == 3
 
 
-def test_critical_variance_is_null_without_a_planned_critical_task(client, admin, sid_added):
-    assert get_progress(client, admin, sid_added)["cpm"]["critical_variance"] is None  # 크리티컬은 Plan 없는 C 뿐
+def test_critical_variance_is_null_without_a_planned_critical_task():
+    """크리티컬이 Plan 없는 C 뿐이면 null(뜻 유지 — _critical_variance 로 바로 잰다)."""
+    tasks = [b for b in _bars_with_one_unplanned() if b.kind == "task"]
+    acts = {"A": {"critical": False}, "B": {"critical": False}, "C": {"critical": True}}
+    assert service._critical_variance(tasks, acts, WorkCalendar(CalendarSpec(5))) is None
 
 
 def test_lookahead_blocks_by_relation_type(client, admin, session, sid_progress):
@@ -250,14 +288,15 @@ def test_nested_wbs_rolls_up_to_the_top_group(client, admin, session):
 
 
 def test_milestones_done_and_ahead(client, admin, session):
-    """Plan: A(5) → M1, B(5) → M2 (모두 3/5). 지금: A 실적 3/1~3/3 끝·M1 실적 3/3, B 3일로 줄임 → M2 3/3."""
+    """Plan: A(5) → M1, B(5) → M2 (모두 3/5). 지금: A 실적 3/1~3/3 끝·M1 실적 3/3, B 실적 3/1~3/3 끝 → M2 3/3."""
     m1 = Activity("M1", "기초 완료", "finish_ms", "1", 0)
     m2 = Activity("M2", "골조 완료", "finish_ms", "1", 0)
     s = schedules.make([schedules.task("A", 5), m1, schedules.task("B", 5), m2], [Relation("A", "M1"), Relation("B", "M2")])
     sid = schedules.store(session, s)
     a, _, b, _ = s.activities
     done = replace(a, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 3), progress=1.0)
-    _save(session, sid, replace(s, activities=(done, replace(m1, actual_finish=date(2027, 3, 3)), replace(b, od=3), m2)), 1)
+    b_done = replace(b, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 3), progress=1.0)
+    _save(session, sid, replace(s, activities=(done, replace(m1, actual_finish=date(2027, 3, 3)), b_done, m2)), 1)
     assert get_progress(client, admin, sid)["milestones"] == [
         {"id": "M1", "name": "기초 완료", "plan": "2027-03-05", "actual_or_forecast": "2027-03-03", "delta": -2, "status": "완료"},
         {"id": "M2", "name": "골조 완료", "plan": "2027-03-05", "actual_or_forecast": "2027-03-03", "delta": -2, "status": "앞섬"},
@@ -265,10 +304,11 @@ def test_milestones_done_and_ahead(client, admin, session):
 
 
 def test_top_delays_keep_five_by_delay_then_schedule_order(client, admin, session):
-    longer = {"X1": 1, "X2": 3, "X3": 2, "X4": 3, "X5": 1, "X6": 2, "X7": 1}  # 서로 관계없는 2일 작업, 지금은 이만큼 김
+    longer = {"X1": 1, "X2": 3, "X3": 2, "X4": 3, "X5": 1, "X6": 2, "X7": 1}  # 서로 관계없는 2일 작업, 실적으로 이만큼 김
     s = schedules.make([schedules.task(i, 2) for i in longer])
     sid = schedules.store(session, s)
-    _save(session, sid, replace(s, activities=tuple(replace(a, od=2 + longer[a.id]) for a in s.activities)), 1)
+    started = tuple(replace(a, actual_start=date(2027, 3, 1), rd=2 + longer[a.id]) for a in s.activities)
+    _save(session, sid, replace(s, activities=started), 1)
     top = get_progress(client, admin, sid)["top_delays"]
     assert [(t["id"], t["delay"], t["finish_impact"]) for t in top] == [
         ("X2", 3, 3), ("X4", 3, 3), ("X3", 2, 0), ("X6", 2, 0), ("X1", 1, 0)

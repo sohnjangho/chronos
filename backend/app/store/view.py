@@ -2,13 +2,15 @@
 
 날짜·여유·주공정은 저장된 일정에 그 버전의 저장된 조건을 넣고(하네스 `prepare_stored`, 점검과 같은 준비)
 compute → level(shift=True) 한 결과(LevelResult.cpm)를 쓴다. 그래서 화면 날짜는 주요 자원 용량과 조건을
-지키고, 하네스 점검이 재는 일정과 같다. Plan 값도 Plan 버전(그 버전의 조건)에 같은 계산을 한 것이다.
+지키고, 하네스 점검이 재는 일정과 같다. Plan 은 같은 버전의 일정에서 실적(실제 시작·종료·진도·남은 기간)과
+Data Date 를 빼고 같은 계산을 한 것이다(PM 결정 11-20). 처음 계획(is_plan 버전)은 Plan 칸을 정하지 않는다.
 액티비티·관계·자원 칸은 저장된 일정 그대로 보여 준다(조건이 넣은 FNLT·용량은 보이지 않는다).
 달력(calendar)은 조건을 넣은 달력의 근무 요일과, 작업 금지 기간을 일정 기간 안의 날짜로 펼친 것이다.
 가중치(weight)는 일정의 weight_mode(duration·manual)를 따른다.
 """
 
 from calendar import isleap
+from dataclasses import replace
 from datetime import date
 
 from sqlalchemy.orm import Session
@@ -21,7 +23,6 @@ from app.store.schedules import (
     activity_json,
     get_record,
     load,
-    plan_version,
     run,
     to_json,
 )
@@ -111,16 +112,26 @@ def _activities(
     return rows
 
 
+def _without_actuals(schedule: Schedule) -> Schedule:
+    """실적(실제 시작·종료·진도·남은 기간)과 Data Date 를 뺀 일정. 기록한 지연의 시작 하한(start_floor)은 남긴다."""
+    acts = tuple(
+        replace(a, actual_start=None, actual_finish=None, progress=0.0, rd=None) for a in schedule.activities
+    )
+    return replace(schedule, activities=acts, data_date=None)
+
+
 def plan_of(session: Session, schedule_id: int, n: int, current: CpmResult | None) -> CpmResult | None:
-    """Plan 버전의 계산 결과. Plan 이 버전 n 이면 current(버전 n 의 계산, 없으면 None).
-    그 밖에는 Plan 버전을 그 버전의 조건으로 계산한다. 계산이 안 되는 Plan 이면 None(Plan 없음으로 본다).
+    """Plan: 버전 n 의 일정에서 실적과 Data Date 를 빼고, 그 버전의 조건을 넣어(prepare_stored) run 한 결과.
+
+    current = 버전 n 의 일정을 그 버전의 조건으로 계산한 것(없으면 None). 뺄 실적이 없으면 같은 계산이라
+    current 를 그대로 쓴다. 계산이 안 되면 None(Plan 없음으로 본다).
     """
-    plan_n = plan_version(session, schedule_id)
-    if plan_n == n:
+    schedule, conditions, _ = load(session, schedule_id, n)
+    planned = _without_actuals(schedule)
+    if planned == schedule:
         return current
-    schedule, conditions, _ = load(session, schedule_id, plan_n)
     try:
-        return run(prepare_stored(schedule, conditions))
+        return run(prepare_stored(planned, conditions))
     except ScheduleError:
         return None
 
