@@ -1277,6 +1277,38 @@ assert progress_after["cpm"]["finish_variance"]["days"] <= progress_before["cpm"
 - [ ] **Step 1: 실패하는 시험** — 열기·닫기·최소화·최대화 때 움직임 class/animation 이 붙고, 끝난 뒤 store 상태가 맞음(닫기는 끝난 뒤 제거), 움직임 중 클릭 막힘, reduced-motion 에서 바로 바뀜, 이미 열린 창 앞으로는 움직임 없음.
 - [ ] **Step 2~5:** 실패 확인 → 구현 → 통과 확인 → FHD Chrome 에서 녹화 또는 연속 캡처로 확인 → 커밋 `feat: 창 움직임 효과`
 
+### Task 44: Liner 시각화 — 코드가 만든 표로 보고서·요약 그림 [opus] · G3 (Task 33·34 와 함께, 셸 파일 아님)
+
+**[PM 결정 11-20]** Liner Visualization API(`POST {base_url}/tools/visualization`, 1회 $0.01, 결과는 HTML 한 장 `atlasArtifact.html` + `theme`·`description`·`resourceId`)를 **보고서·요약 그림**에 쓴다. 앱 안의 간트차트·CPM·공정률 그림은 우리 그림 그대로. 근거: `/Users/janghosohn/reports/AI대회/01_라이너_엑스톤_2026/01_대회정보/라이너_기능_조사.md` 2·3장.
+
+**규칙(조사 3-3 그대로):**
+- 숫자는 코드가 묶는다: 도구 `visual.make {kind: "summary"|"delay_impact"|"scenario_compare"|"s_curve"|"resource_load", schedule_id, version?}` — 인자에 숫자 없음. 표(열·단위·값)는 저장된 버전에서 코드가 만든다.
+- 요청 글은 코드에 둔 고정 틀("아래 표의 값만 그대로 … 계산·반올림·추정·추가 금지") + CSV. `is_search_context` 는 켜지 않는다.
+- 받은 HTML 을 코드로 대조: 우리 표의 모든 값·날짜가 HTML 데이터에 있고, 없는 날짜·값이 데이터 배열에 없을 것. 실패하면 한 번 다시, 또 실패하면 우리 그림(SVG)으로 대신하고 개발 콘솔 기록 "Liner 그림 검증 실패 → 기본 그림".
+- 저장: 입력 표 해시·버전·resourceId·theme·검증 결과(`visuals` 표). 같은 입력이면 다시 부르지 않는다. 초당 2회 한도 — 차례로.
+- 보여 주기: 대화 카드 `visual` 와 지연 기록·비교판·공정률 창의 [보고서용 그림] 단추 → `<iframe sandbox="allow-scripts" srcdoc>`(allow-same-origin 없음), 캡션 "데이터: 크로노스 계산(버전 vN, 기준일 …) · 그림: Liner Visualization · 숫자 대조 통과 n/n". 20~30초는 "그림 만드는 중" 자리.
+- Step 0 실측(호출 2번 이하): 응답 모양·걸린 시간·외부 스크립트 주소 → 일지. 안 되면 멈추고 보고.
+
+**Files:** Create `backend/app/llm/visualization.py`, `backend/app/store/visuals.py`, `backend/app/tools/visual/{__init__,make}.py`, `backend/app/programs/visuals/{__init__,router,service,schemas}.py`, `frontend/src/shared/visual/{VisualFrame.tsx,visualApi.ts}`, 대화 카드 `frontend/src/programs/chat/cards/VisualCard.tsx` + 시험; Modify 대화 카드 등록부, 지연·비교·공정률 프로그램에 [보고서용 그림] 단추 한 줄(그 작업들 뒤).
+
+### Task 45: 검색 프리미엄 자료 — 날씨·원자재 가격·환율을 근거 표로 [opus] · G3 (Task 27 뒤)
+
+**[PM 결정 11-20]** Search API 웹 검색의 `knowledge`(Premium Data: AccuWeather 평균·예보, 원자재 가격, 환율 등 표, 출처·기준일 포함)를 가정·조건의 근거로 쓴다.
+- `evidence.search` 에 `knowledge: bool = false` — 참이면 `include_knowledge: true` 로 부르고 응답의 `knowledge` 표를 근거 항목(종류 `table`, 출처·기준일·열·행)으로 저장. 거짓이면 지금처럼 `include_knowledge: false`(비용 절반).
+- 지침(`guides/evidence.md`): 날씨에 걸리는 작업(동절기 타설·도장·외부 작업)의 금지 기간이나 여유, 자재비·환율이 걸린 가정에는 `knowledge: true`. 표의 숫자는 **가정의 근거로만** 쓰고 날짜 계산에는 넣지 않는다.
+- 화면: 근거 카드와 조건 「출처」에 표가 있으면 접히는 작은 표(출처·기준일 머리).
+- Step 0 실측(호출 2번 이하): 날씨·원자재 질의에서 `knowledge` 모양 → 일지.
+
+**Files:** Modify `backend/app/llm/search.py`, `backend/app/tools/data/search_evidence.py`, `backend/app/store/evidence.py`, `backend/app/agent/prompts/guides/evidence.md`, 근거 카드·조건 출처 화면 + 시험.
+
+### Task 46: 모델 가격 참고 표시 [sonnet] · 아무 때나
+
+**[PM 결정 11-20]** 모델을 고를 때만 참고로 가격을 보인다(비용 관리는 하지 않음). Liner 응답에는 라우터·liner-mark 비용이 없으므로 공개 가격표를 코드에 둔다.
+- `backend/app/llm/prices.yaml`: 모델 id → `{input, output, cached_input}` USD/1M 토큰, `source` URL, `as_of: 2026-11-20` (조사 문서 「가격」 절 값; `gemini-3.8-flash` 는 가격 쪽 라우터 표 값). 라우터 항목은 "고르는 모델 범위"(가장 싼 ~ 가장 비싼)로.
+- 모델 메타데이터(`/connections/{id}/models`, 시험 결과)에 `price` 를 붙인다(없으면 null).
+- 설정 「작업별 모델 배정」 모델 칸과 찾기 결과에 「입력 $x / 출력 $y (1M 토큰)」, 라우터는 「$a~$b」. 표 아래 "가격 기준: Liner 공개 가격표(2026-11-20)".
+**Files:** Create `backend/app/llm/prices.yaml`; Modify `backend/app/llm/connections.py`, `backend/app/programs/llm_settings/schemas.py`, `frontend/src/programs/settings/{models.ts,AssignmentParts.tsx,ProbeResult.tsx}` + 시험.
+
 ### ◆ Checkpoint C — 실제 Liner 로 묶음 2 시연 흐름
 
 - [ ] 테일넷 주소로 띄우고 씨앗 `demo` 를 넣는다. 실제 Liner 연결로 처음부터 끝까지: 대화로 지연 말하기 → 영향 카드·지연 기록 → 만회 계획 요청 → 비교판에서 안 고르기 → 승인 → CPM·진행 탭이 바뀜. 걸린 시간·모델 호출 수·토큰·단축안 추천이 LLM 에서 왔는지(실패 시 코드 고름)를 일지에 적는다.
