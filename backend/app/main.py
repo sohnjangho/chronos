@@ -9,6 +9,7 @@ from app import programs
 from app.config import Settings, validate_settings
 from app.db import close_db, get_session, init_db
 from app.errors import install_error_handlers
+from app.programs.files.guard import UploadGuard
 from app.store.workflows import close_unfinished
 from app.tools import registry
 
@@ -47,6 +48,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ChronOS", lifespan=lifespan)
 install_error_handlers(app)
+app.add_middleware(UploadGuard)  # 파일 받기: 몸을 읽기 전에 로그인·크기를 본다
 include_program_routers(app)
 
 

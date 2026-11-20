@@ -22,7 +22,7 @@ DEFAULT_ASSIGNMENTS: dict[str, tuple[str, str | None]] = {
     "vision": ("liner-claude-router", "balanced"),  # 그림 읽기(계획 3)
     "embedding": ("openai/text-embedding-3-small", None),  # 임베딩(계획 3)
 }
-# 설정 화면 「작업별 모델 배정」 표에 나오는 쓰임새. vision·embedding 줄은 Task 52 가 표(API·화면)에 더한다.
+# 설정 화면 「작업별 모델 배정」 표에 나오는 쓰임새. vision·embedding 줄은 Task 51 이 표(API·화면)에 더한다.
 TABLE_PURPOSES = ("light", "normal", "hard", "longdoc")
 
 

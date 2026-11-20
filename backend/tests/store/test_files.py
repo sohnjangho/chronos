@@ -142,3 +142,18 @@ def test_vision_and_embedding_defaults(session):
     assert resolve(session, "vision") == Assignment("vision", None, "liner-claude-router", "balanced")
     assert resolve(session, "embedding") == Assignment("embedding", None, "openai/text-embedding-3-small", None)
     assert [a.purpose for a in resolve_all(session)] == ["light", "normal", "hard", "longdoc"]  # 표 줄은 Task 52
+
+
+# ── Fix round 1 ─────────────────────────────────────────────────────
+
+
+def test_exact_token_outranks_prefix_matches(session, admin_user):
+    prefix = files.save_upload(session, _txt("C240 부재와 c24a 부재, C2400 도 있다."), "a.txt", admin_user)
+    exact = files.save_upload(session, _txt("기둥 콘크리트는 강도 기준을 지켜 C24 를 쓴다. " + "설명 " * 40), "b.txt", admin_user)
+    hits = files.keyword_search(session, "C24", limit=5)
+    assert [h.file_id for h in hits] == [exact.id, prefix.id]
+
+
+def test_long_name_keeps_extension(session, admin_user):
+    f = files.save_upload(session, _txt("메모"), "가" * 300 + ".txt", admin_user)
+    assert len(f.name) == 255 and f.name.endswith(".txt") and f.ext == "txt"

@@ -40,11 +40,15 @@ def ext_of(name: str) -> str:
     return PurePath(name).suffix.lower()
 
 
+_TEXT_KINDS = ("text", "table")  # 글 파일은 앞 바이트로 막지 않는다(「MZ세대」·「#!」 로 시작하는 글도 있다)
+
+
 def kind_of(name: str, head: bytes) -> str | None:
-    """image|table|sheet|pdf|doc|text. 받지 않는 확장자나 실행 파일(앞 바이트로 본다)이면 None."""
-    if head.startswith(_EXECUTABLE_HEADS):
+    """image|table|sheet|pdf|doc|text. 받지 않는 확장자나, 글이 아닌 종류인데 실행 파일 머리면 None."""
+    kind = KINDS.get(ext_of(name))
+    if kind not in _TEXT_KINDS and head.startswith(_EXECUTABLE_HEADS):
         return None
-    return KINDS.get(ext_of(name))
+    return kind
 
 
 def refusal(name: str) -> str:

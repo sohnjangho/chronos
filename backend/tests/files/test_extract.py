@@ -21,7 +21,8 @@ def test_kind_of():
         "table", "table", "sheet", "pdf", "doc", "doc", "text", "text",
     ]
     assert kind_of("a.hwp", b"") is None and kind_of("a.zip", b"PK") is None and kind_of("noext", b"") is None
-    assert kind_of("readme.txt", b"MZ\x90\x00") is None  # 실행 파일은 이름이 글이어도 받지 않는다
+    assert kind_of("사진.png", b"MZ\x90\x00") is None and kind_of("a.pdf", b"#!/bin/sh") is None  # 실행 파일
+    assert kind_of("세대.txt", b"MZ\xec\x84\xb8") == "text" and kind_of("a.md", b"#!x") == "text"  # 글은 막지 않는다
 
 
 def test_refusal_messages():
@@ -129,3 +130,44 @@ def test_chunks_prefer_line_break():
 
 def test_chunks_skip_blank_parts():
     assert chunks([("1쪽", "   "), ("2쪽", "글")]) == [Chunk(0, "2쪽", "글")]
+
+
+# ── Fix round 1 ─────────────────────────────────────────────────────
+
+
+def _zip_with(path, members: dict[str, int]) -> None:
+    """이름 → 풀었을 때 크기(공백). 1MB 씩 써서 메모리를 아낀다."""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, size in members.items():
+            with z.open(name, "w") as f:
+                for _ in range(size // (1024 * 1024)):
+                    f.write(b" " * (1024 * 1024))
+
+
+@pytest.mark.parametrize("member, size", [
+    ("xl/sharedStrings.xml", 31 * 1024 * 1024),  # 통째로 읽는 부분
+    ("xl/worksheets/sheet1.xml", 201 * 1024 * 1024),  # 흘려 읽는 시트도 상한이 있다
+])
+def test_xlsx_zip_bomb_is_refused_before_openpyxl(tmp_path, monkeypatch, member, size):
+    import app.files.extract as ex
+
+    monkeypatch.setattr(ex, "load_workbook", lambda *a, **k: pytest.fail("openpyxl 을 불렀다"))
+    path = tmp_path / "bomb.xlsx"
+    _zip_with(path, {member: size})
+    with pytest.raises(ExtractError) as e:
+        extract(path, "sheet")
+    assert e.value.reason == ex.TOO_BIG_INSIDE
+
+
+def test_trailing_empty_cells_are_dropped(tmp_path):
+    path = tmp_path / "a.csv"
+    path.write_text("ID,작업,,,\nA1,골조,,,\n", encoding="utf-8")
+    assert extract(path, "table").text_parts[0][1] == "ID | 작업\nA1 | 골조"
+    wb = Workbook()
+    wb.active.append(["A1", "골조"])
+    wb.active["F1"].number_format = "0.00"  # 서식만 있는 빈 칸
+    wb.active["F1"].value = None
+    wb.active["G2"] = None
+    book = tmp_path / "a.xlsx"
+    wb.save(book)
+    assert extract(book, "sheet").text_parts[0][1] == "A1 | 골조"

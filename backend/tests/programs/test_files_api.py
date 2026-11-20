@@ -138,3 +138,62 @@ def test_delete_by_owner_or_admin_and_purge_admin_only(client, admin, user, sess
     assert client.get(f"/api/files/{mine}/raw", headers=user).status_code == 404
     assert client.delete(f"/api/files/{other}?purge=1", headers=admin).status_code == 204
     assert client.get(f"/api/files/{other}", headers=admin).status_code == 404
+
+
+# ── Fix round 1 ─────────────────────────────────────────────────────
+
+
+def _scope(headers: dict[str, str]) -> dict:
+    return {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "http",
+        "path": "/api/files", "raw_path": b"/api/files", "root_path": "", "query_string": b"",
+        "server": ("testserver", 80), "client": ("testclient", 50000),
+        "headers": [(k.encode(), v.encode()) for k, v in {"content-type": "multipart/form-data; boundary=b", **headers}.items()],
+    }
+
+
+async def _call_without_body(headers: dict[str, str]) -> int:
+    """앱을 ASGI 로 바로 부른다. 몸을 읽으려 하면(receive) 실패한다."""
+    from app.main import app
+
+    async def receive():
+        raise AssertionError("몸을 읽었다")
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    await app(_scope(headers), receive, send)
+    return sent[0]["status"]
+
+
+async def test_oversized_content_length_is_413_before_body():
+    from app.security.tokens import issue_token
+
+    token = issue_token(1)
+    big = str(10 * 50 * 1024 * 1024 + 2 * 1024 * 1024)
+    assert await _call_without_body({"authorization": f"Bearer {token}", "content-length": big}) == 413
+    assert await _call_without_body({"authorization": f"Bearer {token}"}) == 411  # 길이 없음(chunked)
+
+
+async def test_anonymous_upload_never_reads_body():
+    assert await _call_without_body({"content-length": "100"}) == 401
+    assert await _call_without_body({"authorization": "Bearer forged", "content-length": "100"}) == 401
+
+
+def test_more_than_eleven_parts_is_refused_by_parser(client, admin):
+    r = client.post("/api/files", files=[("files", (f"n{i}.txt", b"x")) for i in range(12)], headers=admin)
+    assert r.status_code == 400
+
+
+def test_soft_deleted_reupload_takes_new_owner(client, admin, user):
+    fid = upload(client, admin, ("a.txt", "공용 메모".encode()))["items"][0]["file_id"]
+    upload(client, user, ("b.txt", "공용 메모".encode()))  # 보이는 파일: 주인 그대로
+    owner = client.get(f"/api/files/{fid}", headers=admin).json()["uploaded_by"]
+    assert client.delete(f"/api/files/{fid}", headers=user).status_code == 403  # 아직 관리자 것
+    assert client.delete(f"/api/files/{fid}", headers=admin).status_code == 204
+    upload(client, user, ("b.txt", "공용 메모".encode()))  # 숨긴 파일: 다시 올린 사람이 주인
+    got = client.get(f"/api/files/{fid}", headers=user).json()
+    assert got["deleted"] is False and got["uploaded_by"] != owner
+    assert client.delete(f"/api/files/{fid}", headers=user).status_code == 204

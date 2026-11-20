@@ -6,9 +6,9 @@
 
 from typing import BinaryIO
 
-from fastapi import UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from starlette.datastructures import UploadFile
 
 from app.errors import ApiError
 from app.files import chunk, kinds
@@ -17,6 +17,7 @@ from app.store import chats, files
 from app.store.tables import FileChunk, FileRow, User
 
 MAX_FILES = 10
+MAX_FIELDS = 5  # 파일 아닌 칸(chat_id)
 MAX_BYTES = 50 * 1024 * 1024
 PREVIEW_CHARS = 20_000
 
@@ -25,6 +26,8 @@ TOO_MANY = "한 번에 10개까지 올릴 수 있습니다"
 NOT_FOUND = "파일을 찾을 수 없습니다."
 DELETED = "지워진 파일입니다"
 CHAT_NOT_FOUND = "대화를 찾을 수 없습니다."
+NO_FILES = "올릴 파일을 골라 주세요."
+BAD_CHAT_ID = "chat_id 가 올바르지 않습니다."
 DELETE_FORBIDDEN = "올린 사람이나 관리자만 지울 수 있습니다."
 PURGE_FORBIDDEN = "관리자만 완전히 지울 수 있습니다."
 
@@ -37,6 +40,8 @@ def _size(f: BinaryIO) -> int:
 
 
 def _check(uploads: list[UploadFile]) -> None:
+    if not uploads:
+        raise ApiError(422, "invalid_request", NO_FILES)
     if len(uploads) > MAX_FILES:
         raise ApiError(422, "too_many_files", TOO_MANY)
     for u in uploads:
@@ -58,8 +63,17 @@ def _own_chat(session: Session, user: User, chat_id: int) -> None:
         raise ApiError(404, "not_found", CHAT_NOT_FOUND)
 
 
-def upload(session: Session, user: User, uploads: list[UploadFile], chat_id: int | None) -> UploadOut:
+def _chat_id(raw: object) -> int | None:
+    if raw is None or raw == "":
+        return None
+    if not isinstance(raw, str) or not raw.isdigit():
+        raise ApiError(422, "invalid_request", BAD_CHAT_ID)
+    return int(raw)
+
+
+def upload(session: Session, user: User, uploads: list[UploadFile], raw_chat_id: object) -> UploadOut:
     _check(uploads)
+    chat_id = _chat_id(raw_chat_id)
     if chat_id is not None:
         _own_chat(session, user, chat_id)
     items = []

@@ -1,13 +1,14 @@
 """파일 저장(계획 3): 받은 파일 한 벌(sha256)·글 조각·낱말 검색(FTS5)·대화 연결·숨김·완전 삭제.
 
 원본은 <data_dir>/files/<sha[:2]>/<sha>. 같은 내용을 다시 받으면 저장·글 뽑기·뒤 작업을 다시 하지 않고 그 줄을 돌려준다
-(숨긴 파일이면 다시 보이게 한다). 글을 뽑은 파일은 뒤 작업 줄(files.jobs.enqueue — 임베딩·분류)에 넣는다.
+(숨긴 파일이면 다시 보이게 하고 다시 올린 사람이 주인이 된다). 글을 뽑은 파일은 뒤 작업 줄(files.jobs.enqueue — 임베딩·분류)에 넣는다.
 이 모듈의 쓰기 함수는 commit 한다.
 """
 
 import hashlib
 import re
 import unicodedata
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
@@ -29,6 +30,7 @@ __all__ = [
 ]
 
 MAX_QUERY_TOKENS = 20
+MAX_NAME = 255
 _HEAD = 16  # kind_of 가 볼 앞 바이트
 
 
@@ -60,13 +62,18 @@ def raw_path(sha256: str) -> Path:
 
 
 def _clean_name(name: str) -> str:
-    """경로를 떼고 NFC 로 맞춘다(맥은 한글 이름을 NFD 로 보내기도 한다)."""
-    return unicodedata.normalize("NFC", PurePath(name.replace("\\", "/")).name)[:255]
+    """경로를 떼고 NFC 로 맞춘다(맥은 한글 이름을 NFD 로 보내기도 한다). 255자를 넘으면 확장자를 두고 앞을 자른다."""
+    name = unicodedata.normalize("NFC", PurePath(name.replace("\\", "/")).name)
+    if len(name) <= MAX_NAME:
+        return name
+    ext = kinds.ext_of(name)
+    ext = ext if len(ext) < 16 else ""
+    return name[:MAX_NAME - len(ext)] + ext
 
 
 def _write_raw(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".part")
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.part")  # 같은 내용이 동시에 와도 겹치지 않게
     tmp.write_bytes(data)
     tmp.replace(path)
 
@@ -88,10 +95,11 @@ def _fill(session: Session, row: FileRow, path: Path) -> None:
     row.status, row.reason = "extracted", (extracting.SCANNED if got.scanned else None)
 
 
-def _existing(session: Session, sha256: str) -> FileRow | None:
+def _existing(session: Session, sha256: str, user: User) -> FileRow | None:
+    """같은 내용의 줄. 숨긴 파일이면 다시 보이게 하고 다시 올린 사람을 주인으로 한다(보이는 파일은 주인 그대로)."""
     row = session.scalar(select(FileRow).where(FileRow.sha256 == sha256))
     if row is not None and row.deleted_at is not None:
-        row.deleted_at = None  # 숨긴 파일을 다시 올리면 다시 보인다
+        row.deleted_at, row.uploaded_by = None, user.id
         session.commit()
     return row
 
@@ -103,7 +111,7 @@ def save_upload(session: Session, data: bytes, name: str, user: User) -> FileRow
     if kind is None:
         raise Refused(kinds.refusal(name))
     sha256 = hashlib.sha256(data).hexdigest()
-    if (found := _existing(session, sha256)) is not None:
+    if (found := _existing(session, sha256, user)) is not None:
         return found
     path = raw_path(sha256)
     _write_raw(path, data)
@@ -114,7 +122,7 @@ def save_upload(session: Session, data: bytes, name: str, user: User) -> FileRow
         session.flush()
     except IntegrityError:  # 같은 내용이 동시에 들어왔다
         session.rollback()
-        return _existing(session, sha256)
+        return _existing(session, sha256, user)
     _fill(session, row, path)
     session.commit()
     if row.status == "extracted":
@@ -159,17 +167,12 @@ def session_files(session: Session, chat_id: int) -> list[FileRow]:
     return list(session.scalars(query))
 
 
-def _match(query: str) -> str:
-    """사용자 글 → FTS5 질의. 낱말마다 앞부분 일치("C24"*), 낱말끼리 OR. FTS 문법 글자는 버린다."""
-    tokens = re.findall(r"\w+", query)[:MAX_QUERY_TOKENS]
-    return " OR ".join(f'"{t}"*' for t in tokens)
+def _tokens(query: str) -> list[str]:
+    """사용자 글의 낱말(글자·숫자 묶음). FTS 문법 글자는 버린다."""
+    return re.findall(r"\w+", query)[:MAX_QUERY_TOKENS]
 
 
-def keyword_search(session: Session, query: str, limit: int, file_ids: list[int] | None = None) -> list[ChunkHit]:
-    """숨기지 않은 파일의 조각에서 낱말 검색(bm25 순). file_ids 를 주면 그 파일들 안에서만."""
-    match = _match(query)
-    if not match or file_ids == []:
-        return []
+def _run(session: Session, match: str, limit: int, file_ids: list[int] | None) -> list[ChunkHit]:
     sql = (
         "SELECT c.id, c.file_id, c.seq, c.locator, c.text, f.name, bm25(file_chunks_fts) AS rank "
         "FROM file_chunks_fts JOIN file_chunks c ON c.id = file_chunks_fts.rowid JOIN files f ON f.id = c.file_id "
@@ -184,6 +187,21 @@ def keyword_search(session: Session, query: str, limit: int, file_ids: list[int]
         statement = statement.bindparams(bindparam("ids", expanding=True))
     rows = session.execute(statement, params).all()
     return [ChunkHit(r[1], r[0], r[2], r[3], r[4], r[5], -r[6]) for r in rows]
+
+
+def keyword_search(session: Session, query: str, limit: int, file_ids: list[int] | None = None) -> list[ChunkHit]:
+    """숨기지 않은 파일의 조각에서 낱말 검색. file_ids 를 주면 그 파일들 안에서만.
+
+    순서: 낱말이 그대로 든 조각("C24") 먼저(bm25 순), 그다음 앞부분만 맞는 조각("C24"* — C240·c24a)(bm25 순).
+    낱말끼리는 OR. 돌려주는 차례가 순위다(score 는 각 단계 안의 -bm25).
+    """
+    tokens = _tokens(query)
+    if not tokens or file_ids == []:
+        return []
+    exact = _run(session, " OR ".join(f'"{t}"' for t in tokens), limit, file_ids)
+    seen = {h.chunk_id for h in exact}
+    prefix = _run(session, " OR ".join(f'"{t}"*' for t in tokens), limit + len(seen), file_ids)
+    return (exact + [h for h in prefix if h.chunk_id not in seen])[:limit]
 
 
 def soft_delete(session: Session, file_id: int, user: User) -> None:

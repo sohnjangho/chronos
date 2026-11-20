@@ -37,7 +37,10 @@ MAX_ROWS = 200
 MAX_PAGES = 300
 ROW_BLOCK = 20
 SCANNED_CHARS_PER_PAGE = 20
-MAX_XML_BYTES = 50 * 1024 * 1024  # zip 안 XML 을 풀었을 때의 합(압축 폭탄 막기)
+# 압축 폭탄 막기: zip 안 항목을 풀었을 때 크기(file_size)의 합. 열기 전에 본다.
+MAX_XML_BYTES = 30 * 1024 * 1024  # 통째로 읽는 XML(docx·hwpx 본문, xlsx 의 시트 밖 — sharedStrings 등)
+MAX_SHEET_XML_BYTES = 200 * 1024 * 1024  # xlsx 전체(시트 XML 은 흘려 읽고 앞 200행에서 멈춘다)
+_SHEET_MEMBER = re.compile(r"xl/worksheets/[^/]+\.xml")
 _CFB = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"  # 옛 오피스·암호 걸린 오피스 파일의 머리
 _ENCRYPTION_INFO = "EncryptionInfo".encode("utf-16-le")
 _SECTION = re.compile(r"Contents/section(\d+)\.xml")
@@ -73,9 +76,17 @@ def _cell(value: object) -> str:
     return str(value).replace("\r", " ").replace("\n", " ").strip()
 
 
+def _trim(cells: list[str]) -> list[str]:
+    """끝의 빈 칸을 뗀다(서식만 있는 빈 열이 글을 부풀리지 않게)."""
+    end = len(cells)
+    while end and not cells[end - 1]:
+        end -= 1
+    return cells[:end]
+
+
 def _blocks(rows: Iterable[tuple[int, list[str]]], prefix: str = "") -> list[tuple[str, str]]:
     """[(행 번호, 칸)] → 20행 묶음 [(「<prefix>행 a–b」, 글)]. 빈 행은 뺀다. 둘째 묶음부터 첫 행(머리)을 앞에 붙인다."""
-    lines = [(n, " | ".join(cells)) for n, cells in rows if any(cells)]
+    lines = [(n, " | ".join(_trim(cells))) for n, cells in rows if any(cells)]
     parts = []
     for i in range(0, len(lines), ROW_BLOCK):
         block = lines[i:i + ROW_BLOCK]
@@ -106,8 +117,17 @@ def _check_office_zip(path: Path) -> None:
     raise ExtractError(ENCRYPTED if _ENCRYPTION_INFO in path.read_bytes() else OLD_OFFICE)
 
 
+def _check_sheet_size(path: Path) -> None:
+    with zipfile.ZipFile(path) as z:
+        infos = z.infolist()
+    whole = sum(i.file_size for i in infos if not _SHEET_MEMBER.fullmatch(i.filename))
+    if whole > MAX_XML_BYTES or sum(i.file_size for i in infos) > MAX_SHEET_XML_BYTES:
+        raise ExtractError(TOO_BIG_INSIDE)
+
+
 def _sheet(path: Path) -> Extracted:
     _check_office_zip(path)
+    _check_sheet_size(path)
     with path.open("rb") as f:  # 파일 객체로 연다: 경로를 주면 openpyxl 이 확장자를 본다
         wb = load_workbook(f, read_only=True, data_only=True)
         try:
