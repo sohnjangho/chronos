@@ -6,7 +6,7 @@ test('every plan-1 program is registered with its id, name, kind and size', () =
   registerPrograms();
   const rows = programs('user').map((p) => [p.id, p.name, p.kind, p.defaultSize.w, p.defaultSize.h]);
   expect(rows).toEqual([
-    ['chat', '에이전트 대화', 'system', 1560, 900],
+    ['chat', '에이전트 대화', 'system', 480, 760],
     ['questionnaire', '질문지', 'system', 1180, 860],
     ['workflow', '워크플로우', 'system', 1400, 860],
     ['approvals', '승인함', 'system', 1200, 760],
