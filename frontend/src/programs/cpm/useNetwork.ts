@@ -72,7 +72,7 @@ export function useNetwork(graph: Network, onTap: (id: string) => void) {
     }
     return { w, h };
   }, [graph, pos]);
-  const latest = useLatest({ pos, zoom, onTap, size });
+  const latest = useLatest({ graph, pos, zoom, onTap, size });
 
   const center = useCallback((id: string) => {
     const el = canvasRef.current;
@@ -104,18 +104,39 @@ export function useNetwork(graph: Network, onTap: (id: string) => void) {
   }, [latest, zoomTo]);
 
   const drag = useCardDrag(latest, setMoved);
+  const [active, setActive] = useState<string | null>(null);
+  /** Enter·Space 는 고르기, 화살표는 옆 열·위아래 줄의 카드로 초점을 옮긴다. */
   const onKey = useCallback((id: string, e: KeyboardEvent) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      latest.current.onTap(id);
+      return;
+    }
+    const to = neighbour(latest.current.graph, id, e.key);
+    if (to === undefined) return;
     e.preventDefault();
-    latest.current.onTap(id);
+    [...(canvasRef.current?.querySelectorAll<SVGGElement>('[data-node]') ?? [])].find((g) => g.getAttribute('data-node') === to)?.focus();
   }, [latest]);
   const autoLayout = useCallback(() => setMoved({}), []);
-  return { canvasRef, pos, size, zoom, zoomBy, fit, center, centerSoon, autoLayout, onDown: drag, onKey };
+  return { canvasRef, pos, size, zoom, zoomBy, fit, center, centerSoon, autoLayout, onDown: drag, onKey, active, setActive };
+}
+
+const STEP: Record<string, [number, number]> = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] };
+
+/** 화살표 key 로 갈 카드: 옆 열은 같은 줄(없으면 그 열의 마지막 줄), 위아래는 같은 열. 화살표가 아니면 undefined, 갈 곳이 없으면 그 카드. */
+function neighbour(graph: Network, id: string, key: string): string | undefined {
+  const step = STEP[key];
+  const here = graph.nodes.find((n) => n.id === id);
+  if (!step || !here) return undefined;
+  const col = graph.nodes.filter((n) => n.col === here.col + step[0]);
+  if (col.length === 0) return id;
+  const row = step[0] ? Math.min(here.row, Math.max(...col.map((n) => n.row))) : here.row + step[1];
+  return col.find((n) => n.row === row)?.id ?? id;
 }
 
 export type Net = ReturnType<typeof useNetwork>;
 
-type Latest = RefObject<{ pos: ReadonlyMap<string, Pos>; zoom: number; onTap: (id: string) => void }>;
+type Latest = RefObject<{ graph: Network; pos: ReadonlyMap<string, Pos>; zoom: number; onTap: (id: string) => void }>;
 
 /** 카드 끌기: 자리만 바꾼다(서버에 보내지 않음). Esc·포인터 취소면 제자리로. 거의 안 움직였으면 누르기. */
 function useCardDrag(latest: Latest, setMoved: Dispatch<SetStateAction<Record<string, Pos>>>) {

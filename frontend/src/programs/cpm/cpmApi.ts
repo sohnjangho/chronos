@@ -10,9 +10,9 @@ export interface CpmBlock {
   finish_variance: { days: number; plan: string; current: string } | null;
 }
 
-/** 반영된 단축안의 목표 단축(근무일)과 지금 만회한 근무일(지금 일정을 계산할 수 없으면 null). */
+/** 반영된 단축안의 목표 단축(근무일, 요약에 없으면 null)과 지금 만회한 근무일(지금 일정을 계산할 수 없으면 null). */
 export interface Recovery {
-  planned_gain: number;
+  planned_gain: number | null;
   achieved: number | null;
 }
 

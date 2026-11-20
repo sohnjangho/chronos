@@ -1,4 +1,5 @@
 // CPM 관계선(SVG): 꺾은선 + 화살촉 + 관계 글(FS·SS+15). 누르면 관계 고치기. 두 끝 자리가 바뀐 선만 다시 계산한다(memo).
+// Tab 차례에는 넣지 않는다(카드 사이를 Tab 으로 다 지나지 않게) — 키보드로는 상세의 선행·후행 목록에서 고친다.
 import { memo, type KeyboardEvent } from 'react';
 import type { RelType } from '../../shared/schedule/scheduleApi';
 import { edgeKey, route, type NetEdge, type Pos } from './layout';
@@ -31,14 +32,17 @@ interface EdgeProps {
   fy: number;
   tx: number;
   ty: number;
+  /** 같은 틈을 지나는 선 가운데 이 선의 줄(laneI / laneN). */
+  laneI: number;
+  laneN: number;
   editing: boolean;
   arrow: string;
   onPick(key: string): void;
 }
 
-const EdgeLine = memo(function EdgeLine({ from, to, type, label, critical, fx, fy, tx, ty, editing, arrow, onPick }: EdgeProps) {
+const EdgeLine = memo(function EdgeLine({ from, to, type, label, critical, fx, fy, tx, ty, laneI, laneN, editing, arrow, onPick }: EdgeProps) {
   const key = edgeKey({ from, to, type });
-  const points = route({ x: fx, y: fy }, { x: tx, y: ty }, type);
+  const points = route({ x: fx, y: fy }, { x: tx, y: ty }, type, { i: laneI, n: laneN });
   const d = `M${points.map(([x, y]) => `${x} ${y}`).join(' L')}`;
   const [cx, cy] = tagAt(points);
   const w = textWidth(label, 11) + 8;
@@ -53,7 +57,7 @@ const EdgeLine = memo(function EdgeLine({ from, to, type, label, critical, fx, f
       data-edge={key}
       className={`cpm-edge${editing ? ' is-editing' : ''}`}
       role="button"
-      tabIndex={0}
+      tabIndex={-1}
       aria-label={`관계선 ${from} → ${to} ${label}`}
       onClick={() => onPick(key)}
       onKeyDown={onKeyDown}
@@ -91,7 +95,7 @@ export default function Edges({ edges, pos, cpm, editing, arrow, onPick }: Edges
         return (
           <EdgeLine
             key={key} from={e.from} to={e.to} type={e.type} label={e.label} critical={cpm && e.critical}
-            fx={f.x} fy={f.y} tx={t.x} ty={t.y} editing={editing === key} arrow={arrow} onPick={onPick}
+            fx={f.x} fy={f.y} tx={t.x} ty={t.y} laneI={e.lane.i} laneN={e.lane.n} editing={editing === key} arrow={arrow} onPick={onPick}
           />
         );
       })}

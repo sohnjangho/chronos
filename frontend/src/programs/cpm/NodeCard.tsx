@@ -49,11 +49,17 @@ interface CardProps {
   y: number;
   layers: Layers;
   selected: boolean;
+  /** Tab 차례에 든 카드(그림 판에 하나 — 나머지는 화살표로 간다). */
+  tabbable: boolean;
   onDown(id: string, e: PointerEvent<SVGGElement>): void;
   onKey(id: string, e: KeyboardEvent<SVGGElement>): void;
+  onFocusCard(id: string): void;
 }
 
-function NodeCard({ a, x, y, layers, selected, onDown, onKey }: CardProps) {
+/** 읽어 주는 이름: ID 이름, 크리티컬, 상태(층과 상관없이). */
+const spoken = (a: Activity) => `${a.id} ${a.name}${a.critical ? ', 크리티컬' : ''}, ${statusLabel(a)}`;
+
+function NodeCard({ a, x, y, layers, selected, tabbable, onDown, onKey, onFocusCard }: CardProps) {
   const critical = layers.cpm && a.critical ? ' critical' : '';
   const chip = planChip(a.status);
   const rows = cardRows(a, layers);
@@ -65,11 +71,12 @@ function NodeCard({ a, x, y, layers, selected, onDown, onKey }: CardProps) {
       transform={`translate(${x} ${y})`}
       className={`cpm-card${selected ? ' is-selected' : ''}`}
       role="button"
-      tabIndex={0}
-      aria-label={`${a.id} ${a.name}`}
-      aria-pressed={selected}
+      tabIndex={tabbable ? 0 : -1}
+      aria-label={spoken(a)}
+      aria-current={selected ? 'true' : undefined}
       onPointerDown={(e) => onDown(a.id, e)}
       onKeyDown={(e) => onKey(a.id, e)}
+      onFocus={() => onFocusCard(a.id)}
     >
       <title>{`${a.id} ${a.name}`}</title>
       {selected && <rect className="cpm-card-halo" x={-4} y={-4} width={CARD_W + 8} height={CARD_H + 8} rx={11} />}

@@ -62,6 +62,7 @@ function recoveryStat(x: Loaded<Recovery | null>): Stat {
   if (wait || x.state !== 'ok') return wait!;
   const r = x.value;
   if (!r) return { label, value: '—', note: '만회 계획 없음', tone: 'plain' };
+  if (r.planned_gain === null) return { label, value: '—', note: '목표 단축 없음', tone: 'plain' };
   if (r.achieved === null) return { label, value: '—', note: '지금 일정을 계산할 수 없습니다', tone: 'plain' };
   if (r.planned_gain <= 0) return { label, value: '—', note: `목표 단축 ${r.planned_gain}일`, tone: 'plain' };
   const pct = Math.round((r.achieved / r.planned_gain) * 100);

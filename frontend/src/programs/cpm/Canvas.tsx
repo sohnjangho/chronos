@@ -22,6 +22,8 @@ export default function Canvas({ view, graph, net, layers, selected, editing, sv
   const arrow = `cpm-arrow-${useId().replace(/[^\w-]/g, '')}`;
   const acts = useMemo(() => new Map(view.activities.map((a) => [a.id, a])), [view]);
   const { w, h } = net.size;
+  // Tab 차례의 카드 하나: 마지막에 머문 카드 → 고른 카드 → 첫 카드(roving tabindex).
+  const tab = [net.active, selected].find((id) => id && net.pos.has(id)) ?? graph.nodes[0]?.id;
   return (
     <div className="cpm-stage">
       <div className="cpm-canvas" ref={net.canvasRef}>
@@ -35,8 +37,8 @@ export default function Canvas({ view, graph, net, layers, selected, editing, sv
             const p = net.pos.get(n.id)!;
             return (
               <NodeCard
-                key={n.id} a={acts.get(n.id)!} x={p.x} y={p.y} layers={layers} selected={selected === n.id}
-                onDown={net.onDown} onKey={net.onKey}
+                key={n.id} a={acts.get(n.id)!} x={p.x} y={p.y} layers={layers} selected={selected === n.id} tabbable={n.id === tab}
+                onDown={net.onDown} onKey={net.onKey} onFocusCard={net.setActive}
               />
             );
           })}

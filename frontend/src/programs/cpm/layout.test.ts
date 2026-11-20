@@ -71,6 +71,23 @@ test('SS runs left to left, FF right to right, SF left to right, all with square
 
 test('a line to a far column runs in the gap above the successor, not through cards', () => {
   const p = route({ x: 24, y: 24 }, { x: 712, y: 24 }, 'FS');
-  const ys = p.map(([, y]) => y);
-  expect(Math.min(...ys)).toBe(24 - 16);
+  const top = Math.min(...p.map(([, y]) => y));
+  expect(top).toBeGreaterThan(0);
+  expect(top).toBeLessThan(24);
+});
+
+// 리뷰 M2: 같은 틈을 지나는 긴 관계선이 한 y 에 겹치지 않게 선마다 제 줄(차례는 늘 같게).
+test('long edges through the same gap each get their own lane inside the gap', () => {
+  const chain = view(
+    ['A', 'B', 'C', 'D', 'E'].map((id) => a(id)),
+    [r('A', 'B'), r('B', 'C'), r('C', 'D'), r('D', 'E'), r('A', 'C'), r('A', 'D'), r('A', 'E'), r('B', 'E')],
+  );
+  const lane = (g: ReturnType<typeof layoutNetwork>) =>
+    g.edges.filter((e) => e.points.length > 4).map((e) => [`${e.from}>${e.to}`, Math.min(...e.points.map(([, y]) => y))] as const);
+  const lanes = lane(layoutNetwork(chain, { mode: 'all' }));
+  expect(lanes.map(([k]) => k).sort()).toEqual(['A>C', 'A>D', 'A>E', 'B>E']);
+  const ys = lanes.map(([, y]) => y);
+  expect(new Set(ys).size).toBe(4);
+  ys.forEach((y) => expect(y > 0 && y < 24).toBe(true));
+  expect(lane(layoutNetwork(chain, { mode: 'all' }))).toEqual(lanes);
 });

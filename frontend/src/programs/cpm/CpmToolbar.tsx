@@ -76,6 +76,7 @@ export interface CpmToolbarProps {
 }
 
 const Sep = () => <span className="sch-sep" aria-hidden="true" />;
+const WBS_OFF = '선택 항목 보기는 WBS 로 거르지 않습니다';
 
 export default function CpmToolbar(p: CpmToolbarProps) {
   return (
@@ -103,12 +104,18 @@ export default function CpmToolbar(p: CpmToolbarProps) {
       <Button title="끌어 옮긴 자리를 버리고 다시 배치합니다" onClick={p.onAutoLayout}>자동 배치</Button>
       <Button onClick={p.onFit}>맞춤</Button>
       <span className="sch-gap" />
-      <select className="cpm-wbs" aria-label="WBS" value={p.wbs ?? ''} onChange={(e) => p.onWbs(e.target.value || null)}>
-        <option value="">전체 WBS</option>
-        {p.wbsGroups.map((w) => (
-          <option key={w.code} value={w.code}>{`${w.code} ${w.name}`}</option>
-        ))}
-      </select>
+      {/* 선택 항목 보기는 WBS 로 거르지 않는다 — 끄고 까닭을 title 로(꺼진 칸에도 말풍선이 뜨게 감싼 칸에 단다). */}
+      <span className="cpm-wbs-wrap" title={p.mode === 'selected' ? WBS_OFF : undefined}>
+        <select
+          className="cpm-wbs" aria-label="WBS" value={p.wbs ?? ''} disabled={p.mode === 'selected'}
+          onChange={(e) => p.onWbs(e.target.value || null)}
+        >
+          <option value="">전체 WBS</option>
+          {p.wbsGroups.map((w) => (
+            <option key={w.code} value={w.code}>{`${w.code} ${w.name}`}</option>
+          ))}
+        </select>
+      </span>
       <Popover button="범례" label="범례" align="right">
         {() => <Legend />}
       </Popover>

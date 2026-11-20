@@ -82,6 +82,45 @@ test('clicking a card selects it in every window and fills the detail panel', as
   expect(within(panel).getByRole('button', { name: 'D → C SS+15 관계 고치기' })).toBeVisible();
 });
 
+// 리뷰 M4: 카드는 aria-pressed 대신 aria-current, 이름에 크리티컬·상태.
+test('a card names its critical mark and status, and the picked card is the current one', async () => {
+  await renderCpm();
+  expect(screen.getByRole('button', { name: 'A 작업 A, 크리티컬, 미착수' })).toBe(card('A'));
+  expect(screen.getByRole('button', { name: 'D 작업 D, 미착수' })).toBe(card('D'));
+  expect(card('A')).not.toHaveAttribute('aria-pressed');
+  await userEvent.click(card('D'));
+  expect(card('D')).toHaveAttribute('aria-current', 'true');
+  expect(card('A')).not.toHaveAttribute('aria-current');
+});
+
+// 리뷰 M3: Tab 은 카드 하나만 거쳐 확대 단추·상세로 간다. 카드끼리는 화살표, 관계선은 Tab 차례에 없다(상세의 관계 목록으로).
+test('Tab stops at one card then leaves the network; relation lines are not tab stops', async () => {
+  await renderCpm();
+  button('PNG 내보내기').focus();
+  await userEvent.tab();
+  expect(card('A')).toHaveFocus();
+  await userEvent.tab();
+  expect(button('확대')).toHaveFocus();
+  expect(document.querySelectorAll('[data-node][tabindex="0"]')).toHaveLength(1);
+  expect(document.querySelectorAll('[data-edge][tabindex="0"]')).toHaveLength(0);
+});
+
+test('arrow keys move between cards by column and row, and Enter picks', async () => {
+  await renderCpm();
+  card('A').focus();
+  await userEvent.keyboard('{ArrowRight}');
+  expect(card('B')).toHaveFocus();
+  await userEvent.keyboard('{ArrowDown}');
+  expect(card('D')).toHaveFocus();
+  await userEvent.keyboard('{ArrowRight}');
+  expect(card('C')).toHaveFocus();
+  expect(card('C')).toHaveAttribute('tabindex', '0');
+  expect(card('A')).toHaveAttribute('tabindex', '-1');
+  await userEvent.keyboard('{ArrowLeft}{ArrowUp}{Enter}');
+  expect(card('B')).toHaveFocus();
+  expect(schedule().selected).toBe('B');
+});
+
 test('editing a relation saves the successor predecessors', async () => {
   await renderCpm();
   await userEvent.click(edge('B', 'C'));
@@ -127,6 +166,15 @@ test('no applied recovery says so; missing CPM values show a dash', async () => 
   expect(await screen.findByText('만회 계획 없음')).toBeVisible();
   const summary = screen.getByRole('group', { name: 'CPM 요약' });
   expect(within(summary).getAllByText('—')).toHaveLength(4);
+});
+
+// 리뷰 M1: 목표 단축이 없으면 「목표 단축 null일」 대신 「—」.
+test('a recovery without a planned gain shows a dash', async () => {
+  mockScenarios([{ id: 4, recovery: { planned_gain: null, achieved: 2 } }]);
+  await renderCpm();
+  const stat = (await screen.findByText('만회 계획 달성률')).parentElement!;
+  await waitFor(() => expect(stat).toHaveTextContent('만회 계획 달성률—목표 단축 없음'));
+  expect(screen.queryByText(/null/)).toBeNull();
 });
 
 test('the summary reads again when the schedule changes', async () => {
@@ -182,6 +230,18 @@ test('the WBS filter shows one top group', async () => {
   expect(nodeIds()).toEqual(['B']);
   await userEvent.selectOptions(screen.getByRole('combobox', { name: 'WBS' }), '');
   expect(nodeIds()).toEqual(['A', 'B']);
+});
+
+// 리뷰 M6: 선택 항목 보기는 WBS 로 거르지 않으므로 WBS 고르기를 끄고 까닭을 보인다.
+test('in the selected view the WBS picker is off and says why', async () => {
+  await renderCpm();
+  await userEvent.click(card('B'));
+  await userEvent.click(button('선택 항목'));
+  const picker = screen.getByRole('combobox', { name: 'WBS' });
+  expect(picker).toBeDisabled();
+  expect(picker.closest('[title]')).toHaveAttribute('title', '선택 항목 보기는 WBS 로 거르지 않습니다');
+  await userEvent.click(button('전체'));
+  expect(picker).toBeEnabled();
 });
 
 /** 카드를 누르고 (dx, dy) 옮겨 놓는다. */
