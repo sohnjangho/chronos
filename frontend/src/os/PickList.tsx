@@ -101,6 +101,8 @@ function PickOptions({ id, groups, at, onHover }: { id: string; groups: PickGrou
               aria-selected={i === at}
               className={`os-pick-option${item.selected ? ' is-selected' : ''}`}
               onPointerMove={() => onHover(i)}
+              // 누르는 순간 찾기 칸이 포커스를 잃지 않게(현장 선택은 blur 로 닫혀 click 이 오기 전에 목록이 사라진다).
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => item.run()}
             >
               {item.icon}

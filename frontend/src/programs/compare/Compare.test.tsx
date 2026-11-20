@@ -14,6 +14,7 @@ import {
 } from './testKit';
 
 let openSpy: ReturnType<typeof vi.fn>;
+const realOpen = useWindows.getState().open; // beforeEach 가 바꾸기 전의 진짜 open
 
 beforeEach(() => {
   stubCompareApi();
@@ -158,6 +159,27 @@ test('submit sends title then opens approvals', async () => {
   expect(useApprovals.getState().ticks).toBeGreaterThan(before); // 승인 배지를 다시 읽음
   expect(screen.queryByRole('dialog')).toBeNull();
   await waitFor(() => expect(tools()).toHaveFocus()); // 포커스가 body 로 떨어지지 않는다
+});
+
+test('after submit the approvals window stays in front (focus coming back to the board does not raise it again)', async () => {
+  mockSubmit({ approval_id: 7, applied: false, status: 'submitted' });
+  useWindows.setState({ wins: [], open: realOpen } as never);
+  const cid = useWindows.getState().open('compare', { id: '1' });
+  const raise = () => useWindows.getState().activeProgramId() !== 'compare' && useWindows.getState().focus(cid); // os/Window 처럼 포커스가 오면 앞으로
+  render(
+    <div onFocus={raise}>
+      <Compare windowId={cid} params={{ id: '1' }} />
+    </div>,
+  );
+  await screen.findByTestId('row-B');
+  await userEvent.click(await submitButton());
+  await userEvent.click(screen.getByRole('button', { name: '보내기' }));
+  await waitFor(() => expect(useWindows.getState().wins.some((w) => w.programId === 'approvals')).toBe(true));
+  await waitFor(() => expect(tools()).toHaveFocus());
+  await nextFrame();
+  expect(useWindows.getState().activeProgramId()).toBe('approvals');
+  expect(useWindows.getState().wins.find((w) => w.programId === 'approvals')?.params).toEqual({ id: '7' });
+  useWindows.getState().reset();
 });
 
 test('a submit conflict shows the server message and a stale copy turns the send button off', async () => {

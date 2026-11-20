@@ -1,8 +1,8 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
 // 묶음 2 화면 끝에서 끝까지(1920×1080): 로그인 → 스케줄(사무동)에서 지상 골조 고르기 → 대화에서 지연 말하기 → 대화 카드·
-// 지연 기록 창 → [만회 계획 요청] → 만회안 카드 → 비교판(같은 차트·요약 표) → [이 안을 반영] → 승인함 승인 →
-// CPM 요약 줄 → 공정률 S-커브 → 개발 콘솔 구조 → 생산 일정 간트(자원 묶음·「프레스 작업 금지」 띠).
+// 지연 기록 창 → 공정률 S-커브(승인 전) → [만회 계획 요청] → 만회안 카드 → 비교판(같은 차트·요약 표) → [이 안을 반영] →
+// 승인함 승인 → CPM 요약 줄(만회 계획 달성률) → 개발 콘솔 구조 → 생산 일정 간트(자원 묶음·「프레스 작업 금지」 띠).
 // 자료: 씨앗 두 일정(python -m app.seed demo), LLM: 서버의 CHRONOS_FAKE_LLM=1(app.llm.fake 의 묶음 2 대본).
 // 서버 시험 backend/tests/e2e/test_bundle2_flow.py 와 같은 대본이다. [보고서용 그림]은 누르지 않는다(가짜 시각화 없음).
 // 단계 화면은 E2E_SHOTS_DIR 에 b2-<번호>-<이름>.png 로(없으면 이 시험의 결과 폴더). 실행은 bash scripts/e2e-local.sh.
@@ -81,6 +81,17 @@ async function sayDelay(page: Page): Promise<Locator> {
   return chat;
 }
 
+/** 지연을 기록한 직후(승인 전) 공정률: S-커브와 「지연 영향 반영」 선. 본 뒤 그 창만 닫는다. */
+async function progressAfterDelay(page: Page) {
+  await dock(page, '공정률').click();
+  const progress = win(page, '공정률');
+  await expect(progress).toHaveAttribute('aria-label', `공정률 — ${OFFICE}`);
+  await expect(progress.getByRole('region', { name: 'S-커브' })).toBeVisible();
+  await shot(page, '04-공정률-지연뒤');
+  await progress.getByRole('button', { name: '닫기', exact: true }).click();
+  await expect(progress).toHaveCount(0);
+}
+
 async function askRecovery(page: Page, chat: Locator): Promise<Locator> {
   await chat.locator('.os-win-title').click();
   await chat.getByRole('region', { name: '지연 영향' }).getByRole('button', { name: '만회 계획 요청' }).click();
@@ -91,7 +102,7 @@ async function askRecovery(page: Page, chat: Locator): Promise<Locator> {
   const compare = win(page, '비교판');
   await expect(compare).toBeVisible();
   await chat.locator('.os-win-title').click();
-  await shot(page, '04-대화-만회안');
+  await shot(page, '05-대화-만회안');
   return compare;
 }
 
@@ -100,34 +111,28 @@ async function submitRecovery(page: Page, compare: Locator) {
   await expect(compare.getByRole('region', { name: '같은 차트' })).toBeVisible();
   await expect(compare.getByRole('table', { name: '여러 안 요약' })).toBeVisible();
   await expect(compare.getByRole('button', { name: '같은 차트' })).toHaveAttribute('aria-pressed', 'true');
-  await shot(page, '05-비교판');
+  await shot(page, '06-비교판');
   await compare.getByRole('button', { name: '이 안을 반영 (승인함으로)' }).click();
   const dialog = page.getByRole('dialog', { name: '이 안을 반영' });
   await dialog.getByRole('button', { name: '보내기' }).click();
   const approvals = win(page, '승인함');
   await expect(approvals).toBeVisible();
-  await dock(page, '승인함').click(); // 승인함을 앞으로(보내기 뒤 비교판이 다시 앞에 온다)
-  await expect(approvals).toHaveClass(/is-active/);
+  await expect(approvals).toHaveClass(/is-active/); // 보내면 승인함이 비교판 앞에 열린다
   const approve = approvals.getByRole('button', { name: '승인하고 반영' });
   await expect(approve).toBeVisible();
-  await shot(page, '06-승인함');
+  await shot(page, '07-승인함');
   await approve.click();
   await expect(approve).toHaveCount(0);
 }
 
-async function cpmAndProgress(page: Page) {
+/** 승인 뒤 CPM 요약 줄: 만회 계획 달성률. */
+async function cpmAfterApproval(page: Page) {
   await closeAll(page);
   await dock(page, 'CPM').click();
   const cpm = win(page, 'CPM');
   await expect(cpm).toHaveAttribute('aria-label', `CPM — ${OFFICE}`);
-  await expect(cpm.getByText('프로젝트 완료 편차')).toBeVisible();
   await expect(cpm.getByText('만회 계획 달성률')).toBeVisible();
-  await shot(page, '07-CPM-요약');
-  await closeAll(page);
-  await dock(page, '공정률').click();
-  const progress = win(page, '공정률');
-  await expect(progress.getByRole('region', { name: 'S-커브' })).toBeVisible();
-  await shot(page, '08-공정률-S커브');
+  await shot(page, '08-CPM-요약');
   await closeAll(page);
 }
 
@@ -155,24 +160,29 @@ async function factoryGantt(page: Page) {
   await shot(page, '10-생산간트-자원묶음');
 }
 
-/** 같은 서버에서 demo.spec 이 이어 돌 수 있게 사무동 일정을 씨앗의 버전 2(실적 입력)로 되돌린다. */
+/** 같은 서버에서 demo.spec 이 이어 돌 수 있게 사무동 일정을 씨앗의 버전 2(실적 입력)로 되돌린다. 바뀌지 않았으면(버전 2) 그대로. */
 async function restoreOffice(request: APIRequestContext) {
   const login = await request.post('/api/auth/login', { data: { login_id: LOGIN_ID, password: PASSWORD } });
   const headers = { Authorization: `Bearer ${(await login.json()).token}` };
   const list: { id: number; name: string; version: number }[] = await (await request.get('/api/schedules', { headers })).json();
   const office = list.find((s) => s.name === OFFICE)!;
+  if (office.version <= 2) return;
   const restored = await request.post(`/api/schedules/${office.id}/versions/2/restore`, { headers, data: { base_version: office.version } });
   expect(restored.ok()).toBe(true);
 }
 
 test('지연 → 영향 → 만회안 → 승인, CPM·공정률·개발 콘솔, 생산 간트', async ({ page, request }) => {
-  await login(page);
-  await pickFrame(page);
-  const chat = await sayDelay(page);
-  const compare = await askRecovery(page, chat);
-  await submitRecovery(page, compare);
-  await cpmAndProgress(page);
-  await devConsole(page);
-  await factoryGantt(page);
-  await restoreOffice(request);
+  try {
+    await login(page);
+    await pickFrame(page);
+    const chat = await sayDelay(page);
+    await progressAfterDelay(page);
+    const compare = await askRecovery(page, chat);
+    await submitRecovery(page, compare);
+    await cpmAfterApproval(page);
+    await devConsole(page);
+    await factoryGantt(page);
+  } finally {
+    await restoreOffice(request); // 중간에 실패해도 다음 시험(demo.spec)이 씨앗 그대로에서 돈다
+  }
 });

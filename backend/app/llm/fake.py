@@ -8,9 +8,10 @@ Liner 시각화(visualization.py)는 따로 부르므로, 불리면 그대로 �
 대본(화면 끝에서 끝까지 시험 `frontend/e2e/demo.spec.ts`·`bundle2.spec.ts` 와 서버 시험 `tests/e2e/` 의 범위만).
 턴 = 마지막 사용자 글과 그 뒤의 도구 호출. 위에서부터 맞는 첫 줄:
 - 단축안 설명 요청(json_schema 에 recommended·notes) → 안마다 짧은 설명, 추천은 null(코드 추천이 고른다).
-- 사용자 글에 "만회" → shorten.make(글에 "n일"이 있으면 target_days) → 끝나면 글 한 줄.
+- 사용자 글에 "만회" → shorten.make(글에 "n일"이 있으면 target_days) → 끝나면 글 한 줄(도구가 실패했으면 그 까닭).
 - 사용자 글에 "늦어졌"·"밀렸" → schedule.find(화면에서 고른 액티비티, 없으면 "골조") → 찾은 첫 액티비티로
-  delay.record(일수 = 글의 "n일", 원인 = "○ 때문에" 의 ○, 책임은 말하지 않았으니 undecided) → 끝나면 글 한 줄.
+  delay.record(일수 = 글의 "n일", 원인 = "○ 때문에" 의 ○, 책임은 말하지 않았으니 undecided) → 끝나면 글 한 줄
+  (기록이 실패했으면 기록했다고 하지 않고 그 까닭).
 - 도구 호출이 아직 없는 대화의 첫 요청이고 ask.questionnaire 도구를 받았으면 → 일정 질문지(질문 셋)를 연다.
 - 그 밖에는 → 짧은 글 한 줄(도구를 부르지 않는다).
 Search·MCP·시각화·날씨는 부르지 않는 대본이다.
@@ -34,6 +35,7 @@ DELAY_DONE_TEXT = "지연을 기록했습니다. 준공 영향은 카드와 지�
 NOT_FOUND_TEXT = "말씀하신 작업을 일정에서 찾지 못했습니다. 작업 이름이나 ID 를 알려 주세요. (시연용 가짜 LLM)"
 RECOVERY_DONE_TEXT = "만회안을 만들었습니다. 비교판에서 안을 비교하고 [이 안을 반영]으로 승인함에 올리세요. (시연용 가짜 LLM)"
 NOTE_TEXT = "바꾸는 것 {n}가지. 시연용 가짜 LLM 설명입니다."
+FAILED_TEXT = "{what} 못했습니다: {error} (시연용 가짜 LLM)"
 _SELECTED = re.compile(r"고른 액티비티: (\S+)")
 _DAYS = re.compile(r"(\d+)\s*일")
 _CAUSE = re.compile(r"(\S+)\s*때문에")
@@ -104,6 +106,15 @@ def _notes(request: dict) -> dict | None:
     return _body(json.dumps({"recommended": None, "notes": notes}, ensure_ascii=False))
 
 
+def _error_of(result: str) -> str | None:
+    """도구 결과가 실패({"error": …})면 그 글. 아니면 None."""
+    try:
+        data = json.loads(result)
+    except ValueError:
+        return None
+    return str(data["error"]) if isinstance(data, dict) and data.get("error") else None
+
+
 def _first_match(result: str) -> str | None:
     try:
         matches = json.loads(result).get("matches") or []
@@ -124,13 +135,16 @@ def _delay(text: str, calls: list[tuple[str, str]], messages: list[dict]) -> dic
         cause = _CAUSE.search(text)
         return _call(_DELAY, {"activity_id": activity, "days": int(days.group(1)) if days else 1,
                               "cause": cause.group(1) if cause else "대화에서 말한 지연"}, messages)
+    if name == _DELAY and (error := _error_of(result)):
+        return _body(FAILED_TEXT.format(what="지연을 기록하지", error=error))
     return _body(DELAY_DONE_TEXT if name == _DELAY else NOT_FOUND_TEXT)
 
 
 def _recovery(text: str, calls: list[tuple[str, str]], messages: list[dict]) -> dict:
     """만회를 말한 턴: 단축안 → 글."""
     if calls:
-        return _body(RECOVERY_DONE_TEXT)
+        error = _error_of(calls[-1][1])
+        return _body(FAILED_TEXT.format(what="만회안을 만들지", error=error) if error else RECOVERY_DONE_TEXT)
     days = _DAYS.search(text)
     return _call(_SHORTEN, {"target_days": int(days.group(1))} if days else {}, messages)
 

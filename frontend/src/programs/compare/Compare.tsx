@@ -120,8 +120,13 @@ function Board({ scheduleId, params }: { scheduleId: number; params?: Record<str
   // 보내기·버리기 뒤에는 위 줄로 포커스를 옮긴다(겹화면을 연 단추가 사라지거나 꺼져 body 로 떨어지지 않게).
   const toolsRef = useRef<HTMLDivElement>(null);
   const [focusTools, setFocusTools] = useState(0);
+  // 포커스를 위 줄로 옮긴 뒤에 할 일(보내기 뒤 승인함 열기). 겹화면이 닫히며 돌려준 포커스까지 끝난 다음이라 승인함이 앞에 남는다.
+  const afterFocus = useRef<(() => void) | null>(null);
   useEffect(() => {
-    if (focusTools) toolsRef.current?.focus();
+    if (!focusTools) return;
+    toolsRef.current?.focus();
+    afterFocus.current?.();
+    afterFocus.current = null;
   }, [focusTools]);
   const d = useCompareData(scheduleId, pick.base, pick.other, seen.n);
   const sides = d.summary.kind === 'ready' ? d.summary.data : [];
@@ -132,7 +137,8 @@ function Board({ scheduleId, params }: { scheduleId: number; params?: Record<str
   const labelOf = (ref: string) => known.find((s) => s.ref === ref)?.label ?? FIXED_LABEL[ref] ?? (ref.startsWith('v:') ? `버전 ${ref.slice(2)}` : ref);
   const ask = (kind: 'submit' | 'discard') => copy && setModal({ kind, sid: scenarioId(copy.ref)!, name: copy.label });
   const close = () => setModal(null);
-  const after = (next: string | null, base?: string) => {
+  const after = (next: string | null, base?: string, then?: () => void) => {
+    afterFocus.current = then ?? null;
     setPick((p) => ({ base: base ?? p.base, other: next }));
     setModal(null);
     setFocusTools((n) => n + 1);
@@ -167,7 +173,7 @@ function Board({ scheduleId, params }: { scheduleId: number; params?: Record<str
       {/* 겹화면은 굴러가는 칸 밖(창 본문에 고정) — 아래로 굴린 뒤 열어도 보인다. */}
       {modal?.kind === 'whatif' && <WhatIfDialog onClose={close} />}
       {modal?.kind === 'submit' && (
-        <SubmitDialog scheduleId={scheduleId} scenarioId={modal.sid} name={modal.name} onClose={close} onSent={() => after(`s:${modal.sid}`)} onStale={d.reload} />
+        <SubmitDialog scheduleId={scheduleId} scenarioId={modal.sid} name={modal.name} onClose={close} onSent={(approvalId) => after(`s:${modal.sid}`, undefined, () => useWindows.getState().open('approvals', { id: String(approvalId) }))} onStale={d.reload} />
       )}
       {modal?.kind === 'discard' && (
         <DiscardDialog

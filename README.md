@@ -18,10 +18,10 @@
 | ![조건 미리 보기](docs/demo/shots/04-조건-크레인2-미리보기.png) | ![간트 점선](docs/demo/shots/05-간트-점선-미리보기.png) |
 | **대화로 일정 만들기 → 질문지** | **바탕화면 · 주의할 일정** |
 | ![질문지](docs/demo/shots/07-대화-질문지.png) | ![바탕화면](docs/demo/shots/02-바탕화면.png) |
-| **대화로 지연 기록 → 지연 영향(코드 계산)** | **만회안 카드 · 비교판(같은 차트·여러 안 요약)** |
-| ![지연 영향](docs/demo/shots/b2-02-대화-지연영향.png) | ![만회안](docs/demo/shots/b2-04-대화-만회안.png) |
+| **대화로 지연 기록 → 지연 영향(코드 계산)** | **만회안 카드 → 비교판(같은 차트·여러 안 요약)** |
+| ![지연 영향](docs/demo/shots/b2-02-대화-지연영향.png) | ![만회안](docs/demo/shots/b2-05-대화-만회안.png) |
 | **CPM 요약 줄(만회 계획 달성률)** | **생산 일정 간트 — 자원별 묶음·「프레스 작업 금지」 띠** |
-| ![CPM 요약](docs/demo/shots/b2-07-CPM-요약.png) | ![생산 간트](docs/demo/shots/b2-10-생산간트-자원묶음.png) |
+| ![CPM 요약](docs/demo/shots/b2-08-CPM-요약.png) | ![생산 간트](docs/demo/shots/b2-10-생산간트-자원묶음.png) |
 
 화면은 `bash scripts/e2e-local.sh`(아래 「시험」)가 1920×1080 으로 찍었다(`E2E_SHOTS_DIR` 로 `docs/demo/shots/` 를 줄 때). 예시 일정 「5층 사무동 신축」·「가상 부품 공장 — 브래킷 BR-200 2만 개」는 가상이다. 장면 순서와 말은 `docs/demo/시나리오.md`.
 
@@ -115,7 +115,7 @@ cd frontend && PLAYWRIGHT_BROWSERS_PATH="$PWD/.playwright-browsers" PLAYWRIGHT_S
 
 - 서버 끝에서 끝까지(`backend/tests/e2e/test_generate_flow.py`): 대화 → 질문지 → 생성(3회차 통과) → 승인 → 조건 미리 보기(크레인 2대) → 확정·승인 → 버전 1로 되돌리기. LLM 은 대본 가짜(`ScriptedLlm`).
 - 서버 끝에서 끝까지 묶음 2(`backend/tests/e2e/test_bundle2_flow.py`): 씨앗 두 일정 → 대화 "지상 골조가 비 때문에 3일 늦어졌어"(고른 작업 A1210) → `schedule.find` → `delay.record`(준공 +3일) → "만회 계획 만들어 줘" → `shorten.make`(목표 도달 안 있음·위반 0) → 추천 안 제출·승인 → 버전 3·지연 반영됨 → 공정률 · 개발 콘솔 두 턴 · 생산 일정은 자원별 간트. LLM 은 앱 안 가짜(`app/llm/fake.py` 의 묶음 2 대본).
-- 화면 끝에서 끝까지(`frontend/e2e/demo.spec.ts` 묶음 1, `frontend/e2e/bundle2.spec.ts` 묶음 2 — 지연 → 영향 → 만회안 → 비교판 → 승인 → CPM·공정률 → 개발 콘솔 → 생산 간트): `e2e-local.sh` 가 임시 폴더에 예시 일정을 넣고, 서버를 `CHRONOS_FAKE_LLM=1`(시험·시연 전용 가짜 Liner, `backend/app/llm/fake.py`)로 8310·5700 포트에 띄워 돈다. 이 시험의 흐름은 Liner 를 부르지 않고 `data/` 를 건드리지 않는다. 가짜는 Chat Completions(`LlmClient`)만 바꾼다 — 근거 검색·MCP·연결 시험·시각화는 불리면 그대로 Liner 로 나간다.
+- 화면 끝에서 끝까지(`frontend/e2e/demo.spec.ts` 묶음 1, `frontend/e2e/bundle2.spec.ts` 묶음 2 — 지연 → 영향 → 공정률 → 만회안 → 비교판 → 승인 → CPM 달성률 → 개발 콘솔 → 생산 간트): `e2e-local.sh` 가 임시 폴더에 예시 일정을 넣고, 서버를 `CHRONOS_FAKE_LLM=1`(시험·시연 전용 가짜 Liner, `backend/app/llm/fake.py`)로 8310·5700 포트에 띄워 돈다. 이 시험의 흐름은 Liner 를 부르지 않고 `data/` 를 건드리지 않는다. 가짜는 Chat Completions(`LlmClient`)만 바꾼다 — 근거 검색·MCP·연결 시험·시각화는 불리면 그대로 Liner 로 나간다.
 
 ## 문서
 
