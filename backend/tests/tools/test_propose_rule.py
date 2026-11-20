@@ -248,3 +248,21 @@ def test_a_rejected_rule_is_proposed_again_with_rules_propose():
     assert "rules__propose" in rule and "out__submit_change" not in rule
     change = rejection_text({"approval_id": 4, "title": "B 기간 4일", "note": "안 됨"})
     assert "out__submit_change" in change and "rules__propose" not in change
+
+
+async def test_schedule_rule_summary_has_the_rule_in_the_row_and_the_event(ctx_sid, session, events):
+    r = await call("rules.propose", SCHEDULE_RULE, ctx_sid)
+    session.flush()
+    session.expire_all()
+    row = session.get(Approval, r.output["approval_id"])
+    rule = {"scope": "schedule", "domain": "construction", "text": TEXT, "kind": "max_duration", "params": {"days": 10}}
+    assert row.summary_json["rule"] == rule and "changed_count" in row.summary_json  # propose 요약은 그대로
+    assert [e.type for e in events] == ["approval"] and events[0].data["summary"]["rule"] == rule
+
+
+async def test_auto_applied_schedule_rule_card_has_the_rule(ctx_sid, session, events):
+    set_approval_mode(session, "auto")
+    r = await call("rules.propose", SCHEDULE_RULE, ctx_sid)
+    assert r.output["applied"] is True
+    assert session.get(Approval, r.output["approval_id"]).summary_json["rule"]["scope"] == "schedule"
+    assert [e.data.get("kind") for e in events] == ["auto_applied"] and events[0].data["summary"]["rule"]["text"] == TEXT
