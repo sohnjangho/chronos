@@ -1,0 +1,38 @@
+/* 묶음 2 카드(근거·실적·지연 영향·만회안·복사본·내 규칙). 값은 tokens.css 변수만 쓴다.
+   넘침 막기: 줄은 flex-wrap, 칸은 min-width:0, 긴 제목·주소·이름은 .ch-wrap 으로 줄을 바꾼다. */
+.ch-meta { color: var(--fg-muted); font-size: var(--fs-12); }
+.ch-note { color: var(--fg-muted); font-size: var(--fs-12); }
+.ch-error { color: var(--danger-text); }
+.ch-cite { flex: none; color: var(--accent-text); font-size: var(--fs-12); font-weight: 500; }
+.ch-cites { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: baseline; }
+
+.ch-evidence { gap: 8px; }
+.ch-evidence li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.ch-evidence a { min-width: 0; color: var(--accent-text); font-weight: 500; }
+.ch-evidence .ch-meta { flex-basis: 100%; }
+
+.ch-late {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 10px;
+  border-radius: var(--radius-2);
+  background: var(--tone-danger-bg);
+  color: var(--danger-text);
+}
+.ch-late > span { flex: 1; min-width: 0; font-weight: 500; }
+
+.ch-shorten-list { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; }
+.ch-option { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-3); }
+.ch-option.is-pick { border-color: var(--accent); }
+.ch-option-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.ch-option-h b { min-width: 0; }
+.ch-facts { display: flex; flex-wrap: wrap; gap: 2px 12px; min-width: 0; font-size: var(--fs-12); }
+.ch-facts .is-bad { color: var(--danger-text); }
+.ch-facts .is-good { color: var(--success-text); }
+.ch-option details summary { cursor: pointer; color: var(--fg-muted); font-size: var(--fs-12); }
+.ch-option details ul { margin: 4px 0 0; padding-left: 16px; font-size: var(--fs-12); }
+.ch-option .ch-actions { justify-content: flex-end; }
+
+.ch-rule { min-width: 0; }

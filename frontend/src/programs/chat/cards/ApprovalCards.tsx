@@ -3,7 +3,7 @@ import { useWindows } from '../../../os/windowStore';
 import Badge, { type Tone } from '../../../shared/ui/Badge';
 import Button from '../../../shared/ui/Button';
 import { getApproval, type ApprovalState } from '../chatApi';
-import { asList, asNum, asText, Card, reasonLabel, reasonTone, SummaryLines, type CardProps } from './Card';
+import { asList, asNum, asObj, asText, Card, reasonLabel, reasonTone, ruleLine, SummaryLines, type CardProps } from './Card';
 
 const by = (name: string | null) => (name ? ` · ${name}` : '');
 
@@ -40,12 +40,13 @@ function useApprovalState(id: number | null): ApprovalState | null {
   return state;
 }
 
-/** 승인 요청(approval 사건, Task 11): 제목·사유 배지·요약 숫자·지금 결정·[승인함에서 보기]. */
+/** 승인 요청(approval 사건, Task 11): 제목·사유 배지·내 규칙(summary.rule, Task 35)·요약 숫자·지금 결정·[승인함에서 보기]. */
 export function ApprovalCard({ data }: CardProps) {
   const id = asNum(data.id);
   const reasons = asList(data.reasons).map(asText).filter(Boolean);
   const state = useApprovalState(id);
   const decided = state && decision(state);
+  const rule = ruleLine(asObj(data.summary).rule);
   return (
     <Card title="승인 요청" extra={decided ? <Badge tone={decided[1]}>{decided[0]}</Badge> : '승인함에서 결정을 기다립니다'}>
       <p className="ch-card-title ch-wrap">{asText(data.title)}</p>
@@ -58,6 +59,7 @@ export function ApprovalCard({ data }: CardProps) {
           ))}
         </div>
       )}
+      {rule && <p className="ch-wrap">{rule}</p>}
       <SummaryLines summary={data.summary} />
       {id !== null && (
         <div className="ch-actions">

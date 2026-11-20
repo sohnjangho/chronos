@@ -1,9 +1,23 @@
 import Badge from '../../../shared/ui/Badge';
 import { dotDate } from '../labels';
 import { asList, asNum, asObj, asText, Card, type CardProps } from './Card';
+import './cards2.css';
+
+/** 가정을 받친 근거 번호(evidence_id) — 대화 글의 "[근거 n]" 과 근거 카드의 번호와 같다. */
+function Cites({ ids }: { ids: unknown }) {
+  const list = asList(ids).map(asNum).filter((n): n is number => n !== null);
+  if (list.length === 0) return null;
+  return (
+    <span className="ch-cites">
+      {list.map((n) => (
+        <span key={n} className="ch-cite">{`[근거 ${n}]`}</span>
+      ))}
+    </span>
+  );
+}
 
 /**
- * 생성 결과 카드(generate.run 의 generation_result): 준공·액티비티·크리티컬·가정·남은 위반·점검하지 않은 조건.
+ * 생성 결과 카드(generate.run 의 generation_result): 준공·액티비티·크리티컬·가정(받친 근거 번호)·남은 위반·점검하지 않은 조건.
  * 자동 점검 안 된 조건은 따로 세고 통과라고 쓰지 않는다.
  */
 export default function ResultCard({ data }: CardProps) {
@@ -29,6 +43,7 @@ export default function ResultCard({ data }: CardProps) {
         {assumptions.map((a, i) => (
           <li key={i} className="ch-wrap">
             가정: {asText(a.label)} <b>{asText(a.value)}</b>
+            <Cites ids={a.evidence_ids} />
           </li>
         ))}
         {violations.length > 0 && <li>남은 위반 {violations.length}개</li>}

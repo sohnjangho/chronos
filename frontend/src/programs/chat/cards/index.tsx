@@ -2,11 +2,17 @@
 // 모르는 종류나 그리다 실패한 카드는 한 줄짜리 중립 카드로 보인다(대화는 계속).
 import { Component, type ComponentType, type ReactNode } from 'react';
 import Button from '../../../shared/ui/Button';
+import ActualCard from './ActualCard';
 import { ApprovalCard, AutoAppliedCard } from './ApprovalCards';
 import { asNum, asText, Card, OpenQuestionnaire, type CardCtx, type CardProps } from './Card';
+import DelayImpactCard from './DelayImpactCard';
+import EvidenceCard from './EvidenceCard';
 import GenerationCard from './GenerationCard';
 import MiniQuestionsCard from './MiniQuestionsCard';
 import ResultCard from './ResultCard';
+import RuleSavedCard from './RuleSavedCard';
+import ScenarioCard from './ScenarioCard';
+import ShortenCard from './ShortenCard';
 
 function QuestionnaireCard({ data, ctx }: CardProps) {
   return (
@@ -39,6 +45,12 @@ export const CARDS: Record<string, ComponentType<CardProps>> = {
   'card:auto_applied': AutoAppliedCard,
   'card:answers_filled': AnswersFilledCard,
   'card:mini_questions': MiniQuestionsCard,
+  'card:evidence': EvidenceCard,
+  'card:actual_recorded': ActualCard,
+  'card:delay_impact': DelayImpactCard,
+  'card:shorten_options': ShortenCard,
+  'card:scenario_created': ScenarioCard,
+  'card:rule_saved': RuleSavedCard,
   approval: ApprovalCard,
   questionnaire: QuestionnaireCard,
 };
