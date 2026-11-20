@@ -178,3 +178,33 @@ async def test_find_output_and_order(ctx, session):
 
 async def test_find_nothing(ctx_ab):
     assert (await call("schedule.find", {"query": "없는것"}, ctx_ab)).output == {"matches": []}
+
+
+# --- Fix round 1 -------------------------------------------------------------------------------------------
+
+
+async def test_no_data_date_saves_today_to_the_schedule(ctx_ab, session, sid_ab, monkeypatch):  # I1
+    monkeypatch.setattr(context, "today", lambda: date(2027, 3, 3))
+    o = await record({"activity_id": "A", "progress": 0.2}, ctx_ab)
+    assert (o["activity"]["ef"], o["activity"]["status"]) == ("2027-03-08", "late +1")
+    assert o["delay"] == {"activity_id": "A", "late_days": 1, "finish_delta": 1}
+    assert o["assumed"][0] == "Data Date를 오늘(2027-03-03)로 두었습니다."
+    assert load(session, sid_ab)[0].data_date == date(2027, 3, 3)
+
+
+async def test_milestone_done_starts_on_its_finish(ctx, session):  # M1
+    sid = store(session, make([task("A", 5), task("M", 0, kind="finish_ms")], [Relation("A", "M")]))
+    o = await record({"activity_id": "M", "progress": 1, "data_date": DD}, replace(ctx, schedule_id=sid))
+    assert (o["activity"]["actual_start"], o["activity"]["actual_finish"]) == (DD, DD)
+    assert o["assumed"] == ["실제 종료일을 Data Date 2027-03-03로 두었습니다."]
+
+
+async def test_finish_only_fills_a_start_not_after_the_finish(ctx_ab):  # M2: B ES 3/8 > DD 3/3
+    o = await record({"activity_id": "B", "actual_finish": "2027-03-02", "data_date": DD}, ctx_ab)
+    assert (o["activity"]["actual_start"], o["activity"]["actual_finish"]) == ("2027-03-02", "2027-03-02")
+    assert o["assumed"] == ["실제 시작일을 2027-03-02로 두었습니다(실제 종료일)."]
+
+
+async def test_data_date_out_of_range_is_refused(ctx_ab, session, sid_ab):  # M3
+    r = await call("schedule.record_actual", {"activity_id": "A", "progress": 0.5, "data_date": "2200-01-01"}, ctx_ab)
+    assert r.error.startswith("입력 형식 오류: data_date") and current_version(session, sid_ab) == 1

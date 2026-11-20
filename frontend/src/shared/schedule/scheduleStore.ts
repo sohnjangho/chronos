@@ -64,6 +64,8 @@ export interface ScheduleState {
   setDataDate(date: string | null): Promise<boolean>;
   /** 가중치 방식 바꾸기. 버전 밖이라 되돌리기에 쌓지 않고, 바꾼 뒤 일정을 다시 읽는다. */
   setWeightMode(mode: WeightMode): Promise<boolean>;
+  /** 마지막 고침의 지연 알림을 닫는다(이 일정을 보는 모든 창에서, 다음 고침까지). */
+  dismissChange(): void;
   undoLast(): Promise<boolean>;
   redoLast(): Promise<boolean>;
   select(aid: string | null, by?: string | null): void;
@@ -243,9 +245,9 @@ function makeStore(id: number): ScheduleStore {
         if (ok) set({ notice: { tone: 'info', text: `${aid} 을(를) 지웠습니다. 되돌리기로 살릴 수 있습니다.` } });
         return ok;
       },
-      setDataDate: async (date) =>
-        (await change((view) => () => sapi.patchSchedule(id, { data_date: date, base_version: view.version }))) !== null,
+      setDataDate: async (data_date) => (await change((view) => () => sapi.patchSchedule(id, { data_date, base_version: view.version }))) !== null,
       setWeightMode: (mode) => w.sideWrite(() => sapi.putWeightMode(id, mode)),
+      dismissChange: () => set({ lastChange: null }),
       undoLast: () => travel('undo'),
       redoLast: () => travel('redo'),
       select: (aid, by = null) => set((s) => ({ selected: aid, selectedBy: aid === null ? null : by, selectedN: s.selectedN + 1 })),

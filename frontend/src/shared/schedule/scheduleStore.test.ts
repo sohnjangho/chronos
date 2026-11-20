@@ -224,3 +224,18 @@ test('a write that moves the version is kept as the last change (with the edited
   await store().setDataDate('2027-06-08');
   expect(store().lastChange).toMatchObject({ after: { version: 3 }, aid: null });
 });
+
+test('a reload takes the last change away (409 refetch or a version from elsewhere)', async () => {
+  await store().load();
+  mockPatch(makeView({ version: 2 }));
+  await store().patchActivity('A2020', { progress: 0.2 });
+  expect(store().lastChange).not.toBeNull();
+  server.view = makeView({ version: 5 });
+  await store().load();
+  expect(store().lastChange).toBeNull();
+  mockPatch(makeView({ version: 6 }));
+  await store().patchActivity('A2020', { progress: 0.3 });
+  mockPatch(409, { code: 'version_conflict', message: 'x', detail: { current: 7 } });
+  await store().patchActivity('A2020', { progress: 0.4 });
+  expect(store().lastChange).toBeNull();
+});

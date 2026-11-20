@@ -1,9 +1,9 @@
 // 실적 입력(Task 30): 머리줄 Data Date 고치기 · 가중치 방식과 직접 입력 · 지연 알림.
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useWindows } from '../../os/windowStore';
-import { forgetSchedules } from '../../shared/schedule/scheduleStore';
+import { forgetSchedules, holdSchedule, scheduleStore } from '../../shared/schedule/scheduleStore';
 import type { ScheduleView } from '../../shared/schedule/scheduleApi';
 import { cell, editCell, lastBody, loadSpy, makeView, mockPatch, mockWeightMode, renderSchedule, schedule, setup, toolbar, viewWith, writes } from './testKit';
 
@@ -98,8 +98,11 @@ describe('가중치', () => {
     setup(withActivities({ weight_mode: 'manual', summary: { ...SUMMARY, weight_missing: 9 } }, { A2020: { manual_weight: 30 } }));
     useWindows.setState({ open: openSpy } as never);
     await renderSchedule();
-    expect(cell('A2020', '가중치(%)')).toHaveTextContent('30');
-    expect(cell('A3010', '가중치(%)')).toHaveTextContent('');
+    expect(cell('A2020', '가중치(%)')).toHaveTextContent(/^30 \(20\.2%\)$/); // 넣은 값 (정규화한 %, 묶음 줄과 같은 단위)
+    expect(cell('A3010', '가중치(%)')).toHaveTextContent(/^$/);
+    await userEvent.dblClick(cell('A2020', '가중치(%)'));
+    expect(within(cell('A2020', '가중치(%)')).getByRole('textbox')).toHaveValue('30');
+    await userEvent.keyboard('{Escape}');
     expect(within(toolbar()).getByRole('combobox', { name: '가중치' })).toHaveValue('manual');
     await editCell('A3010', '가중치(%)', '12.5');
     expect(lastBody()).toEqual({ manual_weight: 12.5, base_version: 1 });
@@ -126,7 +129,7 @@ describe('지연 알림', () => {
     await editCell('A2020', '진도(%)', '20');
     expect(await screen.findByText('A2020 이(가) Plan보다 3일 더 늦어졌습니다.')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: '지연 기록 열기' }));
-    expect(openSpy).toHaveBeenCalledWith('delays', { id: '1', activity: 'A2020', days: '3' });
+    expect(openSpy).toHaveBeenCalledWith('delays', { id: '1', activity: 'A2020', days: '3', before: '1' });
     expect(screen.queryByRole('button', { name: '지연 기록 열기' })).toBeNull();
   });
 
@@ -138,6 +141,30 @@ describe('지연 알림', () => {
     await userEvent.click(screen.getByRole('button', { name: '닫기' }));
     expect(screen.queryByText(/늦어졌습니다/)).toBeNull();
     expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  test('a closed notice stays closed when the window is opened again, and a new change shows again', async () => {
+    const release = holdSchedule(scheduleStore(1), 'w2'); // 간트 창이 같은 일정을 잡고 있다
+    const first = await renderSchedule();
+    mockPatch(withActivities({ version: 2 }, { A3010: { status: 'late +2' } }));
+    await editCell('A3010', 'OD', '40');
+    await userEvent.click(await screen.findByRole('button', { name: '닫기' }));
+    first.unmount();
+    await renderSchedule();
+    expect(screen.queryByText(/늦어졌습니다/)).toBeNull();
+    mockPatch(withActivities({ version: 3 }, { A3010: { status: 'late +4' } }));
+    await editCell('A3010', 'OD', '42');
+    expect(await screen.findByText('A3010 이(가) Plan보다 2일 더 늦어졌습니다.')).toBeVisible();
+    release();
+  });
+
+  test('a reload (409 or a change from elsewhere) takes the notice away', async () => {
+    await renderSchedule();
+    mockPatch(withActivities({ version: 2 }, { A3010: { status: 'late +2' } }));
+    await editCell('A3010', 'OD', '40');
+    expect(await screen.findByText(/늦어졌습니다/)).toBeVisible();
+    await act(() => schedule().load());
+    expect(screen.queryByText(/늦어졌습니다/)).toBeNull();
   });
 
   test('nothing is shown when no activity got later', async () => {

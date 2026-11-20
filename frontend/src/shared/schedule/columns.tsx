@@ -29,6 +29,8 @@ export interface ColumnDef {
   /** 고치는 방법. 없으면 읽기 전용. */
   edit?: 'text' | 'kind' | 'wbs';
   text(c: CellCtx): string;
+  /** 고치기 칸의 처음 글(없으면 text). 보이는 글에 덧붙인 것이 있을 때. */
+  editText?(c: CellCtx): string;
   render?(c: CellCtx): ReactNode;
   className?(c: CellCtx): string | undefined;
 }
@@ -74,11 +76,16 @@ export const COLUMNS: ColumnDef[] = [
   { key: 'resources', header: '주요 자원', width: 140, optional: true, text: (c) => c.resources },
 ];
 
-/** 가중치 방식이 직접 입력(manual)일 때의 가중치 칸: 넣은 값을 보이고 고칠 수 있다(비어 있으면 넣지 않은 것). */
+/**
+ * 가중치 방식이 직접 입력(manual)일 때의 가중치 칸: 「넣은 값 (정규화한 %)」 — 예 「8 (40%)」. 괄호 안이 WBS 묶음 줄 합계와
+ * 같은 단위(서버 weight)다. 넣지 않았으면 빈칸. 고칠 때는 넣은 값만 보인다.
+ */
 export const MANUAL_WEIGHT: ColumnDef = {
   ...COLUMNS.find((c) => c.key === 'weight')!,
+  width: 124, // 「12.5 (13.3%)」 이 잘리지 않게
   edit: 'text',
-  text: (c) => num(c.a.manual_weight ?? null),
+  text: (c) => (c.a.manual_weight == null ? '' : `${c.a.manual_weight} (${percent(c.a.weight)}%)`),
+  editText: (c) => num(c.a.manual_weight ?? null),
 };
 
 /** 늘 보이는 칸(열 고르기에 없다). */

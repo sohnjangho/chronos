@@ -47,7 +47,9 @@ export function reader(id: number, get: GetState, set: SetState, q: Queue) {
     const seq = ++q.loadSeq;
     try {
       const view = await sapi.getSchedule(id);
-      if (seq === q.loadSeq) apply(view);
+      if (seq !== q.loadSeq) return;
+      apply(view);
+      set({ lastChange: null }); // 다시 읽은 일정(409·다른 곳의 고침)에는 이 창 고침의 지연 알림을 두지 않는다
     } catch (e) {
       if (seq !== q.loadSeq) return;
       // 보던 일정이 있으면 그대로 두고 알림만, 없으면 화면에 오류를 보인다.

@@ -74,7 +74,7 @@ function Row(p: RowProps) {
       {p.columns.map((col) => {
         const editing = p.editingCol === col.key;
         const text = col.text(ctx);
-        const initial = col.edit === 'kind' ? p.activity.kind : col.edit === 'wbs' ? p.activity.wbs : text;
+        const initial = col.edit === 'kind' ? p.activity.kind : col.edit === 'wbs' ? p.activity.wbs : (col.editText?.(ctx) ?? text);
         const classes = [pinClass(col.key), col.align === 'right' && 'num', col.edit && 'editable', p.activeCol === col.key && 'active', col.className?.(ctx)];
         return (
           <td

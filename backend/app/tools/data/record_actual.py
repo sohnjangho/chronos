@@ -1,9 +1,11 @@
 """schedule.record_actual — 사용자가 말한 실적(진도·실제 시작·실제 종료)을 일정에 넣는다. 바로 반영하고 되돌릴 수 있다.
 
 빈칸은 코드가 채우고 assumed 에 적는다(LLM 은 날짜를 계산하지 않는다):
-- Data Date = 인자 → 일정의 data_date → context.today(). 인자가 있고 일정 것과 다르면 일정 data_date 도 바꾼다.
-- actual_finish 가 있으면 진도 1. 진도 > 0 인데 실제 시작이 없으면 지금 계산 ES(≤ Data Date) 또는 Data Date.
-  진도 1 인데 실제 종료가 없으면 Data Date. 진행 중(task)이면 rd = max(1, ceil(od × (1 − 진도))).
+- Data Date = 인자 → 일정의 data_date → context.today(). 인자가 있고 일정 것과 다르면 일정 data_date 도 바꾸고,
+  일정에 Data Date 가 없어 오늘로 정했으면 그것도 일정에 넣는다(남은 기간을 Data Date 부터 세게 — 컨트롤러 판정).
+- actual_finish 가 있으면 진도 1. 진도 1 인데 실제 종료가 없으면 Data Date. 진도 > 0 인데 실제 시작이 없으면
+  min(지금 계산 ES 또는 ES 가 Data Date 뒤면 Data Date, 실제 종료). 마일스톤은 시작 = 종료.
+  진행 중(task)이면 rd = max(1, ceil(od × (1 − 진도))).
 - 실적 날짜 > Data Date · 종료 < 시작 · 마일스톤 진도 0·1 밖 · 없는 id 는 ToolError.
 저장은 propose(kind change, force_auto=True) — 준공이 바뀌어도 바로 반영하고 승인 표에 auto·restore_to 줄을 남긴다.
 지연: 그 액티비티의 Plan 대비 늦음(근무일)이 저장 뒤에 늘었으면 delay = {activity_id, late_days(는 일수), finish_delta}.
@@ -13,6 +15,7 @@
 from dataclasses import replace
 from datetime import date
 from math import ceil
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -28,6 +31,9 @@ from app.store.view import view_data
 from app.tools.context import ToolContext, ToolError, explained_schedule_errors
 from app.tools.registry import tool
 
+# programs.schedule.schemas.DataDate 와 같은 범위(1900~2199, 조건 날짜와 같음). 도구가 programs 를 import 하지 않게 따로 둔다.
+DataDate = Annotated[date, Field(ge=date(1900, 1, 1), le=date(2199, 12, 31))]
+
 NEED_ONE_MESSAGE = "progress·actual_start·actual_finish 가운데 적어도 하나가 있어야 합니다."
 ORDER_MESSAGE = "실제 종료일이 실제 시작일보다 앞설 수 없습니다."
 MILESTONE_MESSAGE = "마일스톤은 진도 0 또는 1만 넣을 수 있습니다."
@@ -40,7 +46,7 @@ class RecordActualIn(BaseModel):
     progress: float | None = Field(default=None, ge=0, le=1, description="진도 0~1(60% 는 0.6). 말하지 않았으면 null")
     actual_start: date | None = Field(default=None, description="실제 시작일(날짜 도우미의 날짜). 모르면 null")
     actual_finish: date | None = Field(default=None, description="실제 종료일(날짜 도우미의 날짜). 모르면 null")
-    data_date: date | None = Field(default=None, description="실적 기준일. 말하지 않았으면 null(일정 Data Date → 오늘)")
+    data_date: DataDate | None = Field(default=None, description="실적 기준일. 말하지 않았으면 null(일정 Data Date → 오늘)")
 
     @model_validator(mode="after")
     def _one_actual(self) -> "RecordActualIn":
@@ -85,11 +91,13 @@ class RecordActualOut(BaseModel):
     after_version: int
 
 
-def _start(a: Activity, progress: float, start: date | None, es: date, dd: date, assumed: list[str]) -> date | None:
-    """진도가 있는데 실제 시작이 없으면 계산 ES(≤ Data Date) 또는 Data Date."""
-    if progress <= 0 or start is not None:
+def _start(start: date | None, finish: date | None, es: date, dd: date, assumed: list[str]) -> date:
+    """실제 시작이 없을 때: 계산 ES(≤ Data Date) 또는 Data Date, 실제 종료가 그보다 앞서면 실제 종료."""
+    if start is not None:
         return start
     start, why = (es, "계획 시작일") if es <= dd else (dd, "Data Date")
+    if finish is not None and finish < start:
+        start, why = finish, "실제 종료일"
     assumed.append(f"실제 시작일을 {start.isoformat()}로 두었습니다({why}).")
     return start
 
@@ -100,15 +108,23 @@ def _filled(a: Activity, args: RecordActualIn, es: date, dd: date) -> tuple[Acti
     if finish is None and (args.progress is None or args.progress >= 1):
         finish = a.actual_finish  # 진도를 1 밑으로 말하면 끝나지 않은 것이다
     progress = 1.0 if finish is not None else (a.progress if args.progress is None else args.progress)
-    if a.kind != "task" and progress not in (0, 1):
+    milestone = a.kind != "task"
+    if milestone and progress not in (0, 1):
         raise ToolError(MILESTONE_MESSAGE)
     assumed: list[str] = []
-    start = _start(a, progress, args.actual_start or a.actual_start, es, dd, assumed)
+    finish_note = None
     if progress >= 1 and finish is None:
         finish = dd
-        assumed.append(f"실제 종료일을 Data Date {dd.isoformat()}로 두었습니다.")
+        finish_note = f"실제 종료일을 Data Date {dd.isoformat()}로 두었습니다."
+    start = args.actual_start or a.actual_start
+    if milestone and finish is not None:
+        start = finish  # 마일스톤은 한 시점이다
+    elif progress > 0:
+        start = _start(start, finish, es, dd, assumed)
+    if finish_note:
+        assumed.append(finish_note)
     rd = None if finish is not None else a.rd
-    if a.kind == "task" and start is not None and finish is None:
+    if not milestone and start is not None and finish is None:
         rd = max(1, ceil(round(a.od * (1 - progress), 6)))
         assumed.append(f"남은 기간을 {rd}일로 두었습니다(원래 기간 × (1 − 진도)).")
     return replace(a, progress=progress, actual_start=start, actual_finish=finish, rd=rd), assumed
@@ -171,8 +187,10 @@ def record_actual(args: RecordActualIn, ctx: ToolContext) -> RecordActualOut:
         dd = args.data_date or schedule.data_date or context.today()
         updated, assumed = _filled(target, args, _row(before_view, target.id)["es"], dd)
         _checked(updated, dd)
+        if args.data_date is None and schedule.data_date is None:
+            assumed.insert(0, f"Data Date를 오늘({dd.isoformat()})로 두었습니다.")
         after = replace(schedule, activities=tuple(updated if a.id == target.id else a for a in schedule.activities),
-                        data_date=args.data_date or schedule.data_date)
+                        data_date=dd)
         approval_id = _save(ctx, schedule_id, schedule, after, conditions, n,
                             f"{target.id} 실적 {round(updated.progress * 100, 1):g}%")
         after_view = view_data(ctx.session, schedule_id)
