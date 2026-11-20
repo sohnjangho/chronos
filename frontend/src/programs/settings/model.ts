@@ -64,6 +64,24 @@ export interface Assignment {
   routing_strategy: Strategy | null;
 }
 
+/** 다시 넣기(임베딩 모델 바꾸기) 한 번. GET /api/files/reindex 의 job. */
+export interface ReindexJob {
+  id: number;
+  model: string;
+  status: 'running' | 'done' | 'failed';
+  total: number;
+  done: number;
+  started_at: string;
+  finished_at: string | null;
+}
+
+/** 지금 찾기에 쓰는 모델(active)과 배정한 모델(assigned), 마지막 다시 넣기. */
+export interface ReindexState {
+  active_model: string;
+  assigned_model: string;
+  job: ReindexJob | null;
+}
+
 export interface Account {
   id: number;
   name: string;

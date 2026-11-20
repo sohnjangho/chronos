@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { FindPanel, ModelCell, modelsOf, PriceNote, RowNote, RowFoot, StrategySelect, usePicker, withModel, type ModelLists, type RowState } from './AssignmentParts';
 import { llmApi } from './llmApi';
 import { isRouter, PURPOSES, type Assignment, type Connection, type LlmError, type ModelInfo } from './model';
 import { ErrorLine, toProblem } from './parts';
+import ReindexDialog from './ReindexDialog';
+import ReindexPanel, { reindexProblem } from './ReindexPanel';
 
 /** 대화 줄의 목록: 연결의 전체 목록에서 임베딩 모델을 뺀다. */
 function withoutEmbedding(lists: ModelLists, embedding: ModelLists): ModelLists {
@@ -66,28 +68,40 @@ interface RowProps {
   connections: Connection[];
   lists: ModelLists;
   onSaved(items: Assignment[]): void;
+  /** 임베딩 줄: 모델을 바꿔 저장했으면(다시 넣기 시작) 부른다. */
+  onReindex?(): void;
 }
 
-/** 줄 저장: 그 줄 하나만 보내고 결과를 그 줄에 둔다. */
-function useRowSave(draft: Assignment, onSaved: RowProps['onSaved']) {
+/**
+ * 줄 저장: 그 줄 하나만 보내고 결과를 그 줄에 둔다. 임베딩 줄의 503(뜻 검색 서버 꺼짐)은 오류가 아니라 상태(off),
+ * 409 already_running 은 「이미 다시 넣는 중입니다.」.
+ */
+function useRowSave(draft: Assignment, onSaved: RowProps['onSaved'], embedding: boolean, onReindex?: () => void) {
   const [state, setState] = useState<RowState>({});
   async function save() {
     setState({ busy: true });
     try {
       onSaved((await llmApi.saveAssignment(draft)).items);
       setState({ done: true });
+      onReindex?.();
     } catch (e) {
-      setState({ error: toProblem(e) });
+      const problem = embedding ? reindexProblem(e) : { error: toProblem(e) };
+      setState('off' in problem ? { off: true } : { error: problem.error });
     }
   }
   return { state, setState, save };
 }
 
-/** 배정 한 줄. 고친 줄만 [저장] 이 생기고, 저장은 그 줄 하나만 보낸다. 오류도 그 줄에 보인다. */
-function AssignmentRow({ item, connections, lists, onSaved }: RowProps) {
+/**
+ * 배정 한 줄. 고친 줄만 [저장] 이 생기고, 저장은 그 줄 하나만 보낸다. 오류도 그 줄에 보인다.
+ * 임베딩 줄에서 모델을 바꿔 저장하면 먼저 확인 창을 띄운다(자료를 전부 다시 넣으므로).
+ */
+function AssignmentRow({ item, connections, lists, onSaved, onReindex }: RowProps) {
   const [draft, setDraft] = useDraft(item, connections);
-  const { state, setState, save } = useRowSave(draft, onSaved);
   const embedding = item.purpose === 'embedding';
+  const changing = embedding && draft.model !== item.model;
+  const { state, setState, save } = useRowSave(draft, onSaved, embedding, changing ? onReindex : undefined);
+  const [asking, setAsking] = useState(false);
   const picker = usePicker(draft, lists, embedding);
   const [finding, setFinding] = useState(false);
   const { label, desc } = PURPOSES[item.purpose];
@@ -117,17 +131,34 @@ function AssignmentRow({ item, connections, lists, onSaved }: RowProps) {
       {finding && <FindPanel label={label} models={picker.all} embedding={embedding} onPick={pickFound} />}
       <RowNote list={draft.connection_id === null ? undefined : lists[draft.connection_id]} current={picker.current} embedding={embedding} />
       {(dirty || state.error || state.done) && (
-        <RowFoot state={state} dirty={dirty} canSave={canSave} onRevert={() => change(item)} onSave={save} />
+        <RowFoot state={state} dirty={dirty} canSave={canSave} onRevert={() => change(item)} onSave={changing ? () => setAsking(true) : save} />
+      )}
+      {asking && (
+        <ReindexDialog
+          from={item.model}
+          to={draft.model}
+          toInfo={picker.current}
+          busy={!!state.busy}
+          onCancel={() => setAsking(false)}
+          onConfirm={async () => {
+            await save();
+            setAsking(false);
+          }}
+        />
       )}
     </div>
   );
 }
 
-/** 작업별 모델 배정 표(4줄). 모델은 그 줄이 고른 연결의 불러온 목록에서 고르고, 라우터 모델만 기준을 고른다. */
+/**
+ * 작업별 모델 배정 표(6줄). 모델은 그 줄이 고른 연결의 불러온 목록에서 고르고, 라우터 모델만 기준을 고른다.
+ * 임베딩 줄 바로 아래에 다시 넣기 상태를 펼친다.
+ */
 export default function AssignmentTable({ connections }: { connections: Connection[] | null }) {
   const [items, setItems] = useState<Assignment[] | null>(null);
   const [error, setError] = useState<LlmError | null>(null);
   const lists = useModelLists(connections);
+  const [reindexTick, setReindexTick] = useState(0);
   // 연결 목록이 바뀌면(추가·삭제·시험) 배정도 다시 읽는다. 연결을 지우면 서버가 그 배정을 기본값으로 돌린다.
   useEffect(() => {
     if (!connections) return;
@@ -155,15 +186,16 @@ export default function AssignmentTable({ connections }: { connections: Connecti
         <span className="st-arow-std">기준</span>
       </div>
       {connections &&
-        items?.map((item) => (
-          <AssignmentRow
-            key={item.purpose}
-            item={item}
-            connections={connections}
-            lists={item.purpose === 'embedding' ? lists.embedding : lists.chat}
-            onSaved={merge}
-          />
-        ))}
+        items?.map((item) =>
+          item.purpose === 'embedding' ? (
+            <Fragment key={item.purpose}>
+              <AssignmentRow item={item} connections={connections} lists={lists.embedding} onSaved={merge} onReindex={() => setReindexTick((t) => t + 1)} />
+              <ReindexPanel tick={reindexTick} />
+            </Fragment>
+          ) : (
+            <AssignmentRow key={item.purpose} item={item} connections={connections} lists={lists.chat} onSaved={merge} />
+          ),
+        )}
       <PriceNote models={Object.values(lists.all).flatMap(modelsOf)} />
     </div>
   );

@@ -4,6 +4,7 @@ import { isRouter, STRATEGIES, type Assignment, type Connection, type LlmError, 
 import { ModelFilterBar, useModelFilter } from './ModelFilters';
 import { groupByVendor, modelLabel, priceAsOf, priceText, type VendorGroup } from './models';
 import { ErrorLine } from './parts';
+import { OFF_LINE } from './ReindexPanel';
 
 /** 한 연결의 모델 목록: 불러온 목록, 또는 불러오지 못한 까닭. 아직 오지 않았으면 없음. */
 export type ModelList = { models: ModelInfo[] } | { error: LlmError };
@@ -185,12 +186,15 @@ export interface RowState {
   busy?: boolean;
   done?: boolean;
   error?: LlmError;
+  /** 임베딩 줄 저장이 503(뜻 검색 서버 꺼짐)으로 안 됨 — 오류가 아니라 상태. */
+  off?: boolean;
 }
 
 export function RowFoot({ state, dirty, canSave, onRevert, onSave }: { state: RowState; dirty: boolean; canSave: boolean; onRevert(): void; onSave(): void }) {
   return (
     <div className="st-arow-foot">
       <ErrorLine error={state.error} />
+      {state.off && <p className="st-muted st-wrap" role="status">{`${OFF_LINE} 임베딩 모델은 바꾸지 않았습니다.`}</p>}
       {state.done && !dirty && <span className="st-ok">저장했습니다.</span>}
       {dirty && (
         <>

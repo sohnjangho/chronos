@@ -252,6 +252,7 @@
 .st-find-item:hover,
 .st-find-item:focus-visible { background: var(--bg-selected); outline: none; }
 .st-arow-foot { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; }
+.st-arow-foot > .ui-btn { flex: none; }
 .st-select {
   width: 100%;
   font: inherit;

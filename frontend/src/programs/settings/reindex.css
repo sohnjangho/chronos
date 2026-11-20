@@ -1,0 +1,64 @@
+/* ── 임베딩 다시 넣기: 확인 창(가운데)과 임베딩 줄 아래 상태 ── */
+.st-root { position: relative; }
+.st-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg-topbar) 35%, transparent);
+}
+.st-dialog {
+  width: 100%;
+  max-width: 480px;
+  max-height: 100%;
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-4);
+  background: var(--bg-panel);
+  box-shadow: var(--menu-shadow);
+}
+.st-dialog p { margin: 0; overflow-wrap: anywhere; }
+.st-dialog-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+
+.st-ri {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-3);
+  background: var(--bg-panel-alt);
+}
+.st-ri .st-facts { font-size: var(--fs-12); }
+.st-ri-steps { display: flex; flex-wrap: wrap; gap: 4px 12px; list-style: none; margin: 0; padding: 0; font-size: var(--fs-12); }
+.st-ri-step { display: flex; align-items: center; gap: 4px; color: var(--fg-muted); min-width: 0; }
+.st-ri-step i {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-style: normal;
+  font-size: var(--fs-11);
+  border: 1px solid var(--border-strong);
+}
+.st-ri-step.is-done i { border-color: var(--success-text); color: var(--success-text); }
+.st-ri-step.is-now { color: var(--fg); font-weight: 700; }
+.st-ri-step.is-now i { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.st-ri-step.is-fail { color: var(--danger-text); font-weight: 700; }
+.st-ri-step.is-fail i { border-color: var(--danger-text); }
+.st-ri-run { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.st-ri-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.st-ri-bar { height: 8px; border-radius: 4px; background: var(--bg-app); overflow: hidden; }
+.st-ri-bar > span { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
