@@ -1,5 +1,6 @@
 // 대화 카드 visual(Task 44): 도구 visual.make 의 card 사건 모양 그대로. 그림은 id 로 서버에서 읽는다.
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { signInAsDemo, stubFetch } from '../../../test-helpers';
 import { CardView, type CardCtx } from './index';
@@ -22,6 +23,17 @@ test('visual card reads the stored visual and shows it', async () => {
   await waitFor(() => expect(document.querySelector('iframe')).not.toBeNull());
   expect(String(fetchSpy.mock.calls[0][0])).toBe('/api/schedules/1/visuals/7');
   expect(screen.getByText(/숫자 대조 통과 2\/2/)).toBeVisible();
+  expect((document.querySelector('.vf-stage') as HTMLElement).style.height).toBe('460px');
+});
+
+test('크게 보기 opens the same visual in a dialog', async () => {
+  stubFetch({ '/api/schedules/1/visuals/7': VISUAL });
+  render(<CardView event="card" data={CARD} ctx={ctx} />);
+  await userEvent.click(screen.getByRole('button', { name: '크게 보기' }));
+  const dialog = screen.getByRole('dialog', { name: '보고서용 그림' });
+  await waitFor(() => expect(within(dialog).getByTitle('지연 영향')).toBeVisible());
+  await userEvent.click(within(dialog).getByRole('button', { name: '닫기' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
 });
 
 test('a fallback visual card says why', async () => {

@@ -45,8 +45,8 @@ def test_delay_impact_rows_come_from_the_delay_report(session, sid):
                   before_version=None)
     session.commit()
     t = build(session, "delay_impact", sid)
-    assert t.columns == ["작업", "지연(근무일)", "흡수(근무일)", "준공 영향(근무일)", "상태"]
-    assert t.rows == [["작업 B", 2, 0, 2, "열림"]]
+    assert t.columns == ["작업", "지연(근무일)", "흡수(근무일)", "준공 영향(근무일)"]  # 글 칸(상태)은 차트 자료가 아니라 뺀다
+    assert t.rows == [["작업 B", 2, 0, 2]]
     assert t.chart == "bars"
 
 
@@ -86,6 +86,14 @@ def test_s_curve_points_are_plan_and_actual(session, sid):
     assert t.rows[-1][1] == 100 and isinstance(t.rows[-1][1], int)  # 100.0 → 100(글자 그대로 대조)
 
 
+def test_s_curve_follows_the_asked_unit(session):
+    sid = store(session, make([task("A", 40)]))  # 3/1 ~ 4/23, 8주
+    week = visuals.build(session, "s_curve", sid, None, today=TODAY, unit="week")
+    month = visuals.build(session, "s_curve", sid, None, today=TODAY, unit="month")
+    assert len(week.rows) > len(month.rows) >= 2
+    assert week.rows[-1][1] == month.rows[-1][1] == 100
+
+
 def test_resource_load_rows(session):
     sid = store(session, make([task("A", 3, resources=("crane",)), task("B", 2, resources=("crane",))],
                               [Relation("A", "B")], [Resource("crane", "타워크레인", "대", 1)]))
@@ -121,7 +129,7 @@ def test_save_find_and_out(session, sid):
 def test_fallback_rows_are_not_found_and_hide_html(session, sid):
     t = build(session, "summary", sid)
     row = visuals.save(session, schedule_id=sid, table=t, key="k1", html="<html>틀림</html>", theme="", description="",
-                       resource_id="", verified=False, passed=5, total=6, problems=["HTML 에 없는 표 값: 작업 B"],
+                       resource_id="", verified=False, passed=5, total=6, problems=["차트 자료에 없는 표 값: 작업 B"],
                        external=[], attempts=2, fallback=True, note="Liner 그림 검증 실패 → 기본 그림", latency_ms=None,
                        created_by="김하늘")
     assert visuals.find_verified(session, sid, "k1") is None

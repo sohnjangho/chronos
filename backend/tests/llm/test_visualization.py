@@ -49,7 +49,7 @@ def test_value_missing_from_html_fails():
     changed[1][2] = "2027-04-10"  # 우리 표는 04-09
     v = verify(chart_html(changed), TABLE)
     assert not v.ok and (v.passed, v.total) == (14, 15)
-    assert "HTML 에 없는 표 값: 2027-04-09" in v.problems
+    assert "차트 자료에 없는 표 값: 2027-04-09" in v.problems
 
 
 def test_extra_date_in_data_array_fails():
@@ -113,6 +113,68 @@ def test_empty_cells_are_not_counted():
     v = verify(chart_html([["2027-03-01", 10, 5], ["2027-03-08", 20, None]], bounds=None), table)
     assert v.ok, v.problems
     assert (v.passed, v.total) == (5, 5)
+
+
+# ── 차트 자료로 세기(리뷰 I1) · 보이는 글의 숫자(I2) · 외부 주소 허용(CSP) ──
+
+DELAY = VisualTable(kind="delay_impact", title="지연 영향", columns=["작업", "지연(근무일)", "흡수(근무일)", "준공 영향(근무일)"],
+                    rows=[["골조 1층", 5, 2, 3], ["지붕 방수", 4, 4, 0]], chart="bars", version=3, data_date=date(2027, 3, 1))
+HEAD = f'<html><head><script src="{CDN[2]}"></script></head><body>'
+BAR = ("<script>\n(function(){ const ctx=1; new Chart(ctx,{type:'bar',data:{labels:['골조 1층','지붕 방수'],datasets:["
+       "{label:'지연(근무일)',data:[5,4]},{label:'흡수(근무일)',data:[2,4]},{label:'준공 영향(근무일)',data:[3,0]}]},"
+       "options:{scales:{x:{max:10}}}});})();\n</script><table><tr><td>골조 1층</td><td>5</td><td>2</td><td>3</td></tr>"
+       "<tr><td>지붕 방수</td><td>4</td><td>4</td><td>0</td></tr></table></body></html>")
+
+
+def test_reviewer_bar_chart_passes():
+    v = verify(HEAD + BAR, DELAY)
+    assert v.ok, v.problems
+    assert (v.passed, v.total) == (8, 8)
+
+
+def test_a_row_missing_from_the_chart_is_not_counted():
+    html = HEAD + BAR.replace("labels:['골조 1층','지붕 방수']", "labels:['골조 1층']").replace("data:[5,4]", "data:[5]")
+    v = verify(html, DELAY)  # 보이는 표는 다 있어도 차트 자료에 없으면 세지 않는다
+    assert not v.ok and (v.passed, v.total) == (7, 8)
+    assert "차트 자료에 없는 표 값: 지붕 방수" in v.problems
+
+
+def test_empty_series_are_not_counted():
+    v = verify(HEAD + BAR.replace("data:[2,4]", "data:[]").replace("data:[3,0]", "data:[]"), DELAY)
+    assert not v.ok and (v.passed, v.total) == (5, 8)
+    assert {"차트 자료에 없는 표 값: 2", "차트 자료에 없는 표 값: 3", "차트 자료에 없는 표 값: 0"} <= set(v.problems)
+
+
+def test_text_must_match_exactly_in_chart_data():
+    v = verify(HEAD + BAR.replace("'골조 1층','지붕 방수'", "'골조 1층(지연)','지붕 방수'"), DELAY)
+    assert "차트 자료에 없는 표 값: 골조 1층" in v.problems
+
+
+def test_a_visible_total_row_fails():
+    html = HEAD + BAR.replace("</table>", "<tr><td>합계</td><td>9</td><td>6</td><td>3</td></tr></table>")
+    v = verify(html, DELAY)
+    assert not v.ok
+    assert {"보이는 글에 표에 없는 숫자: 9", "보이는 글에 표에 없는 숫자: 6"} <= set(v.problems)
+
+
+def test_an_sr_only_count_fails():
+    html = chart_html(ROWS).replace('<canvas id="c">', '<h2 class="sr-only">총 지연 31일, 작업별 계획과 전망</h2><canvas id="c">')
+    v = verify(html, TABLE)
+    assert "보이는 글에 표에 없는 숫자: 31" in v.problems
+
+
+def test_aria_label_numbers_inside_table_text_are_fine():
+    html = chart_html(ROWS).replace('<canvas id="c">', '<canvas id="c" role="img" aria-label="골조 1층, 골조 2층의 계획과 전망">')
+    assert verify(html, TABLE).ok
+    bad = chart_html(ROWS).replace('<canvas id="c">', '<canvas id="c" aria-label="5개 작업 중 3개 지연">')
+    assert {"보이는 글에 표에 없는 숫자: 5", "보이는 글에 표에 없는 숫자: 3"} <= set(verify(bad, TABLE).problems)
+
+
+def test_external_hosts_outside_the_allowlist_fail():
+    html = chart_html(ROWS).replace("</head>", '<script src="https://cdn.example.com/x.js"></script></head>')
+    v = verify(html, TABLE)
+    assert "허용하지 않은 외부 주소: cdn.example.com" in v.problems
+    assert "https://cdn.example.com/x.js" in v.external
 
 
 # ── 요청 글 ──────────────────────────────────────────────────────────

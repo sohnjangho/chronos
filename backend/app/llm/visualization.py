@@ -5,12 +5,15 @@
   data-atlas.data.atlasArtifact = {html, theme, description, resourceId}. 약 11초.
 - 키는 기본 LLM 연결(provider liner)의 것을 서버에서 풀어 `x-api-key` 머리글로만 보낸다. 기록·예외·결과에 담지 않는다.
 - 초당 2회 한도: 호출 시작 사이를 MIN_GAP_S 이상 둔다(한 번에 하나씩).
-- 대조(verify, 컨트롤러 판정 11-20): (a) 우리 표의 모든 값·날짜가 HTML 에 그대로 있다. (b) 차트 데이터 배열
-  (`data: [...]`·`labels: [...]`·`const x = [...]`)에 표에 없는 값·날짜가 없다. (c) 축 범위(min·max·suggestedMin·
-  suggestedMax)의 날짜는 표 날짜 범위에서 한 달(31일) 안. (d) 그 밖에 HTML 어디에도 표에 없는 날짜가 없다.
+- 대조(verify, 컨트롤러 판정 11-20 · 리뷰 fix 1): (a) 우리 표의 모든 값이 차트 자료(데이터 배열의 값)에 있다 — 글은
+  똑같이, 숫자는 수로 맞춘다. 이것으로 n/n 을 센다. (b) 차트 데이터 배열(`data: [...]`·`labels: [...]`·`const x = [...]`)에
+  표에 없는 값·날짜가 없다. (c) 축 범위(min·max·suggestedMin·suggestedMax)의 날짜는 표 날짜 범위에서 한 달(31일) 안.
+  (d) 그 밖에 HTML 어디에도 표에 없는 날짜가 없다. (e) 보이는 글(<td>·<th>·sr-only·aria-label)의 숫자는 표의 숫자이거나
+  표의 글·열 이름 안의 것이다. (f) 외부 script·link 는 ALLOWED_HOSTS 의 주소만(화면 iframe 의 CSP 와 같은 목록).
   차트 설정(`new Chart(`)을 읽지 못하면 실패다.
-- make: 같은 입력의 통과한 그림이 있으면 다시 부르지 않는다. 실패하면 한 번 다시, 또 실패하면 우리 그림(fallback)으로
-  저장하고 「Liner 그림 검증 실패 → 기본 그림」을 경고로 남긴다. 부르기 전에 commit 한다(쓰기 잠금을 쥐고 기다리지 않게).
+- make: 같은 입력의 통과한 그림이 있으면 다시 부르지 않는다. 같은 입력을 만드는 중이면 그것을 기다린다. 실패하면 한 번
+  다시, 또 실패하면 우리 그림(fallback)으로 저장하고 「Liner 그림 검증 실패 → 기본 그림」을 경고로 남긴다. 연결이 없어
+  대신한 그림은 같은 입력이면 다시 쓴다(줄이 쌓이지 않게). 부르기 전과 저장한 뒤에 commit 한다.
 """
 
 import asyncio
@@ -43,6 +46,7 @@ MIN_GAP_S = 0.5  # 초당 2회 한도
 TIMEOUT_S = 45.0  # 한 번 부르기(문서: 평균 20~30초, 실측 11초)
 ATTEMPTS = 2  # 처음 + 다시 한 번
 AXIS_SLACK = timedelta(days=31)
+ALLOWED_HOSTS = frozenset({"cdn.jsdelivr.net", "cdnjs.cloudflare.com"})  # 실측 외부 주소의 호스트(화면 CSP 와 같다)
 
 CHARTS = {"timeline": "작업별 시작부터 끝까지를 가로 막대(기간)로 보이는 그림",
           "bars": "첫 열을 항목으로 하는 가로 막대 그래프(숫자 열마다 막대)",
@@ -56,6 +60,7 @@ _FAILURES = (httpx.HTTPError, httpx.InvalidURL, TimeoutError, ValueError, TypeEr
 
 _last_start = 0.0
 _lock = asyncio.Lock()
+_inflight: dict[str, asyncio.Future] = {}  # 만드는 중인 입력 열쇠 → 끝나면 그림 id(실패면 None)
 
 
 class VisualNotReady(Exception):
@@ -290,26 +295,77 @@ def _check_bounds(scripts: list[str], dates: set[str], problems: list[str]) -> s
     return seen
 
 
+_CELL = re.compile(r"<(t[dh])\b[^>]*>(.*?)</\1>", re.DOTALL | re.IGNORECASE)
+_SR_ONLY = re.compile(r"<(\w+)\b[^>]*\bclass\s*=\s*[\"'][^\"']*\b(?:sr-only|visually-hidden)\b[^\"']*[\"'][^>]*>(.*?)</\1>",
+                      re.DOTALL | re.IGNORECASE)
+_ARIA = re.compile(r"\baria-label\s*=\s*(?:\"([^\"]*)\"|'([^']*)')", re.IGNORECASE)
+_TAG = re.compile(r"<[^>]+>")
+_SHOWN_NUMBER = re.compile(r"(?<![A-Za-z.\d])\d+(?:\.\d+)?")
+
+
+def _visible_texts(page: str) -> list[str]:
+    found = [m.group(2) for m in _CELL.finditer(page)] + [m.group(2) for m in _SR_ONLY.finditer(page)]
+    found += [m.group(1) or m.group(2) or "" for m in _ARIA.finditer(page)]
+    return [html_lib.unescape(_TAG.sub(" ", t)) for t in found]
+
+
+def _check_visible(page: str, table: VisualTable, problems: list[str]) -> None:
+    """(e) 보이는 글의 숫자: 날짜와 표의 글·열 이름을 지운 뒤 남은 숫자는 표의 숫자여야 한다."""
+    cells = [v for row in table.rows for v in row if v is not None]
+    known = sorted({cell_text(v) for v in cells if isinstance(v, str)} | set(table.columns), key=len, reverse=True)
+    numbers = {float(v) for v in cells if isinstance(v, int | float) and not isinstance(v, bool)}
+    for text in _visible_texts(page):
+        rest = _DATE.sub(" ", text)
+        for k in known:
+            rest = rest.replace(k, " ") if k else rest
+        for n in _SHOWN_NUMBER.findall(rest):
+            if float(n) not in numbers:
+                _add(problems, f"보이는 글에 표에 없는 숫자: {n}")
+
+
+def _counted(cells: list[object], tokens: list[str | float]) -> list[str]:
+    """(a) 차트 자료에 없는 표 값(글은 똑같이, 숫자는 수로)."""
+    texts = {t for t in tokens if isinstance(t, str)}
+    numbers = {t for t in tokens if isinstance(t, float)} | {float(t) for t in texts if _NUMBER.fullmatch(t)}
+    missing = []
+    for v in cells:
+        if isinstance(v, int | float) and not isinstance(v, bool):
+            if float(v) not in numbers:
+                missing.append(cell_text(v))
+        elif cell_text(v) not in texts:
+            missing.append(cell_text(v))
+    return missing
+
+
+def _host(url: str) -> str:
+    return httpx.URL(url if not url.startswith("//") else f"https:{url}").host
+
+
 def verify(page: str, table: VisualTable) -> Verdict:
-    """받은 HTML 을 우리 표와 맞춰 본다(모듈 설명의 (a)~(d)). problems 가 비면 통과."""
+    """받은 HTML 을 우리 표와 맞춰 본다(모듈 설명의 (a)~(f)). problems 가 비면 통과."""
     problems: list[str] = []
-    cells = [cell_text(v) for row in table.rows for v in row if v is not None]
-    missing = [c for c in cells if c not in page and html_lib.escape(c) not in page]
-    for c in missing:
-        _add(problems, f"HTML 에 없는 표 값: {c}")
+    values = [v for row in table.rows for v in row if v is not None]
     scripts = [s for s in _INLINE.findall(page) if "new Chart(" in s]
     tokens = [t for s in scripts for t in _data_tokens(s)]
     if not tokens:
         _add(problems, "차트 설정을 읽지 못함")
+    missing = _counted(values, tokens)
+    for c in missing:
+        _add(problems, f"차트 자료에 없는 표 값: {c}")
     _check_data(tokens, table, problems)
+    cells = [cell_text(v) for v in values]
     dates = {c for c in cells if _DATE.fullmatch(c)}
     bounds = _check_bounds(scripts, dates, problems)
     reported = {p.rsplit(": ", 1)[-1] for p in problems}
     for d in dict.fromkeys(_DATE.findall(page)):
         if d not in dates and d not in bounds and d not in reported:
             _add(problems, f"표에 없는 날짜: {d}")
+    _check_visible(page, table, problems)
     external = list(dict.fromkeys(u for u in _EXTERNAL.findall(page) if re.match(r"(?:https?:)?//", u)))
-    return Verdict(not problems, len(cells) - len(missing), len(cells), problems, external)
+    for u in external:
+        if _host(u) not in ALLOWED_HOSTS:
+            _add(problems, f"허용하지 않은 외부 주소: {_host(u)}")
+    return Verdict(not problems, len(values) - len(missing), len(values), problems, external)
 
 
 # ── 만들기 ───────────────────────────────────────────────────────────
@@ -352,15 +408,42 @@ def input_key(table: VisualTable, query: str) -> str:
 
 
 async def make(session: Session, *, kind: str, schedule_id: int, version: int | None, today: date, created_by: str,
-               transport: httpx.AsyncBaseTransport | None = None) -> Visual:
-    """표를 만들고 그림 한 장을 저장해 돌려준다(flush 만). 표를 만들 수 없으면 store.visuals 의 예외 그대로."""
-    table = visuals.build(session, kind, schedule_id, version, today=today)
+               unit: str | None = None, transport: httpx.AsyncBaseTransport | None = None) -> Visual:
+    """표를 만들고 그림 한 장을 저장(commit)해 돌려준다. 표를 만들 수 없으면 store.visuals 의 예외 그대로.
+
+    같은 입력을 다른 요청이 만드는 중이면 Liner 를 다시 부르지 않고 그 결과(저장된 그림)를 받는다.
+    """
+    table = visuals.build(session, kind, schedule_id, version, today=today, unit=unit)
     query = query_text(table)
     key = input_key(table, query)
-    if (found := visuals.find_verified(session, schedule_id, key)) is not None:
-        return found
+    while True:
+        if (found := visuals.find_verified(session, schedule_id, key)) is not None:
+            return found
+        waiting = _inflight.get(key)
+        if waiting is None:
+            break
+        row_id = await asyncio.shield(waiting)
+        if row_id is not None and (row := session.get(Visual, row_id)) is not None:
+            return row
+    done: asyncio.Future = asyncio.get_running_loop().create_future()
+    _inflight[key] = done
+    try:
+        row = await _make_new(session, schedule_id, table, query, key, transport, created_by)
+        done.set_result(row.id)
+        return row
+    finally:
+        if not done.done():
+            done.set_result(None)  # 기다리던 요청은 스스로 다시 해 본다
+        _inflight.pop(key, None)
+
+
+async def _make_new(session: Session, schedule_id: int, table: VisualTable, query: str, key: str,
+                    transport: httpx.AsyncBaseTransport | None, created_by: str) -> Visual:
     session.commit()  # Liner 를 기다리는 동안 쓰기 잠금을 쥐지 않는다
     o = await _draw(session, query, table, transport)
+    if o.note == FAILED_MESSAGES["not_ready"] and (
+            old := visuals.find_fallback(session, schedule_id, key, o.note)) is not None:
+        return old
     ok = o.verdict is not None and o.verdict.ok
     total = o.verdict.total if o.verdict else sum(v is not None for row in table.rows for v in row)
     row = visuals.save(
@@ -371,6 +454,7 @@ async def make(session: Session, *, kind: str, schedule_id: int, version: int | 
         attempts=o.attempts, fallback=not ok, note=o.note, latency_ms=o.atlas.latency_ms if o.atlas else None,
         created_by=created_by,
     )
+    session.commit()  # 기다리는 다른 요청(다른 세션)이 읽을 수 있게
     if not ok:
-        logger.warning("%s: 일정 %s · %s · 시도 %s · 그림 %s", o.note, schedule_id, kind, o.attempts, row.id)
+        logger.warning("%s: 일정 %s · %s · 시도 %s · 그림 %s", o.note, row.schedule_id, table.kind, o.attempts, row.id)
     return row

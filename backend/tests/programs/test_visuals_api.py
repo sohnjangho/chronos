@@ -64,3 +64,13 @@ def test_a_visual_of_another_schedule_is_not_found(client, user, sid, liner, ses
     v = client.post(f"/api/schedules/{sid}/visuals", json={"kind": "summary"}, headers=user).json()
     other = store(session, sample())
     assert client.get(f"/api/schedules/{other}/visuals/{v['id']}", headers=user).status_code == 404
+
+
+def test_s_curve_unit_is_passed_through(client, user, sid, liner):
+    liner(500)
+    week = client.post(f"/api/schedules/{sid}/visuals", json={"kind": "s_curve", "unit": "week"}, headers=user)
+    month = client.post(f"/api/schedules/{sid}/visuals", json={"kind": "s_curve", "unit": "month"}, headers=user)
+    assert week.status_code == month.status_code == 200
+    assert week.json()["id"] != month.json()["id"]
+    bad = client.post(f"/api/schedules/{sid}/visuals", json={"kind": "s_curve", "unit": "day"}, headers=user)
+    assert bad.status_code == 422

@@ -1,5 +1,6 @@
 """도구 visual.make: 표는 코드가 만들고(인자에 숫자 없음), Liner 그림은 대조를 거친다. 진짜 Liner 는 부르지 않는다."""
 
+import asyncio
 import json
 import logging
 from dataclasses import replace
@@ -85,7 +86,7 @@ async def test_two_failures_fall_back_and_log(sctx, liner, session, caplog):
     assert (o["verified"], o["fallback"], o["note"]) == (False, True, "Liner 그림 검증 실패 → 기본 그림")
     assert "Liner 그림 검증 실패 → 기본 그림" in caplog.text and KEY not in caplog.text
     row = session.get(Visual, o["visual_id"])
-    assert row.attempts == 2 and "HTML 에 없는 표 값: 2027-03-05" in row.checks_json["problems"]
+    assert row.attempts == 2 and "차트 자료에 없는 표 값: 2027-03-05" in row.checks_json["problems"]
     again = await call("visual.make", {"kind": "summary"}, sctx)  # 실패한 그림은 다시 쓰지 않는다
     assert len(t.requests) == 4 and again.output["visual_id"] != o["visual_id"]
 
@@ -106,6 +107,33 @@ async def test_no_connection_falls_back_without_calling(sctx, liner, session):
     r = await call("visual.make", {"kind": "summary"}, sctx)
     assert t.requests == []
     assert (r.output["fallback"], r.output["note"]) == (True, "Liner 연결이 없어 기본 그림")
+
+
+async def test_no_connection_rows_do_not_pile_up(sctx, liner, session):
+    from app.store.tables import LlmConnection
+
+    session.query(LlmConnection).delete()
+    session.commit()
+    liner(atlas_body(chart_html(GOOD, bounds=None)))
+    first = await call("visual.make", {"kind": "summary"}, sctx)
+    second = await call("visual.make", {"kind": "summary"}, sctx)
+    assert second.output["visual_id"] == first.output["visual_id"]
+    assert session.query(Visual).count() == 1
+
+
+async def test_identical_requests_in_flight_share_one_call(sctx, liner, session):
+    from sqlalchemy.orm import Session
+
+    t = liner(atlas_body(chart_html(GOOD, bounds=None)))
+    with Session(session.get_bind()) as other:
+        a, b = await asyncio.gather(
+            visualization.make(session, kind="summary", schedule_id=sctx.schedule_id, version=None,
+                               today=date(2027, 3, 1), created_by="김하늘"),
+            visualization.make(other, kind="summary", schedule_id=sctx.schedule_id, version=None,
+                               today=date(2027, 3, 1), created_by="김하늘"),
+        )
+        assert len(t.requests) == 1
+        assert a.id == b.id and b.verified
 
 
 async def test_no_data_is_a_tool_error(sctx, liner):

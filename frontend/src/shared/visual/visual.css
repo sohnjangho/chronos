@@ -17,6 +17,7 @@
   margin: 0; padding: 6px 10px; border-radius: var(--radius-2); font-size: var(--fs-12); overflow-wrap: anywhere;
   background: var(--tone-warning-bg); color: var(--warning-text);
 }
+.vf-off { font-size: var(--fs-12); color: var(--fg-muted); }
 .vf-caption { font-size: var(--fs-12); color: var(--fg-muted); overflow-wrap: anywhere; }
 .vf-fallback { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--bg-panel); padding: 8px; }
 .vf-svg { display: block; width: 100%; max-width: 760px; height: auto; margin: 0 auto; }

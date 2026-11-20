@@ -1,6 +1,7 @@
 // 보고서용 그림(Task 44). Liner Visualization 이 그린 HTML 은 <iframe sandbox="allow-scripts" srcdoc> 로만 보인다
-// (allow-same-origin 없음 — 받은 HTML 이 우리 화면·토큰에 손대지 못한다). 서버가 숫자 대조에 실패해 html 이 없거나,
-// 그림 파일(CDN)을 못 불러오거나, 30초 안에 다 그리지 못하면 서버 표로 우리 그림(SVG)을 그리고 까닭을 적는다.
+// (allow-same-origin 없음 — 받은 HTML 이 우리 화면·토큰에 손대지 못한다). srcdoc 머리에 CSP(실측 CDN 두 호스트만,
+// connect-src 'none', 그림은 data: 만)와 감시 script 를 넣는다. 서버가 숫자 대조에 실패해 html 이 없거나, 그림 파일(CDN)을
+// 못 불러오거나, 그리다 오류가 나거나, 30초 안에 차트가 그려지지 않으면 서버 표로 우리 그림(SVG)을 그리고 까닭을 적는다.
 // 화면은 값을 계산하지 않는다 — 표(columns·rows)는 서버 계산값 그대로다.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -15,19 +16,30 @@ export const WAIT_MS = 30_000;
 const NOTES = {
   cdn: '그림 파일(CDN)을 불러오지 못해 기본 그림으로 보입니다.',
   slow: '그림이 30초 안에 그려지지 않아 기본 그림으로 보입니다.',
+  error: '그림을 그리다 오류가 나 기본 그림으로 보입니다.',
 };
 
-// iframe 안에서 그림 파일(script·link)을 못 불러오면 'cdn', 다 불러오면 'ready' 를 부모에게 알린다.
+// 서버 verify 의 ALLOWED_HOSTS 와 같은 목록(backend/app/llm/visualization.py).
+const HOSTS = 'https://cdn.jsdelivr.net https://cdnjs.cloudflare.com';
+const CSP =
+  `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' ${HOSTS}; ` +
+  `style-src 'unsafe-inline' ${HOSTS}; font-src ${HOSTS}; img-src data:; connect-src 'none'">`;
+
+// iframe 안의 감시: 그림 파일(script·link)을 못 불러오면 'cdn', 그 밖의 script 오류는 'error', Chart.js 를 불러오면
+// 전역 플러그인을 달아 차트를 처음 다 그린 뒤(afterRender) 'ready'. 요소의 load 는 window 까지 오지 않아(DOM 명세) document 에서 잡는다. 처음 알린 것 하나만 보낸다(그린 뒤의 오류는 무시).
 const WATCH =
-  "<script>(function(){function p(t){try{parent.postMessage({chronosVisual:t},'*')}catch(e){}}" +
-  "window.addEventListener('error',function(e){var t=e.target;if(t&&(t.tagName==='SCRIPT'||t.tagName==='LINK'))p('cdn')},true);" +
-  "window.addEventListener('load',function(){p(typeof Chart==='undefined'?'cdn':'ready')})})();</script>";
+  '<script>(function(){var sent=false;function p(t){if(sent)return;sent=true;try{parent.postMessage({chronosVisual:t},"*")}catch(e){}}' +
+  'function hook(){if(window.Chart&&Chart.register&&!window.__chronosHook){window.__chronosHook=1;' +
+  'Chart.register({id:"chronosReady",afterRender:function(){p("ready")}})}}' +
+  'window.addEventListener("error",function(e){var t=e.target;p(t&&(t.tagName==="SCRIPT"||t.tagName==="LINK")?"cdn":"error")},true);' +
+  'document.addEventListener("load",function(e){var t=e.target;if(t&&t.tagName==="SCRIPT")hook()},true);' +
+  'window.addEventListener("load",function(){if(typeof Chart==="undefined")p("cdn")})})();</script>';
 
 function withWatch(html: string): string {
   const m = /<head[^>]*>/i.exec(html);
-  if (!m) return WATCH + html;
+  if (!m) return CSP + WATCH + html;
   const at = m.index + m[0].length;
-  return html.slice(0, at) + WATCH + html.slice(at);
+  return html.slice(0, at) + CSP + WATCH + html.slice(at);
 }
 
 function caption(d: VisualData, drawn: boolean): string {
@@ -75,6 +87,7 @@ export default function VisualFrame({ data, height = 520 }: { data: VisualData; 
       if (!ref.current || e.source !== ref.current.contentWindow) return;
       if (kind === 'ready') setState({ ready: true, broken: null });
       else if (kind === 'cdn') setState({ ready: false, broken: NOTES.cdn });
+      else if (kind === 'error') setState({ ready: false, broken: NOTES.error });
     };
     const timer = setTimeout(() => setState({ ready: false, broken: NOTES.slow }), WAIT_MS);
     window.addEventListener('message', onMessage);
@@ -144,7 +157,8 @@ export function VisualPanel({ load, height }: { load: () => Promise<VisualData>;
   );
 }
 
-function Dialog({ onClose, children }: { onClose(): void; children: ReactNode }) {
+/** 화면 위 대화상자(보고서용 그림). Esc·[닫기]로 닫고 Tab 은 안에서만 돈다. */
+export function VisualDialog({ onClose, children }: { onClose(): void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const trap = useModalFocus(ref);
   useEffect(() => ref.current?.focus(), []);
@@ -176,18 +190,30 @@ function Dialog({ onClose, children }: { onClose(): void; children: ReactNode })
   );
 }
 
+interface ButtonProps {
+  scheduleId: number;
+  kind: VisualKind;
+  /** 창이 보이는 버전. */
+  version?: number;
+  unit?: 'week' | 'month';
+  /** 있으면 단추를 끄고 이 글을 옆에 보인다. */
+  disabledReason?: string;
+}
+
 /** [보고서용 그림] 단추: 누르면 그 일정의 그림을 만들어 대화상자에 보인다. */
-export function VisualButton({ scheduleId, kind, version, disabled }: { scheduleId: number; kind: VisualKind; version?: number; disabled?: boolean }) {
+export function VisualButton({ scheduleId, kind, version, unit, disabledReason }: ButtonProps) {
   const [open, setOpen] = useState(false);
+  const opts = { ...(version !== undefined && { version }), ...(unit !== undefined && { unit }) };
   return (
     <>
-      <Button onClick={() => setOpen(true)} disabled={disabled}>
+      {disabledReason && <span className="vf-off">{disabledReason}</span>}
+      <Button onClick={() => setOpen(true)} disabled={disabledReason !== undefined}>
         보고서용 그림
       </Button>
       {open && (
-        <Dialog onClose={() => setOpen(false)}>
-          <VisualPanel load={() => makeVisual(scheduleId, kind, version)} />
-        </Dialog>
+        <VisualDialog onClose={() => setOpen(false)}>
+          <VisualPanel load={() => makeVisual(scheduleId, kind, opts)} />
+        </VisualDialog>
       )}
     </>
   );

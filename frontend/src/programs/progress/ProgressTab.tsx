@@ -27,6 +27,12 @@ function planStartOf(view: ScheduleView | null): string | null {
   return first;
 }
 
+/** 보고서용 그림은 지금 버전으로만: 읽는 중이면 끄고, 보이는 공정률이 일정의 지금 버전이 아니면 까닭을 보인다. */
+function visualOff(data: ProgressData | null, version: number | undefined): string | undefined {
+  if (!data) return '';
+  return version !== undefined && data.version !== version ? '지금 버전으로만 만들 수 있습니다' : undefined;
+}
+
 function useProgress(id: number, unit: Unit, version: number | undefined, weightMode: string | undefined) {
   const [state, setState] = useState<{ data: ProgressData | null; error: string | null }>({ data: null, error: null });
   useEffect(() => {
@@ -42,7 +48,7 @@ function useProgress(id: number, unit: Unit, version: number | undefined, weight
   return state;
 }
 
-function Toolbar({ scheduleId, data, unit, onUnit, onImage }: { scheduleId: number; data: ProgressData | null; unit: Unit; onUnit: (u: Unit) => void; onImage: () => void }) {
+function Toolbar({ scheduleId, data, version, unit, onUnit, onImage }: { scheduleId: number; data: ProgressData | null; version?: number; unit: Unit; onUnit: (u: Unit) => void; onImage: () => void }) {
   return (
     <div role="group" aria-label="공정률 도구" className="sch-toolbar pg-toolbar">
       {data?.data_date_assumed && (
@@ -67,7 +73,7 @@ function Toolbar({ scheduleId, data, unit, onUnit, onImage }: { scheduleId: numb
       <Button onClick={onImage} disabled={!data}>
         그림 내보내기
       </Button>
-      <VisualButton scheduleId={scheduleId} kind="s_curve" />
+      <VisualButton scheduleId={scheduleId} kind="s_curve" version={data?.version} unit={unit} disabledReason={visualOff(data, version)} />
     </div>
   );
 }
@@ -107,7 +113,7 @@ export default function ProgressTab() {
   const onImage = () => data && void exportImage(data, name, `${name} v${data.version} 공정률`);
   return (
     <div className="pg-tab">
-      <Toolbar scheduleId={scheduleId} data={data} unit={unit} onUnit={setUnit} onImage={onImage} />
+      <Toolbar scheduleId={scheduleId} data={data} version={version} unit={unit} onUnit={setUnit} onImage={onImage} />
       <div className="pg-scroll">
         {error ? (
           <p className="pg-empty" role="alert">

@@ -35,6 +35,14 @@ describe('frame', () => {
     expect(f).toHaveAttribute('sandbox', 'allow-scripts');
     expect(f.getAttribute('srcdoc')).toContain('<canvas></canvas>');
     expect(f.getAttribute('srcdoc')).toContain('chronosVisual');
+    const doc = f.getAttribute('srcdoc') ?? '';
+    expect(doc).toMatch(/<meta http-equiv="Content-Security-Policy" content="[^"]*connect-src 'none'[^"]*">/);
+    expect(doc).toContain('img-src data:');
+    expect(doc).toContain('script-src \'unsafe-inline\' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com');
+    expect(doc.indexOf('Content-Security-Policy')).toBeLessThan(doc.indexOf('chronosVisual'));
+    expect(doc).toContain('afterRender'); // 차트가 실제로 그려진 뒤에 ready
+    // 요소의 load 는 window 까지 오지 않는다(DOM 명세) — Chart.js 를 부른 때는 document 에서 잡는다(실제 Chrome 에서 확인).
+    expect(doc).toContain('document.addEventListener("load"');
     expect(f).toHaveAttribute('title', '일정 요약 — 크리티컬 패스 작업');
     expect(screen.getByText('데이터: 크로노스 계산(버전 v3, 기준일 2027-03-01) · 그림: Liner Visualization · 숫자 대조 통과 6/6')).toBeVisible();
   });
@@ -55,6 +63,13 @@ describe('frame', () => {
     expect(frame()).toBeNull();
     expect(screen.getByText('그림 파일(CDN)을 불러오지 못해 기본 그림으로 보입니다.')).toBeVisible();
     expect(screen.getByRole('img', { name: /기본 그림/ })).toBeVisible();
+  });
+
+  test('a script error inside the frame switches to our svg', () => {
+    render(<VisualFrame data={V} />);
+    tell({ chronosVisual: 'error' }, frame().contentWindow);
+    expect(frame()).toBeNull();
+    expect(screen.getByText('그림을 그리다 오류가 나 기본 그림으로 보입니다.')).toBeVisible();
   });
 
   test('the table is behind a fold', async () => {
@@ -88,6 +103,17 @@ describe('panel and button', () => {
     expect(within(dialog).queryByText('그림 만드는 중…')).toBeNull();
     await userEvent.click(within(dialog).getByRole('button', { name: '닫기' }));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  test('the button sends version and unit, and can be disabled with a reason', async () => {
+    const fetchSpy = stubFetch({ 'POST /api/schedules/1/visuals': V });
+    const { rerender } = render(<VisualButton scheduleId={1} kind="s_curve" version={3} unit="month" />);
+    await userEvent.click(screen.getByRole('button', { name: '보고서용 그림' }));
+    expect(JSON.parse(String(fetchSpy.mock.calls[0][1]?.body))).toEqual({ kind: 's_curve', version: 3, unit: 'month' });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    rerender(<VisualButton scheduleId={1} kind="s_curve" disabledReason="지금 버전으로만 만들 수 있습니다" />);
+    expect(screen.getByRole('button', { name: '보고서용 그림' })).toBeDisabled();
+    expect(screen.getByText('지금 버전으로만 만들 수 있습니다')).toBeVisible();
   });
 
   test('escape closes the dialog', async () => {

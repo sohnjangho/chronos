@@ -2,9 +2,11 @@
 
 종류(kind)와 표:
 - summary: 크리티컬 패스 작업(시작 순) — 작업·시작·끝. version 을 주면 그 버전.
-- delay_impact: 기록한 지연 사건(store.delays.report) — 작업·지연·흡수·준공 영향(근무일)·상태. 지금 버전만.
+- delay_impact: 기록한 지연 사건(store.delays.report) — 작업·지연·흡수·준공 영향(근무일). 지금 버전만.
+  (글 칸은 첫 열만 둔다 — 대조는 표의 모든 값이 차트 자료에 있는지 센다.)
 - scenario_compare: 지금 일정 + 열린·승인 대기 만약에 안(새것 5개) — 안·준공·크리티컬 수·위반 수. 지금 버전만.
-- s_curve: 기준 범위(Plan 이 있는 액티비티)의 누적 계획·실적 %(주 단위, 40점이 넘으면 월). 지금 버전만.
+- s_curve: 기준 범위(Plan 이 있는 액티비티)의 누적 계획·실적 %. unit(week·month)을 주면 그 단위, 없으면 주 단위
+  (40점이 넘으면 월). 지금 버전만.
 - resource_load: 쓰이는 자원마다 한도·최고 사용·그날·한도 넘은 날 수(자원 맞춤 뒤). version 을 주면 그 버전.
 기준일(data_date) = 그 버전 일정의 Data Date, 없으면 today(부르는 쪽이 준다 — app.agent.context.today()). 정수로 떨어지는 소수는 정수로 둔다(100.0 → 100, 글자 대조).
 쓰기는 flush 만 한다(commit 은 부르는 쪽).
@@ -38,7 +40,6 @@ Cell = str | int | float | None
 MAX_ROWS = 25  # summary 줄 수 한도
 MAX_SCENARIOS = 5
 MAX_WEEK_POINTS = 40
-STATUS_LABELS = {"open": "열림", "reflected": "반영됨"}
 
 
 class TableError(ValueError):
@@ -85,14 +86,13 @@ def _delay_impact(session: Session, schedule_id: int, version: int | None, today
     _current_only(session, schedule_id, version)
     data = delays.report(session, schedule_id)
     rows: list[list[Cell]] = [
-        [e["activity_name"], e["days"], e["impact"]["absorbed"], e["impact"]["finish_delta"],
-         STATUS_LABELS.get(e["status"], e["status"])]
+        [e["activity_name"], e["days"], e["impact"]["absorbed"], e["impact"]["finish_delta"]]
         for e in data["events"] if e["impact"]
     ]
     if not rows:
         raise TableError("기록한 지연이 없습니다.")
     schedule, _, n = load(session, schedule_id)
-    return VisualTable("delay_impact", "지연 영향", ["작업", "지연(근무일)", "흡수(근무일)", "준공 영향(근무일)", "상태"],
+    return VisualTable("delay_impact", "지연 영향", ["작업", "지연(근무일)", "흡수(근무일)", "준공 영향(근무일)"],
                        rows, "bars", n, schedule.data_date or today)
 
 
@@ -127,7 +127,8 @@ def _bars(view: dict) -> list[Bar]:
     return [b for b in bars if b.plan_start is not None and b.plan_finish is not None]
 
 
-def _s_curve(session: Session, schedule_id: int, version: int | None, today: date) -> VisualTable:
+def _s_curve(session: Session, schedule_id: int, version: int | None, today: date,
+             unit: str | None = None) -> VisualTable:
     _current_only(session, schedule_id, version)
     view = view_data(session, schedule_id)
     schedule, conditions, n = load(session, schedule_id, view["version"])
@@ -136,8 +137,8 @@ def _s_curve(session: Session, schedule_id: int, version: int | None, today: dat
         raise TableError("Plan 이 계산되지 않아 S-커브를 그릴 수 없습니다.")
     cal = WorkCalendar(prepare_stored(schedule, conditions).calendar)
     data_date = view["data_date"] or today
-    points = curve(base, cal, data_date=data_date, unit="week")
-    if len(points) > MAX_WEEK_POINTS:
+    points = curve(base, cal, data_date=data_date, unit="month" if unit == "month" else "week")
+    if unit is None and len(points) > MAX_WEEK_POINTS:
         points = curve(base, cal, data_date=data_date, unit="month")
     rows: list[list[Cell]] = [
         [p.date.isoformat(), _num(p.plan_cum), None if p.actual_cum is None else _num(p.actual_cum)] for p in points
@@ -171,9 +172,15 @@ _BUILDERS: dict[str, Callable[[Session, int, int | None, date], VisualTable]] = 
 }
 
 
-def build(session: Session, kind: str, schedule_id: int, version: int | None = None, *, today: date) -> VisualTable:
-    """그 종류의 표. 없는 일정·버전이면 NotFound, 깨진 일정이면 ScheduleError, 그릴 자료가 없으면 TableError."""
+def build(session: Session, kind: str, schedule_id: int, version: int | None = None, *, today: date,
+          unit: str | None = None) -> VisualTable:
+    """그 종류의 표. 없는 일정·버전이면 NotFound, 깨진 일정이면 ScheduleError, 그릴 자료가 없으면 TableError.
+
+    unit(week·month)은 s_curve 만 쓴다.
+    """
     get_record(session, schedule_id)
+    if kind == "s_curve":
+        return _s_curve(session, schedule_id, version, today, unit)
     return _BUILDERS[kind](session, schedule_id, version, today)
 
 
@@ -184,6 +191,14 @@ def find_verified(session: Session, schedule_id: int, key: str) -> Visual | None
     """같은 입력(key)으로 대조를 통과한 가장 새 그림. 없으면 None."""
     query = (select(Visual)
              .where(Visual.schedule_id == schedule_id, Visual.input_hash == key, Visual.verified)
+             .order_by(Visual.id.desc()))
+    return session.scalars(query).first()
+
+
+def find_fallback(session: Session, schedule_id: int, key: str, note: str) -> Visual | None:
+    """같은 입력·같은 까닭으로 우리 그림이 된 가장 새 그림(연결 없음 줄이 쌓이지 않게). 없으면 None."""
+    query = (select(Visual)
+             .where(Visual.schedule_id == schedule_id, Visual.input_hash == key, Visual.fallback, Visual.note == note)
              .order_by(Visual.id.desc()))
     return session.scalars(query).first()
 

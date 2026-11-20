@@ -164,10 +164,21 @@ function setView(over: Record<string, unknown>) {
   store.setState({ view: { ...store.getState().view!, ...over } });
 }
 
-test('the report visual button asks for the s_curve picture', async () => {
+test('the report visual button asks for the s_curve picture of the shown version and unit', async () => {
   show();
-  await userEvent.click(await screen.findByRole('button', { name: '보고서용 그림' }));
+  await screen.findByText('20.0%');
+  await userEvent.click(screen.getByRole('button', { name: '월' }));
+  await waitFor(() => expect(lastUrl()).toContain('unit=month'));
+  await userEvent.click(screen.getByRole('button', { name: '보고서용 그림' }));
   expect(screen.getByRole('dialog', { name: '보고서용 그림' })).toBeVisible();
   const call = vi.mocked(fetch).mock.calls.find(([u]) => String(u) === '/api/schedules/1/visuals');
-  expect(JSON.parse(String(call?.[1]?.body))).toEqual({ kind: 's_curve' });
+  expect(JSON.parse(String(call?.[1]?.body))).toEqual({ kind: 's_curve', version: 1, unit: 'month' });
+});
+
+test('an old version on screen disables the report visual button', async () => {
+  mockProgress({ ...P, version: 0 });
+  show();
+  await screen.findByText('20.0%');
+  expect(screen.getByRole('button', { name: '보고서용 그림' })).toBeDisabled();
+  expect(screen.getByText('지금 버전으로만 만들 수 있습니다')).toBeVisible();
 });

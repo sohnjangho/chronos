@@ -10,7 +10,8 @@ class VisualIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: VisualKind
-    version: int | None = Field(default=None, ge=1)  # summary·resource_load 만. 없으면 지금 버전
+    version: int | None = Field(default=None, ge=1)  # summary·resource_load 는 그 버전, 나머지는 지금 버전이어야 함
+    unit: Literal["week", "month"] | None = None  # s_curve 만. 없으면 주(40점이 넘으면 월)
 
 
 class VisualOut(BaseModel):

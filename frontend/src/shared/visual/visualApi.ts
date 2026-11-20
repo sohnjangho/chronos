@@ -33,12 +33,12 @@ export interface VisualData {
   created_at: string;
 }
 
-/** 그림 한 장을 만든다(같은 입력의 통과한 그림이 있으면 서버가 그것을 준다). 20~30초 걸릴 수 있다. */
-export function makeVisual(scheduleId: number, kind: VisualKind, version?: number): Promise<VisualData> {
-  return api<VisualData>(`/api/schedules/${scheduleId}/visuals`, {
-    method: 'POST',
-    body: JSON.stringify(version === undefined ? { kind } : { kind, version }),
-  });
+/**
+ * 그림 한 장을 만든다(같은 입력의 통과한 그림이 있으면 서버가 그것을 준다). 20~30초 걸릴 수 있다.
+ * version 은 화면이 보이는 버전(서버가 지금 버전만 받는 그림은 다르면 거절), unit 은 s_curve 의 주·월.
+ */
+export function makeVisual(scheduleId: number, kind: VisualKind, opts: { version?: number; unit?: 'week' | 'month' } = {}): Promise<VisualData> {
+  return api<VisualData>(`/api/schedules/${scheduleId}/visuals`, { method: 'POST', body: JSON.stringify({ kind, ...opts }) });
 }
 
 export function getVisual(scheduleId: number, visualId: number): Promise<VisualData> {

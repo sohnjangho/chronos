@@ -31,7 +31,7 @@ async def _explained(make: Callable[[], Awaitable[Visual]]) -> Visual:
 async def make(session: Session, schedule_id: int, body: VisualIn, user: User) -> VisualOut:
     row = await _explained(lambda: visualization.make(
         session, kind=body.kind, schedule_id=schedule_id, version=body.version, today=context.today(),
-        created_by=user.name))
+        created_by=user.name, unit=body.unit))
     session.commit()
     return VisualOut.model_validate(visuals.out(row))
 
