@@ -9,6 +9,12 @@ export function toProblem(e: unknown): LlmError {
     : { code: 'unknown', message: '요청을 처리할 수 없습니다.' };
 }
 
+/** 저장은 됐지만 저장할 때 한 서버의 연결 시험이 실패했을 때의 글(서버 글을 그대로 붙인다). */
+export const savedButFailed = (error: LlmError): LlmError => ({
+  code: error.code,
+  message: `저장했지만 연결 시험에 실패했습니다: ${error.message}`,
+});
+
 /** 서버의 한국어 글을 그대로, 옆에 코드. */
 export function ErrorLine({ error }: { error: LlmError | null | undefined }) {
   if (!error) return null;
@@ -29,11 +35,14 @@ export function SecretField({
   value,
   onChange,
   disabled,
+  autoFocus,
 }: {
   label: string;
   value: string;
   onChange(v: string): void;
   disabled?: boolean;
+  /** 새로 나타난 칸이면 포커스를 옮긴다. */
+  autoFocus?: boolean;
 }) {
   return (
     <Field label={label}>
@@ -43,6 +52,7 @@ export function SecretField({
         spellCheck={false}
         value={value}
         disabled={disabled}
+        autoFocus={autoFocus}
         onChange={(e) => onChange(e.target.value)}
       />
     </Field>

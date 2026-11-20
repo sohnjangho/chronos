@@ -3,8 +3,8 @@ import Button from '../../shared/ui/Button';
 import AssignmentTable from './AssignmentTable';
 import ConnectionCard from './ConnectionCard';
 import { llmApi } from './llmApi';
-import type { Connection, LlmError } from './model';
-import { ErrorLine, toProblem } from './parts';
+import type { Connection, ConnectionSaved, LlmError } from './model';
+import { ErrorLine, savedButFailed, toProblem } from './parts';
 import Wizard from './Wizard';
 
 /** 연결 목록. reload 를 부르면 다시 읽는다. 읽기 전에는 null. */
@@ -34,20 +34,28 @@ function useConnections() {
 export default function LlmSection() {
   const { connections, error, reload } = useConnections();
   const [adding, setAdding] = useState(false);
-  const saved = () => {
+  // 저장은 됐지만 저장 때 한 서버의 연결 시험이 실패했으면 그 까닭을 남긴다.
+  const [notice, setNotice] = useState<LlmError | null>(null);
+  const saved = (s: ConnectionSaved) => {
     setAdding(false);
+    setNotice(s.error ? savedButFailed(s.error) : null);
     reload();
+  };
+  const add = () => {
+    setNotice(null);
+    setAdding(true);
   };
   return (
     <div className="st-llm">
       <div className="st-col">
         <div className="st-head">
           <h2>LLM 연결</h2>
-          <Button variant="primary" disabled={adding} onClick={() => setAdding(true)}>
+          <Button variant="primary" disabled={adding} onClick={add}>
             + 연결 추가
           </Button>
         </div>
         <ErrorLine error={error} />
+        <ErrorLine error={notice} />
         {connections?.length === 0 && !adding && (
           <p className="st-muted">아직 연결이 없습니다. 「+ 연결 추가」로 Liner 연결을 넣어 주세요.</p>
         )}

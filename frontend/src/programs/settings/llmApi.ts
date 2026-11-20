@@ -19,6 +19,8 @@ export interface NewConnection {
 export interface ConnectionPatch {
   base_url?: string;
   secret?: string;
+  /** true 만 받는다(다른 연결의 기본은 서버가 끈다). */
+  is_default?: true;
 }
 
 export const llmApi = {

@@ -167,3 +167,72 @@ test('closing the settings window clears the key', async () => {
   await openWizard();
   expect(keyInput()).toHaveValue('');
 });
+
+test('a failed save keeps the key for a retry and a later cancel clears it', async () => {
+  renderAs('admin', undefined, {
+    'POST /api/llm/connections/test': OK_PROBE,
+    'POST /api/llm/connections': () => json(500, { code: 'internal_error', message: '서버에서 문제가 생겼습니다.', detail: null }),
+  });
+  await openWizard();
+  await userEvent.type(keyInput(), FAKE_SECRET);
+  await userEvent.click(testBtn());
+  await screen.findByText(/모델 1개/);
+  await userEvent.click(saveBtn());
+  expect(await screen.findByText('서버에서 문제가 생겼습니다.')).toBeVisible();
+  expect(keyInput()).toHaveValue(FAKE_SECRET);
+  expect(saveBtn()).toBeEnabled();
+  await userEvent.click(within(wizard()).getByRole('button', { name: '취소' }));
+  expect(screen.queryByDisplayValue(FAKE_SECRET)).toBeNull();
+  await openWizard();
+  expect(keyInput()).toHaveValue('');
+});
+
+test('a save whose server-side test fails says so instead of closing silently', async () => {
+  let conns: Connection[] = [];
+  renderAs('admin', undefined, {
+    '/api/llm/connections': () => json(200, conns),
+    'POST /api/llm/connections/test': OK_PROBE,
+    'POST /api/llm/connections': () => {
+      conns = [connection({ status: 'failed', secret_last4: '5678' })];
+      return json(201, { ...conns[0], error: { code: 'timeout', message: '응답 시간이 지났습니다.' } });
+    },
+  });
+  await openWizard();
+  await userEvent.type(keyInput(), FAKE_SECRET);
+  await userEvent.click(testBtn());
+  await screen.findByText(/모델 1개/);
+  await userEvent.click(saveBtn());
+  expect(await screen.findByText('저장했지만 연결 시험에 실패했습니다: 응답 시간이 지났습니다.')).toBeVisible();
+  expect(screen.getByText('timeout')).toBeVisible();
+  expect(screen.queryByDisplayValue(FAKE_SECRET)).toBeNull();
+});
+
+test('the wizard takes focus when it opens and marks the current step', async () => {
+  renderAs('admin', undefined, { 'POST /api/llm/connections/test': OK_PROBE });
+  await userEvent.click(await screen.findByRole('button', { name: '+ 연결 추가' }));
+  expect(wizard()).toContainElement(document.activeElement as HTMLElement);
+  const current = () => within(wizard()).getByRole('listitem', { current: 'step' });
+  expect(current()).toHaveTextContent('공급자');
+  await userEvent.click(within(wizard()).getByRole('button', { name: /^Liner/ }));
+  expect(current()).toHaveTextContent('주소와 키');
+  await userEvent.type(keyInput(), FAKE_SECRET);
+  await userEvent.click(testBtn());
+  await screen.findByText(/모델 1개/);
+  expect(current()).toHaveTextContent('연결 테스트');
+});
+
+test('changing the url or the provider after a passed test locks save again', async () => {
+  renderAs('admin', undefined, { 'POST /api/llm/connections/test': OK_PROBE });
+  await openWizard();
+  await userEvent.type(keyInput(), FAKE_SECRET);
+  await userEvent.click(testBtn());
+  await screen.findByText(/모델 1개/);
+  expect(saveBtn()).toBeEnabled();
+  await userEvent.type(urlInput(), '/');
+  expect(saveBtn()).toBeDisabled();
+  await userEvent.click(testBtn());
+  await screen.findByText(/모델 1개/);
+  expect(saveBtn()).toBeEnabled();
+  await userEvent.click(within(wizard()).getByRole('button', { name: /^직접 URL/ }));
+  expect(saveBtn()).toBeDisabled();
+});

@@ -4,12 +4,15 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, SecretStr
 
 from app.llm.connections import normalize_base_url
+from app.store.timeutil import as_utc
 
 Provider = Literal["liner", "openai_compatible"]
 Purpose = Literal["light", "normal", "hard", "longdoc"]
 RoutingStrategy = Literal["cost", "balanced", "quality"]
 
 BaseUrl = Annotated[str, AfterValidator(normalize_base_url)]
+# SQLite 는 시간대를 지운다. 시간대 없는 값은 UTC 로 보고 붙여 내보낸다(+00:00 / Z).
+UtcDatetime = Annotated[datetime, AfterValidator(as_utc)]
 # SecretStr: repr·검증 오류에 키가 드러나지 않는다. 문자 검증은 service 가 한다(invalid_secret).
 Secret = SecretStr
 Name = Annotated[str, Field(min_length=1, max_length=100)]
@@ -57,7 +60,7 @@ class ConnectionOut(BaseModel):
     is_default: bool
     status: Literal["ok", "failed", "unknown"]
     model_count: int | None
-    checked_at: datetime | None
+    checked_at: UtcDatetime | None
     latency_ms: int | None
 
 

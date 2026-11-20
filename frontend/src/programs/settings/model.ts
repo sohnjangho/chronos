@@ -73,8 +73,12 @@ export const PURPOSES: Record<Purpose, { label: string; desc: string }> = {
   longdoc: { label: '긴 문서 읽기', desc: '계약서·회의록 통째로' },
 };
 
-/** 라우팅 기준. 시안처럼 Liner 의 값 이름을 그대로 보인다. */
-export const STRATEGIES: Strategy[] = ['cost', 'balanced', 'quality'];
+/** 라우팅 기준. 저장 값은 Liner 의 값 이름 그대로, 화면 글은 한국어. */
+export const STRATEGIES: { value: Strategy; label: string }[] = [
+  { value: 'cost', label: '비용 우선' },
+  { value: 'balanced', label: '균형' },
+  { value: 'quality', label: '품질 우선' },
+];
 
 /** 라우터 모델(이름이 -router 로 끝남)만 라우팅 기준을 받는다. */
 export const isRouter = (model: string) => /.-router$/.test(model);

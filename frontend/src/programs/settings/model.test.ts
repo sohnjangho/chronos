@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import settingsCss from './settings.css?raw';
-import { checkedText, isRouter, PROVIDERS, resolveSection, statusView } from './model';
+import { checkedText, isRouter, PROVIDERS, resolveSection, STRATEGIES, statusView } from './model';
 
 test('statusView', () => {
   expect(statusView({ status: 'ok', model_count: 512 })).toEqual({ tone: 'success', text: '연결됨 · 모델 512개' });
@@ -48,4 +48,12 @@ test('settings styles take colors, font sizes and fonts only from tokens', () =>
   expect(settingsCss).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
   expect(settingsCss).not.toMatch(/font-size:\s*[0-9]/);
   expect(settingsCss).not.toMatch(/font-family:(?!\s*var\()/);
+});
+
+test('strategies have Korean labels over the stored values', () => {
+  expect(STRATEGIES).toEqual([
+    { value: 'cost', label: '비용 우선' },
+    { value: 'balanced', label: '균형' },
+    { value: 'quality', label: '품질 우선' },
+  ]);
 });

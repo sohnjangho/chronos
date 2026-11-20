@@ -98,6 +98,14 @@ def test_host_change_requires_secret(client, admin, conn_id):
     assert r.json()["message"] == "다른 서버 주소로 바꾸면 API 키를 다시 넣어 주세요."
 
 
+def test_checked_at_is_sent_with_a_utc_zone(client, admin, conn_id):
+    """SQLite 는 시간대를 지운다. 다시 읽은 값도 UTC 표기를 달고 나가야 화면이 시각을 틀리지 않는다."""
+    checked = client.get("/api/llm/connections", headers=admin).json()[0]["checked_at"]
+    assert checked.endswith(("Z", "+00:00")), checked
+    saved = client.patch(f"/api/llm/connections/{conn_id}", json={"name": "새 이름"}, headers=admin).json()
+    assert saved["checked_at"].endswith(("Z", "+00:00")), saved["checked_at"]
+
+
 def test_user_role_forbidden_but_status_allowed(client, user):
     assert client.get("/api/llm/connections", headers=user).status_code == 403
     assert client.get("/api/llm/status", headers=user).json() == {"ready": False, "default_connection": None}

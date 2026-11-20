@@ -4,7 +4,7 @@ import Button from '../../shared/ui/Button';
 import { DeletePanel, KeyForm, UrlForm } from './EditForms';
 import { llmApi } from './llmApi';
 import { checkedText, providerLabel, statusView, type Connection, type ConnectionSaved, type LlmError, type Probe } from './model';
-import { ErrorLine, toProblem } from './parts';
+import { ErrorLine, savedButFailed, toProblem } from './parts';
 import ProbeResult from './ProbeResult';
 
 type Mode = 'idle' | 'url' | 'key' | 'delete';
@@ -45,27 +45,39 @@ function Facts({ conn }: { conn: Connection }) {
   );
 }
 
-function CardActions({ busy, onTest, onEdit }: { busy: boolean; onTest(): void; onEdit(m: Mode): void }) {
+/** 폼이나 확인 패널이 열려 있거나 요청 중이면 다른 단추는 잠근다(열린 폼이 다른 단추로 사라지지 않게). */
+function CardActions({ conn, locked, onTest, onDefault, onEdit }: {
+  conn: Connection;
+  locked: boolean;
+  onTest(): void;
+  onDefault(): void;
+  onEdit(m: Mode): void;
+}) {
   return (
     <div className="st-actions">
-      <Button disabled={busy} onClick={onTest}>
+      <Button disabled={locked} onClick={onTest}>
         연결 테스트
       </Button>
-      <Button disabled={busy} onClick={() => onEdit('url')}>
+      <Button disabled={locked} onClick={() => onEdit('url')}>
         URL 수정
       </Button>
-      <Button disabled={busy} onClick={() => onEdit('key')}>
+      <Button disabled={locked} onClick={() => onEdit('key')}>
         키 교체
       </Button>
+      {!conn.is_default && (
+        <Button disabled={locked} onClick={onDefault}>
+          기본으로 지정
+        </Button>
+      )}
       <span className="st-gap" />
-      <Button className="st-danger-text" disabled={busy} onClick={() => onEdit('delete')}>
+      <Button className="st-danger-text" disabled={locked} onClick={() => onEdit('delete')}>
         삭제
       </Button>
     </div>
   );
 }
 
-/** 연결 카드: 이름·공급자·상태·URL·키 끝 4자리·확인 시각과 [연결 테스트][URL 수정][키 교체][삭제]. */
+/** 연결 카드: 이름·공급자·상태·URL·키 끝 4자리·확인 시각과 [연결 테스트][URL 수정][키 교체][기본으로 지정][삭제]. */
 export default function ConnectionCard({ conn, onChanged }: { conn: Connection; onChanged(): void }) {
   const [mode, setMode] = useState<Mode>('idle');
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -86,7 +98,7 @@ export default function ConnectionCard({ conn, onChanged }: { conn: Connection; 
   }
   const saved = (s: ConnectionSaved) => {
     setMode('idle');
-    setOutcome(s.error ? { note: '저장했지만 연결 시험에 실패했습니다.', error: s.error } : { note: '저장했습니다.' });
+    setOutcome(s.error ? { error: savedButFailed(s.error) } : { note: '저장했습니다.' });
     onChanged();
   };
   const edit = (m: Mode) => {
@@ -99,7 +111,13 @@ export default function ConnectionCard({ conn, onChanged }: { conn: Connection; 
     <article className="st-card" aria-label={conn.name}>
       <CardHead conn={conn} />
       <Facts conn={conn} />
-      <CardActions busy={busy} onTest={() => run(async () => ({ probe: await llmApi.retest(conn.id) }))} onEdit={edit} />
+      <CardActions
+        conn={conn}
+        locked={busy || mode !== 'idle'}
+        onTest={() => run(async () => ({ probe: await llmApi.retest(conn.id) }))}
+        onDefault={() => run(async () => (await llmApi.update(conn.id, { is_default: true }), { note: '기본 연결로 정했습니다.' }))}
+        onEdit={edit}
+      />
       {mode === 'url' && <UrlForm conn={conn} onSaved={saved} onCancel={close} />}
       {mode === 'key' && <KeyForm conn={conn} onSaved={saved} onCancel={close} />}
       {mode === 'delete' && (

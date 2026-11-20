@@ -71,7 +71,7 @@ export function UrlForm({ conn, onSaved, onCancel }: FormProps) {
         <input value={url} spellCheck={false} disabled={p.busy} onChange={(e) => setUrl(e.target.value)} />
       </Field>
       {needKey && (
-        <SecretField label="API 키 — 새 주소로 보낼 키" value={p.secret} disabled={p.busy} onChange={p.setSecret} />
+        <SecretField label="API 키 — 새 주소로 보낼 키" value={p.secret} disabled={p.busy} onChange={p.setSecret} autoFocus />
       )}
       <ErrorLine error={p.error} />
       <FormActions onCancel={cancel} onSave={save} canSave={!p.busy && changed && (!needKey || p.secret !== '')} />

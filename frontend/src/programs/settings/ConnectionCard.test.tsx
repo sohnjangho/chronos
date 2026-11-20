@@ -166,3 +166,62 @@ test('cancelling the delete panel deletes nothing', async () => {
   expect(within(card()).queryByRole('group', { name: '연결 삭제 확인' })).toBeNull();
   expect(sent(fetchMock, 'DELETE /api/llm/connections/1')).toHaveLength(0);
 });
+
+const GATEWAY = connection({ id: 2, name: '사내 게이트웨이', provider: 'openai_compatible', base_url: 'https://gw.example/v1', is_default: false });
+
+test('기본으로 지정 shows only on a non-default card and sends is_default', async () => {
+  let conns: Connection[] = [connection(), GATEWAY];
+  const { fetchMock } = renderAs('admin', undefined, {
+    '/api/llm/connections': () => json(200, conns),
+    '/api/llm/connections/2/models': { models: [] },
+    'PATCH /api/llm/connections/2': () => {
+      conns = [connection({ is_default: false }), { ...GATEWAY, is_default: true }];
+      return json(200, { ...conns[1], error: null });
+    },
+  });
+  const liner = await screen.findByRole('article', { name: 'Liner 기본' });
+  const gateway = screen.getByRole('article', { name: '사내 게이트웨이' });
+  expect(within(liner).getByText('기본 연결')).toBeVisible();
+  expect(within(liner).queryByRole('button', { name: '기본으로 지정' })).toBeNull();
+  expect(within(gateway).queryByText('기본 연결')).toBeNull();
+  await userEvent.click(within(gateway).getByRole('button', { name: '기본으로 지정' }));
+  expect(await within(gateway).findByText('기본 연결')).toBeVisible();
+  expect(within(liner).getByRole('button', { name: '기본으로 지정' })).toBeVisible();
+  expect(sent(fetchMock, 'PATCH /api/llm/connections/2')).toEqual([{ is_default: true }]);
+});
+
+test('an open edit form locks the other card buttons, also while its request is in flight', async () => {
+  renderAs('admin', undefined, {
+    '/api/llm/connections': [connection()],
+    'PATCH /api/llm/connections/1': () => new Promise<Response>(() => {}),
+  });
+  await action('URL 수정');
+  const url = within(card()).getByLabelText('URL');
+  await userEvent.type(url, '/');
+  for (const name of ['연결 테스트', 'URL 수정', '키 교체', '삭제']) {
+    expect(within(card()).getByRole('button', { name })).toBeDisabled();
+  }
+  await userEvent.click(within(card()).getByRole('button', { name: '저장' }));
+  expect(within(card()).getByRole('button', { name: '키 교체' })).toBeDisabled();
+  expect(within(card()).getByRole('group', { name: 'URL 수정' })).toBeVisible();
+  expect(within(card()).getByLabelText('URL')).toHaveValue(`${LINER_URL}/`);
+});
+
+test('secret_required moves focus to the revealed key field; cancel clears that key', async () => {
+  renderAs('admin', undefined, {
+    '/api/llm/connections': [connection()],
+    'PATCH /api/llm/connections/1': () => json(422, { code: 'secret_required', message: HOST_MESSAGE, detail: null }),
+  });
+  await action('URL 수정');
+  const url = within(card()).getByLabelText('URL');
+  await userEvent.clear(url);
+  await userEvent.type(url, 'https://other.example/v1');
+  await userEvent.click(within(card()).getByRole('button', { name: '저장' }));
+  const key = await within(card()).findByLabelText(/API 키/);
+  expect(key).toHaveFocus();
+  await userEvent.type(key, FAKE_SECRET);
+  await userEvent.click(within(card()).getByRole('button', { name: '취소' }));
+  expect(screen.queryByDisplayValue(FAKE_SECRET)).toBeNull();
+  await action('URL 수정');
+  expect(within(card()).queryByLabelText(/API 키/)).toBeNull();
+});

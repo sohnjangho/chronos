@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Button from '../../shared/ui/Button';
 import Field from '../../shared/ui/Field';
 import { llmApi } from './llmApi';
@@ -119,8 +119,11 @@ function useWizard(onSaved: (c: ConnectionSaved) => void, onCancel: () => void) 
 /** 연결 추가 3단계: 공급자 → 이름·주소·키 → 연결 테스트(결과와 모델 목록) → 저장. 저장은 시험에 성공해야 켜진다. */
 export default function Wizard({ onSaved, onCancel }: { onSaved(c: ConnectionSaved): void; onCancel(): void }) {
   const w = useWizard(onSaved, onCancel);
+  const ref = useRef<HTMLElement>(null);
+  // 열리면 첫 공급자 단추로 포커스를 옮긴다.
+  useEffect(() => ref.current?.querySelector('button')?.focus(), []);
   return (
-    <section className="st-card st-wizard" aria-label="연결 추가">
+    <section ref={ref} className="st-card st-wizard" aria-label="연결 추가">
       <div className="st-wizard-head">
         <b className="st-card-name">연결 추가</b>
         <StepBar step={w.step} />
