@@ -44,7 +44,7 @@ function LayerChips({ layers, onLayer }: Pick<ToolbarProps, 'layers' | 'onLayer'
             key={l.key}
             type="button"
             className="gt-chip"
-            aria-pressed={layers[l.key]}
+            aria-pressed={off ? false : layers[l.key]}
             disabled={off}
             title={off ? 'CPM 층은 Actual·예측 막대 위에 그립니다. Actual·예측을 켜세요.' : undefined}
             onClick={() => onLayer(l.key)}

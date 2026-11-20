@@ -3,7 +3,8 @@
 // CPM 층(크리티컬 빨강·여유 꼬리 EF→LF·관계선)은 아래 칸에 붙는다. 날짜는 모두 서버 값의 자리다.
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
-  Band, Bar, Blocked, Due, EndHandle, FloatTail, Ghost, Label, labelWidth, LaneBar, Milestone, ROW_H, Summary, TRACK_MID, TrackBar, VLine, Weekends,
+  Band, Bar, Blocked, Due, EndHandle, FloatTail, Ghost, GhostMilestone, Label, labelWidth, LaneBar, Milestone, ROW_H, Summary, TRACK_MID, TrackBar, VLine,
+  Weekends,
 } from '../../shared/gantt/Bars';
 import Links from '../../shared/gantt/Links';
 import { barRect, weekends, x, type Scale } from '../../shared/gantt/scale';
@@ -38,11 +39,23 @@ export interface ChartModel {
   onPick?(aid: string): void;
 }
 
+/** 막대 제목(가리키면 보임): 「A2020 이름 — 층 날짜」. 날짜는 서버 값을 점 표기로만 바꾼다. */
+const tip = (a: Activity, what: string) => `${a.id} ${a.name} — ${what}`;
+const span = (from: string, to: string) => (from === to ? dot(from) : `${dot(from)} ~ ${dot(to)}`);
+
+/** 아래 칸 제목: 실적(끝났으면 ~ 실제 종료, 아니면 진행 중) · 예측(Data Date 나 ES ~ EF). */
+function trackTitles(a: Activity, dataDate: string | null) {
+  const actual = a.actual_start && `Actual ${dot(a.actual_start)} ~ ${a.actual_finish ? dot(a.actual_finish) : `진행 중(Data Date ${dot(dataDate)})`}`;
+  const from = a.actual_start && dataDate ? dataDate : a.es;
+  return { actual: tip(a, actual || ''), forecast: tip(a, `예측 ${span(from, a.ef)}`) };
+}
+
 /** 위 칸: Plan 막대(또는 ◆). 끌기 손잡이가 여기에 있다. */
 function PlanShape({ m, row, a, y }: { m: ChartModel; row: GanttRow; a: Activity; y: number }) {
   const p = planOf(a);
   if (!p) return null;
-  if (a.kind !== 'task') return <Milestone id={a.id} cx={anchorOf(m.scale, a)!.x} y={y} />;
+  const title = tip(a, `Plan ${span(p.start, p.finish)}`);
+  if (a.kind !== 'task') return <Milestone id={a.id} cx={anchorOf(m.scale, a)!.x} y={y} title={title} />;
   const r = barRect(m.scale, p.start, p.finish);
   const rules = dragRules(a, m.editable);
   return (
@@ -51,6 +64,7 @@ function PlanShape({ m, row, a, y }: { m: ChartModel; row: GanttRow; a: Activity
       x={r.x}
       w={r.w}
       y={y}
+      title={title}
       data-movable={rules.move ? a.id : undefined}
       className={rules.move ? 'gt-movable' : undefined}
       onPointerDown={m.onBar && ((e) => m.onBar!(e, a, row.key, rules.move ? 'move' : 'click'))}
@@ -64,11 +78,15 @@ function PlanShape({ m, row, a, y }: { m: ChartModel; row: GanttRow; a: Activity
 /** 아래 칸: 실적·예측 막대(또는 ◆). CPM 층이면 예측을 크리티컬 빨강으로. */
 function TrackShapes({ m, a, y, t }: { m: ChartModel; a: Activity; y: number; t: Track }) {
   const critical = m.layers.cpm && a.critical;
-  if (t.ms) return <Milestone id={a.id} cx={t.ms.cx} y={y} lane="track" kind={t.ms.kind} critical={t.ms.kind === 'forecast' && critical} />;
+  const titles = trackTitles(a, m.view.data_date);
+  if (t.ms) {
+    const title = t.ms.kind === 'actual' ? tip(a, `Actual ${dot(a.actual_finish ?? a.actual_start)}`) : titles.forecast;
+    return <Milestone id={a.id} cx={t.ms.cx} y={y} lane="track" kind={t.ms.kind} critical={t.ms.kind === 'forecast' && critical} title={title} />;
+  }
   return (
     <>
-      {t.actual && <TrackBar id={a.id} kind="actual" x={t.actual.x} w={t.actual.w} y={y} />}
-      {t.forecast && <TrackBar id={a.id} kind="forecast" x={t.forecast.x} w={t.forecast.w} y={y} critical={critical} />}
+      {t.actual && <TrackBar id={a.id} kind="actual" x={t.actual.x} w={t.actual.w} y={y} title={titles.actual} />}
+      {t.forecast && <TrackBar id={a.id} kind="forecast" x={t.forecast.x} w={t.forecast.w} y={y} critical={critical} title={titles.forecast} />}
     </>
   );
 }
@@ -86,14 +104,31 @@ function DragGhost({ m, a, y, d }: { m: ChartModel; a: Activity; y: number; d: D
   );
 }
 
+type Spot = { x: number; w: number };
+
+/** 미리 보기 이전 자리(점선)의 자리: 막대는 그 날들, 마일스톤은 ◆ 자리(폭 0). */
+function ghostSpot(m: ChartModel, a: Activity, d: Dates): Spot {
+  if (a.kind === 'start_ms') return { x: x(m.scale, d.start), w: 0 };
+  if (a.kind === 'finish_ms') return { x: x(m.scale, d.finish) + m.scale.pxPerDay, w: 0 };
+  return barRect(m.scale, d.start, d.finish);
+}
+
+/** 보이는 칸들(막대·점선)이 차지하는 자리들. 이름은 이것들 밖에 쓴다(점선이 이름을 지나가지 않게). */
+function spots(m: ChartModel, a: Activity, t: Track): Spot[] {
+  const g = m.ghosts.get(a.id);
+  const plan = m.layers.plan ? [anchorOf(m.scale, a), g?.plan && ghostSpot(m, a, g.plan)] : [];
+  const track = m.layers.actual ? [t.actual, t.forecast, t.ms && { x: t.ms.cx, w: 0 }, g?.track && ghostSpot(m, a, g.track)] : [];
+  return [...plan, ...track].filter((s): s is Spot => !!s);
+}
+
 /**
- * 막대 옆 이름: 지연이면 「· 지연 +n일」(서버 status), Plan 이 없으면 「· Plan 없음」. 보이는 칸들의 오른쪽 끝 뒤에 쓰고,
- * 차트 오른쪽 끝을 넘으면 막대 왼쪽에 오른쪽 맞춤으로 쓴다(잘리지 않게).
+ * 막대 옆 이름: 지연이면 「· 지연 +n일」(서버 status), Plan 이 없으면 「· Plan 없음」. 보이는 칸들(점선 포함)의 오른쪽 끝 뒤에 쓰고,
+ * 차트 오른쪽 끝을 넘으면 왼쪽 끝 앞에 오른쪽 맞춤으로 쓴다(잘리지 않게).
  */
 function NameLabel({ m, a, y, t }: { m: ChartModel; a: Activity; y: number; t: Track }) {
-  const plan = m.layers.plan ? anchorOf(m.scale, a) : null;
-  const ends = [plan && plan.x + plan.w, m.layers.actual ? t.end : null].filter((n): n is number => n !== null);
-  const starts = [plan?.x, m.layers.actual ? (t.actual?.x ?? t.forecast?.x ?? t.ms?.cx) : undefined].filter((n): n is number => n !== undefined);
+  const all = spots(m, a, t);
+  const ends = all.map((s) => s.x + s.w);
+  const starts = all.map((s) => s.x);
   const late = a.status.startsWith('late');
   const text = [a.name, late ? statusBadge(a.status).label : '', !planOf(a) && !m.noPlan ? 'Plan 없음' : ''].filter(Boolean).join(' · ');
   const right = (ends.length ? Math.max(...ends) : x(m.scale, a.es)) + (a.kind === 'task' ? 6 : 10);
@@ -114,9 +149,9 @@ function ActivityShapes({ m, row, y }: { m: ChartModel; row: GanttRow; y: number
   const t = trackOf(m.scale, a, m.view.data_date);
   const g = m.ghosts.get(a.id);
   const ghost = (d: Dates, lane: 'plan' | 'track') => {
-    const r = barRect(m.scale, d.start, d.finish);
+    const r = ghostSpot(m, a, d);
     const data = lane === 'plan' ? { 'data-ghost': a.id } : { 'data-ghost-track': a.id };
-    return <Ghost {...data} lane={lane} x={r.x} w={r.w} y={y} />;
+    return a.kind === 'task' ? <Ghost {...data} lane={lane} x={r.x} w={r.w} y={y} /> : <GhostMilestone {...data} lane={lane} cx={r.x} y={y} />;
   };
   return (
     <>

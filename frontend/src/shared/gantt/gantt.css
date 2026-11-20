@@ -21,7 +21,7 @@
 .gantt-float { fill: var(--fg-muted); opacity: 0.7; }
 
 /* 위 칸 Plan · 아래 칸 Actual(진하게)·예측(옅게 + 점선 테두리). CPM 층의 크리티컬 빨강은 예측에만. */
-.gantt-bar { fill: var(--accent); fill-opacity: 0.45; }
+.gantt-bar { fill: var(--accent); fill-opacity: 0.45; stroke: var(--accent-text); stroke-width: 1; } /* 테두리가 바탕과 3:1 이상(WCAG 1.4.11) */
 .gantt-actualbar { fill: var(--success); pointer-events: none; }
 .gantt-forecast { fill: var(--success); fill-opacity: 0.22; stroke: var(--success); stroke-width: 1; stroke-dasharray: 3 2; pointer-events: none; }
 .gantt-forecast.critical { fill: var(--danger); fill-opacity: 0.28; stroke: var(--danger); }
@@ -37,7 +37,7 @@
 .gantt-ghost { fill: none; stroke: var(--fg-muted); stroke-width: 1.5; stroke-dasharray: 4 3; pointer-events: none; }
 .gantt-ghost.is-drag { stroke: var(--accent); }
 .gantt-lane { fill: var(--accent); fill-opacity: 0.35; }
-.gantt-svg .gantt-label { fill: var(--fg-muted); pointer-events: none; }
+.gantt-svg .gantt-label { fill: var(--fg-muted); pointer-events: none; paint-order: stroke; stroke: var(--bg-panel); stroke-width: 3px; stroke-linejoin: round; } /* 바탕 테: 점선이 이름을 지나가지 않게 */
 .gantt-svg .gantt-label.is-danger { fill: var(--danger-text); }
 .gantt-svg .gantt-drag-label { fill: var(--accent-text); font-weight: 700; pointer-events: none; }
 

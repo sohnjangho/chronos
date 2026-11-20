@@ -13,9 +13,9 @@ test('a month too narrow for its name is left blank and passes its year to the n
 
 // Task 17 리뷰 I2: 좁은 창에서 연도를 계속 넘기다 모든 달이 빈칸이 되던 것.
 test('narrow months shorten to YY.M or M월 instead of all going blank', () => {
-  // 하루 1.15px → 달마다 32~36px: 연도 달은 '2027년 2월'·'27.2' 가 안 들어가 'M월' 로, 넘긴 연도도 안 들어가면 버린다.
+  // 하루 1.15px → 달마다 32~36px: 'YY.M'(36px)이 안 들어가도 첫 달과 1월은 연도를 단다 — 다음 달까지 걸쳐 쓰고 다음 달은 비운다(fix 2 e).
   const thin = render(<Header scale={makeScale('2027-02-01', '2028-01-31', 365 * 1.15, 0)} />);
-  expect(monthTexts(thin.container)).toEqual(['2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월', '1월']);
+  expect(monthTexts(thin.container)).toEqual(['27.2', '', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월', '28.1']);
   thin.unmount();
   // 하루 1.3px → 달마다 36~40px: 연도 달은 'YY.M'.
   const slim = render(<Header scale={makeScale('2027-02-01', '2028-01-31', 365 * 1.3, 0)} />);
@@ -24,6 +24,14 @@ test('narrow months shorten to YY.M or M월 instead of all going blank', () => {
   expect(labels[1]).toBe('3월');
   expect(labels.at(-1)).toBe('28.1');
   expect(labels.every(Boolean)).toBe(true);
+});
+
+test('however narrow, the first month and every January show the year', () => {
+  const labels = monthTexts(render(<Header scale={makeScale('2027-02-01', '2029-01-31', 730, 0)} />).container); // 하루 1px
+  expect(labels[0]).toBe('27.2');
+  expect(labels[11]).toBe('28.1');
+  expect(labels[23]).toBe('29.1');
+  expect(labels[1]).toBe(''); // 걸쳐 쓴 연도 자리
 });
 
 test('wide months keep the 첫 달·1월 연도 rule', () => {

@@ -16,22 +16,38 @@ export interface HeaderMark {
 const textW = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 11 : 7), 8);
 
 /**
- * 달 이름: 연도를 달 달(첫 달·1월, 또는 앞 달에서 넘겨받음)은 'YYYY년 M월' → 'YY.M' 차례로 들어가는 것을, 그 밖은 'M월'.
- * 연도가 들어가지 않으면 그 달은 'M월'(들어가면)로 쓰고 연도는 다음 달에 한 번만 넘긴다 — 넘겨받은 달에도 안 들어가면 버린다
- * (좁은 창에서 연도를 계속 넘겨 모든 달이 빈칸이 되지 않게). 'M월' 도 안 들어가면 빈칸.
+ * 달 이름. 연도를 달 달(첫 달·1월, 또는 앞 달에서 넘겨받음)은 'YYYY년 M월' → 'YY.M' 가운데 들어가는 것.
+ * 둘 다 안 들어가면 그래도 'YY.M' 을 쓰고 다음 달까지 걸쳐 쓰므로 다음 달 이름은 비운다(좁은 창에서도 첫 달·1월은 연도를 단다).
+ * 다만 첫 달이 'M월' 도 안 들어가는 조각이면 연도를 다음 달에 넘기고, 다음 달이 1월이면(거기서 연도를 단다) 이 달은 'M월'.
+ * 그 밖의 달은 'M월'(안 들어가면 빈칸).
  */
 function monthLabels(scale: Scale) {
+  const ms = months(scale);
+  const fits = (t: string, w: number) => textW(t) <= w;
   let carry: string | null = null;
-  return months(scale).map((m) => {
+  let skip = false;
+  return ms.map((m, i) => {
     const own = m.label.includes('년') ? m.label.split(' ')[0] : null;
     const year = own ?? carry;
     const month = m.label.split(' ').at(-1)!;
     carry = null;
-    const tries = year ? [`${year} ${month}`, `${year.slice(2, 4)}.${month.replace('월', '')}`] : [];
-    const withYear = tries.find((t) => textW(t) <= m.w);
-    if (withYear) return { ...m, label: withYear };
-    if (own) carry = own;
-    return { ...m, label: textW(month) <= m.w ? month : '' };
+    if (skip) {
+      skip = false;
+      return { ...m, label: '' };
+    }
+    const plain = fits(month, m.w) ? month : '';
+    if (!year) return { ...m, label: plain };
+    const short = `${year.slice(2, 4)}.${month.replace('월', '')}`;
+    const fitted = [`${year} ${month}`, short].find((t) => fits(t, m.w));
+    if (fitted) return { ...m, label: fitted };
+    const next = ms[i + 1];
+    if (next?.label.includes('년')) return { ...m, label: plain };
+    if (next && i === 0 && !plain) {
+      carry = year;
+      return { ...m, label: '' };
+    }
+    skip = next !== undefined;
+    return { ...m, label: short };
   });
 }
 

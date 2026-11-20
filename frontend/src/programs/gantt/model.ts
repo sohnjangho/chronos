@@ -24,22 +24,29 @@ export function todayIso(now = new Date()): string {
   return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
 }
 
-/** 일정에 나오는 가장 이른 날 ~ 가장 늦은 날(Plan·지금·Actual·Data Date·준공·기한). */
-export function rangeOf(view: ScheduleView, marks: ConditionMarks): { start: string; end: string } {
-  const days: string[] = [view.finish, ...marks.finishBy.map((m) => m.date), ...marks.milestoneBy.map((m) => m.date)];
-  if (view.data_date) days.push(view.data_date);
-  if (view.plan_finish) days.push(view.plan_finish);
-  for (const a of view.activities) {
-    days.push(a.es, a.ef);
-    for (const d of [a.plan_start, a.plan_finish, a.actual_start, a.actual_finish]) if (d) days.push(d);
+/**
+ * 일정에 나오는 가장 이른 날 ~ 가장 늦은 날(Plan·지금·Actual·Data Date·준공·기한). views 를 모두 본다 —
+ * 미리 보기 중에는 저장된 보기도 넣어 이전 자리 점선이 차트 밖으로 나가지 않게 한다(서버 날짜 글자를 고르기만 한다).
+ */
+export function rangeOf(views: ScheduleView[], marks: ConditionMarks): { start: string; end: string } {
+  const days: string[] = [...marks.finishBy.map((m) => m.date), ...marks.milestoneBy.map((m) => m.date)];
+  for (const view of views) {
+    days.push(view.finish);
+    if (view.data_date) days.push(view.data_date);
+    if (view.plan_finish) days.push(view.plan_finish);
+    for (const a of view.activities) {
+      days.push(a.es, a.ef);
+      for (const d of [a.plan_start, a.plan_finish, a.actual_start, a.actual_finish]) if (d) days.push(d);
+    }
   }
   days.sort();
   return { start: days[0], end: days[days.length - 1] };
 }
 
 /**
- * Plan 날짜(서버 plan_start~plan_finish = 지금 일정을 실적 없이 계산한 것, PM 결정 11-20). 간트의 막대·◆·관계선·요약·자원 줄은
- * 모두 이 날짜에 그린다. 실적을 넣은 지금 계산(ES~EF)은 따로 그리지 않는다. 계산할 수 없으면 null(Plan 없음).
+ * Plan 날짜(서버 plan_start~plan_finish = 지금 일정을 실적 없이 계산한 것, PM 결정 11-20). 간트의 위 칸(Plan 막대·◆)과
+ * 묶음 요약·자원 막대가 이 날짜다. 아래 칸 「Actual·예측」·관계선·CPM 층은 지금 계산(ES~EF·실적, trackOf·trackAnchor)이다.
+ * 계산할 수 없으면 null(Plan 없음).
  */
 export const planOf = (a: Activity): { start: string; finish: string } | null =>
   a.plan_start && a.plan_finish ? { start: a.plan_start, finish: a.plan_finish } : null;

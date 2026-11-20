@@ -279,6 +279,55 @@ test('a preview that moves only the current computation (a delay) leaves Plan al
   expect(ghostTrack('A3020')).toBeNull();
 });
 
+// fix 2 I1·f: 미리 보기가 준공을 앞당겨도 저장된 자리(점선)가 보이게 — 범위에 저장된 보기도 넣는다. 마일스톤의 이전 자리는 ◇ 테두리.
+test('when a preview pulls the finish earlier the old milestone place stays inside the chart as a ◇ outline', async () => {
+  await renderGantt();
+  const early = { es: '2027-11-10', ef: '2027-11-10', plan_start: '2027-11-10', plan_finish: '2027-11-10' };
+  const activities = makeView().activities.map((a) => (a.id === 'A4030' ? { ...a, ...early } : a));
+  act(() => useSchedulePreview.getState().set({ scheduleId: 1, view: makeView({ activities, finish: '2027-11-10', plan_finish: '2027-11-10' }), moved: [], source: 'conditions' }));
+  const total = num(document.querySelector('svg.gt-rows'), 'width');
+  for (const g of [ghost('A4030'), ghostTrack('A4030')]) {
+    expect(g!.tagName.toLowerCase()).toBe('path');
+    const cx = Number(g!.getAttribute('d')!.split(' ')[1]);
+    expect(cx).toBeGreaterThan(0);
+    expect(cx).toBeLessThanOrEqual(total);
+  }
+});
+
+// fix 2 I2: 이름이 점선을 지나가 취소선처럼 보이지 않게 — 이름 자리는 점선 끝까지 보고 정한다.
+test('a bar name is written after the dotted old place when the preview moves the bar earlier', async () => {
+  await renderGantt();
+  const earlier = { es: '2027-07-05', ef: '2027-08-20', plan_start: '2027-07-05', plan_finish: '2027-08-20' };
+  const activities = makeView().activities.map((a) => (a.id === 'A3010' ? { ...a, ...earlier } : a));
+  act(() => useSchedulePreview.getState().set({ scheduleId: 1, view: makeView({ activities }), moved: [], source: 'conditions' }));
+  const label = [...document.querySelectorAll('.gantt-label')].find((t) => t.textContent === '외장 패널')!;
+  const ghostEnd = Math.max(num(ghost('A3010'), 'x') + num(ghost('A3010'), 'width'), num(ghostTrack('A3010'), 'x') + num(ghostTrack('A3010'), 'width'));
+  expect(num(label, 'x')).toBeGreaterThanOrEqual(ghostEnd);
+});
+
+// fix 2 minor c: 막대에 제목(층 이름과 서버 날짜), 꺼진 CPM 단추는 눌림이 아니다.
+test('bars carry a title with their layer and dates; a disabled CPM toggle is not pressed', async () => {
+  setupGantt(delayedView());
+  await renderGantt();
+  expect(bar('A2020')!.querySelector('title')).toHaveTextContent('A2020 지상 1~5층 골조 — Plan 2027.05.06 ~ 2027.07.14');
+  expect(actualBar('A2020')!.querySelector('title')).toHaveTextContent('Actual 2027.05.11 ~ 진행 중(Data Date 2027.06.01)');
+  expect(forecastBar('A2020')!.querySelector('title')).toHaveTextContent('예측 2027.06.01 ~ 2027.07.20');
+  expect(forecastBar('A3010')!.querySelector('title')).toHaveTextContent('예측 2027.07.21 ~ 2027.09.07');
+  expect(actualBar('A1020')!.querySelector('title')).toHaveTextContent('Actual 2027.03.02 ~ 2027.03.19');
+  expect(document.querySelector('[data-ms="A4030"] title')).toHaveTextContent('Plan 2027.11.24');
+  await userEvent.click(tool('Actual·예측'));
+  expect(tool('CPM')).toBeDisabled();
+  expect(tool('CPM')).toHaveAttribute('aria-pressed', 'false');
+});
+
+// fix 2 minor a: 간격 글자는 후행의 Plan 칸에 겹치지 않게 선 아래에.
+test('a lag number sits below the line, clear of the successor Plan bar', async () => {
+  await renderGantt();
+  const lag = [...document.querySelectorAll('.gantt-lag')].find((t) => t.textContent === '+30')!;
+  const planBottom = num(bar('A3020'), 'y') + num(bar('A3020'), 'height');
+  expect(num(lag, 'y') - 8).toBeGreaterThanOrEqual(planBottom); // 10px 글자의 위쪽(어림)이 Plan 막대 아래
+});
+
 test('a preview of another schedule is not drawn', async () => {
   await renderGantt();
   act(() => useSchedulePreview.getState().set({ scheduleId: 2, view: makeView({ id: 2 }), moved: [], source: 'conditions' }));

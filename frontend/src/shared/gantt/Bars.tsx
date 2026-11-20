@@ -17,29 +17,47 @@ export function Band({ y, w, className, ...rest }: { y: number; w: number; class
   return <rect className={['gantt-band', className].filter(Boolean).join(' ')} x={0} y={y} width={w} height={ROW_H} {...rest} />;
 }
 
-interface BarProps extends Omit<SVGProps<SVGGElement>, 'x' | 'y' | 'id'> {
+interface BarProps extends Omit<SVGProps<SVGGElement>, 'x' | 'y' | 'id' | 'title'> {
   id: string;
   x: number;
   w: number;
   y: number;
+  /** 가리키면 보이는 글(층 이름과 서버 날짜). */
+  title: string;
   children?: ReactNode;
 }
 
 /** Plan 막대(위 칸). children 은 막대 위에 겹칠 것(끌기 손잡이 등). */
-export function Bar({ id, x, w, y, children, ...g }: BarProps) {
+export function Bar({ id, x, w, y, title, children, ...g }: BarProps) {
   return (
     <g {...g}>
-      <rect className="gantt-bar" data-bar={id} x={x} y={y + LANE_Y.plan} width={Math.max(w, 1)} height={BAR_H} rx={2} />
+      <rect className="gantt-bar" data-bar={id} x={x} y={y + LANE_Y.plan} width={Math.max(w, 1)} height={BAR_H} rx={2}>
+        <title>{title}</title>
+      </rect>
       {children}
     </g>
   );
 }
 
+interface TrackBarProps {
+  id: string;
+  x: number;
+  w: number;
+  y: number;
+  kind: 'actual' | 'forecast';
+  critical?: boolean;
+  title: string;
+}
+
 /** 아래 칸의 막대: 실적(진하게, data-actual) 또는 예측(옅게, data-forecast — CPM 층이면 크리티컬 빨강). */
-export function TrackBar({ id, x, w, y, kind, critical }: { id: string; x: number; w: number; y: number; kind: 'actual' | 'forecast'; critical?: boolean }) {
+export function TrackBar({ id, x, w, y, kind, critical, title }: TrackBarProps) {
   const data = kind === 'actual' ? { 'data-actual': id } : { 'data-forecast': id };
   const cls = kind === 'actual' ? 'gantt-actualbar' : `gantt-forecast${critical ? ' critical' : ''}`;
-  return <rect className={cls} {...data} x={x} y={y + LANE_Y.track} width={Math.max(w, 2)} height={BAR_H} rx={2} />;
+  return (
+    <rect className={cls} {...data} x={x} y={y + LANE_Y.track} width={Math.max(w, 2)} height={BAR_H} rx={2}>
+      <title>{title}</title>
+    </rect>
+  );
 }
 
 /** Plan 막대 오른쪽 끝의 끌기 손잡이(보이지 않는 넓은 칸 + 얇은 표시). */
@@ -49,11 +67,30 @@ export function EndHandle({ id, x, y, ...rest }: { id: string; x: number; y: num
 
 const diamond = (cx: number, cy: number, r: number) => `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
 
+interface MilestoneProps {
+  id: string;
+  cx: number;
+  y: number;
+  lane?: Lane;
+  kind?: 'actual' | 'forecast';
+  critical?: boolean;
+  title: string;
+}
+
 /** 마일스톤 ◆: Plan 칸(data-ms) 또는 Actual·예측 칸(data-ms-track, 실적 is-actual · 예측 is-forecast). */
-export function Milestone({ id, cx, y, lane = 'plan', kind, critical }: { id: string; cx: number; y: number; lane?: Lane; kind?: 'actual' | 'forecast'; critical?: boolean }) {
+export function Milestone({ id, cx, y, lane = 'plan', kind, critical, title }: MilestoneProps) {
   const cls = ['gantt-ms', lane === 'plan' ? 'is-plan' : `is-${kind}`, critical ? 'critical' : ''].filter(Boolean).join(' ');
   const data = lane === 'plan' ? { 'data-ms': id } : { 'data-ms-track': id };
-  return <path className={cls} {...data} d={diamond(cx, y + LANE_Y[lane] + BAR_H / 2, 5)} />;
+  return (
+    <path className={cls} {...data} d={diamond(cx, y + LANE_Y[lane] + BAR_H / 2, 5)}>
+      <title>{title}</title>
+    </path>
+  );
+}
+
+/** 마일스톤의 이전 자리 ◇ 점선 테두리(미리 보기). */
+export function GhostMilestone({ cx, y, lane, ...rest }: { cx: number; y: number; lane: Lane } & Omit<SVGProps<SVGPathElement>, 'd' | 'y'>) {
+  return <path className="gantt-ghost" d={diamond(cx, y + LANE_Y[lane] + BAR_H / 2, 5)} {...rest} />;
 }
 
 /** 기한 ◇(조건의 날짜). */

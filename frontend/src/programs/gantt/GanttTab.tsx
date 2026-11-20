@@ -111,7 +111,7 @@ export default function GanttTab() {
   const selected = useSchedule((s) => s.selected);
   const g = useLayersAndRows(view);
   const marks = useConditionMarks(stored.id, stored.version);
-  const range = useMemo(() => rangeOf(view, marks), [view, marks]);
+  const range = useMemo(() => rangeOf([view, stored], marks), [view, stored, marks]);
   const vp = useViewport(range, g.rows.length);
   const cols = useGanttColumns();
   const ed = useEditing(g.rows, cols.columns, !!preview, vp, g.toggle);

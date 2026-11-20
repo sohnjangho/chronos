@@ -36,7 +36,8 @@ export default function Links({ items, rowH, mid = rowH / 2 }: { items: LinkItem
               <title>{l.title}</title>
             </path>
             {l.lag !== 0 && (
-              <text className="gantt-lag" x={toEnd ? ex + 8 : ex - 8} y={l.to.row * rowH + mid - 4} textAnchor={toEnd ? 'start' : 'end'}>
+              // 들어가는 선 아래(줄 아래쪽)에 — 위쪽 칸(Plan 막대)과 겹치지 않게.
+              <text className="gantt-lag" x={toEnd ? ex + 8 : ex - 8} y={l.to.row * rowH + Math.min(rowH - 1, mid + 8)} textAnchor={toEnd ? 'start' : 'end'}>
                 {l.lag > 0 ? `+${l.lag}` : String(l.lag)}
               </text>
             )}
