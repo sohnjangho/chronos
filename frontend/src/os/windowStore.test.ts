@@ -1,6 +1,7 @@
 import { lazy } from 'react';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { register } from './registry';
+import { setWindowMotion } from './windowMotion';
 import { activeWindow, ARRANGE_GAP, DOCK_RESERVE, MENUBAR_H, resizeRect, useWindows, workArea, type Win } from './windowStore';
 
 const program = (id: string, w: number, h: number) =>
@@ -266,4 +267,174 @@ test('minimizeAll, closeActive, closeAll and nextWindow', () => {
   expect(s().closeAll()).toBe(2);
   expect(s().wins).toEqual([]);
   expect(b).toBe('w2');
+});
+
+describe('window motion (switch on, fake clock)', () => {
+  const ids = () => s().wins.map((w) => w.id);
+  beforeEach(() => {
+    setWindowMotion(true);
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    s().reset();
+    vi.useRealTimers();
+    setWindowMotion(false);
+    vi.unstubAllGlobals();
+  });
+
+  test('a new window opens with the open motion, which clears after 220ms', () => {
+    const a = s().open('schedule');
+    expect(win(a).motion).toBe('open');
+    vi.advanceTimersByTime(219);
+    expect(win(a).motion).toBe('open');
+    vi.advanceTimersByTime(1);
+    expect(win(a).motion).toBeUndefined();
+  });
+
+  test('an open from the Dock is marked so the window grows out of the icon', () => {
+    const a = s().open('schedule', undefined, 'dock');
+    expect(win(a)).toMatchObject({ motion: 'open', fromDock: true });
+    vi.advanceTimersByTime(220);
+    expect(win(a).motion).toBeUndefined();
+    expect(win(a).fromDock).toBeUndefined();
+  });
+
+  test('bringing an open window forward has no motion', () => {
+    const a = s().open('schedule');
+    s().open('chat');
+    vi.advanceTimersByTime(220);
+    s().open('schedule');
+    expect(win(a).motion).toBeUndefined();
+    expect(top().id).toBe(a);
+    s().focus(s().wins[1].id);
+    expect(s().wins[1].motion).toBeUndefined();
+  });
+
+  test('close keeps the window, inactive and untouchable, until the 160ms motion ends', () => {
+    const a = s().open('schedule');
+    const b = s().open('chat');
+    vi.advanceTimersByTime(220);
+    s().close(b);
+    expect(win(b).motion).toBe('close');
+    expect(s().activeProgramId()).toBe('schedule');
+    const z = s().topZ;
+    s().focus(b);
+    s().toggleMaximize(b);
+    s().minimize(b);
+    s().close(b);
+    expect(win(b)).toMatchObject({ motion: 'close', minimized: false, maximized: false });
+    expect(s().topZ).toBe(z);
+    vi.advanceTimersByTime(159);
+    expect(ids()).toEqual([a, b]);
+    vi.advanceTimersByTime(1);
+    expect(ids()).toEqual([a]);
+  });
+
+  test('opening a program whose window is closing makes a new window', () => {
+    const a = s().open('schedule');
+    s().close(a);
+    const b = s().open('schedule');
+    expect(b).not.toBe(a);
+    expect(win(b).motion).toBe('open');
+    vi.advanceTimersByTime(220);
+    expect(ids()).toEqual([b]);
+  });
+
+  test('closing a minimized window removes it at once (there is nothing to see)', () => {
+    const a = s().open('schedule');
+    s().minimize(a);
+    s().close(a);
+    expect(s().wins).toEqual([]);
+  });
+
+  test('minimize hides in the store at once and the 260ms motion then clears; restore plays back', () => {
+    const a = s().open('schedule');
+    vi.advanceTimersByTime(220);
+    s().minimize(a);
+    expect(win(a)).toMatchObject({ minimized: true, motion: 'minimize' });
+    expect(s().activeProgramId()).toBeNull();
+    vi.advanceTimersByTime(259);
+    expect(win(a).motion).toBe('minimize');
+    vi.advanceTimersByTime(1);
+    expect(win(a).motion).toBeUndefined();
+    s().open('schedule');
+    expect(win(a)).toMatchObject({ minimized: false, motion: 'restore' });
+    vi.advanceTimersByTime(260);
+    expect(win(a).motion).toBeUndefined();
+    s().minimize(a);
+    vi.advanceTimersByTime(260);
+    s().focus(a);
+    expect(win(a)).toMatchObject({ minimized: false, motion: 'restore' });
+  });
+
+  test('maximize and restore zoom for 200ms; a window that is still opening keeps its open motion', () => {
+    const a = s().open('schedule');
+    s().toggleMaximize(a);
+    expect(win(a)).toMatchObject({ maximized: true, motion: 'open' });
+    vi.advanceTimersByTime(220);
+    s().toggleMaximize(a);
+    expect(win(a)).toMatchObject({ maximized: false, motion: 'zoom' });
+    vi.advanceTimersByTime(199);
+    expect(win(a).motion).toBe('zoom');
+    vi.advanceTimersByTime(1);
+    expect(win(a).motion).toBeUndefined();
+  });
+
+  test('minimize all and close all move every window; closing windows are not counted again', () => {
+    const a = s().open('schedule');
+    const b = s().open('chat');
+    vi.advanceTimersByTime(220);
+    expect(s().minimizeAll()).toBe(2);
+    expect(s().wins.map((w) => w.motion)).toEqual(['minimize', 'minimize']);
+    vi.advanceTimersByTime(260);
+    s().focus(a);
+    s().focus(b);
+    vi.advanceTimersByTime(260);
+    expect(s().closeAll()).toBe(2);
+    expect(s().wins.map((w) => w.motion)).toEqual(['close', 'close']);
+    expect(s().closeAll()).toBe(0);
+    vi.advanceTimersByTime(160);
+    expect(s().wins).toEqual([]);
+  });
+
+  test('close active closes with motion and the next window becomes active at once', () => {
+    s().open('schedule');
+    const b = s().open('chat');
+    s().closeActive();
+    expect(win(b).motion).toBe('close');
+    expect(s().activeProgramId()).toBe('schedule');
+  });
+
+  test('with reduced motion everything changes at once', () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('reduce'), media: q, addEventListener() {}, removeEventListener() {} }));
+    const a = s().open('schedule', undefined, 'dock');
+    expect(win(a).motion).toBeUndefined();
+    expect(win(a).fromDock).toBeUndefined();
+    s().minimize(a);
+    expect(win(a).minimized).toBe(true);
+    expect(win(a).motion).toBeUndefined();
+    s().focus(a);
+    s().toggleMaximize(a);
+    expect(win(a)).toMatchObject({ minimized: false, maximized: true });
+    expect(win(a).motion).toBeUndefined();
+    s().close(a);
+    expect(s().wins).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('with the switch off (the default under the test runner) close removes at once', () => {
+    setWindowMotion(false);
+    const a = s().open('schedule');
+    expect(win(a).motion).toBeUndefined();
+    s().close(a);
+    expect(s().wins).toEqual([]);
+  });
+
+  test('reset drops pending motion timers', () => {
+    s().open('schedule');
+    s().open('chat');
+    expect(vi.getTimerCount()).toBe(2);
+    s().reset();
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

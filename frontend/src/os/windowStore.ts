@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { cascadeBoxes, gridBoxes, splitBoxes, type Box } from './arrange';
 import { getProgram } from './registry';
+import { clearMotionTimers, isClosing, motionActions, startMotion, type Motion } from './windowMotion';
 
 export { ARRANGE_GAP } from './arrange';
 
@@ -19,6 +20,9 @@ export interface Win {
   /** 오른쪽 패널 때문에 좁혀지기 전 자리(beforeInset)와 좁힌 자리(insetRect). 패널을 닫을 때 그대로면 되돌린다. */
   beforeInset?: Rect;
   insetRect?: Rect;
+  /** 움직이는 중이면 그 움직임(windowMotion.ts). 닫히는 중인 창은 없는 창으로 친다. fromDock: Dock 아이콘에서 열었다. */
+  motion?: Motion;
+  fromDock?: boolean;
 }
 
 /** 창 자리와 크기(px). */
@@ -110,7 +114,7 @@ function arrangeArea(): Rect {
 /** 최소화하지 않은 창 가운데 맨 앞. */
 export function topWindow(wins: Win[]): Win | null {
   let top: Win | null = null;
-  for (const w of wins) if (!w.minimized && (!top || w.z > top.z)) top = w;
+  for (const w of wins) if (!w.minimized && !isClosing(w) && (!top || w.z > top.z)) top = w;
   return top;
 }
 
@@ -124,7 +128,7 @@ export type ArrangeKind = 'split' | 'grid' | 'cascade';
 /** 보이는 창을 정렬한 새 목록. 활성 창(없으면 맨 앞 창)이 첫 칸이다. 정렬한 창은 확대를 푼다. */
 function arranged(s: { wins: Win[]; deactivated: boolean }, kind: ArrangeKind): Win[] {
   const lead = activeWindow(s) ?? topWindow(s.wins);
-  const shown = s.wins.filter((w) => !w.minimized).sort((a, b) => (a === lead ? -1 : b === lead ? 1 : a.z - b.z));
+  const shown = s.wins.filter((w) => !w.minimized && !isClosing(w)).sort((a, b) => (a === lead ? -1 : b === lead ? 1 : a.z - b.z));
   const area = arrangeArea();
   const boxes =
     kind === 'split'
@@ -148,8 +152,8 @@ interface WindowState {
   deactivated: boolean;
   /** 오른쪽에 붙은 패널 폭(px). 창은 그만큼 좁은 화면에 맞춘다. */
   insetRight: number;
-  /** 이미 열려 있으면 앞으로 가져오고(최소화 풀기) params 를 바꾼다. 창 id 를 돌려준다. */
-  open(programId: string, params?: Params): string;
+  /** 이미 열려 있으면 앞으로 가져오고(최소화 풀기) params 를 바꾼다. 창 id 를 돌려준다. from: 연 곳(움직임 원점). */
+  open(programId: string, params?: Params, from?: 'dock'): string;
   close(id: string): void;
   focus(id: string): void;
   move(id: string, x: number, y: number): void;
@@ -231,7 +235,7 @@ const raiser = (set: SetState) => (id: string, extra: (w: Win) => Partial<Win> =
 /** 윈도우 메뉴의 정렬·일괄 명령. */
 function bulkActions(set: SetState, get: () => WindowState) {
   const raise = raiser(set);
-  const shown = () => get().wins.filter((w) => !w.minimized);
+  const shown = () => get().wins.filter((w) => !w.minimized && !isClosing(w));
   return {
     clearActive: () => set({ deactivated: true }),
     arrange(kind: ArrangeKind) {
@@ -239,19 +243,9 @@ function bulkActions(set: SetState, get: () => WindowState) {
       if (n) set((s) => ({ wins: arranged(s, kind), deactivated: false }));
       return n;
     },
-    minimizeAll() {
-      const n = shown().length;
-      set((s) => ({ wins: s.wins.map((w) => ({ ...w, minimized: true })) }));
-      return n;
-    },
-    closeAll() {
-      const n = get().wins.length;
-      set({ wins: [] });
-      return n;
-    },
     closeActive() {
       const active = activeWindow(get());
-      if (active) set((s) => ({ wins: s.wins.filter((w) => w.id !== active.id) }));
+      if (active) get().close(active.id);
     },
     nextWindow() {
       const back = shown().sort((a, b) => a.z - b.z)[0];
@@ -268,30 +262,34 @@ function bulkActions(set: SetState, get: () => WindowState) {
 export const useWindows = create<WindowState>((set, get) => {
   const patch = patcher(set);
   const raise = raiser(set);
+  // 닫기·최소화·확대·복귀(+ 모두 최소화·모두 닫기)는 움직임과 함께 windowMotion 이 한다.
+  const { restore, ...withMotion } = motionActions(set, get, raise);
   return {
     ...initial,
     ...bulkActions(set, get),
-    open(programId, params) {
-      const found = get().wins.find((w) => w.programId === programId);
+    ...withMotion,
+    open(programId, params, from) {
+      const found = get().wins.find((w) => w.programId === programId && !isClosing(w));
       if (found) {
-        raise(found.id, () => ({ minimized: false, ...(params ? { params } : {}) }));
+        restore(found.id, params ? { params } : {});
         return found.id;
       }
       const s = get();
       const win = newWindow(s, programId, params);
       set({ seq: s.seq + 1, topZ: win.z, lastOpen: { x: win.x, y: win.y }, wins: [...s.wins, win], deactivated: false });
+      startMotion(set, win.id, 'open', from === 'dock' ? { fromDock: true } : {});
       return win.id;
     },
-    close: (id) => set((s) => ({ wins: s.wins.filter((w) => w.id !== id) })),
-    focus: (id) => raise(id, () => ({ minimized: false })),
+    focus: (id) => restore(id),
     move: (id, x, y) => patch(id, (w) => clampPos(Math.round(x), Math.round(y), w.w, w.h)),
     resize: (id, w, h) => patch(id, (win) => sizeWithin(win, w, h)),
     setBounds: (id, rect) => patch(id, () => fitRect(rect)),
     setTitle: (id, title) => patch(id, () => ({ title })),
     fitToScreen: () => set((s) => ({ wins: s.wins.map((w) => ({ ...w, ...fitRect(w) })) })),
-    minimize: (id) => patch(id, () => ({ minimized: true })),
-    toggleMaximize: (id) => raise(id, (w) => ({ maximized: !w.maximized })),
     activeProgramId: () => activeWindow(get())?.programId ?? null,
-    reset: () => set(initial),
+    reset() {
+      clearMotionTimers();
+      set(initial);
+    },
   };
 });

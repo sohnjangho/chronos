@@ -36,6 +36,8 @@ body {
   outline: none;
 }
 .os-win[hidden] { display: none; }
+/* 창 움직임(windowMotion.ts, transform·opacity 만): 움직이는 동안만 합성 층으로 올린다. */
+.os-win[data-motion] { will-change: transform, opacity; }
 .os-win-bar {
   height: 36px;
   flex: none;

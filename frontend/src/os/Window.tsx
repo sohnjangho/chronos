@@ -3,13 +3,16 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   type PointerEvent as ReactPointerEvent,
   type CSSProperties,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import { getProgram } from './registry';
-import { resizeRect, useWindows, workArea, type Edge, type Win } from './windowStore';
+import { playMotion } from './windowMotion';
+import { resizeRect, useWindows, workArea, type Edge, type Rect, type Win } from './windowStore';
 import { useZoom, zoomOf } from './zoom';
 
 const CANNOT_OPEN = '이 프로그램을 열 수 없습니다';
@@ -96,12 +99,32 @@ function TitleBar({ win, startDrag }: { win: Win; startDrag: StartDrag }) {
   );
 }
 
+/**
+ * store 가 붙인 움직임(win.motion)을 그린다. 그리기 전에 걸어서 첫 화면부터 움직임의 시작 모양이다.
+ * 확대·복귀는 바로 앞에 그린 자리(last)에서 지금 자리로 간다. 끌기·크기 조절은 움직임이 없다.
+ */
+function useMotion(ref: RefObject<HTMLDivElement | null>, win: Win, rect: Rect) {
+  const last = useRef(rect);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !win.motion || typeof el.animate !== 'function') return;
+    const anim = playMotion(el, { kind: win.motion, rect, from: last.current, programId: win.programId, fromDock: win.fromDock === true });
+    return () => anim.cancel();
+  }, [win.motion, win.maximized]); // 움직임이 바뀔 때만 다시 건다
+  useLayoutEffect(() => {
+    last.current = rect;
+  });
+}
+
 export default function Window({ win, active }: { win: Win; active: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const startDrag = useDrag();
   const zoom = useZoom((s) => zoomOf(s.levels, win.programId));
   const { focus, setBounds } = useWindows.getState();
   const rect = win.maximized ? workArea() : win;
+  // 닫히는·최소화되는 동안에는 누를 수 없다(inert). 최소화는 Dock 으로 줄어든 뒤에 숨긴다.
+  const leaving = win.motion === 'close' || win.motion === 'minimize';
+  useMotion(ref, win, rect);
 
   // 앞으로 올 때마다(열기·Dock·복귀) 창 안으로 포커스. 이미 창 안에 포커스가 있으면 두기.
   useEffect(() => {
@@ -110,7 +133,7 @@ export default function Window({ win, active }: { win: Win; active: boolean }) {
   }, [active, win.z]);
 
   const raise = () => {
-    if (!active) focus(win.id);
+    if (!active && !leaving) focus(win.id);
   };
 
   function onResizePointerDown(e: ReactPointerEvent, edge: Edge) {
@@ -124,7 +147,9 @@ export default function Window({ win, active }: { win: Win; active: boolean }) {
       role="dialog"
       aria-label={win.title}
       tabIndex={-1}
-      hidden={win.minimized}
+      hidden={win.minimized && win.motion !== 'minimize'}
+      inert={leaving}
+      data-motion={win.motion}
       className={`os-win${active ? ' is-active' : ''}`}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: win.z }}
       onPointerDownCapture={raise}

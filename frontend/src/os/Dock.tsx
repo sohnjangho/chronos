@@ -14,6 +14,7 @@ import { dockEntries, useDock, type DockEntry } from './dockStore';
 import { programs } from './registry';
 import { useSession } from './session';
 import { useShell } from './shell';
+import { prefersReducedMotion, setDockAnchor } from './windowMotion';
 import { activeWindow, useWindows } from './windowStore';
 import './dock.css';
 
@@ -25,9 +26,6 @@ export function magnification(d: number): number {
   if (d >= MAG_RANGE) return 1;
   return 1 + ((MAG_MAX - 1) * (1 + Math.cos((Math.PI * d) / MAG_RANGE))) / 2;
 }
-
-export const prefersReducedMotion = () =>
-  typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 type Item = Exclude<DockEntry, { kind: 'sep' }>;
 
@@ -193,8 +191,11 @@ function dockItemProps(entry: Item, i: number, c: ItemContext): DockItemProps {
     tabStop: i === c.model.tabStop,
     menuOpen: c.menuOpen,
     buttonRef: (el) => void (c.buttons.current[i] = el),
-    tileRef: (el) => void (c.tiles.current[i] = el),
-    onLaunch: () => (program ? useWindows.getState().open(program.id) : useShell.getState().setDrawer('open')),
+    tileRef: (el) => {
+      c.tiles.current[i] = el;
+      if (program && el) setDockAnchor(program.id, el); // 창이 열리고·최소화될 때 이 아이콘 쪽으로 움직인다
+    },
+    onLaunch: () => (program ? useWindows.getState().open(program.id, undefined, 'dock') : useShell.getState().setDrawer('open')),
     onMenu: () => c.setMenu(i),
     onFocusItem: () => c.setCurrent(i),
   };
