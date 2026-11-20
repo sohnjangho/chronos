@@ -1,6 +1,7 @@
 import type { KeyboardEvent, RefObject } from 'react';
 import type { Activity } from '../scheduleApi';
 import { pinClass, type ColKey, type ColumnDef } from './columns';
+import type { EditEnd } from './CellEditor';
 import Row, { GroupRow } from './Row';
 import type { GridRow } from './rows';
 
@@ -16,7 +17,7 @@ export interface GridProps {
   bodyRef: RefObject<HTMLTableSectionElement | null>;
   onPick(aid: string, col: ColKey): void;
   onEdit(aid: string, col: ColKey): void;
-  onEditEnd(aid: string, refocus: boolean): void;
+  onEditEnd(aid: string, col: ColKey, how: EditEnd): void;
   onCommit(a: Activity, col: ColumnDef, text: string): Promise<unknown>;
   onToggle(code: string, open?: boolean): void;
   onFocusRow(key: string): void;

@@ -86,3 +86,73 @@ test('selecting an activity that is deleted clears the selection', async () => {
   await store().deleteActivity('A3030');
   expect(store().selected).toBeNull();
 });
+
+// fix 1 I2: 보낼 값은 차례가 왔을 때의 일정으로 만든다. 409 뒤에는 줄 서 있던 쓰기를 보내지 않는다.
+test('a predecessor payload function runs when its turn comes, on the newest view', async () => {
+  await store().load(1);
+  const release = holdNextWrite();
+  const first = store().setPredecessors('A2020', [{ pred: 'A1040', type: 'FS', lag: 0 }]);
+  const seen: string[][] = [];
+  const second = store().setPredecessors('A2020', (view) => {
+    const items = view.relations.filter((r) => r.succ === 'A2020').map(({ pred, type, lag }) => ({ pred, type, lag }));
+    seen.push(items.map((i) => i.pred));
+    return items.filter((i) => i.pred !== 'A1040');
+  });
+  await vi.waitFor(() => expect(writes()).toHaveLength(1));
+  const next = makeView({ version: 2 });
+  next.relations = next.relations.filter((r) => !(r.succ === 'A2020' && r.pred === 'A2010'));
+  release(next);
+  expect(await first).toBe(true);
+  expect(await second).toBe(true);
+  expect(seen).toEqual([['A1040']]);
+  expect(writes()[1][2]).toEqual({ items: [], base_version: 2 });
+});
+
+test('a payload function may return null to send nothing', async () => {
+  await store().load(1);
+  expect(await store().setPredecessors('A2020', () => null)).toBe(false);
+  expect(writes()).toEqual([]);
+});
+
+test('after a 409 the writes queued behind it are dropped and the notice stays', async () => {
+  await store().load(1);
+  server.view = makeView({ version: 4 });
+  mockPatch(409, { code: 'version_conflict', message: 'x', detail: { current: 4 } });
+  const first = store().patchActivity('A2020', { od: 52 });
+  const second = store().patchActivity('A3010', { od: 36 });
+  expect(await first).toBe(false);
+  expect(await second).toBe(false);
+  expect(writes()).toHaveLength(1);
+  expect(store().notice).toEqual({ tone: 'info', text: '그 사이 일정이 바뀌어 다시 불러왔습니다' });
+  expect(await store().patchActivity('A3010', { od: 36 })).toBe(true); // 다시 불러온 뒤의 새 고침은 간다
+  expect(writes()[1][2]).toEqual({ od: 36, base_version: 4 });
+});
+
+// fix 1 I3: 여러 단계 되돌리기·다시 하기.
+test('two edits can be undone twice and redone twice', async () => {
+  await store().load(1);
+  await store().patchActivity('A2020', { od: 52 }); // 1 → 2
+  await store().patchActivity('A3010', { od: 36 }); // 2 → 3
+  expect(await store().undoLast()).toBe(true); // 3 → 4 (= 2)
+  expect(await store().undoLast()).toBe(true); // 4 → 5 (= 1)
+  expect(await store().redoLast()).toBe(true); // 5 → 6 (= 2)
+  expect(await store().redoLast()).toBe(true); // 6 → 7 (= 3)
+  const restores = writes().filter(([, url]) => url.includes('/restore')).map(([, url, body]) => [url, body]);
+  expect(restores).toEqual([
+    ['/api/schedules/1/versions/2/restore', { base_version: 3 }],
+    ['/api/schedules/1/versions/1/restore', { base_version: 4 }],
+    ['/api/schedules/1/versions/4/restore', { base_version: 5 }],
+    ['/api/schedules/1/versions/3/restore', { base_version: 6 }],
+  ]);
+  expect(store().redo).toEqual([]);
+  expect(await store().undoLast()).toBe(true); // 다시 되돌릴 수 있다(7 → 8)
+});
+
+test('undo still refuses when someone else changed the schedule in between', async () => {
+  await store().load(1);
+  await store().patchActivity('A2020', { od: 52 }); // 1 → 2
+  server.view = makeView({ version: 5 });
+  await store().load(1); // 다른 사람이 고침 → 5
+  expect(await store().undoLast()).toBe(false);
+  expect(writes().filter(([, url]) => url.includes('/restore'))).toEqual([]);
+});

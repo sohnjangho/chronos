@@ -59,11 +59,26 @@ describe('행 추가·삭제', () => {
     next.activities = next.activities.filter((a) => a.id !== 'A3030');
     mockPatch(next);
     await userEvent.click(button('삭제'));
+    // fix 1 m8: 창 안에서 지울 줄을 이름으로 묻는다
+    const ask = screen.getByRole('alertdialog', { name: '삭제 확인' });
+    expect(ask).toHaveTextContent('A3030 승강기 설치');
+    expect(writes()).toEqual([]);
+    await userEvent.click(within(ask).getByRole('button', { name: '지우기' }));
     expect(writes().at(-1)?.slice(0, 2)).toEqual(['DELETE', '/api/schedules/1/activities/A3030?base_version=1']);
     await waitFor(() => expect(rowOrNull('A3030')).toBeNull());
     expect(useSchedule.getState().selected).toBeNull();
     expect(screen.getByText('A3030 을(를) 지웠습니다. 되돌리기로 살릴 수 있습니다.')).toBeVisible();
   });
+});
+
+test('삭제 can be cancelled', async () => {
+  await renderSchedule();
+  await userEvent.click(row('A3030'));
+  await userEvent.click(button('삭제'));
+  await userEvent.click(within(screen.getByRole('alertdialog', { name: '삭제 확인' })).getByRole('button', { name: '취소' }));
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(writes()).toEqual([]);
+  expect(button('삭제')).toHaveFocus();
 });
 
 describe('찾기·거르기', () => {

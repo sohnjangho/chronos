@@ -1,7 +1,7 @@
-import { memo, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import { dot, percent } from '../format';
 import type { Activity } from '../scheduleApi';
-import CellEditor from './CellEditor';
+import CellEditor, { type EditEnd } from './CellEditor';
 import { pinClass, type CellCtx, type ColKey, type ColumnDef } from './columns';
 import type { GridRow } from './rows';
 
@@ -26,27 +26,41 @@ export interface RowProps {
   editingCol: ColKey | null;
   onPick(aid: string, col: ColKey): void;
   onEdit(aid: string, col: ColKey): void;
-  onEditEnd(aid: string, refocus: boolean): void;
+  /** 고치기가 끝났다. how 에 따라 줄로 초점·옆 고칠 칸 열기. */
+  onEditEnd(aid: string, col: ColKey, how: EditEnd): void;
   /** 보내고 끝나면 true/false. 바뀐 것이 없거나 틀린 글이면 보내지 않는다. */
   onCommit(a: Activity, col: ColumnDef, text: string): Promise<unknown>;
 }
 
 /**
  * 액티비티 한 줄. memo — 이 줄의 글·고름·고침이 바뀔 때만 다시 그린다(R7).
- * 보낸 값은 답이 올 때까지 그 칸에 보이고, 서버가 거절하면 원래 값으로 돌아간다.
+ * 보낸 값은 답이 올 때까지 그 칸에 보이고, 서버가 거절하면 원래 값으로 돌아간다. 같은 칸을 잇달아 고치면
+ * 마지막 값이 마지막 답까지 남는다(앞 답에 깜빡이지 않게).
  */
-function Row(p: RowProps) {
-  const [pending, setPending] = useState<Partial<Record<ColKey, string>>>({});
-  const ctx: CellCtx = { a: p.activity, preds: p.preds, wbsLabel: p.wbsLabel, resources: p.resources };
-
-  async function commit(col: ColumnDef, text: string, initial: string, refocus: boolean) {
-    p.onEditEnd(p.activity.id, refocus);
+/** 보낸 값(칸마다 마지막 것)과 보내기. 앞 답이 와도 뒤에 보낸 값은 지우지 않는다. */
+function usePending(p: RowProps) {
+  const [pending, setPending] = useState<Partial<Record<ColKey, { text: string; token: number }>>>({});
+  const tokens = useRef(0);
+  async function commit(col: ColumnDef, text: string, initial: string, how: EditEnd) {
+    p.onEditEnd(p.activity.id, col.key, how);
     if (text.trim() === initial.trim()) return;
+    const token = ++tokens.current;
     const shown = col.edit === 'kind' || col.edit === 'wbs' ? undefined : text.trim();
-    if (shown !== undefined) setPending((s) => ({ ...s, [col.key]: shown }));
+    if (shown !== undefined) setPending((s) => ({ ...s, [col.key]: { text: shown, token } }));
     await p.onCommit(p.activity, col, text);
-    if (shown !== undefined) setPending(({ [col.key]: _gone, ...rest }) => (void _gone, rest));
+    setPending((s) => {
+      if (s[col.key]?.token !== token) return s;
+      const rest = { ...s };
+      delete rest[col.key];
+      return rest;
+    });
   }
+  return { pending, commit };
+}
+
+function Row(p: RowProps) {
+  const { pending, commit } = usePending(p);
+  const ctx: CellCtx = { a: p.activity, preds: p.preds, wbsLabel: p.wbsLabel, resources: p.resources };
 
   return (
     <tr
@@ -75,11 +89,11 @@ function Row(p: RowProps) {
                 col={col}
                 label={`${p.activity.id} ${col.header}`}
                 initial={initial}
-                onCommit={(value, refocus) => void commit(col, value, initial, refocus)}
-                onCancel={(refocus) => p.onEditEnd(p.activity.id, refocus)}
+                onCommit={(value, how) => void commit(col, value, initial, how)}
+                onCancel={(how) => p.onEditEnd(p.activity.id, col.key, how)}
               />
             ) : (
-              pending[col.key] ?? (col.render ? col.render(ctx) : text)
+              (pending[col.key]?.text ?? (col.render ? col.render(ctx) : text))
             )}
           </td>
         );

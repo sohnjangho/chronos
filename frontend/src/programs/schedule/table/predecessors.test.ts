@@ -20,10 +20,21 @@ test('the brief example parses into two items', () => {
 });
 
 test('lower-case types, spaces and a trailing comma are accepted', () => {
-  expect(parse('  a1 ss+3 ,B2,  ')).toEqual([
-    { pred: 'a1', type: 'SS', lag: 3 },
+  expect(parse('  A1 ss+3 ,B2,  ')).toEqual([
+    { pred: 'A1', type: 'SS', lag: 3 },
     { pred: 'B2', type: 'FS', lag: 0 },
   ]);
+});
+
+// fix 1 m1: 종류 없는 간격·소문자 ID 는 틀린 부분을 짚어 거절한다.
+test.each([
+  ['A1+3', 'A1+3'],
+  ['A1-2', 'A1-2'],
+  ['a1', 'a1'],
+  ['A2010, a1040 SS+15', 'a1040 SS+15'],
+])('parse rejects %s naming the part', (text, part) => {
+  expect(() => parse(text)).toThrow(ParseError);
+  expect(() => parse(text)).toThrow(`선행 형식이 맞지 않습니다: ${part}`);
 });
 
 test('a type without a lag means lag 0', () => expect(parse('A1 SF')).toEqual([{ pred: 'A1', type: 'SF', lag: 0 }]));

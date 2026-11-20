@@ -9,6 +9,7 @@ import { useCurrentSchedule } from './currentSchedule';
 import Desktop from './Desktop';
 import { useEvidence } from './evidence';
 import { useSession } from './session';
+import { useUiContext } from './uiContext';
 import { useWindows } from './windowStore';
 import { resetShellState } from './shellReset';
 
@@ -109,10 +110,18 @@ test('the header names the source window, follows the active window and marks a 
   expect(panel().querySelector('.os-ctx-body')).toHaveClass('is-stale');
 });
 
+// 화면 맥락은 창 params 가 아니라 창이 알린 uiContext 에서 온다(Task 16 fix 1).
+const publishSelected = (activity: string) =>
+  act(() => {
+    const id = useWindows.getState().wins.find((w) => w.programId === 'schedule')!.id;
+    useUiContext.getState().publish(id, { program: 'schedule', schedule_id: 4, selected_activity: activity });
+  });
+
 test('the AI tab talks with the source context and can continue in the chat program', async () => {
   render(<Desktop />);
-  openProgram('schedule', { activity: 'A1020' });
+  openProgram('schedule');
   act(() => useContextPanel.getState().toggle());
+  publishSelected('A1020');
   await userEvent.type(within(panel()).getByRole('textbox', { name: '에이전트에게 묻기' }), '요약해 줘{Enter}');
   expect(await within(panel()).findByText('요약입니다')).toBeVisible();
   expect(within(panel()).getByText('요약해 줘')).toBeVisible();
@@ -226,11 +235,12 @@ test('closing and reopening the panel keeps the same conversation and session', 
   expect(fetchMock.mock.calls.filter(([u]) => u === '/api/chat/sessions/9/messages')).toHaveLength(2);
 });
 
-test('the AI tab sends the window parameters as they are when sending, not as they were', async () => {
+test('the AI tab sends the published context as it is when sending, not as it was', async () => {
   render(<Desktop />);
-  openProgram('schedule', { activity: 'A1020' });
+  openProgram('schedule');
   act(() => useContextPanel.getState().toggle());
-  act(() => useWindows.setState((st) => ({ wins: st.wins.map((w) => ({ ...w, params: { activity: 'A1030' } })) })));
+  publishSelected('A1020');
+  publishSelected('A1030');
   await userEvent.type(within(panel()).getByRole('textbox', { name: '에이전트에게 묻기' }), '이것은?{Enter}');
   await within(panel()).findByText('요약입니다');
   const send = fetchMock.mock.calls.find(([u]) => u === '/api/chat/sessions/9/messages')!;

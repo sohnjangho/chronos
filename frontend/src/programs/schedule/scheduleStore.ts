@@ -19,6 +19,9 @@ export interface UndoStep {
   note: string;
 }
 
+/** 보낼 차례가 왔을 때의 일정으로 선행 목록을 만든다. null 이면 보내지 않는다. */
+export type PredsFrom = (view: ScheduleView) => PredItem[] | null;
+
 export interface ScheduleState {
   scheduleId: number | null;
   view: ScheduleView | null;
@@ -35,7 +38,8 @@ export interface ScheduleState {
   redo: UndoStep[];
   load(id: number): Promise<void>;
   patchActivity(aid: string, fields: ActivityFields): Promise<boolean>;
-  setPredecessors(aid: string, items: PredItem[]): Promise<boolean>;
+  /** items 가 함수면 차례가 왔을 때의 일정으로 목록을 만든다(앞 요청의 결과를 반영). null 이면 보내지 않는다. */
+  setPredecessors(aid: string, items: PredItem[] | PredsFrom): Promise<boolean>;
   /** 새 액티비티 id(못 넣었으면 null). 넣으면 그 행을 고르고 보이게 한다. */
   addActivity(input: NewActivity): Promise<string | null>;
   deleteActivity(aid: string): Promise<boolean>;
@@ -60,9 +64,12 @@ const INITIAL = {
 };
 
 // 쓰기 줄(한 번에 하나). epoch 가 바뀌면(다른 일정·reset) 줄 서 있던 쓰기는 보내지 않고, 늦게 온 답은 버린다.
+// 409 가 나면 그때까지 줄 선 쓰기(표 번호 ≤ cutoff)도 보내지 않는다 — 다시 불러온 일정 위에 옛 고침을 얹지 않게.
 let chain: Promise<unknown> = Promise.resolve();
 let epoch = 0;
 let loadSeq = 0;
+let tickets = 0;
+let cutoff = 0;
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const errorText = (e: unknown) => (e instanceof ApiError ? e.message : '요청을 처리하지 못했습니다.');
@@ -105,10 +112,11 @@ async function fetchView(id: number) {
 /** 쓰기를 한 줄로 세운다. 앞 요청이 끝난 뒤 그때의 일정 버전으로 보낸다. */
 function enqueue<T>(job: (id: number, view: ScheduleView) => Promise<T>, fallback: T): Promise<T> {
   const mine = epoch;
+  const ticket = ++tickets;
   set((s) => ({ pending: s.pending + 1 }));
   const run = chain.then(() => {
     const { scheduleId, view } = get();
-    return mine !== epoch || scheduleId === null || !view ? fallback : job(scheduleId, view);
+    return mine !== epoch || ticket <= cutoff || scheduleId === null || !view ? fallback : job(scheduleId, view);
   });
   chain = run.catch(() => undefined);
   return run.finally(() => {
@@ -128,6 +136,7 @@ async function write(id: number, send: () => Promise<ScheduleView>): Promise<Sch
   } catch (e) {
     if (mine !== epoch) return null;
     if (e instanceof ApiError && e.code === 'version_conflict') {
+      cutoff = tickets;
       set({ notice: { tone: 'info', text: CONFLICT_NOTICE }, undo: [], redo: [] });
       await fetchView(id);
     } else set({ notice: { tone: 'error', text: errorText(e) } });
@@ -145,10 +154,15 @@ async function noteFor(id: number, n: number) {
   }
 }
 
-/** 이 창에서 고친 것: 버전이 바뀌면 되돌리기에 쌓고 그 버전의 메모를 읽어 붙인다. */
-function change(send: (id: number, base: number) => Promise<ScheduleView>) {
+/**
+ * 이 창에서 고친 것: build 는 차례가 왔을 때의 일정(view)으로 보낼 요청을 만든다(null 이면 보내지 않음).
+ * 버전이 바뀌면 되돌리기에 쌓고 그 버전의 메모를 읽어 붙인다.
+ */
+function change(build: (id: number, view: ScheduleView) => (() => Promise<ScheduleView>) | null) {
   return enqueue(async (id, view) => {
-    const next = await write(id, () => send(id, view.version));
+    const send = build(id, view);
+    if (!send) return null;
+    const next = await write(id, send);
     if (next && next.version !== view.version) {
       set((s) => ({ undo: [...s.undo, { restore: view.version, expect: next.version, note: '' }], redo: [] }));
       void noteFor(id, next.version);
@@ -166,8 +180,12 @@ function travel(from: 'undo' | 'redo') {
     const next = await write(id, () => sapi.restoreVersion(id, step.restore, view.version));
     if (!next) return false;
     const done = from === 'undo' ? '되돌렸습니다' : '다시 했습니다';
+    // 남은 칸 가운데 맨 위 칸은 방금 되살린 내용(step.restore)을 기다리고 있었다 — 그 내용은 이제 새 버전에 있다.
+    const rest = get()[from].slice(0, -1).map((u, i, all) =>
+      i === all.length - 1 && u.expect === step.restore ? { ...u, expect: next.version } : u,
+    );
     set((s) => ({
-      [from]: s[from].slice(0, -1),
+      [from]: rest,
       [to]: [...s[to], { restore: step.expect, expect: next.version, note: step.note }],
       notice: { tone: 'info', text: step.note ? `${done}: ${step.note}` : done },
     }));
@@ -177,9 +195,9 @@ function travel(from: 'undo' | 'redo') {
 
 async function addActivity(input: NewActivity): Promise<string | null> {
   let before = new Set<string>();
-  const next = await change((id, b) => {
-    before = new Set(get().view?.activities.map((a) => a.id));
-    return sapi.postActivity(id, input, b);
+  const next = await change((id, view) => {
+    before = new Set(view.activities.map((a) => a.id));
+    return () => sapi.postActivity(id, input, view.version);
   });
   const added = next?.activities.find((a) => !before.has(a.id))?.id ?? null;
   if (added) get().revealActivity(added);
@@ -187,7 +205,7 @@ async function addActivity(input: NewActivity): Promise<string | null> {
 }
 
 async function deleteActivity(aid: string): Promise<boolean> {
-  const ok = (await change((id, b) => sapi.deleteActivity(id, aid, b))) !== null;
+  const ok = (await change((id, view) => () => sapi.deleteActivity(id, aid, view.version))) !== null;
   if (ok) set({ notice: { tone: 'info', text: `${aid} 을(를) 지웠습니다. 되돌리기로 살릴 수 있습니다.` } });
   return ok;
 }
@@ -202,8 +220,14 @@ export const useSchedule = create<ScheduleState>(() => ({
     }
     await fetchView(id);
   },
-  patchActivity: async (aid, fields) => (await change((id, b) => sapi.patchActivity(id, aid, fields, b))) !== null,
-  setPredecessors: async (aid, items) => (await change((id, b) => sapi.putPredecessors(id, aid, items, b))) !== null,
+  patchActivity: async (aid, fields) => (await change((id, view) => () => sapi.patchActivity(id, aid, fields, view.version))) !== null,
+  async setPredecessors(aid, items) {
+    const sent = await change((id, view) => {
+      const list = typeof items === 'function' ? items(view) : items;
+      return list && (() => sapi.putPredecessors(id, aid, list, view.version));
+    });
+    return sent !== null;
+  },
   addActivity,
   deleteActivity,
   undoLast: () => travel('undo'),

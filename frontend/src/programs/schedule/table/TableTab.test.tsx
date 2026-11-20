@@ -160,13 +160,19 @@ describe('칸 (R2)', () => {
     );
   });
 
-  test('유형 and WBS are chosen from lists', async () => {
+  // fix 1 m4: 목록은 고를 때마다 보내지 않고 Enter·칸을 떠날 때 한 번 보낸다(키보드 화살표로 훑어도 안전).
+  test('유형 and WBS are chosen from lists and sent on Enter or when leaving', async () => {
     await renderSchedule();
     await userEvent.dblClick(cell('A2020', '유형'));
+    await userEvent.selectOptions(within(cell('A2020', '유형')).getByRole('combobox'), '시작 마일스톤');
     await userEvent.selectOptions(within(cell('A2020', '유형')).getByRole('combobox'), '종료 마일스톤');
+    expect(writes()).toEqual([]);
+    await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(lastBody()).toEqual({ kind: 'finish_ms', base_version: 1 }));
     await userEvent.dblClick(cell('A2020', 'WBS'));
     await userEvent.selectOptions(within(cell('A2020', 'WBS')).getByRole('combobox'), '3 외장·설비');
+    expect(writes()).toHaveLength(1);
+    await userEvent.click(cell('A3010', 'Plan 시작'));
     await waitFor(() => expect(lastBody()).toEqual({ wbs: '3', base_version: 2 }));
   });
 
@@ -212,6 +218,29 @@ describe('칸 (R2)', () => {
 });
 
 describe('키보드', () => {
+  // fix 1 m3: 고치는 중 Tab 은 저장하고 그 줄의 다음 고칠 칸으로(Shift+Tab 은 앞 칸), 관계 패널로 튀지 않는다.
+  test('Tab saves and moves to the next editable cell, Shift+Tab to the previous one', async () => {
+    await renderSchedule();
+    await userEvent.dblClick(cell('A2020', 'OD'));
+    const od = within(cell('A2020', 'OD')).getByRole('textbox');
+    await userEvent.clear(od);
+    await userEvent.type(od, '52');
+    await userEvent.tab();
+    await waitFor(() => expect(lastBody()).toEqual({ od: 52, base_version: 1 }));
+    expect(within(cell('A2020', 'RD')).getByRole('textbox')).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(within(cell('A2020', 'OD')).getByRole('textbox')).toHaveFocus();
+    expect(writes()).toHaveLength(1); // RD 는 바뀌지 않아 보내지 않음
+  });
+
+  test('Tab on the last editable cell ends editing on the row', async () => {
+    await renderSchedule();
+    await userEvent.dblClick(cell('A2020', '선행'));
+    await userEvent.tab();
+    expect(row('A2020')).toHaveFocus();
+    expect(within(row('A2020')).queryByRole('textbox')).toBeNull();
+  });
+
   test('arrows move the selection, Enter edits the active cell', async () => {
     await renderSchedule();
     await userEvent.click(cell('A2010', 'OD'));
@@ -237,6 +266,38 @@ describe('키보드', () => {
     expect(rowOrNull('A2010')).toBeNull();
     await userEvent.keyboard('{ArrowRight}');
     expect(row('A2010')).toBeVisible();
+  });
+});
+
+describe('fix 1', () => {
+  test('an unknown status shows its raw text on a neutral badge (m5)', async () => {
+    const view = makeView();
+    view.activities[6] = { ...view.activities[6], status: 'blocked' };
+    setup(view);
+    await renderSchedule();
+    const badge = within(cell('A3010', '상태')).getByText('blocked');
+    expect(badge).toHaveClass('ui-badge-neutral');
+    expect(within(cell('A3010', '상태')).queryByText('계획 내')).toBeNull();
+  });
+
+  test('two quick edits of the same cell show the latest value until the last answer (m6)', async () => {
+    await renderSchedule();
+    const release1 = holdNextWrite();
+    const release2 = holdNextWrite();
+    await editCell('A2020', 'OD', '52');
+    await editCell('A2020', 'OD', '53');
+    expect(cell('A2020', 'OD')).toHaveTextContent('53');
+    const first = makeView({ version: 2 });
+    first.activities[5] = { ...first.activities[5], od: 52 };
+    release1(first);
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    expect(writes()[1][2]).toEqual({ od: 53, base_version: 2 });
+    expect(cell('A2020', 'OD')).toHaveTextContent('53'); // 52 로 깜빡이지 않는다
+    const second = makeView({ version: 3 });
+    second.activities[5] = { ...second.activities[5], od: 53 };
+    release2(second);
+    await waitFor(() => expect(useSchedule.getState().view?.version).toBe(3));
+    expect(cell('A2020', 'OD')).toHaveTextContent('53');
   });
 });
 

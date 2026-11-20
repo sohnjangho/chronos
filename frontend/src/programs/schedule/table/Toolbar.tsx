@@ -5,7 +5,7 @@ import { useSchedule } from '../scheduleStore';
 import { COLUMNS, FIXED, type ColKey } from './columns';
 import Popover from './Popover';
 import { filterCount, NO_FILTER, wbsLabel, type RowFilter } from './rows';
-import type { Wbs } from '../scheduleApi';
+import type { Activity, Wbs } from '../scheduleApi';
 
 interface ToolbarProps {
   query: string;
@@ -107,7 +107,7 @@ export default function Toolbar(p: ToolbarProps) {
       <Button variant="primary" disabled={!p.canAdd} onClick={p.onAdd}>
         + 행 추가
       </Button>
-      <Button variant="danger" disabled={!p.canDelete} onClick={p.onDelete}>
+      <Button variant="danger" data-act="delete" disabled={!p.canDelete} onClick={p.onDelete}>
         삭제
       </Button>
       <input
@@ -130,6 +130,30 @@ export default function Toolbar(p: ToolbarProps) {
       <span className="sch-gap" />
       {p.progress !== null && <Badge tone="info">{`전체 가중 진척도 ${percent(p.progress)}%`}</Badge>}
       <Button onClick={p.onExport}>CSV 내보내기</Button>
+    </div>
+  );
+}
+
+/** 삭제 확인(창 안). 지울 줄을 이름으로 보이고, 관계도 함께 지워지며 되돌리기로 살릴 수 있음을 알린다. */
+export function DeleteConfirm({ activity, onDone }: { activity: Activity; onDone(): void }) {
+  const back = () => {
+    onDone();
+    document.querySelector<HTMLButtonElement>('.sch-toolbar [data-act="delete"]')?.focus();
+  };
+  return (
+    <div role="alertdialog" aria-label="삭제 확인" className="sch-confirm" onKeyDown={(e) => e.key === 'Escape' && back()}>
+      <span>{`${activity.id} ${activity.name} 을(를) 지울까요? 이 액티비티에 걸린 관계도 함께 지워집니다. 지운 뒤에도 되돌리기로 살릴 수 있습니다.`}</span>
+      <Button
+        variant="danger"
+        autoFocus
+        onClick={() => {
+          onDone();
+          void useSchedule.getState().deleteActivity(activity.id);
+        }}
+      >
+        지우기
+      </Button>
+      <Button onClick={back}>취소</Button>
     </div>
   );
 }

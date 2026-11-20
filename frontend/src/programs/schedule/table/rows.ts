@@ -80,7 +80,7 @@ function matcher(f: RowFilter, inWbs: (code: string) => boolean) {
   const q = f.query.trim().toLowerCase();
   return (a: Activity) =>
     (!q || a.id.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)) &&
-    (!f.statuses.length || f.statuses.includes(statusKey(a.status))) &&
+    (!f.statuses.length || f.statuses.includes(statusKey(a.status) as StatusKey)) &&
     (!f.criticalOnly || a.critical) &&
     (!f.wbs || inWbs(a.wbs));
 }

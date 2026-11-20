@@ -4,17 +4,22 @@ import { useSchedule } from '../scheduleStore';
 import type { ColumnDef } from './columns';
 import { wbsLabel } from './rows';
 
+/** 고치기가 끝난 방법: Enter·Esc(줄로 초점) · 칸 밖을 누름 · Tab(다음 고칠 칸) · Shift+Tab(앞 고칠 칸). */
+export type EditEnd = 'stay' | 'leave' | 'next' | 'prev';
+
 interface CellEditorProps {
   col: ColumnDef;
   /** 글 칸은 보이는 글, 고르는 칸은 지금 값(유형 코드·WBS 코드). */
   initial: string;
   label: string;
-  /** refocus: Enter·Esc 로 끝냈으면 참(행으로 초점을 돌린다), 칸 밖을 눌러 끝냈으면 거짓. */
-  onCommit(text: string, refocus: boolean): void;
-  onCancel(refocus: boolean): void;
+  onCommit(text: string, how: EditEnd): void;
+  onCancel(how: EditEnd): void;
 }
 
-/** 저장·취소를 한 번만 하게 하고(언마운트하며 생기는 blur 를 무시), Enter·Esc 를 처리한다. */
+/**
+ * 저장·취소를 한 번만 하게 하고(언마운트하며 생기는 blur 를 무시), 키를 처리한다.
+ * Enter 저장 · Esc 취소 · Tab/Shift+Tab 저장하고 옆 고칠 칸 · 칸 밖을 누르면 저장.
+ */
 function useFinish({ onCommit, onCancel }: Pick<CellEditorProps, 'onCommit' | 'onCancel'>) {
   const done = useRef(false);
   const finish = (fn: () => void) => {
@@ -24,21 +29,22 @@ function useFinish({ onCommit, onCancel }: Pick<CellEditorProps, 'onCommit' | 'o
   };
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
     e.stopPropagation();
-    if (e.key === 'Escape') finish(() => onCancel(true));
-    else if (e.key === 'Enter' && e.currentTarget instanceof HTMLInputElement) {
-      const value = e.currentTarget.value;
-      finish(() => onCommit(value, true));
-    } else return;
+    const value = e.currentTarget.value;
+    if (e.key === 'Escape') finish(() => onCancel('stay'));
+    else if (e.key === 'Enter') finish(() => onCommit(value, 'stay'));
+    else if (e.key === 'Tab') finish(() => onCommit(value, e.shiftKey ? 'prev' : 'next'));
+    else return;
     e.preventDefault();
   };
-  return { finish, onKeyDown };
+  const onBlur = (value: string) => finish(() => onCommit(value, 'leave'));
+  return { onKeyDown, onBlur };
 }
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 
-/** 유형·WBS: 목록에서 고르면 바로 저장, 고르지 않고 나가면 취소. */
+/** 유형·WBS: 목록에서 골라도 바로 보내지 않고(화살표로 훑을 때 매번 가지 않게) Enter·Tab·칸을 떠날 때 저장. */
 function SelectEditor({ col, initial, label, onCommit, onCancel }: CellEditorProps) {
-  const { finish, onKeyDown } = useFinish({ onCommit, onCancel });
+  const { onKeyDown, onBlur } = useFinish({ onCommit, onCancel });
   const options =
     col.edit === 'kind'
       ? Object.entries(KIND_LABEL).map(([value, text]) => ({ value, text }))
@@ -49,11 +55,7 @@ function SelectEditor({ col, initial, label, onCommit, onCancel }: CellEditorPro
       aria-label={label}
       autoFocus
       defaultValue={initial}
-      onChange={(e) => {
-        const value = e.target.value;
-        finish(() => onCommit(value, true));
-      }}
-      onBlur={() => finish(() => onCancel(false))}
+      onBlur={(e) => onBlur(e.currentTarget.value)}
       onKeyDown={onKeyDown}
       onClick={stop}
       onDoubleClick={stop}
@@ -67,9 +69,9 @@ function SelectEditor({ col, initial, label, onCommit, onCancel }: CellEditorPro
   );
 }
 
-/** 칸 안의 입력. Enter·바깥 누름은 저장, Esc 는 취소. */
+/** 칸 안의 입력. */
 export default function CellEditor(props: CellEditorProps) {
-  const { finish, onKeyDown } = useFinish(props);
+  const { onKeyDown, onBlur } = useFinish(props);
   if (props.col.edit === 'kind' || props.col.edit === 'wbs') return <SelectEditor {...props} />;
   return (
     <input
@@ -78,10 +80,7 @@ export default function CellEditor(props: CellEditorProps) {
       autoFocus
       defaultValue={props.initial}
       onFocus={(e) => e.currentTarget.select()}
-      onBlur={(e) => {
-        const value = e.currentTarget.value;
-        finish(() => props.onCommit(value, false));
-      }}
+      onBlur={(e) => onBlur(e.currentTarget.value)}
       onKeyDown={onKeyDown}
       onClick={stop}
       onDoubleClick={stop}

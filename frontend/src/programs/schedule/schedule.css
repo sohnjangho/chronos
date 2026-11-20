@@ -24,6 +24,8 @@
 }
 .sch-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .sch-sep { width: 1px; height: 20px; background: var(--border); }
+.sch-confirm { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; background: var(--tone-danger-bg); color: var(--danger-text); border-bottom: 1px solid var(--border); }
+.sch-confirm span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .sch-pop-root { position: relative; }
 .sch-pop {
   position: absolute; top: calc(100% + 4px); left: 0; z-index: 6; min-width: 200px;
@@ -84,6 +86,7 @@
 /* 관계 패널 */
 .sch-rel { flex: none; height: min(200px, 30%); min-height: 120px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; }
 .sch-rel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.sch-rel-name { display: inline-flex; min-width: 0; max-width: 100%; }
 .sch-rel-head .ui-badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .sch-rel-tables { flex: 1; min-height: 0; overflow: auto; display: flex; gap: 24px; }
 .sch-rel-table { flex: 1 1 0; min-width: 0; align-self: flex-start; table-layout: fixed; border-collapse: collapse; }

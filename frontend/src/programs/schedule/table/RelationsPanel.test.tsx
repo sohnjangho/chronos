@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { useSchedule } from '../scheduleStore';
-import { relationsPanel, renderSchedule, row, setup, writes } from '../testKit';
+import { holdNextWrite, makeView, relationsPanel, renderSchedule, row, setup, writes } from '../testKit';
 
 beforeEach(() => {
   localStorage.clear();
@@ -117,4 +117,27 @@ test('a bad lag is not sent', async () => {
   expect(await screen.findByText('간격은 정수(일)로 넣어 주세요.')).toBeVisible();
   expect(writes()).toEqual([]);
   expect(lag).toHaveValue(30);
+});
+
+// fix 1 I2: 앞 요청이 가는 중에 누른 두 번째 ×는 첫 요청이 끝난 일정으로 목록을 만든다.
+test('removing two relations quickly removes both', async () => {
+  await renderSchedule();
+  await userEvent.click(row('A2020'));
+  const release = holdNextWrite();
+  await userEvent.click(within(preds()).getByRole('button', { name: 'A2010 → A2020 관계 지우기' }));
+  await userEvent.click(within(preds()).getByRole('button', { name: 'A1040 → A2020 관계 지우기' }));
+  await waitFor(() => expect(writes()).toHaveLength(1));
+  expect(writes()[0][2]).toEqual({ items: [{ pred: 'A1040', type: 'FS', lag: 0 }], base_version: 1 });
+  const next = makeView({ version: 2 });
+  next.relations = next.relations.filter((r) => !(r.pred === 'A2010' && r.succ === 'A2020'));
+  release(next);
+  await waitFor(() => expect(writes()).toHaveLength(2));
+  expect(writes()[1][2]).toEqual({ items: [], base_version: 2 });
+});
+
+// fix 1 m8: 잘린 이름 배지에도 전체 이름이 title 로 있다.
+test('the selected activity badge carries its full name as title', async () => {
+  await renderSchedule();
+  await userEvent.click(row('A2020'));
+  expect(within(relationsPanel()).getByTitle('A2020 지상 1~5층 골조')).toBeVisible();
 });

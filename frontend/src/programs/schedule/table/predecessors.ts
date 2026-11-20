@@ -3,8 +3,10 @@ import type { PredItem, RelType } from '../scheduleApi';
 
 export class ParseError extends Error {}
 
-// ID [종류[±간격]] — 종류가 없으면 FS 0, 간격이 없으면 0.
-const PART = /^([^\s,]+)(?:\s+(FS|SS|FF|SF)([+-]\d+)?)?$/i;
+// ID [종류[±간격]] — 종류가 없으면 FS 0, 간격이 없으면 0. ID 는 대문자·숫자·_·. 만(A1+3 처럼 종류 없는 간격,
+// 소문자 ID 는 틀린 글로 본다). 종류는 소문자도 받는다.
+const PART = /^([A-Z0-9][A-Z0-9_.]*)(?:\s+(FS|SS|FF|SF)([+-]\d+)?)?$/;
+const TYPE = /^(\S+\s+)(fs|ss|ff|sf)/i;
 
 /** 쉼표로 나눈 선행 목록. 빈 글은 선행 없음. 틀리면 ParseError("선행 형식이 맞지 않습니다: …"). */
 export function parse(text: string): PredItem[] {
@@ -13,9 +15,9 @@ export function parse(text: string): PredItem[] {
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
-      const m = PART.exec(part);
+      const m = PART.exec(part.replace(TYPE, (_, id: string, type: string) => id + type.toUpperCase()));
       if (!m) throw new ParseError(`선행 형식이 맞지 않습니다: ${part}`);
-      return { pred: m[1], type: (m[2]?.toUpperCase() ?? 'FS') as RelType, lag: m[3] ? Number(m[3]) : 0 };
+      return { pred: m[1], type: (m[2] ?? 'FS') as RelType, lag: m[3] ? Number(m[3]) : 0 };
     });
 }
 

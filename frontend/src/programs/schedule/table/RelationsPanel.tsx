@@ -13,11 +13,17 @@ const LAG_ERROR = '간격은 정수(일)로 넣어 주세요.';
 const predsOf = (view: ScheduleView, succ: string): PredItem[] =>
   view.relations.filter((r) => r.succ === succ).map(({ pred, type, lag }) => ({ pred, type, lag }));
 
-/** succ 의 선행 i 번째를 고치거나(patch) 지운다(null). */
-function editRelation(view: ScheduleView, succ: string, i: number, patch: Partial<PredItem> | null) {
-  const items = predsOf(view, succ);
-  const next = patch === null ? items.filter((_, k) => k !== i) : items.map((it, k) => (k === i ? { ...it, ...patch } : it));
-  return useSchedule.getState().setPredecessors(succ, next);
+/**
+ * 관계 link 를 고치거나(patch) 지운다(null). 목록은 보낼 차례가 왔을 때의 일정으로 만든다 — 앞 요청이 아직
+ * 가는 중에 누른 것도 앞 요청의 결과 위에 얹힌다. 그 사이 그 관계가 없어졌으면 보내지 않는다.
+ */
+function editRelation(link: Link, patch: Partial<PredItem> | null) {
+  return useSchedule.getState().setPredecessors(link.succ, (view) => {
+    const items = predsOf(view, link.succ);
+    const i = items.findIndex((it) => it.pred === link.pred && it.type === link.type && it.lag === link.lag);
+    if (i < 0) return null;
+    return patch === null ? items.filter((_, k) => k !== i) : items.map((it, k) => (k === i ? { ...it, ...patch } : it));
+  });
 }
 
 interface Link {
@@ -27,7 +33,7 @@ interface Link {
   succ: string;
   type: RelType;
   lag: number;
-  /** succ 의 선행 목록에서의 차례. */
+  /** succ 의 선행 목록에서의 차례(줄 열쇠용). */
   index: number;
 }
 
@@ -42,7 +48,7 @@ function linksOf(view: ScheduleView, aid: string, side: 'pred' | 'succ'): Link[]
   return out;
 }
 
-function LagInput({ link, view }: { link: Link; view: ScheduleView }) {
+function LagInput({ link }: { link: Link }) {
   const name = `${link.pred} → ${link.succ}`;
   const save = (input: HTMLInputElement) => {
     const text = input.value.trim();
@@ -51,7 +57,7 @@ function LagInput({ link, view }: { link: Link; view: ScheduleView }) {
       input.value = String(link.lag);
     } else if (Number(text) !== link.lag) {
       // 서버가 거절하면 원래 간격으로 돌린다.
-      void editRelation(view, link.succ, link.index, { lag: Number(text) }).then((ok) => ok || (input.value = String(link.lag)));
+      void editRelation(link, { lag: Number(text) }).then((ok) => ok || (input.value = String(link.lag)));
     }
   };
   return (
@@ -97,17 +103,17 @@ function RelTable({ title, links, view }: { title: '선행' | '후행'; links: L
               <td>{l.other}</td>
               <td title={names.get(l.other)}>{names.get(l.other)}</td>
               <td>
-                <select aria-label={`${name} 관계`} value={l.type} onChange={(e) => void editRelation(view, l.succ, l.index, { type: e.target.value as RelType })}>
+                <select aria-label={`${name} 관계`} value={l.type} onChange={(e) => void editRelation(l, { type: e.target.value as RelType })}>
                   {TYPES.map((t) => (
                     <option key={t}>{t}</option>
                   ))}
                 </select>
               </td>
               <td>
-                <LagInput link={l} view={view} />
+                <LagInput link={l} />
               </td>
               <td>
-                <button type="button" className="sch-x" aria-label={`${name} 관계 지우기`} onClick={() => void editRelation(view, l.succ, l.index, null)}>
+                <button type="button" className="sch-x" aria-label={`${name} 관계 지우기`} onClick={() => void editRelation(l, null)}>
                   ×
                 </button>
               </td>
@@ -133,7 +139,7 @@ function AddLink({ side, a, view }: { side: 'pred' | 'succ'; a: Activity; view: 
   const add = (other: string) => {
     const succ = side === 'pred' ? a.id : other;
     const item: PredItem = { pred: side === 'pred' ? other : a.id, type: 'FS', lag: 0 };
-    void useSchedule.getState().setPredecessors(succ, [...predsOf(view, succ), item]);
+    void useSchedule.getState().setPredecessors(succ, (now) => [...predsOf(now, succ), item]);
   };
   return (
     <Popover button={side === 'pred' ? '+ 선행 추가' : '+ 후행 추가'} label={label} up align="right" role="none">
@@ -164,7 +170,13 @@ export default function RelationsPanel() {
     <section aria-label="관계" className="sch-rel">
       <div className="sch-rel-head">
         <b>관계</b>
-        {a ? <Badge tone="info">{`${a.id} ${a.name}`}</Badge> : <Badge>선택 없음</Badge>}
+        {a ? (
+          <span className="sch-rel-name" title={`${a.id} ${a.name}`}>
+            <Badge tone="info">{`${a.id} ${a.name}`}</Badge>
+          </span>
+        ) : (
+          <Badge>선택 없음</Badge>
+        )}
         <span className="sch-gap" />
         {a && <AddLink side="pred" a={a} view={view} />}
         {a && <AddLink side="succ" a={a} view={view} />}

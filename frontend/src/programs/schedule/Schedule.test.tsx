@@ -82,6 +82,19 @@ test('params.activity is applied once, not again for the next schedule', async (
   expect(useSchedule.getState().selected).toBeNull();
 });
 
+test('returning to the table tab does not apply an old reveal again (fix 1 m7)', async () => {
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  render(<Schedule windowId="w1" params={{ id: '1', activity: 'A3020' }} />);
+  await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+  const tabs = screen.getByRole('tablist', { name: '일정판 화면' });
+  await userEvent.click(within(tabs).getByRole('tab', { name: 'CPM' }));
+  await userEvent.click(within(tabs).getByRole('tab', { name: '스케줄표' }));
+  await userEvent.type(screen.getByRole('searchbox', { name: '코드·이름 검색' }), 'A10');
+  expect(rowOrNull('A3020')).toBeNull(); // 예전 reveal 이 찾기를 지우지 않는다
+  expect(scroll).toHaveBeenCalledTimes(1);
+});
+
 describe('화면 맥락 (R4)', () => {
   test('the window publishes the schedule and the selected activity, and null when nothing is selected', async () => {
     await renderSchedule();

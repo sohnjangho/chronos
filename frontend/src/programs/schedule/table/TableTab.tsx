@@ -9,7 +9,7 @@ import Grid from './Grid';
 import { format } from './predecessors';
 import RelationsPanel from './RelationsPanel';
 import { ancestors, buildRows, NO_FILTER, wbsLabel, wbsTree, weightedProgress, type RowFilter } from './rows';
-import Toolbar from './Toolbar';
+import Toolbar, { DeleteConfirm } from './Toolbar';
 import { commitCell, useCursor } from './useCursor';
 
 const PREF = 'schedule.columns';
@@ -48,8 +48,8 @@ function useTexts(view: ScheduleView) {
   }, [view.relations, view.wbs, view.resources, view.activities]);
 }
 
-/** 찾기·거르기·접기. show(a) 는 a 를 가린 것을 모두 푼다. */
-function useRowState(view: ScheduleView) {
+/** 찾기·거르기·접기. show(a) 는 a 를 가린 것을 모두 푼다(reveal 요청이 쓴다). */
+function useRowState(view: ScheduleView, bodyRef: RefObject<HTMLTableSectionElement | null>) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<RowFilter>(NO_FILTER);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -68,14 +68,21 @@ function useRowState(view: ScheduleView) {
     setQuery('');
     setFilter(NO_FILTER);
   }, []);
-  return { query, setQuery, filter, setFilter, rows, onToggle, show };
+  useReveal(show, bodyRef);
+  return { query, setQuery, filter, setFilter, rows, onToggle };
 }
 
-/** 스토어의 reveal 요청: 가린 것을 풀고 그 줄로 스크롤한다(행 추가·params.activity). */
+/**
+ * 스토어의 reveal 요청: 가린 것을 풀고 그 줄로 스크롤한다(행 추가·params.activity).
+ * 이 탭이 열릴 때 이미 있던 요청은 다시 하지 않는다(다른 탭에서 돌아와도 찾기·스크롤을 건드리지 않게).
+ */
 function useReveal(show: (a: Activity) => void, bodyRef: RefObject<HTMLTableSectionElement | null>) {
   const reveal = useSchedule((s) => s.reveal);
+  const seen = useRef(useSchedule.getState().reveal);
   const target = useRef<string | null>(null);
   useEffect(() => {
+    if (reveal === seen.current) return;
+    seen.current = reveal;
     const a = reveal && useSchedule.getState().view?.activities.find((x) => x.id === reveal.aid);
     if (!a) return;
     show(a);
@@ -88,6 +95,12 @@ function useReveal(show: (a: Activity) => void, bodyRef: RefObject<HTMLTableSect
     target.current = null;
     tr.scrollIntoView?.({ block: 'center' });
   });
+}
+
+/** 고른 액티비티 바로 뒤(같은 WBS, FS 0)에, 고른 것이 없으면 첫 WBS 에 새 액티비티. 새 id 를 돌려준다. */
+async function addAfter(sel: Activity | undefined, view: ScheduleView): Promise<string | null> {
+  const wbs = sel?.wbs ?? view.wbs[0]?.code;
+  return wbs ? useSchedule.getState().addActivity({ ...NEW_ACTIVITY, wbs, ...(sel && { after: sel.id }) }) : null;
 }
 
 function Foot({ rows, total }: { rows: number; total: number }) {
@@ -109,16 +122,15 @@ export default function TableTab() {
   const { visible, change, columns } = useVisibleColumns();
   const texts = useTexts(view);
   const bodyRef = useRef<HTMLTableSectionElement>(null);
-  const rs = useRowState(view);
-  const cursor = useCursor(bodyRef);
-  useReveal(rs.show, bodyRef);
+  const rs = useRowState(view, bodyRef);
+  const cursor = useCursor(bodyRef, columns);
 
   const sel = view.activities.find((a) => a.id === selected);
-  async function add() {
-    const wbs = sel?.wbs ?? view.wbs[0]?.code;
-    const aid = wbs ? await useSchedule.getState().addActivity({ ...NEW_ACTIVITY, wbs, ...(sel && { after: sel.id }) }) : null;
+  const [asking, setAsking] = useState<string | null>(null);
+  const add = async () => {
+    const aid = await addAfter(sel, view);
     if (aid) cursor.setEditing({ aid, col: 'name' });
-  }
+  };
 
   return (
     <div className="sch-table-tab">
@@ -134,9 +146,10 @@ export default function TableTab() {
         canDelete={!!sel}
         progress={weightedProgress(view.activities)}
         onAdd={add}
-        onDelete={() => sel && void useSchedule.getState().deleteActivity(sel.id)}
+        onDelete={() => setAsking(sel?.id ?? null)}
         onExport={() => download(`${view.name} v${view.version}.csv`, toCsv(view, columns, (aid) => texts.get(aid) ?? NO_TEXT))}
       />
+      {sel && asking === sel.id && <DeleteConfirm activity={sel} onDone={() => setAsking(null)} />}
       <div className="sch-grid-wrap">
         <Grid
           rows={rs.rows}
