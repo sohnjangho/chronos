@@ -24,6 +24,9 @@ default_calendar:
   days_per_week: 6
   holidays: KR
 
+# 일정판 표시 설정
+display: {gantt_group_by: wbs, deadline_label: 준공, extra_columns: []}
+
 # 분야 규칙(하네스 ② 겹). 모양은 app/harness/conditions.Condition 과 같다.
 rules:
   # 양생은 다음 층 철근·거푸집 작업을 막지 않으므로 자동 점검(min_gap)으로 두지 않는다(PM 확인 전 잠정).

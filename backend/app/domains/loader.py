@@ -139,6 +139,14 @@ class AssumptionDefault(_Strict):
     note: str = ""
 
 
+class DisplaySpec(_Strict):
+    """일정판 표시 설정: 간트 묶음 기준·납기 이름·덧붙일 칸."""
+
+    gantt_group_by: Literal["wbs", "resource"] = "wbs"
+    deadline_label: Text = "준공"
+    extra_columns: list[Literal["resources", "constraint", "es_ef", "ls_lf"]] = []
+
+
 def _rule(raw: dict) -> dict:
     """규칙 한 줄을 검사하고 Condition.to_dict 모양에서 _RULE_KEYS 칸만 남긴다(다시 읽어도 된다)."""
     extra = sorted(set(raw) - _RULE_KEYS)
@@ -179,6 +187,7 @@ class DomainPack(_Strict):
     activity_types: list[ActivityType]
     wbs_template: list[WbsNode]
     assumption_defaults: list[AssumptionDefault]
+    display: DisplaySpec = DisplaySpec()
 
     @field_validator("rules_raw")
     @classmethod

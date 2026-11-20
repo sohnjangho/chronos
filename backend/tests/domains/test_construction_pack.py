@@ -64,7 +64,7 @@ def test_prompt_mentions_key_resources_and_the_curing_rule():
 
 
 def test_domains_lists_the_packs():
-    assert domains() == ["construction"]
+    assert domains() == ["construction", "manufacturing"]
 
 
 def test_unknown_domain():
