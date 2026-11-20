@@ -1,23 +1,32 @@
+import importlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, contextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 
+from app import programs
 from app.config import Settings, validate_settings
 from app.db import close_db, get_session, init_db
 from app.errors import install_error_handlers
-from app.programs.approvals.router import router as approvals_router
-from app.programs.approvals.router import settings_router as approval_settings_router
-from app.programs.auth.router import router as auth_router
-from app.programs.chat.router import router as chat_router
-from app.programs.conditions.router import router as conditions_router
-from app.programs.explorer.router import router as explorer_router
-from app.programs.llm_settings.router import router as llm_settings_router
-from app.programs.questionnaire.router import router as questionnaire_router
-from app.programs.schedule.router import router as schedule_router
-from app.programs.workflow.router import router as workflow_router
 from app.store.workflows import close_unfinished
 from app.tools import registry
+
+
+def include_program_routers(target: FastAPI) -> list[str]:
+    """app/programs/*/router.py 를 프로그램 이름 순으로 불러, 이름이 router 로 끝나는 APIRouter 를 모두 붙인다.
+
+    새 프로그램은 router.py 만 두면 등록된다(이 파일을 고치지 않는다). 돌려주는 것은 라우터를 붙인 프로그램 이름.
+    """
+    names = []
+    for path in sorted(Path(programs.__file__).parent.glob("*/router.py"), key=lambda p: p.parent.name):
+        module = importlib.import_module(f"app.programs.{path.parent.name}.router")
+        routers = [v for k, v in vars(module).items() if k.endswith("router") and isinstance(v, APIRouter)]
+        for router in routers:
+            target.include_router(router)
+        if routers:
+            names.append(path.parent.name)
+    return names
 
 
 @asynccontextmanager
@@ -33,16 +42,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ChronOS", lifespan=lifespan)
 install_error_handlers(app)
-app.include_router(approvals_router)
-app.include_router(approval_settings_router)
-app.include_router(auth_router)
-app.include_router(chat_router)
-app.include_router(conditions_router)
-app.include_router(explorer_router)
-app.include_router(llm_settings_router)
-app.include_router(questionnaire_router)
-app.include_router(schedule_router)
-app.include_router(workflow_router)
+include_program_routers(app)
 
 
 @app.get("/api/health")
