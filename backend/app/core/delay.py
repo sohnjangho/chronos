@@ -15,6 +15,8 @@
 - 날짜·준공·주공정은 `level(s, compute(s), shift=True).cpm`, 새 겹침은 맞추기 전
   `level(s, compute(s), shift=False).overloads` 에서 뒤에만 있는 (자원, 날짜).
 - 근무일 차이는 꼬리표 없는 일정 달력으로 센다.
+- 넣은 지연으로 준공이 오히려 당겨지면(맞춤 순서가 바뀐 탓) finish_delta 는 잰 그대로 두고
+  `note = EARLIER_NOTE`, absorbed = days 로 한다(부르는 쪽이 준 note 가 있으면 그대로).
 """
 
 from collections.abc import Iterable, Sequence
@@ -30,6 +32,7 @@ _Dates = dict[str, tuple[date, date]]
 
 FINISHED_NOTE = "이미 끝난 액티비티입니다. 지연이 실적에 들어 있습니다."
 MILESTONE_NOTE = "마일스톤에는 기간을 더할 수 없습니다. 앞 작업에 기록해 주세요."
+EARLIER_NOTE = "자원 맞춤 순서가 바뀌어 준공이 당겨졌습니다 — 지연 자체의 효과는 아닙니다."
 
 
 @dataclass(frozen=True)
@@ -210,6 +213,8 @@ def _impact(
     cal = WorkCalendar(before.schedule.calendar)
     start, end = before.level.finish, after.level.finish
     delta = cal.workdays_between(start, end)
+    if applied and delta < 0 and note is None:  # 욕심쟁이 맞춤의 순서가 바뀐 탓(재 본 값은 그대로 둔다)
+        note = EARLIER_NOTE
     crit_b, crit_a = _critical(before), _critical(after)
     return EventImpact(
         event_id=event_id,

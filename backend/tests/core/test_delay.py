@@ -6,6 +6,7 @@ import pytest
 
 from app.core.cpm import ScheduleError
 from app.core.delay import (
+    EARLIER_NOTE,
     FINISHED_NOTE,
     MILESTONE_NOTE,
     Clash,
@@ -207,3 +208,15 @@ def test_two_hundred_activities_five_events_quickly():                       # M
     took = perf_counter() - t0
     assert len(r.impacts) == 5 and all(x.applied for x in r.impacts) and r.total_delta >= 0
     assert took < 5.0, took   # 맥에서 약 0.42 s
+
+
+def test_delay_that_reorders_leveling_reports_an_earlier_finish_honestly():
+    # crane 1대. 여유 많은 A 가 하루 먼저 시작해 crane 을 먼저 잡고, 주공정 B 가 밀린다(준공 3/15).
+    # A 를 2일 미루면 B 가 먼저 잡아 준공이 3/11 로 당겨진다 — 맞춤 순서 때문이지 지연의 효과가 아니다.
+    R = Resource("crane", "타워크레인", "대", 1)
+    s = replace(sched([act("A", 3, resources=("crane",)), act("P", 1), act("B", 3, resources=("crane",)), act("C", 5)],
+                      [Relation("P", "B"), Relation("B", "C")]), resources=(R,))
+    i = analyze(s, [ev("e", "A", 1, 2, 3_100_000)]).impacts[0]
+    assert (i.finish_before, i.finish_after, i.finish_delta) == (date(2027, 3, 15), date(2027, 3, 11), -2)
+    assert (i.applied, i.note, i.absorbed, i.cost) == (True, EARLIER_NOTE, 2, 0)
+    assert EARLIER_NOTE == "자원 맞춤 순서가 바뀌어 준공이 당겨졌습니다 — 지연 자체의 효과는 아닙니다."

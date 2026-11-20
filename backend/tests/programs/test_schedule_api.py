@@ -66,7 +66,7 @@ def test_view_has_computed_values(client, admin, sid):
     assert _act(v, "A") == {
         "id": "A", "name": "작업 A", "kind": "task", "wbs": "1", "od": 3, "rd": None,
         "progress": 0.0, "actual_start": None, "actual_finish": None, "constraint": None,
-        "resources": [], "tags": [], "es": "2027-03-01", "ef": "2027-03-03",
+        "resources": [], "tags": [], "start_floor": None, "es": "2027-03-01", "ef": "2027-03-03",
         "plan_start": "2027-03-01", "plan_finish": "2027-03-03", "tf": 0, "ff": 0,
         "critical": True, "status": "on_plan", "weight": 0.6,
     }

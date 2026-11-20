@@ -109,6 +109,7 @@ class ActivityView(BaseModel):
     constraint: ConstraintIO | None
     resources: list[str]
     tags: list[str]
+    start_floor: date | None = None  # 기록한 지연이 정한 시작 하한
     es: date
     ef: date
     plan_start: date | None
