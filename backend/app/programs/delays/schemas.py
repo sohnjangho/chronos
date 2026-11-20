@@ -67,6 +67,11 @@ class ClashOut(BaseModel):
     over: int
 
 
+class NamedOut(BaseModel):
+    id: str
+    name: str
+
+
 class ImpactOut(BaseModel):
     applied: bool  # 일정에 넣었는가(끝난 액티비티·마일스톤·없는 액티비티면 false, 까닭은 note)
     note: str | None
@@ -75,8 +80,8 @@ class ImpactOut(BaseModel):
     finish_delta: int  # 근무일
     absorbed: int  # 여유로 흡수된 근무일
     milestones: list[MilestoneOut]
-    critical_added: list[str]
-    critical_removed: list[str]
+    critical_added: list[NamedOut]  # 새로 크리티컬이 된 액티비티
+    critical_removed: list[NamedOut]
     affected: list[str]
     new_clashes: list[ClashOut]
     cost: int | None  # finish_delta × 하루 금액(하루 금액이 없으면 null)

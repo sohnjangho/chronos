@@ -42,8 +42,18 @@ def open_events(session: Session, schedule_id: int) -> list[DelayEventRow]:
     return list(session.scalars(query))
 
 
+def _key(row_id: int) -> str:
+    """core 사건 id. 0 으로 채워 글자 차례 = 숫자 차례(같은 날 9·10 이 뒤바뀌지 않게)."""
+    return f"{row_id:012d}"
+
+
+def _order(row: DelayEventRow) -> tuple:
+    """넣는 차례 = core.delay.ordered 와 같은 (발생일, id)."""
+    return row.start_date, row.id
+
+
 def to_core(row: DelayEventRow) -> core_delay.DelayEvent:
-    return core_delay.DelayEvent(str(row.id), row.activity_id, row.start_date, row.days, row.daily_cost)
+    return core_delay.DelayEvent(_key(row.id), row.activity_id, row.start_date, row.days, row.daily_cost)
 
 
 def mark_reflected(session: Session, ids: Sequence[int], version: int) -> None:
@@ -75,7 +85,7 @@ def delayed_base(session: Session, schedule_id: int, event_ids: Sequence[int] | 
     schedule, conditions, n = load(session, schedule_id)
     wanted = None if event_ids is None else set(event_ids)
     rows = [r for r in open_events(session, schedule_id) if wanted is None or r.id in wanted]
-    by_id = {str(r.id): r.id for r in rows}
+    by_id = {_key(r.id): r.id for r in rows}
     inserted, skipped = [], []
     for event in core_delay.ordered(to_core(r) for r in rows):
         try:
@@ -185,8 +195,8 @@ def save_impacts(
     준공은 넣는 차례에서 바로 앞 상태의 것이다. flush 만."""
     by_id = {i.event_id: i for i in analysis.impacts}
     last = analysis.base_finish
-    for row in sorted(rows, key=lambda r: (r.start_date, str(r.id))):  # core.delay.ordered 와 같은 차례
-        found = by_id.get(str(row.id))
+    for row in sorted(rows, key=_order):
+        found = by_id.get(_key(row.id))
         if found is not None:
             row.impact_json, last = impact_json(found), found.finish_after
         else:
@@ -224,7 +234,7 @@ def _with_open(open_rows: Sequence[DelayEventRow], current: date) -> date:
     """열린 사건을 넣은 준공 = 넣는 차례로 마지막 사건의 finish_after(열린 사건이 없으면 지금 준공)."""
     if not open_rows:
         return current
-    last = max(open_rows, key=lambda r: (r.start_date, str(r.id)))
+    last = max(open_rows, key=_order)
     return date.fromisoformat(last.impact_json["finish_after"])
 
 
@@ -250,8 +260,13 @@ def _totals(rows: Sequence[DelayEventRow]) -> dict:
 def _impact_out(i: dict, names: dict[str, str], resources: dict[str, str]) -> dict | None:
     if not i:
         return None
+
+    def named(ids: list[str]) -> list[dict]:
+        return [{"id": x, "name": names.get(x, x)} for x in ids]
+
     return {
         **i,
+        "critical_added": named(i["critical_added"]), "critical_removed": named(i["critical_removed"]),
         "milestones": [{**m, "name": names.get(m["activity_id"], m["activity_id"])} for m in i["milestones"]],
         "new_clashes": [{**c, "name": resources.get(c["resource_id"], c["resource_id"])} for c in i["new_clashes"]],
     }

@@ -183,7 +183,7 @@ def test_to_core_and_mark_reflected(session, sid):
     done = add_delay(session, sid, "A", 1, status="reflected")
     session.get(DelayEventRow, done).reflected_version = 1
     e = to_core(session.get(DelayEventRow, eid))
-    assert (e.id, e.activity_id, e.start, e.days, e.daily_cost) == (str(eid), "B", date(2027, 3, 4), 2, None)
+    assert (e.id, e.activity_id, e.start, e.days, e.daily_cost) == (f"{eid:012d}", "B", date(2027, 3, 4), 2, None)
     mark_reflected(session, [eid, done], 3)
     rows = [session.get(DelayEventRow, i) for i in (eid, done)]
     assert [(r.status, r.reflected_version) for r in rows] == [("reflected", 3), ("reflected", 1)]

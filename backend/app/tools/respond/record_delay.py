@@ -59,7 +59,7 @@ def _before(ctx: ToolContext, schedule_id: int, version: int) -> Schedule:
 def _reflect(ctx: ToolContext, row: delays.DelayEventRow, before: Schedule) -> None:
     """실적에서 감지한 지연: 이미 지금 버전에 있다. 앞 버전 → 지금 버전의 차이를 그 사건의 영향으로 적는다."""
     now, conditions, n = load(ctx.session, row.schedule_id)
-    impact = diff_impact(before, prepare_stored(now, conditions), event_id=str(row.id), days=row.days,
+    impact = diff_impact(before, prepare_stored(now, conditions), event_id=delays.to_core(row).id, days=row.days,
                          daily_cost=row.daily_cost)
     delays.update(ctx.session, row, reflected_version=n, impact_json=delays.impact_json(impact), analyzed_version=n)
 

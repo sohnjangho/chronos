@@ -85,7 +85,8 @@ def test_float_absorbs_noncritical(client, admin, sid3):
     r = post(client, admin, sid3, {"activity_id": "C", "start_date": "2027-03-04", "days": 1, "cause": "자재 늦음",
                                    "responsibility": "owner"})
     e = r["events"][0]
-    assert (e["impact"]["absorbed"], e["impact"]["critical_added"], r["totals"]["absorbed_events"]) == (1, ["C"], 1)
+    assert (e["impact"]["absorbed"], e["impact"]["critical_added"], r["totals"]["absorbed_events"]) == (
+        1, [{"id": "C", "name": "작업 C"}], 1)
 
 
 def test_each_event_gets_its_share_in_start_order(client, admin, sid3):
@@ -183,7 +184,7 @@ def test_full_shape_of_an_open_event(client, admin, sid3):
     assert e["created_at"].endswith("Z")
     assert e["impact"] == {"applied": True, "note": None, "finish_before": "2027-03-05", "finish_after": "2027-03-09",
                            "finish_delta": 2, "absorbed": 0, "milestones": [], "critical_added": [],
-                           "critical_removed": ["A"], "affected": ["B"], "new_clashes": [], "cost": 2000}
+                           "critical_removed": [{"id": "A", "name": "작업 A"}], "affected": ["B"], "new_clashes": [], "cost": 2000}
     assert r["totals"] == {"finish_impact": 2, "by_responsibility": {"owner": 0, "ours": 0, "force": 2, "undecided": 0},
                            "absorbed": 0, "absorbed_events": 0, "cost": 2000, "open_count": 1}
     assert (r["schedule_id"], r["version"]) == (sid3, 1)
@@ -321,3 +322,82 @@ def test_deleting_an_event_reshares_the_rest(client, admin, sid3):
     assert [e["impact"]["finish_delta"] for e in r["events"]] == [1, 1]
     r = client.delete(url(sid3, f"/{c}"), headers=admin).json()
     assert [(e["activity_id"], e["impact"]["finish_delta"]) for e in r["events"]] == [("B", 2)]
+
+
+# ── Fix round 1 ──────────────────────────────────────────────────────
+
+
+def test_same_day_events_keep_id_order_past_nine(client, admin, session, sid3):                    # I1
+    other = store(session, make([task("A", 3)]))
+    for _ in range(8):  # id 1~8 을 다른 일정에 써서 sid3 의 사건이 id 9·10 이 되게 한다
+        post(client, admin, other, {**B2, "activity_id": "A"})
+    first = post(client, admin, sid3, {**B2, "activity_id": "C", "days": 1, "responsibility": "owner"})
+    r = post(client, admin, sid3, {**B2, "activity_id": "C", "days": 1, "responsibility": "ours"})
+    assert [e["id"] for e in r["events"]] == [9, 10] and first["events"][0]["id"] == 9
+    # 9(발주처) 가 먼저 들어가 여유 하루에 흡수되고, 10(우리) 이 준공을 하루 민다
+    assert [e["impact"]["finish_delta"] for e in r["events"]] == [0, 1]
+    assert (r["totals"]["by_responsibility"]["owner"], r["totals"]["by_responsibility"]["ours"]) == (0, 1)
+
+
+def scenario_status(client, admin, sid: int, sc: int) -> str:
+    return client.get(f"/api/schedules/{sid}/scenarios/{sc}", headers=admin).json()["status"]
+
+
+def test_editing_an_event_discards_its_open_scenario(client, admin, sid3):                        # I2
+    eid = post(client, admin, sid3, B2)["events"][0]["id"]
+    sc = scenario(client, admin, sid3).json()["scenario_id"]
+    assert patch(client, admin, sid3, eid, {"cause": "우천(정정)"}).status_code == 200
+    assert scenario_status(client, admin, sid3, sc) == "open"  # 일수·대상·시작일이 아니면 그대로
+    r = patch(client, admin, sid3, eid, {"days": 5})
+    assert r.status_code == 200 and r.json()["events"][0]["days"] == 5
+    assert scenario_status(client, admin, sid3, sc) == "discarded"
+
+
+def test_deleting_an_event_discards_its_open_scenario(client, admin, sid3):                       # I2
+    eid = post(client, admin, sid3, B2)["events"][0]["id"]
+    sc = scenario(client, admin, sid3).json()["scenario_id"]
+    assert client.delete(url(sid3, f"/{eid}"), headers=admin).status_code == 200
+    assert scenario_status(client, admin, sid3, sc) == "discarded"
+
+
+SUBMITTED = {"code": "delay_in_submitted_plan",
+             "message": "승인함에 올라간 안에 들어 있는 사건이라 고칠 수 없습니다. 그 안을 거부한 뒤 고쳐 주세요.",
+             "detail": None}
+
+
+def test_event_in_a_submitted_scenario_cannot_be_edited(client, admin, session, sid3):           # I2
+    eid = post(client, admin, sid3, B2)["events"][0]["id"]
+    sc = scenario(client, admin, sid3).json()["scenario_id"]
+    submit(client, admin, sid3, sc)
+    r = patch(client, admin, sid3, eid, {"days": 5})
+    assert (r.status_code, r.json()) == (409, SUBMITTED)
+    assert session.get(DelayEventRow, eid).days == 2 and scenario_status(client, admin, sid3, sc) == "submitted"
+    assert patch(client, admin, sid3, eid, {"cause": "우천(정정)"}).status_code == 200
+
+
+def test_event_in_a_submitted_scenario_cannot_be_deleted(client, admin, session, sid3):          # I2
+    eid = post(client, admin, sid3, B2)["events"][0]["id"]
+    submit(client, admin, sid3, scenario(client, admin, sid3).json()["scenario_id"])
+    r = client.delete(url(sid3, f"/{eid}"), headers=admin)
+    assert (r.status_code, r.json()) == (409, SUBMITTED) and session.get(DelayEventRow, eid) is not None
+
+
+def test_scenario_of_only_unplaceable_events_explains_why(client, admin, session):               # Minor 1
+    sid = store(session, make([task("A", 3), task("M", 0, kind="finish_ms")], [Relation("A", "M")]))
+    eid = post(client, admin, sid, {**B2, "activity_id": "M"})["events"][0]["id"]
+    r = scenario(client, admin, sid)
+    assert (r.status_code, r.json()) == (422, {
+        "code": "no_open_delays",
+        "message": "일정에 넣을 수 있는 열린 지연 사건이 없습니다(끝난 작업·마일스톤 사건은 넣지 않습니다).",
+        "detail": {"skipped": [eid]}})
+
+
+def test_same_open_scenario_is_reused_only_when_identical(client, admin, sid3):                  # Minor 2
+    e1 = post(client, admin, sid3, B2)["events"][0]["id"]
+    s1 = scenario(client, admin, sid3).json()["scenario_id"]
+    assert scenario(client, admin, sid3).json()["scenario_id"] == s1
+    post(client, admin, sid3, {**B2, "activity_id": "C", "days": 1})
+    s2 = scenario(client, admin, sid3).json()["scenario_id"]
+    assert s2 != s1 and scenario(client, admin, sid3, {"event_ids": [e1]}).json()["scenario_id"] == s1
+    names = {s["id"]: s["name"] for s in client.get(f"/api/schedules/{sid3}/scenarios", headers=admin).json()}
+    assert (names[s1], names[s2]) == ("지연 반영안 (1건)", "지연 반영안 (2건)")
