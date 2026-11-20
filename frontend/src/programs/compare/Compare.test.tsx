@@ -393,3 +393,11 @@ test('the manifest opens the compare board', async () => {
   );
   expect(await screen.findByRole('cell', { name: '만회안 A · 병행 우선' })).toBeVisible();
 });
+
+test('the report visual button asks for the scenario_compare picture', async () => {
+  await shown();
+  await userEvent.click(within(tools()).getByRole('button', { name: '보고서용 그림' }));
+  expect(screen.getByRole('dialog', { name: '보고서용 그림' })).toBeVisible();
+  const call = vi.mocked(fetch).mock.calls.find(([u]) => String(u) === '/api/schedules/1/visuals');
+  expect(JSON.parse(String(call?.[1]?.body))).toEqual({ kind: 'scenario_compare' });
+});

@@ -7,6 +7,7 @@ import type { ProgramProps } from '../../os/registry';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
 import Button from '../../shared/ui/Button';
+import { VisualButton } from '../../shared/visual/VisualFrame';
 import DelayDetail from './DelayDetail';
 import DelayForm from './DelayForm';
 import type { ScheduleView } from '../../shared/schedule/scheduleApi';
@@ -42,6 +43,7 @@ function prefill(params: Params): Mode | null {
 }
 
 interface ToolbarProps {
+  scheduleId: number;
   filters: { resp: string; status: string };
   onFilters: (f: { resp: string; status: string }) => void;
   onAdd: () => void;
@@ -50,7 +52,7 @@ interface ToolbarProps {
   busy: boolean;
 }
 
-function Toolbar({ filters, onFilters, onAdd, onCompare, canCompare, busy }: ToolbarProps) {
+function Toolbar({ scheduleId, filters, onFilters, onAdd, onCompare, canCompare, busy }: ToolbarProps) {
   return (
     <div role="group" aria-label="지연 기록 도구" className="dl-toolbar">
       <Button variant="primary" onClick={onAdd}>
@@ -73,6 +75,7 @@ function Toolbar({ filters, onFilters, onAdd, onCompare, canCompare, busy }: Too
         비교판에서 보기
       </Button>
       <Button onClick={() => openProgram('chat', { ask: ASK_ALL })}>만회 계획 요청</Button>
+      <VisualButton scheduleId={scheduleId} kind="delay_impact" />
     </div>
   );
 }
@@ -220,6 +223,7 @@ function DelaysBody({ windowId, scheduleId, params }: { windowId: string; schedu
     <div className="dl-root">
       {data && <KpiBar totals={data.totals} finish={data.finish} />}
       <Toolbar
+        scheduleId={scheduleId}
         filters={filters}
         onFilters={setFilters}
         onAdd={() => setMode({ kind: 'new', initial: emptyValues(), before: null, badBefore: null, n: ++formSeq })}

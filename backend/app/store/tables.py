@@ -411,3 +411,35 @@ class TraceEvent(Base):
     input_text: Mapped[str] = mapped_column(Text, default="")
     output_text: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class Visual(Base):
+    """보고서용 그림 한 장(Task 44): 코드가 만든 표(table_json)와 Liner Visualization 이 그린 HTML, 숫자 대조 결과.
+
+    input_hash = 요청 글·종류·버전·기준일의 sha256. 같은 입력의 verified 그림이 있으면 다시 부르지 않는다.
+    fallback 이면 화면은 html 대신 우리 그림(SVG)을 그리고 note 를 보인다. checks_json = {problems, external}.
+    """
+
+    __tablename__ = "visuals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(index=True)
+    version: Mapped[int]
+    kind: Mapped[str] = mapped_column(String(20))
+    input_hash: Mapped[str] = mapped_column(String(64), index=True)
+    data_date: Mapped[date | None] = mapped_column(default=None)
+    table_json: Mapped[dict] = mapped_column(JSON)  # {title, columns, rows, chart}
+    html: Mapped[str] = mapped_column(Text, default="")
+    theme: Mapped[str] = mapped_column(String(40), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    resource_id: Mapped[str] = mapped_column(String(100), default="")
+    verified: Mapped[bool] = mapped_column(default=False)
+    passed: Mapped[int] = mapped_column(default=0)
+    total: Mapped[int] = mapped_column(default=0)
+    checks_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    attempts: Mapped[int] = mapped_column(default=0)
+    fallback: Mapped[bool] = mapped_column(default=False)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    latency_ms: Mapped[int | None] = mapped_column(default=None)
+    created_by: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))

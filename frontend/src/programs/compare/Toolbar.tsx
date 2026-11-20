@@ -4,6 +4,7 @@
 import { useId, type RefObject } from 'react';
 import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
+import { VisualButton } from '../../shared/visual/VisualFrame';
 import type { SideOut } from './compareApi';
 import PlanPicker, { type PlanGroup } from './PlanPicker';
 
@@ -15,6 +16,7 @@ const VIEWS: [View, string][] = [
 ];
 
 interface Props {
+  scheduleId: number;
   /** 보내기·버리기 뒤 포커스를 받는 위 줄. */
   focusRef: RefObject<HTMLDivElement | null>;
   /** 다시 읽는 중 — 앞 값의 복사본 단추는 끈다. */
@@ -85,6 +87,7 @@ export default function Toolbar(p: Props) {
       <div className="cmp-grow" />
       <div className="cmp-tools-acts">
         <Button onClick={p.onWhatIf}>+ 만약에 복사본</Button>
+        <VisualButton scheduleId={p.scheduleId} kind="scenario_compare" />
         <CopyActions copy={p.copy} busy={p.busy} onDiscard={p.onDiscard} onSubmit={p.onSubmit} />
       </div>
     </div>

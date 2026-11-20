@@ -163,3 +163,11 @@ function setView(over: Record<string, unknown>) {
   const store = scheduleStore(1);
   store.setState({ view: { ...store.getState().view!, ...over } });
 }
+
+test('the report visual button asks for the s_curve picture', async () => {
+  show();
+  await userEvent.click(await screen.findByRole('button', { name: '보고서용 그림' }));
+  expect(screen.getByRole('dialog', { name: '보고서용 그림' })).toBeVisible();
+  const call = vi.mocked(fetch).mock.calls.find(([u]) => String(u) === '/api/schedules/1/visuals');
+  expect(JSON.parse(String(call?.[1]?.body))).toEqual({ kind: 's_curve' });
+});

@@ -13,6 +13,7 @@ import ResultCard from './ResultCard';
 import RuleSavedCard from './RuleSavedCard';
 import ScenarioCard from './ScenarioCard';
 import ShortenCard from './ShortenCard';
+import VisualCard from './VisualCard';
 
 function QuestionnaireCard({ data, ctx }: CardProps) {
   return (
@@ -51,6 +52,7 @@ export const CARDS: Record<string, ComponentType<CardProps>> = {
   'card:shorten_options': ShortenCard,
   'card:scenario_created': ScenarioCard,
   'card:rule_saved': RuleSavedCard,
+  'card:visual': VisualCard,
   approval: ApprovalCard,
   questionnaire: QuestionnaireCard,
 };

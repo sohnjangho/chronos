@@ -7,6 +7,7 @@ import { dot } from '../../shared/schedule/format';
 import type { ScheduleView } from '../../shared/schedule/scheduleApi';
 import { useSchedule, useScheduleStore } from '../../shared/schedule/scope';
 import Button from '../../shared/ui/Button';
+import { VisualButton } from '../../shared/visual/VisualFrame';
 import DelayTop from './DelayTop';
 import { exportImage } from './exportSheet';
 import { pct, weightModeLabel } from './format';
@@ -41,7 +42,7 @@ function useProgress(id: number, unit: Unit, version: number | undefined, weight
   return state;
 }
 
-function Toolbar({ data, unit, onUnit, onImage }: { data: ProgressData | null; unit: Unit; onUnit: (u: Unit) => void; onImage: () => void }) {
+function Toolbar({ scheduleId, data, unit, onUnit, onImage }: { scheduleId: number; data: ProgressData | null; unit: Unit; onUnit: (u: Unit) => void; onImage: () => void }) {
   return (
     <div role="group" aria-label="공정률 도구" className="sch-toolbar pg-toolbar">
       {data?.data_date_assumed && (
@@ -66,6 +67,7 @@ function Toolbar({ data, unit, onUnit, onImage }: { data: ProgressData | null; u
       <Button onClick={onImage} disabled={!data}>
         그림 내보내기
       </Button>
+      <VisualButton scheduleId={scheduleId} kind="s_curve" />
     </div>
   );
 }
@@ -105,7 +107,7 @@ export default function ProgressTab() {
   const onImage = () => data && void exportImage(data, name, `${name} v${data.version} 공정률`);
   return (
     <div className="pg-tab">
-      <Toolbar data={data} unit={unit} onUnit={setUnit} onImage={onImage} />
+      <Toolbar scheduleId={scheduleId} data={data} unit={unit} onUnit={setUnit} onImage={onImage} />
       <div className="pg-scroll">
         {error ? (
           <p className="pg-empty" role="alert">

@@ -142,6 +142,7 @@ function Board({ scheduleId, params }: { scheduleId: number; params?: Record<str
     <>
       <div className="cmp-scroll">
         <Toolbar
+          scheduleId={scheduleId}
           focusRef={toolsRef}
           busy={d.refreshing}
           base={pick.base}
