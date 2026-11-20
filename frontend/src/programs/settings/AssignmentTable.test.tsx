@@ -311,3 +311,94 @@ test('a connection whose models are all non-chat says how to see them', async ()
   await userEvent.selectOptions(within(light).getByRole('combobox', { name: '가벼운 일 연결' }), '2');
   expect(await within(light).findByText('대화용 모델이 없습니다. 「대화용만」을 끄면 전체가 보입니다.')).toBeVisible();
 });
+
+// 쓰임새별 목록: 임베딩 줄은 서버가 거른 임베딩 모델만(GET /api/llm/models?for=embedding), 대화·그림 줄은 그 모델을 뺀다.
+const VECTOR = { ...info('embedco/vector-1', 'Embed: Vector 1', 'embedco', 8192, false), price: { kind: 'model' as const, as_of: '2026-11-01', input: 0.02, output: 0, cached_input: 0 } };
+const VECTOR_SMALL = info('embedco/vector-small', 'Embed: Vector Small', 'embedco', 8192, false);
+const OAI_EMBED = info('openai/text-embed-9', 'OpenAI: Text Embed 9', 'openai', 8192, false);
+const EMBEDDINGS = [VECTOR, VECTOR_SMALL, OAI_EMBED];
+const SIX = {
+  items: [
+    ...ASSIGNMENTS.items,
+    { purpose: 'vision', connection_id: 1, model: 'liner-mark', routing_strategy: null },
+    { purpose: 'embedding', connection_id: 1, model: VECTOR.id, routing_strategy: null },
+  ],
+};
+const embeddingsFor = (models: typeof EMBEDDINGS) => ({ connections: [{ connection_id: 1, name: 'Liner 기본', is_default: true, models }] });
+
+function renderSix(over = {}) {
+  return renderTable({
+    '/api/llm/connections/1/models': { models: [...MODELS, ...EMBEDDINGS] },
+    '/api/llm/models?for=embedding': embeddingsFor(EMBEDDINGS),
+    '/api/llm/assignments': SIX,
+    ...over,
+  });
+}
+
+const findButtons = (panel: HTMLElement) => within(panel).queryAllByRole('button', { name: / · / }).map((b) => b.getAttribute('title'));
+
+test('the embedding row lists only embedding models', async () => {
+  renderSix();
+  const emb = await screen.findByRole('group', { name: '임베딩' });
+  const vendor = await within(emb).findByRole('combobox', { name: '임베딩 업체' });
+  await waitFor(() => expect(texts(vendor)).toEqual(['OpenAI (1)', 'Embed (2)']));
+  expect(vendor).toHaveValue('embedco');
+  expect(options(within(emb).getByRole('combobox', { name: '임베딩 모델' }))).toEqual([VECTOR.id, VECTOR_SMALL.id]);
+  // 가격표에 있는 모델만 가격을 보인다. 라우팅 기준은 없다.
+  expect(within(emb).getByText('입력 $0.02 / 출력 $0 (1M 토큰)')).toBeVisible();
+  expect(within(emb).queryByRole('combobox', { name: '임베딩 기준' })).toBeNull();
+  expect(within(emb).queryByText(/대화용이 아닌 모델입니다/)).toBeNull();
+  await userEvent.click(within(emb).getByRole('button', { name: '임베딩 모델 찾기' }));
+  const panel = within(emb).getByRole('group', { name: '임베딩 모델 찾기' });
+  expect(within(panel).queryByRole('checkbox', { name: '대화용만' })).toBeNull();
+  expect(findButtons(panel)).toEqual([VECTOR.id, VECTOR_SMALL.id, OAI_EMBED.id]);
+  await userEvent.click(within(panel).getByRole('button', { name: 'OpenAI · Text Embed 9 · 8K' }));
+  expect(within(emb).getByRole('combobox', { name: '임베딩 모델' })).toHaveValue(OAI_EMBED.id);
+});
+
+test('chat rows exclude embedding models', async () => {
+  renderSix();
+  const light = await screen.findByRole('group', { name: '가벼운 일' });
+  await waitFor(() => expect(within(screen.getByRole('group', { name: '임베딩' })).getByRole('combobox', { name: '임베딩 업체' })).toBeVisible());
+  expect(texts(within(light).getByRole('combobox', { name: '가벼운 일 업체' }))).toEqual(['Liner (3)', 'Anthropic (1)', 'OpenAI (1)', 'Google (1)']);
+  await userEvent.click(within(light).getByRole('button', { name: '가벼운 일 모델 찾기' }));
+  const panel = within(light).getByRole('group', { name: '가벼운 일 모델 찾기' });
+  await userEvent.click(within(panel).getByRole('checkbox', { name: '대화용만' }));
+  const shown = findButtons(panel);
+  expect(shown).toContain('openai/batch-only');
+  for (const m of EMBEDDINGS) expect(shown).not.toContain(m.id);
+});
+
+test('the vision row shows chat models', async () => {
+  renderSix();
+  const vision = await screen.findByRole('group', { name: '그림 읽기' });
+  await waitFor(() => expect(within(screen.getByRole('group', { name: '임베딩' })).getByRole('combobox', { name: '임베딩 업체' })).toBeVisible());
+  expect(texts(within(vision).getByRole('combobox', { name: '그림 읽기 업체' }))).toEqual(['Liner (3)', 'Anthropic (1)', 'OpenAI (1)', 'Google (1)']);
+  expect(options(within(vision).getByRole('combobox', { name: '그림 읽기 모델' }))).toEqual(LINER_CHAT_IDS);
+  expect(within(vision).getByRole('combobox', { name: '그림 읽기 모델' })).toHaveValue('liner-mark');
+  await userEvent.click(within(vision).getByRole('button', { name: '그림 읽기 모델 찾기' }));
+  const panel = within(vision).getByRole('group', { name: '그림 읽기 모델 찾기' });
+  await userEvent.click(within(panel).getByRole('checkbox', { name: '대화용만' }));
+  for (const m of EMBEDDINGS) expect(findButtons(panel)).not.toContain(m.id);
+});
+
+test('the embedding row without embedding models asks for a re-test', async () => {
+  renderSix({ '/api/llm/models?for=embedding': embeddingsFor([]) });
+  const emb = await screen.findByRole('group', { name: '임베딩' });
+  expect(await within(emb).findByText('이 연결에서 임베딩 모델을 찾지 못했습니다. 연결 테스트를 다시 해 주세요.')).toBeVisible();
+  expect(within(row('가벼운 일')).queryByText(/임베딩 모델을 찾지 못했습니다/)).toBeNull();
+});
+
+test('a chat model stored on the embedding row still shows as the current value', async () => {
+  renderSix({
+    '/api/llm/assignments': { items: SIX.items.map((i) => (i.purpose === 'embedding' ? { ...i, model: 'liner-mark' } : i)) },
+  });
+  const emb = await screen.findByRole('group', { name: '임베딩' });
+  await within(emb).findByRole('combobox', { name: '임베딩 업체' });
+  const model = within(emb).getByRole('combobox', { name: '임베딩 모델' }) as HTMLSelectElement;
+  // 목록에 없는 값은 그대로 맨 위에, 업체는 첫 업체(OpenAI)의 임베딩 모델.
+  await waitFor(() => expect(options(model)).toEqual(['liner-mark', OAI_EMBED.id]));
+  expect(model).toHaveValue('liner-mark');
+  expect(model.selectedOptions[0].text).toBe('liner-mark');
+  expect(within(emb).queryByRole('button', { name: '저장' })).toBeNull();
+});

@@ -20,16 +20,16 @@ export const withModel = (d: Assignment, model: string): Partial<Assignment> => 
 const findLimit = 50;
 
 /**
- * 줄의 고르기 상태. 대화용 모델을 업체별로 묶고, 보일 업체는 사용자가 고른 업체 →
- * 지금 모델의 업체 → 첫 업체 차례로 정한다. 업체만 바꿔서는 배정이 바뀌지 않는다.
+ * 줄의 고르기 상태. 고를 모델(대화 줄은 대화용, 임베딩 줄은 받은 목록 전부)을 업체별로 묶고, 보일 업체는
+ * 사용자가 고른 업체 → 지금 모델의 업체 → 첫 업체 차례로 정한다. 업체만 바꿔서는 배정이 바뀌지 않는다.
  */
-export function usePicker(draft: Assignment, lists: ModelLists) {
+export function usePicker(draft: Assignment, lists: ModelLists, embedding = false) {
   const all = modelsOf(lists[draft.connection_id ?? -1]);
-  const chatGroups = useMemo(() => groupByVendor(all.filter((m) => m.chat)), [all]);
+  const fitGroups = useMemo(() => groupByVendor(embedding ? all : all.filter((m) => m.chat)), [all, embedding]);
   const current = all.find((m) => m.id === draft.model);
-  // 지금 모델의 업체에 대화용 모델이 없으면 빈 묶음으로 더한다(업체 칸이 엉뚱한 업체를 보이지 않게).
-  const missing = current && !chatGroups.some((g) => g.vendor === current.vendor);
-  const groups = missing ? [...chatGroups, { vendor: current.vendor, vendor_name: current.vendor_name, models: [] }] : chatGroups;
+  // 지금 모델의 업체에 고를 모델이 없으면 빈 묶음으로 더한다(업체 칸이 엉뚱한 업체를 보이지 않게).
+  const missing = current && !fitGroups.some((g) => g.vendor === current.vendor);
+  const groups = missing ? [...fitGroups, { vendor: current.vendor, vendor_name: current.vendor_name, models: [] }] : fitGroups;
   const [chosen, setVendor] = useState<string | null>(null);
   const vendor = groups.some((g) => g.vendor === chosen) ? (chosen as string) : (current?.vendor ?? groups[0]?.vendor ?? '');
   const vendorModels = groups.find((g) => g.vendor === vendor)?.models ?? [];
@@ -134,13 +134,13 @@ export function ModelCell({ label, draft, connections, picker, finding, onFind, 
   );
 }
 
-/** 모든 모델에서 찾기·거르개로 고른다. 고르면 업체와 모델이 함께 정해진다. */
-export function FindPanel({ label, models, onPick }: { label: string; models: ModelInfo[]; onPick(m: ModelInfo): void }) {
-  const { filter, setFilter, results, facets } = useModelFilter(models);
+/** 모든 모델에서 찾기·거르개로 고른다. 고르면 업체와 모델이 함께 정해진다. 임베딩 줄은 「대화용만」이 없다. */
+export function FindPanel({ label, models, embedding = false, onPick }: { label: string; models: ModelInfo[]; embedding?: boolean; onPick(m: ModelInfo): void }) {
+  const { filter, setFilter, results, facets } = useModelFilter(models, !embedding);
   const shown = results.slice(0, findLimit);
   return (
     <div className="st-find" role="group" aria-label={`${label} 모델 찾기`}>
-      <ModelFilterBar filter={filter} onChange={setFilter} facets={facets} count={results.length} autoFocus />
+      <ModelFilterBar filter={filter} onChange={setFilter} facets={facets} count={results.length} autoFocus chatToggle={!embedding} />
       <ul className="st-find-list">
         {shown.map((m) => (
           <li key={m.id}>
@@ -158,23 +158,25 @@ export function FindPanel({ label, models, onPick }: { label: string; models: Mo
   );
 }
 
-function ListNote({ list }: { list: ModelList | undefined }) {
+function ListNote({ list, embedding }: { list: ModelList | undefined; embedding: boolean }) {
   if (!list) return null;
   if ('error' in list) return <ErrorLine error={list.error} />;
+  // 임베딩 여부는 Task 51 뒤의 연결 시험부터 남는다. 그 전에 시험한 연결은 다시 시험해야 보인다.
+  if (embedding) return list.models.length === 0 ? <p className="st-muted">이 연결에서 임베딩 모델을 찾지 못했습니다. 연결 테스트를 다시 해 주세요.</p> : null;
   if (list.models.length === 0) return <p className="st-muted">이 연결에 불러온 모델이 없습니다. 연결 테스트를 먼저 해 주세요.</p>;
   if (!list.models.some((m) => m.chat)) return <p className="st-muted">대화용 모델이 없습니다. 「대화용만」을 끄면 전체가 보입니다.</p>;
   return null;
 }
 
 /**
- * 줄 아래 알림: 대화용이 아닌 모델을 골랐으면 경고(고를 수는 있다), 그리고 고른 연결의 목록이
- * 비었거나 · 못 불러왔거나 · 대화용이 하나도 없을 때의 안내.
+ * 줄 아래 알림: 대화 줄에서 대화용이 아닌 모델을 골랐으면 경고(고를 수는 있다), 그리고 고른 연결의 목록이
+ * 비었거나 · 못 불러왔거나 · 고를 모델이 하나도 없을 때의 안내.
  */
-export function RowNote({ list, current }: { list: ModelList | undefined; current: ModelInfo | undefined }) {
+export function RowNote({ list, current, embedding = false }: { list: ModelList | undefined; current: ModelInfo | undefined; embedding?: boolean }) {
   return (
     <>
-      {current && !current.chat && <p className="st-warn">대화용이 아닌 모델입니다. 에이전트가 쓰지 못할 수 있습니다.</p>}
-      <ListNote list={list} />
+      {!embedding && current && !current.chat && <p className="st-warn">대화용이 아닌 모델입니다. 에이전트가 쓰지 못할 수 있습니다.</p>}
+      <ListNote list={list} embedding={embedding} />
     </>
   );
 }

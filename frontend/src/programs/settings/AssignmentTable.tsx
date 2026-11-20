@@ -1,12 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FindPanel, ModelCell, modelsOf, PriceNote, RowNote, RowFoot, StrategySelect, usePicker, withModel, type ModelLists, type RowState } from './AssignmentParts';
 import { llmApi } from './llmApi';
 import { isRouter, PURPOSES, type Assignment, type Connection, type LlmError, type ModelInfo } from './model';
 import { ErrorLine, toProblem } from './parts';
 
-/** 연결마다 마지막으로 성공한 시험의 모델 목록. 못 불러오면 서버 글을 둔다. */
-function useModelLists(connections: Connection[] | null): ModelLists {
+/** 대화 줄의 목록: 연결의 전체 목록에서 임베딩 모델을 뺀다. */
+function withoutEmbedding(lists: ModelLists, embedding: ModelLists): ModelLists {
+  return Object.fromEntries(
+    Object.entries(lists).map(([id, list]) => {
+      const embed = new Set(modelsOf(embedding[Number(id)]).map((m) => m.id));
+      return [id, 'models' in list ? { models: list.models.filter((m) => !embed.has(m.id)) } : list];
+    }),
+  );
+}
+
+/**
+ * 연결마다 마지막으로 성공한 시험의 모델 목록(all), 그리고 서버가 거른 임베딩 모델(embedding, ?for=embedding —
+ * 임베딩 여부는 이 목록으로만 안다). chat 은 all 에서 임베딩 모델을 뺀 것. 못 불러오면 서버 글을 둔다.
+ */
+function useModelLists(connections: Connection[] | null) {
   const [lists, setLists] = useState<ModelLists>({});
+  const [embedding, setEmbedding] = useState<ModelLists>({});
   useEffect(() => {
     if (!connections) return;
     let live = true;
@@ -16,11 +30,16 @@ function useModelLists(connections: Connection[] | null): ModelLists {
         .then((r) => live && setLists((l) => ({ ...l, [c.id]: { models: r.models } })))
         .catch((e) => live && setLists((l) => ({ ...l, [c.id]: { error: toProblem(e) } })));
     }
+    llmApi
+      .modelsFor('embedding')
+      .then((r) => live && setEmbedding(Object.fromEntries(r.connections.map((c) => [c.connection_id, { models: c.models }]))))
+      .catch((e) => live && setEmbedding(Object.fromEntries(connections.map((c) => [c.id, { error: toProblem(e) }]))));
     return () => {
       live = false;
     };
   }, [connections]);
-  return lists;
+  const chat = useMemo(() => withoutEmbedding(lists, embedding), [lists, embedding]);
+  return { all: lists, chat, embedding };
 }
 
 const same = (a: Assignment, b: Assignment) =>
@@ -68,7 +87,8 @@ function useRowSave(draft: Assignment, onSaved: RowProps['onSaved']) {
 function AssignmentRow({ item, connections, lists, onSaved }: RowProps) {
   const [draft, setDraft] = useDraft(item, connections);
   const { state, setState, save } = useRowSave(draft, onSaved);
-  const picker = usePicker(draft, lists);
+  const embedding = item.purpose === 'embedding';
+  const picker = usePicker(draft, lists, embedding);
   const [finding, setFinding] = useState(false);
   const { label, desc } = PURPOSES[item.purpose];
   const dirty = !same(draft, item);
@@ -91,11 +111,11 @@ function AssignmentRow({ item, connections, lists, onSaved }: RowProps) {
         </span>
         <ModelCell label={label} draft={draft} connections={connections} picker={picker} finding={finding} onFind={() => setFinding((f) => !f)} onChange={change} />
         <span className="st-arow-std">
-          {isRouter(draft.model) && <StrategySelect label={label} value={draft.routing_strategy} onPick={(s) => change({ routing_strategy: s })} />}
+          {!embedding && isRouter(draft.model) && <StrategySelect label={label} value={draft.routing_strategy} onPick={(s) => change({ routing_strategy: s })} />}
         </span>
       </div>
-      {finding && <FindPanel label={label} models={picker.all} onPick={pickFound} />}
-      <RowNote list={draft.connection_id === null ? undefined : lists[draft.connection_id]} current={picker.current} />
+      {finding && <FindPanel label={label} models={picker.all} embedding={embedding} onPick={pickFound} />}
+      <RowNote list={draft.connection_id === null ? undefined : lists[draft.connection_id]} current={picker.current} embedding={embedding} />
       {(dirty || state.error || state.done) && (
         <RowFoot state={state} dirty={dirty} canSave={canSave} onRevert={() => change(item)} onSave={save} />
       )}
@@ -136,9 +156,15 @@ export default function AssignmentTable({ connections }: { connections: Connecti
       </div>
       {connections &&
         items?.map((item) => (
-          <AssignmentRow key={item.purpose} item={item} connections={connections} lists={lists} onSaved={merge} />
+          <AssignmentRow
+            key={item.purpose}
+            item={item}
+            connections={connections}
+            lists={item.purpose === 'embedding' ? lists.embedding : lists.chat}
+            onSaved={merge}
+          />
         ))}
-      <PriceNote models={Object.values(lists).flatMap(modelsOf)} />
+      <PriceNote models={Object.values(lists.all).flatMap(modelsOf)} />
     </div>
   );
 }

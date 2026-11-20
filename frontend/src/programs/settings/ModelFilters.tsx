@@ -3,11 +3,12 @@ import Button from '../../shared/ui/Button';
 import type { ModelInfo } from './model';
 import { DEFAULT_FILTER, filterModels, isDefaultFilter, vendorFacets, type ModelFilter } from './models';
 
-/** 찾기·거르개 상태와 그 결과. */
-export function useModelFilter(models: ModelInfo[]) {
+/** 찾기·거르개 상태와 그 결과. chatToggle 이 거짓이면(임베딩 목록) 「대화용만」을 걸지 않는다. */
+export function useModelFilter(models: ModelInfo[], chatToggle = true) {
   const [filter, setFilter] = useState<ModelFilter>(DEFAULT_FILTER);
-  const results = useMemo(() => filterModels(models, filter), [models, filter]);
-  const facets = useMemo(() => vendorFacets(models, filter), [models, filter]);
+  const applied = useMemo(() => (chatToggle ? filter : { ...filter, chatOnly: false }), [filter, chatToggle]);
+  const results = useMemo(() => filterModels(models, applied), [models, applied]);
+  const facets = useMemo(() => vendorFacets(models, applied), [models, applied]);
   return { filter, setFilter, results, facets };
 }
 
@@ -43,10 +44,12 @@ interface BarProps {
   facets: Facets;
   count: number;
   autoFocus?: boolean;
+  /** 거짓이면 「대화용만」을 보이지 않는다. */
+  chatToggle?: boolean;
 }
 
 /** 찾기 칸 + 업체 · 문맥 길이 · 대화용만 · Liner 라우터만, 찾은 수, 한 번에 지우기. */
-export function ModelFilterBar({ filter, onChange, facets, count, autoFocus }: BarProps) {
+export function ModelFilterBar({ filter, onChange, facets, count, autoFocus, chatToggle = true }: BarProps) {
   const set = (patch: Partial<ModelFilter>) => onChange({ ...filter, ...patch });
   return (
     <div className="st-filters">
@@ -74,10 +77,12 @@ export function ModelFilterBar({ filter, onChange, facets, count, autoFocus }: B
           <option value={128_000}>128K 이상</option>
           <option value={1_000_000}>1M 이상</option>
         </select>
-        <label className="st-check">
-          <input type="checkbox" checked={filter.chatOnly} onChange={(e) => set({ chatOnly: e.target.checked })} />
-          대화용만
-        </label>
+        {chatToggle && (
+          <label className="st-check">
+            <input type="checkbox" checked={filter.chatOnly} onChange={(e) => set({ chatOnly: e.target.checked })} />
+            대화용만
+          </label>
+        )}
         <label className="st-check">
           <input type="checkbox" checked={filter.linerRouters} onChange={(e) => set({ linerRouters: e.target.checked })} />
           Liner 라우터만

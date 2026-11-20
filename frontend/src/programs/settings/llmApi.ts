@@ -32,6 +32,9 @@ export const llmApi = {
   /** 저장된 키로 다시 시험하고 결과를 연결에 적는다. */
   retest: (id: number) => api<Probe>(`${BASE}/connections/${id}/test`, send('POST')),
   models: (id: number) => api<{ models: ModelInfo[] }>(`${BASE}/connections/${id}/models`),
+  /** 쓰임새에 맞는 모델만, 연결마다(서버가 거른다). 임베딩 지원 여부는 이 목록으로만 알 수 있다. */
+  modelsFor: (purpose: 'chat' | 'vision' | 'embedding') =>
+    api<{ connections: { connection_id: number; models: ModelInfo[] }[] }>(`${BASE}/models?for=${purpose}`),
   remove: (id: number) => api<void>(`${BASE}/connections/${id}`, send('DELETE')),
   assignments: () => api<{ items: Assignment[] }>(`${BASE}/assignments`),
   /** 한 줄만 보낸다. 서버는 보낸 쓰임새만 덮어쓰고 네 줄 전부를 돌려준다. */
