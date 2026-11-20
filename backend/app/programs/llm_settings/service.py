@@ -137,7 +137,7 @@ def update_connection(
     url_changed = data.base_url is not None and data.base_url != conn.base_url
     if url_changed and new_secret is None and _origin(data.base_url) != _origin(conn.base_url):
         raise ApiError(
-            422, "secret_required", "주소의 호스트가 바뀌면 API 키를 다시 넣어 주세요."
+            422, "secret_required", "다른 서버 주소로 바꾸면 API 키를 다시 넣어 주세요."
         )
     result = None
     if url_changed or new_secret is not None:

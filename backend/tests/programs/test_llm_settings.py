@@ -95,6 +95,7 @@ def test_error_is_explained(client, admin, fake_probe_status, status, code):
 def test_host_change_requires_secret(client, admin, conn_id):
     r = client.patch(f"/api/llm/connections/{conn_id}", json={"base_url": "https://other.example/v1"}, headers=admin)
     assert r.status_code == 422 and r.json()["code"] == "secret_required"
+    assert r.json()["message"] == "다른 서버 주소로 바꾸면 API 키를 다시 넣어 주세요."
 
 
 def test_user_role_forbidden_but_status_allowed(client, user):
