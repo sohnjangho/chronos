@@ -1,0 +1,51 @@
+/* 간트 SVG 조각. 색·글꼴은 tokens.css 변수만(두 테마 모두). 그림 내보내기는 계산된 값을 그대로 옮긴다. */
+.gantt-svg { display: block; font-family: var(--font-sans); }
+.gantt-svg text { font-size: var(--fs-11); fill: var(--fg-muted); }
+
+.gantt-head-bg { fill: var(--bg-panel-alt); }
+.gantt-head-line { stroke: var(--border); stroke-width: 1; }
+.gantt-head-tick { stroke: var(--border); stroke-width: 1; }
+.gantt-svg .gantt-month { font-size: var(--fs-12); font-weight: 700; fill: var(--fg); }
+.gantt-svg .gantt-week { fill: var(--fg-muted); }
+.gantt-svg .gantt-mark { font-weight: 700; }
+.gantt-svg .gantt-mark.is-data { fill: var(--warning-text); }
+.gantt-svg .gantt-mark.is-deadline { fill: var(--danger-text); }
+.gantt-svg .gantt-mark.is-today { fill: var(--accent-text); }
+
+.gantt-band { fill: transparent; }
+.gantt-band.is-group { fill: var(--bg-panel-alt); }
+.gantt-band.is-selected { fill: var(--bg-selected); }
+.gantt-row-line { stroke: var(--bg-app); stroke-width: 1; }
+.gantt-weekend { fill: var(--bg-app); opacity: 0.7; pointer-events: none; }
+.gantt-blocked { fill: var(--danger); opacity: 0.08; }
+.gantt-float { fill: var(--fg-muted); opacity: 0.7; }
+
+.gantt-bar { fill: var(--accent); fill-opacity: 0.45; }
+.gantt-bar.critical { fill: var(--danger); }
+.gantt-progress { fill: var(--accent); pointer-events: none; }
+.gantt-progress.critical { fill: var(--danger); }
+.gantt-handle { fill: transparent; cursor: ew-resize; }
+.gantt-handle:hover { fill: var(--fg); fill-opacity: 0.25; }
+.gantt-summary { fill: var(--neutral-strong); }
+.gantt-actual { fill: var(--success); pointer-events: none; }
+.gantt-planmark { fill: var(--fg-muted); pointer-events: none; }
+.gantt-ms { fill: var(--fg); }
+.gantt-ms.critical { fill: var(--danger); }
+.gantt-due { fill: var(--bg-panel); stroke: var(--danger); stroke-width: 1.5; }
+.gantt-ghost { fill: none; stroke: var(--fg-muted); stroke-width: 1.5; stroke-dasharray: 4 3; pointer-events: none; }
+.gantt-ghost.is-drag { stroke: var(--accent); }
+.gantt-lane { fill: var(--accent); fill-opacity: 0.35; }
+.gantt-svg .gantt-label { fill: var(--fg-muted); pointer-events: none; }
+.gantt-svg .gantt-label.is-danger { fill: var(--danger-text); }
+.gantt-svg .gantt-drag-label { fill: var(--accent-text); font-weight: 700; pointer-events: none; }
+
+.gantt-vline { stroke-width: 2; pointer-events: none; }
+.gantt-vline.is-data { stroke: var(--warning); }
+.gantt-vline.is-deadline { stroke: var(--danger); stroke-dasharray: 6 4; }
+.gantt-vline.is-today { stroke: var(--accent); stroke-width: 1; }
+
+.gantt-link { fill: none; stroke: var(--fg-muted); stroke-width: 1.2; }
+.gantt-link.critical { stroke: var(--danger); stroke-width: 1.5; }
+.gantt-arrow { fill: var(--fg-muted); }
+.gantt-arrow.critical { fill: var(--danger); }
+.gantt-svg .gantt-lag { font-size: 10px; fill: var(--fg-muted); }

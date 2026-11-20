@@ -25,6 +25,9 @@ export interface Activity {
   tags: string[];
   es: string;
   ef: string;
+  /** 늦은 시작·종료(묶음 2 서버부터). 간트의 여유 꼬리. */
+  ls?: string;
+  lf?: string;
   plan_start: string | null;
   plan_finish: string | null;
   tf: number;
@@ -68,6 +71,8 @@ export interface ScheduleView {
   relations: Relation[];
   resources: Resource[];
   summary: { critical_count: number; negative_float_count: number; warning_count: number };
+  /** 조건을 넣은 근무 달력(묶음 2 서버부터): 주 근무일 수, 일정 기간 안의 작업 금지 기간. */
+  calendar?: { days_per_week: number; blocked: { tag: string; start: string; finish: string }[] };
 }
 
 export interface PredItem {
