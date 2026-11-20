@@ -14,9 +14,20 @@ from tests.tool_doubles import registered
 PICKED = {"model": "google/gemini-4-neon", "routing_strategy": None}
 
 
+STORED_MODELS = [  # 연결 시험으로 저장된 목록(/models 항목 꼴)
+    {"id": "liner-claude-router"},
+    {"id": "liner-mark", "endpoints": ["/v1/chat/completions"]},
+    {"id": "google/gemini-4-neon", "endpoints": ["/v1/chat/completions"]},
+    {"id": "openai/text-embedding-3-small", "endpoints": ["/v1/embeddings"]},
+]
+
+
 @pytest.fixture
 def conn(session) -> LlmConnection:
-    return add_connection(session)
+    row = add_connection(session)
+    row.models_json = STORED_MODELS
+    session.commit()
+    return row
 
 
 @pytest.fixture
@@ -69,12 +80,33 @@ def test_unknown_connection_message(client, admin, conn, chat_id):
 
 def test_other_users_chat_model_is_404(client, admin, user, conn, chat_id):
     """대화는 만든 사용자만 본다 — 남의 대화는 있는지도 알리지 않는다(대화 API 의 규칙과 같게 404)."""
-    body = {"connection_id": conn.id, "model": "m"}
+    body = {"connection_id": conn.id, "model": "liner-mark"}
     assert client.put(_url(chat_id), json=body, headers=user).status_code == 404
     assert client.delete(_url(chat_id), headers=user).status_code == 404
     assert client.put(_url(chat_id), json=body, headers=admin).status_code == 200
     assert client.delete(_url(chat_id), headers=user).status_code == 404
-    assert client.get(f"/api/chat/sessions/{chat_id}", headers=admin).json()["model"]["model"] == "m"
+    assert client.get(f"/api/chat/sessions/{chat_id}", headers=admin).json()["model"]["model"] == "liner-mark"
+
+
+@pytest.mark.parametrize("model", ["openai/gpt-none", "openai/text-embedding-3-small"])
+def test_model_must_be_a_chat_model_of_that_connection(client, admin, conn, chat_id, model):
+    """목록에 없거나 대화용이 아닌(임베딩 전용) 모델은 거절."""
+    r = client.put(_url(chat_id), json={"connection_id": conn.id, "model": model}, headers=admin)
+    assert r.status_code == 422 and r.json()["message"] == "그 연결에 없는 모델입니다."
+    assert client.get(f"/api/chat/sessions/{chat_id}", headers=admin).json()["model"] is None
+
+
+def test_untested_connection_is_refused(client, admin, session, chat_id):
+    untested = add_connection(session, name="시험 안 함", is_default=False)
+    r = client.put(_url(chat_id), json={"connection_id": untested.id, "model": "liner-mark"}, headers=admin)
+    assert r.status_code == 422 and r.json()["message"] == "연결 시험을 먼저 해 주세요."
+
+
+def test_routing_strategy_is_dropped_for_non_router_models(client, admin, conn, chat_id):
+    body = {"connection_id": conn.id, "model": "liner-mark", "routing_strategy": "quality"}
+    r = client.put(_url(chat_id), json=body, headers=admin)
+    assert r.status_code == 200 and r.json()["routing_strategy"] is None
+    assert client.get(f"/api/chat/sessions/{chat_id}", headers=admin).json()["model"]["routing_strategy"] is None
 
 
 def test_deleted_connection_falls_back_to_assignment(client, admin, session, conn, chat_id):

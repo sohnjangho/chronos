@@ -21,6 +21,7 @@ from app.agent.loop import run_turn
 from app.db import get_session
 from app.errors import ApiError
 from app.llm import assignments
+from app.llm.connections import normalize_models
 from app.programs.chat.schemas import (
     ChatModelIn,
     ChatModelOut,
@@ -44,6 +45,8 @@ INVALID_APPROVAL_MESSAGE = "이 대화에서 다시 짜기로 거부한 승인 �
 RESUMED_APPROVAL_MESSAGE = "이미 이어서 처리한 승인 건입니다."
 TURN_RUNNING_MESSAGE = "앞의 요청을 처리하는 중입니다."
 UNKNOWN_CONNECTION_MESSAGE = "없는 연결을 골랐습니다."
+UNTESTED_CONNECTION_MESSAGE = "연결 시험을 먼저 해 주세요."
+UNKNOWN_MODEL_MESSAGE = "그 연결에 없는 모델입니다."
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 
@@ -95,13 +98,28 @@ def _model_out(session: Session, chat_id: int) -> ChatModelOut | None:
 
 
 def set_model(session: Session, user: User, chat_id: int, body: ChatModelIn) -> ChatModelOut:
-    """이 대화에만 쓸 모델을 저장한다. 다음 턴의 대화 호출부터 쓴다."""
+    """이 대화에만 쓸 모델을 저장한다(그 연결의 대화용 모델만). 다음 턴의 대화 호출부터 쓴다.
+
+    라우팅 기준은 라우터 모델(이름이 -router 로 끝남)에만 남긴다.
+    """
     chat = _owned(session, user, chat_id)
-    if session.get(LlmConnection, body.connection_id) is None:
+    conn = session.get(LlmConnection, body.connection_id)
+    if conn is None:
         raise ApiError(422, "invalid_request", UNKNOWN_CONNECTION_MESSAGE, {"connection_ids": [body.connection_id]})
-    chat.model_connection_id, chat.model_name, chat.model_routing = body.connection_id, body.model, body.routing_strategy
+    models = normalize_models(conn.models_json)
+    if not models:
+        raise ApiError(422, "connection_not_tested", UNTESTED_CONNECTION_MESSAGE)
+    if not any(m["id"] == body.model and m["chat"] for m in models):
+        raise ApiError(422, "unknown_model", UNKNOWN_MODEL_MESSAGE, {"model": body.model})
+    routing = body.routing_strategy if _is_router(body.model) else None
+    chat.model_connection_id, chat.model_name, chat.model_routing = body.connection_id, body.model, routing
     session.commit()
-    return ChatModelOut(**body.model_dump())
+    return ChatModelOut(connection_id=body.connection_id, model=body.model, routing_strategy=routing)
+
+
+def _is_router(model: str) -> bool:
+    """화면의 isRouter 와 같은 규칙(/.-router$/)."""
+    return len(model) > len("-router") and model.endswith("-router")
 
 
 def clear_model(session: Session, user: User, chat_id: int) -> None:

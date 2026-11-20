@@ -527,7 +527,20 @@ def reindexed(monkeypatch, session):
     return models
 
 
-def test_changing_embedding_starts_reindex(client, admin, conn_id, reindexed):
+@pytest.fixture
+def embed_conn(client, admin, monkeypatch) -> int:
+    """임베딩 모델이 있는 연결(기본)."""
+    _use_handler(monkeypatch, lambda request: httpx.Response(200, json=EMBED_BODY))
+    return _create(client, admin, "Liner 기본")["id"]
+
+
+def _embedding(client, admin) -> str:
+    items = client.get("/api/llm/assignments", headers=admin).json()["items"]
+    return {i["purpose"]: i for i in items}["embedding"]["model"]
+
+
+def test_changing_embedding_starts_reindex(client, admin, embed_conn, reindexed):
+    conn_id = embed_conn
     large = {"purpose": "embedding", "connection_id": conn_id, "model": "openai/text-embedding-3-large",
              "routing_strategy": None}
     r = client.put("/api/llm/assignments", json={"items": [large]}, headers=admin)
@@ -542,8 +555,66 @@ def test_changing_embedding_starts_reindex(client, admin, conn_id, reindexed):
     assert reindexed == ["openai/text-embedding-3-large"]
 
 
-def test_default_embedding_model_stored_explicitly_does_not_reindex(client, admin, conn_id, reindexed):
+def test_default_embedding_model_stored_explicitly_does_not_reindex(client, admin, embed_conn, reindexed):
+    conn_id = embed_conn
     same = {"purpose": "embedding", "connection_id": conn_id, "model": "openai/text-embedding-3-small",
             "routing_strategy": None}
     r = client.put("/api/llm/assignments", json={"items": [same]}, headers=admin)
     assert r.json()["reindex"] is None and reindexed == []
+
+
+# Fix round 1 — 다시 넣기를 먼저 시작하고, 못 하면 임베딩 배정을 바꾸지 않는다
+LARGE = "openai/text-embedding-3-large"
+NO_REINDEX = "다시 넣기를 시작할 수 없어 임베딩 모델을 바꾸지 않았습니다."
+
+
+def _put_large(client, admin, conn_id, **extra):
+    item = {"purpose": "embedding", "connection_id": conn_id, "model": LARGE, "routing_strategy": None}
+    return client.put("/api/llm/assignments", json={"items": [item, *extra.get("more", [])]}, headers=admin)
+
+
+def test_missing_reindex_keeps_the_assignment(client, admin, embed_conn, monkeypatch):
+    monkeypatch.delattr(jobs, "enqueue_reindex", raising=False)
+    hard = {"purpose": "hard", "connection_id": embed_conn, "model": "liner-mark", "routing_strategy": None}
+    r = _put_large(client, admin, embed_conn, more=[hard])
+    assert r.status_code == 503 and r.json()["message"] == NO_REINDEX
+    assert _embedding(client, admin) == "openai/text-embedding-3-small"
+    items = {i["purpose"]: i for i in client.get("/api/llm/assignments", headers=admin).json()["items"]}
+    assert items["hard"]["model"] == "liner-claude-router"  # 같이 보낸 다른 줄도 저장하지 않는다
+
+
+def test_failing_reindex_keeps_the_assignment_and_can_retry(client, admin, embed_conn, monkeypatch, reindexed):
+    def boom(model):
+        raise RuntimeError("qdrant down")
+
+    working = jobs.enqueue_reindex
+    monkeypatch.setattr(jobs, "enqueue_reindex", boom)
+    r = _put_large(client, admin, embed_conn)
+    assert r.status_code == 503 and r.json()["message"] == NO_REINDEX
+    assert _embedding(client, admin) == "openai/text-embedding-3-small"
+
+    monkeypatch.setattr(jobs, "enqueue_reindex", working)  # 같은 모델로 다시 저장하면 이번엔 시작한다
+    again = _put_large(client, admin, embed_conn)
+    assert again.status_code == 200 and again.json()["reindex"] == {"job_id": 1, "total": 7}
+    assert _embedding(client, admin) == LARGE and reindexed == [LARGE]
+
+
+def test_reindex_starts_before_the_assignment_is_saved(client, admin, embed_conn, monkeypatch):
+    seen = []
+
+    def enqueue_reindex(model):
+        seen.append(_embedding(client, admin))  # 부를 때는 아직 옛 모델
+        return {"job_id": 5, "total": 3}
+
+    monkeypatch.setattr(jobs, "enqueue_reindex", enqueue_reindex, raising=False)
+    r = _put_large(client, admin, embed_conn)
+    assert r.json()["reindex"] == {"job_id": 5, "total": 3} and seen == ["openai/text-embedding-3-small"]
+    assert _embedding(client, admin) == LARGE
+
+
+@pytest.mark.parametrize("model", ["liner-mark", "openai/none"])
+def test_embedding_row_needs_an_embedding_model(client, admin, embed_conn, reindexed, model):
+    item = {"purpose": "embedding", "connection_id": embed_conn, "model": model, "routing_strategy": None}
+    r = client.put("/api/llm/assignments", json={"items": [item]}, headers=admin)
+    assert r.status_code == 422 and r.json()["message"] == "임베딩을 지원하지 않는 모델입니다."
+    assert _embedding(client, admin) == "openai/text-embedding-3-small" and reindexed == []

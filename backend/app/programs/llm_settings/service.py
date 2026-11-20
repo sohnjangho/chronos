@@ -3,6 +3,7 @@
 평문 키는 요청을 처리하는 동안에만 쓰고, 저장은 암호문으로만 한다. 기록(log)은 남기지 않는다.
 """
 
+import logging
 from dataclasses import asdict
 from datetime import UTC, datetime
 
@@ -34,6 +35,9 @@ from app.programs.llm_settings.schemas import (
 )
 from app.security.crypto import SecretUnreadable, decrypt, encrypt
 from app.store.tables import LlmAssignment, LlmConnection
+
+logger = logging.getLogger(__name__)
+NO_REINDEX_MESSAGE = "다시 넣기를 시작할 수 없어 임베딩 모델을 바꾸지 않았습니다."
 
 # 키가 이보다 짧으면 끝 4자리도 보여주지 않는다(거의 전부가 드러나므로).
 MIN_SECRET_CHARS_FOR_LAST4 = 8
@@ -223,8 +227,29 @@ def get_assignments(session: Session) -> list[AssignmentOut]:
     return [AssignmentOut(**asdict(item)) for item in assignments.resolve_all(session)]
 
 
+def _check_embedding(session: Session, connection_id: int, model: str) -> None:
+    conn = session.get(LlmConnection, connection_id)
+    if not any(m["id"] == model and _fits(m, "embedding") for m in normalize_models(conn.models_json)):
+        raise ApiError(422, "invalid_request", "임베딩을 지원하지 않는 모델입니다.", {"model": model})
+
+
+def _start_reindex(model: str) -> ReindexOut:
+    """Task 48 의 다시 넣기를 시작한다(reindex_jobs 줄을 바로 만들고 {job_id, total} 을 돌려준다).
+
+    함수가 없거나 실패하면 503 — 부른 쪽은 배정을 저장하지 않는다(벡터와 배정이 어긋나지 않게).
+    """
+    enqueue = getattr(jobs, "enqueue_reindex", None)
+    if enqueue is None:
+        raise ApiError(503, "reindex_unavailable", NO_REINDEX_MESSAGE)
+    try:
+        return ReindexOut(**enqueue(model))
+    except Exception as exc:  # noqa: BLE001 — 어떤 실패든 배정을 바꾸지 않고 알린다(종류만 남김)
+        logger.warning("다시 넣기 시작 실패: %s", type(exc).__name__)
+        raise ApiError(503, "reindex_unavailable", NO_REINDEX_MESSAGE) from None
+
+
 def put_assignments(session: Session, data: AssignmentsIn) -> ReindexOut | None:
-    """저장한다. 임베딩 모델이 바뀌었으면 저장(commit) 뒤 다시 넣기를 시작해 그 작업을 돌려준다."""
+    """저장한다. 임베딩 모델이 바뀌면 저장 전에 다시 넣기를 먼저 시작하고, 못 하면 아무것도 저장하지 않는다."""
     ids = {item.connection_id for item in data.items}
     known = set(session.scalars(select(LlmConnection.id).where(LlmConnection.id.in_(ids))))
     missing = sorted(ids - known)
@@ -232,13 +257,16 @@ def put_assignments(session: Session, data: AssignmentsIn) -> ReindexOut | None:
         raise ApiError(
             422, "invalid_request", "없는 연결을 골랐습니다.", {"connection_ids": missing}
         )
-    before = assignments.resolve(session, "embedding").model
+    embedding = [item for item in data.items if item.purpose == "embedding"]
+    for item in embedding:
+        _check_embedding(session, item.connection_id, item.model)
+    reindex = None
+    if embedding and embedding[-1].model != assignments.resolve(session, "embedding").model:  # 뒤의 줄이 저장된다
+        reindex = _start_reindex(embedding[-1].model)
     for item in data.items:
         session.merge(LlmAssignment(**item.model_dump()))
     session.commit()
-    after = assignments.resolve(session, "embedding").model
-    # Task 48: enqueue_reindex 는 reindex_jobs 줄을 바로 만들고 {job_id, total} 을 돌려준다.
-    return ReindexOut(**jobs.enqueue_reindex(after)) if after != before else None
+    return reindex
 
 
 def status(session: Session) -> StatusOut:
