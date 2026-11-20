@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import './ui.css';
 
 export interface Column<T> {
@@ -23,6 +23,11 @@ export interface TableProps<T> {
 export default function Table<T>({ columns, rows, rowKey, label, onRowClick, selectedKey, empty }: TableProps<T>) {
   const cell = (row: T, c: Column<T>) =>
     c.render ? c.render(row) : String((row as Record<string, unknown>)[c.key] ?? '');
+  const onRowKey = (e: KeyboardEvent, row: T) => {
+    if (!onRowClick || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    onRowClick(row);
+  };
   return (
     <table className="ui-table" aria-label={label}>
       <thead>
@@ -48,8 +53,10 @@ export default function Table<T>({ columns, rows, rowKey, label, onRowClick, sel
             <tr
               key={key}
               className={onRowClick ? 'ui-row-click' : undefined}
-              aria-selected={selectedKey === undefined ? undefined : key === selectedKey}
+              aria-current={key === selectedKey ? 'true' : undefined}
+              tabIndex={onRowClick ? 0 : undefined}
               onClick={onRowClick && (() => onRowClick(row))}
+              onKeyDown={(e) => onRowKey(e, row)}
             >
               {columns.map((c) => (
                 <td key={c.key} style={{ textAlign: c.align }}>

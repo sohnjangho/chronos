@@ -21,7 +21,7 @@ const m = (id: string, over: Partial<ProgramManifest> = {}): ProgramManifest => 
 });
 
 const menubar = () => screen.getByRole('banner');
-const dock = () => screen.getByRole('navigation', { name: 'Dock' });
+const dock = () => screen.getByRole('navigation', { name: '프로그램 막대' });
 const dockIcon = (name: string) => within(dock()).getByRole('button', { name });
 const systemMenu = async (item: string) => {
   await userEvent.click(within(menubar()).getByRole('button', { name: 'ChronOS 메뉴' }));
@@ -96,7 +96,7 @@ test('dragging the title bar moves the window and a click raises it', async () =
   const sched = useWindows.getState().wins.find((w) => w.programId === 'schedule')!;
   const dialog = screen.getByRole('dialog', { name: '일정판' });
   fireEvent.pointerDown(within(dialog).getByText('일정판'), { clientX: 100, clientY: 100 });
-  fireEvent.pointerMove(window, { clientX: 150, clientY: 130 });
+  fireEvent.pointerMove(window, { clientX: 150, clientY: 130, buttons: 1 });
   fireEvent.pointerUp(window);
   const moved = useWindows.getState().wins.find((w) => w.id === sched.id)!;
   expect(moved).toMatchObject({ x: sched.x + 50, y: sched.y + 30 });
@@ -109,7 +109,7 @@ test('dragging the corner resizes the window', async () => {
   const before = useWindows.getState().wins[0];
   const corner = screen.getByRole('dialog', { name: '탐색기' }).querySelector('[data-resize="se"]')!;
   fireEvent.pointerDown(corner, { clientX: 500, clientY: 500 });
-  fireEvent.pointerMove(window, { clientX: 400, clientY: 450 });
+  fireEvent.pointerMove(window, { clientX: 400, clientY: 450, buttons: 1 });
   fireEvent.pointerUp(window);
   expect(useWindows.getState().wins[0]).toMatchObject({ w: before.w - 100, h: before.h - 50 });
 });
@@ -125,16 +125,180 @@ test('dock shows running programs and admin-only programs only to admins', async
   expect(within(dock()).queryByRole('button', { name: '개발 콘솔' })).toBeNull();
 });
 
-test('program menus run with the active window id', async () => {
-  const action = vi.fn();
-  register(m('menu-test', { name: '메뉴 시험', menus: [{ label: '새로 고침', action }] }));
+function menuProgram() {
+  const refresh = vi.fn();
+  const exportIt = vi.fn();
+  const gantt = vi.fn();
+  register(
+    m('menu-test', {
+      name: '메뉴 시험',
+      menus: [
+        {
+          label: '파일',
+          items: [
+            { label: '새로 고침', action: refresh, shortcut: '⌘R' },
+            { label: '내보내기', action: exportIt, disabled: true },
+            { label: '닫기', action: vi.fn() },
+          ],
+        },
+        { label: '보기', items: [{ label: '간트', action: gantt }] },
+      ],
+    }),
+  );
   render(<Desktop />);
   let id = '';
   act(() => {
     id = useWindows.getState().open('menu-test');
   });
-  await userEvent.click(within(menubar()).getByRole('button', { name: '새로 고침' }));
-  expect(action).toHaveBeenCalledWith(id);
+  return { id, refresh, exportIt, gantt };
+}
+const item = (name: string) => screen.getByRole('menuitem', { name });
+
+test('program menus open as dropdowns and run an item with the window id', async () => {
+  const { id, refresh } = menuProgram();
+  await userEvent.click(within(menubar()).getByRole('button', { name: '파일' }));
+  expect(screen.getByRole('menu', { name: '파일' })).toBeVisible();
+  await userEvent.click(item('새로 고침'));
+  expect(refresh).toHaveBeenCalledWith(id);
+  expect(screen.queryByRole('menu')).toBeNull();
+});
+
+test('a disabled menu item does nothing', async () => {
+  const { exportIt } = menuProgram();
+  await userEvent.click(within(menubar()).getByRole('button', { name: '파일' }));
+  expect(item('내보내기')).toBeDisabled();
+  await userEvent.click(item('내보내기'));
+  expect(exportIt).not.toHaveBeenCalled();
+});
+
+test('program menus work from the keyboard', async () => {
+  const { id, gantt } = menuProgram();
+  const file = within(menubar()).getByRole('button', { name: '파일' });
+  file.focus();
+  await userEvent.keyboard('{Enter}');
+  expect(item('새로 고침')).toHaveFocus();
+  await userEvent.keyboard('{ArrowDown}');
+  expect(item('닫기')).toHaveFocus();
+  await userEvent.keyboard('{ArrowDown}');
+  expect(item('새로 고침')).toHaveFocus();
+  await userEvent.keyboard('{ArrowUp}');
+  expect(item('닫기')).toHaveFocus();
+  await userEvent.keyboard('{ArrowRight}');
+  expect(item('간트')).toHaveFocus();
+  await userEvent.keyboard('{ArrowLeft}');
+  expect(item('새로 고침')).toHaveFocus();
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(file).toHaveFocus();
+  await userEvent.keyboard(' ');
+  expect(item('새로 고침')).toHaveFocus();
+  await userEvent.keyboard('{Escape}{ArrowDown}');
+  expect(item('새로 고침')).toHaveFocus();
+  await userEvent.keyboard('{ArrowRight}{Enter}');
+  expect(gantt).toHaveBeenCalledWith(id);
+});
+
+test('a click outside closes a menu', async () => {
+  menuProgram();
+  await userEvent.click(within(menubar()).getByRole('button', { name: '보기' }));
+  expect(screen.getByRole('menu')).toBeVisible();
+  await userEvent.click(document.body);
+  expect(screen.queryByRole('menu')).toBeNull();
+});
+
+test('setTitle changes the window title while the menubar keeps the program name', async () => {
+  render(<Desktop />);
+  await userEvent.click(dockIcon('일정판'));
+  act(() => useWindows.getState().setTitle(useWindows.getState().wins[0].id, '일정판 — 5층 사무동 신축'));
+  const dialog = screen.getByRole('dialog', { name: '일정판 — 5층 사무동 신축' });
+  expect(within(dialog).getByText('일정판 — 5층 사무동 신축')).toBeVisible();
+  expect(within(menubar()).getByText('일정판')).toBeVisible();
+});
+
+test('shrinking the browser keeps windows on screen, maximized ones included', async () => {
+  render(<Desktop />);
+  await userEvent.click(dockIcon('일정판'));
+  await userEvent.click(dockIcon('질문지'));
+  const quest = screen.getByRole('dialog', { name: '질문지' });
+  await userEvent.click(within(quest).getByRole('button', { name: '확대' }));
+  vi.stubGlobal('innerWidth', 1280);
+  vi.stubGlobal('innerHeight', 720);
+  act(() => {
+    window.dispatchEvent(new Event('resize'));
+  });
+  expect(quest).toHaveStyle({ width: '1280px', height: `${720 - 44 - 96}px` });
+  const sched = screen.getByRole('dialog', { name: '일정판' });
+  expect(parseInt(sched.style.left) + parseInt(sched.style.width)).toBeLessThanOrEqual(1280);
+  expect(parseInt(sched.style.top) + parseInt(sched.style.height)).toBeLessThanOrEqual(720);
+});
+
+test('a drag ends on pointercancel, on window blur and on a move without buttons', async () => {
+  render(<Desktop />);
+  await userEvent.click(dockIcon('탐색기'));
+  const title = within(screen.getByRole('dialog', { name: '탐색기' })).getByText('탐색기');
+  const pos = () => useWindows.getState().wins[0];
+  const start = pos();
+  const dragThen = (end: () => void) => {
+    fireEvent.pointerDown(title, { clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(window, { clientX: 110, clientY: 110, buttons: 1 });
+    end();
+    fireEvent.pointerMove(window, { clientX: 300, clientY: 300, buttons: 1 });
+  };
+  dragThen(() => fireEvent.pointerCancel(window));
+  expect(pos()).toMatchObject({ x: start.x + 10, y: start.y + 10 });
+  dragThen(() => fireEvent.blur(window));
+  expect(pos()).toMatchObject({ x: start.x + 20, y: start.y + 20 });
+  dragThen(() => fireEvent.pointerMove(window, { clientX: 200, clientY: 200, buttons: 0 }));
+  expect(pos()).toMatchObject({ x: start.x + 30, y: start.y + 30 });
+});
+
+test('closing a window mid-drag removes the drag listeners', async () => {
+  render(<Desktop />);
+  await userEvent.click(dockIcon('탐색기'));
+  const title = within(screen.getByRole('dialog', { name: '탐색기' })).getByText('탐색기');
+  fireEvent.pointerDown(title, { clientX: 100, clientY: 100 });
+  const removed = vi.spyOn(window, 'removeEventListener');
+  act(() => useWindows.getState().close(useWindows.getState().wins[0].id));
+  expect(removed.mock.calls.map(([type]) => type)).toEqual(
+    expect.arrayContaining(['pointermove', 'pointerup', 'pointercancel', 'blur']),
+  );
+});
+
+test('all four edges and corners resize; the left edge keeps the right edge fixed', async () => {
+  render(<Desktop />);
+  await userEvent.click(dockIcon('탐색기'));
+  const dialog = screen.getByRole('dialog', { name: '탐색기' });
+  const edges = [...dialog.querySelectorAll('[data-resize]')].map((el) => el.getAttribute('data-resize'));
+  expect(edges.sort()).toEqual(['e', 'n', 'ne', 'nw', 's', 'se', 'sw', 'w']);
+  const before = useWindows.getState().wins[0];
+  fireEvent.pointerDown(dialog.querySelector('[data-resize="w"]')!, { clientX: 500, clientY: 500 });
+  fireEvent.pointerMove(window, { clientX: 600, clientY: 500, buttons: 1 });
+  fireEvent.pointerUp(window);
+  const after = useWindows.getState().wins[0];
+  expect(after).toMatchObject({ x: before.x + 100, w: before.w - 100 });
+  expect(after.x + after.w).toBe(before.x + before.w);
+});
+
+test('bringing a window to the front from the Dock moves focus into it', async () => {
+  render(<Desktop />);
+  await userEvent.click(dockIcon('일정판'));
+  await userEvent.click(dockIcon('질문지'));
+  const sched = screen.getByRole('dialog', { name: '일정판' });
+  await userEvent.click(dockIcon('일정판'));
+  expect(sched).toHaveFocus();
+  await userEvent.click(within(sched).getByRole('button', { name: '최소화' }));
+  await userEvent.click(dockIcon('일정판'));
+  expect(sched).toHaveFocus();
+});
+
+test('tabbing into a background window does not steal focus from the focused control', async () => {
+  render(<Desktop />);
+  await userEvent.click(dockIcon('일정판'));
+  await userEvent.click(dockIcon('질문지'));
+  const close = within(screen.getByRole('dialog', { name: '일정판' })).getByRole('button', { name: '닫기' });
+  act(() => close.focus());
+  expect(useWindows.getState().activeProgramId()).toBe('schedule');
+  expect(close).toHaveFocus();
 });
 
 test('ChronOS menu: 정보 shows the product and version', async () => {

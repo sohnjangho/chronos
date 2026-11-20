@@ -56,3 +56,32 @@ test('publicApi sends no token and does not log out on 401', async () => {
   expect(headerOf(fetch.mock.calls[0][1], 'Authorization')).toBeNull();
   expect(useSession.getState().session).not.toBeNull();
 });
+
+test('an empty 2xx body returns undefined', async () => {
+  stubFetch({ '/e': () => new Response('', { status: 200 }) });
+  await expect(api('/e')).resolves.toBeUndefined();
+});
+
+test('a 2xx body that is not JSON is bad_response', async () => {
+  stubFetch({ '/h': () => new Response('<html>로그인</html>', { status: 200 }) });
+  await expect(api('/h')).rejects.toMatchObject({ status: 200, code: 'bad_response', message: '서버 응답을 읽을 수 없습니다.' });
+});
+
+test('an aborted request rethrows the abort as it is', async () => {
+  const ctrl = new AbortController();
+  ctrl.abort();
+  const reason = new Error('멈춤');
+  vi.stubGlobal('fetch', vi.fn(() => Promise.reject(reason)));
+  await expect(api('/x', { signal: ctrl.signal })).rejects.toBe(reason);
+});
+
+test('a 401 for an older token does not log out the newer session', async () => {
+  stubFetch({
+    '/old': () => {
+      useSession.getState().signIn({ token: 'tok2', loginId: 'jhsohn', user: { id: 1, name: '손장호', role: 'admin' } });
+      return json(401, { code: 'unauthorized', message: '다시 로그인해 주세요.', detail: null });
+    },
+  });
+  await expect(api('/old')).rejects.toMatchObject({ status: 401 });
+  expect(useSession.getState().session?.token).toBe('tok2');
+});

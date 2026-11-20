@@ -53,7 +53,8 @@ body {
 .os-mb-app { font-weight: 700; }
 .os-mb-site { border: 1px solid color-mix(in srgb, var(--bg-panel) 18%, transparent); padding: 5px 12px; }
 .os-mb-gap { flex: 1; }
-.os-mb-menu { position: relative; }
+.os-mb-group { display: flex; align-items: center; gap: 4px; }
+.os-mb-menu { position: relative; display: flex; align-items: center; gap: 4px; }
 .os-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -70,7 +71,8 @@ body {
 }
 .os-mb-site + .os-menu { left: auto; right: 0; }
 .os-menu-item {
-  display: block;
+  display: flex;
+  gap: 24px;
   width: 100%;
   font: inherit;
   color: inherit;
@@ -82,8 +84,10 @@ body {
   cursor: pointer;
   white-space: nowrap;
 }
-.os-menu-item:hover,
+.os-menu-item:hover:not(:disabled),
 .os-menu-item:focus-visible { background: var(--bg-selected); outline: none; }
+.os-menu-item:disabled { color: var(--fg-muted); opacity: 0.6; cursor: default; }
+.os-menu-shortcut { margin-left: auto; color: var(--fg-muted); }
 .os-menu-item.is-current { font-weight: 700; color: var(--accent-text); }
 .os-menu-note { padding: 6px 10px; color: var(--fg-muted); }
 
@@ -124,9 +128,22 @@ body {
 .os-win-note,
 .os-placeholder { margin: 0; padding: 24px; color: var(--fg-muted); }
 .os-rs { position: absolute; }
-.os-rs-e { top: 0; right: 0; bottom: 12px; width: 6px; cursor: ew-resize; }
-.os-rs-s { left: 0; right: 12px; bottom: 0; height: 6px; cursor: ns-resize; }
-.os-rs-se { right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+.os-rs-n,
+.os-rs-s { left: 10px; right: 10px; height: 5px; cursor: ns-resize; }
+.os-rs-e,
+.os-rs-w { top: 10px; bottom: 10px; width: 5px; cursor: ew-resize; }
+.os-rs-n { top: 0; }
+.os-rs-s { bottom: 0; }
+.os-rs-e { right: 0; }
+.os-rs-w { left: 0; }
+.os-rs-ne,
+.os-rs-nw,
+.os-rs-se,
+.os-rs-sw { width: 10px; height: 10px; }
+.os-rs-ne { top: 0; right: 0; cursor: nesw-resize; }
+.os-rs-nw { top: 0; left: 0; cursor: nwse-resize; }
+.os-rs-se { bottom: 0; right: 0; cursor: nwse-resize; }
+.os-rs-sw { bottom: 0; left: 0; cursor: nesw-resize; }
 
 /* ── Dock ── */
 .os-dock {
@@ -183,7 +200,7 @@ body {
   box-shadow: 0 6px 20px color-mix(in srgb, var(--bg-topbar) 45%, transparent);
 }
 .os-widget-title { font-weight: 700; font-size: var(--fs-14); }
-.os-widget-count { font-size: 28px; line-height: 36px; font-weight: 700; color: var(--warning-text); margin-top: 4px; }
+.os-widget-count { font-size: var(--fs-28); line-height: 36px; font-weight: 700; color: var(--warning-text); margin-top: 4px; }
 .os-widget-list { list-style: none; margin: 6px 0 0; padding: 0; }
 .os-widget-item {
   width: 100%;
@@ -220,8 +237,8 @@ body {
   backdrop-filter: blur(6px);
 }
 .os-login-brand { text-align: center; color: var(--bg-app); }
-.os-login-name { font-size: 44px; line-height: 52px; font-weight: 700; letter-spacing: -0.5px; }
-.os-login-tagline { font-size: 16px; line-height: 24px; color: var(--border); margin-top: 6px; }
+.os-login-name { font-size: var(--fs-44); line-height: 52px; font-weight: 700; letter-spacing: -0.5px; }
+.os-login-tagline { font-size: var(--fs-16); line-height: 24px; color: var(--border); margin-top: 6px; }
 .os-login-foot { position: absolute; bottom: 28px; color: var(--border-strong); font-size: var(--fs-12); }
 .os-card {
   width: 380px;
@@ -234,9 +251,12 @@ body {
   border-radius: 14px;
   box-shadow: 0 16px 48px color-mix(in srgb, var(--bg-topbar) 70%, transparent);
 }
-.os-card-title { margin: 0; font-size: 20px; line-height: 28px; font-weight: 700; }
+.os-card-title { margin: 0; font-size: var(--fs-20); line-height: 28px; font-weight: 700; }
 .os-card .ui-field input { height: 44px; }
-.os-card-submit.ui-btn { height: 44px; margin-top: 6px; font-size: 15px; font-weight: 700; border-radius: var(--radius-3); }
+.os-card-submit.ui-btn { height: 44px; margin-top: 6px; font-size: var(--fs-15); font-weight: 700; border-radius: var(--radius-3); }
+.os-card-actions { display: flex; gap: 8px; margin-top: 6px; }
+.os-card-actions .ui-btn { height: 44px; border-radius: var(--radius-3); }
+.os-card-actions .os-card-submit.ui-btn { flex: 1; margin-top: 0; }
 .os-card-note { margin: 0; font-size: var(--fs-12); line-height: 16px; color: var(--fg-muted); }
 .os-card-error { margin: 0; font-size: var(--fs-13); color: var(--danger-text); }
 .os-about {
@@ -258,5 +278,5 @@ body {
   box-shadow: 0 12px 40px color-mix(in srgb, var(--bg-topbar) 55%, transparent);
   outline: none;
 }
-.os-about-name { font-size: 20px; line-height: 28px; font-weight: 700; }
+.os-about-name { font-size: var(--fs-20); line-height: 28px; font-weight: 700; }
 .os-about-desc { color: var(--fg-muted); margin-bottom: 8px; }

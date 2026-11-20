@@ -1,8 +1,8 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
-import { signInAs, stubFetch } from '../test-helpers';
+import { json, signInAs, stubFetch } from '../test-helpers';
 import Desktop from './Desktop';
 import { useApprovals } from './approvals';
 import { useSession } from './session';
@@ -46,4 +46,28 @@ test('승인 대기 widget is hidden when nothing is pending', async () => {
   render(<Desktop />);
   await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/approvals/count', expect.anything()));
   expect(screen.queryByRole('region', { name: '승인 대기' })).toBeNull();
+});
+
+test('the widget refetches on every refresh and ignores an answer that arrives late', async () => {
+  let answerFirst: (r: Response) => void = () => {};
+  const firstAnswer: Promise<Response> = new Promise((resolve) => {
+    answerFirst = resolve;
+  });
+  let listCalls = 0;
+  stubFetch({
+    '/api/approvals/count': { pending: 2 },
+    '/api/schedules': [],
+    '/api/approvals?status=pending': () => {
+      listCalls += 1;
+      if (listCalls === 1) return firstAnswer;
+      return json(200, { mode: 'important', items: [item(2, '새 건', 1)] });
+    },
+  });
+  render(<Desktop />);
+  await vi.waitFor(() => expect(listCalls).toBe(1));
+  fireEvent.focus(window);
+  expect(await screen.findByText('새 건')).toBeVisible();
+  await act(async () => answerFirst(json(200, { mode: 'important', items: [item(1, '옛 건', 9)] })));
+  expect(screen.queryByText('옛 건')).toBeNull();
+  expect(screen.getByText('새 건')).toBeVisible();
 });

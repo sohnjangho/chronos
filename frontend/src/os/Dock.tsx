@@ -11,7 +11,7 @@ export default function Dock() {
   const open = useWindows((s) => s.open);
   const pending = useApprovals((s) => s.pending);
   return (
-    <nav className="os-dock" aria-label="Dock">
+    <nav className="os-dock" aria-label="프로그램 막대">
       {programs(role).map((p) => {
         const running = wins.some((w) => w.programId === p.id);
         const badge = p.badge === 'approvals' ? pending : 0;

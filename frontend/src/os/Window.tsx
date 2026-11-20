@@ -1,6 +1,14 @@
-import { Component, Suspense, useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import {
+  Component,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import { getProgram } from './registry';
-import { useWindows, workArea, type Win } from './windowStore';
+import { resizeRect, useWindows, workArea, type Edge, type Win } from './windowStore';
 
 const CANNOT_OPEN = '이 프로그램을 열 수 없습니다';
 
@@ -30,31 +38,44 @@ function ProgramView({ win }: { win: Win }) {
   );
 }
 
-/** 누른 곳에서 움직인 거리를 놓을 때까지 알린다. */
-function startDrag(e: ReactPointerEvent, onDrag: (dx: number, dy: number) => void) {
-  e.preventDefault();
-  const x0 = e.clientX;
-  const y0 = e.clientY;
-  const move = (ev: PointerEvent) => onDrag(ev.clientX - x0, ev.clientY - y0);
-  const up = () => {
-    window.removeEventListener('pointermove', move);
-    window.removeEventListener('pointerup', up);
-  };
-  window.addEventListener('pointermove', move);
-  window.addEventListener('pointerup', up);
+type StartDrag = (e: ReactPointerEvent, onDrag: (dx: number, dy: number) => void) => void;
+
+/**
+ * 누른 곳에서 움직인 거리를 알린다. 놓기·취소(pointercancel)·창 밖으로 포커스가 나감(blur)·
+ * 단추를 뗀 채 움직임(buttons 0)이면 끝난다. 창이 닫히면(언마운트) 듣기를 그만둔다.
+ */
+function useDrag(): StartDrag {
+  const stopRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopRef.current?.(), []);
+  return useCallback((e, onDrag) => {
+    e.preventDefault();
+    stopRef.current?.();
+    // 브라우저에는 늘 있다. jsdom 에는 없다.
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    const move = (ev: PointerEvent) => (ev.buttons === 0 ? stop() : onDrag(ev.clientX - x0, ev.clientY - y0));
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      window.removeEventListener('blur', stop);
+      stopRef.current = null;
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    window.addEventListener('blur', stop);
+    stopRef.current = stop;
+  }, []);
 }
 
-/** 오른쪽 가장자리 · 아래 가장자리 · 오른쪽 아래 모서리. ax, ay = 너비·높이에 곱할 값. */
-const RESIZERS = [
-  { edge: 'e', ax: 1, ay: 0 },
-  { edge: 's', ax: 0, ay: 1 },
-  { edge: 'se', ax: 1, ay: 1 },
-];
+const EDGES: Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
 
 const isButton = (e: { target: EventTarget }) => (e.target as Element).closest('button') !== null;
 
-/** 신호등 버튼과 제목. 끌면 옮기고, 두 번 누르면 확대·복귀. */
-function TitleBar({ win }: { win: Win }) {
+/** 신호등 단추와 제목. 끌면 옮기고, 두 번 누르면 확대·복귀. */
+function TitleBar({ win, startDrag }: { win: Win; startDrag: StartDrag }) {
   const { close, minimize, toggleMaximize, move } = useWindows.getState();
 
   function onPointerDown(e: ReactPointerEvent) {
@@ -75,18 +96,23 @@ function TitleBar({ win }: { win: Win }) {
 
 export default function Window({ win, active }: { win: Win; active: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { focus, resize } = useWindows.getState();
+  const startDrag = useDrag();
+  const { focus, setBounds } = useWindows.getState();
   const rect = win.maximized ? workArea() : win;
 
-  useEffect(() => ref.current?.focus(), []);
+  // 앞으로 올 때마다(열기·Dock·복귀) 창 안으로 포커스. 이미 창 안에 포커스가 있으면 두기.
+  useEffect(() => {
+    const el = ref.current;
+    if (active && el && !el.contains(document.activeElement)) el.focus();
+  }, [active, win.z]);
 
   const raise = () => {
     if (!active) focus(win.id);
   };
 
-  function onResizePointerDown(e: ReactPointerEvent, ax: number, ay: number) {
-    const { w, h } = win;
-    startDrag(e, (dx, dy) => resize(win.id, w + dx * ax, h + dy * ay));
+  function onResizePointerDown(e: ReactPointerEvent, edge: Edge) {
+    const start = { x: win.x, y: win.y, w: win.w, h: win.h };
+    startDrag(e, (dx, dy) => setBounds(win.id, resizeRect(start, edge, dx, dy)));
   }
 
   return (
@@ -101,18 +127,18 @@ export default function Window({ win, active }: { win: Win; active: boolean }) {
       onPointerDownCapture={raise}
       onFocus={raise}
     >
-      <TitleBar win={win} />
+      <TitleBar win={win} startDrag={startDrag} />
       <div className="os-win-body">
         <ProgramView win={win} />
       </div>
       {!win.maximized &&
-        RESIZERS.map((r) => (
+        EDGES.map((edge) => (
           <div
-            key={r.edge}
-            className={`os-rs os-rs-${r.edge}`}
-            data-resize={r.edge}
+            key={edge}
+            className={`os-rs os-rs-${edge}`}
+            data-resize={edge}
             aria-hidden="true"
-            onPointerDown={(e) => onResizePointerDown(e, r.ax, r.ay)}
+            onPointerDown={(e) => onResizePointerDown(e, edge)}
           />
         ))}
     </div>

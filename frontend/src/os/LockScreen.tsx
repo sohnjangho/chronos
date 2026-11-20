@@ -4,7 +4,10 @@ import Field from '../shared/ui/Field';
 import { useSignIn } from './auth';
 import { useSession } from './session';
 
-/** 바탕화면 위를 덮는 잠금 화면. 지금 사용자의 비밀번호로 다시 로그인하면 풀린다(창은 그대로). */
+/**
+ * 바탕화면 위를 덮는 잠금 화면. 지금 사용자의 비밀번호로 다시 로그인하면 풀린다(창은 그대로).
+ * 로그아웃하면 세션과 잠금을 지우고 로그인 화면으로 간다.
+ */
 export default function LockScreen() {
   const session = useSession((s) => s.session);
   const [password, setPassword] = useState('');
@@ -36,9 +39,12 @@ export default function LockScreen() {
             {error}
           </p>
         )}
-        <Button type="submit" variant="primary" className="os-card-submit" disabled={busy}>
-          잠금 풀기
-        </Button>
+        <div className="os-card-actions">
+          <Button onClick={() => useSession.getState().logout()}>로그아웃</Button>
+          <Button type="submit" variant="primary" className="os-card-submit" disabled={busy}>
+            잠금 풀기
+          </Button>
+        </div>
       </form>
     </div>
   );

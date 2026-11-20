@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../shared/api';
 import { useCurrentSchedule } from './currentSchedule';
-import MenuButton from './MenuButton';
+import MenuGroup from './MenuGroup';
 
 interface ScheduleItem {
   id: number;
@@ -34,28 +34,23 @@ export default function ScheduleSelector() {
   const known = current ? items?.find((s) => s.id === current.id) : undefined;
   const label = current ? (known ? itemText(known) : current.name) : items?.length === 0 ? '일정 없음' : '일정 고르기';
 
+  const note = failed ? '일정 목록을 불러오지 못했습니다.' : items?.length === 0 ? '일정 없음' : undefined;
   return (
-    <MenuButton label={label} className="os-mb-site" onOpen={load}>
-      {(close) => (
-        <>
-          {failed && <div className="os-menu-note">일정 목록을 불러오지 못했습니다.</div>}
-          {items?.length === 0 && <div className="os-menu-note">일정 없음</div>}
-          {items?.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              role="menuitem"
-              className={`os-menu-item${s.id === current?.id ? ' is-current' : ''}`}
-              onClick={() => {
-                setCurrent({ id: s.id, name: s.name });
-                close();
-              }}
-            >
-              {itemText(s)}
-            </button>
-          ))}
-        </>
-      )}
-    </MenuButton>
+    <MenuGroup
+      menus={[
+        {
+          key: 'site',
+          label,
+          className: 'os-mb-site',
+          onOpen: load,
+          note,
+          items: (items ?? []).map((s) => ({
+            label: itemText(s),
+            current: s.id === current?.id,
+            run: () => setCurrent({ id: s.id, name: s.name }),
+          })),
+        },
+      ]}
+    />
   );
 }

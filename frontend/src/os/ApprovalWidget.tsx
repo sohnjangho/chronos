@@ -18,18 +18,26 @@ export function ageText(iso: string, now = Date.now()): string {
   return h < 24 ? `${h}시간 전` : `${Math.floor(h / 24)}일 전`;
 }
 
-/** 바탕화면 「승인 대기」 위젯. 대기가 없으면 숨는다. 누르면 승인함에서 그 건을 연다. */
+/**
+ * 바탕화면 「승인 대기」 위젯. 대기가 없으면 숨는다. 누르면 승인함에서 그 건을 연다.
+ * 승인 수를 다시 읽을 때마다 목록도 다시 읽고, 늦게 온 앞 응답은 버린다.
+ */
 export default function ApprovalWidget() {
   const pending = useApprovals((s) => s.pending);
+  const ticks = useApprovals((s) => s.ticks);
   const open = useWindows((s) => s.open);
   const [items, setItems] = useState<PendingItem[]>([]);
 
   useEffect(() => {
     if (pending === 0) return;
+    let latest = true;
     api<{ items: PendingItem[] }>('/api/approvals?status=pending')
-      .then((r) => setItems(r.items.slice(0, 3)))
+      .then((r) => latest && setItems(r.items.slice(0, 3)))
       .catch(() => {});
-  }, [pending]);
+    return () => {
+      latest = false;
+    };
+  }, [pending, ticks]);
 
   if (pending === 0) return null;
   return (

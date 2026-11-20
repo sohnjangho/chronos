@@ -26,10 +26,17 @@
   --radius-2: 6px;
   --radius-3: 8px;
   --radius-4: 12px;
+  --fs-11: 11px;
   --fs-12: 12px;
   --fs-13: 13px;
   --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-28: 28px;
+  --fs-44: 44px;
   --row-h: 32px;
   --topbar-h: 44px;
-  --font-sans: "Pretendard Variable", Pretendard, "Noto Sans KR", system-ui, sans-serif;
+  /* 글꼴은 index.html 이 Google Fonts 에서 Noto Sans KR 400·500·700 을 불러온다. */
+  --font-sans: "Noto Sans KR", system-ui, sans-serif;
 }

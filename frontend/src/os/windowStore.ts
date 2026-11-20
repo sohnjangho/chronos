@@ -15,12 +15,15 @@ export interface Win {
   params?: Record<string, string>;
 }
 
-interface Rect {
+export interface Rect {
   x: number;
   y: number;
   w: number;
   h: number;
 }
+
+/** 크기 조절 손잡이: 네 가장자리와 네 모서리. */
+export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 export const MENUBAR_H = 44;
 export const MIN_W = 360;
@@ -48,7 +51,35 @@ function sizeWithin(win: Rect, w: number, h: number) {
 
 function fitSize(size: { w: number; h: number }) {
   const s = screenSize();
-  return { w: clamp(size.w, MIN_W, s.w), h: clamp(size.h, MIN_H, s.h - MENUBAR_H) };
+  return { w: clamp(Math.round(size.w), MIN_W, s.w), h: clamp(Math.round(size.h), MIN_H, s.h - MENUBAR_H) };
+}
+
+/**
+ * 지금 화면에 맞춘 자리. 화면보다 크면 줄이고, 메뉴바 아래·화면 안으로 옮긴다.
+ * 화면이 최소 크기보다 작으면 왼쪽 위(0, 44)에 붙여 신호등 단추가 늘 보이게 한다.
+ */
+function fitRect(r: Rect): Rect {
+  const size = fitSize(r);
+  return { ...clampPos(Math.round(r.x), Math.round(r.y), size.w, size.h), ...size };
+}
+
+/** 손잡이 edge 를 (dx, dy) 만큼 끈 결과. 반대쪽 가장자리는 그대로, 최소 크기·화면 안을 지킨다. */
+export function resizeRect(start: Rect, edge: Edge, dx: number, dy: number): Rect {
+  const s = screenSize();
+  const right = start.x + start.w;
+  const bottom = start.y + start.h;
+  const r = { ...start };
+  if (edge.includes('e')) r.w = clamp(start.w + dx, MIN_W, s.w - start.x);
+  if (edge.includes('s')) r.h = clamp(start.h + dy, MIN_H, s.h - start.y);
+  if (edge.includes('w')) {
+    r.x = clamp(start.x + dx, 0, right - MIN_W);
+    r.w = right - r.x;
+  }
+  if (edge.includes('n')) {
+    r.y = clamp(start.y + dy, MENUBAR_H, bottom - MIN_H);
+    r.h = bottom - r.y;
+  }
+  return r;
 }
 
 /** 앞에 새로 연 창에서 32px 오른쪽·아래. 화면을 벗어나면 왼쪽 위로 돌아간다. */
@@ -84,6 +115,12 @@ interface WindowState {
   focus(id: string): void;
   move(id: string, x: number, y: number): void;
   resize(id: string, w: number, h: number): void;
+  /** 자리와 크기를 한 번에(왼쪽·위 가장자리 크기 조절). 화면 안으로 맞춘다. */
+  setBounds(id: string, rect: Rect): void;
+  /** 창 제목 줄과 aria-label 만 바뀐다. 메뉴바는 프로그램 이름을 그대로 보인다. */
+  setTitle(id: string, title: string): void;
+  /** 브라우저 크기가 바뀌면 모든 창을 화면 안으로 다시 맞춘다. */
+  fitToScreen(): void;
   minimize(id: string): void;
   toggleMaximize(id: string): void;
   activeProgramId(): string | null;
@@ -117,10 +154,11 @@ function newWindow(
 export const useWindows = create<WindowState>((set, get) => {
   const patch = (id: string, change: (w: Win) => Partial<Win>) =>
     set((s) => ({ wins: s.wins.map((w) => (w.id === id ? { ...w, ...change(w) } : w)) }));
+  // 앞으로 가져올 때(열기·복귀·누름) 지금 화면에 맞춘다.
   const raise = (id: string, extra: (w: Win) => Partial<Win> = () => ({})) =>
     set((s) => ({
       topZ: s.topZ + 1,
-      wins: s.wins.map((w) => (w.id === id ? { ...w, ...extra(w), z: s.topZ + 1 } : w)),
+      wins: s.wins.map((w) => (w.id === id ? { ...w, ...fitRect(w), ...extra(w), z: s.topZ + 1 } : w)),
     }));
 
   return {
@@ -136,29 +174,16 @@ export const useWindows = create<WindowState>((set, get) => {
       set({ seq: s.seq + 1, topZ: win.z, lastOpen: { x: win.x, y: win.y }, wins: [...s.wins, win] });
       return win.id;
     },
-    close(id) {
-      set((s) => ({ wins: s.wins.filter((w) => w.id !== id) }));
-    },
-    focus(id) {
-      raise(id, () => ({ minimized: false }));
-    },
-    move(id, x, y) {
-      patch(id, (w) => clampPos(Math.round(x), Math.round(y), w.w, w.h));
-    },
-    resize(id, w, h) {
-      patch(id, (win) => sizeWithin(win, w, h));
-    },
-    minimize(id) {
-      patch(id, () => ({ minimized: true }));
-    },
-    toggleMaximize(id) {
-      raise(id, (w) => ({ maximized: !w.maximized }));
-    },
-    activeProgramId() {
-      return topWindow(get().wins)?.programId ?? null;
-    },
-    reset() {
-      set(initial);
-    },
+    close: (id) => set((s) => ({ wins: s.wins.filter((w) => w.id !== id) })),
+    focus: (id) => raise(id, () => ({ minimized: false })),
+    move: (id, x, y) => patch(id, (w) => clampPos(Math.round(x), Math.round(y), w.w, w.h)),
+    resize: (id, w, h) => patch(id, (win) => sizeWithin(win, w, h)),
+    setBounds: (id, rect) => patch(id, () => fitRect(rect)),
+    setTitle: (id, title) => patch(id, () => ({ title })),
+    fitToScreen: () => set((s) => ({ wins: s.wins.map((w) => ({ ...w, ...fitRect(w) })) })),
+    minimize: (id) => patch(id, () => ({ minimized: true })),
+    toggleMaximize: (id) => raise(id, (w) => ({ maximized: !w.maximized })),
+    activeProgramId: () => topWindow(get().wins)?.programId ?? null,
+    reset: () => set(initial),
   };
 });

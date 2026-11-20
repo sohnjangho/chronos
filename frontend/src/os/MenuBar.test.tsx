@@ -11,7 +11,7 @@ import { useWindows } from './windowStore';
 const menubar = () => screen.getByRole('banner');
 const approvalsButton = () => within(menubar()).getByRole('button', { name: /^승인/ });
 const dockApprovals = () =>
-  within(screen.getByRole('navigation', { name: 'Dock' })).getByRole('button', { name: '승인함' });
+  within(screen.getByRole('navigation', { name: '프로그램 막대' })).getByRole('button', { name: '승인함' });
 const flush = () => act(() => vi.advanceTimersByTimeAsync(0));
 const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 

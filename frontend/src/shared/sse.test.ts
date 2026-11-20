@@ -138,3 +138,58 @@ test('a dropped connection becomes network_error but an onEvent error is not mas
     }),
   ).rejects.toBe(bug);
 });
+
+test('CRLF line endings work, even when CR and LF are split across chunks', async () => {
+  const events = await collect(
+    textChunks('event: text\r', '\ndata: {"text":"가"}\r\n\r', '\n: ping\r\n\r\nevent: done\r\ndata: {}\r\n\r\n'),
+  );
+  expect(events).toEqual([
+    ['text', { text: '가' }],
+    ['done', {}],
+  ]);
+});
+
+test('the stream is cancelled when onEvent throws', async () => {
+  const cancel = vi.fn();
+  stubFetch({
+    'POST /s': () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(enc.encode('event: text\ndata: {}\n\n'));
+          },
+          cancel,
+        }),
+        { status: 200 },
+      ),
+  });
+  await expect(
+    streamPost('/s', {}, () => {
+      throw new Error('화면 오류');
+    }),
+  ).rejects.toThrow('화면 오류');
+  expect(cancel).toHaveBeenCalled();
+});
+
+test('an abort that lands while fetch resolves ends quietly and cancels the body', async () => {
+  const ctrl = new AbortController();
+  const cancel = vi.fn();
+  const onEvent = vi.fn();
+  stubFetch({
+    'POST /s': () => {
+      ctrl.abort();
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(enc.encode('event: text\ndata: {}\n\n'));
+          },
+          cancel,
+        }),
+        { status: 200 },
+      );
+    },
+  });
+  await expect(streamPost('/s', {}, onEvent, ctrl.signal)).resolves.toBeUndefined();
+  expect(onEvent).not.toHaveBeenCalled();
+  expect(cancel).toHaveBeenCalled();
+});

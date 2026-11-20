@@ -1,7 +1,7 @@
 import Badge from '../shared/ui/Badge';
 import { useApprovals } from './approvals';
 import Clock from './Clock';
-import MenuButton from './MenuButton';
+import MenuGroup, { type MenuSpec } from './MenuGroup';
 import { getProgram } from './registry';
 import ScheduleSelector from './ScheduleSelector';
 import { useSession } from './session';
@@ -9,52 +9,35 @@ import { topWindow, useWindows } from './windowStore';
 
 const ROLE_NAMES = { admin: '관리자', user: '사용자' } as const;
 
-/** ChronOS 메뉴: 정보·설정·잠금·로그아웃. */
-function SystemMenu({ onAbout }: { onAbout(): void }) {
-  const open = useWindows((s) => s.open);
-  const items = [
-    { label: '정보', run: onAbout },
-    { label: '설정', run: () => open('settings') },
-    { label: '잠금', run: () => useSession.getState().lock() },
-    { label: '로그아웃', run: () => useSession.getState().logout() },
-  ];
-  return (
-    <MenuButton label="ChronOS" ariaLabel="ChronOS 메뉴" className="os-mb-brand">
-      {(close) =>
-        items.map((item) => (
-          <button
-            key={item.label}
-            type="button"
-            role="menuitem"
-            className="os-menu-item"
-            onClick={() => {
-              close();
-              item.run();
-            }}
-          >
-            {item.label}
-          </button>
-        ))
-      }
-    </MenuButton>
-  );
-}
-
-/** 맨 앞 프로그램의 이름과 메뉴. */
-function ActiveProgram() {
+/** ChronOS 메뉴(정보·설정·잠금·로그아웃) 뒤에 맨 앞 프로그램의 이름과 펼침 메뉴. */
+function AppMenus({ onAbout }: { onAbout(): void }) {
   const active = useWindows((s) => topWindow(s.wins));
-  if (!active) return null;
-  const menus = getProgram(active.programId)?.menus ?? [];
-  return (
-    <>
-      <span className="os-mb-app">{active.title}</span>
-      {menus.map((m) => (
-        <button key={m.label} type="button" className="os-mb-btn" onClick={() => m.action(active.id)}>
-          {m.label}
-        </button>
-      ))}
-    </>
-  );
+  const open = useWindows((s) => s.open);
+  const program = active ? getProgram(active.programId) : undefined;
+  const system: MenuSpec = {
+    key: 'chronos',
+    label: 'ChronOS',
+    ariaLabel: 'ChronOS 메뉴',
+    className: 'os-mb-brand',
+    items: [
+      { label: '정보', run: onAbout },
+      { label: '설정', run: () => open('settings') },
+      { label: '잠금', run: () => useSession.getState().lock() },
+      { label: '로그아웃', run: () => useSession.getState().logout() },
+    ],
+    after: active && <span className="os-mb-app">{program?.name ?? active.programId}</span>,
+  };
+  const programMenus: MenuSpec[] = (active && program?.menus ? program.menus : []).map((menu) => ({
+    key: `menu-${menu.label}`,
+    label: menu.label,
+    items: menu.items.map((item) => ({
+      label: item.label,
+      shortcut: item.shortcut,
+      disabled: item.disabled,
+      run: () => active && item.action(active.id),
+    })),
+  }));
+  return <MenuGroup menus={[system, ...programMenus]} />;
 }
 
 export default function MenuBar({ onAbout }: { onAbout(): void }) {
@@ -63,8 +46,7 @@ export default function MenuBar({ onAbout }: { onAbout(): void }) {
   const pending = useApprovals((s) => s.pending);
   return (
     <header className="os-menubar">
-      <SystemMenu onAbout={onAbout} />
-      <ActiveProgram />
+      <AppMenus onAbout={onAbout} />
       <div className="os-mb-gap" />
       <ScheduleSelector />
       <button type="button" className="os-mb-btn" onClick={() => open('approvals')}>

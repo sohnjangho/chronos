@@ -7,10 +7,18 @@ export interface ProgramProps {
   params?: Record<string, string>;
 }
 
-/** 메뉴바에 붙는 프로그램 메뉴. action 은 맨 앞 창의 id 를 받는다. */
-export interface ProgramMenu {
+/** 펼침 메뉴의 한 줄. action 은 맨 앞 창의 id 를 받는다. shortcut 은 보이기만 한다(예 "⌘R"). */
+export interface ProgramMenuItem {
   label: string;
   action: (windowId: string) => void;
+  shortcut?: string;
+  disabled?: boolean;
+}
+
+/** 메뉴바의 펼침 메뉴 하나(예 파일·편집·보기). */
+export interface ProgramMenu {
+  label: string;
+  items: ProgramMenuItem[];
 }
 
 export interface ProgramManifest {

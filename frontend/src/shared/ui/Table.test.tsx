@@ -26,13 +26,32 @@ test('table renders headers and cells', () => {
   expect(within(table).getAllByText('15일')).toHaveLength(2);
 });
 
-test('row click and selection', async () => {
+test('row click and the selected row is aria-current', async () => {
   const onRowClick = vi.fn();
   render(<Table columns={columns} rows={rows} rowKey={(r) => r.id} onRowClick={onRowClick} selectedKey="A1030" />);
   const row = screen.getByText('기초 철근·타설').closest('tr')!;
-  expect(row).toHaveAttribute('aria-selected', 'true');
+  expect(row).toHaveAttribute('aria-current', 'true');
+  expect(row).not.toHaveAttribute('aria-selected');
+  expect(screen.getByText('터파기·흙막이').closest('tr')).not.toHaveAttribute('aria-current');
   await userEvent.click(screen.getByText('터파기·흙막이'));
   expect(onRowClick).toHaveBeenCalledWith(rows[0]);
+});
+
+test('clickable rows are reachable and work from the keyboard', async () => {
+  const onRowClick = vi.fn();
+  render(<Table columns={columns} rows={rows} rowKey={(r) => r.id} onRowClick={onRowClick} />);
+  await userEvent.tab();
+  expect(screen.getByText('터파기·흙막이').closest('tr')).toHaveFocus();
+  await userEvent.keyboard('{Enter}');
+  expect(onRowClick).toHaveBeenLastCalledWith(rows[0]);
+  await userEvent.tab();
+  await userEvent.keyboard(' ');
+  expect(onRowClick).toHaveBeenLastCalledWith(rows[1]);
+});
+
+test('rows without onRowClick are not in the tab order', () => {
+  render(<Table columns={columns} rows={rows} rowKey={(r) => r.id} />);
+  expect(screen.getByText('터파기·흙막이').closest('tr')).not.toHaveAttribute('tabindex');
 });
 
 test('empty table shows a message', () => {

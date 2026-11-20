@@ -41,7 +41,7 @@ test('logout returns to login and closes windows', async () => {
   mockLogin(200, {});
   signInAs('admin');
   render(<App />);
-  await userEvent.click(within(screen.getByRole('navigation', { name: 'Dock' })).getByRole('button', { name: '일정판' }));
+  await userEvent.click(within(screen.getByRole('navigation', { name: '프로그램 막대' })).getByRole('button', { name: '일정판' }));
   await userEvent.click(screen.getByRole('button', { name: 'ChronOS 메뉴' }));
   await userEvent.click(screen.getByRole('menuitem', { name: '로그아웃' }));
   expect(screen.getByRole('button', { name: '들어가기' })).toBeVisible();
@@ -55,4 +55,16 @@ test('a locked session stays locked on load', () => {
   useSession.getState().lock();
   render(<App />);
   expect(screen.getByRole('dialog', { name: '잠금 화면' })).toBeVisible();
+});
+
+test('the lock screen can log out to the login screen', async () => {
+  mockLogin(200, {});
+  signInAs('admin');
+  useSession.getState().lock();
+  render(<App />);
+  const lock = screen.getByRole('dialog', { name: '잠금 화면' });
+  await userEvent.click(within(lock).getByRole('button', { name: '로그아웃' }));
+  expect(screen.getByRole('button', { name: '들어가기' })).toBeVisible();
+  expect(useSession.getState()).toMatchObject({ session: null, locked: false });
+  expect(localStorage.getItem('chronos.session')).toBeNull();
 });
