@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import math
+import time
 import traceback
 from collections.abc import AsyncIterator, Coroutine
 from contextlib import aclosing
@@ -32,6 +33,7 @@ from app.agent.context import (
     wire,
 )
 from app.agent.events import AgentEvent, json_safe
+from app.agent.trace import TraceLog, context_parts
 from app.agent.workflow_log import TITLE_LIMIT, WorkflowLog
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply, Usage
 from app.store import approvals, chats, questionnaires
@@ -160,6 +162,8 @@ class _Turn:
         self.collected: list[AgentEvent] = []  # 이번 도구가 낸, 저장할 사건
         self.step_n = 0
         self.calls_seen = 0
+        self.trace: TraceLog | None = None  # 실행 추적(app.agent.trace)
+        self.llm_ev, self.llm_t0, self.last_text = None, 0.0, ""  # 지금 llm 사건·그 시작·마지막 답 글
 
     # ── 시작·끝 ──
 
@@ -176,10 +180,14 @@ class _Turn:
         self.schedule_id = chat.schedule_id
         request = wire("user", content)["content"]  # 모델이 읽는 글 그대로
         self.log = WorkflowLog(self.session, self.chat_id, title=title, request=request)
-        chats.add_message(self.session, self.chat_id, "user", content)
+        message = chats.add_message(self.session, self.chat_id, "user", content)
         self.session.commit()
+        self.trace = TraceLog(self.session, self.chat_id, message.id)
         ui = UiContext(self.ui.program, self.schedule_id, self.ui.selected_activity)
         self.messages = build_context(self.session, self.user, self.chat_id, ui)
+        tools = registry.as_llm_tools()
+        parts = context_parts(self.session, self.user, self.chat_id, ui, tools)
+        self.trace.context(parts, len(self.messages) - 1, len(tools))
 
     def close_log(self) -> None:
         """턴의 사용량(llm_calls 합)을 읽고 실행 기록을 닫는다."""
@@ -189,6 +197,8 @@ class _Turn:
             u = self.usage
             tokens = _count(u.input_tokens + u.output_tokens) if u else 0
             self.log.finish(self.outcome.status, tokens=tokens, cost=_money(u.cost) if u else None)
+        if self.trace is not None:
+            self.trace.end(self.outcome.status, (self.outcome.error or {}).get("message", self.last_text))
         self.session.commit()
 
     def abort(self, outcome: _Outcome) -> None:
@@ -221,6 +231,9 @@ class _Turn:
             for _ in range(max_steps):
                 if self.stopping():
                     return
+                self.llm_ev = self.trace.llm_start(self.messages, "normal")
+                self.session.commit()  # llm 사건(ms 없음)을 호출 전에 쓴다
+                self.llm_t0 = time.perf_counter()
                 self.start(self.llm.chat("normal", self.messages, tools=registry.as_llm_tools(),
                                          chat_session_id=self.chat_id))
                 while (event := await self.waiting()) is not None:
@@ -273,13 +286,16 @@ class _Turn:
     def reply(self) -> LlmReply | None:
         """끝난 LLM 호출의 답. 부를 수 없었거나 실패했으면 outcome 을 정하고 None."""
         task, self.task = self.task, None
+        answer = None
         try:
-            return task.result()
+            answer = task.result()
         except LlmNotReady:
             self.outcome = NOT_READY
         except LlmFailed as e:
             self.outcome = _llm_failed(e)
-        return None
+        error = self.outcome.error["message"] if answer is None else None
+        self.trace.llm_end(self.llm_ev, answer, error, int((time.perf_counter() - self.llm_t0) * 1000))
+        return answer
 
     def tool_context(self) -> ToolContext:
         return ToolContext(
@@ -295,6 +311,7 @@ class _Turn:
         self.messages.append(wire(role, content))
 
     def answer(self, text: str) -> None:
+        self.last_text = text
         if text:
             self.save("assistant", {"kind": "text", "text": text})
             self.session.commit()
@@ -317,6 +334,7 @@ class _Turn:
             tool=call.name, program=program, why=why, arguments=call.arguments_text,
             model=json_safe(reply.model), tokens=_tokens(reply.usage), cost=_money(reply.usage.cost),
         )
+        self.trace.attach_run(self.log.run_id)
         self.session.commit()
         start = {"run_id": self.log.run_id, "n": self.step_n, "call_id": call.id, "tool": call.name,
                  "program": program, "arguments": call.arguments_text}
