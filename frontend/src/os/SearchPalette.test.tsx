@@ -2,12 +2,13 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
-import { signInAs, stubFetch } from '../test-helpers';
+import { signInAsDemo, stubFetch } from '../test-helpers';
 import { useCurrentSchedule } from './currentSchedule';
 import Desktop from './Desktop';
 import { useSession } from './session';
 import { useShell } from './shell';
 import { useWindows } from './windowStore';
+import { resetShellState } from './shellReset';
 
 const palette = () => screen.getByRole('dialog', { name: '검색' });
 const box = () => within(palette()).getByRole('combobox', { name: '검색어' });
@@ -16,7 +17,7 @@ const group = (name: string) => within(palette()).getByRole('group', { name });
 beforeAll(() => registerPrograms());
 beforeEach(() => {
   localStorage.clear();
-  signInAs('admin');
+  signInAsDemo('admin');
   useCurrentSchedule.getState().setCurrent({ id: 4, name: '5층 사무동 신축' });
   stubFetch({
     '/api/approvals/count': { pending: 2 },
@@ -42,6 +43,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  resetShellState();
   vi.unstubAllGlobals();
   useWindows.getState().reset();
   useShell.setState({ palette: false });

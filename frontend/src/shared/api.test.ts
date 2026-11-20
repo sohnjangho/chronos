@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { useSession } from '../os/session';
-import { json, signInAs, stubFetch } from '../test-helpers';
+import { json, signInAsDemo, stubFetch } from '../test-helpers';
 import { api, ApiError, publicApi } from './api';
 
-beforeEach(() => signInAs());
+beforeEach(() => signInAsDemo());
 afterEach(() => {
   vi.unstubAllGlobals();
   useSession.getState().logout();
@@ -78,7 +78,7 @@ test('an aborted request rethrows the abort as it is', async () => {
 test('a 401 for an older token does not log out the newer session', async () => {
   stubFetch({
     '/old': () => {
-      useSession.getState().signIn({ token: 'tok2', loginId: 'jhsohn', user: { id: 1, name: '손장호', role: 'admin' } });
+      useSession.getState().signIn({ token: 'tok2', loginId: 'demo-admin', user: { id: 1, name: '김하늘', role: 'admin' } });
       return json(401, { code: 'unauthorized', message: '다시 로그인해 주세요.', detail: null });
     },
   });

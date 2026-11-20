@@ -23,12 +23,24 @@ const CTRL_ALT: Record<string, () => void> = {
   Period: () => useContextPanel.getState().toggle(),
 };
 
-/** 지금 처리할 셸 명령. 없으면 null(앱에 맡김). 잠금 중·입력칸 안에서는 넘긴다(Ctrl+K 는 입력칸에서도 연다). */
+/** 창·대화상자 안(role=dialog)이면 true. 「/」 는 바탕화면에서만 연다. */
+const insideDialog = (t: EventTarget | null) => t instanceof Element && t.closest('[role="dialog"]') !== null;
+
+/** 앱 서랍·검색·셸 대화상자가 열려 있으면 창 명령을 받지 않는다. */
+const overlayOpen = () => {
+  const s = useShell.getState();
+  return s.drawer !== 'closed' || s.palette || s.dialog !== null;
+};
+
+/**
+ * 지금 처리할 셸 명령. 없으면 null(앱에 맡김). 잠금 중·입력칸 안에서는 넘긴다(Ctrl+K 는 입력칸에서도 연다).
+ * 「/」 는 바탕화면(창 밖)에서만, 창 명령은 겹화면이 없을 때만.
+ */
 export function shortcutFor(e: KeyboardEvent, extra: Record<string, () => void> = {}): (() => void) | null {
   if (useSession.getState().locked) return null;
   if (e.ctrlKey && !e.altKey && e.code === 'KeyK') return () => useShell.getState().setPalette(true);
-  if (isEditable(e.target)) return null;
-  if (e.key === '/' && !e.ctrlKey && !e.altKey && !e.metaKey) return () => useShell.getState().setPalette(true);
+  if (isEditable(e.target) || overlayOpen()) return null;
+  if (e.key === '/' && !e.ctrlKey && !e.altKey && !e.metaKey) return insideDialog(e.target) ? null : () => useShell.getState().setPalette(true);
   if (e.ctrlKey && !e.altKey && e.code === 'Backquote') return () => useWindows.getState().nextWindow();
   if (e.ctrlKey && e.altKey) return extra[e.code] ?? CTRL_ALT[e.code] ?? null;
   return null;

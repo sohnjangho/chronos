@@ -2,11 +2,12 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
-import { signInAs, stubFetch } from '../test-helpers';
+import { signInAsDemo, stubFetch } from '../test-helpers';
 import Desktop from './Desktop';
 import { useSession } from './session';
 import { useWindows } from './windowStore';
 import { useZoom } from './zoom';
+import { resetShellState } from './shellReset';
 
 const menubar = () => screen.getByRole('banner');
 const menuButton = (name: string | RegExp) => within(menubar()).getByRole('button', { name });
@@ -22,10 +23,11 @@ beforeEach(() => {
   localStorage.clear();
   vi.stubGlobal('innerWidth', 1920);
   vi.stubGlobal('innerHeight', 1080);
-  signInAs('admin');
+  signInAsDemo('admin');
   stubFetch({ '/api/approvals/count': { pending: 0 }, '/api/schedules': [] });
 });
 afterEach(() => {
+  resetShellState();
   vi.unstubAllGlobals();
   useWindows.getState().reset();
   useZoom.getState().load(null);
@@ -139,7 +141,7 @@ test('pointing at another menu name while a menu is open switches to it', async 
 
 test('group titles are skipped by the arrow keys', async () => {
   render(<Desktop />);
-  menuButton(/손장호/).focus();
+  menuButton(/김하늘/).focus();
   await userEvent.keyboard('{Enter}');
   expect(item('설정…')).toHaveFocus();
   await userEvent.keyboard('{ArrowDown}');
@@ -201,7 +203,7 @@ test('window shortcuts work, but not while typing or locked', () => {
   act(() => useSession.getState().lock());
   fireEvent.keyDown(document.body, { code: 'KeyQ', key: 'q', ctrlKey: true, altKey: true });
   expect(useWindows.getState().wins).toHaveLength(1);
-  act(() => useSession.getState().signIn({ token: 'tok', loginId: 'jhsohn', user: { id: 1, name: '손장호', role: 'admin' } }));
+  act(() => useSession.getState().signIn({ token: 'tok', loginId: 'demo-admin', user: { id: 1, name: '김하늘', role: 'admin' } }));
   fireEvent.keyDown(document.body, { code: 'KeyQ', key: 'q', ctrlKey: true, altKey: true });
   expect(useWindows.getState().wins).toHaveLength(0);
 });
@@ -257,4 +259,12 @@ test('a menu closes when focus leaves its menu group, so two menus are never ope
   expect(screen.queryByRole('menu', { name: 'ChronOS 메뉴' })).toBeNull();
   await userEvent.keyboard('{Enter}');
   expect(screen.getAllByRole('menu')).toHaveLength(1);
+});
+
+test('the 앱 목록 item of the logo menu has its 16px icon', async () => {
+  render(<Desktop />);
+  await userEvent.click(menuButton('ChronOS 메뉴'));
+  const svg = item('앱 목록').querySelector('svg');
+  expect(svg).not.toBeNull();
+  expect(svg).toHaveAttribute('width', '16');
 });

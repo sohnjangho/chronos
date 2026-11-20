@@ -85,6 +85,7 @@
 .os-menu-item:disabled { color: var(--fg-muted); opacity: 0.6; cursor: not-allowed; }
 .os-menu-item.is-current { font-weight: 700; color: var(--accent-text); }
 .os-menu-check { width: 12px; flex: none; }
+.os-menu-icon { display: inline-flex; flex: none; width: 16px; height: 16px; margin-right: -8px; color: var(--fg-muted); }
 .os-menu-label { display: flex; flex-direction: column; flex: 1; min-width: 0; padding: 5px 0; line-height: 18px; }
 .os-menu-detail { font-size: var(--fs-12); color: var(--fg-muted); }
 .os-menu-shortcut { margin-left: auto; font-size: var(--fs-12); color: var(--fg-muted); }

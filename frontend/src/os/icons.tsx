@@ -29,8 +29,8 @@ export const MoonIcon = () => line(18, 'M19 14.5A7.5 7.5 0 0 1 9.5 5a7.5 7.5 0 1
 export const SunIcon = () =>
   line(18, 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M12 2v2', 'M12 20v2', 'M4 12H2', 'M22 12h-2', 'M5 5l1.4 1.4', 'M17.6 17.6 19 19', 'M5 19l1.4-1.4', 'M17.6 6.4 19 5');
 export const PersonIcon = () => line(18, 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M4.5 20a7.5 7.5 0 0 1 15 0');
-export const AppsIcon = () =>
-  line(24, 'M5 5h4v4H5z', 'M10 5h4v4h-4z', 'M15 5h4v4h-4z', 'M5 10h4v4H5z', 'M10 10h4v4h-4z', 'M15 10h4v4h-4z', 'M5 15h4v4H5z', 'M10 15h4v4h-4z', 'M15 15h4v4h-4z');
+export const AppsIcon = ({ size = 24 }: { size?: number } = {}) =>
+  line(size, 'M5 5h4v4H5z', 'M10 5h4v4h-4z', 'M15 5h4v4h-4z', 'M5 10h4v4H5z', 'M10 10h4v4h-4z', 'M15 10h4v4h-4z', 'M5 15h4v4H5z', 'M10 15h4v4h-4z', 'M15 15h4v4h-4z');
 export const PanelIcon = () => line(22, 'M4 5h16v14H4z', 'M14 5v14', 'M16.5 9h1.5', 'M16.5 12h1.5');
 
 /** ChronOS 마크: 강조색 둥근 사각 안의 시계. size 는 한 변(px). */

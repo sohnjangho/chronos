@@ -22,6 +22,14 @@ function step(current: number, dir: 1 | -1): number {
   return ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, at + dir))];
 }
 
+/** 저장된 값 가운데 메뉴 단계에 있는 숫자만 받는다(나머지는 100%). */
+function validLevels(saved: unknown): Record<string, number> {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+  return Object.fromEntries(
+    Object.entries(saved).filter((e): e is [string, number] => typeof e[1] === 'number' && ZOOM_STEPS.includes(e[1])),
+  );
+}
+
 /** 프로그램마다 배율을 기억한다(사용자별 저장). */
 export const useZoom = create<ZoomState>((set, get) => {
   const put = (programId: string, value: number) => {
@@ -33,8 +41,7 @@ export const useZoom = create<ZoomState>((set, get) => {
     userId: null,
     levels: {},
     load(userId) {
-      const saved = loadPref('zoom', userId);
-      set({ userId, levels: saved && typeof saved === 'object' ? (saved as Record<string, number>) : {} });
+      set({ userId, levels: validLevels(loadPref('zoom', userId)) });
     },
     zoomIn: (id) => put(id, step(zoomOf(get().levels, id), 1)),
     zoomOut: (id) => put(id, step(zoomOf(get().levels, id), -1)),

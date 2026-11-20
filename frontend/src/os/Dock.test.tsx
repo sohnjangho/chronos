@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
-import { signInAs, stubFetch } from '../test-helpers';
+import { signInAsDemo, stubFetch } from '../test-helpers';
 import { useApprovals } from './approvals';
 import Desktop from './Desktop';
 import { magnification } from './Dock';
@@ -10,6 +10,7 @@ import { useDock } from './dockStore';
 import { useSession } from './session';
 import { useShell } from './shell';
 import { useWindows } from './windowStore';
+import { resetShellState } from './shellReset';
 
 const dock = () => screen.getByRole('toolbar', { name: '프로그램 막대' });
 const icon = (name: string) => within(dock()).getByRole('button', { name: new RegExp(`^${name}(,|$)`) });
@@ -27,10 +28,11 @@ beforeEach(() => {
   vi.stubGlobal('innerWidth', 1920);
   vi.stubGlobal('innerHeight', 1080);
   reducedMotion(false);
-  signInAs('admin');
+  signInAsDemo('admin');
   stubFetch({ '/api/approvals/count': { pending: 0 }, '/api/schedules': [] });
 });
 afterEach(() => {
+  resetShellState();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -231,4 +233,53 @@ test('a maximized window hides the Dock; the bottom strip and Ctrl+Alt+D reveal 
   expect(icon('일정판')).toHaveFocus();
   fireEvent.keyDown(document.body, { code: 'KeyD', key: 'd', ctrlKey: true, altKey: true });
   expect(wrap()).toHaveAttribute('data-hidden', 'true');
+});
+
+test('the Dock leaves no timer behind when the desktop goes away', () => {
+  vi.useFakeTimers();
+  // 같은 프로그램 창을 Dock 없이 열었을 때 남는 타이머(React Suspense 몫)를 기준으로 삼는다.
+  const leftAfter = (doIt: () => void) => {
+    const { unmount } = render(<Desktop />);
+    doIt();
+    unmount();
+    const n = vi.getTimerCount();
+    vi.clearAllTimers();
+    resetShellState();
+    return n;
+  };
+  const base = leftAfter(() => openProgram('schedule'));
+  const withDock = leftAfter(() => {
+    fireEvent.click(icon('일정판'));
+    fireEvent.pointerDown(icon('탐색기'), { pointerType: 'touch', clientX: 1, clientY: 1 });
+  });
+  expect(withDock).toBe(base);
+});
+
+test('a Dock revealed from the bottom strip hides 0.8 s after the pointer leaves without entering it', () => {
+  vi.useFakeTimers();
+  render(<Desktop />);
+  const wrap = () => dock().closest('.os-dock-wrap')!;
+  openProgram('schedule');
+  act(() => useWindows.getState().toggleMaximize(useWindows.getState().wins[0].id));
+  const strip = screen.getByTestId('dock-reveal');
+  fireEvent.pointerEnter(strip);
+  act(() => vi.advanceTimersByTime(200));
+  fireEvent.pointerLeave(strip);
+  act(() => vi.advanceTimersByTime(799));
+  expect(wrap()).toHaveAttribute('data-hidden', 'false');
+  act(() => vi.advanceTimersByTime(1));
+  expect(wrap()).toHaveAttribute('data-hidden', 'true');
+  fireEvent.pointerEnter(strip);
+  act(() => vi.advanceTimersByTime(200));
+  fireEvent.pointerLeave(strip);
+  fireEvent.pointerEnter(wrap());
+  act(() => vi.advanceTimersByTime(2000));
+  expect(wrap()).toHaveAttribute('data-hidden', 'false');
+});
+
+test('after Dock에서 제거 the focus moves to the neighbouring item', async () => {
+  render(<Desktop />);
+  fireEvent.contextMenu(icon('질문지'));
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Dock에서 제거' }));
+  expect(icon('워크플로우')).toHaveFocus();
 });

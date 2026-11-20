@@ -2,18 +2,20 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
-import { json, signInAs, stubFetch } from '../test-helpers';
+import { json, signInAsDemo, stubFetch } from '../test-helpers';
 import Desktop from './Desktop';
 import { useApprovals } from './approvals';
 import { useSession } from './session';
 import { useWindows } from './windowStore';
+import { resetShellState } from './shellReset';
 
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 const item = (id: number, title: string, min: number) => ({ id, title, created_at: ago(min) });
 
 beforeAll(() => registerPrograms());
-beforeEach(() => signInAs('user', '김민지'));
+beforeEach(() => signInAsDemo('user', '김민지'));
 afterEach(() => {
+  resetShellState();
   vi.unstubAllGlobals();
   useWindows.getState().reset();
   useApprovals.setState({ pending: 0 });

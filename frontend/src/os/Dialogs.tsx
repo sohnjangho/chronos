@@ -3,6 +3,7 @@ import { version } from '../../package.json';
 import Button from '../shared/ui/Button';
 import { ChronosMark } from './icons';
 import ProgramIcon from './ProgramIcon';
+import { useModalFocus } from './modalFocus';
 import { getProgram } from './registry';
 import { useShell } from './shell';
 
@@ -25,15 +26,17 @@ export const SHORTCUTS: [string, string][] = [
 function InfoDialog({ name, icon, children }: { name: string; icon: ReactNode; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const close = () => useShell.getState().setDialog(null);
+  const trap = useModalFocus(ref);
   useEffect(() => ref.current?.focus(), []);
   return (
     <div
       ref={ref}
       className="os-about"
       role="dialog"
+      aria-modal="true"
       aria-label={name}
       tabIndex={-1}
-      onKeyDown={(e) => e.key === 'Escape' && close()}
+      onKeyDown={(e) => (e.key === 'Escape' ? close() : trap(e))}
     >
       <div className="os-about-head">
         {icon}

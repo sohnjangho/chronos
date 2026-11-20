@@ -91,7 +91,7 @@
 }
 .st-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .st-card-name { font-size: var(--fs-14); min-width: 0; overflow-wrap: anywhere; }
-.ui-badge.st-badge-default { background: var(--bg-topbar); color: var(--bg-panel); }
+.ui-badge.st-badge-default { background: var(--bg-topbar); color: var(--on-topbar-fg); }
 .st-facts { display: grid; grid-template-columns: 70px 1fr; gap: 4px 10px; margin: 0; font-size: var(--fs-12); }
 .st-facts-wide { grid-template-columns: 90px 1fr; font-size: var(--fs-13); }
 .st-facts dt { color: var(--fg-muted); white-space: nowrap; }
@@ -126,8 +126,8 @@
   background: var(--bg-app);
 }
 .st-step.on { color: var(--tone-info-fg); font-weight: 700; }
-.st-step.on i { background: var(--accent); color: var(--bg-panel); }
-.st-step.ok i { background: var(--success); color: var(--bg-panel); }
+.st-step.on i { background: var(--accent); color: var(--on-accent); }
+.st-step.ok i { background: var(--success); color: var(--on-accent); }
 .st-providers { display: flex; flex-wrap: wrap; gap: 8px; }
 .st-provider {
   flex: 1 1 200px;

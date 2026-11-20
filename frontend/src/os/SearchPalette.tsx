@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useModalFocus } from './modalFocus';
 import { api } from '../shared/api';
 import { ageText } from './ApprovalWidget';
 import { useCurrentSchedule } from './currentSchedule';
@@ -95,9 +96,11 @@ function PaletteView() {
     close();
   };
   const groups = paletteGroups({ role, query, currentId: current?.id, data, done });
+  const ref = useRef<HTMLDivElement>(null);
+  const trap = useModalFocus(ref);
   return (
     <div className="os-palette-back" onPointerDown={(e) => e.target === e.currentTarget && close()}>
-      <div role="dialog" aria-modal="true" aria-label="검색" className="os-palette">
+      <div ref={ref} role="dialog" aria-modal="true" aria-label="검색" className="os-palette" onKeyDown={trap}>
         <PickList label="검색어" placeholder="프로그램·일정·승인 대기·액티비티 찾기" query={query} onQuery={setQuery} groups={groups} onClose={close} />
       </div>
     </div>

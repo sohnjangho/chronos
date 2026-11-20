@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { cascadeBoxes, gridBoxes, splitBoxes } from './arrange';
+import { cascadeBoxes, gridBoxes, splitBoxes, type Box } from './arrange';
 import { getProgram } from './registry';
 
 export { ARRANGE_GAP } from './arrange';
@@ -16,14 +16,13 @@ export interface Win {
   minimized: boolean;
   maximized: boolean;
   params?: Record<string, string>;
+  /** 오른쪽 패널 때문에 좁혀지기 전 자리(beforeInset)와 좁힌 자리(insetRect). 패널을 닫을 때 그대로면 되돌린다. */
+  beforeInset?: Rect;
+  insetRect?: Rect;
 }
 
-export interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+/** 창 자리와 크기(px). */
+export type Rect = Box;
 
 /** 크기 조절 손잡이: 네 가장자리와 네 모서리. */
 export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
@@ -201,6 +200,23 @@ function newWindow(
   };
 }
 
+const sameRect = (a: Rect, b: Rect) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+const rectOf = (w: Rect): Rect => ({ x: w.x, y: w.y, w: w.w, h: w.h });
+
+/** 패널이 넓어져 창을 좁힐 때: 바뀐 창은 원래 자리를 기억한다. */
+function narrowed(w: Win): Win {
+  const fitted = fitRect(w);
+  if (sameRect(fitted, w)) return w;
+  return { ...w, ...fitted, beforeInset: w.beforeInset ?? rectOf(w), insetRect: fitted };
+}
+
+/** 패널이 좁아지거나 닫힐 때: 좁힌 뒤 손대지 않은 창은 원래 자리로(지금 화면에 맞춰) 되돌린다. */
+function widened(w: Win): Win {
+  const { beforeInset, insetRect, ...rest } = w;
+  const untouched = beforeInset && insetRect && sameRect(w, insetRect);
+  return { ...rest, ...fitRect(untouched ? beforeInset : rest) };
+}
+
 const patcher = (set: SetState) => (id: string, change: (w: Win) => Partial<Win>) =>
   set((s) => ({ wins: s.wins.map((w) => (w.id === id ? { ...w, ...change(w) } : w)) }));
 
@@ -242,8 +258,9 @@ function bulkActions(set: SetState, get: () => WindowState) {
       if (back) raise(back.id);
     },
     setInsetRight(px: number) {
+      const growing = px > get().insetRight;
       set({ insetRight: px });
-      set((s) => ({ wins: s.wins.map((w) => ({ ...w, ...fitRect(w) })) }));
+      set((s) => ({ wins: s.wins.map((w) => (growing ? narrowed(w) : widened(w))) }));
     },
   };
 }

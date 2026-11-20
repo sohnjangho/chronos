@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useModalFocus } from './modalFocus';
 import Button from '../shared/ui/Button';
 import { useDock } from './dockStore';
 import ProgramIcon from './ProgramIcon';
@@ -68,6 +69,8 @@ function DrawerView({ edit }: { edit: boolean }) {
   const allIds = all.map((p) => p.id);
   const shown = all.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase()));
   const close = () => useShell.getState().setDrawer('closed');
+  const ref = useRef<HTMLDivElement>(null);
+  const trap = useModalFocus(ref);
   const launch = (id: string) => {
     useWindows.getState().open(id);
     close();
@@ -77,11 +80,12 @@ function DrawerView({ edit }: { edit: boolean }) {
 
   return (
     <div
+      ref={ref}
       className="os-drawer"
       role="dialog"
       aria-modal="true"
       aria-label="앱 목록"
-      onKeyDown={(e) => e.key === 'Escape' && close()}
+      onKeyDown={(e) => (e.key === 'Escape' ? close() : trap(e))}
       onPointerDown={(e) => e.target === e.currentTarget && close()}
     >
       <div className="os-drawer-head">

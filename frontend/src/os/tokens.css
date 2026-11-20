@@ -91,9 +91,10 @@
   --fg-muted: #9aa6ba;
   --border: #2a3446;
   --border-strong: #3b475d;
-  --accent: #4c8dff;
+  /* 흰 글자(12~14px)와 4.5:1 이상 */
+  --accent: #336fd9;
   --accent-text: #85b0ff;
-  --danger: #e05b5b;
+  --danger: #c73d3d;
   --danger-text: #ff9e9e;
   --success: #34b56f;
   --success-text: #7fd8a4;

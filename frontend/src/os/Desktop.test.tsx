@@ -3,12 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { lazy } from 'react';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
-import { json, signInAs, stubFetch } from '../test-helpers';
+import { json, signInAsDemo, stubFetch } from '../test-helpers';
 import Desktop from './Desktop';
 import { register, type ProgramManifest } from './registry';
 import { useApprovals } from './approvals';
 import { useSession } from './session';
 import { useWindows } from './windowStore';
+import { resetShellState } from './shellReset';
 
 const m = (id: string, over: Partial<ProgramManifest> = {}): ProgramManifest => ({
   id,
@@ -32,13 +33,14 @@ beforeAll(() => registerPrograms());
 beforeEach(() => {
   vi.stubGlobal('innerWidth', 1920);
   vi.stubGlobal('innerHeight', 1080);
-  signInAs('admin');
+  signInAsDemo('admin');
   stubFetch({
     '/api/approvals/count': { pending: 0 },
     '/api/schedules': [],
   });
 });
 afterEach(() => {
+  resetShellState();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   useWindows.getState().reset();
@@ -121,7 +123,7 @@ test('dock shows running programs and admin-only programs only to admins', async
   await userEvent.click(dockIcon('일정판'));
   expect(dockIcon('일정판')).toHaveAccessibleName('일정판, 활성 창');
   expect(dockIcon('질문지')).toHaveAccessibleName('질문지');
-  act(() => signInAs('user', '김민지'));
+  act(() => signInAsDemo('user', '김민지'));
   expect(within(dock()).queryByRole('button', { name: /^개발 콘솔/ })).toBeNull();
 });
 
@@ -330,7 +332,7 @@ test('lock keeps windows and unlocks with the password of the current user', asy
     '/api/schedules': [],
     'POST /api/auth/login': (init) =>
       JSON.parse(String(init?.body)).password === 'right'
-        ? json(200, { token: 'tok2', user: { id: 1, name: '손장호', role: 'admin' } })
+        ? json(200, { token: 'tok2', user: { id: 1, name: '김하늘', role: 'admin' } })
         : json(401, { code: 'bad_credentials', message: '아이디 또는 비밀번호가 맞지 않습니다.', detail: null }),
   });
   render(<Desktop />);
@@ -346,5 +348,5 @@ test('lock keeps windows and unlocks with the password of the current user', asy
   expect(useSession.getState().session?.token).toBe('tok2');
   expect(screen.getByRole('dialog', { name: '일정판' })).toBeInTheDocument();
   const loginCall = fetch.mock.calls.find(([url]) => url === '/api/auth/login')!;
-  expect(JSON.parse(String(loginCall[1]?.body))).toMatchObject({ login_id: 'jhsohn' });
+  expect(JSON.parse(String(loginCall[1]?.body))).toMatchObject({ login_id: 'demo-admin' });
 });

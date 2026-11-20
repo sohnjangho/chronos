@@ -1,85 +1,49 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { api, ApiError } from '../shared/api';
-import { streamPost } from '../shared/sse';
+import { useEffect, useState, type FormEvent } from 'react';
+import { api } from '../shared/api';
 import Button from '../shared/ui/Button';
+import { useAiChat } from './aiChat';
 import { ageText } from './ApprovalWidget';
 import type { ContextSource } from './contextStore';
 import type { EvidenceItem } from './evidence';
 import { useWindows } from './windowStore';
 
-interface Line {
-  who: 'me' | 'agent' | 'error';
-  text: string;
-}
-
-/** AI 탭의 대화 상태. 첫 질문에 대화를 만들고(지금 일정), 질문마다 출처 창의 맥락(ui)을 붙여 보낸다. */
-function useAiChat(source: ContextSource | null, scheduleId: number | null) {
-  const [lines, setLines] = useState<Line[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [sessionId, setSessionId] = useState<number | null>(null);
-  const abort = useRef<AbortController | null>(null);
-  useEffect(() => () => abort.current?.abort(), []);
-  const add = (line: Line) => setLines((l) => [...l, line]);
-
-  async function ask(text: string) {
-    if (!source) return;
-    add({ who: 'me', text });
-    setBusy(true);
-    abort.current = new AbortController();
-    try {
-      const id = sessionId ?? (await api<{ id: number }>('/api/chat/sessions', { method: 'POST', body: JSON.stringify({ schedule_id: scheduleId }) })).id;
-      setSessionId(id);
-      const ui = { program: source.programId, ...(scheduleId !== null && { schedule_id: scheduleId }), ...(source.params?.activity && { selected_activity: source.params.activity }) };
-      await streamPost(`/api/chat/sessions/${id}/messages`, { text, ui }, (type, data) => {
-        const d = data as { text?: string; message?: string };
-        if (type === 'text' && d.text) add({ who: 'agent', text: d.text });
-        if (type === 'error') add({ who: 'error', text: d.message ?? '처리 중 문제가 생겼습니다.' });
-      }, abort.current.signal);
-    } catch (err) {
-      add({ who: 'error', text: err instanceof ApiError ? err.message : '처리 중 문제가 생겼습니다.' });
-    } finally {
-      setBusy(false);
-    }
-  }
-  return { lines, busy, sessionId, ask };
-}
-
-/** 「AI」: 출처 창의 맥락(프로그램·일정·고른 액티비티)으로 시작하는 작은 대화. 「전체 화면으로」는 같은 대화를 대화 프로그램에서 연다. */
-export function AiTab({ source, scheduleId, stale }: { source: ContextSource | null; scheduleId: number | null; stale: boolean }) {
-  const chat = useAiChat(source, scheduleId);
+/** 「AI」: 출처 창의 맥락(프로그램·일정·보낼 때 고른 액티비티)으로 묻는 작은 대화. 대화는 패널 밖(useAiChat)에 있어
+ * 탭을 바꾸거나 패널을 닫아도 이어진다. 「전체 화면으로」는 같은 대화를 대화 프로그램에서 연다. */
+export function AiTab({ source, stale }: { source: ContextSource | null; stale: boolean }) {
+  const { lines, busy, sessionId } = useAiChat();
   const [text, setText] = useState('');
 
   function send(e: FormEvent) {
     e.preventDefault();
     const ask = text.trim();
-    if (!ask || chat.busy) return;
+    if (!ask || busy || !source) return;
     setText('');
-    void chat.ask(ask);
+    void useAiChat.getState().ask(ask, source);
   }
 
   function fullScreen() {
-    const id = useWindows.getState().open('chat', { session: String(chat.sessionId) });
+    const id = useWindows.getState().open('chat', { session: String(sessionId) });
     if (!useWindows.getState().wins.find((x) => x.id === id)?.maximized) useWindows.getState().toggleMaximize(id);
   }
 
   return (
     <div className="os-ctx-ai">
       <div className="os-ctx-lines">
-        {chat.lines.length === 0 && <p className="os-ctx-empty">이 창에 대해 에이전트에게 물어보세요.</p>}
-        {chat.lines.map((l, i) => (
+        {lines.length === 0 && <p className="os-ctx-empty">이 창에 대해 에이전트에게 물어보세요.</p>}
+        {lines.map((l, i) => (
           <p key={i} className={`os-ctx-line is-${l.who}`}>
             {l.text}
           </p>
         ))}
-        {chat.busy && <p className="os-ctx-empty">답을 기다리는 중…</p>}
+        {busy && <p className="os-ctx-empty">답을 기다리는 중…</p>}
       </div>
       <form className="os-ctx-ask" onSubmit={send}>
         <input aria-label="에이전트에게 묻기" placeholder="에이전트에게 묻기" value={text} disabled={stale || !source} onChange={(e) => setText(e.target.value)} />
-        <Button type="submit" variant="primary" disabled={chat.busy || stale || !source}>
+        <Button type="submit" variant="primary" disabled={busy || stale || !source}>
           보내기
         </Button>
       </form>
-      <Button className="os-ctx-full" disabled={chat.sessionId === null} onClick={fullScreen}>
+      <Button className="os-ctx-full" disabled={sessionId === null} onClick={fullScreen}>
         전체 화면으로
       </Button>
     </div>

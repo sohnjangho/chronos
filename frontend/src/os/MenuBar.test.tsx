@@ -1,13 +1,14 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
-import { json, signInAs, stubFetch } from '../test-helpers';
+import { json, signInAsDemo, stubFetch } from '../test-helpers';
 import { useApprovals } from './approvals';
 import { useCurrentSchedule } from './currentSchedule';
 import Desktop from './Desktop';
 import { useSession } from './session';
 import { useTheme } from './theme';
 import { useWindows } from './windowStore';
+import { resetShellState } from './shellReset';
 
 const menubar = () => screen.getByRole('banner');
 const approvalsButton = () => within(menubar()).getByRole('button', { name: /^승인함 — 대기/ });
@@ -25,9 +26,10 @@ beforeAll(() => registerPrograms());
 beforeEach(() => {
   vi.useFakeTimers();
   localStorage.clear();
-  signInAs('admin');
+  signInAsDemo('admin');
 });
 afterEach(() => {
+  resetShellState();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   useWindows.getState().reset();
@@ -119,11 +121,11 @@ test('the user button opens a menu with name, login id, role, settings and logou
   stubFetch({ '/api/approvals/count': { pending: 0 }, '/api/schedules': [] });
   render(<Desktop />);
   await flush();
-  const user = within(menubar()).getByRole('button', { name: '손장호 관리자' });
+  const user = within(menubar()).getByRole('button', { name: '김하늘 관리자' });
   fireEvent.click(user);
-  const menu = screen.getByRole('menu', { name: '손장호 관리자' });
-  expect(within(menu).getByRole('menuitem', { name: /손장호/ })).toBeDisabled();
-  expect(within(menu).getByText('jhsohn')).toBeInTheDocument();
+  const menu = screen.getByRole('menu', { name: '김하늘 관리자' });
+  expect(within(menu).getByRole('menuitem', { name: /김하늘/ })).toBeDisabled();
+  expect(within(menu).getByText('demo-admin')).toBeInTheDocument();
   expect(within(menu).getByText('등급')).toBeInTheDocument();
   expect(within(menu).getByRole('menuitem', { name: '관리자' })).toBeDisabled();
   fireEvent.click(within(menu).getByRole('menuitem', { name: '로그아웃' }));

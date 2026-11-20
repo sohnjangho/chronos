@@ -34,6 +34,7 @@ type Item = Exclude<DockEntry, { kind: 'sep' }>;
 /** 새로 실행된 프로그램 id(짧은 튀어 오름). 동작 줄이기면 없다. */
 function useLaunching(running: Set<string>): string[] {
   const prev = useRef(running);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [launching, setLaunching] = useState<string[]>([]);
   const key = [...running].sort().join(',');
   useEffect(() => {
@@ -41,8 +42,9 @@ function useLaunching(running: Set<string>): string[] {
     prev.current = running;
     if (!added.length || prefersReducedMotion()) return;
     setLaunching((l) => [...l, ...added]);
-    setTimeout(() => setLaunching((l) => l.filter((id) => !added.includes(id))), 700);
+    timers.current.push(setTimeout(() => setLaunching((l) => l.filter((id) => !added.includes(id))), 700));
   }, [key]); // running 은 key(정렬한 id 글)로 본다
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
   return launching;
 }
 
@@ -66,10 +68,15 @@ function useAutoHide(maximized: boolean, menuOpen: boolean, wrapRef: RefObject<H
     hidden: maximized && !revealed && !menuOpen,
     revealed,
     stripEnter: () => later(200, () => useShell.getState().setDockRevealed('pointer')),
-    stripLeave: () => timer.current && clearTimeout(timer.current),
-    wrapLeave: (e: ReactPointerEvent) => {
-      const top = wrapRef.current?.getBoundingClientRect().top ?? 0;
-      if (revealed && e.clientY < top) later(800, hide);
+    // 띠에서 벗어나면: 아직 안 드러났으면 취소, 드러났으면 Dock 에 들어오지 않는 한 0.8초 뒤 숨김.
+    stripLeave: () => (useShell.getState().dockRevealed ? later(800, hide) : timer.current && clearTimeout(timer.current)),
+    /** Dock 틀에 달 손: 들어오면 숨김 예약 취소, 위로 벗어나면 0.8초 뒤 숨김. */
+    wrapHandlers: {
+      onPointerEnter: () => timer.current && clearTimeout(timer.current),
+      onPointerLeave: (e: ReactPointerEvent) => {
+        const top = wrapRef.current?.getBoundingClientRect().top ?? 0;
+        if (revealed && e.clientY < top) later(800, hide);
+      },
     },
     hide,
   };
@@ -193,15 +200,24 @@ function dockItemProps(entry: Item, i: number, c: ItemContext): DockItemProps {
   };
 }
 
-/** 열린 항목 메뉴(항목 차례). 닫을 때 refocus 면 그 항목으로 포커스를 돌린다. */
-function useItemMenu(buttons: RefObject<(HTMLButtonElement | null)[]>) {
+/**
+ * 열린 항목 메뉴(항목 차례). 닫을 때 refocus 면 다시 그린 뒤 같은 자리 항목으로 포커스를 돌린다.
+ * 「Dock에서 제거」 뒤에는 그 자리에 온 이웃 항목(끝이었으면 앞 항목)이다.
+ */
+function useItemMenu(buttons: RefObject<(HTMLButtonElement | null)[]>, count: number) {
   const [menu, setMenu] = useState<number | null>(null);
+  const [refocus, setRefocus] = useState<number | null>(null);
+  useEffect(() => {
+    if (refocus === null) return;
+    buttons.current[Math.min(refocus, count - 1)]?.focus();
+    setRefocus(null);
+  }, [refocus, count, buttons]);
   const closeMenu = useCallback(
-    (refocus: boolean) => {
-      if (refocus && menu !== null) buttons.current[menu]?.focus();
+    (again: boolean) => {
+      if (again && menu !== null) setRefocus(menu);
       setMenu(null);
     },
-    [menu, buttons],
+    [menu],
   );
   return [menu, setMenu, closeMenu] as const;
 }
@@ -211,8 +227,8 @@ export default function Dock() {
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const tiles = useRef<(HTMLSpanElement | null)[]>([]);
   const [current, setCurrent] = useState<number | null>(null);
-  const [menu, setMenu, closeMenu] = useItemMenu(buttons);
   const model = useDockModel(current);
+  const [menu, setMenu, closeMenu] = useItemMenu(buttons, model.items.length);
   const { entries, items, tabStop } = model;
   const launching = useLaunching(model.running);
   const auto = useAutoHide(model.maximized, menu !== null, wrapRef);
@@ -234,7 +250,7 @@ export default function Dock() {
   return (
     <>
       {model.maximized && <div className="os-dock-reveal" data-testid="dock-reveal" onPointerEnter={auto.stripEnter} onPointerLeave={auto.stripLeave} />}
-      <div ref={wrapRef} className="os-dock-wrap" data-hidden={auto.hidden} inert={auto.hidden} onPointerLeave={auto.wrapLeave}>
+      <div ref={wrapRef} className="os-dock-wrap" data-hidden={auto.hidden} inert={auto.hidden} {...auto.wrapHandlers}>
         <div
           role="toolbar"
           aria-label="프로그램 막대"

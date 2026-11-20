@@ -15,7 +15,7 @@ afterEach(() => {
 test('login failure shows the server message', async () => {
   mockLogin(401, { code: 'bad_credentials', message: '아이디 또는 비밀번호가 맞지 않습니다.', detail: null });
   render(<Login />);
-  await userEvent.type(screen.getByLabelText('아이디'), 'jhsohn');
+  await userEvent.type(screen.getByLabelText('아이디'), 'demo-admin');
   await userEvent.type(screen.getByLabelText('비밀번호'), 'nope');
   await userEvent.click(screen.getByRole('button', { name: '들어가기' }));
   expect(await screen.findByText('아이디 또는 비밀번호가 맞지 않습니다.')).toBeVisible();

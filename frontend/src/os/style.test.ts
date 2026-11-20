@@ -76,3 +76,31 @@ test('reduced motion turns off Dock magnification transitions and the launch bou
   expect(reduced).toContain('transition: none');
   expect(dock).toMatch(/@keyframes os-dock-bounce/);
 });
+
+const programCss = import.meta.glob<string>('../programs/**/*.css', { query: '?raw', import: 'default', eager: true });
+
+test('program styles never use a background token as a text color (unreadable in the dark theme)', () => {
+  const files = Object.entries(programCss);
+  expect(files.length).toBeGreaterThan(0);
+  for (const [file, css] of files) expect(css, file).not.toMatch(/(?<![-\w])color:\s*var\(--bg-/);
+});
+
+/** WCAG 상대 밝기 대비. */
+function contrast(a: string, b: string): number {
+  const lum = (hex: string) => {
+    const n = hex.replace('#', '');
+    const full = n.length === 3 ? [...n].map((c) => c + c).join('') : n;
+    const [r, g, b2] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b2;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+test('white text on accent and danger fills reaches 4.5:1 in both themes', () => {
+  const light = tokenBlock(':root');
+  for (const block of [light, tokenBlock(':root[data-theme="dark"]')]) {
+    const on = block.get('--on-accent') ?? light.get('--on-accent')!;
+    for (const fill of ['--accent', '--danger']) expect(contrast(on, block.get(fill)!), fill).toBeGreaterThanOrEqual(4.5);
+  }
+});

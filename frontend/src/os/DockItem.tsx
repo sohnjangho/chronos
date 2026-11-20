@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
 import type { DockEntry } from './dockStore';
 import { AppsIcon } from './icons';
 import ProgramIcon from './ProgramIcon';
@@ -35,6 +35,7 @@ function useLongPress(onMenu: () => void) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
   };
+  useEffect(() => cancel, []);
   return {
     onPointerDown(e: ReactPointerEvent) {
       if (e.pointerType === 'mouse') return;

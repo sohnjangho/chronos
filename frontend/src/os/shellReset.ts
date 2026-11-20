@@ -1,0 +1,19 @@
+import { useAiChat } from './aiChat';
+import { useApprovals } from './approvals';
+import { useContextPanel } from './contextStore';
+import { useEvidence } from './evidence';
+import { useShell } from './shell';
+import { useWindows } from './windowStore';
+
+/**
+ * 앞 사용자의 화면 상태를 모두 지운다(로그아웃, 다른 사용자 로그인).
+ * 창 id 가 w1 부터 다시 시작해도 앞 사람의 근거·대화가 보이지 않게 한다.
+ */
+export function resetShellState(): void {
+  useAiChat.getState().reset();
+  useContextPanel.getState().reset();
+  useEvidence.setState({ byWindow: {} });
+  useShell.setState({ dialog: null, drawer: 'closed', palette: false, dockRevealed: false, announcement: '' });
+  useWindows.getState().reset();
+  useApprovals.setState({ pending: 0 });
+}

@@ -12,6 +12,8 @@ export interface MenuAction {
   /** 지금 고른 것(굵게). */
   current?: boolean;
   detail?: string;
+  /** 이름 앞 16px 아이콘. */
+  icon?: ReactNode;
 }
 
 export type MenuEntry = MenuAction | { type: 'separator' } | { type: 'title'; label: string };
@@ -192,6 +194,11 @@ function MenuRow({ entry, onPick }: { entry: MenuEntry; onPick(): void }) {
       {check && (
         <span className="os-menu-check" aria-hidden="true">
           {entry.checked ? '✓' : ''}
+        </span>
+      )}
+      {entry.icon && (
+        <span className="os-menu-icon" aria-hidden="true">
+          {entry.icon}
         </span>
       )}
       <span className="os-menu-label">

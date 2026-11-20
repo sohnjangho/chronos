@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { api } from '../shared/api';
 import Tabs from '../shared/ui/Tabs';
+import { useAiChat } from './aiChat';
 import { ActivityTab, AiTab, EvidenceTab } from './ContextTabs';
 import { useContextPanel, type ContextSource, type ContextTab } from './contextStore';
 import { useCurrentSchedule } from './currentSchedule';
 import { useEvidence, type EvidenceItem } from './evidence';
 import { PanelIcon } from './icons';
 import { getProgram } from './registry';
+import { useShell } from './shell';
 import { activeWindow, topWindow, useWindows } from './windowStore';
 import './overlays.css';
 
@@ -117,7 +119,7 @@ function Panel() {
       </div>
       <Tabs items={tabs} value={tab} onChange={(t) => useContextPanel.getState().setTab(t as ContextTab)} label="Context 패널 탭" />
       <div key={scheduleId ?? 'none'} className={`os-ctx-body${stale ? ' is-stale' : ''}`}>
-        {tab === 'ai' && <AiTab source={source} scheduleId={scheduleId} stale={stale} />}
+        {tab === 'ai' && <AiTab source={source} stale={stale} />}
         {tab === 'evidence' && <EvidenceTab items={evidence} />}
         {tab === 'activity' && <ActivityTab scheduleId={scheduleId} />}
       </div>
@@ -128,9 +130,15 @@ function Panel() {
 /** Context 패널과 여는 단추(오른쪽 아래 48px). Ctrl+Alt+. 로도 연다. 닫으면 출처 창(없으면 여는 단추)으로 포커스. */
 export default function ContextPanel() {
   const open = useContextPanel((s) => s.open);
+  const scheduleId = useCurrentSchedule((s) => s.current?.id ?? null);
+  // 확대한 창이 있어 Dock 이 숨으면 단추도 함께 숨는다(창 내용을 가리지 않게). Dock 을 드러내면 함께 나온다.
+  const maximized = useWindows((s) => s.wins.some((w) => w.maximized && !w.minimized));
+  const revealed = useShell((s) => s.dockRevealed);
+  const dockHidden = maximized && !revealed;
   const button = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(open);
   useSourceTracking(open);
+  useEffect(() => useAiChat.getState().bindSchedule(scheduleId), [scheduleId]);
   useEffect(() => {
     const src = useContextPanel.getState().source;
     const alive = src !== null && useWindows.getState().wins.some((w) => w.id === src.id);
@@ -143,6 +151,7 @@ export default function ContextPanel() {
       ref={button}
       type="button"
       className="os-ctx-open"
+      hidden={dockHidden}
       aria-label="Context 패널 열기 (Ctrl+Alt+.)"
       data-tip="Context 패널 열기 (Ctrl+Alt+.)"
       onClick={() => useContextPanel.getState().toggle()}

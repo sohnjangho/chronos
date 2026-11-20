@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { useSession } from '../os/session';
-import { json, signInAs, stubFetch } from '../test-helpers';
+import { json, signInAsDemo, stubFetch } from '../test-helpers';
 import { streamPost } from './sse';
 
 const enc = new TextEncoder();
@@ -25,7 +25,7 @@ async function collect(chunks: Uint8Array[]) {
   return events;
 }
 
-beforeEach(() => signInAs());
+beforeEach(() => signInAsDemo());
 afterEach(() => {
   vi.unstubAllGlobals();
   useSession.getState().logout();

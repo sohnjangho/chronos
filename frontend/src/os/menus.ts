@@ -1,5 +1,6 @@
 // 메뉴바 메뉴 만들기: 로고 · 앱 이름 · 프로그램 메뉴(+ 보기 배율) · 윈도우 · 도움말 · 사용자.
 import { arrangeWindows, closeAllWindows, minimizeAllWindows } from './commands';
+import { AppsIcon } from './icons';
 import { SEPARATOR, type MenuAction, type MenuEntry, type MenuSpec } from './MenuGroup';
 import type { ProgramManifest, ProgramMenuItem } from './registry';
 import { useSession, type User } from './session';
@@ -21,7 +22,7 @@ export function logoMenu(): MenuSpec {
     items: [
       { label: 'ChronOS 정보', run: () => shell().setDialog({ kind: 'about' }) },
       { label: '설정…', run: () => windows().open('settings') },
-      { label: '앱 목록', run: () => shell().setDrawer('open') },
+      { label: '앱 목록', icon: AppsIcon({ size: 16 }), run: () => shell().setDrawer('open') },
       SEPARATOR,
       { label: '화면 잠금', run: () => useSession.getState().lock() },
       { label: '로그아웃', run: () => useSession.getState().logout() },

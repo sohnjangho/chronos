@@ -2,12 +2,13 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
-import { signInAs, stubFetch } from '../test-helpers';
+import { signInAsDemo, stubFetch } from '../test-helpers';
 import Desktop from './Desktop';
 import { useDock } from './dockStore';
 import { useSession } from './session';
 import { useShell } from './shell';
 import { useWindows } from './windowStore';
+import { resetShellState } from './shellReset';
 
 const drawer = () => screen.getByRole('dialog', { name: '앱 목록' });
 const dockNames = () =>
@@ -21,10 +22,11 @@ beforeEach(() => {
   localStorage.clear();
   vi.stubGlobal('innerWidth', 1920);
   vi.stubGlobal('innerHeight', 1080);
-  signInAs('user', '김민지');
+  signInAsDemo('user', '김민지');
   stubFetch({ '/api/approvals/count': { pending: 0 }, '/api/schedules': [] });
 });
 afterEach(() => {
+  resetShellState();
   vi.unstubAllGlobals();
   useWindows.getState().reset();
   useShell.setState({ drawer: 'closed' });
