@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -15,7 +17,7 @@ from tests.gen_doubles import (
     script,
     user_text,
 )
-from tests.llm_doubles import FakeLiner, add_connection
+from tests.llm_doubles import FakeLiner, add_connection, chat_body
 
 _FIELDS = ("date", "resource_id", "capacity", "days_per_week", "holidays", "start_md", "end_md", "tag", "days")
 
@@ -187,6 +189,14 @@ async def test_extract_not_json_is_a_tool_error(ctx, liner):
     script(liner, "모르겠습니다")
     r = await call("generate.extract_conditions", extract_args(), ctx)
     assert not r.ok and r.error == "조건을 읽지 못했습니다. 다시 시도해 주세요."
+
+
+@pytest.mark.parametrize("whole", [False, True], ids=["cut_json", "complete_json"])
+async def test_extract_reply_cut_by_length_is_a_clear_tool_error(ctx, liner, whole):
+    body = json.dumps(extracted(conditions=[cond("text_only", "야간 작업 금지")]), ensure_ascii=False)
+    liner.push(chat_body(body if whole else body[:40], finish_reason="length"))  # 잘린 답은 모양이 맞아도 쓰지 않는다
+    r = await call("generate.extract_conditions", extract_args(), ctx)
+    assert not r.ok and r.error == "답이 길이 제한에 걸려 잘렸습니다. 요청을 나누어 다시 시도해 주세요."
 
 
 async def test_extract_unknown_domain(ctx):

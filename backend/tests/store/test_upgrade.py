@@ -9,12 +9,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import (
     Boolean,
     Column,
+    DateTime,
     ForeignKey,
     Integer,
     MetaData,
     String,
     Table,
     create_engine,
+    func,
     inspect,
     text,
 )
@@ -119,4 +121,69 @@ def test_only_safe_columns_are_added_and_the_rest_are_warned(tmp_path, caplog):
     warned = [r.args for r in caplog.records if r.levelno == logging.WARNING]
     # 더할 수 없는 칸, 그리고 DB 에만 있는 칸(지우지 않는다)
     assert warned == [("t", "need"), ("t", "stamp"), ("t", "parent_id"), ("t", "code"), ("t", "idx"), ("t", "legacy")]
+    engine.dispose()
+
+
+def _table_t(path: Path) -> None:
+    with closing(sqlite3.connect(path)) as db:
+        db.execute("CREATE TABLE t (id INTEGER NOT NULL, legacy TEXT, PRIMARY KEY (id))")
+        db.execute("INSERT INTO t (id, legacy) VALUES (1, 'old')")
+        db.commit()
+
+
+def test_only_constant_server_defaults_are_added(tmp_path, caplog):
+    """SQLite 는 ADD COLUMN 에 상수가 아닌 기본값(CURRENT_TIMESTAMP·함수)을 거절한다 → 더하지 않고 경고만."""
+    path = tmp_path / "t.db"
+    _table_t(path)
+    meta = MetaData()
+    Table(
+        "t", meta,
+        Column("id", Integer, primary_key=True),
+        Column("made", DateTime, server_default=func.now()),  # NULL 가능이어도 상수가 아니면 경고만
+        Column("stamp", String(30), nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+        Column("kind", String(10), nullable=False, server_default="plain"),  # 글 상수 → 더함
+        Column("legacy", String(10)),
+    )
+    engine = create_engine(f"sqlite:///{path}")
+    caplog.set_level(logging.INFO, logger="app.store.upgrade")
+    assert add_missing_columns(engine, meta) == ["t.kind"]  # 시작을 막지 않는다
+    assert _rows(path, "SELECT id, legacy, kind FROM t") == [(1, "old", "plain")]
+    warned = [r.args for r in caplog.records if r.levelno == logging.WARNING]
+    assert warned == [("t", "made"), ("t", "stamp")]
+    engine.dispose()
+
+
+def test_a_column_sqlite_rejects_is_warned_and_the_rest_still_added(tmp_path, caplog):
+    path = tmp_path / "t.db"
+    _table_t(path)
+    meta = MetaData()
+    Table(
+        "t", meta,
+        Column("id", Integer, primary_key=True),
+        Column("LEGACY", String(10)),  # SQLite 칸 이름은 대소문자를 가리지 않는다 → "duplicate column name"
+        Column("note", String(20)),
+    )
+    engine = create_engine(f"sqlite:///{path}")
+    caplog.set_level(logging.INFO, logger="app.store.upgrade")
+    assert add_missing_columns(engine, meta) == ["t.note"]
+    assert _columns(path, "t") == ["id", "legacy", "note"] and _rows(path, "SELECT * FROM t") == [(1, "old", None)]
+    warned = [r.args for r in caplog.records if r.levelno == logging.WARNING]
+    assert ("t", "LEGACY") in warned and all(len(a) == 2 for a in warned)  # 표·칸 이름만
+    engine.dispose()
+
+
+def test_defaults_with_colons_are_not_bind_parameters(tmp_path):
+    path = tmp_path / "t.db"
+    _table_t(path)
+    meta = MetaData()
+    Table(
+        "t", meta,
+        Column("id", Integer, primary_key=True),
+        Column("legacy", String(10)),
+        Column("tpl", String(20), nullable=False, server_default="a :name"),
+        Column("tpl2", String(20), nullable=False, default="b :other"),
+    )
+    engine = create_engine(f"sqlite:///{path}")
+    assert add_missing_columns(engine, meta) == ["t.tpl", "t.tpl2"]
+    assert _rows(path, "SELECT tpl, tpl2 FROM t") == [("a :name", "b :other")]
     engine.dispose()

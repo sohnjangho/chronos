@@ -23,6 +23,7 @@ from app.tools.registry import tool
 ALLOWED_KINDS = ("start_after", "finish_by", "calendar", "blocked_period", "resource_cap", "max_duration", "text_only")
 SOURCES = ("프롬프트", "질문지", "가정")
 UNREADABLE_MESSAGE = "조건을 읽지 못했습니다. 다시 시도해 주세요."
+CUT_MESSAGE = "답이 길이 제한에 걸려 잘렸습니다. 요청을 나누어 다시 시도해 주세요."
 YEARLESS_MESSAGE = "원문에 연도가 없는 날짜는 쓰지 않습니다."
 # 종류마다 params 로 옮길 칸(LLM 답의 칸 이름 그대로)
 _PARAM_FIELDS = {
@@ -233,6 +234,8 @@ async def _ask(args: ExtractIn, pack: DomainPack, ctx: ToolContext) -> _Reply:
         raise ToolError(e.message) from None
     except LlmFailed as e:
         raise ToolError(e.error.message) from None
+    if reply.finish_reason == "length":  # max_tokens 에 걸려 잘린 답은 모양이 맞아도 쓰지 않는다
+        raise ToolError(CUT_MESSAGE)
     try:
         return _Reply.model_validate(reply.parsed)
     except ValidationError:
