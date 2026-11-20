@@ -1,7 +1,7 @@
 """POST /api/files 의 몸을 읽기 전에 막는 ASGI 미들웨어.
 
 FastAPI 는 multipart 몸을 의존성(current_user)보다 먼저 읽는다. 그래서 여기서 먼저 본다:
-로그인 토큰 서명이 없거나 틀리면 401, Content-Length 가 없으면 411, 한도(10개 × 50MB + 여유 1MB)를 넘으면 413.
+로그인 토큰 서명이 없거나 틀리면 401, Transfer-Encoding 이 있거나 Content-Length 가 없으면 411, 한도(10개 × 50MB + 여유 1MB)를 넘으면 413.
 사용자가 DB 에 있는지·관리자인지는 라우터의 의존성이 다시 본다.
 """
 
@@ -25,7 +25,7 @@ def _problem(headers: Headers) -> tuple[int, str, str] | None:
     if scheme.lower() != "bearer" or read_token(token.strip()) is None:
         return 401, "unauthorized", UNAUTHORIZED
     length = headers.get("content-length", "")
-    if not length.isdigit():
+    if "transfer-encoding" in headers or not length.isdigit():  # chunked 면 서버는 Content-Length 를 따르지 않는다
         return 411, "length_required", NO_LENGTH
     if int(length) > MAX_BODY_BYTES:
         return 413, "file_too_large", TOO_BIG_BODY

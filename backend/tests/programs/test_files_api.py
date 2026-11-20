@@ -197,3 +197,15 @@ def test_soft_deleted_reupload_takes_new_owner(client, admin, user):
     got = client.get(f"/api/files/{fid}", headers=user).json()
     assert got["deleted"] is False and got["uploaded_by"] != owner
     assert client.delete(f"/api/files/{fid}", headers=user).status_code == 204
+
+
+# ── Fix round 2 ─────────────────────────────────────────────────────
+
+
+async def test_transfer_encoding_with_content_length_is_411_before_body():
+    from app.security.tokens import issue_token
+
+    auth_header = {"authorization": f"Bearer {issue_token(1)}"}
+    both = {**auth_header, "content-length": "100", "transfer-encoding": "chunked"}
+    assert await _call_without_body(both) == 411  # h11 은 chunked 를 따르므로 Content-Length 를 믿을 수 없다
+    assert await _call_without_body({**auth_header, "content-length": "100", "transfer-encoding": "identity"}) == 411
