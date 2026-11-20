@@ -143,7 +143,7 @@ class DisplaySpec(_Strict):
     """일정판 표시 설정: 간트 묶음 기준·납기 이름·덧붙일 칸."""
 
     gantt_group_by: Literal["wbs", "resource"] = "wbs"
-    deadline_label: Text = "준공"
+    deadline_label: Text = "준공 기한"
     extra_columns: list[Literal["resources", "constraint", "es_ef", "ls_lf"]] = []
 
     @field_validator("extra_columns")

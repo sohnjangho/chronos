@@ -70,7 +70,7 @@ def test_resources_and_types_link():
 def test_display():
     assert load("manufacturing").display == DisplaySpec(gantt_group_by="resource", deadline_label="납기", extra_columns=["resources"])
     assert load("construction").display.deadline_label == "준공 기한"
-    assert DisplaySpec() == DisplaySpec(gantt_group_by="wbs", deadline_label="준공", extra_columns=[])
+    assert DisplaySpec() == DisplaySpec(gantt_group_by="wbs", deadline_label="준공 기한", extra_columns=[])
 
 
 def test_press_maintenance_blocks_press_work():
