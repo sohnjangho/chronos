@@ -3,13 +3,16 @@
 받는 일정은 조건을 넣은 일정이다(부르는 쪽이 `prepare_stored`). core 는 조건을 모른다.
 
 넣기(`insert_delay`)
-- 시작 전 task: 기간(od)은 그대로, 시작을 미룬다. 넣기 전 `compute` 의 ES 를 그 액티비티
-  달력(꼬리표 포함)의 근무일로 `days` 만큼 민 날을 시작 하한으로 건다.
+- 시작 전 task: 기간(od)은 그대로, 시작을 미룬다. 넣기 전 **맞춘** 일정
+  (`level(s, compute(s), shift=True)`)의 ES — 사용자가 보는 시작 — 를 그 액티비티 달력
+  (꼬리표 포함)의 근무일로 `days` 만큼 민 날을 시작 하한으로 건다.
   - constraint 가 없거나 SNET → `SNET(max(기존, 하한))`.
   - FNLT → 그 제약은 두고, 앞에 숨은 0일 시작 마일스톤 `~<ID>`(SNET=하한, `~<ID>` → `<ID>` FS)
     를 넣는다. 이미 있으면 그 SNET 을 올린다. 결과의 id 목록에서는 `~` 로 시작하는 id 를 뺀다.
 - 진행 중(actual_start 있음, actual_finish 없음): `rd = (rd 또는 od) + days`.
 - 끝남·마일스톤: 넣지 않고 그 까닭(`FINISHED_NOTE`·`MILESTONE_NOTE`)을 돌려준다.
+- `~` 로 시작하는 사용자 id 는 받지 않는다(`DelayInputError`): 사건이 겨누는 id 와,
+  `analyze` 가 받은 일정의 액티비티 id.
 - `start` 는 차례와 표시에만 쓴다.
 
 재기(`diff_impact`)
@@ -27,9 +30,12 @@ from app.core.cpm import compute
 from app.core.model import Activity, Constraint, Relation, Schedule
 from app.core.resources import LevelResult, Peak, level
 
+_Dates = dict[str, tuple[date, date]]
+
 FINISHED_NOTE = "이미 끝난 액티비티입니다. 지연이 실적에 들어 있습니다."
 MILESTONE_NOTE = "마일스톤에는 기간을 더할 수 없습니다. 앞 작업에 기록해 주세요."
 HIDDEN = "~"  # 숨은 도우미 마일스톤 id 의 머리
+_HIDDEN_ID = "'~' 로 시작하는 액티비티 id 는 쓸 수 없습니다."
 
 
 @dataclass(frozen=True)
@@ -98,6 +104,8 @@ def ordered(events: Iterable[DelayEvent]) -> list[DelayEvent]:
 
 
 def _target(schedule: Schedule, event: DelayEvent) -> Activity:
+    if event.activity_id.startswith(HIDDEN):
+        raise DelayInputError(event.id, _HIDDEN_ID)
     a = next((x for x in schedule.activities if x.id == event.activity_id), None)
     if a is None:
         raise DelayInputError(event.id, f"없는 액티비티입니다: {event.activity_id}")
@@ -130,8 +138,12 @@ def _hold(schedule: Schedule, a: Activity, bound: date) -> Schedule:
     )
 
 
-def _push_start(schedule: Schedule, a: Activity, days: int) -> Schedule:
-    es = compute(schedule).rows[a.id].es
+def _leveled_dates(schedule: Schedule) -> _Dates:
+    return level(schedule, compute(schedule), shift=True).dates
+
+
+def _push_start(schedule: Schedule, a: Activity, days: int, dates: _Dates) -> Schedule:
+    es = dates[a.id][0]  # 맞춘 일정의 시작
     bound = WorkCalendar(schedule.calendar).shift(es, days, a.tags)
     if a.constraint is not None and a.constraint.type == "FNLT":
         return _hold(schedule, a, bound)
@@ -140,6 +152,13 @@ def _push_start(schedule: Schedule, a: Activity, days: int) -> Schedule:
 
 def insert_delay(schedule: Schedule, event: DelayEvent) -> tuple[Schedule, str | None]:
     """(넣은 일정, 넣지 못한 까닭). 넣지 못하면 받은 일정을 그대로 돌려준다."""
+    return _insert(schedule, event, None)
+
+
+def _insert(
+    schedule: Schedule, event: DelayEvent, dates: _Dates | None
+) -> tuple[Schedule, str | None]:
+    """dates 는 이 일정의 맞춘 (ES, EF). None 이면 여기서 구한다."""
     a = _target(schedule, event)
     if a.actual_finish is not None:
         return schedule, FINISHED_NOTE
@@ -148,7 +167,7 @@ def insert_delay(schedule: Schedule, event: DelayEvent) -> tuple[Schedule, str |
     if a.actual_start is not None:
         rd = (a.rd if a.rd is not None else a.od) + event.days
         return _with(schedule, replace(a, rd=rd)), None
-    return _push_start(schedule, a, event.days), None
+    return _push_start(schedule, a, event.days, dates or _leveled_dates(schedule)), None
 
 
 @dataclass(frozen=True)
@@ -263,12 +282,15 @@ def diff_impact(
 
 def analyze(schedule: Schedule, events: Sequence[DelayEvent]) -> DelayAnalysis:
     """`ordered` 차례로 하나씩 넣어 가며 각 사건의 몫을 잰다. ScheduleError 는 그대로 나간다."""
-    for e in events:  # 받은 일정 기준으로 먼저 다 확인한다(숨은 id 는 없는 액티비티)
+    events = ordered(events)
+    if events and any(a.id.startswith(HIDDEN) for a in schedule.activities):
+        raise DelayInputError(events[0].id, _HIDDEN_ID)  # 숨은 도우미와 헷갈리지 않게
+    for e in events:  # 받은 일정 기준으로 계산 전에 다 확인한다
         _target(schedule, e)
     base = state = _measure(schedule)
     impacts = []
-    for e in ordered(events):
-        changed, note = insert_delay(state.schedule, e)
+    for e in events:
+        changed, note = _insert(state.schedule, e, state.level.dates)
         nxt = state if note else _measure(changed)
         impacts.append(
             _impact(

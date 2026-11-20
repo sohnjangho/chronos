@@ -49,7 +49,7 @@ def test_not_started_task_starts_later_with_the_same_duration():       # PM 결�
     s = analyze(BASE, [ev("e1", "B", 4, 2)])
     after = insert_delay(BASE, ev("e1", "B", 4, 2))[0]
     b = next(a for a in after.activities if a.id == "B")
-    assert b.od == 2 and b.constraint == Constraint("SNET", date(2027, 3, 8))   # ES 3/4 → 2 근무일 뒤 3/8
+    assert b.od == 2 and b.constraint == Constraint("SNET", date(2027, 3, 8))   # 맞춘 ES 3/4 → 2 근무일 뒤 3/8
     assert s.impacts[0].finish_after == date(2027, 3, 9)
 def test_not_started_task_with_fnlt_keeps_it_and_hides_the_helper_milestone():
     s = sched([act("A", 3), replace(act("B", 2), constraint=Constraint("FNLT", date(2027, 3, 12)))], [Relation("A", "B")])
@@ -72,7 +72,7 @@ def test_milestone_shift_is_reported():
 def test_new_resource_clash_and_leveling():
     R = Resource("crane", "타워크레인", "대", 1)
     s = replace(sched([act("A", 2, resources=("crane",)), act("X", 3), act("D", 2, resources=("crane",))], [Relation("X", "D")]), resources=(R,))
-    i = analyze(s, [ev("e", "A", 1, 2)]).impacts[0]                      # A 3/1~3/4 가 D(3/4~) 와 겹침 → 맞춤이 D 를 3/5~3/8 로
+    i = analyze(s, [ev("e", "A", 1, 2)]).impacts[0]                      # A 가 3/3~3/4 로 밀려 D(3/4~) 와 겹침 → 맞춤이 D 를 3/5~3/8 로
     assert i.new_clashes == (Clash("crane", date(2027, 3, 4), 1, 1),) and (i.finish_delta, i.absorbed) == (1, 1)
 def test_bad_input_raises():
     with pytest.raises(DelayInputError) as e:
@@ -108,7 +108,7 @@ def test_pushed_start_leaves_float_to_its_predecessor():
 def test_existing_snet_is_raised_to_the_new_bound():
     s = sched([act("A", 3), replace(act("B", 2), constraint=Constraint("SNET", date(2027, 3, 10)))], [Relation("A", "B")])
     b = next(a for a in insert_delay(s, ev("e", "B", 10, 2))[0].activities if a.id == "B")
-    assert b.constraint == Constraint("SNET", date(2027, 3, 12))   # ES 3/10 → 2 근무일 뒤 3/12
+    assert b.constraint == Constraint("SNET", date(2027, 3, 12))   # 맞춘 ES 3/10 → 2 근무일 뒤 3/12
 
 
 def test_in_progress_without_rd_adds_to_original_duration():
@@ -126,16 +126,29 @@ def test_fnlt_helper_milestone_is_built_once_and_moved_by_a_second_delay():
     helpers = [a for a in twice.activities if a.id == "~B"]
     assert b.constraint == Constraint("FNLT", date(2027, 3, 12)) and b.od == 2
     assert len(helpers) == 1 and helpers[0].kind == "start_ms"
-    assert helpers[0].constraint == Constraint("SNET", date(2027, 3, 9))   # 그때 ES 3/8 → 1 근무일 뒤 3/9
+    assert helpers[0].constraint == Constraint("SNET", date(2027, 3, 9))   # 그때 맞춘 ES 3/8 → 1 근무일 뒤 3/9
     assert twice.relations.count(Relation("~B", "B")) == 1
     r = analyze(FNLT_B, [ev("e1", "B", 4, 2), ev("e2", "B", 8, 1)])
     assert [x.finish_delta for x in r.impacts] == [2, 1] and r.final_finish == date(2027, 3, 10)
 
 
-def test_helper_id_is_not_a_known_activity():
+TILDE = "'~' 로 시작하는 액티비티 id 는 쓸 수 없습니다."
+
+
+def test_event_on_a_tilde_id_is_rejected():
     with pytest.raises(DelayInputError) as e:
         analyze(FNLT_B, [ev("e1", "B", 4, 2), ev("e2", "~B", 8, 1)])
-    assert e.value.message == "없는 액티비티입니다: ~B"
+    assert (e.value.event_id, e.value.message) == ("e2", TILDE)
+    with pytest.raises(DelayInputError) as e:
+        insert_delay(BASE, ev("e3", "~A", 4, 1))
+    assert (e.value.event_id, e.value.message) == ("e3", TILDE)
+
+
+def test_schedule_with_a_tilde_id_is_rejected_not_hidden():
+    s = sched([act("A", 3), act("~X", 1)], [Relation("A", "~X")])
+    with pytest.raises(DelayInputError) as e:
+        analyze(s, [ev("late", "A", 5, 1), ev("early", "A", 1, 1)])
+    assert (e.value.event_id, e.value.message) == ("early", TILDE)   # 차례상 첫 사건
 
 
 def test_milestone_event_is_not_inserted_and_costs_nothing():
@@ -167,4 +180,14 @@ def test_start_is_pushed_by_the_activity_own_workdays():
     cal = CalendarSpec(5, blocked=(BlockedPeriod((3, 5), (3, 5), "타설"),))
     s = sched([act("A", 3), act("B", 2, tags=("타설",))], [Relation("A", "B")], cal=cal)
     b = next(a for a in insert_delay(s, ev("e", "B", 4, 2))[0].activities if a.id == "B")
-    assert b.constraint == Constraint("SNET", date(2027, 3, 9))   # ES 3/4, 3/5 는 B 의 쉬는 날 → 3/8, 3/9
+    assert b.constraint == Constraint("SNET", date(2027, 3, 9))   # 맞춘 ES 3/4, 3/5 는 B 의 쉬는 날 → 3/8, 3/9
+
+
+def test_delay_moves_a_leveled_task_from_its_leveled_start():         # 컨트롤러 판정 11-20
+    R = Resource("crane", "타워크레인", "대", 1)
+    s = replace(sched([act("A", 2, resources=("crane",)), act("B", 2, resources=("crane",))], []), resources=(R,))
+    # 맞추기 전 A·B 모두 3/1, 맞춘 뒤 A 3/1~3/2, B 3/3~3/4 (2일 밀림)
+    b = next(a for a in insert_delay(s, ev("e", "B", 3, 3))[0].activities if a.id == "B")
+    assert b.constraint == Constraint("SNET", date(2027, 3, 8))   # 맞춘 시작 3/3 → 3 근무일 뒤 3/8 (맞추기 전 3/1 기준이면 3/4)
+    i = analyze(s, [ev("e", "B", 3, 3)]).impacts[0]
+    assert (i.finish_before, i.finish_after, i.finish_delta, i.absorbed) == (date(2027, 3, 4), date(2027, 3, 9), 3, 0)
