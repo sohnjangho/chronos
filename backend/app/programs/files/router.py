@@ -1,14 +1,20 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.files import classify
 from app.programs.files import service
 from app.programs.files.schemas import (
+    AxisValueOut,
+    FileListOut,
     FileOut,
+    MergeIn,
+    MergeOut,
+    MergeSuggestionsOut,
     PreviewOut,
     ReindexStartOut,
     ReindexStatusOut,
@@ -34,7 +40,35 @@ async def upload(request: Request, session: SessionDep, user: UserDep) -> Upload
         return await run_in_threadpool(service.upload, session, user, files, chat_id)
 
 
-# /reindex 는 /{file_id} 보다 먼저(경로 차례로 맞춘다).
+@router.get("")
+async def list_files(
+    request: Request, session: SessionDep, q: str | None = None, page: Annotated[int, Query(ge=1)] = 1,
+) -> FileListOut:
+    """자료함 목록. 축 거르기는 축 이름 그대로 질의에(`?종류=시방서&공종=골조&공종=전기` — 같은 축은 하나라도,
+    다른 축은 모두). q 는 이름·내용(뜻+낱말) 찾기. 한 쪽 PAGE_SIZE 개."""
+    filters = {axis: values for axis in classify.AXES if (values := request.query_params.getlist(axis))}
+    return await service.list_files(session, q, filters, page)
+
+
+# /reindex·/axes·/merge… 는 /{file_id} 보다 먼저(경로 차례로 맞춘다).
+@router.get("/axes")
+def axes(session: SessionDep) -> dict[str, list[AxisValueOut]]:
+    """축 다섯 개 모두 → [{value, count, is_new}] (파일 많은 차례)."""
+    return service.axes(session)
+
+
+@router.get("/merge-suggestions", dependencies=[Depends(require_admin)])
+def merge_suggestions(session: SessionDep) -> MergeSuggestionsOut:
+    """하루 한 번 에이전트가 만든 값 합치기 제안(관리자). 이미 합친 값의 제안은 빠진다."""
+    return service.merge_suggestions(session)
+
+
+@router.post("/merge", dependencies=[Depends(require_admin)])
+def merge(session: SessionDep, body: MergeIn) -> MergeOut:
+    """{axis, from: [값], to: 값} — from 값의 파일을 to 로 옮기고 from 값을 지운다(관리자)."""
+    return service.merge(session, body)
+
+
 @router.get("/reindex")
 def reindex_status(session: SessionDep) -> ReindexStatusOut:
     """지금 검색 모델·배정 모델·마지막 다시 넣기(진행률)."""
@@ -51,6 +85,12 @@ def start_reindex(session: SessionDep) -> ReindexStartOut:
 @router.get("/{file_id}")
 def get_file(session: SessionDep, file_id: int) -> FileOut:
     return service.get_file(session, file_id)
+
+
+@router.patch("/{file_id}/axes")
+def patch_axes(session: SessionDep, file_id: int, body: Annotated[dict[str, list[str]], Body()]) -> FileOut:
+    """{축: [값]} — 보낸 축만 바꾼다(로그인한 누구나). 숨긴 파일 404."""
+    return service.patch_axes(session, file_id, body)
 
 
 @router.get("/{file_id}/raw")

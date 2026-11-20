@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db import get_session
-from app.files import vectors
+from app.files import classify, vectors
 from app.llm.assignments import DEFAULT_ASSIGNMENTS
 from app.llm.embeddings import EmbedFailed, embed
 from app.store.tables import FileChunk, FileRow, ReindexJob, Setting
@@ -157,9 +157,11 @@ def enqueue_reindex(model: str) -> dict[str, int]:
 
 
 def reload() -> None:
-    """서버가 뜰 때: DB 에 남은 일을 작업 줄에 다시 넣는다(extracted 파일, running 다시 넣기 — 처음부터)."""
+    """서버가 뜰 때: DB 에 남은 일을 작업 줄에 다시 넣는다(extracted·indexed 파일, running 다시 넣기 — 처음부터)."""
     with _db() as session:
-        for file_id in session.scalars(select(FileRow.id).where(FileRow.status == "extracted").order_by(FileRow.id)):
+        # indexed = 아직 분류 안 됨(분류가 실패했거나 분류 전에 서버가 멈췄다) — 임베딩은 건너뛰고 분류만 다시
+        leftover = select(FileRow.id).where(FileRow.status.in_(("extracted", "indexed"))).order_by(FileRow.id)
+        for file_id in session.scalars(leftover):
             _push(_Item("file", file_id))
         total, top = _span(session)
         for job in session.scalars(select(ReindexJob).where(ReindexJob.status == "running").order_by(ReindexJob.id)):
@@ -333,6 +335,7 @@ async def _do(item: _Item) -> None:
     try:
         if item.kind == "file":
             await _index_file(item.id)
+            await classify.after_index(item.id)  # indexed 가 됐으면 분류(Task 49 — 실패해도 예외 없이 indexed 그대로)
         else:
             await _reindex_step(item.id)
     except _QdrantDown:
@@ -388,6 +391,7 @@ async def _run(wake: asyncio.Event) -> None:
             if time.monotonic() - checked >= RECHECK_S:
                 checked = time.monotonic()
                 await recheck()
+                await classify.suggest_if_due()  # 값 합치기 제안(하루 한 번)
         except Exception as exc:  # noqa: BLE001 — 실패 처리마저 깨져도 일꾼은 멈추지 않는다. 그 파일은 다음 시작 때 다시
             logger.warning("뒤 작업 일꾼 오류 (%s)", type(exc).__name__)
         with contextlib.suppress(TimeoutError):

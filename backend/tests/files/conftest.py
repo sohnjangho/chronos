@@ -5,7 +5,7 @@ from collections.abc import Callable
 import pytest
 from sqlalchemy import select
 
-from app.files import jobs, vectors
+from app.files import classify, jobs, vectors
 from app.llm import embeddings
 from app.store import files
 from app.store.tables import FileRow, User
@@ -19,6 +19,17 @@ def empty_jobs(monkeypatch):
     monkeypatch.setattr(jobs, "_queue", [])
     monkeypatch.setattr(jobs, "_waiting", set())
     monkeypatch.setattr(jobs, "_cursors", {})
+
+
+@pytest.fixture(autouse=True)
+def no_classify(monkeypatch):
+    """분류 단계(Task 49)는 끈다 — 임베딩 시험의 일꾼이 LLM 을 부르지 않게. 분류 시험(test_classify)이 다시 켠다."""
+
+    async def skip(*_args) -> None:
+        return None
+
+    monkeypatch.setattr(classify, "after_index", skip)
+    monkeypatch.setattr(classify, "suggest_if_due", skip)
 
 
 @pytest.fixture
