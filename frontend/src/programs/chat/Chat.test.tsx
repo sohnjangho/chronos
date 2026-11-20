@@ -567,6 +567,12 @@ describe('Task 25 · params.ask', () => {
     expect(openSessionSpy.mock.invocationCallOrder[0]).toBeLessThan(sendSpy.mock.invocationCallOrder[0]);
   });
 
+  test('ask with session under StrictMode opens the session and sends once', async () => {
+    render(<StrictMode><ChatAgain params={{ session: '4', ask: '지연 영향을 알려 줘' }} /></StrictMode>);
+    await waitFor(() => expect(sendSpy).toHaveBeenCalledTimes(1));
+    expect(openSessionSpy).toHaveBeenCalledTimes(1);
+  });
+
   test('rejected ask leaves a notice', async () => {
     sendSpy.mockResolvedValue(false);
     render(<ChatAgain params={{ ask: 'x' }} />);

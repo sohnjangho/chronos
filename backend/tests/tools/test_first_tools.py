@@ -3,6 +3,7 @@
 import re
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -187,3 +188,24 @@ async def test_calc_cpm_uses_resource_leveling_like_the_view(client, admin, ctx,
     assert [(a["id"], a["es"], a["ef"], a["tf"], a["critical"]) for a in out["activities"]] == [
         (a["id"], a["es"], a["ef"], a["tf"], a["critical"]) for a in view["activities"]
     ]
+
+
+# Task 25 fix 1 (I1): 관리자 전용 프로그램은 도구로도 일반 사용자에게 열지 않는다.
+async def test_open_window_refuses_devconsole_for_a_non_admin(ctx, events):
+    r = await call("ui.open_window", {"program": "devconsole"}, replace(ctx, user=SimpleNamespace(role="user")))
+    assert r.ok is False and r.error == "관리자만 열 수 있는 프로그램입니다: 개발 콘솔" and events == []
+    assert (await call("ui.open_window", {"program": "devconsole"}, ctx)).ok is True
+    assert events[-1].data["program"] == "devconsole"
+
+
+@pytest.mark.skipif(not FRONTEND_PROGRAMS.is_dir(), reason="frontend 폴더가 없다(Docker backend 컨테이너)")
+def test_admin_only_list_matches_the_screen_manifests():
+    from app.tools.ui.open_window import ADMIN_ONLY
+
+    folders = re.findall(r"^import \w+ from '\./([\w-]+)';", (FRONTEND_PROGRAMS / "index.ts").read_text(encoding="utf-8"), re.MULTILINE)
+    admin = {
+        re.search(r"^\s+id: '([^']+)'", t, re.MULTILINE)[1]
+        for t in ((FRONTEND_PROGRAMS / f / "index.ts").read_text(encoding="utf-8") for f in folders)
+        if re.search(r"^\s+adminOnly: true", t, re.MULTILINE)
+    }
+    assert set(ADMIN_ONLY) == admin

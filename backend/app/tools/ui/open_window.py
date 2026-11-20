@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent.events import AgentEvent
-from app.tools.context import ToolContext
+from app.tools.context import ToolContext, ToolError
 from app.tools.registry import tool
 
 # 화면(frontend/src/programs)에 있는 프로그램. 일정판(schedule)은 스케줄·간트차트·CPM·공정률로 나뉘었다(Task 16b).
@@ -14,6 +14,9 @@ Program = Literal[
     "chat", "questionnaire", "workflow", "approvals", "explorer", "settings", "devconsole",
     "schedule-table", "gantt", "cpm", "progress", "compare", "conditions", "delays",
 ]
+
+# 관리자만 여는 프로그램(화면 매니페스트의 adminOnly 와 같게 — 맞춤 시험이 있다).
+ADMIN_ONLY = {"devconsole": "개발 콘솔"}
 
 DESCRIPTION = (
     "사용자 화면에 프로그램 창을 연다. program: chat(에이전트 대화) · questionnaire(질문지) · workflow(워크플로우) · "
@@ -37,5 +40,7 @@ class OpenWindowOut(BaseModel):
 
 @tool("ui.open_window", DESCRIPTION)
 def open_window(args: OpenWindowIn, ctx: ToolContext) -> OpenWindowOut:
+    if args.program in ADMIN_ONLY and (ctx.user is None or ctx.user.role != "admin"):
+        raise ToolError(f"관리자만 열 수 있는 프로그램입니다: {ADMIN_ONLY[args.program]}")
     ctx.emit(AgentEvent("open_window", {"program": args.program, "params": dict(args.params)}))
     return OpenWindowOut(opened=True)

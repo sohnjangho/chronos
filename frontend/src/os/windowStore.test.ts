@@ -1,4 +1,6 @@
 import { lazy } from 'react';
+import { signInAsDemo } from '../test-helpers';
+import { useSession } from './session';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { register } from './registry';
 import { setWindowMotion } from './windowMotion';
@@ -450,5 +452,25 @@ describe('window motion (switch on, fake clock)', () => {
     expect(vi.getTimerCount()).toBe(2);
     s().reset();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('Task 25 fix 1 · 관리자 전용 프로그램은 창으로도 열지 않는다', () => {
+  beforeEach(() => {
+    register({ id: 'adm-only', name: '관리자 도구', icon: null, kind: 'system', adminOnly: true, defaultSize: { w: 800, h: 600 }, component: lazy(() => import('./Placeholder')) });
+  });
+  afterEach(() => useSession.getState().logout());
+
+  test('a non-admin open() opens nothing', () => {
+    signInAsDemo('user');
+    expect(s().open('adm-only')).toBe('');
+    expect(s().wins).toEqual([]);
+  });
+
+  test('an admin still opens it', () => {
+    signInAsDemo('admin');
+    const id = s().open('adm-only');
+    expect(id).not.toBe('');
+    expect(s().wins.map((w) => w.programId)).toEqual(['adm-only']);
   });
 });

@@ -47,7 +47,8 @@ function useFollowParams(params: ProgramProps['params']) {
   useEffect(() => {
     const session = Number(params?.session);
     const chat = useChat.getState();
-    if (params?.ask && !asked.has(params)) {
+    if (params?.ask) {
+      if (asked.has(params)) return; // StrictMode 의 두 번째 효과·같은 params 재그림: 대화도 다시 열지 않는다
       asked.add(params);
       const ask = params.ask;
       void (async () => {

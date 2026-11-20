@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { cascadeBoxes, gridBoxes, splitBoxes, type Box } from './arrange';
 import { getProgram, resolveProgram } from './registry';
+import { useSession } from './session';
 import { clearMotionTimers, isClosing, motionActions, startMotion, type Motion } from './windowMotion';
 
 export { ARRANGE_GAP } from './arrange';
@@ -154,6 +155,7 @@ interface WindowState {
   insetRight: number;
   /**
    * 이미 열려 있으면 앞으로 가져오고(최소화 풀기) params 를 바꾼다. 창 id 를 돌려준다. from: 연 곳(움직임 원점).
+   * 관리자 전용 프로그램을 일반 사용자가 열면 아무것도 열지 않고 빈 id 를 돌려준다.
    * 없어진 프로그램 id(옛 일정판 schedule)는 지금 프로그램으로 연다(registry.resolveProgram).
    */
   open(programId: string, params?: Params, from?: 'dock'): string;
@@ -273,6 +275,8 @@ export const useWindows = create<WindowState>((set, get) => {
     ...withMotion,
     open(requested, requestedParams, from) {
       const { id: programId, params } = resolveProgram(requested, requestedParams);
+      // 관리자 전용 프로그램은 어떤 길(Dock·대화 open_window·메뉴)로도 일반 사용자에게 열리지 않는다. 열지 않으면 빈 id.
+      if (getProgram(programId)?.adminOnly && useSession.getState().session?.user.role !== 'admin') return '';
       const found = get().wins.find((w) => w.programId === programId && !isClosing(w));
       if (found) {
         restore(found.id, params ? { params } : {});
