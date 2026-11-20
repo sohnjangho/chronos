@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useCurrentSchedule } from '../../os/currentSchedule';
@@ -397,6 +397,23 @@ describe('Fix round 1', () => {
     show({ id: '1', activity: 'A2020', days: '3', before: 'v1' });
     expect(screen.getByRole('alert')).toHaveTextContent('실적 입력 전 버전 값이 올바르지 않습니다(v1)');
     await userEvent.type(screen.getByLabelText('원인'), '철근 반입 늦음');
+    expect(screen.getByRole('button', { name: '등록' })).toBeDisabled();
+  });
+
+  test('a bad before version is refused even when the form is submitted directly', async () => {
+    show({ id: '1', activity: 'A2020', days: '3', before: 'v1' });
+    await screen.findAllByRole('option');
+    await userEvent.type(screen.getByLabelText('원인'), '철근 반입 늦음');
+    fireEvent.submit(screen.getByRole('form', { name: '새 지연 사건' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(writes()).toEqual([]);
+  });
+
+  test('an empty before says the value is empty, without empty brackets', () => {
+    show({ id: '1', activity: 'A2020', days: '3', before: '' });
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('실적 입력 전 버전 값이 비어 있습니다.');
+    expect(alert.textContent).not.toContain('()');
     expect(screen.getByRole('button', { name: '등록' })).toBeDisabled();
   });
 });

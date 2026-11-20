@@ -84,7 +84,7 @@ function Notes({ before, badBefore, locked }: { before: number | null; badBefore
     <>
       {badBefore !== null && (
         <p className="dl-error dl-note-error" role="alert">
-          {`실적 입력 전 버전 값이 올바르지 않습니다(${badBefore}). 일반 사건으로 저장하면 같은 늦음을 두 번 세므로 저장할 수 없습니다. 실적 입력에서 다시 열어 주세요.`}
+          {`${badBefore.trim() ? `실적 입력 전 버전 값이 올바르지 않습니다(${badBefore}).` : '실적 입력 전 버전 값이 비어 있습니다.'} 일반 사건으로 저장하면 같은 늦음을 두 번 세므로 저장할 수 없습니다. 실적 입력에서 다시 열어 주세요.`}
         </p>
       )}
       {before !== null && (
@@ -116,6 +116,7 @@ export default function DelayForm({ event, initial, before, badBefore = null, vi
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (badBefore !== null) return; // 단추가 꺼져 있어도 제출(Enter 등)로 일반 사건이 저장되지 않게
     const found = validate(values);
     setErrors(found);
     setFailure(null);
