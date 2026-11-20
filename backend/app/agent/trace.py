@@ -74,8 +74,8 @@ def messages_text(messages: list[dict]) -> str:
 
 
 def reply_text(reply: LlmReply) -> str:
-    """받은 답 → output_text: 답 글과 도구 호출(점 표기 이름, 모델에 다시 보낼 인자 글)."""
-    calls = [{"id": c.id, "name": c.name, "arguments": arguments_text(c.arguments, c.raw_arguments)}
+    """받은 답 → output_text: 답 글과 도구 호출(점 표기 이름, 모델에 다시 보낼 인자 글을 MESSAGE_LIMIT 에서 자름)."""
+    calls = [{"id": c.id, "name": c.name, "arguments": _cut(arguments_text(c.arguments, c.raw_arguments), MESSAGE_LIMIT)}
              for c in reply.tool_calls]
     return _safe(_cut(json.dumps({"text": reply.text, "tool_calls": calls}, ensure_ascii=False), TEXT_LIMIT))
 

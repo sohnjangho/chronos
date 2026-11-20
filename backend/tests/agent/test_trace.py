@@ -270,3 +270,15 @@ async def test_failure_while_counting_context_parts_only_warns(run, session, mon
     assert ctx.kind == "context" and json.loads(ctx.input_text)["parts"] == []
     assert "실행 추적을 남기지 못했습니다: context_parts (RuntimeError)" in caplog.text
     assert "secret-text" not in caplog.text
+
+
+# ── Fix round 1 ──
+
+
+def test_reply_text_cuts_tool_arguments_and_stays_json():
+    from app.llm.client import LlmReply, ToolCall, Usage
+
+    calls_ = [ToolCall(id=f"c{i}", name="generate.run", arguments=None, raw_arguments="x" * 30_000) for i in range(3)]
+    text = trace.reply_text(LlmReply(text="네", tool_calls=calls_, model="m", usage=Usage(1, 1, None)))
+    body = json.loads(text)  # 60,000자를 넘지 않아 잘리지 않는다
+    assert [c["arguments"] for c in body["tool_calls"]] == ["x" * MESSAGE_LIMIT + context.CUT_NOTE] * 3

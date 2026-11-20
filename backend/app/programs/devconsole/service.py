@@ -187,12 +187,14 @@ def _structure(row: store.TurnRow, events: list[TraceEvent], steps: list[Workflo
 # ── 시간표 ──────────────────────────────────────────────────────────
 
 
-def _call_count(llm: TraceEvent) -> int:
-    """그 답이 부른 도구 수(output_text 의 tool_calls). 읽을 수 없으면 0."""
+def _call_count(llm: TraceEvent) -> int | None:
+    """그 답이 부른 도구 수(output_text 의 tool_calls). 답이 없으면(실패·호출 중) 0, 읽을 수 없으면(잘림) None."""
+    if not llm.output_text:
+        return 0
     try:
         return len(json.loads(llm.output_text)["tool_calls"])
     except (ValueError, KeyError, TypeError):
-        return 0
+        return None
 
 
 def _event_item(e: TraceEvent) -> TimelineItem:
@@ -224,18 +226,30 @@ def _step_item(step: WorkflowStep, start: datetime, group: int | None) -> Timeli
 
 def _step_items(llms: list[TraceEvent], steps: list[WorkflowStep], turn_start: datetime) -> list[TimelineItem]:
     """단계를 그것을 부른 llm 사건(답의 tool_calls 수만큼 차례대로)에 잇는다. 시작은 그 답이 끝난 때부터
-    앞 단계 시간을 더한 어림이다. 잇지 못한 단계는 앞 단계 뒤에 둔다."""
+    앞 단계 시간을 더한 어림이다. 읽을 수 없는 답(잘림)을 만나면 그 뒤 단계는 모두 짝 없이(null)
+    앞 단계 뒤에(앞 단계가 없으면 그 답 뒤에) 차례로 둔다."""
     queue = list(steps)
-    placed: list[tuple[TraceEvent | None, WorkflowStep]] = []
-    for llm in llms:
-        placed += [(llm, queue.pop(0)) for _ in range(min(_call_count(llm), len(queue)))]
-    placed += [(None, s) for s in queue]
-    items, cursor, caller = [], turn_start, None
-    for llm, step in placed:
-        if llm is not None and llm is not caller:
-            caller, cursor = llm, as_utc(llm.started_at) + timedelta(milliseconds=llm.ms or 0)
-        items.append(_step_item(step, cursor, llm.seq if llm is not None else None))
+    items, cursor = [], turn_start
+
+    def place(step: WorkflowStep, group: int | None) -> None:
+        nonlocal cursor
+        items.append(_step_item(step, cursor, group))
         cursor += timedelta(milliseconds=step.ms or 0)
+
+    for llm in llms:
+        if not queue:
+            break
+        count = _call_count(llm)
+        end = as_utc(llm.started_at) + timedelta(milliseconds=llm.ms or 0)
+        if count is None:
+            cursor = max(cursor, end) if items else end
+            break
+        if count:
+            cursor = end
+        for _ in range(min(count, len(queue))):
+            place(queue.pop(0), llm.seq)
+    for step in queue:
+        place(step, None)
     return items
 
 

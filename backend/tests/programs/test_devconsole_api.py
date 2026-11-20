@@ -351,6 +351,38 @@ def test_generation_turn_shows_its_inner_calls_inside_the_step(client, admin, sc
     assert (body["turn"]["llm_calls"], body["turn"]["tokens"]) == (4, 68)  # 루프 2번 + 도구 안 2번, 12/5 토큰씩
 
 
+def test_steps_after_an_unreadable_reply_have_no_group_and_follow_the_previous_step(client, admin, session):
+    """답 1(도구 둘)이 잘려 읽을 수 없고 답 2 가 도구 하나: 셋 모두 짝 없이 답 1 뒤에 차례로."""
+    cut = llm_ev(1, calls_=["generate.run", "harness.check"])
+    cut["output_text"] = cut["output_text"][:40] + "\n(뒤는 생략)"
+    _, turn = made_turn(session, events=[ctx_ev(), cut, llm_ev(3, calls_=["calc.cpm"]), llm_ev(5), end_ev(6)],
+                        steps=[{"tool": "generate.run", "ms": 100}, {"tool": "harness.check", "ms": 200},
+                               {"tool": "calc.cpm", "ms": 300}], run_status="done")
+    tools = [t for t in get_turn(client, admin, turn)["timeline"] if t["kind"] == "tool"]
+    assert [(t["label"], t["parallel_group"], t["started_at"]) for t in tools] == [
+        ("generate.run", None, "2027-03-01T09:00:01.500000Z"),
+        ("harness.check", None, "2027-03-01T09:00:01.600000Z"),
+        ("calc.cpm", None, "2027-03-01T09:00:01.800000Z"),
+    ]
+
+
+def test_turn_list_skips_big_text_columns_and_reads_inner_calls_once(client, admin, session):
+    from sqlalchemy import event
+
+    for _ in range(3):
+        made_turn(session, events=[ctx_ev(), llm_ev(1), end_ev(2)])
+    statements: list[str] = []
+    engine = session.get_bind()
+    listen = lambda conn, cursor, statement, *rest: statements.append(statement)
+    event.listen(engine, "before_cursor_execute", listen)
+    try:
+        assert len(client.get("/api/devconsole/turns", headers=admin).json()) == 3
+    finally:
+        event.remove(engine, "before_cursor_execute", listen)
+    assert not [s for s in statements if "trace_events.input_text" in s or "trace_events.output_text" in s]
+    assert len([s for s in statements if "FROM llm_calls" in s]) == 1
+
+
 def test_turn_totals_count_inner_calls(client, admin, session):
     chat, turn = made_turn(session, events=[ctx_ev(), llm_ev(1, calls_=["generate.run"], cost=0.5), llm_ev(3),
                                             end_ev(4)], steps=[{"tool": "generate.run"}], run_status="done")

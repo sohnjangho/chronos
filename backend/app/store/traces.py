@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.store.tables import (
     ChatMessage,
@@ -77,6 +77,28 @@ def inner_calls(session: Session, chat_session_id: int, start: datetime, end: da
     return list(session.scalars(query.order_by(LlmCall.created_at, LlmCall.id)))
 
 
+def _inner_by_turn(
+    session: Session, windows: dict[int, tuple[int, datetime, datetime | None]]
+) -> dict[int, list[LlmCall]]:
+    """턴마다 도구 안 LLM 호출(inner_calls 와 같은 규칙)을 질의 한 번으로."""
+    out: dict[int, list[LlmCall]] = {tid: [] for tid in windows}
+    if not windows:
+        return out
+    now = datetime.now(UTC)
+    bounds = {tid: (chat, start, end or now) for tid, (chat, start, end) in windows.items()}
+    query = select(LlmCall).where(
+        LlmCall.chat_session_id.in_({chat for chat, _, _ in bounds.values()}), LlmCall.purpose != LOOP_PURPOSE,
+        LlmCall.created_at >= _naive(min(s for _, s, _ in bounds.values())),
+        LlmCall.created_at <= _naive(max(e for _, _, e in bounds.values())),
+    )
+    for call in session.scalars(query.order_by(LlmCall.created_at, LlmCall.id)):
+        at = as_utc(call.created_at)
+        for tid, (chat, start, end) in bounds.items():
+            if call.chat_session_id == chat and start <= at <= end:
+                out[tid].append(call)
+    return out
+
+
 def turns(session: Session, limit: int) -> list[TurnRow]:
     """추적이 있는 턴, 새것부터 limit 개."""
     query = select(TraceEvent.turn_id).group_by(TraceEvent.turn_id).order_by(TraceEvent.turn_id.desc()).limit(limit)
@@ -91,7 +113,10 @@ def turn(session: Session, turn_id: int) -> TurnRow | None:
 
 def _rows(session: Session, turn_ids: list[int]) -> list[TurnRow]:
     by_turn: dict[int, list[TraceEvent]] = defaultdict(list)
-    query = select(TraceEvent).where(TraceEvent.turn_id.in_(turn_ids)).order_by(TraceEvent.seq)
+    query = (
+        select(TraceEvent).where(TraceEvent.turn_id.in_(turn_ids)).order_by(TraceEvent.seq)
+        .options(defer(TraceEvent.input_text), defer(TraceEvent.output_text))  # 큰 글 칸은 목록에서 쓰지 않는다
+    )
     for event in session.scalars(query):
         by_turn[event.turn_id].append(event)
     chat_ids = {evs[0].chat_session_id for evs in by_turn.values()}
@@ -107,15 +132,19 @@ def _rows(session: Session, turn_ids: list[int]) -> list[TurnRow]:
     ).all())
     runs = {tid: next((e.run_id for e in evs if e.run_id is not None), None) for tid, evs in by_turn.items()}
     steps = step_counts(session, [r for r in runs.values() if r is not None])
+    windows = {}  # turn_id → (대화, 시작, 끝)
+    for tid, evs in by_turn.items():
+        end = next((e for e in evs if e.kind == "end"), None)
+        windows[tid] = (evs[0].chat_session_id, min(as_utc(e.started_at) for e in evs),
+                        as_utc(end.started_at) if end else None)
+    inner = _inner_by_turn(session, windows)
     rows = []
     for tid in sorted(by_turn, reverse=True):
         evs = by_turn[tid]
-        chat_id = evs[0].chat_session_id
+        chat_id, start, ended = windows[tid]
         end = next((e for e in evs if e.kind == "end"), None)
-        start = min(as_utc(e.started_at) for e in evs)
-        ended = as_utc(end.started_at) if end else None
         tokens, cost, llm_count = 0, None, 0
-        for item in [*(e for e in evs if e.kind == "llm"), *inner_calls(session, chat_id, start, ended)]:
+        for item in [*(e for e in evs if e.kind == "llm"), *inner[tid]]:
             llm_count += 1
             tokens += item.input_tokens + item.output_tokens
             cost = _add_cost(cost, item.cost)
