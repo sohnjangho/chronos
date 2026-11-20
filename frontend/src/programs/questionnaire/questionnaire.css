@@ -1,0 +1,214 @@
+/* 질문지(시안 「질문지 B안」을 v2 로 맞춤). 색·글꼴은 tokens.css 변수만 쓴다.
+   넘침 막기: 줄·칸은 min-width:0, 긴 글은 overflow-wrap:anywhere 로 줄을 바꾸고, 길면 창 안에서 세로로만 스크롤한다.
+   창 본문이 좁으면(760 미만) 목차를 위로 올린다. */
+.qn-root {
+  container-type: inline-size;
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-panel);
+  color: var(--fg);
+  font-size: var(--fs-13);
+  line-height: 19px;
+  word-break: keep-all; /* 한국어는 어절 단위로 줄을 바꾼다(아주 긴 낱말은 overflow-wrap 이 자른다) */
+}
+.qn-root button { font-family: inherit; }
+.qn-root button:focus-visible,
+.qn-root input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.qn-muted { margin: 0; color: var(--fg-muted); font-size: var(--fs-12); }
+.qn-empty { margin: 0; padding: 24px; color: var(--fg-muted); overflow-wrap: anywhere; }
+.qn-gap { flex: 1; }
+
+.qn-body { flex: 1; min-height: 0; display: flex; }
+
+/* ── 왼쪽 목차 ── */
+.qn-nav {
+  width: 300px;
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 14px 10px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+}
+.qn-progress { padding: 0 14px 12px; }
+.qn-progress-text { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.qn-bar { height: 8px; margin-top: 6px; border-radius: 4px; background: var(--border); overflow: hidden; }
+.qn-bar > i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.qn-groups,
+.qn-items { list-style: none; margin: 0; padding: 0; }
+.qn-groups { display: flex; flex-direction: column; gap: 2px; }
+.qn-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--border-strong); }
+.qn-grp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: var(--radius-3);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.qn-grp:hover { background: var(--menu-hover-bg); }
+.qn-grp[aria-current="true"] { background: var(--bg-selected); color: var(--tone-info-fg); font-weight: 700; }
+.qn-grp-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.qn-count { flex: none; color: var(--fg-muted); font-size: var(--fs-12); font-weight: 400; }
+[data-state="done"] > .qn-dot { background: var(--success); }
+.qn-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 14px 5px 30px;
+  border: 0;
+  border-radius: var(--radius-2);
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: var(--fs-12);
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+.qn-item:hover { background: var(--menu-hover-bg); }
+.qn-item > .qn-dot { margin-top: 5px; }
+.qn-item[aria-current="step"] { color: var(--accent-text); font-weight: 700; }
+.qn-item[aria-current="step"] > .qn-dot { background: var(--accent); }
+/* 목차에서는 두 줄까지(전체 글은 오른쪽 질문과 말풍선 title) */
+.qn-item-text {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.qn-item-text b { color: var(--fg); font-weight: 500; }
+.qn-legend { margin: auto 0 0; padding: 12px 14px 0; color: var(--fg-muted); font-size: var(--fs-12); }
+
+/* ── 오른쪽: 한 질문씩 ── */
+.qn-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.qn-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 22px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.qn-pos { margin: 0; color: var(--fg-muted); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.qn-card { min-width: 0; box-sizing: border-box; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius-4); }
+.qn-q { margin: 0; font-size: var(--fs-20); line-height: 28px; font-weight: 700; overflow-wrap: anywhere; }
+.qn-why { margin: 6px 0 0; color: var(--fg-muted); overflow-wrap: anywhere; }
+.qn-why-k { margin-right: 8px; color: var(--fg); font-weight: 500; }
+.qn-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.qn-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.qn-opt:hover { background: var(--bg-panel-alt); }
+.qn-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--bg-selected); color: var(--tone-info-fg); font-weight: 500; }
+.qn-radio { width: 14px; height: 14px; flex: none; box-sizing: border-box; border: 2px solid var(--fg-muted); border-radius: 50%; }
+.qn-opt[aria-pressed="true"] .qn-radio { border: 4px solid var(--accent); }
+.qn-opt-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.qn-opt-hint { color: var(--fg-muted); font-size: var(--fs-12); font-weight: 400; line-height: 17px; }
+.qn-opt .ui-badge { flex: none; }
+.qn-free { margin-top: 10px; }
+.qn-input {
+  width: 100%;
+  height: 38px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font: inherit;
+}
+.qn-input::placeholder { color: var(--fg-muted); }
+.qn-hint { margin: 4px 0 0; color: var(--fg-muted); font-size: var(--fs-11); }
+.qn-assume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.qn-assume-text { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+
+/* ── 이미 채운 것 · 제출 요약 ── */
+.qn-filled { background: var(--bg-panel-alt); }
+.qn-sub { margin: 0; font-size: var(--fs-14); font-weight: 700; }
+.qn-fgroup { margin-top: 10px; }
+.qn-fhead { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 0 0 6px; color: var(--fg-muted); font-size: var(--fs-12); font-weight: 500; }
+.qn-fhead .qn-muted { font-weight: 400; }
+.qn-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.qn-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 76px 64px; align-items: center; gap: 8px; }
+.qn-row-k,
+.qn-row-v { min-width: 0; overflow-wrap: anywhere; }
+.qn-src { min-width: 0; color: var(--fg-muted); font-size: var(--fs-12); text-align: right; overflow-wrap: anywhere; }
+.qn-row > .ui-btn { justify-self: end; }
+
+/* ── 아래 줄 ── */
+.qn-notice { margin: 0; padding: 8px 28px; background: var(--tone-danger-bg); color: var(--danger-text); overflow-wrap: anywhere; }
+.qn-actions {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 28px;
+  border-top: 1px solid var(--border);
+}
+.qn-actions .ui-btn { max-width: 100%; padding: 6px 14px; font-size: var(--fs-13); overflow-wrap: anywhere; }
+
+/* ── 제출됨(읽기만) ── */
+.qn-done { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; box-sizing: border-box; padding: 24px 28px; display: flex; flex-direction: column; gap: 14px; }
+.qn-done-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.qn-done-title { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-20); line-height: 28px; overflow-wrap: anywhere; }
+.qn-done-note { margin: 0; padding: 10px 14px; border-radius: var(--radius-3); background: var(--tone-info-bg); color: var(--tone-info-fg); overflow-wrap: anywhere; }
+.qn-done-count { margin: 0; font-weight: 700; }
+.qn-sum { gap: 0; margin-top: 8px; }
+.qn-sum-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 16px; padding: 8px 0; border-top: 1px solid var(--border); }
+
+/* 창 본문이 좁으면 목차를 위로(최소 창 크기까지 넘치지 않게) */
+@container (max-width: 759px) {
+  .qn-body { flex-direction: column; }
+  .qn-nav { width: auto; flex: 0 1 auto; max-height: 160px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .qn-scroll,
+  .qn-done { padding: 16px; }
+  .qn-actions { padding: 10px 16px; }
+  .qn-notice { padding: 8px 16px; }
+  .qn-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .qn-sum-row { grid-template-columns: minmax(0, 1fr); }
+}

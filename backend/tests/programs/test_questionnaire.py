@@ -214,6 +214,16 @@ def test_value_key_is_required(client, admin, qid):
     assert (r.status_code, r.json()["code"]) == (422, "invalid_request")
 
 
+def test_view_carries_the_chat_session_it_came_from(client, admin, session, qid):
+    """질문지 화면이 제출 뒤 이어 갈 대화를 안다(대화 밖에서 열었을 때). 대화 없이 만든 질문지는 null."""
+    from_chat = store.create(
+        session, purpose="generate", title="t", questions=[Question.model_validate(FINISH)], prefilled=[], domain=None, level=None, chat_session_id=42
+    )
+    assert _get(client, admin, from_chat)["chat_session_id"] == 42
+    assert _answer(client, admin, from_chat, "finish_date", "2028년 6월 말").json()["chat_session_id"] == 42
+    assert _get(client, admin, qid)["chat_session_id"] is None
+
+
 # ── 저장 함수 ───────────────────────────────────────────────────────
 
 

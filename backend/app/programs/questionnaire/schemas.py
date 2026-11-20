@@ -48,6 +48,7 @@ class QuestionnaireView(BaseModel):
     purpose: str
     status: Literal["open", "submitted"]
     round: int
+    chat_session_id: int | None  # 이 질문지를 만든 대화(대화 밖에서 만들었으면 null). 제출 뒤 이어 갈 곳
     progress: Progress
     prefilled: list[Prefilled]
     groups: list[GroupOut]  # 질문에 처음 나온 차례

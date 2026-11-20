@@ -58,6 +58,7 @@ def _view(record: QuestionnaireRecord) -> QuestionnaireView:
         purpose=record.purpose,
         status=record.status,
         round=record.round,
+        chat_session_id=record.chat_session_id,
         progress=Progress(answered=sum(g.answered for g in group_out), total=sum(g.total for g in group_out)),
         prefilled=record.prefilled_json,
         groups=group_out,
