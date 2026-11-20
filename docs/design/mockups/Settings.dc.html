@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>설정</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.btn.pri{background:#2f6fdb;border-color:#2f6fdb;color:#fff;font-weight:500}
+.nav{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 12px;border-radius:8px;color:#1c2333}
+.nav.on{background:#e3edfb;color:#1f4f9e;font-weight:700}
+.grp{font-size:11px;color:#5b6577;padding:12px 12px 4px}
+.card{border:1px solid #d9dfe8;border-radius:12px;padding:14px 16px;background:#fff}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.lab{font-size:12px;color:#5b6577;margin-bottom:4px;display:block}
+.in{height:34px;border:1px solid #b9c2d0;border-radius:8px;padding:0 10px;font:inherit;width:100%;box-sizing:border-box}
+.stp{display:flex;align-items:center;gap:6px;font-size:12px;color:#5b6577}
+.stp i{width:20px;height:20px;border-radius:50%;background:#eef2f7;display:inline-flex;align-items:center;justify-content:center;font-style:normal;font-weight:700;font-size:11px}
+.stp.on{color:#1f4f9e;font-weight:700}.stp.on i{background:#2f6fdb;color:#fff}
+.stp.ok i{background:#1f9d55;color:#fff}
+.r{display:flex;align-items:center;min-height:44px;border-bottom:1px solid #eef2f7;gap:10px;padding:4px 0}
+.r.h{min-height:26px;color:#5b6577;font-size:11px}
+.sel{border:1px solid #b9c2d0;border-radius:6px;padding:5px 10px;background:#fff;font-size:12px;color:#1c2333;white-space:nowrap}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+</style>
+</helmet>
+<div class="w" style="width: 1300px; height: 860px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button><button class="lt" aria-label="최소화" style="background: #febc2e"></button><button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">설정</div>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex">
+    <div style="width: 220px; flex: none; border-right: 1px solid #d9dfe8; background: #f7f9fb; padding: 8px; box-sizing: border-box">
+      <div class="grp">나</div>
+      <button class="nav">내 정보</button><button class="nav">화면 (밝게·어둡게, 글자 크기)</button><button class="nav">알림</button>
+      <div class="grp">관리자</div>
+      <button class="nav on">LLM 연결</button>
+      <button class="nav">작업별 모델 배정</button>
+      <button class="nav">계정 (관리자·사용자)</button>
+      <button class="nav">도구 (켜고 끄기)</button>
+      <button class="nav">에이전트 정책 (루프 한도·승인 수준)</button>
+      <button class="nav">분야 묶음 (규칙·필수 정보)</button>
+      <div class="grp">정보</div>
+      <button class="nav">ChronOS 정보</button>
+    </div>
+
+    <div style="flex: 1; min-width: 0; padding: 18px 22px; box-sizing: border-box; display: flex; gap: 20px; background: #fbfcfd">
+      <!-- 연결 -->
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; align-items: center"><b style="font-size: 16px; flex: 1">LLM 연결</b><button class="btn pri">+ 연결 추가</button></div>
+        <div class="card">
+          <div style="display: flex; align-items: center; gap: 8px"><b style="font-size: 14px">Liner 기본</b><span class="badge" style="background: #e3edfb; color: #1f4f9e">Liner</span><span class="badge" style="background: #14213d; color: #fff">기본 연결</span><div style="flex: 1"></div><span class="badge" style="background: #dff3e6; color: #17703f">연결됨 · 모델 512개</span></div>
+          <div style="display: grid; grid-template-columns: 70px 1fr; gap: 4px 10px; margin-top: 10px; font-size: 12px">
+            <span style="color: #5b6577">URL</span><span class="mono">https://platform.liner.com/api/v1</span>
+            <span style="color: #5b6577">API 키</span><span class="mono">••••••••••••••••4f2a</span>
+            <span style="color: #5b6577">확인</span><span>오늘 21:32 · 응답 412ms · 근거 검색도 이 키를 씀</span>
+          </div>
+          <div style="display: flex; gap: 6px; margin-top: 12px"><button class="btn">연결 테스트</button><button class="btn">URL 수정</button><button class="btn">키 교체</button><div style="flex: 1"></div><button class="btn" style="color: #9b2c2c">삭제</button></div>
+        </div>
+
+        <!-- 마법사 -->
+        <div class="card" style="border-color: #2f6fdb; box-shadow: 0 4px 16px rgba(20,33,61,.12)">
+          <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 12px">
+            <b style="font-size: 14px">연결 추가</b>
+            <span class="stp ok"><i>1</i>공급자</span><span style="color: #cfd6e0">—</span><span class="stp ok"><i>2</i>주소와 키</span><span style="color: #cfd6e0">—</span><span class="stp on"><i>3</i>연결 테스트</span>
+          </div>
+          <div style="display: flex; gap: 8px; margin-bottom: 12px">
+            <button class="btn" style="flex: 1; text-align: left; padding: 8px 12px; border-color: #2f6fdb; background: #e3edfb"><b>Liner</b><br><span style="color: #5b6577">주소가 미리 채워집니다 · 대회 기본</span></button>
+            <button class="btn" style="flex: 1; text-align: left; padding: 8px 12px"><b>직접 URL (OpenAI 호환)</b><br><span style="color: #5b6577">주소를 직접 넣습니다</span></button>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px">
+            <label><span class="lab">이름</span><input class="in" value="Liner 시험용"></label>
+            <label><span class="lab">URL</span><input class="in mono" value="https://platform.liner.com/api/v1"></label>
+          </div>
+          <label style="display: block; margin-top: 10px"><span class="lab">API 키 — 저장하면 암호화되고, 화면에는 끝 4자리만 보입니다</span><input class="in mono" type="password" value="xxxxxxxxxxxxxxxxxxxxxxxx"></label>
+          <div style="background: #dff3e6; color: #17703f; border-radius: 8px; padding: 10px 12px; margin-top: 12px"><b>연결되었습니다</b> · 응답 398ms · 모델 512개를 불러왔습니다 (liner-mark, liner-claude-router, liner-gpt-router, liner-gemini-router …)</div>
+          <div style="display: flex; gap: 8px; margin-top: 12px"><button class="btn">이전</button><button class="btn">다시 테스트</button><div style="flex: 1"></div><button class="btn">취소</button><button class="btn pri">저장</button></div>
+        </div>
+        <div style="font-size: 12px; color: #5b6577">실패하면 원인별로 안내합니다: 키가 틀림 · 주소가 틀림 · 시간 초과 · 한도 초과.</div>
+      </div>
+
+      <!-- 모델 배정 -->
+      <div style="width: 430px; flex: none; display: flex; flex-direction: column; gap: 12px">
+        <b style="font-size: 16px">작업별 모델 배정</b>
+        <div class="card" style="padding: 8px 16px">
+          <div class="r h"><span style="flex: 1">에이전트가 하는 일</span><span style="width: 176px">모델 · 라우터</span><span style="width: 78px">기준</span></div>
+          <div class="r"><span style="flex: 1"><b>가벼운 일</b><br><span style="color: #5b6577; font-size: 12px">조건 뽑기, 분야 읽기, 문서에서 변화 뽑기</span></span><span style="width: 176px"><button class="sel">liner-claude-router ▾</button></span><span style="width: 78px"><button class="sel">cost ▾</button></span></div>
+          <div class="r"><span style="flex: 1"><b>보통 일</b><br><span style="color: #5b6577; font-size: 12px">대화, 워크플로우 짜기, 보고서 초안</span></span><span style="width: 176px"><button class="sel">liner-claude-router ▾</button></span><span style="width: 78px"><button class="sel">balanced ▾</button></span></div>
+          <div class="r"><span style="flex: 1"><b>어려운 일</b><br><span style="color: #5b6577; font-size: 12px">WBS·스케줄 생성, 단축안, 위반 고치기</span></span><span style="width: 176px"><button class="sel">liner-claude-router ▾</button></span><span style="width: 78px"><button class="sel">quality ▾</button></span></div>
+          <div class="r" style="border-bottom: 0"><span style="flex: 1"><b>긴 문서 읽기</b><br><span style="color: #5b6577; font-size: 12px">계약서·회의록 통째로</span></span><span style="width: 176px"><button class="sel">liner-mark ▾</button></span><span style="width: 78px; color: #5b6577; font-size: 12px">105만 토큰</span></div>
+        </div>
+        <div class="card">
+          <b>최근 7일 사용</b>
+          <div style="display: flex; gap: 16px; margin-top: 8px">
+            <div><div style="font-size: 12px; color: #5b6577">비용</div><b style="font-size: 18px">$4.82</b></div>
+            <div><div style="font-size: 12px; color: #5b6577">요청</div><b style="font-size: 18px">214</b></div>
+            <div><div style="font-size: 12px; color: #5b6577">전부 quality 였다면</div><b style="font-size: 18px; color: #5b6577">$9.10</b></div>
+          </div>
+          <div style="font-size: 12px; color: #17703f; margin-top: 6px">일의 종류에 따라 모델을 나눠 47% 줄였습니다.</div>
+          <button class="btn" style="margin-top: 10px">개발 콘솔에서 자세히</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1300,"height":860}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

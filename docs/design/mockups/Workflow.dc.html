@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>워크플로우 · 스킬</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.btn.pri{background:#2f6fdb;border-color:#2f6fdb;color:#fff}
+.tab{border:0;background:none;padding:10px 12px;color:#5b6577;border-bottom:2px solid transparent;font-size:13px}
+.tab.on{color:#2a64c7;font-weight:700;border-bottom-color:#2f6fdb}
+.li{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid #eef2f7;background:none;padding:9px 14px;color:#1c2333}
+.li.on{background:#e3edfb}
+.li small{display:block;color:#5b6577;font-size:11px;margin-top:1px}
+.nd{position:absolute;width:210px;background:#fff;border:1.5px solid #b9c2d0;border-radius:10px;padding:9px 12px;box-sizing:border-box}
+.nd .n{font-size:11px;color:#5b6577}
+.nd b{display:block;font-size:13px}
+.nd .m{font-size:11px;color:#5b6577;margin-top:3px}
+.ln{position:absolute;background:#8a94a6}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.kv{display:flex;padding:6px 0;border-bottom:1px solid #eef2f7;gap:8px}
+.kv span:first-child{width:76px;color:#5b6577;flex:none}
+.code{background:#1c2333;color:#e6ebf2;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:16px;white-space:pre}
+</style>
+</helmet>
+<div class="w" style="width: 1400px; height: 860px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button><button class="lt" aria-label="최소화" style="background: #febc2e"></button><button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">워크플로우</div>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex">
+    <div style="width: 280px; flex: none; border-right: 1px solid #d9dfe8; display: flex; flex-direction: column">
+      <div style="display: flex; border-bottom: 1px solid #d9dfe8; padding: 0 6px"><button class="tab on">실행 기록</button><button class="tab">저장 3</button><button class="tab">스킬 4</button></div>
+      <button class="li on"><b>골조 지연 만회 계획</b><small><span class="badge" style="background: #e3edfb; color: #1f4f9e">실행 중</span> 6단계 중 4단계 · 방금</small></button>
+      <button class="li">5층 사무동 공정표 생성<small>완료 · 7단계 · 41초 · 오늘 21:40</small></button>
+      <button class="li">크레인 2대 가정 비교<small>완료 · 3단계 · 6초 · 오늘 22:05</small></button>
+      <button class="li">3라인 고장 대응<small>완료 · 스킬 「설비 고장 대응」 · 어제</small></button>
+      <button class="li">주간 보고 만들기<small>완료 · 4단계 · 어제</small></button>
+      <div style="flex: 1"></div>
+      <div style="padding: 12px 14px; background: #f7f9fb; border-top: 1px solid #d9dfe8; font-size: 12px; color: #5b6577">실행 기록은 전부 남습니다. 골라서 저장하고, 저장한 것 중 직접 등록한 것만 스킬이 됩니다.</div>
+    </div>
+
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+      <div style="height: 46px; flex: none; border-bottom: 1px solid #d9dfe8; display: flex; align-items: center; padding: 0 16px; gap: 8px">
+        <b style="font-size: 14px">골조 지연 만회 계획</b><span style="color: #5b6577">요청: "골조가 4일 밀렸어. 만회 계획 세워 줘"</span>
+        <div style="flex: 1"></div>
+        <button class="btn">중단</button><button class="btn">저장</button><button class="btn">스킬로 등록</button><button class="btn">개발 콘솔에서 보기</button>
+      </div>
+      <div style="flex: 1; min-height: 0; position: relative; overflow: hidden; background-image: radial-gradient(#d9dfe8 1px, transparent 1px); background-size: 20px 20px; background-color: #fbfcfd">
+        <!-- 연결선 -->
+        <div class="ln" style="left: 240px; top: 86px; width: 40px; height: 2px"></div>
+        <div class="ln" style="left: 490px; top: 86px; width: 30px; height: 2px"></div>
+        <div class="ln" style="left: 519px; top: 86px; width: 2px; height: 82px"></div>
+        <div class="ln" style="left: 520px; top: 166px; width: 30px; height: 2px"></div>
+        <div class="ln" style="left: 520px; top: 86px; width: 30px; height: 2px"></div>
+        <div class="ln" style="left: 760px; top: 86px; width: 30px; height: 2px"></div>
+        <div class="ln" style="left: 760px; top: 166px; width: 30px; height: 2px"></div>
+        <div class="ln" style="left: 789px; top: 86px; width: 2px; height: 82px"></div>
+        <div class="ln" style="left: 790px; top: 126px; width: 30px; height: 2px"></div>
+        <div class="ln" style="left: 924px; top: 166px; width: 2px; height: 64px; background: #2f6fdb"></div>
+        <div class="ln" style="left: 134px; top: 300px; width: 2px; height: 0"></div>
+        <div class="ln" style="left: 924px; top: 290px; width: 2px; height: 50px; background: #cfd6e0"></div>
+
+        <div class="nd" style="left: 30px; top: 48px; border-color: #1f9d55"><div class="n">① 일정판 · 0.2초</div><b>일정 읽기</b><div class="m">액티비티 62 · 실적 포함</div></div>
+        <div class="nd" style="left: 280px; top: 48px; border-color: #1f9d55"><div class="n">② 지연 기록 · 1.1초</div><b>지연 영향 분석</b><div class="m">준공 +4일 · 영향 5개</div></div>
+        <div class="nd" style="left: 550px; top: 48px; border-color: #1f9d55"><div class="n">③ 뒷단 도구 · 2.4초</div><b>단축안 만들기 — 병행</b><div class="m">만회안 A</div></div>
+        <div class="nd" style="left: 550px; top: 128px; border-color: #1f9d55"><div class="n">③ 뒷단 도구 · 2.1초 (동시에)</div><b>단축안 만들기 — 자원 추가</b><div class="m">만회안 B</div></div>
+        <div class="nd" style="left: 820px; top: 88px; border-color: #2f6fdb; box-shadow: 0 0 0 3px rgba(47,111,219,.22)"><div class="n">④ 조건·규칙 · 실행 중</div><b>조건 점검</b><div class="m">안 A 통과 · 안 B 점검 중 (2회차)</div></div>
+        <div class="nd" style="left: 820px; top: 230px; border-style: dashed"><div class="n">⑤ 비교판 · 대기</div><b>안 비교</b><div class="m">창 열기 포함</div></div>
+        <div class="nd" style="left: 820px; top: 340px; border-style: dashed"><div class="n">⑥ 승인함 · 대기</div><b>변경안 제출</b><div class="m">준공일이 바뀌므로 승인 필요</div></div>
+
+        <div style="position: absolute; left: 30px; bottom: 16px; display: flex; gap: 14px; font-size: 11px; color: #5b6577; background: #fff; border: 1px solid #d9dfe8; border-radius: 6px; padding: 6px 10px">
+          <span><span style="display: inline-block; width: 10px; height: 10px; border: 1.5px solid #1f9d55; border-radius: 3px; margin-right: 5px"></span>완료</span>
+          <span><span style="display: inline-block; width: 10px; height: 10px; border: 1.5px solid #2f6fdb; border-radius: 3px; margin-right: 5px"></span>실행 중</span>
+          <span><span style="display: inline-block; width: 10px; height: 10px; border: 1.5px dashed #b9c2d0; border-radius: 3px; margin-right: 5px"></span>대기</span>
+          <span>지금까지 토큰 21.4K · $0.12</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="width: 340px; flex: none; border-left: 1px solid #d9dfe8; padding: 14px 16px; box-sizing: border-box">
+      <b style="font-size: 14px">④ 조건 점검</b>
+      <div class="kv" style="margin-top: 8px"><span>도구</span><span>조건 점검 (하네스 네 겹)</span></div>
+      <div class="kv"><span>왜</span><span>단축안이 "크레인 1대", "골조 상량 07.10" 조건을 깨는지 확인해야 합니다.</span></div>
+      <div class="kv"><span>모델</span><span>쓰지 않음 (코드 계산)</span></div>
+      <div class="kv"><span>걸린 시간</span><span>0.8초 (진행 중)</span></div>
+      <div style="font-weight: 700; margin: 14px 0 6px">받은 것</div>
+      <div class="code">alternatives: [A, B]
+conditions: 14 (기본 3 · 분야 2
+            · 내 규칙 1 · 입력 8)</div>
+      <div style="font-weight: 700; margin: 14px 0 6px">돌려준 것 (지금까지)</div>
+      <div class="code">A: 위반 0  → 통과
+B: 1회차 위반 1 (크레인 2대 필요)
+   → 자원 조건 변경을 변경안에 포함
+   2회차 점검 중…</div>
+      <div style="font-size: 12px; color: #5b6577; margin-top: 12px">원문 전체와 컨텍스트는 개발 콘솔(관리자)에서 볼 수 있습니다.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1400,"height":860}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

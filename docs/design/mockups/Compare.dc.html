@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>비교판</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.btn.pri{background:#2f6fdb;border-color:#2f6fdb;color:#fff}
+.seg{border:1px solid #cfd6e0;background:#fff;padding:5px 12px;font-size:12px;color:#1c2333;margin-left:-1px}
+.seg.on{background:#e3edfb;border-color:#2f6fdb;color:#1f4f9e;font-weight:500;position:relative}
+.r{display:flex;align-items:center;height:32px;border-bottom:1px solid #eef2f7;font-size:12px}
+.r.h{background:#f7f9fb;color:#5b6577;font-size:11px;height:28px;border-bottom:1px solid #d9dfe8}
+.c{padding:0 10px;box-sizing:border-box;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n{text-align:right}
+.bar{position:absolute;height:8px;border-radius:2px}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.lg{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#5b6577}
+</style>
+</helmet>
+<div class="w" style="width: 1400px; height: 860px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button><button class="lt" aria-label="최소화" style="background: #febc2e"></button><button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">비교판 — 5층 사무동 신축</div>
+  </div>
+  <div style="height: 46px; flex: none; border-bottom: 1px solid #d9dfe8; display: flex; align-items: center; padding: 0 14px; gap: 8px">
+    <span style="color: #5b6577; font-size: 12px">기준</span><button class="btn"><span style="display: inline-block; width: 10px; height: 10px; background: #8a94a6; border-radius: 2px; margin-right: 6px"></span>현재 일정 (지연 4일 반영) ▾</button>
+    <span style="color: #5b6577; font-size: 12px">비교</span><button class="btn"><span style="display: inline-block; width: 10px; height: 10px; background: #2f6fdb; border-radius: 2px; margin-right: 6px"></span>만회안 B · 크레인 2대 ▾</button>
+    <span style="width: 12px"></span>
+    <span style="color: #5b6577; font-size: 12px">보기</span><button class="seg on" style="border-radius: 6px 0 0 6px; margin-left: 0">같은 차트 (위아래 줄)</button><button class="seg">좌우 비교</button><button class="seg">위아래 비교</button><button class="seg" style="border-radius: 0 6px 6px 0">차이 표</button>
+    <div style="flex: 1"></div>
+    <button class="btn">+ 만약에 복사본</button><button class="btn">복사본 버리기</button><button class="btn pri">이 안을 반영 (승인함으로)</button>
+  </div>
+
+  <!-- 여러 안 요약 -->
+  <div style="flex: none; border-bottom: 2px solid #cfd6e0">
+    <div class="r h"><div class="c" style="width: 280px">안</div><div class="c n" style="width: 110px">준공</div><div class="c n" style="width: 120px">Plan 대비</div><div class="c n" style="width: 110px">기한 여유</div><div class="c n" style="width: 110px">크리티컬 수</div><div class="c n" style="width: 110px">조건 위반</div><div class="c n" style="width: 150px">자원 최고 부하</div><div class="c" style="flex: 1">바꾸는 것</div></div>
+    <sc-for list="{{alts}}" as="a" hint-placeholder-count="5">
+      <div class="r" style="background: {{a.bg}}; font-weight: {{a.fw}}"><div class="c" style="width: 280px"><span style="display: inline-block; width: 10px; height: 10px; background: {{a.sw}}; border-radius: 2px; margin-right: 8px"></span>{{a.name}}</div><div class="c n" style="width: 110px">{{a.end}}</div><div class="c n" style="width: 120px; color: {{a.vc}}">{{a.v}}</div><div class="c n" style="width: 110px">{{a.fl}}</div><div class="c n" style="width: 110px">{{a.cr}}</div><div class="c n" style="width: 110px; color: {{a.xc}}">{{a.x}}</div><div class="c n" style="width: 150px">{{a.ld}}</div><div class="c" style="flex: 1; color: #5b6577; font-weight: 400">{{a.ch}}</div></div>
+    </sc-for>
+  </div>
+
+  <!-- 겹쳐 보기 -->
+  <div style="height: 30px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 14px; background: #f7f9fb; border-bottom: 1px solid #d9dfe8">
+    <b style="font-size: 12px">같은 차트 — 액티비티마다 윗줄은 기준, 아랫줄은 비교 · 달라진 액티비티 6개</b>
+    <span class="lg"><span style="width: 16px; height: 6px; background: #8a94a6; display: inline-block; border-radius: 2px"></span>기준</span>
+    <span class="lg"><span style="width: 16px; height: 6px; background: #2f6fdb; display: inline-block; border-radius: 2px"></span>비교 · 당겨짐</span>
+    <span class="lg"><span style="width: 16px; height: 6px; background: #d98a1c; display: inline-block; border-radius: 2px"></span>비교 · 밀림</span>
+    <div style="flex: 1"></div><button class="btn">달라진 것만</button><button class="btn">전체</button>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex">
+    <div style="width: 540px; flex: none; border-right: 2px solid #cfd6e0">
+      <div class="r h"><div class="c" style="width: 80px">ID</div><div class="c" style="flex: 1">이름</div><div class="c" style="width: 70px">구분</div><div class="c n" style="width: 78px">시작 차이</div><div class="c n" style="width: 78px">종료 차이</div><div class="c n" style="width: 60px">OD</div></div>
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+        <div class="r" style="height: 36px"><div class="c" style="width: 80px">{{r.id}}</div><div class="c" style="flex: 1">{{r.name}}</div><div class="c" style="width: 70px; font-size: 11px; line-height: 14px; border-left: 1px solid #eef2f7; height: 100%; display: flex; flex-direction: column; justify-content: center"><span><span style="display: inline-block; width: 8px; height: 8px; background: #8a94a6; border-radius: 2px; margin-right: 5px"></span>기준</span><span><span style="display: inline-block; width: 8px; height: 8px; background: {{r.ac}}; border-radius: 2px; margin-right: 5px"></span>비교</span></div><div class="c n" style="width: 78px; color: {{r.c}}">{{r.ds}}</div><div class="c n" style="width: 78px; color: {{r.c}}; font-weight: 500">{{r.de}}</div><div class="c n" style="width: 60px">{{r.od}}</div></div>
+      </sc-for>
+    </div>
+    <div style="flex: 1; min-width: 0; position: relative; overflow: hidden">
+      <div class="r h" style="padding: 0"><sc-for list="{{months}}" as="m" hint-placeholder-count="6"><div style="width: 140px; flex: none; padding-left: 8px; border-right: 1px solid #d9dfe8; box-sizing: border-box; height: 100%; display: flex; align-items: center">{{m}}</div></sc-for></div>
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+        <div class="r" style="height: 36px; position: relative">
+          <div style="position: absolute; left: 0; right: 0; top: 18px; border-top: 1px dotted #d9dfe8"></div><div class="bar" style="left: {{r.bl}}; width: {{r.bw}}; top: 6px; background: #8a94a6"></div>
+          <div class="bar" style="left: {{r.al}}; width: {{r.aw}}; top: 23px; background: {{r.ac}}"></div>
+          <span style="position: absolute; left: {{r.tl}}; top: 10px; font-size: 11px; color: {{r.c}}; font-weight: 500">{{r.de}}</span>
+        </div>
+      </sc-for>
+      <div style="position: absolute; left: 826px; top: 28px; bottom: 0; border-left: 2px dashed #c93b3b"></div>
+      <span style="position: absolute; left: 758px; top: 30px; font-size: 11px; color: #9b2c2c; background: #fff; padding: 0 3px">기한 11.30</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1400,"height":860}}'>
+class Component extends DCLogic {
+renderVals() {
+  const ar = [
+    ['처음 Plan (버전 1)', '#cfd6e0', '11.24', '—', '6일', '7', '0', '크레인 1대 100%', '', 0],
+    ['현재 일정 (지연 4일 반영)', '#8a94a6', '11.28', '+4일', '2일', '7', '1', '크레인 2대 필요', '기준', 1],
+    ['만회안 A · 마감 2개 층 병행', '#17703f', '11.24', '0일', '6일', '9', '0', '마감반 2조 필요', '내부 마감 병행, 인원 추가', 0],
+    ['만회안 B · 크레인 2대', '#2f6fdb', '11.12', '−12일', '18일', '6', '0', '크레인 2대 100%', '타워크레인 1 → 2대', 2],
+    ['만약에 · 주 7일 근무', '#d98a1c', '11.09', '−15일', '21일', '7', '1', '철근공 12명 필요', '달력 주 6 → 7일 (철근공 부족)', 0]
+  ];
+  const alts = ar.map((a) => ({ name: a[0], sw: a[1], end: a[2], v: a[3], fl: a[4], cr: a[5], x: a[6], ld: a[7], ch: a[8], bg: a[9] === 2 ? '#e3edfb' : (a[9] === 1 ? '#f7f9fb' : 'transparent'), fw: a[9] ? 700 : 400, vc: a[3][0] === '+' ? '#9b2c2c' : (a[3][0] === '−' ? '#17703f' : '#1c2333'), xc: a[6] === '0' ? '#1c2333' : '#9b2c2c' }));
+  const px = (d) => Math.round(d * 140 / 30.4) + 'px';
+  // 기준 시작일(6/1=0), 길이, 비교 시작, 길이
+  const rr = [['A2020', '지상 1~5층 골조', 50, 0, 48, 0, 48], ['A3010', '외장 패널', 35, 48, 48, 36, 48], ['A3020', '전기·기계 배관', 40, 14, 53, 14, 53], ['A3030', '승강기 설치', 25, 70, 32, 62, 32], ['A4010', '내부 마감', 45, 97, 62, 85, 62], ['A4020', '시운전·검사', 12, 160, 15, 148, 15], ['A4030', '준공', 0, 180, 2, 164, 2]];
+  const rows = rr.map((r) => { const de = (r[5] + r[6]) - (r[3] + r[4]), ds = r[5] - r[3]; const f = (v) => v === 0 ? '0' : (v < 0 ? '−' + (-v) + '일' : '+' + v + '일'); return { id: r[0], name: r[1], od: r[2] || '◇', ds: f(ds), de: f(de), c: de < 0 ? '#17703f' : (de > 0 ? '#8a5411' : '#5b6577'), bl: px(r[3]), bw: px(r[4]), al: px(r[5]), aw: px(r[6]), ac: de > 0 ? '#d98a1c' : '#2f6fdb', tl: px(r[3] + r[4] + 3) }; });
+  return { alts, rows, months: ['2027년 6월', '7월', '8월', '9월', '10월', '11월'] };
+}
+}
+</script>
+</body>
+</html>

@@ -29,6 +29,7 @@ stage "줄 수 검사 시험" docker compose run --rm -T -v "${ROOT}/scripts:/sc
 stage "ruff check" backend ruff check .
 stage "pytest" backend pytest -q
 stage "eslint" frontend npm run lint
+stage "tsc" frontend npm run typecheck
 stage "vitest run" frontend npm test
 stage "vite build" frontend npm run build
 

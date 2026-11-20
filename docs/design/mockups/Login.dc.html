@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>ChronOS 로그인</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+</style>
+</helmet>
+<div style="width: 1920px; height: 1080px; position: relative; background: linear-gradient(160deg, #0f1a33 0%, #1b2a4a 55%, #2a2f6b 100%); font-family: Pretendard, 'Noto Sans KR', system-ui, sans-serif; color: #1c2333; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px">
+  <div style="text-align: center; color: #f4f6fa">
+    <div style="font-size: 44px; line-height: 52px; font-weight: 700; letter-spacing: -.5px">ChronOS</div>
+    <div style="font-size: 16px; line-height: 24px; color: #cfd6e0; margin-top: 6px">일정을 만들고, 지키고, 고치는 에이전트 OS</div>
+  </div>
+  <form style="width: 380px; background: #fff; border-radius: 14px; padding: 28px; box-shadow: 0 16px 48px rgba(8,14,32,.5); display: flex; flex-direction: column; gap: 14px; box-sizing: border-box">
+    <div style="font-size: 20px; line-height: 28px; font-weight: 700">로그인</div>
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #5b6577">아이디
+      <input type="text" value="jhsohn" style="height: 44px; border: 1px solid #b9c2d0; border-radius: 8px; padding: 0 12px; font: inherit; font-size: 14px; color: #1c2333">
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #5b6577">비밀번호
+      <input type="password" value="password" style="height: 44px; border: 1px solid #b9c2d0; border-radius: 8px; padding: 0 12px; font: inherit; font-size: 14px; color: #1c2333">
+    </label>
+    <button type="button" style="height: 44px; border: 0; border-radius: 8px; background: #2f6fdb; color: #fff; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 6px">들어가기</button>
+    <div style="font-size: 12px; line-height: 16px; color: #5b6577">계정은 관리자가 만듭니다. 등급은 관리자와 사용자 두 가지입니다.</div>
+  </form>
+  <div style="position: absolute; bottom: 28px; color: #b9c2d0; font-size: 12px">2026 .EXE-THON 출품작 · Liner API로 동작합니다</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

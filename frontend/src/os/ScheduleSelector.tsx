@@ -1,0 +1,61 @@
+import { useCallback, useEffect, useState } from 'react';
+import { api } from '../shared/api';
+import { useCurrentSchedule } from './currentSchedule';
+import MenuButton from './MenuButton';
+
+interface ScheduleItem {
+  id: number;
+  name: string;
+  level?: string;
+}
+
+const itemText = (s: ScheduleItem) => (s.level ? `${s.name} · ${s.level}` : s.name);
+
+/** 메뉴바 현장 선택. GET /api/schedules 를 펼칠 때마다 다시 읽는다. */
+export default function ScheduleSelector() {
+  const current = useCurrentSchedule((s) => s.current);
+  const setCurrent = useCurrentSchedule((s) => s.setCurrent);
+  const [items, setItems] = useState<ScheduleItem[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const load = useCallback(() => {
+    api<ScheduleItem[]>('/api/schedules')
+      .then((list) => {
+        setItems(list);
+        setFailed(false);
+        const cur = useCurrentSchedule.getState().current;
+        if (cur && !list.some((s) => s.id === cur.id)) useCurrentSchedule.getState().setCurrent(null);
+      })
+      .catch(() => setFailed(true));
+  }, []);
+
+  useEffect(load, [load]);
+
+  const known = current ? items?.find((s) => s.id === current.id) : undefined;
+  const label = current ? (known ? itemText(known) : current.name) : items?.length === 0 ? '일정 없음' : '일정 고르기';
+
+  return (
+    <MenuButton label={label} className="os-mb-site" onOpen={load}>
+      {(close) => (
+        <>
+          {failed && <div className="os-menu-note">일정 목록을 불러오지 못했습니다.</div>}
+          {items?.length === 0 && <div className="os-menu-note">일정 없음</div>}
+          {items?.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              role="menuitem"
+              className={`os-menu-item${s.id === current?.id ? ' is-current' : ''}`}
+              onClick={() => {
+                setCurrent({ id: s.id, name: s.name });
+                close();
+              }}
+            >
+              {itemText(s)}
+            </button>
+          ))}
+        </>
+      )}
+    </MenuButton>
+  );
+}

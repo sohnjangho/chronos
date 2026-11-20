@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>탐색기</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.btn.pri{background:#2f6fdb;border-color:#2f6fdb;color:#fff}
+.nav{display:flex;width:100%;text-align:left;border:0;background:none;padding:7px 12px;border-radius:8px;color:#1c2333;gap:8px}
+.nav.on{background:#e3edfb;color:#1f4f9e;font-weight:500}
+.nav span:last-child{margin-left:auto;color:#5b6577;font-size:12px}
+.grp{font-size:11px;color:#5b6577;padding:12px 12px 4px}
+.r{display:flex;align-items:center;height:36px;border-bottom:1px solid #eef2f7}
+.r.h{background:#f7f9fb;color:#5b6577;font-size:11px;height:28px;border-bottom:1px solid #d9dfe8}
+.r.on{background:#e3edfb}
+.c{padding:0 12px;box-sizing:border-box;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ic{display:inline-block;width:18px;height:18px;border-radius:4px;margin-right:8px;vertical-align:-4px;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:18px}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.kv{display:flex;padding:5px 0;gap:8px;font-size:12px}
+.kv span:first-child{width:70px;color:#5b6577;flex:none}
+.ver{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #eef2f7;font-size:12px;align-items:center}
+</style>
+</helmet>
+<div class="w" style="width: 1100px; height: 720px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button><button class="lt" aria-label="최소화" style="background: #febc2e"></button><button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">탐색기</div>
+  </div>
+  <div style="height: 44px; flex: none; border-bottom: 1px solid #d9dfe8; display: flex; align-items: center; padding: 0 12px; gap: 8px">
+    <span style="color: #5b6577">작업 공간 › 일정 › </span><b>5층 사무동 신축</b>
+    <div style="flex: 1"></div>
+    <input aria-label="찾기" placeholder="이름으로 찾기" style="height: 30px; width: 180px; border: 1px solid #b9c2d0; border-radius: 6px; padding: 0 10px; font: inherit; font-size: 12px">
+    <button class="btn pri">+ 문서 올리기</button><button class="btn">가져오기</button><button class="btn">내보내기</button>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex">
+    <div style="width: 210px; flex: none; border-right: 1px solid #d9dfe8; background: #f7f9fb; padding: 6px 8px; box-sizing: border-box">
+      <div class="grp">일정</div>
+      <button class="nav on"><span>5층 사무동 신축</span><span>건설</span></button>
+      <button class="nav"><span>부품 공장 6월 생산</span><span>생산</span></button>
+      <button class="nav"><span>신소재 과제</span><span>연구</span></button>
+      <button class="nav"><span>가전 인증·출시</span><span>사업화</span></button>
+      <div class="grp">작업 공간</div>
+      <button class="nav"><span>워크플로우·스킬</span><span>7</span></button>
+      <button class="nav"><span>보고서</span><span>3</span></button>
+      <button class="nav"><span>보고서 양식</span><span>3</span></button>
+      <button class="nav"><span>일정 틀</span><span>2</span></button>
+      <button class="nav"><span>휴지통</span><span>1</span></button>
+    </div>
+    <div style="flex: 1; min-width: 0">
+      <div class="r h"><div class="c" style="flex: 1">이름</div><div class="c" style="width: 100px">종류</div><div class="c" style="width: 110px">고친 때</div><div class="c" style="width: 80px">고친 이</div></div>
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="11">
+        <div class="r {{r.cls}}"><div class="c" style="flex: 1; padding-left: {{r.pad}}; font-weight: {{r.fw}}"><span class="ic" style="background: {{r.ic}}">{{r.it}}</span>{{r.name}}</div><div class="c" style="width: 100px; color: #5b6577">{{r.kind}}</div><div class="c" style="width: 110px; color: #5b6577">{{r.when}}</div><div class="c" style="width: 80px; color: #5b6577">{{r.who}}</div></div>
+      </sc-for>
+    </div>
+    <div style="width: 290px; flex: none; border-left: 1px solid #d9dfe8; padding: 14px 16px; box-sizing: border-box">
+      <b style="font-size: 14px">일정 — 현재</b>
+      <div class="kv" style="margin-top: 8px"><span>분야</span><span>건설 · L3 관리</span></div>
+      <div class="kv"><span>액티비티</span><span>62개 · 관계 81개</span></div>
+      <div class="kv"><span>준공</span><span>2027.11.28 (Plan 11.24)</span></div>
+      <div class="kv"><span>조건</span><span>14개</span></div>
+      <div style="display: flex; gap: 6px; margin-top: 10px"><button class="btn pri">일정판에서 열기</button><button class="btn">엑셀로 내보내기</button></div>
+      <div style="font-weight: 700; margin: 16px 0 4px">버전</div>
+      <div class="ver"><span class="badge" style="background: #e3edfb; color: #1f4f9e">3 현재</span><span style="flex: 1">실적 반영 (05.31)<br><span style="color: #5b6577">자동 적용 · 에이전트</span></span></div>
+      <div class="ver"><span class="badge" style="background: #eef2f7; color: #5b6577">2</span><span style="flex: 1">크레인 설치 2일 당김<br><span style="color: #5b6577">손장호 · 직접 수정</span></span><button class="btn">되돌리기</button></div>
+      <div class="ver"><span class="badge" style="background: #eef2f7; color: #5b6577">1 Plan</span><span style="flex: 1">처음 생성 (승인)<br><span style="color: #5b6577">11.19 · 에이전트</span></span><button class="btn">비교</button></div>
+      <button class="btn" style="margin-top: 10px; width: 100%">변경 이력 전체 보기</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1100,"height":720}}'>
+class Component extends DCLogic {
+renderVals() {
+  const K = { s: ['#2559b5', '일정'], f: ['#5b6577', ''], d: ['#c93b3b', 'PDF'], w: ['#2f6fdb', 'DOC'], x: ['#1f7a4d', 'XLS'], p: ['#d98a1c', 'PPT'], i: ['#8a94a6', 'IMG'], c: ['#14213d', '복사'] };
+  const raw = [
+    ['일정 — 현재', 's', '일정', '오늘 22:05', '에이전트', 0, 1],
+    ['만약에 복사본', 'f', '폴더', '오늘', '', 0, 0],
+    ['만회안 A · 마감 병행', 'c', '복사본', '오늘 22:31', '에이전트', 1, 0],
+    ['만회안 B · 크레인 2대', 'c', '복사본', '오늘 22:31', '에이전트', 1, 0],
+    ['문서', 'f', '폴더', '오늘', '', 0, 0],
+    ['공사 계약 일반조건.pdf', 'd', 'PDF', '11.19', '손장호', 1, 0],
+    ['회의록_0521.docx', 'w', 'Word', '11.19', '손장호', 1, 0],
+    ['주간보고_5월4주.pptx', 'p', 'PPT', '11.19', '손장호', 1, 0],
+    ['자재 반입 계획.xlsx', 'x', '엑셀', '11.19', '손장호', 1, 0],
+    ['현장 배치도.png', 'i', '그림', '11.19', '손장호', 1, 0],
+    ['근거', 'f', '폴더 · 2건', '오늘', '에이전트', 0, 0]
+  ];
+  const rows = raw.map((r) => ({ name: r[0], ic: K[r[1]][0], it: K[r[1]][1].slice(0, 3), kind: r[2], when: r[3], who: r[4], pad: r[5] ? '36px' : '12px', fw: r[1] === 'f' ? 700 : 400, cls: r[6] ? 'on' : '' }));
+  return { rows };
+}
+}
+</script>
+</body>
+</html>

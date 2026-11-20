@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>개발 콘솔 A안</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.tab{border:0;background:none;padding:10px 12px;color:#5b6577;border-bottom:2px solid transparent;font-size:13px}
+.tab.on{color:#2a64c7;font-weight:700;border-bottom-color:#2f6fdb}
+.nd{position:absolute;width:190px;background:#fff;border:1.5px solid #b9c2d0;border-radius:10px;padding:8px 12px;box-sizing:border-box;text-align:left;color:#1c2333}
+.nd b{display:block}
+.nd small{color:#5b6577;font-size:11px}
+.nd.done{border-color:#1f9d55}
+.nd.now{border-color:#2f6fdb;box-shadow:0 0 0 4px rgba(47,111,219,.22);background:#f4f8fe}
+.src{position:absolute;width:170px;background:#f7f9fb;border:1px dashed #b9c2d0;border-radius:8px;padding:6px 10px;box-sizing:border-box;font-size:12px;color:#5b6577}
+.ln{position:absolute;background:#8a94a6}
+.ln.g{background:#1f9d55}.ln.b{background:#2f6fdb}
+.lb{position:absolute;font-size:11px;color:#5b6577;background:#fbfcfd;padding:0 4px}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.kv{display:flex;padding:6px 0;border-bottom:1px solid #eef2f7;gap:8px}
+.kv span:first-child{width:84px;color:#5b6577;flex:none}
+.code{background:#1c2333;color:#e6ebf2;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:16px;white-space:pre;overflow:hidden}
+.seg{display:flex;height:12px;border-radius:3px;overflow:hidden;margin:6px 0}
+</style>
+</helmet>
+<div class="w" style="width: 1500px; height: 900px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button><button class="lt" aria-label="최소화" style="background: #febc2e"></button><button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">개발 콘솔 — 관리자</div>
+  </div>
+  <div style="flex: none; display: flex; align-items: center; border-bottom: 1px solid #d9dfe8; padding: 0 10px">
+    <button class="tab on">에이전트 구조</button><button class="tab">실행 추적</button><button class="tab">컨텍스트</button><button class="tab">사용량·비용</button><button class="tab">도구</button><button class="tab">하네스 기록</button><button class="tab">지시문</button><button class="tab">루프·모델 설정</button><button class="tab">시나리오 시험</button><button class="tab">시스템 상태</button>
+    <div style="flex: 1"></div>
+    <button class="btn">요청: 골조 지연 만회 계획 (실행 중) ▾</button>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex">
+    <!-- 구조 그림 -->
+    <div style="flex: 1; min-width: 0; position: relative; overflow: hidden; background-image: radial-gradient(#d9dfe8 1px, transparent 1px); background-size: 20px 20px; background-color: #fbfcfd">
+      <div style="position: absolute; left: 20px; top: 14px; display: flex; gap: 14px; font-size: 12px; color: #5b6577; background: #fff; border: 1px solid #d9dfe8; border-radius: 6px; padding: 6px 10px">
+        <span>루프 <b style="color: #1c2333">4바퀴</b> / 한도 12</span><span>도구 호출 <b style="color: #1c2333">5</b></span><span>모델 호출 <b style="color: #1c2333">4</b></span><span>토큰 <b style="color: #1c2333">21.4K</b></span><span>$0.12</span><span>12.8초째</span>
+      </div>
+
+      <!-- 세로 흐름 -->
+      <div class="ln g" style="left: 414px; top: 108px; width: 2px; height: 24px"></div>
+      <div class="ln g" style="left: 414px; top: 186px; width: 2px; height: 24px"></div>
+      <div class="ln g" style="left: 414px; top: 264px; width: 2px; height: 24px"></div>
+      <div class="ln g" style="left: 414px; top: 342px; width: 2px; height: 34px"></div>
+      <div class="ln b" style="left: 414px; top: 430px; width: 2px; height: 46px"></div>
+      <div class="ln" style="left: 414px; top: 530px; width: 2px; height: 34px"></div>
+      <div class="ln" style="left: 414px; top: 618px; width: 2px; height: 30px"></div>
+      <!-- 컨텍스트 재료 -->
+      <div class="ln" style="left: 220px; top: 158px; width: 100px; height: 2px"></div>
+      <!-- 스킬 갈래 -->
+      <div class="ln" style="left: 510px; top: 236px; width: 110px; height: 2px"></div>
+      <div class="lb" style="left: 524px; top: 218px">맞는 스킬 있음</div>
+      <div class="lb" style="left: 424px; top: 266px">없음</div>
+      <!-- 판단 ⇄ 도구 루프 -->
+      <div class="ln b" style="left: 510px; top: 392px; width: 110px; height: 2px"></div>
+      <div class="ln b" style="left: 510px; top: 414px; width: 110px; height: 2px"></div>
+      <div class="lb" style="left: 530px; top: 374px; color: #1f4f9e">호출</div>
+      <div class="lb" style="left: 524px; top: 418px; color: #1f4f9e">결과 관찰</div>
+      <!-- 조건 점검 되돌아감 -->
+      <div class="ln b" style="left: 250px; top: 502px; width: 70px; height: 2px"></div>
+      <div class="ln b" style="left: 250px; top: 402px; width: 2px; height: 102px"></div>
+      <div class="ln b" style="left: 250px; top: 402px; width: 70px; height: 2px"></div>
+      <div class="lb" style="left: 146px; top: 444px; color: #1f4f9e">위반 → 고쳐서 다시</div>
+      <!-- 승인 갈래 -->
+      <div class="ln" style="left: 510px; top: 590px; width: 110px; height: 2px"></div>
+      <div class="lb" style="left: 524px; top: 572px">중요한 변경</div>
+
+      <button class="nd done" style="left: 320px; top: 54px"><b>요청 받기</b><small>대화창 · 보는 화면 포함</small></button>
+      <button class="nd done" style="left: 320px; top: 132px"><b>컨텍스트 조립</b><small>9.8K 토큰 · 6가지 재료</small></button>
+      <button class="nd done" style="left: 320px; top: 210px"><b>스킬 찾기</b><small>4개 중 맞는 것 없음</small></button>
+      <button class="nd done" style="left: 320px; top: 288px"><b>워크플로우 짜기</b><small>6단계 · 라우터 balanced</small></button>
+      <button class="nd done" style="left: 320px; top: 376px"><b>판단 (모델)</b><small>4번째 · 라우터 quality</small></button>
+      <button class="nd now" style="left: 320px; top: 476px"><b>조건 점검</b><small>하네스 네 겹 · 2회차 진행 중</small></button>
+      <button class="nd" style="left: 320px; top: 564px"><b>승인 판단</b><small>자동 적용 / 승인 필요</small></button>
+      <button class="nd" style="left: 320px; top: 648px"><b>응답 · 기록</b><small>버전 · 변경 이력 · 추적</small></button>
+
+      <button class="nd done" style="left: 620px; top: 376px; width: 180px"><b>도구 실행</b><small>등록부 21개 중 5번 호출</small></button>
+      <button class="nd" style="left: 620px; top: 210px; width: 180px; border-style: dashed"><b>스킬 실행</b><small>순서 고정 · 빈칸만 채움</small></button>
+      <button class="nd" style="left: 620px; top: 564px; width: 180px; border-style: dashed"><b>승인함</b><small>사람이 승인·거부</small></button>
+
+      <div class="src" style="left: 50px; top: 78px">기본·분야 지시문</div>
+      <div class="src" style="left: 50px; top: 112px">하네스 조건 14개</div>
+      <div class="src" style="left: 50px; top: 146px">스킬 목록 (이름·한 줄)</div>
+      <div class="src" style="left: 50px; top: 180px">내 규칙 1개</div>
+      <div class="src" style="left: 50px; top: 214px">화면 맥락 · 대화</div>
+
+      <div style="position: absolute; left: 20px; bottom: 14px; display: flex; gap: 14px; font-size: 11px; color: #5b6577; background: #fff; border: 1px solid #d9dfe8; border-radius: 6px; padding: 6px 10px">
+        <span><span style="display: inline-block; width: 10px; height: 10px; border: 1.5px solid #1f9d55; border-radius: 3px; margin-right: 5px"></span>지나감</span>
+        <span><span style="display: inline-block; width: 10px; height: 10px; border: 1.5px solid #2f6fdb; background: #f4f8fe; border-radius: 3px; margin-right: 5px"></span>지금</span>
+        <span><span style="display: inline-block; width: 10px; height: 10px; border: 1.5px solid #b9c2d0; border-radius: 3px; margin-right: 5px"></span>아직</span>
+        <span>칸을 누르면 오른쪽에 상세가 열립니다</span>
+      </div>
+    </div>
+
+    <!-- 상세 -->
+    <div style="width: 440px; flex: none; border-left: 2px solid #cfd6e0; padding: 14px 18px; box-sizing: border-box; overflow: hidden">
+      <div style="display: flex; align-items: center; gap: 8px"><b style="font-size: 15px; flex: 1">조건 점검</b><span class="badge" style="background: #e3edfb; color: #1f4f9e">지금 · 2회차</span></div>
+      <div class="kv" style="margin-top: 8px"><span>하는 일</span><span>기본 · 분야 · 내 규칙 · 입력 조건을 코드로 하나씩 확인하고, 위반 목록을 판단 단계로 돌려보냅니다.</span></div>
+      <div class="kv"><span>모델</span><span>쓰지 않음 (코드)</span></div>
+      <div class="kv"><span>이번 요청</span><span>1회차 위반 1 → 2회차 진행 중 · 한도 5회</span></div>
+      <div style="font-weight: 700; margin: 12px 0 4px">들어간 것</div>
+      <div class="code">alternative: "B (크레인 2대)"
+changed: 6 activities, 1 condition
+conditions: 14</div>
+      <div style="font-weight: 700; margin: 12px 0 4px">나온 것 (1회차)</div>
+      <div class="code">violations: [
+  { id: "res.crane", layer: "입력",
+    need: 2, have: 1, when: "07-2주" } ]
+→ 판단 단계로 되돌림</div>
+      <div style="font-weight: 700; margin: 12px 0 4px">컨텍스트 구성 (판단 단계 4번째 호출)</div>
+      <div class="seg"><div style="width: 22%; background: #14213d"></div><div style="width: 18%; background: #2559b5"></div><div style="width: 9%; background: #4f8cff"></div><div style="width: 6%; background: #1f9d55"></div><div style="width: 30%; background: #d98a1c"></div><div style="width: 15%; background: #8a94a6"></div></div>
+      <div style="font-size: 11px; color: #5b6577; line-height: 17px">지시문 22% · 하네스 18% · 스킬 목록 9% · 내 규칙 6% · 도구 결과 30% · 대화 15% (합 9.8K 토큰)</div>
+      <div style="font-weight: 700; margin: 12px 0 4px">관련 설정</div>
+      <div class="kv"><span>점검 한도</span><span>5회 <a href="https://example.com">바꾸기</a></span></div>
+      <div class="kv"><span>승인 수준</span><span>중요한 것만 <a href="https://example.com">바꾸기</a></span></div>
+      <div style="display: flex; gap: 6px; margin-top: 12px"><button class="btn">실행 추적에서 원문 보기</button><button class="btn">하네스 기록</button></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1500,"height":900}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

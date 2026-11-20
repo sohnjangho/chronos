@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>알림</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:4px 10px;font-size:12px;color:#1c2333}
+.chip{border:1px solid #cfd6e0;background:#fff;border-radius:999px;padding:3px 10px;font-size:12px;color:#1c2333}
+.chip.on{background:#e3edfb;border-color:#2f6fdb;color:#1f4f9e}
+.n{padding:11px 14px;border-bottom:1px solid #eef2f7;display:flex;gap:10px}
+.n.new{background:#f4f8fe}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;margin-top:5px}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.t{color:#5b6577;font-size:12px}
+.grp{font-size:11px;color:#5b6577;padding:10px 14px 4px;background:#f7f9fb;border-bottom:1px solid #eef2f7}
+</style>
+</helmet>
+<div class="w" style="width: 520px; height: 720px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button><button class="lt" aria-label="최소화" style="background: #febc2e"></button><button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">알림</div>
+  </div>
+  <div style="height: 44px; flex: none; border-bottom: 1px solid #d9dfe8; display: flex; align-items: center; padding: 0 12px; gap: 6px">
+    <button class="chip on">전체 3</button><button class="chip">주의</button><button class="chip">승인</button><button class="chip">자동 적용</button>
+    <div style="flex: 1"></div><button class="btn">모두 읽음</button>
+  </div>
+  <div style="flex: 1; min-height: 0; overflow: hidden">
+    <div class="grp">오늘</div>
+    <div class="n new"><span class="dot" style="background: #c93b3b"></span><div style="flex: 1"><div><span class="badge" style="background: #fbe0e0; color: #9b2c2c">승인 요청</span> <b>만회안 B 반영 — 크레인 2대</b></div><div class="t">준공일이 바뀝니다 (11.28 → 11.12) · 2분 전</div><div style="margin-top: 6px"><button class="btn">승인함에서 보기</button></div></div></div>
+    <div class="n new"><span class="dot" style="background: #c93b3b"></span><div style="flex: 1"><div><span class="badge" style="background: #fbe0e0; color: #9b2c2c">지연</span> <b>A2020 지상 1~5층 골조 +4일</b></div><div class="t">크리티컬 · 준공 영향 +4일 · 5층 사무동 신축 · 18분 전</div><div style="margin-top: 6px; display: flex; gap: 6px"><button class="btn">간트에서 보기</button><button class="btn">지연 기록</button></div></div></div>
+    <div class="n new"><span class="dot" style="background: #2f6fdb"></span><div style="flex: 1"><div><span class="badge" style="background: #e3edfb; color: #1f4f9e">자동 적용</span> <b>에이전트가 3건을 반영했습니다</b></div><div class="t">실적 입력에 따른 재계산 · 모두 여유 안에서 흡수 · 21분 전</div><div style="margin-top: 6px; display: flex; gap: 6px"><button class="btn">내용 보기</button><button class="btn">되돌리기</button></div></div></div>
+    <div class="n"><span class="dot" style="background: #cfd6e0"></span><div style="flex: 1"><div><span class="badge" style="background: #fbebd0; color: #8a5411">자원 부족</span> 타워크레인 7월 2주 · 2대 필요</div><div class="t">조건·규칙에서 확인 · 1시간 전</div></div></div>
+    <div class="n"><span class="dot" style="background: #cfd6e0"></span><div style="flex: 1"><div><span class="badge" style="background: #fbebd0; color: #8a5411">기한 임박</span> 준공 기한 11.30 · 여유 2일</div><div class="t">OS를 열 때 점검 · 1시간 전</div></div></div>
+    <div class="grp">어제</div>
+    <div class="n"><span class="dot" style="background: #cfd6e0"></span><div style="flex: 1"><div><span class="badge" style="background: #dff3e6; color: #17703f">완료</span> 보고서 「일정 요약 · 5월 4주」를 만들었습니다</div><div class="t">발주처 주간 양식 · 어제 17:20</div></div></div>
+    <div class="n"><span class="dot" style="background: #cfd6e0"></span><div style="flex: 1"><div><span class="badge" style="background: #eef2f7; color: #5b6577">스킬 제안</span> "설비 고장 대응"을 세 번 실행했습니다</div><div class="t">스킬로 등록할까요? · 어제 15:02</div></div></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":520,"height":720}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

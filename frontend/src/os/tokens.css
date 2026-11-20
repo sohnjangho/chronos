@@ -1,0 +1,35 @@
+/* 색·글꼴 값은 여기 변수만 쓴다(시안과 같은 값). */
+:root {
+  --bg-topbar: #14213d;
+  --bg-app: #f3f5f8;
+  --bg-panel: #fff;
+  --bg-panel-alt: #f7f9fb;
+  --bg-selected: #e3edfb;
+  --bg-desktop: linear-gradient(160deg, #0f1a33 0%, #1b2a4a 55%, #2a2f6b 100%);
+  --fg: #1c2333;
+  --fg-muted: #5b6577;
+  --border: #d9dfe8;
+  --border-strong: #b9c2d0;
+  --accent: #2f6fdb;
+  --accent-text: #2a64c7;
+  --danger: #c93b3b;
+  --danger-text: #9b2c2c;
+  --success: #1f9d55;
+  --success-text: #17703f;
+  --warning: #d98a1c;
+  --warning-text: #8a5411;
+  --tone-info-bg: #e3edfb;
+  --tone-info-fg: #1f4f9e;
+  --tone-success-bg: #dff3e6;
+  --tone-warning-bg: #fbebd0;
+  --tone-danger-bg: #fbe0e0;
+  --radius-2: 6px;
+  --radius-3: 8px;
+  --radius-4: 12px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --row-h: 32px;
+  --topbar-h: 44px;
+  --font-sans: "Pretendard Variable", Pretendard, "Noto Sans KR", system-ui, sans-serif;
+}

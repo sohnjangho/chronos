@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>일정판 진행</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.tab{border:0;background:none;padding:10px 16px;color:#5b6577;border-bottom:2px solid transparent}
+.tab.on{color:#2a64c7;font-weight:700;border-bottom-color:#2f6fdb}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.seg{border:1px solid #cfd6e0;background:#fff;padding:4px 10px;font-size:12px;color:#1c2333}
+.seg.on{background:#e3edfb;border-color:#2f6fdb;color:#1f4f9e;font-weight:500}
+.panel{border:1px solid #d9dfe8;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;min-width:0;box-sizing:border-box;background:#fff}
+.pt{font-weight:700;font-size:13px;display:flex;align-items:center;gap:12px}
+.lg{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#5b6577;font-weight:400}
+.st{flex:1;padding:0 18px;border-left:1px solid #d9dfe8}
+.st .l{font-size:12px;color:#5b6577}
+.st .v{font-size:22px;line-height:28px;font-weight:700;margin-top:2px}
+.st .s{font-size:12px;color:#5b6577}
+.r{display:flex;align-items:center;height:30px;border-bottom:1px solid #eef2f7;gap:8px;font-size:12px}
+.r.h{color:#5b6577;height:26px;font-size:11px}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.track{flex:1;height:16px;background:#eef2f7;border-radius:3px;position:relative}
+.ax{position:absolute;font-size:11px;color:#5b6577}
+</style>
+</helmet>
+<div class="w" style="width: 1600px; height: 900px; background: #f3f5f8; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button>
+    <button class="lt" aria-label="최소화" style="background: #febc2e"></button>
+    <button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">일정판 — 5층 사무동 신축</div>
+  </div>
+  <div style="flex: none; display: flex; align-items: center; border-bottom: 1px solid #d9dfe8; padding: 0 12px; background: #fff">
+    <button class="tab">스케줄표</button><button class="tab">간트</button><button class="tab">CPM</button><button class="tab on">진행</button>
+    <div style="flex: 1"></div>
+    <span style="color: #5b6577; font-size: 12px; margin-right: 6px">Data Date</span><button class="btn">2027.06.01</button>
+    <span style="color: #5b6577; font-size: 12px; margin: 0 6px 0 12px">단위</span>
+    <button class="seg on" style="border-radius: 6px 0 0 6px">주</button><button class="seg" style="border-left: 0; border-radius: 0 6px 6px 0">월</button>
+    <button class="btn" style="margin-left: 12px">가중치: 기간 비례</button><button class="btn" style="margin-left: 6px">보고서에 넣기</button><button class="btn" style="margin-left: 6px">그림 내보내기</button>
+  </div>
+
+  <div style="flex: 1; min-height: 0; padding: 12px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box">
+
+    <!-- 한 줄 판정 -->
+    <div class="panel" style="flex-direction: row; align-items: center; padding: 14px 0 14px 18px">
+      <div style="width: 330px; flex: none; padding-right: 18px">
+        <div style="display: flex; align-items: center; gap: 8px"><span class="badge" style="background: #fbe0e0; color: #9b2c2c; font-size: 12px; padding: 2px 10px">계획보다 늦음</span><span style="font-size: 12px; color: #5b6577">13주차 / 39주</span></div>
+        <div style="font-size: 26px; line-height: 34px; font-weight: 700; margin-top: 4px">4일 지연 <span style="font-size: 14px; font-weight: 400; color: #5b6577">· 준공 여유 2일</span></div>
+      </div>
+      <div class="st"><div class="l">계획 공정률</div><div class="v">{{planNow}}%</div><div class="s">Data Date 기준</div></div>
+      <div class="st"><div class="l">실적 공정률</div><div class="v">{{actNow}}%</div><div class="s" style="color: #9b2c2c">{{gap}}%p</div></div>
+      <div class="st"><div class="l">일정 수행 지수 (실적 ÷ 계획)</div><div class="v" style="color: #9b2c2c">0.91</div><div class="s">1.00 이상이면 계획대로</div></div>
+      <div class="st"><div class="l">준공</div><div class="v">11.28 <span style="font-size: 13px; color: #9b2c2c">+4일</span></div><div class="s">Plan 11.24 · 기한 11.30</div></div>
+      <div class="st"><div class="l">액티비티</div><div class="v">5 <span style="font-size: 13px; font-weight: 400; color: #5b6577">/ 62 완료</span></div><div class="s">진행 1 · 지연 1</div></div>
+    </div>
+
+    <div style="flex: 1; min-height: 0; display: flex; gap: 12px">
+      <!-- 누적 + 주간 -->
+      <div class="panel" style="flex: 1">
+        <div class="pt">공정률 — 누적(선)과 주간(막대)
+          <span class="lg"><span style="width: 16px; height: 3px; background: #5b6577; display: inline-block"></span>계획 누적</span>
+          <span class="lg"><span style="width: 16px; height: 3px; background: #1f9d55; display: inline-block"></span>실적 누적</span>
+          <span class="lg"><span style="width: 16px; height: 0; border-top: 3px dashed #c93b3b; display: inline-block"></span>지연 영향 반영</span>
+          <span class="lg"><span style="width: 8px; height: 10px; background: #cfd6e0; display: inline-block"></span>주간 계획</span>
+          <span class="lg"><span style="width: 8px; height: 10px; background: #8fd3aa; display: inline-block"></span>주간 실적</span>
+        </div>
+        <div style="flex: 1; position: relative; margin: 10px 34px 22px 38px">
+          <div style="position: absolute; left: 0; right: 0; top: 0; border-top: 1px solid #eef2f7"></div>
+          <div style="position: absolute; left: 0; right: 0; top: 25%; border-top: 1px solid #eef2f7"></div>
+          <div style="position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid #eef2f7"></div>
+          <div style="position: absolute; left: 0; right: 0; top: 75%; border-top: 1px solid #eef2f7"></div>
+          <div style="position: absolute; left: 0; right: 0; bottom: 0; border-top: 1px solid #b9c2d0"></div>
+          <span class="ax" style="left: -36px; top: -8px">100%</span><span class="ax" style="left: -30px; top: calc(25% - 8px)">75%</span><span class="ax" style="left: -30px; top: calc(50% - 8px)">50%</span><span class="ax" style="left: -30px; top: calc(75% - 8px)">25%</span><span class="ax" style="left: -22px; bottom: -8px">0%</span>
+          <span class="ax" style="right: -32px; bottom: calc(40% - 8px)">주 5%</span>
+          <sc-for list="{{bars}}" as="b" hint-placeholder-count="39">
+            <div style="position: absolute; bottom: 0; left: {{b.x}}; width: 1.1%; height: {{b.ph}}; background: #cfd6e0"></div>
+            <div style="position: absolute; bottom: 0; left: {{b.x2}}; width: 1.1%; height: {{b.ah}}; background: #8fd3aa"></div>
+          </sc-for>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="누적 공정률 곡선: 계획, 실적, 지연 영향 반영" style="position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible">
+            <polyline fill="none" stroke="#5b6577" stroke-width="2.5" vector-effect="non-scaling-stroke" points="{{planPts}}"></polyline>
+            <polyline fill="none" stroke="#c93b3b" stroke-width="2.5" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" points="{{fcPts}}"></polyline>
+            <polyline fill="none" stroke="#1f9d55" stroke-width="3" vector-effect="non-scaling-stroke" points="{{actPts}}"></polyline>
+          </svg>
+          <div style="position: absolute; top: 0; bottom: 0; left: {{ddx}}; width: 2px; background: #d98a1c"></div>
+          <span style="position: absolute; left: {{ddx}}; top: -4px; transform: translateX(6px); font-size: 11px; color: #8a5411; font-weight: 500; background: #fff; padding: 0 3px">Data Date 06.01</span>
+          <span style="position: absolute; left: {{ddx}}; top: 52%; transform: translateX(8px); font-size: 12px; background: #fff; padding: 2px 6px; border: 1px solid #d9dfe8; border-radius: 6px">계획 {{planNow}}% · <b style="color: #17703f">실적 {{actNow}}%</b></span>
+          <sc-for list="{{months}}" as="m" hint-placeholder-count="9"><span class="ax" style="left: {{m.x}}; bottom: -20px">{{m.t}}</span></sc-for>
+        </div>
+      </div>
+
+      <!-- 마일스톤 추적 -->
+      <div class="panel" style="width: 520px; flex: none">
+        <div class="pt">마일스톤 추적 <span class="lg">Plan 대비 실적 · 아직 안 온 것은 지연 영향 반영</span></div>
+        <div class="r h" style="margin-top: 6px"><span style="flex: 1">마일스톤</span><span style="width: 62px">Plan</span><span style="width: 76px">실적·영향</span><span style="width: 44px; text-align: right">차이</span><span style="width: 84px; text-align: right">상태</span></div>
+        <sc-for list="{{ms}}" as="m" hint-placeholder-count="6">
+          <div class="r" style="height: 34px"><span style="width: 10px; height: 10px; background: {{m.c}}; transform: rotate(45deg); flex: none; margin: 0 2px"></span><b style="flex: 1; font-weight: {{m.fw}}">{{m.name}}</b><span style="width: 62px">{{m.p}}</span><span style="width: 76px; color: {{m.ac}}">{{m.a}}</span><span style="width: 44px; text-align: right; color: {{m.vc}}; font-weight: 500">{{m.v}}</span><span style="width: 84px; text-align: right"><span class="badge" style="background: {{m.sb}}; color: {{m.sf}}">{{m.s}}</span></span></div>
+        </sc-for>
+        <div style="flex: 1"></div>
+        <div style="position: relative; height: 36px; margin: 6px 6px 0">
+          <div style="position: absolute; left: 0; right: 0; top: 12px; height: 2px; background: #cfd6e0"></div>
+          <sc-for list="{{ms}}" as="m" hint-placeholder-count="6">
+            <span style="position: absolute; left: {{m.x}}; top: 7px; width: 10px; height: 10px; margin-left: -5px; background: {{m.c}}; transform: rotate(45deg)"></span>
+          </sc-for>
+          <div style="position: absolute; left: 34%; top: 0; height: 26px; width: 2px; background: #d98a1c"></div>
+          <span class="ax" style="left: 0; top: 24px">3월</span><span class="ax" style="right: 0; top: 24px">11월</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="height: 226px; flex: none; display: flex; gap: 12px">
+      <!-- WBS -->
+      <div class="panel" style="flex: 1.15">
+        <div class="pt">WBS 묶음별 <span class="lg"><span style="width: 10px; height: 10px; background: #1f9d55; display: inline-block; border-radius: 2px"></span>실적</span><span class="lg"><span style="width: 2px; height: 12px; background: #1c2333; display: inline-block"></span>계획 위치</span></div>
+        <div class="r h" style="margin-top: 4px"><span style="width: 96px">WBS</span><span style="width: 44px; text-align: right">가중치</span><span style="flex: 1"></span><span style="width: 42px; text-align: right">계획</span><span style="width: 42px; text-align: right">실적</span><span style="width: 48px; text-align: right">차이</span></div>
+        <sc-for list="{{wbs}}" as="b" hint-placeholder-count="4">
+          <div class="r" style="height: 36px"><b style="width: 96px">{{b.name}}</b><span style="width: 44px; text-align: right; color: #5b6577">{{b.wt}}</span>
+            <div class="track"><div style="position: absolute; left: 0; top: 3px; bottom: 3px; width: {{b.aw}}; background: {{b.bc}}; border-radius: 2px"></div><div style="position: absolute; left: {{b.pw}}; top: -3px; bottom: -3px; width: 2px; background: #1c2333"></div></div>
+            <span style="width: 42px; text-align: right">{{b.p}}</span><span style="width: 42px; text-align: right; font-weight: 700">{{b.a}}</span><span style="width: 48px; text-align: right; color: {{b.c}}">{{b.d}}</span></div>
+        </sc-for>
+      </div>
+      <!-- 수행 지수 추이 -->
+      <div class="panel" style="flex: 0.9">
+        <div class="pt">일정 수행 지수 추이 <span class="lg">주별 · 1.00 아래면 늦는 중</span></div>
+        <svg viewBox="0 0 400 160" role="img" aria-label="일정 수행 지수 추이: 5주차부터 내려가 13주차 0.91" style="flex: 1; width: 100%; margin-top: 4px">
+          <rect x="34" y="96" width="356" height="44" fill="#fbe0e0" opacity=".5"></rect>
+          <line x1="34" y1="52" x2="390" y2="52" stroke="#5b6577" stroke-width="1" stroke-dasharray="4 4"></line>
+          <line x1="34" y1="96" x2="390" y2="96" stroke="#c93b3b" stroke-width="1" stroke-dasharray="2 4"></line>
+          <g font-size="11" fill="#5b6577" font-family="inherit"><text x="4" y="56">1.00</text><text x="4" y="100">0.90</text><text x="34" y="156">1주</text><text x="196" y="156">7주</text><text x="364" y="156">13주</text><text x="300" y="116" fill="#9b2c2c">0.90 아래: 대응 필요</text></g>
+          <polyline fill="none" stroke="#2f6fdb" stroke-width="2.5" points="34,52 64,52 93,48 123,52 153,56 182,61 212,61 242,70 271,74 301,78 331,83 360,87 390,92"></polyline>
+          <circle cx="390" cy="92" r="4.5" fill="#2f6fdb"></circle>
+          <text x="352" y="80" font-size="13" font-weight="700" fill="#1c2333" font-family="inherit">0.91</text>
+        </svg>
+      </div>
+      <!-- 지연 상위 -->
+      <div class="panel" style="flex: 1.1">
+        <div class="pt">지연 상위 액티비티</div>
+        <div class="r h" style="margin-top: 4px"><span style="flex: 1">액티비티</span><span style="width: 46px; text-align: right">지연</span><span style="width: 34px; text-align: right">TF</span><span style="width: 96px; text-align: right">준공 영향</span></div>
+        <div class="r"><b style="flex: 1">A2020 지상 1~5층 골조</b><span style="width: 46px; text-align: right; color: #9b2c2c">+4일</span><span style="width: 34px; text-align: right; color: #9b2c2c">0</span><span style="width: 96px; text-align: right"><span class="badge" style="background: #fbe0e0; color: #9b2c2c">+4일</span></span></div>
+        <div class="r"><span style="flex: 1">A2010 지하 1층 골조 (완료)</span><span style="width: 46px; text-align: right; color: #9b2c2c">+4일</span><span style="width: 34px; text-align: right">0</span><span style="width: 96px; text-align: right; color: #5b6577">위에 포함</span></div>
+        <div class="r"><span style="flex: 1">A1030 기초 철근·타설 (완료)</span><span style="width: 46px; text-align: right">+1일</span><span style="width: 34px; text-align: right">0</span><span style="width: 96px; text-align: right"><span class="badge" style="background: #dff3e6; color: #17703f">주말에 흡수</span></span></div>
+        <div style="flex: 1"></div>
+        <div style="display: flex; gap: 6px"><button class="btn">지연 기록 열기</button><button class="btn">만회 계획 요청</button></div>
+      </div>
+      <!-- 앞으로 3주 -->
+      <div class="panel" style="flex: 0.95">
+        <div class="pt">앞으로 3주 <span class="lg">06.01 ~ 06.21</span></div>
+        <div style="display: flex; gap: 8px; margin-top: 8px">
+          <div style="flex: 1; background: #f7f9fb; border-radius: 8px; padding: 8px 10px"><div style="font-size: 20px; font-weight: 700; line-height: 26px">2</div><div style="font-size: 11px; color: #5b6577">시작 예정</div></div>
+          <div style="flex: 1; background: #f7f9fb; border-radius: 8px; padding: 8px 10px"><div style="font-size: 20px; font-weight: 700; line-height: 26px">0</div><div style="font-size: 11px; color: #5b6577">종료 예정</div></div>
+          <div style="flex: 1; background: #fbebd0; border-radius: 8px; padding: 8px 10px"><div style="font-size: 20px; font-weight: 700; line-height: 26px; color: #8a5411">1</div><div style="font-size: 11px; color: #8a5411">선행 미완</div></div>
+        </div>
+        <div class="r" style="margin-top: 6px"><span style="width: 44px; color: #5b6577">06.14</span><span style="flex: 1">A3020 전기·기계 배관 시작</span><span class="badge" style="background: #fbebd0; color: #8a5411">선행 미완</span></div>
+        <div class="r"><span style="width: 44px; color: #5b6577">06.16</span><span style="flex: 1">A2025 3층 타설</span></div>
+        <div class="r" style="border-bottom: 0"><span style="width: 44px; color: #5b6577">진행</span><span style="flex: 1">A2020 지상 골조 (36%)</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+  const N = 39, DD = 13;
+  const w = []; let sum = 0;
+  for (let i = 0; i < N; i++) { const v = Math.pow(Math.sin(Math.PI * (i + 0.5) / N), 0.8); w.push(v); sum += v; }
+  const plan = w.map((v) => v * 100 / sum);
+  const act = plan.map((v, i) => (i < DD ? v * (i < 5 ? 1 : 0.86) : 0));
+  const cum = (a, n) => { let s = 0; const o = [0]; for (let i = 0; i < n; i++) { s += a[i]; o.push(s); } return o; };
+  const cp = cum(plan, N), ca = cum(act, DD);
+  const X = (i) => (i * 100 / N);
+  const pts = (c, off) => c.map((v, i) => (X(i) + (off || 0)).toFixed(2) + ',' + (100 - v).toFixed(2)).join(' ');
+  const shift = 0.6;
+  const fc = [ca[DD]]; for (let i = DD; i < N; i++) fc.push(fc[fc.length - 1] + plan[i] * (100 - ca[DD]) / (100 - cp[DD]));
+  const fcPts = fc.map((v, i) => Math.min(X(DD + i) + (i ? shift : 0), 100).toFixed(2) + ',' + (100 - Math.min(v, 100)).toFixed(2)).join(' ');
+  const bars = plan.map((v, i) => ({ x: X(i).toFixed(2) + '%', x2: (X(i) + 1.25).toFixed(2) + '%', ph: (v / 5 * 40).toFixed(1) + '%', ah: (act[i] / 5 * 40).toFixed(1) + '%' }));
+  const months = ['3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월'].map((t, i) => ({ t, x: (i * 100 / 9).toFixed(1) + '%' }));
+  const T = { done: ['완료', '#eef2f7', '#5b6577', '#8a94a6'], late: ['늦게 완료', '#fbebd0', '#8a5411', '#d98a1c'], risk: ['지연 예상', '#fbe0e0', '#9b2c2c', '#c93b3b'], tight: ['기한 안 · 여유 2일', '#fbebd0', '#8a5411', '#c93b3b'] };
+  const raw = [['착공', '03.02', '03.02', '0', 'done', 0], ['기초 완료', '04.09', '04.10', '+1', 'late', 14], ['지하 골조 완료', '05.05', '05.10', '+4', 'late', 25], ['골조 상량', '07.14', '07.18', '+4', 'risk', 51], ['외장 완료', '09.01', '09.05', '+4', 'risk', 69], ['준공', '11.24', '11.28', '+4', 'tight', 98]];
+  const ms = raw.map((r) => { const t = T[r[4]]; return { name: r[0], p: r[1], a: r[2], v: r[3], s: t[0], sb: t[1], sf: t[2], c: t[3], x: r[5] + '%', vc: r[3] === '0' ? '#5b6577' : '#9b2c2c', ac: r[4] === 'risk' || r[4] === 'tight' ? '#9b2c2c' : '#1c2333', fw: r[0] === '준공' ? 700 : 500 }; });
+  const wr = [['1 기초', '14.2%', 100, 100], ['2 골조', '23.1%', 66, 58], ['3 외장·설비', '34.0%', 0, 0], ['4 마감', '28.7%', 0, 0]];
+  const wbs = wr.map((r) => ({ name: r[0], wt: r[1], p: r[2] + '%', a: r[3] + '%', pw: 'calc(' + r[2] + '% - 1px)', aw: r[3] + '%', d: r[3] - r[2] === 0 ? '0' : (r[3] - r[2]) + '%p', c: r[3] < r[2] ? '#9b2c2c' : '#5b6577', bc: r[3] < r[2] ? '#d98a1c' : '#1f9d55' }));
+  return { bars, months, ms, wbs, planPts: pts(cp), actPts: pts(ca), fcPts, ddx: X(DD).toFixed(2) + '%', planNow: cp[DD].toFixed(1), actNow: ca[DD].toFixed(1), gap: (ca[DD] - cp[DD]).toFixed(1) };
+}
+}
+</script>
+</body>
+</html>

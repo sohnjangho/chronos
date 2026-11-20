@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>에이전트 대화창 작은 화면</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:20px}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.me{align-self:flex-end;background:#eef2f7;border-radius:14px;padding:8px 14px;max-width:82%}
+.step{display:flex;align-items:center;gap:8px;font-size:12px;color:#5b6577;border:1px solid #d9dfe8;border-radius:8px;padding:5px 10px;width:fit-content}
+.card{border:1px solid #d9dfe8;border-radius:10px;overflow:hidden;font-size:12px;line-height:18px}
+.kv{display:flex;gap:8px;padding:5px 12px;border-bottom:1px solid #eef2f7}
+.kv:last-child{border-bottom:0}
+.src{color:#5b6577;margin-left:auto;white-space:nowrap}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:8px;padding:5px 10px;font-size:12px;color:#1c2333}
+.btn.pri{background:#2f6fdb;border-color:#2f6fdb;color:#fff}
+.pill{border:1px solid #cfd6e0;background:#fff;border-radius:999px;padding:3px 10px;font-size:12px;color:#1c2333}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+</style>
+</helmet>
+<div class="w" style="width: 480px; height: 760px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button>
+    <button class="lt" aria-label="최소화" style="background: #febc2e"></button>
+    <button class="lt" aria-label="큰 화면으로" style="background: #28c840"></button>
+    <div class="tt">에이전트</div>
+  </div>
+  <div style="height: 40px; flex: none; border-bottom: 1px solid #eef2f7; display: flex; align-items: center; padding: 0 12px; gap: 8px">
+    <button class="pill" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">5층 사무동 공정표 만들기 ▾</button>
+    <div style="flex: 1"></div>
+    <button class="pill" aria-label="새 대화">+ 새 대화</button>
+  </div>
+  <div style="flex: 1; min-height: 0; overflow: hidden; padding: 14px; display: flex; flex-direction: column; gap: 12px">
+    <div class="me">골조가 4일 밀렸어. 준공에 영향 있어?</div>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div class="step"><span class="dot" style="background: #1f9d55"></span>지연 영향 분석<span style="color: #8a94a6">도구 2개 · 3초</span><span aria-hidden="true">›</span></div>
+      <div>A2020 지상 골조는 크리티컬이라 여유가 없습니다. 준공이 <b>11.24 → 11.28</b>로 4일 밀리고, 기한 11.30까지 여유는 2일 남습니다.</div>
+      <div class="card">
+        <div class="kv"><span>준공</span><b>+4일</b><span class="src">11.28</span></div>
+        <div class="kv"><span>여유로 흡수</span><b>0일</b><span class="src">크리티컬 경로</span></div>
+        <div class="kv"><span>영향받는 액티비티</span><b>4개</b><span class="src">외장·마감·시운전·준공</span></div>
+      </div>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap">
+        <button class="btn pri">간트에서 보기</button><button class="btn">지연 기록에 등록</button><button class="btn">만회 계획 세우기</button>
+      </div>
+    </div>
+    <div class="me">만회 계획 세워 줘.</div>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div class="step"><span class="dot" style="background: #2f6fdb"></span>단축안 만들기 · 조건 점검 중…<span style="color: #8a94a6">3단계 중 2단계</span></div>
+    </div>
+  </div>
+  <div style="flex: none; padding: 0 12px 12px">
+    <div style="border: 1px solid #b9c2d0; border-radius: 14px; padding: 10px 12px; box-shadow: 0 2px 8px rgba(20,33,61,.08)">
+      <textarea aria-label="에이전트에게 요청" placeholder="무엇을 도와드릴까요?" style="width: 100%; height: 38px; border: 0; outline: 0; resize: none; font: inherit; box-sizing: border-box"></textarea>
+      <div style="display: flex; align-items: center; gap: 6px">
+        <button class="pill">+ 파일</button><button class="pill">스킬</button>
+        <span style="font-size: 11px; color: #5b6577; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">보는 중: 간트 · A2020</span>
+        <div style="flex: 1"></div>
+        <button class="btn pri" style="border-radius: 999px">보내기</button>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":760}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

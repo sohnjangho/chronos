@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>지연 기록</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.btn.pri{background:#2f6fdb;border-color:#2f6fdb;color:#fff}
+.r{display:flex;align-items:center;height:40px;border-bottom:1px solid #eef2f7}
+.r.h{background:#f7f9fb;color:#5b6577;font-size:11px;height:30px;border-bottom:1px solid #d9dfe8}
+.c{padding:0 12px;box-sizing:border-box;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n{text-align:right}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.kpi{flex:1;padding:12px 18px;border-right:1px solid #d9dfe8}
+.kpi .l{font-size:12px;color:#5b6577}.kpi .v{font-size:22px;line-height:28px;font-weight:700}
+.kv{display:flex;padding:6px 0;border-bottom:1px solid #eef2f7}
+.kv span:first-child{width:104px;color:#5b6577;flex:none}
+.sec{font-weight:700;margin:14px 0 4px}
+</style>
+</helmet>
+<div class="w" style="width: 1400px; height: 860px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button><button class="lt" aria-label="최소화" style="background: #febc2e"></button><button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">지연 기록 — 5층 사무동 신축</div>
+  </div>
+  <div style="flex: none; display: flex; border-bottom: 1px solid #d9dfe8; align-items: stretch">
+    <div class="kpi"><div class="l">준공 영향 합계</div><div class="v" style="color: #9b2c2c">+4일</div><div class="l">Plan 11.24 → 11.28 · 기한 여유 2일</div></div>
+    <div class="kpi" style="flex: 1.6">
+      <div class="l">책임별 준공 영향</div>
+      <div style="display: flex; height: 16px; border-radius: 4px; overflow: hidden; margin: 8px 0 6px"><div style="width: 75%; background: #2559b5"></div><div style="width: 25%; background: #d98a1c"></div></div>
+      <div style="display: flex; gap: 14px; font-size: 12px"><span><span style="display: inline-block; width: 9px; height: 9px; background: #2559b5; border-radius: 2px; margin-right: 5px"></span>발주처 3일</span><span><span style="display: inline-block; width: 9px; height: 9px; background: #d98a1c; border-radius: 2px; margin-right: 5px"></span>불가항력 1일</span><span><span style="display: inline-block; width: 9px; height: 9px; background: #8a94a6; border-radius: 2px; margin-right: 5px"></span>우리 0일</span></div>
+    </div>
+    <div class="kpi"><div class="l">여유로 흡수된 지연</div><div class="v">3일</div><div class="l">사건 1건</div></div>
+    <div class="kpi" style="border-right: 0"><div class="l">비용 환산</div><div class="v">1,240만 원</div><div class="l">하루 금액 × 준공 영향</div></div>
+  </div>
+  <div style="height: 44px; flex: none; display: flex; align-items: center; padding: 0 14px; gap: 8px; border-bottom: 1px solid #d9dfe8">
+    <button class="btn pri">+ 지연 사건</button><button class="btn">책임: 전체 ▾</button><button class="btn">상태: 전체 ▾</button>
+    <div style="flex: 1"></div>
+    <button class="btn">비교판에서 보기</button><button class="btn">만회 계획 요청</button><button class="btn">지연 보고서 만들기</button>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex">
+    <div style="flex: 1; min-width: 0">
+      <div class="r h"><div class="c" style="width: 76px">발생</div><div class="c" style="flex: 1">사건</div><div class="c" style="width: 150px">대상 액티비티</div><div class="c" style="width: 86px">책임</div><div class="c n" style="width: 60px">일수</div><div class="c n" style="width: 78px">여유 흡수</div><div class="c n" style="width: 86px">준공 영향</div><div class="c" style="width: 90px">상태</div></div>
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+        <div class="r" style="background: {{r.bg}}"><div class="c" style="width: 76px; color: #5b6577">{{r.d}}</div><div class="c" style="flex: 1"><b>{{r.t}}</b> <span style="color: #5b6577">· {{r.cause}}</span></div><div class="c" style="width: 150px">{{r.act}}</div><div class="c" style="width: 86px"><span class="badge" style="background: {{r.rb}}; color: {{r.rf}}">{{r.who}}</span></div><div class="c n" style="width: 60px">{{r.days}}</div><div class="c n" style="width: 78px">{{r.abs}}</div><div class="c n" style="width: 86px; font-weight: 700; color: {{r.ic}}">{{r.imp}}</div><div class="c" style="width: 90px"><span class="badge" style="background: #eef2f7; color: #5b6577">{{r.st}}</span></div></div>
+      </sc-for>
+      <div style="padding: 14px; color: #5b6577; font-size: 12px">사건은 대화("우천으로 골조가 3일 밀렸어")나 실적 입력에서 자동으로 등록됩니다. 여러 건은 발생 순서대로 하나씩 넣어 각각의 몫을 계산합니다.</div>
+    </div>
+    <div style="width: 420px; flex: none; border-left: 2px solid #cfd6e0; padding: 14px 18px; box-sizing: border-box; background: #fbfcfd">
+      <div style="display: flex; align-items: center; gap: 8px"><b style="font-size: 15px; flex: 1">설계 변경 — 3층 평면</b><button class="btn">고치기</button></div>
+      <div class="kv" style="margin-top: 8px"><span>원인</span><span>발주처 요청으로 3층 회의실 배치 변경, 철근 상세 재작성</span></div>
+      <div class="kv"><span>책임</span><span><span class="badge" style="background: #e3edfb; color: #1f4f9e">발주처</span></span></div>
+      <div class="kv"><span>기간</span><span>2027.05.24 부터 3일</span></div>
+      <div class="kv"><span>하루 금액</span><span>310만 원 (간접비)</span></div>
+      <div class="kv"><span>근거 문서</span><span><a href="https://example.com">회의록_0521.pdf</a></span></div>
+      <div class="sec">영향 분석</div>
+      <div class="kv"><span>준공</span><b style="color: #9b2c2c">+3일 (여유 흡수 0일)</b></div>
+      <div class="kv"><span>주요 날짜</span><span>골조 상량 +3 · 외장 완료 +3</span></div>
+      <div class="kv"><span>크리티컬 패스</span><span>바뀌지 않음</span></div>
+      <div class="kv"><span>영향 액티비티</span><span>5개 <a href="https://example.com">간트에서 보기</a></span></div>
+      <div class="kv"><span>자원</span><span>7월 3주 타워크레인 겹침이 새로 생김</span></div>
+      <div class="kv"><span>비용 환산</span><span>930만 원</span></div>
+      <div style="display: flex; gap: 8px; margin-top: 16px"><button class="btn pri">이 사건 만회안 요청</button><button class="btn">다시 분석</button></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1400,"height":860}}'>
+class Component extends DCLogic {
+renderVals() {
+  const W = { o: ['발주처', '#e3edfb', '#1f4f9e'], f: ['불가항력', '#fbebd0', '#8a5411'], u: ['우리', '#eef2f7', '#5b6577'] };
+  const raw = [['05.07', '우천', '5월 집중 호우', 'A2010 지하 1층 골조', 'f', '4일', '3일', '+1일', '분석됨', 0], ['05.24', '설계 변경 — 3층 평면', '발주처 요청', 'A2020 지상 골조', 'o', '3일', '0일', '+3일', '대응 중', 1], ['04.03', '철근 납품 지연', '공급사 물량 부족', 'A1030 기초 철근·타설', 'u', '1일', '1일', '0일', '분석됨', 0]];
+  const rows = raw.map((r) => { const w = W[r[4]]; return { d: r[0], t: r[1], cause: r[2], act: r[3], who: w[0], rb: w[1], rf: w[2], days: r[5], abs: r[6], imp: r[7], st: r[8], bg: r[9] ? '#e3edfb' : 'transparent', ic: r[7] === '0일' ? '#5b6577' : '#9b2c2c' }; });
+  return { rows };
+}
+}
+</script>
+</body>
+</html>

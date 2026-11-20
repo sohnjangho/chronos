@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>일정판 간트</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.tab{border:0;background:none;padding:10px 16px;color:#5b6577;border-bottom:2px solid transparent}
+.tab.on{color:#2a64c7;font-weight:700;border-bottom-color:#2f6fdb}
+.tool{height:44px;flex:none;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;gap:6px;padding:0 12px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.chip{border:1px solid #cfd6e0;background:#fff;border-radius:999px;padding:4px 12px;font-size:12px;display:inline-flex;align-items:center;gap:6px;color:#1c2333}
+.chip.on{background:#e3edfb;border-color:#2f6fdb;color:#1f4f9e}
+.sq{width:10px;height:10px;border-radius:2px;display:inline-block}
+.row{display:flex;height:30px;align-items:center;border-bottom:1px solid #eef2f7;box-sizing:border-box}
+.c{padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box;flex:none}
+.hd{background:#f7f9fb;font-weight:500;color:#5b6577;font-size:12px;border-bottom:1px solid #d9dfe8}
+.n{text-align:right}
+.bar{position:absolute;border-radius:3px}
+.sum{border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500}
+.lk{position:absolute;border-top:1.5px solid #c93b3b;border-right:1.5px solid #c93b3b;box-sizing:border-box}
+</style>
+</helmet>
+<div class="w" style="width: 1600px; height: 900px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button>
+    <button class="lt" aria-label="최소화" style="background: #febc2e"></button>
+    <button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">일정판 — 5층 사무동 신축</div>
+  </div>
+  <div style="flex: none; display: flex; align-items: center; border-bottom: 1px solid #d9dfe8; padding: 0 12px">
+    <button class="tab">스케줄표</button><button class="tab on">간트</button><button class="tab">CPM</button><button class="tab">진행</button>
+    <div style="flex: 1"></div>
+    <span class="sum" style="background: #e3edfb; color: #1f4f9e">완료 예정 2027.11.24</span>
+    <span class="sum" style="background: #fbe0e0; color: #9b2c2c; margin-left: 6px">크리티컬 7</span>
+    <span class="sum" style="background: #fbebd0; color: #8a5411; margin-left: 6px">지연 1</span>
+  </div>
+  <div class="tool">
+    <button class="chip on"><span class="sq" style="background: #8a94a6"></span>Plan</button>
+    <button class="chip on"><span class="sq" style="background: #1f9d55"></span>Actual</button>
+    <button class="chip on"><span class="sq" style="background: #c93b3b"></span>CPM</button>
+    <span style="width: 1px; height: 22px; background: #d9dfe8; margin: 0 6px"></span>
+    <button class="btn" aria-label="축소">−</button><button class="btn" aria-label="확대">+</button><button class="btn">맞춤</button><button class="btn">선택 맞춤</button>
+    <button class="btn">Data Date</button><button class="btn">오늘</button>
+    <span style="width: 1px; height: 22px; background: #d9dfe8; margin: 0 6px"></span>
+    <span style="color: #5b6577; font-size: 12px">묶는 기준</span>
+    <button class="chip on">WBS</button><button class="chip">자원</button><button class="chip">일정</button>
+    <button class="btn">모두 펼치기</button><button class="btn">모두 접기</button>
+    <div style="flex: 1"></div>
+    <button class="btn">열</button><button class="btn">범례</button><button class="btn">되돌리기</button><button class="btn">그림 내보내기</button>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex">
+    <div style="width: 470px; flex: none; border-right: 2px solid #cfd6e0">
+      <div class="row hd"><div class="c" style="width: 120px">WBS / ID</div><div class="c" style="flex: 1">이름</div><div class="c n" style="width: 50px">OD</div><div class="c n" style="width: 50px">RD</div><div class="c n" style="width: 50px">TF</div></div>
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="15">
+        <div class="row" style="font-weight: {{r.fw}}; background: {{r.bg}}"><div class="c" style="width: 120px; padding-left: {{r.pad}}">{{r.id}}</div><div class="c" style="flex: 1">{{r.name}}</div><div class="c n" style="width: 50px">{{r.od}}</div><div class="c n" style="width: 50px">{{r.rd}}</div><div class="c n" style="width: 50px; color: {{r.tfc}}">{{r.tf}}</div></div>
+      </sc-for>
+    </div>
+    <div style="flex: 1; min-width: 0; position: relative; overflow: hidden">
+      <div class="row hd" style="padding: 0">
+        <sc-for list="{{months}}" as="m" hint-placeholder-count="9"><div style="width: 122px; flex: none; padding-left: 8px; border-right: 1px solid #d9dfe8; box-sizing: border-box; height: 100%; display: flex; align-items: center">{{m}}</div></sc-for>
+      </div>
+      <div style="position: relative">
+        <sc-for list="{{rows}}" as="r" hint-placeholder-count="15">
+          <div class="row" style="position: relative; background: {{r.bg}}">
+            <div class="bar" style="left: {{r.gl}}; width: {{r.gw}}; top: 7px; height: 12px; border: 1.5px dashed #8a94a6; background: transparent; box-sizing: border-box"></div>
+            <div class="bar" style="left: {{r.pl}}; width: {{r.pw}}; top: {{r.pt}}; height: {{r.ph}}; background: {{r.pc}}"></div>
+            <div class="bar" style="left: {{r.al}}; width: {{r.aw}}; top: 21px; height: 5px; background: #1f9d55"></div>
+            <div style="position: absolute; left: {{r.ml}}; top: 8px; width: 12px; height: 12px; background: #14213d; transform: rotate(45deg); opacity: {{r.mo}}"></div>
+            <span style="position: absolute; left: {{r.ll}}; top: 6px; font-size: 11px; color: {{r.lc}}; white-space: nowrap">{{r.label}}</span>
+          </div>
+        </sc-for>
+        <sc-for list="{{links}}" as="k" hint-placeholder-count="5">
+          <div class="lk" style="left: {{k.l}}; top: {{k.t}}; width: {{k.w}}; height: {{k.h}}"></div>
+        </sc-for>
+        <div style="position: absolute; left: 369px; top: 0; bottom: 0; width: 2px; background: #d98a1c"></div>
+        <span style="position: absolute; left: 375px; top: 2px; font-size: 11px; color: #8a5411; font-weight: 500; background: #fff; padding: 0 3px">Data Date 06.01</span>
+        <div style="position: absolute; left: 1094px; top: 0; bottom: 0; width: 0; border-left: 2px dashed #c93b3b"></div>
+        <span style="position: absolute; left: 1014px; top: 2px; font-size: 11px; color: #9b2c2c; font-weight: 500; background: #fff; padding: 0 3px">기한 11.30</span>
+      </div>
+    </div>
+  </div>
+  <div style="height: 64px; flex: none; border-top: 2px solid #cfd6e0; background: #f7f9fb; display: flex">
+    <div style="width: 470px; flex: none; border-right: 2px solid #cfd6e0; padding: 6px 12px; box-sizing: border-box; font-size: 12px">
+      <div style="display: flex; height: 26px; align-items: center"><b style="flex: 1">타워크레인 (1대)</b><span style="color: #9b2c2c; font-weight: 500">7월 2주 · 2대 필요</span></div>
+      <div style="display: flex; height: 26px; align-items: center"><b style="flex: 1">철근공 (10명)</b><span style="color: #5b6577">최고 9명</span></div>
+    </div>
+    <div style="flex: 1; position: relative">
+      <div style="position: absolute; left: 150px; width: 380px; top: 12px; height: 12px; background: #4f8cff; border-radius: 2px"></div>
+      <div style="position: absolute; left: 530px; width: 48px; top: 6px; height: 18px; background: #c93b3b; border-radius: 2px"></div>
+      <div style="position: absolute; left: 578px; width: 150px; top: 12px; height: 12px; background: #4f8cff; border-radius: 2px"></div>
+      <div style="position: absolute; left: 80px; width: 470px; top: 40px; height: 10px; background: #4f8cff; border-radius: 2px"></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+  const n = (d) => Math.round(d * 122 / 30.4);
+  const px = (d) => n(d) + 'px';
+  // [id, name, od, rd, tf, planStart(day), planLen, actStart, actLen, kind(0 act,1 sum,2 ms), critical, ghostStart, ghostLen]
+  const raw = [
+    ['1 기초', '', '', '', '', 0, 39, 0, 40, 1, 0, 0, 0],
+    ['A1010', '착공', 0, 0, 0, 1, 0, 0, 0, 2, 1, 0, 0],
+    ['A1020', '터파기·흙막이', 15, 0, 0, 1, 17, 1, 17, 0, 1, 0, 0],
+    ['A1030', '기초 철근·타설', 15, 0, 0, 21, 18, 21, 19, 0, 1, 0, 0],
+    ['A1040', '타워크레인 설치', 5, 0, 2, 35, 4, 33, 5, 0, 0, 0, 0],
+    ['2 골조', '', '', '', '', 42, 93, 42, 50, 1, 0, 0, 0],
+    ['A2010', '지하 1층 골조', 18, 0, 0, 42, 23, 42, 28, 0, 1, 0, 0],
+    ['A2020', '지상 1~5층 골조', 50, 32, 0, 66, 69, 71, 21, 0, 1, 70, 69],
+    ['3 외장·설비', '', '', '', '', 105, 88, 0, 0, 1, 0, 0, 0],
+    ['A3010', '외장 패널', 35, 35, 0, 136, 48, 0, 0, 0, 1, 140, 48],
+    ['A3020', '전기·기계 배관', 40, 40, 18, 105, 53, 0, 0, 0, 0, 0, 0],
+    ['A3030', '승강기 설치', 25, 25, 12, 161, 32, 0, 0, 0, 0, 0, 0],
+    ['4 마감', '', '', '', '', 185, 83, 0, 0, 1, 0, 0, 0],
+    ['A4010', '내부 마감', 45, 45, 0, 185, 62, 0, 0, 0, 1, 189, 62],
+    ['A4020', '시운전·검사', 12, 12, 0, 248, 15, 0, 0, 0, 1, 252, 15],
+    ['A4030', '준공', 0, 0, 0, 268, 0, 0, 0, 2, 1, 0, 0]
+  ];
+  const rows = raw.map((r) => {
+    const sum = r[9] === 1, ms = r[9] === 2;
+    return { id: r[0], name: r[1], od: r[2], rd: r[3], tf: r[4], fw: sum ? 700 : 400, pad: sum ? '8px' : '24px', bg: sum ? '#f7f9fb' : 'transparent',
+      tfc: r[4] === 0 ? '#9b2c2c' : '#1c2333',
+      pl: px(r[5]), pw: ms ? '0px' : px(r[6]), pt: sum ? '11px' : '7px', ph: sum ? '6px' : '12px', pc: sum ? '#5b6577' : (r[10] ? '#c93b3b' : '#4f8cff'),
+      al: px(r[7]), aw: px(r[8]), ml: (n(r[5]) - 6) + 'px', mo: ms ? 1 : 0,
+      gl: px(r[11]), gw: r[12] ? px(r[12]) : '0px',
+      ll: (n(r[5] + Math.max(r[6], r[12] ? r[11] - r[5] + r[12] : 0)) + (ms ? 12 : 6)) + 'px',
+      label: sum ? '' : (r[12] ? r[1] + '  → 지연 영향 +4일' : r[1]), lc: r[12] ? '#9b2c2c' : '#5b6577' };
+  });
+  const lk = (i, j) => { const a = raw[i], b = raw[j]; const x1 = n(a[5] + a[6]), x2 = n(b[5]) + 4; return { l: x1 + 'px', t: (i * 30 + 13) + 'px', w: Math.max(x2 - x1, 5) + 'px', h: ((j - i) * 30 - 6) + 'px' }; };
+  const links = [lk(2, 3), lk(3, 6), lk(6, 7), lk(7, 9), lk(9, 13), lk(13, 14)];
+  return { rows, links, months: ['2027년 3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월'] };
+}
+}
+</script>
+</body>
+</html>

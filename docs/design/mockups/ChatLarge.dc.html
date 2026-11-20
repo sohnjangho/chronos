@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>에이전트 대화창 큰 화면</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:14px;line-height:22px}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px;font-size:13px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.side{width:268px;flex:none;background:#f7f9fb;border-right:1px solid #d9dfe8;display:flex;flex-direction:column;padding:12px 10px;box-sizing:border-box;font-size:13px;line-height:18px}
+.th{display:block;width:100%;text-align:left;border:0;background:none;padding:7px 10px;border-radius:8px;color:#1c2333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th.on{background:#e3edfb;color:#1f4f9e;font-weight:500}
+.grp{font-size:12px;color:#5b6577;padding:12px 10px 4px}
+.me{align-self:flex-end;background:#eef2f7;border-radius:16px;padding:10px 16px;max-width:76%}
+.step{display:flex;align-items:center;gap:8px;font-size:13px;color:#5b6577;border:1px solid #d9dfe8;border-radius:8px;padding:6px 12px;background:#fff;width:fit-content}
+.card{border:1px solid #d9dfe8;border-radius:12px;background:#fff;overflow:hidden;font-size:13px;line-height:18px}
+.card h4{margin:0;padding:8px 14px;background:#f7f9fb;border-bottom:1px solid #d9dfe8;font-size:12px;color:#5b6577;font-weight:500;display:flex;gap:8px}
+.kv{display:flex;gap:8px;padding:6px 14px;border-bottom:1px solid #eef2f7;align-items:center}
+.kv:last-child{border-bottom:0}
+.src{color:#5b6577;font-size:12px;margin-left:auto;white-space:nowrap}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:8px;padding:6px 12px;font-size:13px;color:#1c2333}
+.btn.pri{background:#2f6fdb;border-color:#2f6fdb;color:#fff}
+.pill{border:1px solid #cfd6e0;background:#fff;border-radius:999px;padding:4px 12px;font-size:12px;color:#1c2333}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500}
+.rt{border:0;background:none;padding:10px 12px;color:#5b6577;border-bottom:2px solid transparent;font-size:13px}
+.rt.on{color:#2a64c7;font-weight:700;border-bottom-color:#2f6fdb}
+.sec{font-size:12px;color:#5b6577;font-weight:500;margin:14px 0 6px}
+.ln{display:flex;gap:8px;padding:4px 0;font-size:13px;line-height:18px}
+.ln span:first-child{color:#5b6577;width:84px;flex:none}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;margin-top:5px}
+</style>
+</helmet>
+<div class="w" style="width: 1560px; height: 900px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button>
+    <button class="lt" aria-label="최소화" style="background: #febc2e"></button>
+    <button class="lt" aria-label="작은 화면으로" style="background: #28c840"></button>
+    <div class="tt">에이전트</div>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex">
+
+    <!-- 왼쪽: 대화 목록 -->
+    <div class="side">
+      <button class="btn pri" style="width: 100%; text-align: center">+ 새 대화</button>
+      <input aria-label="대화 검색" placeholder="대화 검색" style="height: 32px; border: 1px solid #cfd6e0; border-radius: 8px; padding: 0 10px; font: inherit; margin-top: 8px; box-sizing: border-box; width: 100%">
+      <div class="grp">바로 시작</div>
+      <button class="th">일정 만들기</button>
+      <button class="th">지연 영향 보기</button>
+      <button class="th">스킬 목록 (4)</button>
+      <div class="grp">오늘</div>
+      <button class="th on">5층 사무동 공정표 만들기</button>
+      <button class="th">크레인 2대로 늘리면?</button>
+      <div class="grp">어제</div>
+      <button class="th">부품 공장 3라인 고장 대응</button>
+      <button class="th">주간 보고 양식 등록</button>
+      <div class="grp">지난 7일</div>
+      <button class="th">신소재 과제 관문 일정</button>
+      <button class="th">가전 인증 신청 시점 역산</button>
+      <div style="flex: 1"></div>
+      <div style="border-top: 1px solid #d9dfe8; padding: 10px 10px 0; color: #5b6577; font-size: 12px">손장호 · 관리자</div>
+    </div>
+
+    <!-- 가운데: 대화 -->
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+      <div style="height: 44px; flex: none; border-bottom: 1px solid #eef2f7; display: flex; align-items: center; padding: 0 20px; gap: 10px; font-size: 13px">
+        <b style="font-size: 14px">5층 사무동 공정표 만들기</b>
+        <span class="badge" style="background: #e3edfb; color: #1f4f9e">건설 · L3 관리</span>
+        <div style="flex: 1"></div>
+        <button class="pill">모델: 자동 배정</button>
+        <button class="pill" aria-label="오른쪽 패널 접기">패널 접기</button>
+      </div>
+      <div style="flex: 1; min-height: 0; overflow: hidden; display: flex; justify-content: center">
+        <div style="width: 100%; max-width: 760px; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box">
+          <div class="me">5층 사무동 공정표 만들어 줘. 3월 착공, 11월 말 준공, 겨울엔 타설 못 하고 크레인은 1대야. 월간 보고에 쓸 거야.</div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <div class="step"><span class="dot" style="background: #1f9d55; margin-top: 0"></span>조건 뽑기 · 문서 읽기 · 질문지 만들기<span style="color: #8a94a6">도구 3개 · 4초</span><span aria-hidden="true">›</span></div>
+            <div>건설 일정, <b>L3 관리</b> 수준으로 만들겠습니다. 말씀하신 내용에서 조건 다섯 가지를 뽑았고, 남은 일곱 가지는 질문지에서 골라 주세요.</div>
+            <div class="card">
+              <h4><span>뽑은 조건</span><span style="margin-left: auto">필수 20개 중 13개 채움</span></h4>
+              <div class="kv"><span>착공</span><b>2027.03.02</b><span class="src">프롬프트</span></div>
+              <div class="kv"><span>준공 기한</span><b>2027.11.30 이전</b><span class="src">프롬프트</span></div>
+              <div class="kv"><span>타설 금지</span><b>12~2월</b><span class="src">프롬프트</span></div>
+              <div class="kv"><span>타워크레인</span><b>1대</b><span class="src">프롬프트</span></div>
+              <div class="kv"><span>층당 골조</span><b>10일</b><span class="src">내 규칙</span></div>
+            </div>
+          </div>
+
+          <div class="me">질문지 제출했어.</div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <div class="step"><span class="dot" style="background: #1f9d55; margin-top: 0"></span>WBS 만들기 · 스케줄 만들기 · 경로 계산 · 조건 점검 ×3<span style="color: #8a94a6">도구 7개 · 41초</span><span aria-hidden="true">›</span></div>
+            <div>만들었습니다. 준공 <b>2027.11.24</b>, 기한까지 여유 6일입니다. 조건 점검은 세 번째에 모두 통과했습니다 (위반 3 → 1 → 0).</div>
+            <div class="card">
+              <h4><span>결과</span></h4>
+              <div class="kv"><span>액티비티 62개 · 관계 81개 · 크리티컬 7개</span></div>
+              <div class="kv"><span>가정: 콘크리트 양생 7일</span><span class="src"><a href="https://example.com">근거 1건</a></span></div>
+              <div class="kv"><span>가정: 예비 기간 전체의 5%</span><span class="src">분야 기본값</span></div>
+            </div>
+            <div style="display: flex; gap: 8px">
+              <button class="btn pri">일정판에서 보기</button><button class="btn">승인함으로 보내기</button><button class="btn">더 자세히 풀기</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="flex: none; display: flex; justify-content: center; padding: 0 24px 16px">
+        <div style="width: 100%; max-width: 760px; border: 1px solid #b9c2d0; border-radius: 16px; padding: 12px 14px; box-shadow: 0 2px 8px rgba(20,33,61,.08); box-sizing: border-box">
+          <textarea aria-label="에이전트에게 요청" placeholder="무엇을 도와드릴까요? 예: 골조가 3주 밀렸어. 만회 계획 세워 줘" style="width: 100%; height: 48px; border: 0; outline: 0; resize: none; font: inherit; box-sizing: border-box"></textarea>
+          <div style="display: flex; align-items: center; gap: 8px">
+            <button class="pill">+ 파일</button><button class="pill">스킬</button>
+            <span style="font-size: 12px; color: #5b6577">보는 중: 일정판 · A2020 지상 1~5층 골조</span>
+            <div style="flex: 1"></div>
+            <button class="btn pri" style="border-radius: 999px">보내기</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 오른쪽: 컨텍스트·정보 -->
+    <div style="width: 330px; flex: none; border-left: 1px solid #d9dfe8; display: flex; flex-direction: column; background: #fff">
+      <div style="display: flex; border-bottom: 1px solid #d9dfe8; padding: 0 8px"><button class="rt on">컨텍스트</button><button class="rt">근거 2</button><button class="rt">활동</button></div>
+      <div style="padding: 4px 16px 16px; overflow: hidden">
+        <div class="sec">지금 다루는 것</div>
+        <div class="ln"><span>일정</span><b>5층 사무동 신축</b></div>
+        <div class="ln"><span>분야·정밀도</span>건설 · L3 관리</div>
+        <div class="ln"><span>보는 화면</span>일정판 간트 · A2020</div>
+
+        <div class="sec">에이전트가 참고하는 것</div>
+        <div class="ln"><span>조건</span>12개 (기본 3 · 분야 2 · 내 규칙 1 · 입력 6)</div>
+        <div class="ln"><span>내 규칙</span>층당 골조 10일</div>
+        <div class="ln"><span>붙인 문서</span>없음</div>
+        <div class="ln"><span>스킬</span>맞는 스킬 없음 → 새로 짬</div>
+
+        <div class="sec">워크플로우</div>
+        <div class="ln"><span class="dot" style="background: #1f9d55; width: 8px"></span>① WBS 만들기</div>
+        <div class="ln"><span class="dot" style="background: #1f9d55; width: 8px"></span>② 스케줄 만들기</div>
+        <div class="ln"><span class="dot" style="background: #1f9d55; width: 8px"></span>③ 경로 계산</div>
+        <div class="ln"><span class="dot" style="background: #1f9d55; width: 8px"></span>④ 조건 점검 (3회)</div>
+        <div class="ln"><span class="dot" style="background: #d98a1c; width: 8px"></span>⑤ 승인 대기</div>
+        <button class="btn" style="margin-top: 6px; font-size: 12px">워크플로우 창에서 보기</button>
+
+        <div class="sec">이번 대화 사용량</div>
+        <div class="ln"><span>모델</span>라우터 quality 2회 · cost 3회</div>
+        <div class="ln"><span>토큰</span>입력 48.2K · 출력 9.6K</div>
+        <div class="ln"><span>비용</span>$0.31</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1560,"height":900}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

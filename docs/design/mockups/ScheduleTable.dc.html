@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>일정판 스케줄표</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.tab{border:0;background:none;padding:10px 16px;color:#5b6577;border-bottom:2px solid transparent}
+.tab.on{color:#2a64c7;font-weight:700;border-bottom-color:#2f6fdb}
+.tool{height:44px;flex:none;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;gap:6px;padding:0 12px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.btn.pri{background:#2f6fdb;border-color:#2f6fdb;color:#fff}
+.row{display:flex;height:32px;align-items:center;border-bottom:1px solid #eef2f7}
+.row.sel{background:#e3edfb}
+.c{padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box;flex:none;border-right:1px solid #eef2f7;height:100%;display:flex;align-items:center}
+.hd{background:#f7f9fb;font-weight:500;color:#5b6577;font-size:12px;border-bottom:1px solid #d9dfe8}
+.n{justify-content:flex-end}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500}
+.sum{border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500}
+</style>
+</helmet>
+<div class="w" style="width: 1600px; height: 900px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button>
+    <button class="lt" aria-label="최소화" style="background: #febc2e"></button>
+    <button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">일정판 — 5층 사무동 신축</div>
+  </div>
+  <div style="flex: none; display: flex; align-items: center; border-bottom: 1px solid #d9dfe8; padding: 0 12px">
+    <button class="tab on">스케줄표</button><button class="tab">간트</button><button class="tab">CPM</button><button class="tab">진행</button>
+    <div style="flex: 1"></div>
+    <span style="color: #5b6577; font-size: 12px; margin-right: 8px">Data Date</span>
+    <button class="btn">2027.06.01</button>
+    <span class="sum" style="background: #e3edfb; color: #1f4f9e; margin-left: 10px">완료 예정 2027.11.24</span>
+    <span class="sum" style="background: #fbe0e0; color: #9b2c2c; margin-left: 6px">크리티컬 7</span>
+    <span class="sum" style="background: #dff3e6; color: #17703f; margin-left: 6px">음수 플로트 0</span>
+    <span class="sum" style="background: #fbebd0; color: #8a5411; margin-left: 6px">경고 1</span>
+  </div>
+  <div class="tool">
+    <button class="btn pri">+ 행 추가</button><button class="btn">삭제</button>
+    <input aria-label="코드·이름 검색" placeholder="코드·이름 검색" style="height: 30px; width: 200px; border: 1px solid #b9c2d0; border-radius: 6px; padding: 0 10px; font: inherit; font-size: 12px; margin-left: 6px">
+    <button class="btn">필터</button><button class="btn">열</button>
+    <button class="btn" aria-label="되돌리기">되돌리기</button><button class="btn" aria-label="다시 하기">다시 하기</button>
+    <span style="color: #5b6577; font-size: 12px; margin-left: 8px">가중치 방식</span><button class="btn">기간 비례 (기본)</button>
+    <div style="flex: 1"></div>
+    <span class="sum" style="background: #e3edfb; color: #1f4f9e">전체 가중 진척도 31.4%</span>
+    <button class="btn">CSV 내보내기</button><button class="btn">CSV 가져오기</button>
+  </div>
+  <div class="row hd" style="height: 34px">
+    <div class="c" style="width: 120px">ID</div><div class="c" style="width: 230px">이름</div><div class="c" style="width: 120px">유형</div><div class="c" style="width: 110px">WBS</div>
+    <div class="c n" style="width: 84px">가중치(%)</div><div class="c n" style="width: 56px">OD</div><div class="c n" style="width: 56px">RD</div>
+    <div class="c" style="width: 108px">Plan 시작</div><div class="c" style="width: 108px">Plan 종료</div><div class="c" style="width: 108px">Actual 시작</div><div class="c" style="width: 108px">Actual 종료</div>
+    <div class="c n" style="width: 64px">진도(%)</div><div class="c" style="width: 118px">상태</div><div class="c n" style="width: 52px">TF</div><div class="c n" style="width: 52px">FF</div><div class="c" style="flex: 1; border-right: 0">선행</div>
+  </div>
+  <div style="flex: 1; min-height: 0; overflow: hidden">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="14">
+      <div class="row {{r.cls}}" style="font-weight: {{r.fw}}; background: {{r.bg}}">
+        <div class="c" style="width: 120px; padding-left: {{r.pad}}">{{r.id}}</div><div class="c" style="width: 230px">{{r.name}}</div><div class="c" style="width: 120px">{{r.type}}</div><div class="c" style="width: 110px">{{r.wbs}}</div>
+        <div class="c n" style="width: 84px">{{r.wt}}</div><div class="c n" style="width: 56px">{{r.od}}</div><div class="c n" style="width: 56px">{{r.rd}}</div>
+        <div class="c" style="width: 108px">{{r.ps}}</div><div class="c" style="width: 108px">{{r.pe}}</div><div class="c" style="width: 108px">{{r.as}}</div><div class="c" style="width: 108px">{{r.ae}}</div>
+        <div class="c n" style="width: 64px">{{r.pg}}</div>
+        <div class="c" style="width: 118px"><span class="badge" style="background: {{r.sb}}; color: {{r.sf}}">{{r.st}}</span></div>
+        <div class="c n" style="width: 52px; color: {{r.tfc}}">{{r.tf}}</div><div class="c n" style="width: 52px">{{r.ff}}</div><div class="c" style="flex: 1; border-right: 0; color: #5b6577">{{r.pred}}</div>
+      </div>
+    </sc-for>
+  </div>
+  <div style="height: 28px; flex: none; border-top: 1px solid #d9dfe8; border-bottom: 2px solid #cfd6e0; background: #f7f9fb; display: flex; align-items: center; padding: 0 12px; font-size: 12px; color: #5b6577">15 행 · 액티비티 62개 중 일부 표시</div>
+  <!-- 관계 패널 -->
+  <div style="height: 190px; flex: none; padding: 12px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; align-items: center; gap: 8px"><b>관계</b><span class="badge" style="background: #e3edfb; color: #1f4f9e">A2020 지상 1~5층 골조</span><div style="flex: 1"></div><button class="btn">+ 선행 추가</button><button class="btn">+ 후행 추가</button></div>
+    <div style="display: flex; gap: 24px">
+      <div style="flex: 1">
+        <div class="row hd" style="height: 28px"><div class="c" style="width: 70px">구분</div><div class="c" style="width: 90px">ID</div><div class="c" style="flex: 1">이름</div><div class="c" style="width: 70px">관계</div><div class="c n" style="width: 70px; border-right: 0">간격</div></div>
+        <div class="row" style="height: 28px"><div class="c" style="width: 70px">선행</div><div class="c" style="width: 90px">A2010</div><div class="c" style="flex: 1">지하 1층 골조</div><div class="c" style="width: 70px">FS</div><div class="c n" style="width: 70px; border-right: 0">0일</div></div>
+        <div class="row" style="height: 28px"><div class="c" style="width: 70px">선행</div><div class="c" style="width: 90px">A1040</div><div class="c" style="flex: 1">타워크레인 설치</div><div class="c" style="width: 70px">FS</div><div class="c n" style="width: 70px; border-right: 0">0일</div></div>
+      </div>
+      <div style="flex: 1">
+        <div class="row hd" style="height: 28px"><div class="c" style="width: 70px">구분</div><div class="c" style="width: 90px">ID</div><div class="c" style="flex: 1">이름</div><div class="c" style="width: 70px">관계</div><div class="c n" style="width: 70px; border-right: 0">간격</div></div>
+        <div class="row" style="height: 28px"><div class="c" style="width: 70px">후행</div><div class="c" style="width: 90px">A3010</div><div class="c" style="flex: 1">외장 패널</div><div class="c" style="width: 70px">FS</div><div class="c n" style="width: 70px; border-right: 0">0일</div></div>
+        <div class="row" style="height: 28px"><div class="c" style="width: 70px">후행</div><div class="c" style="width: 90px">A3020</div><div class="c" style="flex: 1">전기·기계 배관</div><div class="c" style="width: 70px">SS</div><div class="c n" style="width: 70px; border-right: 0">+30일</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+  const S = { ok: ['계획 내', '#dff3e6', '#17703f'], done: ['완료', '#eef2f7', '#5b6577'], late: ['지연 +4일', '#fbe0e0', '#9b2c2c'], early: ['선행 -2일', '#e3edfb', '#1f4f9e'], none: ['', 'transparent', '#1c2333'] };
+  const raw = [
+    ['1 기초', '', '', '', '14.2', '', '', '03.02', '04.09', '03.02', '04.10', '100', 'none', '', '', '', 1],
+    ['A1010', '착공', '시작 마일스톤', '1 기초', '0', '0', '0', '2027.03.02', '2027.03.02', '2027.03.02', '2027.03.02', '100', 'done', '0', '0', '', 0],
+    ['A1020', '터파기·흙막이', '작업', '1 기초', '5.1', '15', '0', '2027.03.02', '2027.03.19', '2027.03.02', '2027.03.19', '100', 'done', '0', '0', 'A1010', 0],
+    ['A1030', '기초 철근·타설', '작업', '1 기초', '5.1', '15', '0', '2027.03.22', '2027.04.09', '2027.03.22', '2027.04.10', '100', 'done', '0', '0', 'A1020', 0],
+    ['A1040', '타워크레인 설치', '작업', '1 기초', '1.7', '5', '0', '2027.04.05', '2027.04.09', '2027.04.03', '2027.04.08', '100', 'early', '2', '2', 'A1030 SS+10', 0],
+    ['2 골조', '', '', '', '23.1', '', '', '04.12', '07.14', '04.12', '', '58', 'none', '', '', '', 1],
+    ['A2010', '지하 1층 골조', '작업', '2 골조', '6.1', '18', '0', '2027.04.12', '2027.05.05', '2027.04.12', '2027.05.10', '100', 'done', '0', '0', 'A1030', 0],
+    ['A2020', '지상 1~5층 골조', '작업', '2 골조', '17.0', '50', '32', '2027.05.06', '2027.07.14', '2027.05.11', '', '36', 'late', '0', '0', 'A2010, A1040', 2],
+    ['3 외장·설비', '', '', '', '34.0', '', '', '06.14', '09.10', '', '', '0', 'none', '', '', '', 1],
+    ['A3010', '외장 패널', '작업', '3 외장·설비', '11.9', '35', '35', '2027.07.15', '2027.09.01', '', '', '0', 'ok', '0', '0', 'A2020', 0],
+    ['A3020', '전기·기계 배관', '작업', '3 외장·설비', '13.6', '40', '40', '2027.06.14', '2027.08.06', '', '', '0', 'ok', '18', '0', 'A2020 SS+30', 0],
+    ['A3030', '승강기 설치', '작업', '3 외장·설비', '8.5', '25', '25', '2027.08.09', '2027.09.10', '', '', '0', 'ok', '12', '12', 'A2020', 0],
+    ['4 마감', '', '', '', '28.7', '', '', '09.02', '11.24', '', '', '0', 'none', '', '', '', 1],
+    ['A4010', '내부 마감', '작업', '4 마감', '15.3', '45', '45', '2027.09.02', '2027.11.03', '', '', '0', 'ok', '0', '0', 'A3010, A3020', 0],
+    ['A4030', '준공', '종료 마일스톤', '4 마감', '0', '0', '0', '2027.11.24', '2027.11.24', '', '', '0', 'ok', '0', '0', 'A4020 · 늦어도 11.30', 0]
+  ];
+  const rows = raw.map((r) => {
+    const s = S[r[12]];
+    return { id: r[0], name: r[1], type: r[2], wbs: r[3], wt: r[4], od: r[5], rd: r[6], ps: r[7], pe: r[8], as: r[9], ae: r[10], pg: r[11], st: s[0], sb: s[1], sf: s[2], tf: r[13], ff: r[14], pred: r[15],
+      fw: r[16] === 1 ? 700 : 400, pad: r[16] === 1 ? '10px' : '26px', bg: r[16] === 1 ? '#f7f9fb' : (r[16] === 2 ? '#e3edfb' : 'transparent'), cls: '', tfc: r[13] === '0' ? '#9b2c2c' : '#1c2333' };
+  });
+  return { rows };
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,206 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-19T22:10:00+09:00"
+  },
+  "title": "ChronOS 화면 시안",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "title": "OS 바탕화면 — 메뉴바 · 창 · Dock"
+    },
+    "Login.dc.html": {
+      "x": 2000,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "title": "로그인"
+    },
+    "ChatLarge.dc.html": {
+      "x": 0,
+      "y": 1400,
+      "w": 1560,
+      "h": 900,
+      "title": "에이전트 대화창 — 큰 화면 (목록 · 대화 · 컨텍스트)"
+    },
+    "ChatSmall.dc.html": {
+      "x": 1640,
+      "y": 1400,
+      "w": 480,
+      "h": 760,
+      "title": "에이전트 대화창 — 작은 화면"
+    },
+    "QuestionnaireB.dc.html": {
+      "x": 2200,
+      "y": 1400,
+      "w": 1180,
+      "h": 860,
+      "title": "질문지 (B안 확정)"
+    },
+    "ScheduleTable.dc.html": {
+      "x": 0,
+      "y": 2680,
+      "w": 1600,
+      "h": 900,
+      "title": "일정판 — 스케줄표"
+    },
+    "ScheduleGantt.dc.html": {
+      "x": 1680,
+      "y": 2680,
+      "w": 1600,
+      "h": 900,
+      "title": "일정판 — 간트"
+    },
+    "ScheduleCPM.dc.html": {
+      "x": 3360,
+      "y": 2680,
+      "w": 1600,
+      "h": 900,
+      "title": "일정판 — CPM"
+    },
+    "ScheduleProgress.dc.html": {
+      "x": 5040,
+      "y": 2680,
+      "w": 1600,
+      "h": 900,
+      "title": "일정판 — 진행 (2판)"
+    },
+    "ConditionsB.dc.html": {
+      "x": 0,
+      "y": 3960,
+      "w": 1400,
+      "h": 860,
+      "title": "조건·규칙 (B안 확정 — 겹별)"
+    },
+    "Compare.dc.html": {
+      "x": 1480,
+      "y": 3960,
+      "w": 1400,
+      "h": 860,
+      "title": "비교판 (2판 — 위아래 구분 · 보기 방식 넷)"
+    },
+    "Delay.dc.html": {
+      "x": 2960,
+      "y": 3960,
+      "w": 1400,
+      "h": 860,
+      "title": "지연 기록"
+    },
+    "Report.dc.html": {
+      "x": 4440,
+      "y": 3960,
+      "w": 1400,
+      "h": 860,
+      "title": "보고서"
+    },
+    "Workflow.dc.html": {
+      "x": 0,
+      "y": 5200,
+      "w": 1400,
+      "h": 860,
+      "title": "워크플로우 · 스킬"
+    },
+    "Approvals.dc.html": {
+      "x": 1480,
+      "y": 5200,
+      "w": 1200,
+      "h": 760,
+      "title": "승인함 (2판)"
+    },
+    "Explorer.dc.html": {
+      "x": 2760,
+      "y": 5200,
+      "w": 1100,
+      "h": 720,
+      "title": "탐색기"
+    },
+    "Notifications.dc.html": {
+      "x": 3940,
+      "y": 5200,
+      "w": 520,
+      "h": 720,
+      "title": "알림"
+    },
+    "Settings.dc.html": {
+      "x": 4540,
+      "y": 5200,
+      "w": 1300,
+      "h": 860,
+      "title": "설정 — LLM 연결 · 모델 배정"
+    },
+    "DevConsoleA.dc.html": {
+      "x": 5920,
+      "y": 5200,
+      "w": 1500,
+      "h": 900,
+      "title": "개발 콘솔 (A안 확정)"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Login.dc.html",
+    "ChatLarge.dc.html",
+    "ChatSmall.dc.html",
+    "QuestionnaireB.dc.html",
+    "ScheduleTable.dc.html",
+    "ScheduleGantt.dc.html",
+    "ScheduleCPM.dc.html",
+    "ScheduleProgress.dc.html",
+    "ConditionsB.dc.html",
+    "Compare.dc.html",
+    "Delay.dc.html",
+    "Report.dc.html",
+    "Workflow.dc.html",
+    "Approvals.dc.html",
+    "Explorer.dc.html",
+    "Notifications.dc.html",
+    "Settings.dc.html",
+    "DevConsoleA.dc.html"
+  ],
+  "notes": {
+    "t-os": {
+      "x": 0,
+      "y": -300,
+      "text": "1. OS 화면",
+      "kind": "title1",
+      "maxW": 3920
+    },
+    "t-chat": {
+      "x": 0,
+      "y": 1100,
+      "text": "2. 대화창 · 질문지",
+      "kind": "title1",
+      "maxW": 3380
+    },
+    "t-sched": {
+      "x": 0,
+      "y": 2380,
+      "text": "3. 일정판 (탭 넷)",
+      "kind": "title1",
+      "maxW": 6640
+    },
+    "t-work": {
+      "x": 0,
+      "y": 3660,
+      "text": "4. 업무 프로그램",
+      "kind": "title1",
+      "maxW": 5840
+    },
+    "t-sys": {
+      "x": 0,
+      "y": 4900,
+      "text": "5. 시스템 프로그램",
+      "kind": "title1",
+      "maxW": 7420
+    }
+  },
+  "designSystems": []
+}

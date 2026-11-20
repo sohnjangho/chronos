@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>조건·규칙 B안</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.btn.pri{background:#2f6fdb;border-color:#2f6fdb;color:#fff}
+.col{flex:1;min-width:0;border-right:1px solid #d9dfe8;display:flex;flex-direction:column}
+.col:last-child{border-right:0}
+.ch{padding:12px 14px;border-bottom:1px solid #d9dfe8;background:#f7f9fb}
+.ch b{font-size:14px}
+.ch div{font-size:12px;color:#5b6577;margin-top:2px}
+.it{margin:10px 12px 0;border:1px solid #d9dfe8;border-radius:10px;padding:10px 12px;background:#fff}
+.it .t{display:flex;align-items:center;gap:8px}
+.it .d{font-size:12px;color:#5b6577;margin-top:4px}
+.in{width:48px;height:26px;border:1px solid #b9c2d0;border-radius:6px;text-align:center;font:inherit;box-sizing:border-box}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.ok{background:#dff3e6;color:#17703f}.bad{background:#fbe0e0;color:#9b2c2c}.na{background:#eef2f7;color:#5b6577}.pv{background:#e3edfb;color:#1f4f9e}
+.lock{font-size:11px;color:#5b6577;border:1px solid #cfd6e0;border-radius:4px;padding:0 5px}
+</style>
+</helmet>
+<div class="w" style="width: 1400px; height: 860px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button><button class="lt" aria-label="최소화" style="background: #febc2e"></button><button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">조건·규칙 — 5층 사무동 신축</div>
+  </div>
+  <div style="height: 44px; flex: none; border-bottom: 1px solid #d9dfe8; display: flex; align-items: center; padding: 0 16px; gap: 10px">
+    <b>하네스 네 겹</b><span style="color: #5b6577">뒤 겹이 앞 겹과 부딪히면 뒤 겹을 따릅니다 (기본 규칙은 예외)</span>
+    <div style="flex: 1"></div>
+    <span class="badge ok">통과 12</span><span class="badge bad">위반 1</span><span class="badge na">자동 점검 안 됨 1</span>
+    <span class="badge pv" style="font-size: 12px; padding: 3px 10px">미리 보기 중</span>
+    <button class="btn">에이전트에게 맞추게 하기</button><button class="btn pri">확정</button>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex">
+    <div class="col">
+      <div class="ch"><b>① 기본 규칙</b> <span class="lock">못 바꿈</span><div>모든 일정에 항상 적용</div></div>
+      <div class="it"><div class="t"><span style="flex: 1">선후 고리 없음</span><span class="badge ok">통과</span></div></div>
+      <div class="it"><div class="t"><span style="flex: 1">떠 있는 액티비티 없음</span><span class="badge ok">통과</span></div><div class="d">모든 액티비티에 선행과 후행이 있음</div></div>
+      <div class="it"><div class="t"><span style="flex: 1">달력 준수</span><span class="badge ok">통과</span></div><div class="d">쉬는 날에 작업 없음</div></div>
+    </div>
+    <div class="col">
+      <div class="ch"><b>② 분야 규칙 · 건설</b> <span class="lock">관리자만 수정</span><div>분야 묶음에 들어 있음</div></div>
+      <div class="it"><div class="t"><span style="flex: 1">타설 뒤 양생 7일</span><span class="badge ok">통과</span></div><div class="d">근거 1건 · 이 일정에서만 끄기 가능</div></div>
+      <div class="it"><div class="t"><span style="flex: 1">골조 2개 층 위부터 설비 배관</span><span class="badge ok">통과</span></div></div>
+      <div class="it" style="border-style: dashed"><div class="t"><span style="flex: 1; color: #5b6577">우기 터파기 효율 20% 낮춤</span><button class="btn">켜기</button></div><div class="d">이 일정에서는 꺼 둠 (질문지)</div></div>
+    </div>
+    <div class="col">
+      <div class="ch"><b>③ 내 규칙</b><div>에이전트가 제안 → 확인 뒤 저장</div></div>
+      <div class="it"><div class="t"><span style="flex: 1">층당 골조 10일</span><span class="badge ok">통과</span></div><div class="d">건설 분야 전체 · 11.19 저장 · 3번 적용됨</div></div>
+      <div class="it" style="background: #f4f8fe; border-color: #2f6fdb"><div class="t"><span class="badge pv">제안</span><span style="flex: 1">타설 다음 날은 그 층 작업 없음</span></div><div class="d">방금 A2025 를 하루 미루셨습니다. 다음에도 적용할까요?</div><div style="display: flex; gap: 6px; margin-top: 8px"><button class="btn pri">저장</button><button class="btn">이 일정만</button><button class="btn">아니오</button></div></div>
+      <div style="flex: 1"></div>
+      <div style="padding: 12px"><button class="btn" style="width: 100%">+ 내 규칙 직접 추가</button></div>
+    </div>
+    <div class="col" style="flex: 1.5">
+      <div class="ch"><b>④ 입력 조건</b><div>대화와 질문지에서 뽑음 · 이 일정에만 적용</div></div>
+      <div class="it" style="background: #f4f8fe; border-color: #2f6fdb"><div class="t"><b style="flex: 1">타워크레인</b><input class="in" aria-label="타워크레인 수량" value="2"><span>대</span><span class="badge ok">통과</span></div><div class="d">1대 → 2대 미리 보기 · 준공 11.24 → 11.12 · 쓰는 액티비티 12개 ▸</div></div>
+      <div class="it"><div class="t"><b style="flex: 1">철근공</b><input class="in" aria-label="철근공 수량" value="10"><span>명</span><span class="badge ok">통과</span></div><div class="d">가장 몰리는 때 5월 4주 · 9명</div></div>
+      <div class="it"><div class="t"><span style="flex: 1">준공 <b>2027.11.30</b> 이전</span><span class="badge ok">통과</span></div><div class="d">프롬프트 · 지금 11.12, 여유 18일</div></div>
+      <div class="it" style="border-color: #c93b3b"><div class="t"><span style="flex: 1">골조 상량 <b>2027.07.10</b> 이전</span><span class="badge bad">위반</span></div><div class="d" style="color: #9b2c2c">질문지 · 지금 07.14, 4일 초과. 계산만으로는 못 맞춤</div></div>
+      <div class="it"><div class="t"><span style="flex: 1">12~2월 콘크리트 타설 금지</span><span class="badge ok">통과</span></div><div class="d">프롬프트 · 분야 규칙보다 우선</div></div>
+      <div class="it"><div class="t"><span style="flex: 1">주 6일 · 한국 공휴일 쉼</span><span class="badge ok">통과</span></div></div>
+      <div class="it"><div class="t"><span style="flex: 1">"안전 우선으로 여유 있게"</span><span class="badge na">자동 점검 안 됨</span></div><div class="d">생성할 때 지침으로만 씀</div></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1400,"height":860}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

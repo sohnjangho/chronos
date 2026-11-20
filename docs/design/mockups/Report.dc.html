@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>보고서</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+body{margin:0}
+a{color:#2a64c7}a:hover{color:#1f4f9e}
+.w{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif;color:#1c2333;font-size:13px;line-height:18px;font-variant-numeric:tabular-nums}
+.w button{font:inherit;cursor:pointer}
+.tb{height:36px;flex:none;background:#f3f5f8;border-bottom:1px solid #d9dfe8;display:flex;align-items:center;padding:0 12px;gap:8px}
+.lt{width:12px;height:12px;border-radius:50%;border:0;padding:0}
+.tt{flex:1;text-align:center;font-weight:500;margin-right:60px}
+.btn{border:1px solid #cfd6e0;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;color:#1c2333}
+.btn.pri{background:#2f6fdb;border-color:#2f6fdb;color:#fff}
+.tab{border:0;background:none;padding:10px 14px;color:#5b6577;border-bottom:2px solid transparent}
+.tab.on{color:#2a64c7;font-weight:700;border-bottom-color:#2f6fdb}
+.li{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 12px;border-radius:8px;color:#1c2333}
+.li.on{background:#e3edfb}
+.li small{display:block;color:#5b6577;font-size:11px}
+.grp{font-size:11px;color:#5b6577;padding:12px 12px 4px}
+.pg{width:640px;background:#fff;box-shadow:0 2px 12px rgba(20,33,61,.18);padding:36px 40px;box-sizing:border-box;font-size:12px;line-height:18px}
+.pg h1{font-size:18px;line-height:24px;margin:0}
+.pg h2{font-size:13px;margin:16px 0 6px;padding-bottom:4px;border-bottom:1.5px solid #1c2333}
+.pg table{border-collapse:collapse;width:100%}
+.pg td,.pg th{border:1px solid #cfd6e0;padding:4px 8px;text-align:left}
+.pg th{background:#f3f5f8;font-weight:500}
+.map{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eef2f7}
+.badge{border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.bar{position:absolute;height:7px;border-radius:2px}
+</style>
+</helmet>
+<div class="w" style="width: 1400px; height: 860px; background: #fff; border: 1px solid #b9c2d0; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box">
+  <div class="tb">
+    <button class="lt" aria-label="닫기" style="background: #ff5f57"></button><button class="lt" aria-label="최소화" style="background: #febc2e"></button><button class="lt" aria-label="확대" style="background: #28c840"></button>
+    <div class="tt">보고서</div>
+  </div>
+  <div style="flex: 1; min-height: 0; display: flex">
+    <!-- 목록 -->
+    <div style="width: 250px; flex: none; border-right: 1px solid #d9dfe8; background: #f7f9fb; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column">
+      <button class="btn pri" style="width: 100%">+ 보고서 만들기</button>
+      <div class="grp">보고서</div>
+      <button class="li on"><b>일정 요약 · 6월 1주</b><small>발주처 주간 양식 · 방금</small></button>
+      <button class="li">지연 보고서 · 설계 변경<small>기본 양식 · 어제</small></button>
+      <button class="li">일정 요약 · 5월 4주<small>발주처 주간 양식 · 05.28</small></button>
+      <div class="grp">양식</div>
+      <button class="li">발주처 주간 양식<small>올린 파일에서 학습 · 항목 7개</small></button>
+      <button class="li">기본 일정 요약<small>기본 제공</small></button>
+      <button class="li">기본 지연 보고서<small>기본 제공</small></button>
+      <div style="flex: 1"></div>
+      <button class="btn" style="width: 100%">+ 양식 등록 (파일 올리기)</button>
+    </div>
+    <!-- 미리 보기 -->
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; background: #e9edf2">
+      <div style="height: 44px; flex: none; background: #fff; border-bottom: 1px solid #d9dfe8; display: flex; align-items: center; padding: 0 14px; gap: 8px">
+        <b>일정 요약 · 6월 1주</b><span class="badge" style="background: #e3edfb; color: #1f4f9e">발주처 주간 양식</span>
+        <div style="flex: 1"></div>
+        <button class="btn">에이전트에게 고쳐 달라고 하기</button><button class="btn">간트 캡처 넣기</button><button class="btn">다시 만들기</button><button class="btn pri">PDF</button>
+      </div>
+      <div style="flex: 1; min-height: 0; overflow: hidden; display: flex; justify-content: center; padding-top: 18px">
+        <div class="pg">
+          <h1>주간 공정 보고 — 5층 사무동 신축</h1>
+          <div style="color: #5b6577; margin-top: 2px">2027년 6월 1주 · 기준일 06.01 · 작성 손장호</div>
+          <h2>1. 요약</h2>
+          <div>전체 공정률은 계획 30.5% 대비 실적 28.1%로 2.4%p 늦습니다. 지상 골조가 설계 변경과 우천으로 4일 지연되어 준공이 11.24에서 11.28로 밀릴 것으로 보이며, 기한(11.30)까지 여유는 2일입니다.</div>
+          <h2>2. 공정률</h2>
+          <table><tr><th>구분</th><th>가중치</th><th>계획</th><th>실적</th><th>차이</th></tr><tr><td>기초</td><td>14.2%</td><td>100%</td><td>100%</td><td>0</td></tr><tr><td>골조</td><td>23.1%</td><td>66%</td><td>58%</td><td style="color: #9b2c2c">−8%p</td></tr><tr><td>외장·설비</td><td>34.0%</td><td>0%</td><td>0%</td><td>0</td></tr></table>
+          <h2>3. 주요 일정</h2>
+          <div style="border: 1px solid #cfd6e0; padding: 8px 10px; position: relative; height: 84px">
+            <div style="position: relative; height: 18px"><span>골조</span><div class="bar" style="left: 90px; width: 220px; top: 6px; background: #c93b3b"></div></div>
+            <div style="position: relative; height: 18px"><span>외장</span><div class="bar" style="left: 300px; width: 120px; top: 6px; background: #c93b3b"></div></div>
+            <div style="position: relative; height: 18px"><span>설비</span><div class="bar" style="left: 220px; width: 150px; top: 6px; background: #4f8cff"></div></div>
+            <div style="position: relative; height: 18px"><span>마감</span><div class="bar" style="left: 410px; width: 130px; top: 6px; background: #c93b3b"></div></div>
+            <div style="position: absolute; left: 204px; top: 4px; bottom: 4px; width: 2px; background: #d98a1c"></div>
+          </div>
+          <div style="color: #5b6577; font-size: 11px; margin-top: 3px">간트 캡처 · 2027.04 ~ 11 · 크리티컬 패스 표시</div>
+          <h2>4. 지연과 대책</h2>
+          <table><tr><th>사건</th><th>책임</th><th>준공 영향</th><th>대책</th></tr><tr><td>설계 변경 (3층 평면)</td><td>발주처</td><td>+3일</td><td>크레인 1대 추가 검토</td></tr><tr><td>우천</td><td>불가항력</td><td>+1일</td><td>—</td></tr></table>
+          <h2>5. 다음 주 계획</h2>
+          <div>3층 타설(06.16), 전기·기계 배관 착수(06.14, 선행 확인 필요).</div>
+        </div>
+      </div>
+    </div>
+    <!-- 양식 연결 -->
+    <div style="width: 340px; flex: none; border-left: 1px solid #d9dfe8; display: flex; flex-direction: column">
+      <div style="display: flex; border-bottom: 1px solid #d9dfe8; padding: 0 8px"><button class="tab on">양식 항목</button><button class="tab">말투·표기</button></div>
+      <div style="padding: 8px 16px 16px; overflow: hidden">
+        <div style="font-size: 12px; color: #5b6577; padding: 6px 0">올린 보고서에서 읽은 항목과, 각 항목에 연결한 자료입니다.</div>
+        <div class="map"><span style="flex: 1"><b>1. 요약</b><br><span style="color: #5b6577; font-size: 12px">에이전트가 작성</span></span><span class="badge" style="background: #dff3e6; color: #17703f">연결됨</span></div>
+        <div class="map"><span style="flex: 1"><b>2. 공정률 표</b><br><span style="color: #5b6577; font-size: 12px">일정판 진행 · WBS 묶음별</span></span><span class="badge" style="background: #dff3e6; color: #17703f">연결됨</span></div>
+        <div class="map"><span style="flex: 1"><b>3. 주요 일정</b><br><span style="color: #5b6577; font-size: 12px">간트 캡처 · 기간 고르기</span></span><span class="badge" style="background: #dff3e6; color: #17703f">연결됨</span></div>
+        <div class="map"><span style="flex: 1"><b>4. 지연과 대책</b><br><span style="color: #5b6577; font-size: 12px">지연 기록</span></span><span class="badge" style="background: #dff3e6; color: #17703f">연결됨</span></div>
+        <div class="map"><span style="flex: 1"><b>5. 다음 주 계획</b><br><span style="color: #5b6577; font-size: 12px">앞으로 1주 액티비티</span></span><span class="badge" style="background: #dff3e6; color: #17703f">연결됨</span></div>
+        <div class="map"><span style="flex: 1"><b>6. S-커브</b><br><span style="color: #5b6577; font-size: 12px">일정판 진행 그림</span></span><button class="btn">넣기</button></div>
+        <div class="map" style="border-bottom: 0"><span style="flex: 1"><b>7. 현장 사진</b><br><span style="color: #9b2c2c; font-size: 12px">연결할 자료 없음</span></span><span class="badge" style="background: #eef2f7; color: #5b6577">직접 입력</span></div>
+        <div style="background: #f7f9fb; border-radius: 8px; padding: 10px 12px; margin-top: 10px; font-size: 12px; color: #5b6577">말투: "~습니다" · 날짜 "월.일" · 기준 요일 월요일 (올린 보고서에서 읽음)</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1400,"height":860}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
