@@ -583,12 +583,13 @@ def test_conflict_at_save_time_is_409(client, admin, session, sid, sample_schedu
 
 def test_write_reuses_the_checked_computation(client, admin, sid, monkeypatch):
     """쓰기 뒤 화면은 지금 일정을 다시 계산하지 않는다. Plan 은 버전에 고정한 것(plan_json)을 읽으므로 실적이
-    있어도 다시 계산하지 않는다(PM 결정 11-20 밤)."""
-    from app.store import view
+    있어도 다시 계산하지 않는다(PM 결정 11-20 밤). 계획 변경의 Plan 도 확인한 계산을 그대로 찍는다(리뷰 M4)."""
+    from app.store import versions, view
 
     calls = []
     real_run = view.run
     monkeypatch.setattr(view, "run", lambda s: calls.append(s) or real_run(s))
+    monkeypatch.setattr(versions, "run", lambda s, c=None: calls.append(s) or real_run(s, c))
     v = _patch(client, admin, sid, "A", 1, od=5).json()
     assert v["finish"] == v["plan_finish"] == "2027-03-09"
     assert calls == []

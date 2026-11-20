@@ -128,6 +128,7 @@ def _write(
             changes=result.changes,
             base_version=base_version,
             plan_change=plan_changed(schedule, result.schedule),
+            computed=cpm,
         )
     except VersionConflict as e:
         raise _conflict(e.current) from None

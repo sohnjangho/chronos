@@ -86,6 +86,7 @@ def _plan_change(session: Session, row: Approval) -> bool:
     - 그 밖(에이전트 고침·조건 확정·실적 입력): 조건이 바뀌었거나 계획 칸이 바뀌었으면 계획 변경, 실적·Data Date 만
       바꿨으면(schedule.record_actual) 물려받는다. 계획 칸과 실적을 같이 바꾸면 계획 변경이다.
     """
+    # 에이전트 op 이 실적 칸을 받게 되면 이 분류를 다시 볼 것(지금 op 은 od·이름·선행·더함·지움뿐).
     if row.link_kind == "scenario":
         scenario = session.get(Scenario, row.link_id)
         return scenario is None or scenario.source != "delay"

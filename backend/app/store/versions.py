@@ -14,7 +14,7 @@ Plan(PM 결정 11-20 밤): 버전마다 plan_json 을 둔다. 새 버전을 만�
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.core.cpm import ScheduleError
+from app.core.cpm import CpmResult, ScheduleError
 from app.core.model import Schedule
 from app.store.diff import schedule_changes
 from app.store.schedules import (
@@ -60,7 +60,7 @@ def _bump(session: Session, schedule_id: int, base_version: int) -> bool:
 
 
 def _plan(session: Session, schedule_id: int, base_version: int, schedule: Schedule, conditions: list[dict],
-          plan_change: bool) -> dict | None:
+          plan_change: bool, computed: CpmResult | None) -> dict | None:
     """새 버전(base_version+1)의 plan_json. 계획 변경이면 그 버전의 계산(실적 포함), 아니면 앞 버전의 것 그대로.
 
     저장은 계산을 확인하지 않으므로(부르는 쪽이 한다) 계산이 안 되는 일정이면 None(고정할 Plan 없음 — plan_of 가
@@ -68,7 +68,7 @@ def _plan(session: Session, schedule_id: int, base_version: int, schedule: Sched
     """
     if plan_change:
         try:
-            return plan_snapshot(run(schedule, conditions), base_version + 1)
+            return plan_snapshot(computed or run(schedule, conditions), base_version + 1)
         except ScheduleError:
             return None
     base = session.get(ScheduleVersion, (schedule_id, base_version))
@@ -88,13 +88,15 @@ def save_new_version(
     base_version: int,
     plan_change: bool,
     commit: bool = True,
+    computed: CpmResult | None = None,
 ) -> int:
     """base_version+1 번 버전과 변경 이력 한 줄을 저장한다. 계산 확인은 부르는 쪽이 한다.
 
     plan_change(기본값 없음 — 부르는 쪽이 꼭 정한다): True 면 이 버전의 계산을 Plan 으로 고정하고,
-    False 면 앞 버전의 Plan 을 물려받는다(모듈 설명글).
+    False 면 앞 버전의 Plan 을 물려받는다(모듈 설명글). computed = 부르는 쪽이 확인한 run(schedule, conditions)
+    결과(있으면 Plan 을 찍을 때 다시 계산하지 않는다).
     """
-    plan = _plan(session, schedule_id, base_version, schedule, conditions, plan_change)
+    plan = _plan(session, schedule_id, base_version, schedule, conditions, plan_change, computed)
     return _save(session, schedule_id, schedule, conditions, plan, by_kind=by_kind, by_name=by_name, note=note,
                  changes=changes, base_version=base_version, commit=commit)
 

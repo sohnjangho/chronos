@@ -508,19 +508,23 @@ def _late_start(client, admin, sid) -> None:
 def test_16d_preview_moves_the_plan_with_the_changed_capacity(client, admin, sid):
     _late_start(client, admin, sid)
     r = _post(client, admin, sid, "preview", CRANE_TWO, base_version=3).json()
-    # PM 결정 11-20 밤(16e): 조건 확정은 계획 변경이라 Plan = 바꾼 조건(크레인 2대)으로 계산한 지금 예측(A 실적 포함).
-    # moved 는 Plan 날짜: before = 지금 Plan(버전 1 때 찍은 것, 크레인 1대), after = 확정하면 될 Plan
+    # moved 는 조건의 효과만: before = 저장된 조건의 지금 예측(크레인 1대, A 실적 포함), after = 바꾼 조건의 예측.
+    # A·B 는 실적 때문에 Plan 과 다르지만 조건으로는 움직이지 않으므로 빠진다(리뷰 M1).
     assert r["moved"] == [
-        {"activity_id": "A", "name": "터파기", "before": {"start": "2027-03-01", "finish": "2027-04-23"},
-         "after": {"start": "2027-03-01", "finish": "2027-05-07"}},
-        {"activity_id": "B", "name": "골조 1구역", "before": {"start": "2027-04-26", "finish": "2027-06-04"},
+        {"activity_id": "C", "name": "골조 2구역", "before": {"start": "2027-06-21", "finish": "2027-07-30"},
          "after": {"start": "2027-05-10", "finish": "2027-06-18"}},
-        {"activity_id": "C", "name": "골조 2구역", "before": {"start": "2027-06-07", "finish": "2027-07-16"},
-         "after": {"start": "2027-05-10", "finish": "2027-06-18"}},
-        {"activity_id": "D", "name": "마감", "before": {"start": "2027-07-19", "finish": "2027-08-13"},
+        {"activity_id": "D", "name": "마감", "before": {"start": "2027-08-02", "finish": "2027-08-27"},
          "after": {"start": "2027-06-21", "finish": "2027-07-16"}},
     ]
+    # PM 결정 11-20 밤(16e): view 의 Plan 은 확정하면 될 Plan = 바꾼 조건(크레인 2대)으로 계산한 지금 예측(A 실적 포함)
     view = r["view"]
     c = next(a for a in view["activities"] if a["id"] == "C")
     assert (c["plan_start"], c["plan_finish"], view["plan_finish"]) == ("2027-05-10", "2027-06-18", "2027-07-16")
     assert view["finish"] == view["plan_finish"] and {a["status"] for a in view["activities"]} == {"on_plan"}
+
+
+def test_16e_preview_of_a_condition_without_date_effect_moves_nothing(client, admin, sid):
+    """날짜에 영향이 없는 조건(준공 기한을 늦춤)은 실적으로 Plan 과 어긋난 액티비티가 있어도 moved 가 비어 있다."""
+    _late_start(client, admin, sid)
+    r = _post(client, admin, sid, "preview", [{"id": "in.finish_by", "params": {"date": "2028-03-31"}}], base_version=3)
+    assert r.status_code == 200 and r.json()["moved"] == []
