@@ -1,6 +1,7 @@
 """승인 건(approvals): 만들기·읽기·목록·반영·결정 기록.
 
-한 줄 = 에이전트가 낸 변경 하나. kind 'first_save'(초안을 새 일정으로) | 'change'(일정 고침, base_version 위에).
+한 줄 = 에이전트가 낸 변경 하나. kind 'first_save'(초안을 새 일정으로) | 'change'(일정 고침, base_version 위에)
+| 'rule'(분야 범위 내 규칙 저장 — 일정은 건드리지 않는다).
 반영할 내용(snapshot_json·conditions_json·changes_json)과 화면에 보일 것(summary_json·diff_json)을 낼 때 정해 둔다.
 status: pending → approved | rejected(retry 면 에이전트가 다시 짠다) | conflict, 또는 처음부터 auto(자동 적용).
 """
@@ -83,8 +84,13 @@ def apply(session: Session, row: Approval, *, by_name: str) -> None:
     - change: base_version 위에 새 버전. 그 사이 바뀌었으면 VersionConflict(아무것도 쓰지 않음).
     - first_save: 초안의 분야·정밀도로 새 일정(이름 = 제목)과 버전 1을 만들고 「처음 계획」으로 표시한다(is_plan). 변경 이력 한 줄을 남기고
       초안을 쓴 것(used_at·schedule_id)으로 표시한다. 초안이 이미 쓰였으면 DraftUsed(아무것도 쓰지 않음).
-    반영한 뒤 이어진 것(복사본·지연 사건)에 알린다(store.links.after_apply).
+    - rule: 일정은 건드리지 않는다(schedule_id·version 그대로 None). 내 규칙은 links.after_apply 가 만든다.
+    반영한 뒤 이어진 것(복사본·지연 사건·내 규칙)에 알린다(store.links.after_apply).
     """
+    if row.kind == "rule":
+        links.after_apply(session, row)
+        session.flush()
+        return
     schedule, conditions = from_json(row.snapshot_json), list(row.conditions_json)
     by_kind = row.requested_kind or "agent"
     if row.kind == "change":

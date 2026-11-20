@@ -131,6 +131,12 @@
 .apv-why-text { display: flex; flex-direction: column; min-width: 0; }
 
 .apv-body { padding: 12px 18px 16px; }
+/* kind 'rule'(Task 35): 내 규칙 저장 덩어리. */
+.apv-rule { min-width: 0; padding: 10px 12px; border-radius: var(--radius-3); background: var(--bg-panel-alt); }
+.apv-rule-text { margin: 6px 0 8px; font-size: var(--fs-15); }
+.apv-rule-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.apv-rule-facts dt { color: var(--fg-muted); font-size: var(--fs-12); }
+.apv-rule-facts dd { margin: 0; min-width: 0; }
 .apv-nums { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; margin-bottom: 10px; }
 .apv-nums > div { display: flex; flex-direction: column; min-width: 0; }
 .apv-nums > div > span { color: var(--fg-muted); font-size: var(--fs-12); }

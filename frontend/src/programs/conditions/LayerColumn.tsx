@@ -1,5 +1,5 @@
-import { useId } from 'react';
-import type { Change, Cond, CondView, Layer } from './condApi';
+import { useId, type ReactNode } from 'react';
+import { isAdd, type AnyChange, type Cond, type CondView, type Layer } from './condApi';
 import type { EditPatch } from './condStore';
 import ConditionItem from './ConditionItem';
 import { grouped } from './labels';
@@ -17,11 +17,13 @@ interface ColumnProps {
   /** 이 겹의 조건 수(거르기 전). */
   total: number;
   saved: Map<string, Cond>;
-  edits: Record<string, Change>;
+  edits: Record<string, AnyChange>;
   resources: CondView['resources'];
   /** 입력 칸 열쇠(바뀌면 칸을 저장값으로 새로 그린다). */
   fieldsKey: string;
   onEdit(id: string, patch: EditPatch): void;
+  /** 목록 아래에 붙일 것(③ 칸의 저장된 내 규칙). */
+  children?: ReactNode;
 }
 
 /** 겹 하나의 칸: 머리(이름·잠금·설명·수) + 조건 목록(많으면 종류별 묶음). 칸 안에서 세로로 스크롤한다. */
@@ -29,16 +31,19 @@ export default function LayerColumn(props: ColumnProps) {
   const { layer, title, lock, note, items, total } = props;
   const headId = useId();
   const groups = total >= GROUP_FROM ? grouped(items) : [{ label: '', items }];
-  const item = (c: Cond) => (
-    <ConditionItem
-      key={`${c.id}-${props.fieldsKey}`}
-      cond={c}
-      saved={props.saved.get(c.id) ?? c}
-      change={props.edits[c.id]}
-      resources={props.resources}
-      onEdit={props.onEdit}
-    />
-  );
+  const item = (c: Cond) => {
+    const change = props.edits[c.id];
+    return (
+      <ConditionItem
+        key={`${c.id}-${props.fieldsKey}`}
+        cond={c}
+        saved={props.saved.get(c.id) ?? c}
+        change={isAdd(change) ? undefined : change}
+        resources={props.resources}
+        onEdit={props.onEdit}
+      />
+    );
+  };
   return (
     <section className={`cd-col is-${layer}`} aria-labelledby={headId}>
       <header className="cd-head">
@@ -65,6 +70,7 @@ export default function LayerColumn(props: ColumnProps) {
             )
           ),
         )}
+        {props.children}
       </div>
     </section>
   );

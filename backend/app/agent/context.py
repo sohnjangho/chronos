@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.cpm import ScheduleError
 from app.domains.loader import domains, levels_prompt, load
 from app.harness.conditions import read_conditions
+from app.store import my_rules
 from app.store.chats import recent_messages
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound
@@ -36,6 +37,7 @@ RESULT_LIMIT = 4000  # 도구 결과 글의 길이 한도
 CUT_NOTE = "\n(뒤는 생략)"
 NOT_RUN = json.dumps({"error": "실행하지 않았습니다(턴이 중간에 멈췄습니다)."}, ensure_ascii=False)
 _LAYERS = (("base", "기본"), ("domain", "분야"), ("mine", "내 규칙"), ("input", "입력"))
+RULES_SHOWN, RULE_TEXT_LIMIT = 10, 60  # 대화 맥락에 보일 내 규칙 수·글 길이
 SEOUL = ZoneInfo("Asia/Seoul")
 _WEEKDAYS = "월화수목금토일"
 # "11월 30일", "2027년 11월 30일", "내년 3월 2일" (월·일이 다 있을 때만. "내년 3월" 은 계산하지 않는다)
@@ -152,7 +154,7 @@ def situation(session: Session, user: User, ui: UiContext) -> str:
 def _schedule_lines(session: Session, ui: UiContext) -> list[str]:
     selected = [f"- 고른 액티비티: {ui.selected_activity}"] if ui.selected_activity else []
     if ui.schedule_id is None:
-        return ["- 대상 일정: 없음", *selected]
+        return ["- 대상 일정: 없음", _rules_line(session, None, None), *selected]
     try:
         view = view_data(session, ui.schedule_id)
         _, stored, _ = load_schedule(session, ui.schedule_id, view["version"])
@@ -163,7 +165,7 @@ def _schedule_lines(session: Session, ui: UiContext) -> list[str]:
     except Exception as exc:  # noqa: BLE001 — 요약을 못 만들어도 턴은 이어 간다(종류만 남김)
         logger.warning("일정 요약 실패: schedule=%s (%s)", ui.schedule_id, type(exc).__name__)
         return [f"- 대상 일정: #{ui.schedule_id} 일정을 읽을 수 없습니다.", *selected]
-    lines = [_schedule_line(view), _condition_line(stored)]
+    lines = [_schedule_line(view), _condition_line(stored), _rules_line(session, view["domain"], ui.schedule_id)]
     if ui.selected_activity:
         lines.append(_activity_line(view, ui.selected_activity))
     return lines
@@ -187,6 +189,16 @@ def _condition_line(stored: list) -> str:
         f" · 자동 점검 안 됨 {sum(not c.checkable for c in conditions)}개"
     )
     return line + (f" · 읽을 수 없음 {len(invalid)}개" if invalid else "")
+
+
+def _rules_line(session: Session, domain: str | None, schedule_id: int | None) -> str:
+    """켜진 내 규칙: 일정이 있으면 그 분야의 분야 범위 + 그 일정 범위, 없으면 모든 분야 범위. 10개·60자까지."""
+    rules = my_rules.for_context(session, domain=domain, schedule_id=schedule_id)
+    if not rules:
+        return "- 내 규칙: 없음"
+    texts = "; ".join(c.text[:RULE_TEXT_LIMIT] for c in rules[:RULES_SHOWN])
+    more = f" 외 {len(rules) - RULES_SHOWN}개" if len(rules) > RULES_SHOWN else ""
+    return f"- 내 규칙 {len(rules)}개: {texts}{more}"
 
 
 def _activity_line(view: dict, activity_id: str) -> str:

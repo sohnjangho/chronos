@@ -55,6 +55,16 @@ export interface Change {
   enabled?: boolean;
 }
 
+/** 조건 하나 더하기(Condition dict). 이 화면은 내 규칙 목록의 [이 일정에 넣기]로만 보낸다(layer mine, source 「내 규칙」). */
+export interface AddChange {
+  add: Record<string, unknown> & { id: string };
+}
+
+/** 서버로 보내는 변경: 있는 조건 바꾸기 또는 더하기. 조건 칸(ConditionItem)은 바꾸기(Change)만 다룬다. */
+export type AnyChange = Change | AddChange;
+
+export const isAdd = (c: AnyChange | undefined): c is AddChange => c !== undefined && 'add' in c;
+
 export interface Violation {
   condition_id: string;
   message: string;
@@ -89,16 +99,46 @@ export interface CommitResult {
 }
 
 const base = (scheduleId: number) => `/api/schedules/${scheduleId}/conditions`;
-const post = <T>(path: string, version: number, changes: Change[]) =>
+const post = <T>(path: string, version: number, changes: AnyChange[]) =>
   api<T>(path, { method: 'POST', body: JSON.stringify({ base_version: version, changes }) });
 
 export const getConditions = (scheduleId: number) => api<CondView>(base(scheduleId));
 
-export const previewConditions = (scheduleId: number, version: number, changes: Change[]) =>
+export const previewConditions = (scheduleId: number, version: number, changes: AnyChange[]) =>
   post<Preview>(`${base(scheduleId)}/preview`, version, changes);
 
-export const commitConditions = (scheduleId: number, version: number, changes: Change[]) =>
+export const commitConditions = (scheduleId: number, version: number, changes: AnyChange[]) =>
   post<CommitResult>(`${base(scheduleId)}/commit`, version, changes);
 
-export const askAgent = (scheduleId: number, version: number, changes: Change[]) =>
+export const askAgent = (scheduleId: number, version: number, changes: AnyChange[]) =>
   post<{ chat_session_id: number; text: string }>(`${base(scheduleId)}/ask-agent`, version, changes);
+
+/** 내 규칙의 조건(Condition.to_dict 모양, layer mine, source 「내 규칙」). type 이라 Record 로 펼쳐 보낼 수 있다. */
+export type RuleCondition = {
+  id: string;
+  layer: string;
+  kind: string;
+  params: Record<string, unknown>;
+  text: string;
+  source: string;
+  enabled: boolean;
+};
+
+/** 내 규칙(Task 35) 하나. in_schedule = 이 일정 지금 조건에 같은 id 가 있는가(schedule_id 로 물었을 때만). */
+export interface MyRule {
+  id: number;
+  scope: 'domain' | 'schedule';
+  domain: string;
+  schedule_id: number | null;
+  condition: RuleCondition;
+  enabled: boolean;
+  created_by: string;
+  created_at: string;
+  in_schedule: boolean | null;
+}
+
+export const rulesApi = {
+  list: (scheduleId: number) => api<MyRule[]>(`/api/rules?schedule_id=${scheduleId}`),
+  setEnabled: (id: number, enabled: boolean) => api<MyRule>(`/api/rules/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+  remove: (id: number) => api<{ deleted: number }>(`/api/rules/${id}`, { method: 'DELETE' }),
+};

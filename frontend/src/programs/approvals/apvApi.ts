@@ -9,7 +9,8 @@ export type Decision = 'approve' | 'reject' | 'reject_retry';
 
 export interface ApprovalItem {
   id: number;
-  kind: 'first_save' | 'change';
+  /** rule = 분야 범위 내 규칙 저장(일정 없음, summary.rule). 일정 범위 규칙은 change(link_kind rule). */
+  kind: 'first_save' | 'change' | 'rule';
   title: string;
   status: Status;
   reasons: string[];

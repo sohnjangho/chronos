@@ -10,7 +10,7 @@ import { useWindows } from '../../os/windowStore';
 import { json } from '../../test-helpers';
 import ConditionItem from './ConditionItem';
 import Conditions from './Conditions';
-import type { Cond, Preview } from './condApi';
+import type { Cond, MyRule, Preview } from './condApi';
 import manifest from './index';
 import { bodies, cond, deferred, fetchMock, INPUTS, m, makeView, mockPreview, openSpy, respond, setup, URL } from './testKit';
 
@@ -504,5 +504,116 @@ describe('Task 27 · 조건 출처 링크', () => {
     expect(within(item('준공 기한')).getByText('출처 2')).toBeVisible();
     expect(within(item('준공 기한')).getAllByRole('link').map((a) => a.textContent)).toEqual(sources.map((s) => s.title));
     expect(within(item('타워크레인')).queryByText(/^출처/)).toBeNull();
+  });
+});
+
+describe('내 규칙 (Task 35)', () => {
+  const RULES = '/api/rules?schedule_id=1';
+  const rule = (over: Partial<MyRule> = {}): MyRule => ({
+    id: 11,
+    scope: 'domain',
+    domain: 'construction',
+    schedule_id: null,
+    condition: cond({ id: 'mine.a1b2c3', layer: 'mine', kind: 'max_duration', params: { days: 10 }, text: '층당 골조 10일 넘지 않기' }),
+    enabled: true,
+    created_by: '김하늘',
+    created_at: '2026-11-20T01:00:00Z',
+    in_schedule: false,
+    ...over,
+  });
+  const mockRules = (rules: MyRule[], routes: Record<string, unknown> = {}, role: 'admin' | 'user' = 'admin') =>
+    setup({ [RULES]: rules, [`POST ${PREVIEW}`]: respond(mockPreview()), [`POST ${URL}/commit`]: respond({ applied: false, version: null, approval_id: 9 }), ...routes } as never, role);
+  const addBodies = () => bodies(PREVIEW).map((b) => b.changes);
+
+  test('my rules column lists rules with scope badges', async () => {
+    mockRules([rule({ scope: 'domain', in_schedule: false })]);
+    render(<Conditions windowId="w1" params={{ id: '1' }} />);
+    expect(await screen.findByText('분야 전체 · 건설')).toBeVisible();
+  });
+
+  test('adding a domain rule to this schedule previews an add change', async () => {
+    mockRules([rule()]);
+    await renderC();
+    await userEvent.click(await screen.findByRole('button', { name: '이 일정에 넣기' }));
+    await waitFor(() => expect(bodies(PREVIEW)).toHaveLength(1));
+    expect(bodies(PREVIEW).at(-1).changes).toEqual([{ add: expect.objectContaining({ id: 'mine.a1b2c3', layer: 'mine', source: '내 규칙' }) }]);
+  });
+
+  test('an added rule shows in the preview band and goes in the commit body', async () => {
+    mockRules([rule()]);
+    await renderC();
+    await userEvent.click(await screen.findByRole('button', { name: '이 일정에 넣기' }));
+    expect(await screen.findByText('미리 보기 중')).toBeVisible();
+    expect(screen.getByText('미리 보기에 넣음')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '에이전트에게 맞추게 하기' })).toBeNull(); // 에이전트는 내 규칙을 넣지 못한다
+    await userEvent.click(screen.getByRole('button', { name: '확정' }));
+    await screen.findByText('승인함으로 보냈습니다. 승인되면 반영됩니다.');
+    expect(bodies(`${URL}/commit`)).toEqual([{ base_version: 3, changes: [{ add: expect.objectContaining({ id: 'mine.a1b2c3', layer: 'mine', kind: 'max_duration', params: { days: 10 } }) }] }]);
+  });
+
+  test('discarding the edit removes the added rule', async () => {
+    mockRules([rule()]);
+    await renderC();
+    await userEvent.click(await screen.findByRole('button', { name: '이 일정에 넣기' }));
+    await screen.findByText('미리 보기 중');
+    await userEvent.click(screen.getByRole('button', { name: '되돌리기' }));
+    expect(preview()).toBeNull();
+    expect(screen.queryByText('미리 보기 중')).toBeNull();
+    expect(screen.getByRole('button', { name: '이 일정에 넣기' })).toBeVisible();
+    await act(() => new Promise((r) => setTimeout(r, 400)));
+    expect(addBodies()).toHaveLength(1); // 되돌린 뒤에는 미리 보기를 다시 부르지 않는다
+  });
+
+  test('a rule this schedule already has and a schedule rule have no add button', async () => {
+    mockRules([rule({ in_schedule: true }), rule({ id: 12, scope: 'schedule', schedule_id: 1, in_schedule: true, condition: cond({ id: 'mine.000002', layer: 'mine', kind: 'text_only', text: '이 현장은 야간 작업 없음' }) })]);
+    await renderC();
+    const list = await screen.findByRole('list', { name: '내 규칙 목록' });
+    expect(within(list).getByText('이 일정')).toBeVisible();
+    expect(within(list).getAllByText('이 일정에 있음')).toHaveLength(2);
+    expect(within(list).queryByRole('button', { name: '이 일정에 넣기' })).toBeNull();
+  });
+
+  test('the switch turns a rule off', async () => {
+    mockRules([rule()], { [`PATCH /api/rules/11`]: respond({ ...rule(), enabled: false, in_schedule: null }) });
+    await renderC();
+    const sw = await screen.findByRole('switch', { name: '층당 골조 10일 넘지 않기 켜짐' });
+    expect(sw).toBeChecked();
+    await userEvent.click(sw);
+    await waitFor(() => expect(bodies('/api/rules/11', 'PATCH')).toEqual([{ enabled: false }]));
+    expect(sw).not.toBeChecked();
+    expect(screen.getByRole('button', { name: '이 일정에 넣기' })).toBeDisabled(); // 꺼진 규칙은 넣지 않는다
+  });
+
+  test('deleting asks once more, then removes the rule', async () => {
+    mockRules([rule()], { [`DELETE /api/rules/11`]: respond({ deleted: 11 }) });
+    await renderC();
+    await userEvent.click(await screen.findByRole('button', { name: '지우기' }));
+    expect(bodies('/api/rules/11', 'DELETE')).toEqual([]);
+    await userEvent.click(screen.getByRole('button', { name: '정말 지우기' }));
+    await waitFor(() => expect(screen.queryByText('층당 골조 10일 넘지 않기')).toBeNull());
+    expect(fetchMock.mock.calls.filter(([u, i]) => String(u) === '/api/rules/11' && i?.method === 'DELETE')).toHaveLength(1);
+    expect(screen.getByText('저장된 내 규칙 없음')).toBeVisible();
+  });
+
+  test('only the maker or an admin sees the delete button', async () => {
+    mockRules([rule({ created_by: '이도윤' }), rule({ id: 12, condition: cond({ id: 'mine.000002', layer: 'mine', kind: 'text_only', text: '내가 만든 규칙' }) })], {}, 'user');
+    await renderC();
+    await screen.findByText('내가 만든 규칙');
+    expect(screen.getAllByRole('button', { name: '지우기' })).toHaveLength(1);
+  });
+
+  test('a server refusal is shown in the column', async () => {
+    mockRules([rule()], { [`DELETE /api/rules/11`]: respond({ code: 'not_owner', message: '만든 사람이나 관리자만 지울 수 있습니다.', detail: null }, 403) });
+    await renderC();
+    await userEvent.click(await screen.findByRole('button', { name: '지우기' }));
+    await userEvent.click(screen.getByRole('button', { name: '정말 지우기' }));
+    expect(await screen.findByText('만든 사람이나 관리자만 지울 수 있습니다.')).toBeVisible();
+    expect(screen.getByText('층당 골조 10일 넘지 않기')).toBeVisible();
+  });
+
+  test('rules that cannot be read show a message, not a crash', async () => {
+    mockRules([], { [RULES]: respond({ code: 'boom', message: '서버 오류', detail: null }, 500) });
+    await renderC();
+    expect(await screen.findByText('내 규칙을 읽지 못했습니다: 서버 오류')).toBeVisible();
   });
 });

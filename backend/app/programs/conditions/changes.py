@@ -3,7 +3,7 @@
 겹마다 바꿀 수 있는 것:
 - 기본 규칙(base): 못 바꿈(422).
 - 분야 규칙(domain): 켜고 끄기만, 관리자만(일반 사용자는 403). params 는 못 바꿈(422).
-- 내 규칙(mine): 이 계획에서는 읽기만(422).
+- 내 규칙(mine): 값·켜짐은 못 바꿈(422). 내 규칙 목록의 [이 일정에 넣기]로 더할 수는 있다(source 「내 규칙」만, Task 35).
 - 입력 조건(input): params(지금 params 에 덮어 합침, 형식 검사)·켜짐을 바꾸고, 더하고, 뺀다.
 바뀌지 않은 저장 조건 dict 는 받은 그대로 둔다(읽지 못한 dict 도 제자리에 남는다).
 값을 바꾸면 조건 글을 새 값으로 다시 만든다(words.condition_text). 값만 바꾸면 켜짐·진 표시는 그대로다
@@ -24,6 +24,8 @@ from app.harness.conditions import (
 from app.programs.conditions.schemas import AddChange, Change, EditChange
 from app.programs.conditions.words import condition_text
 from app.store.tables import User
+
+MY_RULE_SOURCE = "내 규칙"  # 내 규칙 목록에서 일정에 넣는 조건의 출처
 
 
 def _invalid(message: str) -> ApiError:
@@ -66,7 +68,7 @@ def _added(entries: list[object], change: AddChange) -> dict:
         c = Condition.from_dict(change.add)
     except ConditionFormatError as e:
         raise _invalid(f"{e.condition_id}: {e.message}") from None
-    if c.layer != "input":
+    if not (c.layer == "input" or (c.layer == "mine" and c.source == MY_RULE_SOURCE)):
         raise _invalid(f"입력 조건만 더할 수 있습니다: {c.id}")
     if c.id in BASE_IDS or any(isinstance(d, dict) and d.get("id") == c.id for d in entries):
         raise _invalid(f"같은 id 의 조건이 이미 있습니다: {c.id}")

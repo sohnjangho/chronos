@@ -272,3 +272,42 @@ describe('Fix round 1', () => {
     expect(within(rows[0]).getByText('일정 버전을 읽지 못했습니다')).toBeVisible();
   });
 });
+
+describe('내 규칙 저장 (Task 35)', () => {
+  const RULE = { scope: 'domain', domain: 'construction', text: '층당 골조 10일 넘지 않기', kind: 'max_duration', params: { days: 10 } };
+  const ruleItem = (over: Parameters<typeof detailOf>[0] = {}) =>
+    detailOf({ id: 3, kind: 'rule', reasons: ['rule_save'], schedule_id: null, base_version: 0, title: '내 규칙 저장 — 층당 골조 10일 넘지 않기', summary: { rule: RULE }, ...over }, []);
+
+  test('approval detail renders a rule save', () => {
+    render(<ApprovalDetailView item={ruleItem()} scheduleName={null} />);
+    expect(screen.getByText('내 규칙 저장')).toBeVisible();
+    expect(screen.getByText('분야 전체 · 건설')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '간트에서 보기' })).toBeNull();
+  });
+
+  test('a rule save shows its text and value, and no change table', () => {
+    render(<ApprovalDetailView item={ruleItem()} scheduleName={null} />);
+    const block = screen.getByRole('region', { name: '내 규칙 저장' });
+    expect(within(block).getByText('층당 골조 10일 넘지 않기')).toBeVisible();
+    expect(within(block).getByText('기간 상한 · 10일')).toBeVisible();
+    expect(screen.queryByRole('table', { name: '바뀌는 것' })).toBeNull();
+    expect(screen.queryByText('기준 버전 0', { exact: false })).toBeNull();
+  });
+
+  test.each([
+    [{ scope: 'schedule', kind: 'min_gap', params: { after_tag: '타설', days: 7 } }, '이 일정', "간격 · '타설' 뒤 근무일 7일"],
+    [{ kind: 'blocked_period', params: { start_md: [12, 1], end_md: [2, 28], tag: '타설' } }, '분야 전체 · 건설', "금지 기간 · 12.1~2.28 '타설'"],
+    [{ kind: 'text_only', params: {}, domain: 'space' }, '분야 전체 · space', '말로 된 규칙 (자동 점검 안 됨)'],
+  ])('rule kinds are summarised %#', (over, scope, value) => {
+    render(<ApprovalDetailView item={ruleItem({ summary: { rule: { ...RULE, ...over } } })} scheduleName={null} />);
+    expect(screen.getByText(scope)).toBeVisible();
+    expect(screen.getByText(value)).toBeVisible();
+  });
+
+  test('the decision box tells that approving saves a rule', async () => {
+    setup([ruleItem()]);
+    render(<Approvals windowId="w1" params={{ id: '3' }} />);
+    expect(await screen.findByText('승인하면 내 규칙으로 저장됩니다. 일정은 바뀌지 않고, 조건·규칙 창에서 끄거나 지울 수 있습니다.')).toBeVisible();
+    expect(screen.queryByText(/버전 1로 저장/)).toBeNull();
+  });
+});

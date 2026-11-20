@@ -48,6 +48,7 @@ from app.harness.checks import CheckReport, Violation
 from app.harness.checks import check as check_schedule
 from app.harness.conditions import Condition
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply
+from app.store import my_rules
 from app.store.drafts import create_draft
 from app.store.schedules import run
 from app.tools.context import ToolContext
@@ -77,7 +78,7 @@ class GenResult:
     ok: bool
     draft_id: int | None
     schedule: Schedule | None  # 맞춤 전 일정(조건도 넣지 않은 것). 화면 날짜는 run(schedule, conditions)
-    conditions: list[Condition]  # 조립된 목록(기본 규칙 + 분야 규칙 + 입력 조건)
+    conditions: list[Condition]  # 조립된 목록(기본 규칙 + 분야 규칙 + 내 규칙 + 입력 조건)
     report: CheckReport | None
     rounds: list[GenRound]
     assumptions: list[dict]  # [{label, value, source}]
@@ -301,7 +302,7 @@ async def generate(
     pack = load(domain)
     inputs, notes = _for_level(level, inputs)
     domain_rules = [Condition.from_dict(r) for r in pack.rules_raw]
-    conditions = assemble(domain_rules, [], inputs)
+    conditions = assemble(domain_rules, my_rules.for_generation(ctx.session, domain), inputs)  # 켜진 분야 범위 내 규칙
     start, start_note = start_date(conditions, facts, date.today())
     noted = [*(dict(a) for a in assumptions), *start_note]
     s = setting(pack, level, start, condition_tags(conditions))

@@ -6,7 +6,7 @@ import { useSchedulePreview } from '../../os/schedulePreview';
 import { getToken } from '../../os/session';
 import { useWindows } from '../../os/windowStore';
 import { ApiError } from '../../shared/api';
-import { askAgent, commitConditions, getConditions, previewConditions, type Change, type Cond, type CondView, type Preview } from './condApi';
+import { askAgent, commitConditions, getConditions, isAdd, previewConditions, type AddChange, type AnyChange, type Change, type Cond, type CondView, type Preview } from './condApi';
 import { allConds } from './labels';
 
 export const DEBOUNCE_MS = 300;
@@ -38,10 +38,14 @@ function sameAsSaved(change: Change, saved: Cond | undefined): boolean {
   return params && (change.enabled === undefined || change.enabled === saved.enabled);
 }
 
-function merged(prev: Change | undefined, id: string, patch: EditPatch): Change {
+/** 더하기는 sameAsSaved 로 빼지 않는다(저장값이 없다). 같은 조건을 다시 더하면 바꾼다. */
+const withAdd = (c: AddChange['add']) => (prev: Record<string, AnyChange>) => ({ ...prev, [c.id]: { add: c } });
+
+function merged(prev: AnyChange | undefined, id: string, patch: EditPatch): Change {
+  const old = isAdd(prev) ? undefined : prev; // 더한 조건은 이 화면에서 값을 바꾸지 않는다
   const next: Change = { id };
-  const params = patch.params === undefined ? prev?.params : (patch.params ?? undefined);
-  const enabled = patch.enabled === undefined ? prev?.enabled : patch.enabled;
+  const params = patch.params === undefined ? old?.params : (patch.params ?? undefined);
+  const enabled = patch.enabled === undefined ? old?.enabled : patch.enabled;
   if (params) next.params = params;
   if (enabled !== undefined) next.enabled = enabled;
   return next;
@@ -72,7 +76,7 @@ function useLoad(scheduleId: number | null) {
 }
 
 /** 바꾼 값 → 300ms 뒤 미리 보기. 가장 나중 요청의 응답만 쓴다. */
-function usePreview(scheduleId: number | null, view: CondView | null, edits: Record<string, Change>, onConflict: () => void) {
+function usePreview(scheduleId: number | null, view: CondView | null, edits: Record<string, AnyChange>, onConflict: () => void) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [pending, setPending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -117,7 +121,7 @@ function usePreview(scheduleId: number | null, view: CondView | null, edits: Rec
 export function useConditionsModel(scheduleId: number | null) {
   const { load, reload } = useLoad(scheduleId);
   const view = load.kind === 'ready' ? load.view : null;
-  const [edits, setEdits] = useState<Record<string, Change>>({});
+  const [edits, setEdits] = useState<Record<string, AnyChange>>({}); // 조건 id → 바꾸기 또는 더하기(되돌리기로만 뺀다)
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [invalid, setInvalid] = useState<Record<string, true>>({}); // 값이 틀린 칸(확정을 막는다)
@@ -172,8 +176,11 @@ export function useConditionsModel(scheduleId: number | null) {
     [view],
   );
 
+  /** 조건 하나를 더해 미리 본다(내 규칙의 [이 일정에 넣기]). 열쇠는 조건 id. */
+  const add = useCallback((c: AddChange['add']) => (setNotice(null), setEdits(withAdd(c))), []);
+
   /** 서버에 보내는 일(확정·에이전트). 충돌이면 다시 불러오고, 다른 오류는 알림으로. */
-  async function send(work: (version: number, changes: Change[]) => Promise<void>) {
+  async function send(work: (version: number, changes: AnyChange[]) => Promise<void>) {
     if (!view || scheduleId === null) return;
     setBusy(true);
     setNotice(null);
@@ -217,6 +224,7 @@ export function useConditionsModel(scheduleId: number | null) {
     /** 입력 칸의 열쇠: 되돌리기·다시 불러오기·저장 버전이 바뀌면 칸을 저장값으로 새로 그린다. */
     fieldsKey: `${generation}.${view?.version ?? 0}`,
     edit,
+    add,
     revert,
     commit,
     ask,

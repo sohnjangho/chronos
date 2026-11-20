@@ -7,6 +7,7 @@ import type { Cond, CondView } from './condApi';
 import { useConditionsModel, type ConditionsModel } from './condStore';
 import { allConds, condLabel, LAYERS, matches, STATE_LABEL, type StateFilter } from './labels';
 import LayerColumn from './LayerColumn';
+import MyRules from './MyRules';
 import PreviewBar from './PreviewBar';
 import './conditions.css';
 
@@ -104,7 +105,9 @@ function Columns({ model, shown, state, query }: { model: ConditionsModel; shown
         resources={shown.resources}
         fieldsKey={model.fieldsKey}
         onEdit={model.edit}
-      />
+      >
+        {spec.layer === 'mine' && model.view && <MyRules scheduleId={model.view.schedule_id} version={model.view.version} model={model} />}
+      </LayerColumn>
     );
   };
   return (

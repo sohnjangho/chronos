@@ -3,11 +3,12 @@
 - after_apply: 복사본(link_kind 'scenario')은 applied 가 되고, 그 복사본에 넣은 지연 사건은 그 버전에 반영된 것
   (reflected)이 된다 — 다시 넣지 않는다. Plan 다시 잡기(reset_plan)는 하지 않는다(PM 11-20).
 - after_reject·after_conflict: 복사본을 다시 open 으로(낡았으면 화면이 낡음으로 보인다).
+- 내 규칙(link_kind 'rule'): 승인되면 rule_json 으로 내 규칙을 만든다(만든 사람 = 낸 사람). 거부·충돌이면 아무것도 남기지 않는다.
 """
 
 from sqlalchemy.orm import Session
 
-from app.store import delays, scenarios
+from app.store import delays, my_rules, scenarios
 from app.store.tables import Approval, Scenario
 
 
@@ -23,6 +24,10 @@ def after_apply(session: Session, row: Approval) -> None:
     if scenario is not None:
         scenarios.set_status(session, scenario, "applied", approval_id=row.id)
         delays.mark_reflected(session, list(scenario.delay_event_ids), row.version)
+    if row.link_kind == "rule" and row.rule_json:
+        rule = row.rule_json
+        my_rules.create(session, scope=rule["scope"], domain=rule["domain"], schedule_id=rule.get("schedule_id"),
+                        condition_json=rule["condition"], approval_id=row.id, created_by=row.requested_by)
 
 
 def after_reject(session: Session, row: Approval) -> None:

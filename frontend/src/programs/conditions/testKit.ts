@@ -103,7 +103,7 @@ export function setup(routes: Routes = {}, role: 'admin' | 'user' = 'admin') {
   signInAsDemo(role);
   const view = makeView();
   if (role === 'user') view.layers.domain = view.layers.domain.map((c) => ({ ...c, editable: false })); // 서버처럼
-  fetchMock = stubFetch({ [URL]: view, ...routes });
+  fetchMock = stubFetch({ [URL]: view, '/api/rules?schedule_id=1': [], ...routes }); // 내 규칙 목록(Task 35)은 기본으로 비어 있다
   openSpy = vi.fn(() => 'w9');
   useWindows.setState({
     open: openSpy,

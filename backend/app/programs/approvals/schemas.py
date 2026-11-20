@@ -31,7 +31,7 @@ class DecideOut(BaseModel):
 
 class ApprovalOut(BaseModel):
     id: int
-    kind: Literal["first_save", "change"]
+    kind: Literal["first_save", "change", "rule"]  # rule = 분야 범위 내 규칙 저장(일정 없음, summary.rule)
     title: str
     status: Literal["pending", "approved", "rejected", "conflict", "auto"]
     reasons: list[str]
