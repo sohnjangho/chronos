@@ -206,7 +206,7 @@ export function useConditionsModel(scheduleId: number | null) {
 
   const ask = () =>
     send(async (version, changes) => {
-      const r = await askAgent(scheduleId!, version, changes);
+      const r = await askAgent(scheduleId!, version, changes.filter((c) => !isAdd(c))); // 에이전트는 내 규칙을 넣지 못한다
       useWindows.getState().open('chat', { session: String(r.chat_session_id), compose: r.text });
     });
 

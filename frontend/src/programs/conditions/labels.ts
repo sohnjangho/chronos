@@ -19,7 +19,7 @@ export const STATE_TONE: Record<State, NonNullable<BadgeProps['tone']>> = {
 export const LAYERS: { layer: Layer; title: string; lock?: string; note: string }[] = [
   { layer: 'base', title: '① 기본 규칙', lock: '못 바꿈', note: '모든 일정에 항상 적용' },
   { layer: 'domain', title: '② 분야 규칙', lock: '관리자만 수정', note: '분야 묶음에 들어 있음 · 이 일정에서 켜고 끄기' },
-  { layer: 'mine', title: '③ 내 규칙', note: '에이전트가 제안 → 확인 뒤 저장 · 이 화면에서는 읽기만' },
+  { layer: 'mine', title: '③ 내 규칙', note: '에이전트가 제안 → 승인 뒤 저장 · 여기서 켜고 끄기·지우기·이 일정에 넣기' },
   { layer: 'input', title: '④ 입력 조건', note: '대화와 질문지에서 뽑음 · 이 일정에만 적용' },
 ];
 

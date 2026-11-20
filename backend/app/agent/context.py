@@ -38,6 +38,7 @@ CUT_NOTE = "\n(뒤는 생략)"
 NOT_RUN = json.dumps({"error": "실행하지 않았습니다(턴이 중간에 멈췄습니다)."}, ensure_ascii=False)
 _LAYERS = (("base", "기본"), ("domain", "분야"), ("mine", "내 규칙"), ("input", "입력"))
 RULES_SHOWN, RULE_TEXT_LIMIT = 10, 60  # 대화 맥락에 보일 내 규칙 수·글 길이
+RULE_TITLE_PREFIX = "내 규칙 저장 — "  # rules.propose 가 만드는 승인 건 제목의 앞(tools/out/propose_rule.TITLE_PREFIX)
 SEOUL = ZoneInfo("Asia/Seoul")
 _WEEKDAYS = "월화수목금토일"
 # "11월 30일", "2027년 11월 30일", "내년 3월 2일" (월·일이 다 있을 때만. "내년 3월" 은 계산하지 않는다)
@@ -222,10 +223,12 @@ def submission_text(content: dict) -> str:
 
 
 def rejection_text(content: dict) -> str:
-    """승인 거부(다시 짜기) 메시지를 모델이 읽을 한국어로."""
+    """승인 거부(다시 짜기) 메시지를 모델이 읽을 한국어로. 내 규칙 건(제목이 「내 규칙 저장 — 」)은 rules__propose 로 다시 낸다."""
+    head = [f"승인 요청이 거부됨 (승인 {content['approval_id']}: {content['title']}).", f"거부 이유: {content['note']}"]
+    if str(content.get("title", "")).startswith(RULE_TITLE_PREFIX):
+        return "\n".join([*head, "내 규칙 제안이었다. 이 이유를 반영해 rules__propose 로 다시 제안한다(저장은 승인 뒤)."])
     return "\n".join([
-        f"승인 요청이 거부됨 (승인 {content['approval_id']}: {content['title']}).",
-        f"거부 이유: {content['note']}",
+        *head,
         "이 이유를 반영해 다시 짠 뒤 out__submit_change 로 다시 낸다.",
         "일정 고침이면 일정을 다시 읽고 지금 버전을 base_version 으로 쓴다.",
     ])

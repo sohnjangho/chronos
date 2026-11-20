@@ -12,7 +12,8 @@ from app.harness.conditions import Condition, read_conditions
 from app.store.schedules import NotFound
 from app.store.tables import MyRule
 
-__all__ = ["NotFound", "create", "delete", "for_context", "for_generation", "get", "listed", "set_enabled"]
+__all__ = ["NotFound", "create", "delete", "for_context", "for_generation", "get", "has_condition", "listed",
+           "set_enabled"]
 
 
 def create(session: Session, *, scope: str, domain: str, schedule_id: int | None, condition_json: dict,
@@ -30,6 +31,12 @@ def get(session: Session, rule_id: int) -> MyRule:
     if row is None:
         raise NotFound(rule_id)
     return row
+
+
+def has_condition(session: Session, condition_id: str) -> bool:
+    """이 조건 id 의 내 규칙이 저장돼 있는가(켜짐과 상관없이)."""
+    query = select(MyRule.id).where(MyRule.condition_json["id"].as_string() == condition_id)
+    return session.scalar(query) is not None
 
 
 def listed(session: Session, *, domain: str | None = None, schedule_id: int | None = None) -> list[MyRule]:

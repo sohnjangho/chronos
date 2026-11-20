@@ -600,6 +600,8 @@ describe('내 규칙 (Task 35)', () => {
     await renderC();
     await screen.findByText('내가 만든 규칙');
     expect(screen.getAllByRole('button', { name: '지우기' })).toHaveLength(1);
+    expect(screen.getByRole('switch', { name: '층당 골조 10일 넘지 않기 켜짐' })).toBeDisabled(); // 끄기도 만든 사람·관리자만
+    expect(screen.getByRole('switch', { name: '내가 만든 규칙 켜짐' })).toBeEnabled();
   });
 
   test('a server refusal is shown in the column', async () => {
@@ -609,6 +611,22 @@ describe('내 규칙 (Task 35)', () => {
     await userEvent.click(screen.getByRole('button', { name: '정말 지우기' }));
     expect(await screen.findByText('만든 사람이나 관리자만 지울 수 있습니다.')).toBeVisible();
     expect(screen.getByText('층당 골조 10일 넘지 않기')).toBeVisible();
+  });
+
+  test('asking the agent leaves out an added rule (the agent cannot add my rules)', async () => {
+    mockRules([rule()], { [`POST ${URL}/ask-agent`]: respond({ chat_session_id: 12, text: '조건에 맞게 고쳐 주세요.' }) });
+    await renderC();
+    await userEvent.click(await screen.findByRole('button', { name: '이 일정에 넣기' }));
+    await setCrane('2');
+    await userEvent.click(await screen.findByRole('button', { name: '에이전트에게 맞추게 하기' }));
+    await waitFor(() => expect(bodies(`${URL}/ask-agent`)).toHaveLength(1));
+    expect(bodies(`${URL}/ask-agent`)).toEqual([{ base_version: 3, changes: [{ id: 'in.crane', params: { capacity: 2 } }] }]);
+  });
+
+  test('the column note says what this screen can do with my rules', async () => {
+    mockRules([]);
+    await renderC();
+    expect(within(column('③ 내 규칙')).getByText('에이전트가 제안 → 승인 뒤 저장 · 여기서 켜고 끄기·지우기·이 일정에 넣기')).toBeVisible();
   });
 
   test('rules that cannot be read show a message, not a crash', async () => {

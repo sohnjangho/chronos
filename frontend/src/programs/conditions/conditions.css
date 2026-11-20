@@ -194,6 +194,7 @@
 .cd-switch input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--bg-panel); transition: transform 0.15s; }
 .cd-switch input:checked { background: var(--accent); }
 .cd-switch input:checked::after { transform: translateX(12px); }
+.cd-switch input:disabled { opacity: 0.5; cursor: not-allowed; }
 .cd-switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cd-rule-text { margin: 6px 0 0; font-size: var(--fs-13); overflow-wrap: anywhere; }
 .cd-rule-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; min-width: 0; }

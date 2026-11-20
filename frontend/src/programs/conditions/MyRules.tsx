@@ -33,6 +33,7 @@ function useRules(scheduleId: number, version: number) {
 interface RowProps {
   rule: MyRule;
   adding: boolean;
+  /** 만든 사람이나 관리자: 켜고 끄기·지우기. */
   canDelete: boolean;
   onToggle(enabled: boolean): void;
   onAdd(): void;
@@ -57,7 +58,15 @@ function RuleRow({ rule, adding, canDelete, onToggle, onAdd, onDelete }: RowProp
       <div className="cd-rule-line">
         <span className={`cd-scope is-${rule.scope}`}>{scopeLabel(rule)}</span>
         <label className="cd-switch">
-          <input type="checkbox" role="switch" aria-label={`${text} 켜짐`} checked={rule.enabled} onChange={(e) => onToggle(e.target.checked)} />
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label={`${text} 켜짐`}
+            checked={rule.enabled}
+            disabled={!canDelete}
+            title={canDelete ? undefined : '만든 사람이나 관리자만 켜고 끌 수 있습니다'}
+            onChange={(e) => onToggle(e.target.checked)}
+          />
           <span>{rule.enabled ? '켜짐' : '꺼짐'}</span>
         </label>
       </div>

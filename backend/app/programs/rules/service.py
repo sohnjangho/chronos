@@ -11,6 +11,7 @@ from app.store.tables import MyRule, User
 NOT_FOUND_MESSAGE = "규칙을 찾을 수 없습니다."
 SCHEDULE_NOT_FOUND_MESSAGE = "일정을 찾을 수 없습니다."
 NOT_OWNER_MESSAGE = "만든 사람이나 관리자만 지울 수 있습니다."
+NOT_OWNER_TOGGLE_MESSAGE = "만든 사람이나 관리자만 켜고 끌 수 있습니다."
 
 
 def _out(row: MyRule, present: set[str] | None) -> RuleOut:
@@ -40,18 +41,23 @@ def _get(session: Session, rule_id: int) -> MyRule:
         raise ApiError(404, "not_found", NOT_FOUND_MESSAGE) from None
 
 
-def set_enabled(session: Session, rule_id: int, body: EnabledIn) -> RuleOut:
+def _owned(session: Session, rule_id: int, user: User, message: str) -> MyRule:
+    """만든 사람(이름)이나 관리자만. 아니면 403 not_owner."""
     row = _get(session, rule_id)
+    if user.role != "admin" and row.created_by != user.name:
+        raise ApiError(403, "not_owner", message)
+    return row
+
+
+def set_enabled(session: Session, rule_id: int, body: EnabledIn, user: User) -> RuleOut:
+    row = _owned(session, rule_id, user, NOT_OWNER_TOGGLE_MESSAGE)
     my_rules.set_enabled(session, row, body.enabled)
     session.commit()
     return _out(row, None)
 
 
 def delete(session: Session, rule_id: int, user: User) -> DeletedOut:
-    """만든 사람(이름)이나 관리자만. 아니면 403 not_owner."""
-    row = _get(session, rule_id)
-    if user.role != "admin" and row.created_by != user.name:
-        raise ApiError(403, "not_owner", NOT_OWNER_MESSAGE)
+    row = _owned(session, rule_id, user, NOT_OWNER_MESSAGE)
     my_rules.delete(session, row)
     session.commit()
     return DeletedOut(deleted=rule_id)

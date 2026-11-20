@@ -107,6 +107,7 @@ def conditions_post(client, admin, sid, path, changes):
 
 
 def test_preview_and_commit_add_a_mine_condition(client, admin, sid, session):
+    save_rule(session)
     r = conditions_post(client, admin, sid, "preview", [{"add": mine()}])
     assert r.status_code == 200, r.json()
     assert [c["id"] for c in r.json()["conditions"]["layers"]["mine"]] == ["mine.a1b2c3"]
@@ -128,6 +129,7 @@ def test_other_layers_still_cannot_be_added(client, admin, sid, cond):
 
 def test_a_mine_condition_already_there_is_refused(client, admin, session):
     sid = schedules.store(session, schedules.sample(), [mine()])
+    save_rule(session)
     r = conditions_post(client, admin, sid, "preview", [{"add": mine()}])
     assert (r.status_code, r.json()["message"]) == (422, "같은 id 의 조건이 이미 있습니다: mine.a1b2c3")
 
@@ -157,3 +159,21 @@ def test_admin_deletes_a_rule_someone_else_made(client, admin, user, session):
     rid = save_rule(session, by="이도윤")
     assert client.delete(f"/api/rules/{rid}", headers=user).json()["code"] == "not_owner"
     assert client.delete(f"/api/rules/{rid}", headers=admin).json() == {"deleted": rid}
+
+
+def test_only_a_saved_rule_can_be_added(client, admin, sid, session):
+    r = conditions_post(client, admin, sid, "preview", [{"add": mine("mine.ffffff")}])
+    assert (r.status_code, r.json()["code"], r.json()["message"]) == (
+        422, "invalid_change", "저장된 내 규칙이 아닙니다: mine.ffffff")
+
+
+def test_only_owner_or_admin_turns_a_rule_off(client, admin, user, session):
+    rid = save_rule(session, by="이도윤")
+    r = client.patch(f"/api/rules/{rid}", json={"enabled": False}, headers=user)
+    assert (r.status_code, r.json()["code"], r.json()["message"]) == (
+        403, "not_owner", "만든 사람이나 관리자만 켜고 끌 수 있습니다.")
+    session.expire_all()
+    assert session.get(MyRule, rid).enabled is True
+    assert client.patch(f"/api/rules/{rid}", json={"enabled": False}, headers=admin).json()["enabled"] is False
+    own = save_rule(session, by="일반 사용자", cond=mine("mine.000009"))
+    assert client.patch(f"/api/rules/{own}", json={"enabled": False}, headers=user).status_code == 200

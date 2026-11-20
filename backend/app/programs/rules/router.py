@@ -9,7 +9,7 @@ from app.programs.rules.schemas import DeletedOut, EnabledIn, RuleOut
 from app.security.deps import current_user
 from app.store.tables import User
 
-# 내 규칙: 로그인한 누구나 보고 켜고 끈다. 지우기는 만든 사람이나 관리자. 만들기는 rules.propose → 승인함.
+# 내 규칙: 로그인한 누구나 본다. 켜고 끄기·지우기는 만든 사람이나 관리자. 만들기는 rules.propose → 승인함.
 router = APIRouter(prefix="/api/rules", tags=["rules"], dependencies=[Depends(current_user)])
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -22,8 +22,8 @@ def list_rules(session: SessionDep, domain: str | None = None, schedule_id: int 
 
 
 @router.patch("/{rule_id}")
-def set_enabled(rule_id: int, body: EnabledIn, session: SessionDep) -> RuleOut:
-    return service.set_enabled(session, rule_id, body)
+def set_enabled(rule_id: int, body: EnabledIn, session: SessionDep, user: UserDep) -> RuleOut:
+    return service.set_enabled(session, rule_id, body, user)
 
 
 @router.delete("/{rule_id}")

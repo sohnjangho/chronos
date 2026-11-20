@@ -32,7 +32,7 @@ from app.tools.registry import tool
 RULE_KINDS = ("min_gap", "max_duration", "duration_per_unit", "text_only", "blocked_period", "calendar")
 SOURCE = "내 규칙"
 NO_DOMAIN_MESSAGE = "어느 분야의 규칙인지 알려 주세요."
-TITLE_PREFIX = "내 규칙 저장 — "
+TITLE_PREFIX = "내 규칙 저장 — "  # agent.context.rejection_text 가 이 앞글로 내 규칙 건을 알아본다
 
 
 class RuleConditionIn(Strict):

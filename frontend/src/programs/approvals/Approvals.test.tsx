@@ -304,6 +304,15 @@ describe('내 규칙 저장 (Task 35)', () => {
     expect(screen.getByText(value)).toBeVisible();
   });
 
+  test('an auto-saved rule says why it has no revert', async () => {
+    setup([item(), ruleItem({ id: 8, status: 'auto', version: null, restore_to: null, chat_session_id: null })]);
+    await renderApprovals();
+    await userEvent.click(screen.getByRole('tab', { name: /자동 적용/ }));
+    const row = within(screen.getByRole('list', { name: '승인 건 목록' })).getAllByRole('listitem')[0];
+    expect(within(row).getByRole('button', { name: '되돌리기' })).toBeDisabled();
+    expect(within(row).getByText('규칙 저장은 되돌리기 대신 내 규칙에서 끄거나 지웁니다')).toBeVisible();
+  });
+
   test('the decision box tells that approving saves a rule', async () => {
     setup([ruleItem()]);
     render(<Approvals windowId="w1" params={{ id: '3' }} />);

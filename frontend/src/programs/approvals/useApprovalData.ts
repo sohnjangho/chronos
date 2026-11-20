@@ -130,6 +130,7 @@ export function useApprovalData(paramId: string | undefined) {
   }
 
   function revertOf(it: ApprovalItem): Revert {
+    if (it.kind === 'rule') return { ok: false, why: '규칙 저장은 되돌리기 대신 내 규칙에서 끄거나 지웁니다' };
     if (it.restore_to === null || it.schedule_id === null) return { ok: false, why: '처음 저장이라 되돌릴 버전이 없습니다' };
     if (schedulesFailed) return { ok: false, why: '일정 버전을 읽지 못했습니다' };
     const current = schedules?.get(it.schedule_id);

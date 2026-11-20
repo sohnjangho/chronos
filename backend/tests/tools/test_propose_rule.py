@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 
 from app.agent import context
-from app.agent.context import UiContext, build_context
+from app.agent.context import UiContext, build_context, rejection_text
 from app.agent.generation import generate
 from app.llm.client import LlmClient
 from app.store import chats, my_rules
@@ -241,3 +241,10 @@ def test_context_cuts_long_and_many_rules(session, monkeypatch):
     text = build_context(session, admin, chat, UiContext())[0]["content"]
     line = next(x for x in text.split("\n") if x.startswith("- 내 규칙"))
     assert line == "- 내 규칙 12개: " + "; ".join(["가" * 60, *(f"규칙 {n}" for n in range(1, 10))]) + " 외 2개"
+
+
+def test_a_rejected_rule_is_proposed_again_with_rules_propose():
+    rule = rejection_text({"approval_id": 3, "title": f"내 규칙 저장 — {TEXT}", "note": "범위를 이 일정으로"})
+    assert "rules__propose" in rule and "out__submit_change" not in rule
+    change = rejection_text({"approval_id": 4, "title": "B 기간 4일", "note": "안 됨"})
+    assert "out__submit_change" in change and "rules__propose" not in change
