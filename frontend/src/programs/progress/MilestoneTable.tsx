@@ -20,7 +20,7 @@ export default function MilestoneTable({ data }: { data: ProgressData }) {
         <h3 className="pg-card-title">마일스톤 추적</h3>
         <span className="pg-muted">Plan 대비 실적 · 아직 안 온 것은 지연 영향 반영</span>
       </div>
-      <div className="pg-card-body">
+      <div className="pg-card-body pg-ms-body">
         <Table<Milestone>
           label="마일스톤 추적"
           rows={data.milestones}

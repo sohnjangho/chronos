@@ -1,4 +1,4 @@
-// 「공정률」 화면(ScheduleFrame 의 children): 도구줄(Data Date · 단위 · 가중치 방식 · 그림 내보내기) · 요약 띠 ·
+// 「공정률」 화면(ScheduleFrame 의 children): 도구줄(단위 · 가중치 방식 · 그림 내보내기, Data Date 는 창 머리줄) · 요약 띠 ·
 // S-커브와 마일스톤 · WBS · 일정 수행 지수 추이 · 지연 상위 · 앞으로 3주. 모든 값은 진행 API(서버 계산)에서 온다.
 // 같은 일정 저장소의 버전이나 가중치 방식이 바뀌면(다른 창에서 고침) 다시 불러온다.
 import { useEffect, useState } from 'react';
@@ -18,9 +18,6 @@ import SCurve from './SCurveCard';
 import SpiTrend from './SpiTrend';
 import WbsTable from './WbsTable';
 import './progress.css';
-
-/** 일정 보기의 가중치 방식(묶음 2 서버의 칸. 공용 타입에는 아직 없다). */
-const weightModeOf = (view: ScheduleView | null) => (view as (ScheduleView & { weight_mode?: string }) | null)?.weight_mode;
 
 /** Plan 시작 = 액티비티 Plan 시작 가운데 가장 이른 날(서버 값 글자 비교만). */
 function planStartOf(view: ScheduleView | null): string | null {
@@ -47,12 +44,13 @@ function useProgress(id: number, unit: Unit, version: number | undefined, weight
 function Toolbar({ data, unit, onUnit, onImage }: { data: ProgressData | null; unit: Unit; onUnit: (u: Unit) => void; onImage: () => void }) {
   return (
     <div role="group" aria-label="공정률 도구" className="sch-toolbar pg-toolbar">
-      <span className="sch-muted">Data Date</span>
-      <span className="sch-date">{data ? dot(data.data_date) : '—'}</span>
       {data?.data_date_assumed && (
-        <span className="pg-assumed" title="일정에 Data Date 가 없어 오늘 날짜로 계산했습니다">오늘로 가정</span>
+        <>
+          <span className="pg-assumed">{`오늘로 가정 ${dot(data.data_date)}`}</span>
+          <span className="sch-muted">일정에 Data Date 가 없어 오늘 날짜로 계산했습니다</span>
+          <span className="sch-sep" />
+        </>
       )}
-      <span className="sch-sep" />
       <span className="sch-muted">단위</span>
       <div role="group" aria-label="단위" className="pg-seg">
         {(['week', 'month'] as const).map((u) => (
@@ -99,7 +97,7 @@ function Body({ data, scheduleId, planStart }: { data: ProgressData; scheduleId:
 export default function ProgressTab() {
   const scheduleId = useScheduleStore().getState().scheduleId;
   const version = useSchedule((s) => s.view?.version);
-  const weightMode = useSchedule((s) => weightModeOf(s.view));
+  const weightMode = useSchedule((s) => s.view?.weight_mode);
   const name = useSchedule((s) => s.view?.name ?? '');
   const planStart = useSchedule((s) => planStartOf(s.view));
   const [unit, setUnit] = useState<Unit>('week');

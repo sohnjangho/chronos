@@ -19,7 +19,8 @@ function floatText(float: number | null): string | null {
 }
 
 function Status({ data, planStart }: { data: ProgressData; planStart: string | null }) {
-  const late = data.spi !== null && data.spi < 1;
+  // 수행 지수가 1 아래이거나 준공이 Plan 보다 늦으면 늦음(초록 「계획대로」 옆에 빨간 「준공 +n일」을 두지 않는다).
+  const late = (data.spi !== null && data.spi < 1) || (data.finish.delta ?? 0) > 0;
   const plan = data.finish.plan;
   const float = floatText(data.finish.deadline_float);
   return (

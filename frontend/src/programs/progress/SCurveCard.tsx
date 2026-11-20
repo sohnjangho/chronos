@@ -1,5 +1,6 @@
 // S-커브 카드: 계획 누적(실선) · 실적 누적(굵은 실선, Data Date 까지) · 지연 영향 반영(점선, Data Date 부터)
 // · 주간(월간) 계획·실적 막대(오른쪽 눈금) · Data Date 세로선. 점·값은 모두 서버 값이다.
+import { dot } from '../../shared/schedule/format';
 import { md, pct } from './format';
 import type { ProgressData, Unit } from './progressApi';
 import { scaleCurve, xScale, type Box, type Scaled } from './scurve';
@@ -59,8 +60,9 @@ export function CurveSvg({ data, width, height, y = 0 }: { data: ProgressData; w
   const xOf = xScale(dates, box);
   const right = s.dataDateX > box.w * 0.6;
   const label = `Data Date ${md(data.data_date)} · 계획 ${pct(data.plan_now)}% · 실적 ${pct(data.actual_now)}%`;
+  const spoken = `누적 공정률 곡선(계획, 실적, 지연 영향 반영) — Data Date ${dot(data.data_date)}, 계획 ${pct(data.plan_now)}%, 실적 ${pct(data.actual_now)}%`;
   return (
-    <svg className="pg-curve" y={y} width={width} height={height} role="img" aria-label="누적 공정률 곡선: 계획, 실적, 지연 영향 반영">
+    <svg className="pg-curve" y={y} width={width} height={height} role="img" aria-label={spoken}>
       <g transform={`translate(${LEFT - PAD} 0)`}>
         {[0, 25, 50, 75, 100].map((p) => (
           <g key={p}>

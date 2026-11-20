@@ -1,5 +1,6 @@
 /* 공정률 창. 색·글꼴은 tokens.css 변수만. 창은 가로로 밀리지 않고 본문(.pg-scroll)만 세로로 스크롤한다.
-   좁으면(본문 폭 기준 container query) 아래 카드가 두 줄, 더 좁으면 마일스톤이 S-커브 아래로 내려간다. */
+   좁으면(본문 폭 기준 container query) 아래 카드가 두 줄 → 한 줄, 마일스톤은 S-커브 아래로 내려간다.
+   잘라 감추지 않는다: 표·그림 칸이 카드보다 넓으면 그 자료 칸만 가로로 밀리고(화면 검수 1), 긴 글은 줄을 바꾼다. */
 .pg-tab { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg-app); }
 .pg-toolbar { background: var(--bg-panel); row-gap: 6px; }
 .pg-assumed { font-size: var(--fs-12); color: var(--warning-text); background: var(--tone-warning-bg); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
@@ -16,13 +17,13 @@
 .pg-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .pg-scroll {
-  flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; box-sizing: border-box;
+  flex: 1; min-height: 0; overflow-x: auto; overflow-y: auto; box-sizing: border-box;
   padding: 12px; display: flex; flex-direction: column; gap: 12px; container-type: inline-size;
 }
 .pg-empty { margin: 0; padding: 16px; color: var(--fg-muted); }
 .pg-muted { color: var(--fg-muted); font-size: var(--fs-12); }
-.is-danger { color: var(--danger-text); }
-.is-muted { color: var(--fg-muted); }
+.pg-tab .is-danger { color: var(--danger-text); }
+.pg-tab .is-muted { color: var(--fg-muted); }
 .pg-note { margin: 0; padding: 6px 12px; border-radius: var(--radius-3); background: var(--tone-info-bg); color: var(--tone-info-fg); font-size: var(--fs-12); overflow-wrap: anywhere; }
 
 /* 카드 */
@@ -32,12 +33,17 @@
 }
 .pg-card-head { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 2px; min-width: 0; }
 .pg-card-title { margin: 0; font-size: var(--fs-13); font-weight: 700; }
-.pg-card-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.pg-card-body { flex: 1; min-height: 0; overflow: auto; }
 .pg-card-foot { flex: none; display: flex; flex-wrap: wrap; gap: 6px; }
 .pg-card .ui-table { table-layout: fixed; font-size: var(--fs-12); }
 .pg-card .ui-table th { height: 26px; font-size: var(--fs-11); }
 .pg-card .ui-table td { height: 28px; padding: 0 4px; }
 .pg-card .ui-table th { padding: 0 4px; }
+.pg-card .ui-table td:first-child { white-space: normal; overflow-wrap: anywhere; }
+/* 고정 폭 칸의 합 + 이름 칸 최소 폭. 카드가 이보다 좁으면 표 칸이 가로로 밀린다(이름 칸이 0 으로 사라지지 않게). */
+.pg-ms-body .ui-table { min-width: 360px; }
+.pg-wbs-body .ui-table { min-width: 380px; }
+.pg-delay-body .ui-table { min-width: 300px; }
 
 /* 위 띠 */
 .pg-kpis { flex-direction: row; flex-wrap: wrap; align-items: stretch; row-gap: 10px; padding: 12px 0; }
@@ -47,7 +53,7 @@
 .pg-status-sub { margin-left: 6px; font-size: var(--fs-14); font-weight: 400; color: var(--fg-muted); }
 .pg-stat { flex: 1 1 140px; min-width: 0; padding: 0 16px; border-left: 1px solid var(--border); }
 .pg-stat-l { font-size: var(--fs-12); color: var(--fg-muted); overflow-wrap: anywhere; }
-.pg-stat-v { margin-top: 2px; font-size: var(--fs-20); font-weight: 700; line-height: 28px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pg-stat-v { margin-top: 2px; font-size: var(--fs-20); font-weight: 700; line-height: 28px; font-variant-numeric: tabular-nums; }
 .pg-stat-x { margin-left: 6px; font-size: var(--fs-13); font-weight: 500; }
 .pg-stat-s { font-size: var(--fs-12); color: var(--fg-muted); overflow-wrap: anywhere; }
 .pg-stat-v.is-danger, .pg-stat-s.is-danger, .pg-stat-x.is-danger, .pg-status-main .is-danger { color: var(--danger-text); }
@@ -55,7 +61,7 @@
 /* 가운데 줄: S-커브 + 마일스톤 */
 .pg-mid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 460px); gap: 12px; }
 .pg-ms-card { max-height: 330px; }
-.pg-curve-box { min-width: 0; }
+.pg-curve-box { min-width: 0; overflow-x: auto; }
 .pg-legend { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; column-gap: 12px; row-gap: 2px; }
 .pg-legend li, .pg-legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-11); color: var(--fg-muted); white-space: nowrap; }
 .pg-swatch { flex: none; display: inline-block; width: 16px; height: 3px; background: var(--fg-muted); }
@@ -91,7 +97,7 @@
 .pg-spi-last { margin-left: auto; font-size: var(--fs-13); font-weight: 700; }
 .pg-spi-last.is-danger { color: var(--danger-text); }
 .pg-sheet-title { fill: var(--fg); font-family: var(--font-sans); font-size: var(--fs-16); font-weight: 700; }
-.pg-spi-box { overflow: hidden; }
+.pg-spi-box { overflow: auto; }
 
 /* 아래 줄: WBS · 수행 지수 · 지연 상위 · 앞으로 3주 */
 .pg-low { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.8fr) minmax(0, 1.15fr) minmax(0, 1fr); gap: 12px; }
@@ -104,14 +110,14 @@
 .pg-tile { flex: 1 1 0; min-width: 0; padding: 6px 10px; border-radius: var(--radius-3); background: var(--bg-panel-alt); }
 .pg-tile.is-warn { background: var(--tone-warning-bg); color: var(--warning-text); }
 .pg-tile-n { font-size: var(--fs-20); font-weight: 700; line-height: 26px; }
-.pg-tile-l { font-size: var(--fs-11); color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pg-tile-l { font-size: var(--fs-11); color: var(--fg-muted); overflow-wrap: anywhere; }
 .pg-tile.is-warn .pg-tile-l { color: var(--warning-text); }
 .pg-la-list { margin: 0; padding: 0; list-style: none; }
 .pg-la-list li { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 2px; min-height: 28px; padding: 3px 0; box-sizing: border-box; border-bottom: 1px solid var(--bg-app); font-size: var(--fs-12); min-width: 0; }
 .pg-la-date { flex: none; width: 40px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
-.pg-la-text { flex: 1 1 120px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pg-la-text { flex: 1 1 120px; min-width: 0; overflow-wrap: anywhere; }
 .pg-la-reason {
-  flex: 0 1 auto; min-width: 0; max-width: 100%; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 0 1 auto; min-width: 0; max-width: 100%; margin-left: auto; overflow-wrap: anywhere;
   border-radius: 999px; padding: 1px 8px; font-size: var(--fs-11); font-weight: 500; background: var(--tone-warning-bg); color: var(--warning-text);
 }
 
@@ -120,4 +126,7 @@
 }
 @container (max-width: 900px) {
   .pg-mid { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 700px) {
+  .pg-low { grid-template-columns: minmax(0, 1fr); }
 }

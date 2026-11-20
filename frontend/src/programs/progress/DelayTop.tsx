@@ -18,7 +18,7 @@ export default function DelayTop({ data, scheduleId }: { data: ProgressData; sch
       <div className="pg-card-head">
         <h3 className="pg-card-title">지연 상위 액티비티</h3>
       </div>
-      <div className="pg-card-body">
+      <div className="pg-card-body pg-delay-body">
         <Table<Delay>
           label="지연 상위 액티비티"
           rows={data.top_delays}

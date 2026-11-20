@@ -53,19 +53,36 @@ test('late status banner', async () => {
 });
 
 test('on or ahead of plan the banner says so with the deadline float', async () => {
-  mockProgress({ ...P, spi: 1.05, finish: { ...P.finish, deadline: '2027-03-19', deadline_float: 4 } });
+  mockProgress({ ...P, spi: 1.05, finish: { ...P.finish, delta: 0, deadline: '2027-03-19', deadline_float: 4 } });
   show();
   expect(await screen.findByText('계획대로')).toBeVisible();
   expect(screen.queryByText(/계획보다 늦음/)).toBeNull();
+  expect(screen.getByText('준공 Plan 대로')).toBeVisible();
   expect(screen.getByText('· 준공 여유 4일')).toBeVisible();
 });
 
-test('the toolbar shows the data date, unit and weight mode from the server', async () => {
+test('a late finish is late even when the spi is on plan', async () => {
+  mockProgress({ ...P, spi: 1.05 }); // finish.delta 1
+  show();
+  expect(await screen.findByText('계획보다 늦음')).toBeVisible();
+  expect(screen.queryByText('계획대로')).toBeNull();
+  expect(screen.getByText('준공 +1일')).toBeVisible();
+});
+
+test('the toolbar shows the unit and weight mode but leaves the data date to the window header', async () => {
   mockProgress({ ...P, weight_mode: 'manual' });
   show();
   expect(await screen.findByText('가중치: 직접 입력')).toBeVisible();
-  expect(screen.getByRole('group', { name: '공정률 도구' })).toHaveTextContent('2027.03.03');
   expect(screen.getByRole('button', { name: '주' })).toHaveAttribute('aria-pressed', 'true');
+  const toolbar = screen.getByRole('group', { name: '공정률 도구' });
+  expect(toolbar).not.toHaveTextContent('Data Date');
+  expect(toolbar).not.toHaveTextContent('2027.03.03');
+  expect(screen.getAllByText('Data Date')).toHaveLength(1); // 창 머리줄의 것 하나
+});
+
+test('the S-curve names the data date and both percents for screen readers', async () => {
+  show();
+  expect(await screen.findByRole('img', { name: /Data Date 2027\.03\.03, 계획 20\.0%, 실적 10\.0%/ })).toBeInTheDocument();
 });
 
 test('unit switch refetches by month', async () => {
@@ -112,7 +129,8 @@ test('buttons open the delay window and the chat', async () => {
 test('assumed data date is labeled', async () => {
   mockProgress({ ...P, data_date_assumed: true });
   show();
-  expect(await screen.findByText(/오늘로 가정/)).toBeVisible();
+  expect(await screen.findByText('오늘로 가정 2027.03.03')).toBeVisible();
+  expect(screen.getByText('일정에 Data Date 가 없어 오늘 날짜로 계산했습니다')).toBeVisible();
 });
 
 test('activities without a plan are noted only when there are some', async () => {

@@ -24,7 +24,7 @@ export default function WbsTable({ data }: { data: ProgressData }) {
         <span className="pg-legend-item"><span className="pg-swatch is-bar-actual-solid" />실적</span>
         <span className="pg-legend-item"><span className="pg-swatch is-tick" />계획 위치</span>
       </div>
-      <div className="pg-card-body">
+      <div className="pg-card-body pg-wbs-body">
         <Table<Row>
           label="WBS 묶음별"
           rows={data.wbs}
