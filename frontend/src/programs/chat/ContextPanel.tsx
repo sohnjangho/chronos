@@ -7,7 +7,7 @@ import { listRuns, type RunItem } from './chatApi';
 import { useChat } from './chatStore';
 import { circled, domainLabel, STEP_STATUS, tokens, toolLabel } from './labels';
 import type { Thread } from './thread';
-import { useEffectiveUi, useScheduleItem, useSeeing } from './uiContext';
+import { useEffectiveUi, useScheduleItem, useSeeing } from './seeing';
 
 const openWorkflow = (run: number) => useWindows.getState().open('workflow', { run: String(run) });
 
@@ -76,10 +76,10 @@ function ContextTab({ thread }: { thread: Thread | undefined }) {
       ) : (
         <p className="ch-muted">이번 요청에서 아직 실행한 단계가 없습니다.</p>
       )}
-      <h3 className="ch-ctx-h">이번 대화 사용량</h3>
+      <h3 className="ch-ctx-h">이 창에서 받은 사용량</h3>
       <dl className="ch-ctx-dl">
-        <Row label="토큰">{`입력 ${tokens(u?.input_tokens ?? 0)} · 출력 ${tokens(u?.output_tokens ?? 0)}`}</Row>
-        <Row label="호출">{`${u?.calls ?? 0}회`}</Row>
+        <Row label="토큰">{u ? `입력 ${tokens(u.input_tokens)} · 출력 ${tokens(u.output_tokens)}` : '—'}</Row>
+        <Row label="호출">{u ? `${u.calls}회` : '—'}</Row>
         <Row label="비용">{u?.cost === null || u?.cost === undefined ? '—' : `$${u.cost.toFixed(2)}`}</Row>
       </dl>
     </div>

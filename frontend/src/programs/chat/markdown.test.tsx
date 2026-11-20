@@ -34,3 +34,36 @@ test('unclosed markers stay as plain text', () => {
   const { container } = render(<Markdown text={'별표 하나 * 와 **닫히지 않은 굵게, `열린 코드'} />);
   expect(container.textContent).toBe('별표 하나 * 와 **닫히지 않은 굵게, `열린 코드');
 });
+
+test('I1 · an ordered list keeps its first number', () => {
+  const { container } = render(<Markdown text={'3. 셋째\n4. 넷째'} />);
+  const ol = container.querySelector('ol')!;
+  expect(ol).toHaveAttribute('start', '3');
+  expect(ol.querySelectorAll(':scope > li')).toHaveLength(2);
+});
+
+test('I1 · indented sub-bullets and continuation lines stay inside one list item', () => {
+  const { container } = render(<Markdown text={'1. 골조\n   - 1층\n   - 2층\n2. 외장 공사는\n   두 주 당깁니다\n3. 마감'} />);
+  const lists = container.querySelectorAll(':scope > .ch-md > ol');
+  expect(lists).toHaveLength(1);
+  const items = lists[0].querySelectorAll(':scope > li');
+  expect(items).toHaveLength(3);
+  expect(items[0].querySelectorAll('ul > li')).toHaveLength(2);
+  expect(items[1].textContent).toContain('외장 공사는');
+  expect(items[1].textContent).toContain('두 주 당깁니다');
+  expect(items[2].textContent).toBe('마감');
+});
+
+test('I1 · blank lines between items keep one loose list', () => {
+  const { container } = render(<Markdown text={'1. 하나\n\n2. 둘\n\n3. 셋\n\n끝 문단'} />);
+  expect(container.querySelectorAll('ol')).toHaveLength(1);
+  expect(container.querySelectorAll('ol > li')).toHaveLength(3);
+  expect(container.querySelector('ol')).not.toHaveAttribute('start');
+  expect(screen.getByText('끝 문단').tagName).toBe('P');
+});
+
+test('I1 · a date like "2027. 11. 24." stays text; only 1–3 digit markers start a list', () => {
+  const { container } = render(<Markdown text={'2027. 11. 24. 준공\n1000. 천 번째'} />);
+  expect(container.querySelector('ol')).toBeNull();
+  expect(container.querySelector('p')?.textContent).toBe('2027. 11. 24. 준공1000. 천 번째');
+});

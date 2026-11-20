@@ -1,6 +1,7 @@
 // 카드 등록부. 새 카드 종류는 CARDS 에 한 줄을 더한다: 'card:<kind>'(card 사건) 또는 사건 이름(approval·questionnaire).
 // 모르는 종류나 그리다 실패한 카드는 한 줄짜리 중립 카드로 보인다(대화는 계속).
 import { Component, type ComponentType, type ReactNode } from 'react';
+import Button from '../../../shared/ui/Button';
 import { ApprovalCard, AutoAppliedCard } from './ApprovalCards';
 import { asNum, asText, Card, OpenQuestionnaire, type CardCtx, type CardProps } from './Card';
 import GenerationCard from './GenerationCard';
@@ -13,6 +14,11 @@ function QuestionnaireCard({ data, ctx }: CardProps) {
       <p>질문지를 열었습니다. 답하지 않은 것은 적어 둔 가정으로 진행합니다.</p>
       <div className="ch-actions">
         <OpenQuestionnaire id={data.id} ctx={ctx} />
+        {ctx.failedQuestionnaire !== null && ctx.failedQuestionnaire === asNum(data.id) && (
+          <Button variant="primary" onClick={() => ctx.retryResume()}>
+            다시 이어 가기
+          </Button>
+        )}
       </div>
     </Card>
   );

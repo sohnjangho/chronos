@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { lazy } from 'react';
 import { vi } from 'vitest';
 import { register } from '../../os/registry';
-import { useWindows } from '../../os/windowStore';
+import { useUiContext, type UiContext } from '../../os/uiContext';
+import { useWindows, type Win } from '../../os/windowStore';
 import { json, signInAsDemo, stubFetch } from '../../test-helpers';
 import Chat from './Chat';
 import { useChat } from './chatStore';
@@ -104,6 +105,14 @@ export function feedPending(sid = SID) {
 export function renderAt(width: number, params?: Record<string, string>) {
   placeWindow(width, params);
   return render(<Chat windowId="w1" params={params} />);
+}
+
+/** 대화 창 뒤에 다른 프로그램 창(w2)을 두고, ctx 를 주면 그 창이 화면 맥락을 알린다. */
+export function openOther(programId: string, ctx?: UiContext, more: Partial<Win> = {}) {
+  useWindows.setState((s) => ({
+    wins: [...s.wins, { id: 'w2', programId, title: programId, x: 0, y: 48, w: 800, h: 600, z: 0, minimized: false, maximized: false, ...more }],
+  }));
+  if (ctx) useUiContext.getState().publish('w2', ctx);
 }
 
 /** 대화 창(w1)을 이 너비로 둔다(그리지는 않음). */

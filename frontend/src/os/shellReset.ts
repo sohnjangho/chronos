@@ -4,6 +4,7 @@ import { useContextPanel } from './contextStore';
 import { useCurrentSchedule } from './currentSchedule';
 import { useEvidence } from './evidence';
 import { useShell } from './shell';
+import { useUiContext } from './uiContext';
 import { useWindows } from './windowStore';
 
 /**
@@ -14,6 +15,7 @@ export function resetShellState(): void {
   useAiChat.getState().reset();
   useContextPanel.getState().reset();
   useEvidence.setState({ byWindow: {} });
+  useUiContext.getState().reset();
   useShell.setState({ dialog: null, drawer: 'closed', palette: false, dockRevealed: false, announcement: '' });
   useWindows.getState().reset();
   useApprovals.setState({ pending: 0 });

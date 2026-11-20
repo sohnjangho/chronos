@@ -1,18 +1,22 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useAiChat } from '../../os/aiChat';
 import { useCurrentSchedule } from '../../os/currentSchedule';
+import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
-import { json } from '../../test-helpers';
+import { useSession } from '../../os/session';
+import { json, signInAsDemo } from '../../test-helpers';
 import Chat from './Chat';
-import { chatStore, useChat } from './chatStore';
+import { useChat } from './chatStore';
+import { useEffectiveUi } from './seeing';
 import {
   callsTo,
   feed,
   feedPending,
   lastBody,
+  openOther,
   openSpy,
   placeWindow,
   renderAt,
@@ -22,6 +26,7 @@ import {
   registerFakePrograms,
   setup,
   SID,
+  sse,
 } from './testKit';
 
 const toolStart = (n: number, tool: string, call = `c${n}`) => ['tool_start', { run_id: 3, n, call_id: call, tool, program: null, arguments: '{}' }] as [string, unknown];
@@ -37,6 +42,7 @@ beforeEach(() => {
 afterEach(() => {
   useChat.getState().reset();
   useAiChat.getState().reset();
+  useUiContext.getState().reset();
   vi.unstubAllGlobals();
 });
 
@@ -90,7 +96,7 @@ describe('지시서 시험 (실제 사건 모양)', () => {
 
   test('ui context is sent with the message', async () => {
     feed([['done', {}]]);
-    act(() => chatStore.getState().setUiContext({ program: 'schedule', schedule_id: 1, selected_activity: 'A2020' }));
+    act(() => openOther('schedule', { program: 'schedule', schedule_id: 1, selected_activity: 'A2020' }));
     await send('이거 당겨 줘');
     expect(lastBody().ui.selected_activity).toBe('A2020');
     expect(lastBody()).toEqual({ text: '이거 당겨 줘', ui: { program: 'schedule', schedule_id: 1, selected_activity: 'A2020' } });
@@ -268,22 +274,63 @@ describe('R7 · ui context', () => {
 
   test('"보는 중" shows the program and activity names, not ids', async () => {
     renderAt(480);
-    act(() => chatStore.getState().setUiContext({ program: 'schedule', schedule_id: 1, selected_activity: 'A2020' }));
+    act(() => openOther('schedule', { program: 'schedule', schedule_id: 1, selected_activity: 'A2020' }));
     expect(await screen.findByText('보는 중: 일정판 · A2020 지상 1~5층 골조')).toBeVisible();
   });
 
-  test('without a published context the front-most other window is what the user is looking at', async () => {
+  test('U1 · the publisher\'s schedule wins over the OS current schedule; its window params are not scanned', async () => {
+    useCurrentSchedule.getState().setCurrent({ id: 9, name: '다른 현장' });
     renderAt(480);
-    act(() =>
-      useWindows.setState((s) => ({
-        wins: [...s.wins, { id: 'w2', programId: 'schedule', title: '일정판', x: 0, y: 48, w: 800, h: 600, z: 0, minimized: false, maximized: false, params: { activity: 'A2020' } }],
-      })),
-    );
-    useCurrentSchedule.getState().setCurrent({ id: 1, name: '5층 사무동 신축' });
-    expect(await screen.findByText('보는 중: 일정판 · A2020 지상 1~5층 골조')).toBeVisible();
+    act(() => openOther('schedule', { program: 'schedule', schedule_id: 1, selected_activity: null }, { params: { activity: 'A9999' } }));
     feed([['done', {}]]);
-    await send('이거 당겨 줘');
-    expect(lastBody().ui).toEqual({ program: 'schedule', schedule_id: 1, selected_activity: 'A2020' });
+    await send('요약해 줘');
+    expect(lastBody().ui).toEqual({ program: 'schedule', schedule_id: 1 });
+  });
+
+  test('U1 · a front window that published nothing gives only its program; the schedule falls back to the OS one', async () => {
+    useCurrentSchedule.getState().setCurrent({ id: 1, name: '5층 사무동 신축' });
+    renderAt(480);
+    act(() => openOther('settings', undefined, { params: { activity: 'A2020' } }));
+    expect(await screen.findByText('보는 중: 설정')).toBeVisible();
+    feed([['done', {}]]);
+    await send('q');
+    expect(lastBody().ui).toEqual({ program: 'settings', schedule_id: 1 });
+  });
+
+  test('U1 · a window hidden behind the maximized chat window is not what the user is looking at', async () => {
+    renderAt(480);
+    act(() => openOther('schedule', { program: 'schedule', schedule_id: 1, selected_activity: 'A2020' }));
+    expect(await screen.findByText(/보는 중: 일정판/)).toBeVisible();
+    act(() => useWindows.setState((s) => ({ wins: s.wins.map((w) => (w.id === 'w1' ? { ...w, maximized: true } : w)) })));
+    await waitFor(() => expect(screen.queryByText(/보는 중:/)).toBeNull());
+    feed([['done', {}]]);
+    await send('q');
+    expect(lastBody().ui).toEqual({});
+  });
+
+  test('U1 · closing the publishing window forgets its context', async () => {
+    renderAt(480);
+    act(() => openOther('schedule', { program: 'schedule', schedule_id: 1, selected_activity: 'A2020' }));
+    expect(await screen.findByText(/보는 중: 일정판/)).toBeVisible();
+    act(() => useWindows.setState((s) => ({ wins: s.wins.filter((w) => w.id !== 'w2') })));
+    await waitFor(() => expect(screen.queryByText(/보는 중:/)).toBeNull());
+    expect(useUiContext.getState().byWindow).toEqual({});
+  });
+
+  test('U1 · dragging windows does not re-render what reads the ui context', () => {
+    placeWindow(480);
+    openOther('schedule', { program: 'schedule', schedule_id: 1, selected_activity: 'A2020' });
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      return useEffectiveUi();
+    });
+    expect(result.current).toEqual({ program: 'schedule', schedule_id: 1, selected_activity: 'A2020' });
+    const before = renders;
+    act(() => {
+      for (let i = 0; i < 5; i += 1) useWindows.setState((s) => ({ wins: s.wins.map((w) => ({ ...w, x: w.x + 10 })) }));
+    });
+    expect(renders).toBe(before);
   });
 });
 
@@ -334,4 +381,119 @@ test('a dropped connection keeps what arrived and says so', async () => {
   expect(await screen.findByText('반쯤')).toBeVisible();
   expect(await screen.findByText('서버에 연결할 수 없습니다.')).toBeVisible();
   expect(await screen.findByRole('button', { name: '보내기' })).toBeVisible();
+});
+
+describe('fix round 1 · resume, new chat, separation, reset', () => {
+  test('m2 · a refused questionnaire resume offers 「다시 이어 가기」 on the notice and on the questionnaire card', async () => {
+    routes[`/api/chat/sessions/${SID}`] = {
+      ...SESSION,
+      running: false,
+      pending_retries: [],
+      messages: [{ id: 1, role: 'event', content: { type: 'questionnaire', data: { id: 7 } }, created_at: 'x' }],
+    };
+    let posts = 0;
+    routes[`POST /api/chat/sessions/${SID}/messages`] = () => {
+      posts += 1;
+      return posts === 1
+        ? json(409, { code: 'turn_running', message: '앞의 요청을 처리하는 중입니다.', detail: null })
+        : sse([['text', { text: '이어서 진행합니다.' }], ['done', {}]]);
+    };
+    renderAt(480, { session: String(SID), resume_questionnaire: '7' });
+    expect(await screen.findByText('앞의 요청을 처리하는 중입니다.')).toBeVisible();
+    const retry = screen.getAllByRole('button', { name: '다시 이어 가기' });
+    expect(retry).toHaveLength(2);
+    expect(within(screen.getByRole('region', { name: '질문지' })).getByRole('button', { name: '다시 이어 가기' })).toBeVisible();
+    await userEvent.click(retry[0]);
+    expect(await screen.findByText('이어서 진행합니다.')).toBeVisible();
+    expect(lastBody()).toMatchObject({ questionnaire_id: 7 });
+    expect(screen.queryByRole('button', { name: '다시 이어 가기' })).toBeNull();
+  });
+
+  test('m9 · the resumed questionnaire card shows its answer and assumption counts right away', async () => {
+    routes['/api/questionnaires/7'] = {
+      id: 7,
+      title: '공정표 질문',
+      status: 'submitted',
+      progress: { answered: 1, total: 2 },
+      groups: [
+        {
+          name: '범위',
+          questions: [
+            { id: 'floors', question: '지상 몇 층인가요?', assumption: '5층으로 가정합니다.', answer: { value: '10', label: '10층' } },
+            { id: 'crane', question: '크레인은 몇 대인가요?', assumption: '1대로 가정합니다.', answer: null },
+          ],
+        },
+      ],
+    };
+    feedPending();
+    renderAt(480, { session: String(SID), resume_questionnaire: '7' });
+    expect(await screen.findByText('질문지 7 제출 · 답 1개 · 가정 1개')).toBeVisible();
+    expect(useChat.getState().threads[SID].streaming).toBe(true);
+  });
+
+  test('m3 · a turn cut by reset resolves as not sent', async () => {
+    feedPending();
+    const sending = useChat.getState().send('q');
+    await waitFor(() => expect(callsTo(`/api/chat/sessions/${SID}/messages`, 'POST')).toHaveLength(1));
+    act(() => useChat.getState().reset());
+    expect(await sending).toBe(false);
+  });
+
+  test('m5 · creating a new conversation does not pull the user back from one opened meanwhile', async () => {
+    let release = () => {};
+    const created: Promise<Response> = new Promise((resolve) => {
+      release = () => resolve(json(200, SESSION));
+    });
+    routes['POST /api/chat/sessions'] = () => created;
+    routes['/api/chat/sessions'] = [{ ...SESSION, id: 8, title: '여덟 번째', created_at: new Date().toISOString(), pending_retries: 0 }];
+    routes['/api/chat/sessions/8'] = { ...SESSION, id: 8, running: false, pending_retries: [], messages: [{ id: 1, role: 'user', content: { kind: 'text', text: '여덟 번째 대화' }, created_at: 'x' }] };
+    feed([['done', {}]]);
+    renderAt(1560);
+    await userEvent.type(screen.getByRole('textbox', { name: '에이전트에게 요청' }), '새 질문');
+    await userEvent.click(screen.getByRole('button', { name: '보내기' }));
+    await userEvent.click(await screen.findByRole('button', { name: '여덟 번째' }));
+    expect(await screen.findByText('여덟 번째 대화')).toBeVisible();
+    act(() => release());
+    await waitFor(() => expect(callsTo(`/api/chat/sessions/${SID}/messages`, 'POST')).toHaveLength(1));
+    expect(useChat.getState().currentId).toBe(8);
+    expect(screen.getByText('여덟 번째 대화')).toBeVisible();
+  });
+
+  test('m7 · switching conversations mid-stream keeps their messages apart', async () => {
+    routes['/api/chat/sessions'] = [
+      { ...SESSION, title: '하나', created_at: new Date().toISOString(), pending_retries: 0 },
+      { ...SESSION, id: 8, title: '여덟 번째', created_at: new Date().toISOString(), pending_retries: 0 },
+    ];
+    routes['/api/chat/sessions/8'] = { ...SESSION, id: 8, running: false, pending_retries: [], messages: [{ id: 1, role: 'user', content: { kind: 'text', text: '여덟 번째 대화' }, created_at: 'x' }] };
+    renderAt(1560, { session: String(SID) });
+    const live = feedPending();
+    await send('첫 대화 질문');
+    await userEvent.click(await screen.findByRole('button', { name: '여덟 번째' }));
+    expect(await screen.findByText('여덟 번째 대화')).toBeVisible();
+    act(() => live.push([['text', { text: '첫 대화의 답' }]]));
+    await act(async () => {});
+    expect(screen.queryByText('첫 대화의 답')).toBeNull();
+    expect(screen.getByRole('button', { name: '보내기' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: '하나' }));
+    expect(await screen.findByText('첫 대화의 답')).toBeVisible();
+    expect(screen.queryByText('여덟 번째 대화')).toBeNull();
+    expect(screen.getByRole('button', { name: '중단' })).toBeVisible();
+  });
+
+  test('m7 · a user switch or logout clears every conversation and stops the stream', async () => {
+    routes['/api/chat/sessions'] = [{ ...SESSION, title: '김하늘의 대화', created_at: new Date().toISOString(), pending_retries: 0 }];
+    renderAt(1560, { session: String(SID) });
+    const live = feedPending();
+    await send('비밀 질문');
+    routes['/api/chat/sessions'] = [];
+    act(() => signInAsDemo('user', '박서준', 'demo-user', 2));
+    expect(useChat.getState()).toMatchObject({ sessions: [], threads: {}, currentId: null });
+    await waitFor(() => expect(screen.queryByText('비밀 질문')).toBeNull());
+    expect(screen.queryByText('김하늘의 대화')).toBeNull();
+    // 스트림은 끊겼다(읽기를 취소해 서버로 가는 연결이 닫힌다) — 더 보낼 수 없다.
+    await waitFor(() => expect(() => live.push([['text', { text: '늦게 온 답' }]])).toThrow(/closed/));
+    expect(screen.queryByText('늦게 온 답')).toBeNull();
+    act(() => useSession.getState().logout());
+    expect(useChat.getState().threads).toEqual({});
+  });
 });

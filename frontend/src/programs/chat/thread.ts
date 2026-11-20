@@ -51,11 +51,17 @@ export interface Retry {
   decided_at: string;
 }
 
+/** 제출한 질문지·다시 짜기로 거부한 승인 건으로 이어 가기. */
+export type ResumeInput = { questionnaire_id: number } | { approval_id: number };
+
 export interface Thread {
   items: Item[];
   retries: Retry[];
   workflow: WorkflowInfo | null;
-  usage: Usage;
+  /** 이 창에서 받은 usage 사건의 합. 받은 적이 없으면 null(다시 연 대화의 앞 사용량은 모른다). */
+  usage: Usage | null;
+  /** 서버가 거절한 질문지 이어 가기([다시 이어 가기]로 다시 보낸다). */
+  failedResume: ResumeInput | null;
   streaming: boolean;
   stopping: boolean;
   /** 보내기 전에 거절된 요청의 서버 글(예: 409) 같은 한 줄 알림. */
@@ -63,13 +69,14 @@ export interface Thread {
   loaded: boolean;
 }
 
-export const ZERO_USAGE: Usage = { input_tokens: 0, output_tokens: 0, calls: 0, cost: null };
+const ZERO_USAGE: Usage = { input_tokens: 0, output_tokens: 0, calls: 0, cost: null };
 
 export const emptyThread = (): Thread => ({
   items: [],
   retries: [],
   workflow: null,
-  usage: ZERO_USAGE,
+  usage: null,
+  failedResume: null,
   streaming: false,
   stopping: false,
   notice: null,
@@ -161,7 +168,7 @@ export function applyEvent(t: Thread, type: string, data: unknown): Thread {
     case 'workflow':
       return Array.isArray(data.steps) ? { ...t, workflow: { run_id: num(data.run_id) ?? 0, status: str(data.status) ?? '', steps: data.steps.filter(isObj) as WorkflowInfo['steps'] } } : t;
     case 'usage':
-      return { ...t, usage: addUsage(t.usage, data) };
+      return { ...t, usage: addUsage(t.usage ?? ZERO_USAGE, data) };
     default:
       return t;
   }
@@ -212,4 +219,21 @@ export function fromDetail(detail: { messages?: unknown; running?: unknown; pend
   if (detail.running !== true) t = stopRunning(t);
   const retries = Array.isArray(detail.pending_retries) ? (detail.pending_retries.filter(isObj) as unknown as Retry[]) : [];
   return { ...t, retries, loaded: true };
+}
+
+/**
+ * 질문지 보기(GET /api/questionnaires/{id})로 만든 제출 카드 내용 — 이어 가기를 보내는 순간부터 답·가정 수를 보인다.
+ * 저장되는 questionnaire_submitted 메시지와 같은 모양(answers·assumed).
+ */
+export function submissionFromView(questionnaireId: number, view: unknown): Json {
+  const questions = (isObj(view) && Array.isArray(view.groups) ? view.groups : [])
+    .filter(isObj)
+    .flatMap((g) => (Array.isArray(g.questions) ? g.questions.filter(isObj) : []));
+  const answered = questions.filter((q) => isObj(q.answer));
+  return {
+    kind: 'questionnaire_submitted',
+    questionnaire_id: questionnaireId,
+    answers: answered.map((q) => ({ question_id: q.id, question: q.question, value: (q.answer as Json).value, label: (q.answer as Json).label })),
+    assumed: questions.filter((q) => !isObj(q.answer)).map((q) => ({ question_id: q.id, question: q.question, assumption: q.assumption })),
+  };
 }

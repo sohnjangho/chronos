@@ -58,6 +58,17 @@ export function postMessage(id: number, body: TurnInput & { ui: UiIn }, onEvent:
 }
 
 export const listSchedules = () => api<ScheduleItem[]>('/api/schedules');
+
+/** 질문지 보기(Task 8). 이어 가기 카드에 답·가정을 바로 보이려고 읽는다. */
+export const getQuestionnaire = (id: number) => api<unknown>(`/api/questionnaires/${id}`);
+
+/** 승인 건의 지금 결정(Task 11 ApprovalOut 의 일부). */
+export interface ApprovalState {
+  status: 'pending' | 'approved' | 'rejected' | 'conflict' | 'auto';
+  decided_by: string | null;
+  retry: boolean;
+}
+export const getApproval = (id: number) => api<ApprovalState>(`/api/approvals/${id}`);
 export const listRuns = () => api<RunItem[]>('/api/workflows/runs');
 
 const activityNames = new Map<number, Promise<Map<string, string>>>();

@@ -1,17 +1,40 @@
-// 「보는 중」과 컨텍스트 패널이 함께 쓰는 화면 맥락: 보낼 ui, 그 이름(프로그램·액티비티), 대상 일정 정보.
+// 질문과 함께 보낼 화면 맥락(ui)과 그 이름. 맥락은 OS 저장소(os/uiContext)에 창이 알린 것을 읽는다.
 import { useEffect, useMemo, useState } from 'react';
-import { useCurrentSchedule } from '../../os/currentSchedule';
+import { useCurrentSchedule, type CurrentSchedule } from '../../os/currentSchedule';
 import { getProgram } from '../../os/registry';
+import { frontVisibleWindow, useUiContext, type UiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
 import { activityNamesOf, listSchedules, type ScheduleItem, type UiIn } from './chatApi';
-import { effectiveUi, useChat } from './chatStore';
 
-/** 지금 보낼 ui(알린 맥락 → 맨 앞 다른 창 → OS 지금 일정). */
+/**
+ * 보낼 ui: 맨 앞에 보이는 다른 창이 알린 맥락. 아무것도 알리지 않은 창이면 그 프로그램만.
+ * schedule_id 는 알린 값, 없으면 OS 의 지금 일정.
+ */
+export function effectiveUi(published: UiContext | undefined, frontProgram: string | null, current: CurrentSchedule | null): UiIn {
+  const program = published?.program ?? frontProgram;
+  const scheduleId = published?.schedule_id ?? current?.id;
+  const activity = published?.selected_activity;
+  return {
+    ...(program && { program }),
+    ...(typeof scheduleId === 'number' && { schedule_id: scheduleId }),
+    ...(activity && { selected_activity: activity }),
+  };
+}
+
+/** 보내는 순간의 ui(store 가 부른다). */
+export function currentUi(): UiIn {
+  const front = frontVisibleWindow(useWindows.getState().wins, 'chat');
+  const published = front ? useUiContext.getState().byWindow[front.id] : undefined;
+  return effectiveUi(published, front?.programId ?? null, useCurrentSchedule.getState().current);
+}
+
+/** 지금 보낼 ui. 창을 끌어도(맨 앞 창이 그대로면) 다시 그리지 않도록 좁은 값만 구독한다. */
 export function useEffectiveUi(): UiIn {
-  const ctx = useChat((s) => s.uiContext);
-  const wins = useWindows((s) => s.wins);
+  const frontId = useWindows((s) => frontVisibleWindow(s.wins, 'chat')?.id ?? null);
+  const frontProgram = useWindows((s) => frontVisibleWindow(s.wins, 'chat')?.programId ?? null);
+  const published = useUiContext((s) => (frontId ? s.byWindow[frontId] : undefined));
   const current = useCurrentSchedule((s) => s.current);
-  return useMemo(() => effectiveUi(ctx, wins, current), [ctx, wins, current]);
+  return useMemo(() => effectiveUi(published, frontProgram, current), [published, frontProgram, current]);
 }
 
 /** 액티비티 이름. 아직 모르거나 일정에 없으면 null. */

@@ -2,74 +2,44 @@
 // 로그아웃(사용자 바뀜)하면 도는 답을 멈추고 비운다.
 import { create } from 'zustand';
 import { useAiChat } from '../../os/aiChat';
-import { useCurrentSchedule, type CurrentSchedule } from '../../os/currentSchedule';
 import { useSession } from '../../os/session';
-import { useWindows, type Win } from '../../os/windowStore';
+import { useWindows } from '../../os/windowStore';
 import { ApiError } from '../../shared/api';
 import * as chatApi from './chatApi';
-import type { SessionItem, TurnInput, UiIn } from './chatApi';
-import { applyEvent, emptyThread, fromDetail, isObj, nextKey, stopRunning, ZERO_USAGE, type Item, type Json, type Thread } from './thread';
+import type { SessionItem, TurnInput } from './chatApi';
+import { currentUi } from './seeing';
+import { applyEvent, emptyThread, fromDetail, isObj, nextKey, stopRunning, submissionFromView, type Item, type Json, type Retry, type ResumeInput, type Thread } from './thread';
 
-/** 다른 프로그램이 알리는 화면 맥락(Task 10 의 ui). */
-export interface UiContext {
-  program?: string | null;
-  schedule_id?: number | null;
-  selected_activity?: string | null;
-}
-
-export type ResumeInput = { questionnaire_id: number } | { approval_id: number };
+export type { ResumeInput };
 
 interface ChatState {
-  uiContext: UiContext | null;
   sessions: SessionItem[];
   listNotice: string | null;
   currentId: number | null;
   threads: Record<number, Thread>;
   /** 아직 대화가 없을 때(새 대화)의 알림. */
   notice: string | null;
-  setUiContext(ctx: UiContext | null): void;
   loadSessions(): Promise<void>;
   openSession(id: number): Promise<void>;
   newChat(): void;
   /** 글을 보낸다. 서버가 받아 첫 사건이 오면 true, 보내기 전에 거절되면 false(글을 입력창에 돌려줄 수 있게). */
   send(text: string): Promise<boolean>;
-  /** 제출한 질문지·다시 짜기로 거부한 승인 건으로 대화를 이어 간다. 같은 것은 한 번만. */
+  /** 제출한 질문지·다시 짜기로 거부한 승인 건으로 대화를 이어 간다. 같은 것은 한 번만(거절되면 다시 할 수 있다). */
   resume(sessionId: number, input: ResumeInput): Promise<void>;
   stop(): Promise<void>;
   reset(): void;
 }
 
 const RUNNING_ELSEWHERE = '이 대화의 앞 요청을 처리하는 중입니다. 끝나면 이 화면에 이어서 보입니다.';
+const BUSY = '앞의 요청을 처리하는 중입니다.';
 
 const message = (err: unknown) => (err instanceof ApiError ? err.message : '처리 중 문제가 생겼습니다.');
-
-/** 대화창이 아닌 맨 앞 창(최소화 안 함). 다른 프로그램이 맥락을 알리지 않았을 때 "보는 것"으로 본다. */
-function frontOther(wins: Win[]): Win | null {
-  let top: Win | null = null;
-  for (const w of wins) if (w.programId !== 'chat' && !w.minimized && (!top || w.z > top.z)) top = w;
-  return top;
-}
-
-/** 보낼 ui: 알린 맥락 → 없으면 맨 앞 다른 창. schedule_id 가 없으면 OS 의 지금 일정. */
-export function effectiveUi(ctx: UiContext | null, wins: Win[], current: CurrentSchedule | null): UiIn {
-  const front = ctx ? null : frontOther(wins);
-  const program = ctx ? ctx.program : front?.programId;
-  const activity = ctx ? ctx.selected_activity : front?.params?.activity;
-  const scheduleId = ctx?.schedule_id ?? current?.id;
-  return {
-    ...(program && { program }),
-    ...(typeof scheduleId === 'number' && { schedule_id: scheduleId }),
-    ...(activity && { selected_activity: activity }),
-  };
-}
-
-const uiNow = () => effectiveUi(useChat.getState().uiContext, useWindows.getState().wins, useCurrentSchedule.getState().current);
 
 const controllers = new Map<number, AbortController>();
 const handled = new Set<string>();
 let generation = 0;
 
-const initial = { uiContext: null, sessions: [], listNotice: null, currentId: null, threads: {}, notice: null };
+const initial = { sessions: [], listNotice: null, currentId: null, threads: {}, notice: null };
 
 /** 그 대화가 아직 있을 때만 고친다(로그아웃 뒤 늦게 온 사건은 버린다). */
 function patch(id: number, change: (t: Thread) => Thread) {
@@ -107,10 +77,10 @@ function runTurn(id: number, body: TurnInput, item: Item): Promise<boolean> {
       onEvent(id, type, data);
     };
     chatApi
-      .postMessage(id, { ...body, ui: uiNow() }, live, controller.signal)
-      .then(() => resolve(true))
+      .postMessage(id, { ...body, ui: currentUi() }, live, controller.signal)
+      .then(() => resolve(gen === generation)) // reset(로그아웃)으로 끊겼으면 보내지 않은 것으로
       .catch((err: unknown) => {
-        if (gen !== generation) return;
+        if (gen !== generation) return resolve(false);
         if (started) patch(id, (t) => applyEvent(t, 'error', { code: 'network_error', message: message(err) }));
         else patch(id, (t) => ({ ...t, items: t.items.filter((i) => i !== item), notice: message(err) }));
         resolve(false);
@@ -144,7 +114,7 @@ async function openSession(id: number) {
     if (gen !== generation || useChat.getState().threads[id]?.streaming) return;
     // 다른 곳(Context 패널 AI 탭 등)에서 보낸 턴이 아직 돌면 그 스트림은 여기로 오지 않는다 — 알리고, 끝나면 다시 읽는다.
     const notice = detail.running ? RUNNING_ELSEWHERE : null;
-    useChat.setState((s) => ({ threads: { ...s.threads, [id]: { ...fromDetail(detail), usage: s.threads[id]?.usage ?? ZERO_USAGE, notice } } }));
+    useChat.setState((s) => ({ threads: { ...s.threads, [id]: { ...fromDetail(detail), usage: s.threads[id]?.usage ?? null, notice } } }));
   } catch (err) {
     if (gen === generation) patch(id, (t) => ({ ...t, notice: message(err) }));
   }
@@ -156,13 +126,13 @@ async function send(text: string): Promise<boolean> {
   if (id !== null && useChat.getState().threads[id]?.streaming) return false;
   if (id === null) {
     try {
-      const created = await chatApi.createSession(uiNow().schedule_id ?? null);
+      const created = await chatApi.createSession(currentUi().schedule_id ?? null);
       id = created.id;
+      // 만드는 사이 다른 대화로 옮겼으면 그대로 둔다(글은 새 대화에서 돈다).
       useChat.setState((s) => ({
         sessions: [{ ...created, pending_retries: 0 }, ...s.sessions.filter((x) => x.id !== created.id)],
-        currentId: created.id,
         threads: { ...s.threads, [created.id]: { ...emptyThread(), loaded: true } },
-        notice: null,
+        ...(s.currentId === null && { currentId: created.id, notice: null }),
       }));
     } catch (err) {
       useChat.setState({ notice: message(err) });
@@ -172,27 +142,49 @@ async function send(text: string): Promise<boolean> {
   return runTurn(id, { text }, { kind: 'user', key: nextKey(), text });
 }
 
-/** 이어 가기를 알리는 시스템 카드 내용(승인 건이면 기다리던 요청에서 지운다). */
-function resumeContent(sessionId: number, t: Thread, input: ResumeInput): Json {
-  if ('questionnaire_id' in input) return { kind: 'questionnaire_submitted', questionnaire_id: input.questionnaire_id };
+/** 질문지 이어 가기 카드: 질문지를 읽어 답·가정을 바로 보인다(못 읽으면 번호만). */
+async function submissionContent(questionnaireId: number): Promise<Json> {
+  try {
+    return submissionFromView(questionnaireId, await chatApi.getQuestionnaire(questionnaireId));
+  } catch {
+    return { kind: 'questionnaire_submitted', questionnaire_id: questionnaireId };
+  }
+}
+
+const withRetry = (t: Thread, retry: Retry): Thread =>
+  t.retries.some((r) => r.approval_id === retry.approval_id)
+    ? t
+    : { ...t, retries: [...t.retries, retry].sort((a, b) => a.decided_at.localeCompare(b.decided_at)) };
+
+/** 이어 가기 카드 내용과, 승인 건이면 기다리던 요청(거절되면 되돌린다). */
+async function resumeItem(sessionId: number, t: Thread, input: ResumeInput): Promise<{ content: Json; retry?: Retry }> {
+  if ('questionnaire_id' in input) return { content: await submissionContent(input.questionnaire_id) };
   const retry = t.retries.find((r) => r.approval_id === input.approval_id);
   patch(sessionId, (x) => ({ ...x, retries: x.retries.filter((r) => r.approval_id !== input.approval_id) }));
-  return { kind: 'approval_rejected', approval_id: input.approval_id, title: retry?.title ?? '', note: retry?.note ?? '' };
+  return { content: { kind: 'approval_rejected', approval_id: input.approval_id, title: retry?.title ?? '', note: retry?.note ?? '' }, retry };
 }
 
 async function resume(sessionId: number, input: ResumeInput) {
   const key = 'questionnaire_id' in input ? `q:${sessionId}:${input.questionnaire_id}` : `a:${sessionId}:${input.approval_id}`;
   if (handled.has(key)) return;
   handled.add(key);
+  const gen = generation;
   await openSession(sessionId);
   const t = useChat.getState().threads[sessionId];
-  if (!t || t.streaming) {
+  const failed = 'questionnaire_id' in input ? input : null;
+  if (gen !== generation || !t || t.streaming) {
     handled.delete(key);
-    if (t) patch(sessionId, (x) => ({ ...x, notice: '앞의 요청을 처리하는 중입니다.' }));
+    if (t && gen === generation) patch(sessionId, (x) => ({ ...x, notice: BUSY, failedResume: failed ?? x.failedResume }));
     return;
   }
-  const ok = await runTurn(sessionId, input, { kind: 'system', key: nextKey(), content: resumeContent(sessionId, t, input) });
-  if (!ok) handled.delete(key);
+  patch(sessionId, (x) => ({ ...x, failedResume: null }));
+  const { content, retry } = await resumeItem(sessionId, t, input);
+  if (gen !== generation) return;
+  if (await runTurn(sessionId, input, { kind: 'system', key: nextKey(), content })) return;
+  handled.delete(key);
+  if (gen !== generation) return;
+  // 거절됐다(409·422 등): 다시 짜기 요청 카드를 돌려놓고, 질문지는 [다시 이어 가기]를 보인다.
+  patch(sessionId, (x) => (retry ? withRetry(x, retry) : { ...x, failedResume: failed }));
 }
 
 async function stop() {
@@ -218,7 +210,6 @@ function reset() {
 
 export const useChat = create<ChatState>((set) => ({
   ...initial,
-  setUiContext: (uiContext) => set({ uiContext }),
   loadSessions,
   openSession,
   newChat: () => set({ currentId: null, notice: null }),
@@ -227,9 +218,6 @@ export const useChat = create<ChatState>((set) => ({
   stop,
   reset,
 }));
-
-/** 지시서 이름. 다른 프로그램은 import할 수 없으므로(프로그램끼리 import 금지) 보고서의 우려 참고. */
-export const chatStore = useChat;
 
 // Context 패널 「AI」 탭의 답이 끝나면, 그 대화를 여기서 열어 두었을 때(「전체 화면으로」) 다시 읽어 잇는다.
 useAiChat.subscribe((s, prev) => {

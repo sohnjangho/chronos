@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useChat } from './chatStore';
+import { json } from '../../test-helpers';
 import { callsTo, feed, lastBody, openSpy, registerFakePrograms, renderAt, routes, send, SESSION, setup, SID } from './testKit';
 
 // 실제 서버가 내는 모양(Task 9·10·11). 사람·현장은 가상.
@@ -120,6 +121,19 @@ describe('R2 · every card kind the backend sends', () => {
     expect(within(card).getByRole('button', { name: '보냈습니다' })).toBeDisabled();
   });
 
+  test('m9 · a typed answer equal to an option label stays typed', async () => {
+    feed([['card', MINI], ['done', {}]]);
+    await send('공정표 만들어 줘');
+    const card = screen.getByRole('region', { name: '두 가지만 확인할게요' });
+    const free = within(card).getByRole('textbox', { name: '지상 몇 층인가요? 직접 입력' });
+    await userEvent.type(free, '10층');
+    expect(free).toHaveValue('10층');
+    expect(within(card).getByRole('button', { name: /10층/ })).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(within(card).getByRole('button', { name: /5층/ }));
+    expect(free).toHaveValue('');
+    expect(within(card).getByRole('button', { name: /5층/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   test('an unknown card kind renders a neutral one-line card and the thread keeps going', async () => {
     feed([['card', { kind: 'brand_new_kind', x: 1 }], ['text', { text: '계속합니다' }], ['done', {}]]);
     await send('q');
@@ -180,12 +194,51 @@ describe('R5 · approvals and re-plan requests', () => {
     expect(screen.getByText(/승인 거부 · 5층 사무동 신축 일정/)).toBeVisible();
   });
 
+  test('m1 · a refused re-plan resume gives the 「다시 짜기 요청」 card back', async () => {
+    const retry = { approval_id: 5, title: '5층 사무동 신축 일정', note: '준공은 그대로', decided_by_name: '이도윤', decided_at: '2026-11-20T02:00:00Z' };
+    routes[`/api/chat/sessions/${SID}`] = { ...SESSION, running: false, messages: [], pending_retries: [retry] };
+    routes[`POST /api/chat/sessions/${SID}/messages`] = () =>
+      json(422, { code: 'invalid_approval', message: '이미 이어서 처리한 승인 건입니다.', detail: null });
+    renderAt(480, { session: String(SID) });
+    const card = await screen.findByRole('region', { name: '다시 짜기 요청' });
+    await userEvent.click(within(card).getByRole('button', { name: '다시 짜기 시작' }));
+    expect(await screen.findByText('이미 이어서 처리한 승인 건입니다.')).toBeVisible();
+    expect(screen.getByRole('region', { name: '다시 짜기 요청' })).toBeVisible();
+    expect(screen.queryByText(/승인 거부 ·/)).toBeNull();
+  });
+
+  test('m9 · a reopened approval card shows the decision made since', async () => {
+    routes['/api/approvals/5'] = { id: 5, status: 'approved', decided_by: '이도윤', retry: false, decided_at: '2026-11-20T03:00:00Z' };
+    routes[`/api/chat/sessions/${SID}`] = {
+      ...SESSION, running: false, pending_retries: [],
+      messages: [{ id: 1, role: 'event', content: { type: 'approval', data: APPROVAL }, created_at: 'x' }],
+    };
+    renderAt(1560, { session: String(SID) });
+    const card = await screen.findByRole('region', { name: '승인 요청' });
+    expect(await within(card).findByText('승인됨 · 이도윤')).toBeVisible();
+    expect(card).not.toHaveTextContent('결정을 기다립니다');
+  });
+
   test('params.resume_approval continues the chat (approvals inbox flow)', async () => {
     feed([['text', { text: '이유를 반영합니다.' }], ['done', {}]]);
     renderAt(480, { session: String(SID), resume_approval: '5' });
     expect(await screen.findByText('이유를 반영합니다.')).toBeVisible();
     expect(lastBody()).toMatchObject({ approval_id: 5 });
   });
+});
+
+test('m4 · broken answers in a stored questionnaire submission do not break the thread', async () => {
+  routes[`/api/chat/sessions/${SID}`] = {
+    ...SESSION, running: false, pending_retries: [],
+    messages: [
+      { id: 1, role: 'user', content: { kind: 'questionnaire_submitted', questionnaire_id: 9, answers: [null, 'x', { question: '지상 몇 층인가요?', label: '5층' }], assumed: [7] }, created_at: 'x' },
+      { id: 2, role: 'assistant', content: { kind: 'text', text: '계속합니다.' }, created_at: 'x' },
+    ],
+  };
+  renderAt(480, { session: String(SID) });
+  expect(await screen.findByText('계속합니다.')).toBeVisible();
+  expect(screen.getByText('질문지 9 제출 · 답 3개 · 가정 1개')).toBeVisible();
+  expect(screen.getByText('지상 몇 층인가요?: 5층')).toBeInTheDocument();
 });
 
 describe('R3 · a reopened session shows the same cards', () => {

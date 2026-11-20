@@ -24,6 +24,15 @@ const manifest: ProgramManifest = {
   icon: glyph('M4 5h16v11H10l-6 4z', 'M8 9.5h8', 'M8 12.5h5'),
   menus: [
     {
+      label: '대화',
+      items: [
+        // 대화 상태는 창 밖 store 에 있다(처음 쓸 때 불러온다 — 시작 묶음을 키우지 않게).
+        { label: '새 대화', action: () => import('./chatStore').then(({ useChat }) => useChat.getState().newChat()) },
+        // 도움말: 답은 OS 전체의 에이전트가 만든다 — 창을 닫아도 이어지고, 다시 열면 이어서 보인다.
+        { label: '창을 닫아도 도는 답은 이어집니다 · 다시 열면 이어서 보입니다', action: () => {}, disabled: true, separatorBefore: true },
+      ],
+    },
+    {
       label: '보기',
       items: [
         { label: '작은 화면', action: (id) => resizeTo(id, SMALL) },

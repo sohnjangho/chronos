@@ -2,8 +2,9 @@ import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { useCurrentSchedule } from '../../os/currentSchedule';
-import { chatStore, useChat } from './chatStore';
-import { feed, feedPending, openSpy, registerFakePrograms, renderAt, routes, send, setup, SID } from './testKit';
+import { useUiContext } from '../../os/uiContext';
+import { useChat } from './chatStore';
+import { feed, feedPending, openOther, openSpy, registerFakePrograms, renderAt, routes, send, setup, SID } from './testKit';
 
 const panel = () => screen.getByRole('complementary', { name: '대화 정보' });
 const workflow = (status: string, steps: [string, string][]) =>
@@ -17,16 +18,29 @@ beforeEach(() => {
 });
 afterEach(() => {
   useChat.getState().reset();
+  useUiContext.getState().reset();
   vi.unstubAllGlobals();
 });
 
 test('지금 다루는 것: the target schedule with domain and level, and what the user is looking at', async () => {
   renderAt(1560);
-  act(() => chatStore.getState().setUiContext({ program: 'schedule', schedule_id: 1, selected_activity: 'A2020' }));
+  act(() => openOther('schedule', { program: 'schedule', schedule_id: 1, selected_activity: 'A2020' }));
   const p = panel();
   expect(await within(p).findByText('5층 사무동 신축')).toBeVisible();
   expect(within(p).getByText('건설 · L3 · 버전 3')).toBeVisible();
   expect(await within(p).findByText('일정판 · A2020 지상 1~5층 골조')).toBeVisible();
+});
+
+test('I2 · a reopened conversation shows — for usage until this window receives a usage event', async () => {
+  routes[`/api/chat/sessions/${SID}`] = { id: SID, title: '공정표', schedule_id: 1, created_at: 'x', running: false, messages: [], pending_retries: [] };
+  renderAt(1560, { session: String(SID) });
+  const p = panel();
+  expect(await within(p).findByText('이 창에서 받은 사용량')).toBeVisible();
+  const row = (label: string) => within(p).getByText(label).closest('div')!;
+  expect(row('토큰')).toHaveTextContent('—');
+  expect(row('호출')).toHaveTextContent('—');
+  expect(row('비용')).toHaveTextContent('—');
+  expect(within(p).queryByText(/입력 0/)).toBeNull();
 });
 
 test('R8 · usage adds up every usage event; cost shows — when null', async () => {

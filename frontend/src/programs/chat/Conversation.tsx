@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { getProgram } from '../../os/registry';
 import { useWindows } from '../../os/windowStore';
 import Button from '../../shared/ui/Button';
-import { asList, asText } from './cards/Card';
+import { asList, asObj, asText } from './cards/Card';
 import { CardView, type CardCtx } from './cards';
 import { useChat } from './chatStore';
 import { seconds, STEP_STATUS, toolLabel } from './labels';
 import { Markdown } from './markdown';
 import type { Item, Json, Part, Retry, Step } from './thread';
+import './thread.css';
 
 type Agent = Extract<Item, { kind: 'agent' }>;
 
@@ -92,14 +93,15 @@ function SystemCard({ content }: { content: Json }) {
   }
   const head = `질문지 ${asText(content.questionnaire_id)} 제출`;
   if (!Array.isArray(content.answers)) return <div className="ch-sys"><p>{head}</p></div>;
-  const answers = asList(content.answers) as Json[];
-  const assumed = asList(content.assumed) as Json[];
+  // 서버 자료라도 칸이 깨져 있을 수 있다: 묶음 수는 그대로 세고, 질문 글이 있는 줄만 보인다.
+  const answers = asList(content.answers).map(asObj);
+  const assumed = asList(content.assumed).map(asObj);
   return (
     <details className="ch-sys">
       <summary>{`${head} · 답 ${answers.length}개 · 가정 ${assumed.length}개`}</summary>
       <ul className="ch-plain">
-        {answers.map((a, i) => <li key={`a${i}`} className="ch-wrap">{`${asText(a.question)}: ${asText(a.label)}`}</li>)}
-        {assumed.map((a, i) => <li key={`g${i}`} className="ch-wrap ch-muted">{`${asText(a.question)}: 가정 — ${asText(a.assumption)}`}</li>)}
+        {answers.map((a, i) => asText(a.question) && <li key={`a${i}`} className="ch-wrap">{`${asText(a.question)}: ${asText(a.label)}`}</li>)}
+        {assumed.map((a, i) => asText(a.question) && <li key={`g${i}`} className="ch-wrap ch-muted">{`${asText(a.question)}: 가정 — ${asText(a.assumption)}`}</li>)}
       </ul>
     </details>
   );
@@ -124,9 +126,13 @@ function RetryCard({ retry, sessionId }: { retry: Retry; sessionId: number }) {
 }
 
 /** 아래 끝 가까이 있을 때만 새 내용으로 따라 내려간다(위를 읽는 중이면 두기). */
-function useStickToBottom(dep: unknown) {
+function useStickToBottom(dep: unknown, sessionId: number | null) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  // 다른 대화로 옮기면 다시 아래 끝부터 따라간다.
+  useEffect(() => {
+    stick.current = true;
+  }, [sessionId]);
   useEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
@@ -142,8 +148,16 @@ function useStickToBottom(dep: unknown) {
 export default function Conversation() {
   const currentId = useChat((s) => s.currentId);
   const thread = useChat((s) => (s.currentId === null ? undefined : s.threads[s.currentId]));
-  const { ref, onScroll } = useStickToBottom(thread);
-  const ctx: CardCtx = { sessionId: currentId, sendText: (text) => useChat.getState().send(text) };
+  const { ref, onScroll } = useStickToBottom(thread, currentId);
+  const failed = thread?.failedResume;
+  const ctx: CardCtx = {
+    sessionId: currentId,
+    sendText: (text) => useChat.getState().send(text),
+    failedQuestionnaire: failed && 'questionnaire_id' in failed ? failed.questionnaire_id : null,
+    retryResume: () => {
+      if (currentId !== null && failed) void useChat.getState().resume(currentId, failed);
+    },
+  };
   const items = thread?.items ?? [];
   const retries = thread?.retries ?? [];
   const waiting = thread?.streaming && items[items.length - 1]?.kind !== 'agent';

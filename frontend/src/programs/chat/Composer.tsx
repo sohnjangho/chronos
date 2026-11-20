@@ -1,7 +1,23 @@
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
 import Button from '../../shared/ui/Button';
 import { useChat } from './chatStore';
-import { useEffectiveUi, useSeeing } from './uiContext';
+import { useEffectiveUi, useSeeing } from './seeing';
+
+/** 입력창 위 한 줄 알림. 거절된 질문지 이어 가기가 있으면 [다시 이어 가기]. */
+function Notice({ text }: { text: string }) {
+  const sessionId = useChat((s) => s.currentId);
+  const failed = useChat((s) => (s.currentId === null ? null : (s.threads[s.currentId]?.failedResume ?? null)));
+  return (
+    <div className="ch-notice" role="status">
+      <span className="ch-wrap">{text}</span>
+      {failed && sessionId !== null && (
+        <Button className="ch-notice-btn" onClick={() => void useChat.getState().resume(sessionId, failed)}>
+          다시 이어 가기
+        </Button>
+      )}
+    </div>
+  );
+}
 
 /** 답이 도는 동안 [보내기] 자리에 [중단]. 누르면 멈춤을 알리고, 스트림은 done 까지 받는다. */
 function SendOrStop({ streaming, stopping, empty }: { streaming: boolean; stopping: boolean; empty: boolean }) {
@@ -47,11 +63,7 @@ export default function Composer() {
 
   return (
     <div className="ch-compose-wrap">
-      {notice && (
-        <p className="ch-notice ch-wrap" role="status">
-          {notice}
-        </p>
-      )}
+      {notice && <Notice text={notice} />}
       <form className="ch-compose" onSubmit={(e) => void submit(e)}>
         <textarea
           aria-label="에이전트에게 요청"

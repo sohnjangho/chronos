@@ -10,6 +10,9 @@ export interface CardCtx {
   sessionId: number | null;
   /** 대화에 글을 보낸다(미니 질문의 답). 서버가 받으면 true. */
   sendText(text: string): Promise<boolean>;
+  /** 서버가 거절한 질문지 이어 가기의 질문지 id(없으면 null). 그 질문지 카드에 [다시 이어 가기]. */
+  failedQuestionnaire: number | null;
+  retryResume(): void;
 }
 
 export interface CardProps {

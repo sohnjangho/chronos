@@ -1,14 +1,53 @@
+import { useEffect, useState } from 'react';
 import { useWindows } from '../../../os/windowStore';
-import Badge from '../../../shared/ui/Badge';
+import Badge, { type Tone } from '../../../shared/ui/Badge';
 import Button from '../../../shared/ui/Button';
+import { getApproval, type ApprovalState } from '../chatApi';
 import { asList, asNum, asText, Card, reasonLabel, reasonTone, SummaryLines, type CardProps } from './Card';
 
-/** 승인 요청(approval 사건, Task 11): 제목·사유 배지·요약 숫자·[승인함에서 보기]. */
+const by = (name: string | null) => (name ? ` · ${name}` : '');
+
+/** 지금 결정을 글과 색으로. 대기 중이면 null(카드의 「결정을 기다립니다」가 그대로 보인다). */
+function decision(a: ApprovalState): [string, Tone] | null {
+  switch (a.status) {
+    case 'approved':
+      return [`승인됨${by(a.decided_by)}`, 'success'];
+    case 'rejected':
+      return [`${a.retry ? '다시 짜기로 거부됨' : '거부됨'}${by(a.decided_by)}`, 'danger'];
+    case 'conflict':
+      return ['그 사이 일정이 바뀌어 반영하지 못함', 'warning'];
+    case 'auto':
+      return ['자동 적용됨', 'info'];
+    default:
+      return null;
+  }
+}
+
+/** 승인 건의 지금 상태(다시 연 대화에서도 결정이 보이게). 못 읽으면 null. */
+function useApprovalState(id: number | null): ApprovalState | null {
+  const [state, setState] = useState<ApprovalState | null>(null);
+  useEffect(() => {
+    if (id === null) return;
+    let live = true;
+    getApproval(id).then(
+      (a) => live && setState(a),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [id]);
+  return state;
+}
+
+/** 승인 요청(approval 사건, Task 11): 제목·사유 배지·요약 숫자·지금 결정·[승인함에서 보기]. */
 export function ApprovalCard({ data }: CardProps) {
   const id = asNum(data.id);
   const reasons = asList(data.reasons).map(asText).filter(Boolean);
+  const state = useApprovalState(id);
+  const decided = state && decision(state);
   return (
-    <Card title="승인 요청" extra="승인함에서 결정을 기다립니다">
+    <Card title="승인 요청" extra={decided ? <Badge tone={decided[1]}>{decided[0]}</Badge> : '승인함에서 결정을 기다립니다'}>
       <p className="ch-card-title ch-wrap">{asText(data.title)}</p>
       {reasons.length > 0 && (
         <div className="ch-badges">

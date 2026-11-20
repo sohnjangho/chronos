@@ -51,7 +51,7 @@ test('broken payloads never throw', () => {
     ['error', {}],
   ]);
   expect(t.items.length).toBeLessThanOrEqual(1);
-  expect(t.usage.calls).toBe(0);
+  expect(t.usage?.calls).toBe(0);
 });
 
 test('a reopened session ends unfinished steps as stopped, unless a turn is still running', () => {
