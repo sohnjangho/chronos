@@ -1,6 +1,6 @@
 """scenario.submit — 만약에 복사본을 승인함으로 낸다(app.agent.proposals.submit_scenario → propose).
 
-복사본이 open 이고 떠 온 버전이 지금 버전일 때만 낸다. 승인 기준·사건은 out.submit_change 와 같다
+지금 다루는 일정의 복사본만, 그것이 open 이고 떠 온 버전이 지금 버전일 때만 낸다(에이전트가 낸 것 — by_kind agent). 승인 기준·사건은 out.submit_change 와 같다
 (approval {id, title, reasons, summary} / card auto_applied).
 """
 
@@ -9,7 +9,7 @@ from pydantic import Field
 from app.agent.ops import Strict
 from app.agent.proposals import ProposalError, ScenarioError, submit_scenario
 from app.store import approvals, scenarios
-from app.tools.context import ToolContext, ToolError
+from app.tools.context import ToolContext, ToolError, explained_schedule_errors
 from app.tools.out.submit_change import SubmitOut
 from app.tools.registry import tool
 
@@ -33,9 +33,12 @@ def submit_scenario_tool(args: SubmitScenarioIn, ctx: ToolContext) -> SubmitOut:
         row = scenarios.get(ctx.session, args.scenario_id)
     except scenarios.NotFound:
         raise ToolError(NOT_FOUND_MESSAGE) from None
+    if row.schedule_id != ctx.schedule_id:  # 다른 일정의 복사본은 없는 것으로 본다
+        raise ToolError(NOT_FOUND_MESSAGE)
     try:
-        result = submit_scenario(ctx.session, row, title=args.title, chat_session_id=ctx.chat_session_id,
-                                 requested_by=ctx.user.name if ctx.user else approvals.AGENT_NAME, emit=ctx.emit)
+        with explained_schedule_errors():  # 지금 일정이 없거나 계산되지 않으면 한국어 설명
+            result = submit_scenario(ctx.session, row, title=args.title, chat_session_id=ctx.chat_session_id,
+                                     requested_by=ctx.user.name if ctx.user else approvals.AGENT_NAME, emit=ctx.emit)
     except (ScenarioError, ProposalError) as e:
         raise ToolError(e.message) from None
     a = result.row

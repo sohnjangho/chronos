@@ -11,6 +11,7 @@ from app.store import scenarios
 from app.store.delays import DelayEventRow, delayed_base
 from app.store.schedules import load
 from app.store.tables import Approval, Scenario
+from app.store.versions import save_new_version
 from tests.schedules import make, store, task
 
 
@@ -163,6 +164,18 @@ def test_auto_mode_applies_at_once(client, admin, session, sid, scenario_id):
     assert (row.status, row.title, get(session, scenario_id).status) == ("auto", "B 늘림", "applied")
 
 
+def test_a_person_submitting_is_recorded_as_a_person(client, admin, session, sid, scenario_id):     # Fix 1 I1
+    """사람이 API 로 낸 복사본: 자동 반영이면 낸 사람, 승인이면 승인한 사람 이름으로 by_kind user 버전이 된다."""
+    approve(client, admin, submit(client, admin, sid, scenario_id))
+    client.put("/api/settings/approval", json={"mode": "auto"}, headers=admin)
+    other = make_scenario(session, sid, schedule=with_od(load(session, sid)[0], "A", 4), name="A 4일")
+    submit(client, admin, sid, other)
+    vs = client.get(f"/api/schedules/{sid}/versions", headers=admin).json()
+    assert [(v["n"], v["by_kind"], v["by_name"]) for v in vs] == [(3, "user", "관리자"), (2, "user", "관리자"),
+                                                                   (1, "agent", "에이전트")]
+    assert {r.requested_kind for r in session.query(Approval)} == {"user"}
+
+
 @pytest.fixture
 def sid_chain(session) -> int:
     """A 6 → B 4 → C 5, 준공 3/19."""
@@ -182,6 +195,21 @@ def test_applied_shorten_scenario_reports_recovery(client, admin, session, sid_c
     assert out[0]["recovery"] == {"planned_gain": 3, "achieved": 3}
     assert out[0]["moves"] == [{"id": "par:A>B", "kind": "parallel", "text": move.text}]
     assert (out[0]["summary"]["finish"], out[0]["summary"]["recommended"]) == ("2027-03-16", True)
+
+
+def test_recovery_of_an_uncomputable_schedule_is_not_a_500(client, admin, session, sid_chain):      # Fix 1 M5
+    sid = sid_chain
+    current = load(session, sid)[0]
+    sc = make_scenario(session, sid, schedule=replace(current, relations=(Relation("A", "B", "SS", 3), Relation("B", "C"))),
+                       name="만회안 A", source="shorten", extra_summary={"gain": 3, "base_finish": "2027-03-19"})
+    approve(client, admin, submit(client, admin, sid, sc))
+    broken, stored, n = load(session, sid)
+    save_new_version(session, sid, replace(broken, relations=(*broken.relations, Relation("C", "A"))), stored,
+                     by_kind="user", by_name="김하늘", note="고리", changes=[], base_version=n)
+    r = client.get(f"/api/schedules/{sid}/scenarios?status=applied", headers=admin)
+    assert (r.status_code, r.json()[0]["recovery"]) == (200, {"planned_gain": 3, "achieved": None})
+    d = client.get(f"/api/schedules/{sid}/scenarios/{sc}", headers=admin)
+    assert (d.status_code, d.json()["code"]) == (422, "schedule_invalid")
 
 
 # ── 목록·상세 ───────────────────────────────────────────────────────

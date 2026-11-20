@@ -60,18 +60,25 @@ def _scenario(session: Session, schedule_id: int, scenario_id: int) -> Scenario:
     return row
 
 
-def _achieved(session: Session, schedule_id: int) -> Callable[[str], int]:
-    """만들 때 기준 준공(ISO) → 지금 준공까지 당긴 근무일(지금 일정의 조건 넣은 달력)."""
+def _recovered(row: Scenario) -> bool:
+    return row.status == "applied" and row.source == "shorten"
+
+
+def _achieved(session: Session, schedule_id: int) -> Callable[[str], int | None]:
+    """만들 때 기준 준공(ISO) → 지금 준공까지 당긴 근무일(지금 일정의 조건 넣은 달력). 지금 일정이 계산되지 않으면 None."""
     schedule, conditions, _ = load(session, schedule_id)
-    finish = run(schedule, conditions).finish
+    try:
+        finish = run(schedule, conditions).finish
+    except ScheduleError:
+        return lambda _: None
     cal = WorkCalendar(prepare_stored(schedule, conditions).calendar)
     return lambda base_finish: cal.workdays_between(finish, date.fromisoformat(base_finish))
 
 
-def _out(row: Scenario, current: int, achieved: Callable[[str], int] | None = None) -> dict:
+def _out(row: Scenario, current: int, achieved: Callable[[str], int | None] | None = None) -> dict:
     s = row.summary_json
     recovery = None
-    if achieved is not None and row.status == "applied" and row.source == "shorten":
+    if achieved is not None and _recovered(row):
         base = s.get("base_finish")
         recovery = {"planned_gain": s.get("gain"), "achieved": achieved(base) if base else None}
     return {
@@ -85,8 +92,7 @@ def _out(row: Scenario, current: int, achieved: Callable[[str], int] | None = No
 def list_scenarios(session: Session, schedule_id: int, status: StatusGroup) -> list[ScenarioOut]:
     current = _version(session, schedule_id)
     rows = scenarios.listed(session, schedule_id, GROUPS[status])
-    shortened = any(r.status == "applied" and r.source == "shorten" for r in rows)
-    achieved = _achieved(session, schedule_id) if shortened else None
+    achieved = _achieved(session, schedule_id) if any(_recovered(r) for r in rows) else None
     return [ScenarioOut(**_out(r, current, achieved)) for r in rows]
 
 
@@ -95,9 +101,10 @@ def detail(session: Session, schedule_id: int, scenario_id: int) -> ScenarioDeta
     before, stored, n = load(session, schedule_id)
     try:
         diff = assess(before, from_json(row.snapshot_json), stored, list(row.conditions_json), _NO_REPORT).diff
+        achieved = _achieved(session, schedule_id) if _recovered(row) else None
     except ScheduleError as e:
         raise ApiError(422, "schedule_invalid", schedule_error_message(e)) from None
-    return ScenarioDetail(**_out(row, n, _achieved(session, schedule_id)), diff=diff)
+    return ScenarioDetail(**_out(row, n, achieved), diff=diff)
 
 
 def discard(session: Session, schedule_id: int, scenario_id: int) -> DiscardOut:
@@ -113,8 +120,8 @@ def submit(session: Session, schedule_id: int, scenario_id: int, body: SubmitIn,
     """확인 차례: 404 → 409 scenario_locked → 409 scenario_stale → 422 no_change·schedule_invalid → 승인 건."""
     row = _scenario(session, schedule_id, scenario_id)
     try:
-        result = submit_scenario(session, row, title=body.title, chat_session_id=None,
-                                 requested_by=user.name)
+        result = submit_scenario(session, row, title=body.title, chat_session_id=None, requested_by=user.name,
+                                 requested_kind="user")  # 사람이 냈다: 버전 작성자는 사람(자동 반영이면 낸 사람)
     except ScenarioError as e:
         raise ApiError(409, e.code, e.message) from None
     except ProposalError as e:

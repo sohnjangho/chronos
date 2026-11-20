@@ -5,7 +5,9 @@ from dataclasses import replace
 import pytest
 
 from app.core.model import Relation, Resource
+from app.store.schedules import load, to_json
 from app.store.tables import Approval, Scenario
+from app.store.versions import save_new_version
 from app.tools.registry import call, list_tools
 from tests.approval_doubles import crane
 from tests.schedules import make, store, task
@@ -126,3 +128,25 @@ async def test_submit_tool_refuses_missing_locked_and_stale(ctx_sid, session):
     session.get(Scenario, sc).status, session.get(Scenario, sc).base_version = "open", 0
     stale = await call("scenario.submit", {"scenario_id": sc}, ctx_sid)
     assert stale.error == "기준 일정이 바뀌었습니다. 복사본을 다시 만들어 주세요."
+
+
+async def test_submit_tool_refuses_a_copy_of_another_schedule(ctx_sid, ctx, session):               # Fix 1 M1
+    sc = (await call("scenario.create", B4, ctx_sid)).output["scenario_id"]
+    other = replace(ctx, schedule_id=store(session, make([task("A", 1)])))
+    r = await call("scenario.submit", {"scenario_id": sc}, other)
+    assert (r.error, session.query(Approval).count()) == ("복사본을 찾을 수 없습니다.", 0)
+
+
+async def test_submit_tool_explains_an_uncomputable_schedule(ctx_sid, session, sid):                # Fix 1 M2
+    """지금 버전이 계산되지 않으면(고리) 도구 오류가 아니라 한국어 설명을 준다."""
+    before, stored, _ = load(session, sid)
+    broken = replace(before, relations=(*before.relations, Relation("B", "A")))
+    save_new_version(session, sid, broken, stored, by_kind="user", by_name="김하늘", note="고리", changes=[],
+                     base_version=1)
+    with_b4 = replace(before, activities=tuple(replace(a, od=4) if a.id == "B" else a for a in before.activities))
+    row = Scenario(schedule_id=sid, base_version=2, name="B 4일", source="agent",
+                   snapshot_json=to_json(with_b4), conditions_json=stored, created_by="김하늘")
+    session.add(row)
+    session.commit()
+    r = await call("scenario.submit", {"scenario_id": row.id}, ctx_sid)
+    assert r.error == "선후 관계가 고리를 이룹니다."
