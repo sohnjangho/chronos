@@ -9,6 +9,7 @@ from app import programs
 from app.config import Settings, validate_settings
 from app.db import close_db, get_session, init_db
 from app.errors import install_error_handlers
+from app.files import jobs
 from app.programs.files.guard import UploadGuard
 from app.store.workflows import close_unfinished
 from app.tools import registry
@@ -42,7 +43,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     with contextmanager(get_session)() as session:
         close_unfinished(session)  # 지난번에 끝나지 못한 실행 기록은 stopped 로 닫는다
     registry.load_all()  # 에이전트가 쓸 도구를 모두 등록한다
+    jobs.start()  # 파일 뒤 작업 줄(임베딩·다시 넣기). CHRONOS_QDRANT_URL 이 빈 값이면 뜻 검색을 끈다
     yield
+    await jobs.stop()
     close_db()
 
 

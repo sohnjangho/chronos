@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
 from app.errors import ApiError
-from app.files import chunk, kinds
+from app.files import chunk, jobs, kinds
 from app.programs.files.schemas import FileOut, PreviewOut, UploadItem, UploadOut
 from app.store import chats, files
 from app.store.tables import FileChunk, FileRow, User
@@ -151,6 +151,7 @@ def delete(session: Session, user: User, file_id: int, purge: bool) -> None:
         if user.role != "admin":
             raise ApiError(403, "admin_only", PURGE_FORBIDDEN)
         files.purge(session, file_id)
+        jobs.forget(file_id)  # 뜻 검색(Qdrant) 점도 지운다
         return
     try:
         files.soft_delete(session, file_id, user)

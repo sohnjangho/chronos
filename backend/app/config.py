@@ -17,6 +17,8 @@ class Settings:
     data_dir: Path = field(
         default_factory=lambda: Path(_env("CHRONOS_DATA_DIR", "./data"))
     )
+    # 뜻 검색 벡터 저장소(Qdrant 서버). 빈 값이면 뜻 검색을 끄고 낱말 검색만(시험이 이렇게 둔다).
+    qdrant_url: str = field(default_factory=lambda: _env("CHRONOS_QDRANT_URL", "http://127.0.0.1:6333"))
 
 
 # .env.example 에 적힌 예시 값 — 그대로 쓰면 누구나 아는 값이라 막는다.
