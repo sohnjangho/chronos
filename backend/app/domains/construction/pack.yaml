@@ -161,3 +161,7 @@ assumption_defaults:
     label: 동절기
     value: 12월 1일 ~ 2월 말
     note: 이 기간의 콘크리트 타설은 보온 양생 계획이 있어야 한다.
+  - key: legal_periods
+    label: 인허가·법정 기간
+    value: 근거 검색(legal)으로 확인한다
+    note: 착공신고·사용승인 같은 인허가 처리 기한, 법정 작업 금지·안전 규정은 근거 검색 mode legal 로 찾는다. 자재·장비 공급업체 납기는 business.

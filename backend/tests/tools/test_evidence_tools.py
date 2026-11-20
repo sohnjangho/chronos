@@ -10,6 +10,8 @@ import logging
 import pytest
 
 import app.tools.generate as generate_tools
+from app.agent import context
+from app.domains.loader import load
 from app.llm import search
 from app.llm.client import LlmClient
 from app.store import chats
@@ -18,7 +20,7 @@ from app.tools.registry import call, list_tools
 from tests import schedules
 from tests.gen_doubles import SCHED_OK, START_FACT, WBS_OK, script
 from tests.llm_doubles import KEY, FakeLiner, add_connection
-from tests.search_doubles import hit, mock, web_body
+from tests.search_doubles import hit, mock, mock_json, route, web_body
 
 LIMIT_MESSAGE = "이번 요청에서 근거 검색을 3번 했습니다. 찾은 근거나 분야 기본값을 쓰세요."
 FALLBACK = "근거 없이 분야 기본값을 쓰고 '근거 검색 실패'라고 적으세요."
@@ -73,7 +75,7 @@ async def test_tool_records_and_emits_card(ctx, events, session, web):
     assert session.query(EvidenceItem).count() == 1
     assert r.output == {"search_id": 1, "used": 1, "limit": 3, "results": [{
         "evidence_id": 1, "title": "골조 공기 기준", "url": "https://example.com/a", "hostname": "example.com",
-        "description": "층당 8~12일", "date": "2026-03-01", "authors": [], "journal": None}]}
+        "description": "층당 8~12일", "date": "2026-03-01", "authors": [], "journal": None}], "note": None}
     assert events[-1].type == "card" and events[-1].data == {
         "kind": "evidence", "search_id": 1, "query": "철근콘크리트 층당 골조 공기", "mode": "web",
         "results": [{"evidence_id": 1, "title": "골조 공기 기준", "url": "https://example.com/a",
@@ -277,3 +279,106 @@ async def test_facts_and_assumptions_without_evidence_still_work(ctx, session, l
     r = await call("generate.run", {"domain": "construction", "level": "L3", "request": "5층 사무동",
                                     "facts": [START_FACT], "assumptions": [{"label": "주 근무일", "value": "6일", "source": "가정"}]}, ctx)
     assert r.ok and r.output["assumptions"] == [{"label": "주 근무일", "value": "6일", "source": "가정", "evidence_ids": []}]
+
+
+# ── 분야 검색(Task 27b): mode legal·business → Liner MCP ─────────────
+
+FIELD_FALLBACK = "분야 검색 실패 → 웹 검색"
+
+
+async def test_evidence_legal_mode_records_and_cards(ctx, events, session, liner_conn, monkeypatch):
+    t = mock_json([hit("착공신고 처리 기한", "https://law.example/1", hostname="law.example")])
+    monkeypatch.setattr(search, "TRANSPORT", t)
+    r = await call("evidence.search", {"query": "건축물 착공신고 처리 기한", "mode": "legal"}, ctx)
+    assert r.ok, r.error
+    assert t.bodies("tools/call")[0]["params"] == {
+        "name": "search_legal", "arguments": {"query": "건축물 착공신고 처리 기한", "limit": 5}}
+    row = session.query(EvidenceSearch).one()
+    assert (row.mode, row.ok, row.result_count, row.error_code) == ("legal", True, 1, None)
+    assert session.query(EvidenceItem).one().url == "https://law.example/1"
+    assert r.output["used"] == 1 and r.output["note"] is None
+    assert r.output["results"][0]["title"] == "착공신고 처리 기한"
+    assert events[-1].data == {"kind": "evidence", "search_id": 1, "query": "건축물 착공신고 처리 기한",
+                               "mode": "legal", "results": [{"evidence_id": 1, "title": "착공신고 처리 기한",
+                                                             "url": "https://law.example/1",
+                                                             "hostname": "law.example", "date": "2026-03-01"}]}
+
+
+async def test_business_mode_asks_search_business(ctx, events, session, liner_conn, monkeypatch):
+    t = mock_json()
+    monkeypatch.setattr(search, "TRANSPORT", t)
+    r = await call("evidence.search", {"query": "철근 공급업체 납기", "mode": "business", "max_results": 2}, ctx)
+    assert r.ok and events[-1].data["mode"] == "business"
+    assert t.bodies("tools/call")[0]["params"]["name"] == "search_business"
+    assert t.bodies("tools/call")[0]["params"]["arguments"]["limit"] == 2
+    assert session.query(EvidenceSearch).one().mode == "business"
+
+
+async def test_legal_failure_falls_back_to_web_once_and_counts(ctx_chat, events, session, liner_conn, monkeypatch):
+    mcp, web = mock_json(call=500), mock(200, web_body())
+    monkeypatch.setattr(search, "TRANSPORT", route(mcp, web))
+    r = await call("evidence.search", {"query": "착공신고 처리 기한", "mode": "legal"}, ctx_chat)
+    assert r.ok, r.error
+    assert len(mcp.bodies("tools/call")) == 1 and len(web.requests) == 1
+    assert json.loads(web.last.content)["query"] == "착공신고 처리 기한"
+    assert r.output["used"] == 2 and r.output["note"] == FIELD_FALLBACK
+    assert events[-1].data["mode"] == "web" and events[-1].data["note"] == FIELD_FALLBACK
+    session.commit()  # 루프가 성공한 도구의 쓰기를 commit 한다
+    rows = [(s.mode, s.ok, s.error_code) for s in session.query(EvidenceSearch).order_by(EvidenceSearch.id)]
+    assert rows == [("legal", False, "server_error"), ("web", True, None)]
+    r = await call("evidence.search", {"query": "q"}, ctx_chat)
+    assert r.ok and r.output["used"] == 3  # web·scholar 와 합산
+    session.commit()
+    r = await call("evidence.search", {"query": "q", "mode": "legal"}, ctx_chat)
+    assert r.error == LIMIT_MESSAGE and len(mcp.bodies("tools/call")) == 1
+
+
+async def test_no_fallback_when_the_limit_is_reached(ctx_chat, session, liner_conn, monkeypatch):
+    mcp, web = mock_json(call=500), mock(200, web_body())
+    monkeypatch.setattr(search, "TRANSPORT", route(mcp, web))
+    for _ in range(2):
+        assert (await call("evidence.search", {"query": "q"}, ctx_chat)).ok
+        session.commit()
+    r = await call("evidence.search", {"query": "q", "mode": "legal"}, ctx_chat)
+    assert r.error == f"검색 서버에 문제가 생겼습니다. {FALLBACK}"
+    assert len(web.requests) == 2  # 셋째(분야 검색)가 한도의 끝이라 웹으로 다시 하지 않는다
+
+
+async def test_fallback_web_failure_is_also_recorded(ctx, events, session, liner_conn, monkeypatch):
+    mcp, web = mock_json(call=429), mock(402, {})
+    monkeypatch.setattr(search, "TRANSPORT", route(mcp, web))
+    r = await call("evidence.search", {"query": "q", "mode": "business"}, ctx)
+    assert r.error == f"{FIELD_FALLBACK}도 실패: Liner 크레딧이 부족합니다. {FALLBACK}"
+    session.rollback()
+    rows = [(s.mode, s.ok, s.error_code) for s in session.query(EvidenceSearch).order_by(EvidenceSearch.id)]
+    assert rows == [("business", False, "rate_limited"), ("web", False, "no_credit")] and events == []
+
+
+async def test_field_search_without_a_connection_does_not_fall_back(ctx, session):
+    r = await call("evidence.search", {"query": "q", "mode": "legal"}, ctx)
+    assert r.error == f"근거 검색에는 Liner 연결이 필요합니다. 설정에서 연결해 주세요. {FALLBACK}"
+    assert [(s.mode, s.error_code) for s in session.query(EvidenceSearch)] == [("legal", "not_ready")]
+
+
+async def test_field_search_key_is_not_logged_or_returned(session, liner_conn, caplog, ctx, monkeypatch):
+    caplog.set_level(logging.DEBUG)
+    mcp, web = mock_json(init_status=401), mock(401, {})
+    monkeypatch.setattr(search, "TRANSPORT", route(mcp, web))
+    r = await call("evidence.search", {"query": "q", "mode": "legal"}, ctx)
+    assert not r.ok and mcp.requests[0].headers["authorization"] == f"Bearer {KEY}"
+    assert KEY not in caplog.text and KEY not in json.dumps(dataclasses.asdict(r), ensure_ascii=False)
+    assert all(KEY not in str(s.__dict__) for s in session.query(EvidenceSearch))
+
+
+def test_guide_says_which_mode_to_use():
+    text = (context.GUIDES_DIR / "evidence.md").read_text(encoding="utf-8")
+    for words in ("인허가", "법정 기간", "작업 금지", "안전 규정", "legal", "공급업체", "리드타임", "business",
+                  "scholar", "web", FIELD_FALLBACK):
+        assert words in text, words
+
+
+def test_domain_packs_point_to_the_field_search():
+    construction = {a.key: a for a in load("construction").assumption_defaults}
+    assert "legal" in construction["legal_periods"].note and "인허가" in construction["legal_periods"].label
+    assert "근거 검색(legal)" in load("construction").prompt()
+    assert "근거 검색(business)" in load("manufacturing").prompt()

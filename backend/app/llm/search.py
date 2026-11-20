@@ -1,4 +1,4 @@
-"""근거 검색: Liner Search API (`POST {base_url}/tools/search/{web|scholar}`).
+"""근거 검색: Liner Search API (`POST {base_url}/tools/search/{web|scholar}`). 분야 검색은 mcp_client.
 
 - 기본 LLM 연결(provider `liner`)의 키를 서버에서 풀어 `x-api-key` 머리글로만 보낸다. 키·머리글은
   기록(log)·예외·결과 어디에도 담지 않는다. 실패는 종류만 남긴다.
@@ -22,7 +22,9 @@ from app.security.crypto import SecretUnreadable, decrypt
 
 logger = logging.getLogger(__name__)
 
-SearchMode = Literal["web", "scholar"]  # 뒤 작업이 늘린다(예: 분야 검색)
+SearchMode = Literal["web", "scholar", "legal", "business"]
+# 분야 검색(legal·business)은 Liner MCP 로 찾는다(app.llm.mcp_client.field_search). liner_search 는 web·scholar 만.
+FIELD_MODES: tuple[SearchMode, ...] = ("legal", "business")
 
 # 시험이 가짜 transport 를 바꿔 끼운다. None 이 아니면 liner_search 의 transport 인자 대신 쓴다.
 TRANSPORT: httpx.AsyncBaseTransport | None = None
@@ -173,7 +175,7 @@ async def liner_search(
     timeout_s: float = 20,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> SearchResult:
-    """한 번 찾는다. 부를 수 없으면 SearchNotReady(보내지 않음), 보낸 뒤 실패하면 SearchFailed.
+    """web·scholar 로 한 번 찾는다. 부를 수 없으면 SearchNotReady(보내지 않음), 보낸 뒤 실패하면 SearchFailed.
 
     timeout_s 는 호출 전체에 건다. 받은 세션은 읽기만 한다(commit·flush 하지 않는다).
     """
