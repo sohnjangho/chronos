@@ -29,7 +29,7 @@ export interface ProgramMenu {
 }
 
 /** 아이콘 타일 색(tokens.css 의 --tile-<tone>-from/to). */
-export type IconTone = 'blue' | 'violet' | 'teal' | 'indigo' | 'amber' | 'sky' | 'green' | 'rose' | 'orange' | 'fuchsia' | 'lime' | 'brown' | 'graphite' | 'slate';
+export type IconTone = 'blue' | 'violet' | 'teal' | 'indigo' | 'amber' | 'sky' | 'green' | 'rose' | 'orange' | 'fuchsia' | 'lime' | 'brown' | 'cyan' | 'graphite' | 'slate';
 
 export interface ProgramManifest {
   id: string;
