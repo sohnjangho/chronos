@@ -1,4 +1,4 @@
-import { isRouter, type ModelInfo } from './model';
+import { isRouter, type ModelInfo, type Price } from './model';
 
 /** 업체 차례: Liner 먼저, 그다음 anthropic · openai · google, 나머지는 업체 이름 차례. */
 const VENDOR_ORDER = ['liner', 'anthropic', 'openai', 'google'];
@@ -24,6 +24,26 @@ export function modelLabel(m: ModelInfo): string {
   const ctx = contextText(m.context_length);
   return ctx ? `${shortName(m)} · ${ctx}` : shortName(m);
 }
+
+const usd = (n: number) => `$${parseFloat(n.toFixed(3))}`;
+const span = (lo: number, hi: number) => (lo === hi ? usd(lo) : `${usd(lo)}~${usd(hi)}`);
+
+/** 짧은 가격: "$2 / $10"(입력 / 출력), 라우터는 "$0.1~$10 / $0.5~$50". 가격이 없으면 "". */
+export function priceShort(p: Price | null): string {
+  if (!p) return '';
+  return p.kind === 'model' ? `${usd(p.input)} / ${usd(p.output)}` : `${span(p.input_min, p.input_max)} / ${span(p.output_min, p.output_max)}`;
+}
+
+/** 「입력 $2 / 출력 $10 (1M 토큰)」. 라우터는 범위. 가격이 없으면 "". */
+export function priceText(p: Price | null): string {
+  if (!p) return '';
+  return p.kind === 'model'
+    ? `입력 ${usd(p.input)} / 출력 ${usd(p.output)} (1M 토큰)`
+    : `입력 ${span(p.input_min, p.input_max)} / 출력 ${span(p.output_min, p.output_max)} (1M 토큰)`;
+}
+
+/** 가격표 기준일: 목록에서 가격이 있는 첫 모델의 날짜. 가격이 하나도 없으면 null. */
+export const priceAsOf = (models: ModelInfo[]): string | null => models.find((m) => m.price)?.price?.as_of ?? null;
 
 export interface VendorGroup {
   vendor: string;

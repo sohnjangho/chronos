@@ -35,7 +35,7 @@ test('the result is a summary line and collapsed vendor groups, never a wall of 
   expect(screen.queryByRole('table')).toBeNull();
   await userEvent.click(group(/^Liner 4개/));
   const table = screen.getByRole('table', { name: 'Liner 모델' });
-  expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['이름', 'ID', '문맥 길이']);
+  expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['이름', 'ID', '문맥 길이', '입력 / 출력 ($/1M)']);
   expect(within(table).getByRole('row', { name: /Liner Mark liner-mark 1.05M/ })).toBeVisible();
   expect(container.textContent).not.toMatch(/liner-mark,|liner-mark\n/);
 });

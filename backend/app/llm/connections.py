@@ -7,9 +7,12 @@ import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
+from functools import cache
+from pathlib import Path
 from typing import TypedDict
 
 import httpx
+import yaml
 
 from app.llm.errors import InvalidBaseUrl, LlmError, explain
 
@@ -23,8 +26,55 @@ _SENDABLE_SECRET = re.compile(r"[\x21-\x7e]{1,512}")
 CHAT_ENDPOINT = "/v1/chat/completions"
 
 
+PRICES_PATH = Path(__file__).with_name("prices.yaml")
+_PRICE_KEYS = {"input", "output", "cached_input"}
+
+
+def _number(value: object, where: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        raise ValueError(f"가격표 {where}: 0 이상의 숫자여야 합니다.")
+    return float(value)
+
+
+@cache
+def load_prices(path: Path = PRICES_PATH) -> dict[str, dict]:
+    """가격표(prices.yaml)를 한 번 읽고 검증해 모델 id → 가격으로 돌려준다(Liner 는 부르지 않는다).
+
+    가격은 {"kind": "model", input, output, cached_input, as_of} 또는 라우터의
+    {"kind": "range", input_min, input_max, output_min, output_max, as_of} 다.
+    """
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or set(data) != {"source", "as_of", "models", "aliases", "routers"}:
+        raise ValueError("가격표: source·as_of·models·aliases·routers 만 있어야 합니다.")
+    as_of = str(data["as_of"])
+    models: dict[str, dict] = {}
+    for model_id, row in data["models"].items():
+        if not isinstance(row, dict) or set(row) != _PRICE_KEYS:
+            raise ValueError(f"가격표 {model_id}: input·output·cached_input 만 있어야 합니다.")
+        models[model_id] = {"kind": "model", **{k: _number(row[k], f"{model_id}.{k}") for k in sorted(_PRICE_KEYS)},
+                            "as_of": as_of}
+    prices = dict(models)
+    for alias, target in data["aliases"].items():
+        if target not in models:
+            raise ValueError(f"가격표 별칭 {alias}: 모르는 모델 {target}")
+        prices[alias] = models[target]
+    for router, members in data["routers"].items():
+        if not members or any(member not in models for member in members):
+            raise ValueError(f"가격표 라우터 {router}: 모르는 모델이 있습니다.")
+        ins = [models[member]["input"] for member in members]
+        outs = [models[member]["output"] for member in members]
+        prices[router] = {"kind": "range", "input_min": min(ins), "input_max": max(ins),
+                          "output_min": min(outs), "output_max": max(outs), "as_of": as_of}
+    return prices
+
+
+def price_of(model_id: str) -> dict | None:
+    """공개 가격표에 있는 모델의 가격, 없으면 None."""
+    return load_prices().get(model_id)
+
+
 class ModelInfo(TypedDict):
-    """모델 한 개. vendor 는 owned_by(없으면 id 의 "/" 앞), chat 은 대화 API 를 받는지."""
+    """모델 한 개. vendor 는 owned_by(없으면 id 의 "/" 앞), chat 은 대화 API 를 받는지, price 는 공개 가격(없으면 None)."""
 
     id: str
     name: str
@@ -32,6 +82,7 @@ class ModelInfo(TypedDict):
     vendor_name: str
     context_length: int | None
     chat: bool
+    price: dict | None
 
 
 @dataclass(frozen=True)
@@ -108,6 +159,7 @@ def model_info(item: dict) -> ModelInfo:
         vendor_name=vendor_name,
         context_length=context if isinstance(context, int) and not isinstance(context, bool) else None,
         chat=CHAT_ENDPOINT in endpoints if isinstance(endpoints, list) else True,
+        price=price_of(model_id),
     )
 
 
@@ -122,7 +174,8 @@ def _one_name_per_vendor(models: list[ModelInfo]) -> list[ModelInfo]:
 
 def _stored(item: dict) -> ModelInfo:
     """새 꼴로 저장된 줄. 서버 이름 없이 저장된 줄(name == id)은 업체 이름을 다시 만든다."""
-    model = ModelInfo(**{key: item[key] for key in ModelInfo.__annotations__})
+    model = ModelInfo(**{key: item.get(key) for key in ModelInfo.__annotations__})
+    model["price"] = price_of(model["id"])  # 저장된 값이 아니라 지금 가격표로
     if model["name"] == model["id"]:
         model["vendor_name"] = readable_vendor(model["vendor"])
     return model
@@ -135,7 +188,7 @@ def normalize_models(stored: list | None) -> list[ModelInfo]:
         if isinstance(item, str):
             models.append(model_info({"id": item}))
         elif isinstance(item, dict) and "id" in item:
-            known = all(key in item for key in ModelInfo.__annotations__)
+            known = all(key in item for key in ModelInfo.__annotations__ if key != "price")
             models.append(_stored(item) if known else model_info(item))
     return _one_name_per_vendor(models)
 

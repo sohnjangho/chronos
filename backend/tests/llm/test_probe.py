@@ -1,7 +1,13 @@
 import httpx
 import pytest
 
-from app.llm.connections import _client, normalize_base_url, normalize_models, probe
+from app.llm.connections import (
+    _client,
+    normalize_base_url,
+    normalize_models,
+    price_of,
+    probe,
+)
 from app.llm.errors import InvalidBaseUrl, LlmError, explain
 
 URL = "https://platform.liner.com/api/v1"
@@ -44,15 +50,15 @@ def test_models_keep_metadata():
     result = _probe(lambda request: httpx.Response(200, json=LINER_SHAPED))
     assert result.models == [
         {"id": "liner-mark", "name": "Liner: Liner Mark", "vendor": "liner", "vendor_name": "Liner",
-         "context_length": 1048576, "chat": True},
+         "context_length": 1048576, "chat": True, "price": price_of("liner-mark")},
         {"id": "google/gemini-4-neon", "name": "Google: Gemini 4 Neon", "vendor": "google",
-         "vendor_name": "Google", "context_length": 1048576, "chat": True},
+         "vendor_name": "Google", "context_length": 1048576, "chat": True, "price": None},
         {"id": "~anthropic/claude-x", "name": "Claude X", "vendor": "anthropic", "vendor_name": "Anthropic",
-         "context_length": None, "chat": True},
+         "context_length": None, "chat": True, "price": None},
         {"id": "batch-thing", "name": "batch-thing", "vendor": "openai", "vendor_name": "OpenAI",
-         "context_length": None, "chat": False},
+         "context_length": None, "chat": False, "price": None},
         {"id": "plain-model", "name": "plain-model", "vendor": "liner", "vendor_name": "Liner",
-         "context_length": None, "chat": True},
+         "context_length": None, "chat": True, "price": None},
     ]
 
 
@@ -96,11 +102,11 @@ def test_legacy_id_lists_are_normalized():
                                              "vendor_name": "Google", "context_length": 8, "chat": False}]
     assert normalize_models(stored) == [
         {"id": "liner-mark", "name": "liner-mark", "vendor": "liner", "vendor_name": "Liner",
-         "context_length": None, "chat": True},
+         "context_length": None, "chat": True, "price": price_of("liner-mark")},
         {"id": "openai/gpt-x", "name": "openai/gpt-x", "vendor": "openai", "vendor_name": "OpenAI",
-         "context_length": None, "chat": True},
+         "context_length": None, "chat": True, "price": None},
         {"id": "google/g", "name": "Google: G", "vendor": "google", "vendor_name": "Google",
-         "context_length": 8, "chat": False},
+         "context_length": 8, "chat": False, "price": None},
     ]
 
 

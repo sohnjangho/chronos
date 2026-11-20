@@ -204,6 +204,8 @@
 .st-vgroup-head[aria-expanded="true"]::before { content: "▾"; }
 .st-vgroup .ui-table { table-layout: fixed; font-size: var(--fs-12); }
 .st-vgroup .ui-table th:nth-child(3) { width: 76px; }
+.st-vgroup .ui-table th:nth-child(4) { width: 132px; }
+.st-vgroup .ui-table td:nth-child(4) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-select-auto.st-select { width: auto; }
 
 /* ── 작업별 모델 배정 ── */
@@ -244,6 +246,9 @@
   text-overflow: ellipsis;
   cursor: pointer;
 }
+.st-find-name { display: block; overflow: hidden; text-overflow: ellipsis; }
+.st-price { display: block; min-width: 0; color: var(--fg-muted); font-size: var(--fs-11); overflow-wrap: anywhere; }
+.st-price-note { margin-top: 6px; }
 .st-find-item:hover,
 .st-find-item:focus-visible { background: var(--bg-selected); outline: none; }
 .st-arow-foot { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; }

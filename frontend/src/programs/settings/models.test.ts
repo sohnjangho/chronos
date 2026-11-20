@@ -9,6 +9,7 @@ const m = (id: string, name: string, vendor: string, vendor_name: string, contex
   vendor_name,
   context_length,
   chat,
+  price: null,
 });
 
 const MODELS = [

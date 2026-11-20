@@ -40,8 +40,32 @@ class LlmErrorOut(BaseModel):
     message: str
 
 
+class ModelPrice(BaseModel):
+    """공개 가격(USD / 100만 토큰) 한 모델."""
+
+    kind: Literal["model"]
+    as_of: str
+    input: float
+    output: float
+    cached_input: float
+
+
+class RangePrice(BaseModel):
+    """라우터: 고르는 모델들의 가장 싼 값 ~ 가장 비싼 값."""
+
+    kind: Literal["range"]
+    as_of: str
+    input_min: float
+    input_max: float
+    output_min: float
+    output_max: float
+
+
+PriceOut = ModelPrice | RangePrice
+
+
 class ModelOut(BaseModel):
-    """모델 한 개: 업체(vendor = owned_by), 업체 이름, 문맥 길이, 대화용 여부."""
+    """모델 한 개: 업체(vendor = owned_by), 업체 이름, 문맥 길이, 대화용 여부, 참고 가격(없으면 null)."""
 
     id: str
     name: str
@@ -49,6 +73,7 @@ class ModelOut(BaseModel):
     vendor_name: str
     context_length: int | None
     chat: bool
+    price: PriceOut | None = None
 
 
 class ProbeOut(BaseModel):

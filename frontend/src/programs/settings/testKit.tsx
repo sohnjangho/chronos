@@ -14,7 +14,7 @@ export const LINER_URL = 'https://platform.liner.com/api/v1';
 /** 가짜 모델 한 개. 업체 이름은 이름의 "업체: " 앞, 없으면 업체 이름을 대문자로 시작. */
 export function info(id: string, name: string, vendor: string, context_length: number | null, chat = true): ModelInfo {
   const vendor_name = name.includes(':') ? name.split(':')[0] : vendor[0].toUpperCase() + vendor.slice(1);
-  return { id, name, vendor, vendor_name, context_length, chat };
+  return { id, name, vendor, vendor_name, context_length, chat, price: null };
 }
 
 /** 연결 1 의 모델 목록(Liner 모양). Liner 대화용 셋 + 다른 업체 넷 + 대화용 아닌 것 하나. */

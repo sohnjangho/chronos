@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from app.llm import connections
+from app.llm.connections import price_of
 from app.security.crypto import decrypt
 from app.security.tokens import issue_token
 from app.store.tables import LlmAssignment, LlmConnection, User
@@ -299,9 +300,10 @@ def test_models_endpoint_returns_last_list(client, admin, user, conn_id):
     assert r.json() == {
         "models": [
             {"id": "liner-mark", "name": "liner-mark", "vendor": "liner", "vendor_name": "Liner",
-             "context_length": None, "chat": True},
+             "context_length": None, "chat": True, "price": price_of("liner-mark")},
             {"id": "liner-claude-router", "name": "liner-claude-router", "vendor": "liner",
-             "vendor_name": "Liner", "context_length": None, "chat": True},
+             "vendor_name": "Liner", "context_length": None, "chat": True,
+             "price": price_of("liner-claude-router")},
         ]
     }
     assert client.get(f"/api/llm/connections/{conn_id}/models", headers=user).status_code == 403
@@ -440,7 +442,7 @@ def test_model_metadata_and_chat_count(client, admin, monkeypatch):
     tested = client.post("/api/llm/connections/test", json={"provider": "liner", "secret": "k"}, headers=admin)
     assert tested.json()["models"][1] == {"id": "google/gemini-4-neon", "name": "Google: Gemini 4 Neon",
                                           "vendor": "google", "vendor_name": "Google",
-                                          "context_length": 1048576, "chat": True}
+                                          "context_length": 1048576, "chat": True, "price": None}
     saved = _create(client, admin, "Liner 기본")
     assert saved["model_count"] == 3 and saved["chat_model_count"] == 2
     [conn] = client.get("/api/llm/connections", headers=admin).json()

@@ -3,13 +3,15 @@ import Button from '../../shared/ui/Button';
 import Table, { type Column } from '../../shared/ui/Table';
 import type { ModelInfo, Probe } from './model';
 import { ModelFilterBar, useModelFilter } from './ModelFilters';
-import { contextText, groupByVendor, shortName, type VendorGroup } from './models';
+import { contextText, groupByVendor, priceShort, priceText, shortName, type VendorGroup } from './models';
+import { PriceNote } from './AssignmentParts';
 import { ErrorLine } from './parts';
 
 const COLUMNS: Column<ModelInfo>[] = [
   { key: 'name', header: '이름', render: (m) => <span title={m.name}>{shortName(m)}</span> },
   { key: 'id', header: 'ID', render: (m) => <span title={m.id}>{m.id}</span> },
   { key: 'context', header: '문맥 길이', align: 'right', render: (m) => contextText(m.context_length) },
+  { key: 'price', header: '입력 / 출력 ($/1M)', align: 'right', render: (m) => <span title={priceText(m.price) || undefined}>{priceShort(m.price) || '-'}</span> },
 ];
 
 /** 열린 묶음이 한 번에 보이는 줄 수. 넘으면 「N개 더 보기」. */
@@ -61,6 +63,7 @@ function ModelBrowser({ probe }: { probe: Probe }) {
         ))}
         {results.length === 0 && <p className="st-muted">찾는 모델이 없습니다.</p>}
       </div>
+      <PriceNote models={probe.models} />
     </>
   );
 }

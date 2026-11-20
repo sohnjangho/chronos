@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import Button from '../../shared/ui/Button';
 import { isRouter, STRATEGIES, type Assignment, type Connection, type LlmError, type ModelInfo, type Strategy } from './model';
 import { ModelFilterBar, useModelFilter } from './ModelFilters';
-import { groupByVendor, modelLabel, type VendorGroup } from './models';
+import { groupByVendor, modelLabel, priceAsOf, priceText, type VendorGroup } from './models';
 import { ErrorLine } from './parts';
 
 /** 한 연결의 모델 목록: 불러온 목록, 또는 불러오지 못한 까닭. 아직 오지 않았으면 없음. */
@@ -47,6 +47,12 @@ function VendorSelect({ label, groups, value, onPick }: { label: string; groups:
       ))}
     </select>
   );
+}
+
+/** 「가격 기준: Liner 공개 가격표(날짜)」. 가격이 있는 모델이 하나도 없으면 보이지 않는다. */
+export function PriceNote({ models }: { models: ModelInfo[] }) {
+  const asOf = priceAsOf(models);
+  return asOf ? <p className="st-muted st-price-note">{`가격 기준: Liner 공개 가격표(${asOf})`}</p> : null;
 }
 
 /** 고른 업체의 대화용 모델. 지금 값이 목록에 없으면(다른 업체·목록에 없는 모델) 그 값을 그대로 보인다. */
@@ -120,6 +126,7 @@ export function ModelCell({ label, draft, connections, picker, finding, onFind, 
       )}
       {picker.groups.length > 0 && <VendorSelect label={label} groups={picker.groups} value={picker.vendor} onPick={picker.setVendor} />}
       <ModelSelect label={label} value={draft.model} picker={picker} onPick={(m) => onChange(withModel(draft, m))} />
+      {picker.current?.price && <span className="st-price">{priceText(picker.current.price)}</span>}
       <Button aria-label={`${label} 모델 찾기`} aria-expanded={finding} disabled={picker.all.length === 0} onClick={onFind}>
         찾기
       </Button>
@@ -138,7 +145,8 @@ export function FindPanel({ label, models, onPick }: { label: string; models: Mo
         {shown.map((m) => (
           <li key={m.id}>
             <button type="button" className="st-find-item" title={m.id} onClick={() => onPick(m)}>
-              {`${m.vendor_name} · ${modelLabel(m)}`}
+              <span className="st-find-name">{`${m.vendor_name} · ${modelLabel(m)}`}</span>
+              {m.price && <span className="st-price">{priceText(m.price)}</span>}
             </button>
           </li>
         ))}

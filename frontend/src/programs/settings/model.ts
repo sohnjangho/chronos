@@ -22,6 +22,11 @@ export interface Connection {
   latency_ms: number | null;
 }
 
+/** 공개 가격(USD / 100만 토큰). 모델은 값 하나씩, 라우터(range)는 고르는 모델들의 최소~최대. */
+export type Price =
+  | { kind: 'model'; as_of: string; input: number; output: number; cached_input: number }
+  | { kind: 'range'; as_of: string; input_min: number; input_max: number; output_min: number; output_max: number };
+
 /** 모델 한 개. vendor 는 업체 열쇠(owned_by), vendor_name 은 보일 업체 이름, chat 은 대화 API 를 받는지. */
 export interface ModelInfo {
   id: string;
@@ -30,6 +35,8 @@ export interface ModelInfo {
   vendor_name: string;
   context_length: number | null;
   chat: boolean;
+  /** 참고용 공개 가격. 가격표에 없으면 null. */
+  price: Price | null;
 }
 
 export interface LlmError {

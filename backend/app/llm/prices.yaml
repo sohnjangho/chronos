@@ -1,0 +1,35 @@
+# Liner 공개 가격표(USD / 100만 토큰). 모델을 고를 때 참고로만 보인다(비용 관리 아님).
+# 라우터는 실제로 응답한 모델 가격으로 청구되므로 고르는 모델 범위(가장 싼 ~ 가장 비싼)로 보인다.
+# gemini-3.8-flash 는 가격 문서의 라우터 표 값(0.75 / 3.75)이다.
+source: https://liner.com/ko/developers/docs/pricing
+as_of: "2026-11-20"
+
+models:
+  gpt-6-luna: {input: 0.10, output: 0.50, cached_input: 0.01}
+  gpt-6.1-terra: {input: 1.00, output: 5.00, cached_input: 0.05}
+  gpt-6.1-sol: {input: 2.00, output: 10.00, cached_input: 0.10}
+  gpt-6-sol: {input: 2.00, output: 10.00, cached_input: 0.20}
+  gpt-6-astra: {input: 10.00, output: 50.00, cached_input: 1.00}
+  claude-haiku-5.5: {input: 0.10, output: 0.50, cached_input: 0.01}
+  claude-sonnet-5.5: {input: 2.00, output: 10.00, cached_input: 0.10}
+  claude-opus-5.5: {input: 4.00, output: 20.00, cached_input: 0.20}
+  claude-fable-5.1: {input: 10.00, output: 50.00, cached_input: 0.25}
+  gemini-3.5-flash-lite: {input: 0.30, output: 2.50, cached_input: 0.03}
+  gemini-3.8-flash: {input: 0.75, output: 3.75, cached_input: 0.075}
+  gemini-4-argon: {input: 2.00, output: 10.00, cached_input: 0.10}
+  liner-mark-1.3: {input: 1.00, output: 5.00, cached_input: 0.10}
+  liner-mark-1.2: {input: 1.00, output: 5.00, cached_input: 0.10}
+  liner-mark-1.1: {input: 1.00, output: 5.00, cached_input: 0.10}
+  liner-mark-1.0: {input: 1.00, output: 6.00, cached_input: 0.10}
+  liner-gemini-router-1.0: {input: 0.60, output: 3.00, cached_input: 0.06}
+
+# 다른 이름으로도 오는 모델 → 위 모델
+aliases:
+  liner-mark: liner-mark-1.3
+  liner-mark-latest: liner-mark-1.3
+
+# 라우터 → 고르는 모델들(범위는 이 모델들의 가장 싼 값 ~ 가장 비싼 값)
+routers:
+  liner-gpt-router: [gpt-6-luna, gpt-6.1-terra, gpt-6.1-sol, gpt-6-sol, gpt-6-astra]
+  liner-claude-router: [claude-haiku-5.5, claude-sonnet-5.5, claude-opus-5.5, claude-fable-5.1]
+  liner-gemini-router: [gemini-3.5-flash-lite, gemini-3.8-flash, gemini-4-argon]

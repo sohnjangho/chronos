@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FindPanel, ModelCell, RowNote, RowFoot, StrategySelect, usePicker, withModel, type ModelLists, type RowState } from './AssignmentParts';
+import { FindPanel, ModelCell, modelsOf, PriceNote, RowNote, RowFoot, StrategySelect, usePicker, withModel, type ModelLists, type RowState } from './AssignmentParts';
 import { llmApi } from './llmApi';
 import { isRouter, PURPOSES, type Assignment, type Connection, type LlmError, type ModelInfo } from './model';
 import { ErrorLine, toProblem } from './parts';
@@ -138,6 +138,7 @@ export default function AssignmentTable({ connections }: { connections: Connecti
         items?.map((item) => (
           <AssignmentRow key={item.purpose} item={item} connections={connections} lists={lists} onSaved={merge} />
         ))}
+      <PriceNote models={Object.values(lists).flatMap(modelsOf)} />
     </div>
   );
 }
