@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useSchedulePreview } from '../../os/schedulePreview';
 import { useUiContext } from '../../os/uiContext';
@@ -10,7 +10,7 @@ import Delays from './Delays';
 import type { DelayEvent } from './delaysApi';
 import manifest from './index';
 import {
-  D, delayCalls, E2, ev, lastBody, m, mockDelayPreview, mockDelays, mockPostError, mockScenario, mockScenarioError,
+  D, delayCalls, E2, ev, holdDelayPreview, lastBody, m, mockDelayPreview, mockDelays, mockPostError, mockScenario, mockScenarioError,
   mockWrite, previewFor, stubDelaysApi, V,
 } from './testKit';
 
@@ -289,7 +289,7 @@ test('recovery request goes to chat', async () => {
 test('one event recovery request names the event', async () => {
   await selectRow('B', 'open');
   await userEvent.click(screen.getByRole('button', { name: '이 사건 만회안 요청' }));
-  expect(openSpy).toHaveBeenCalledWith('chat', { ask: '작업 B 우천 지연을 만회할 계획을 만들어 줘' });
+  expect(openSpy).toHaveBeenCalledWith('chat', { ask: 'B 작업 B 우천 지연을 만회할 계획을 만들어 줘' });
 });
 
 test('reanalyse posts and redraws', async () => {
@@ -330,4 +330,73 @@ test('a failed load is shown', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ code: 'not_found', message: '일정을 찾을 수 없습니다.', detail: null }), { status: 404 })));
   show();
   expect(await screen.findByText('일정을 찾을 수 없습니다.')).toBeVisible();
+});
+
+describe('Fix round 1', () => {
+  test('choosing another row while editing goes back to that row\'s detail', async () => {
+    await selectRow('B', 'open');
+    await userEvent.click(screen.getByRole('button', { name: '고치기' }));
+    expect(screen.getByText('#1 · 우천')).toBeVisible(); // 어느 사건을 고치는지
+    await userEvent.click(screen.getByRole('row', { name: /전기·기계 배관/ }));
+    expect(screen.queryByRole('button', { name: '저장' })).toBeNull();
+    const side = screen.getByRole('region', { name: '사건 자세히' });
+    expect(within(side).getByText('자재 반입 지연')).toBeVisible();
+    expect(writes()).toEqual([]);
+  });
+
+  test('a late preview after the window closed neither sets the preview nor opens the gantt', async () => {
+    const release = holdDelayPreview();
+    const { unmount } = await selectRow('B', 'open');
+    await userEvent.click(screen.getByRole('button', { name: '간트에서 보기' }));
+    unmount();
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(previewFor(1)).toBeUndefined();
+    expect(openSpy).not.toHaveBeenCalledWith('gantt', expect.anything());
+  });
+
+  test('replacing a conditions preview says so', async () => {
+    useSchedulePreview.getState().set({ scheduleId: 1, view: V, moved: [], source: 'conditions' });
+    await selectRow('B', 'open');
+    await userEvent.click(screen.getByRole('button', { name: '간트에서 보기' }));
+    expect(await screen.findByText('조건 미리 보기를 지연 미리 보기로 바꿨습니다.')).toBeVisible();
+    expect(previewFor(1)?.source).toBe('delays');
+  });
+
+  test('arrow keys move through the activity list and the error is linked', async () => {
+    await openForm();
+    await screen.findAllByRole('option');
+    await userEvent.click(screen.getByRole('button', { name: '등록' }));
+    const search = screen.getByPlaceholderText('액티비티 찾기');
+    const error = screen.getByText('대상 액티비티를 고르세요.');
+    expect(search.getAttribute('aria-describedby')).toBe(error.id);
+    const listbox = screen.getByRole('listbox', { name: '대상 액티비티' });
+    expect(listbox.getAttribute('aria-describedby')).toBe(error.id);
+    expect(within(listbox).queryByText(/일정을 읽는 중|맞는 액티비티 없음/)).toBeNull();
+    search.focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(options()[0]).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    expect(options()[2]).toHaveFocus();
+    await userEvent.keyboard('{ArrowUp}');
+    expect(options()[1]).toHaveFocus();
+    await userEvent.keyboard('{End}');
+    expect(options().at(-1)).toHaveFocus();
+    await userEvent.keyboard('{Home}{Enter}');
+    expect(options()[0]).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('the compare button says why it is off', async () => {
+    mockDelays({ ...D, events: [{ ...ev(), status: 'reflected', reflected_version: 2 }], totals: { ...D.totals, open_count: 0 } });
+    show();
+    expect(await screen.findByText('열린 사건이 없어 비교판을 만들 수 없습니다.')).toBeVisible();
+    expect(screen.getByRole('button', { name: '비교판에서 보기' })).toBeDisabled();
+  });
+
+  test('a bad before version blocks saving instead of recording a user delay', async () => {
+    show({ id: '1', activity: 'A2020', days: '3', before: 'v1' });
+    expect(screen.getByRole('alert')).toHaveTextContent('실적 입력 전 버전 값이 올바르지 않습니다(v1)');
+    await userEvent.type(screen.getByLabelText('원인'), '철근 반입 늦음');
+    expect(screen.getByRole('button', { name: '등록' })).toBeDisabled();
+  });
 });

@@ -15,6 +15,8 @@ interface Props {
   initial: FormValues;
   /** 실적 입력 전 버전(실적 입력의 지연 알림이 연 양식). */
   before: number | null;
+  /** before 로 받은 값이 버전 번호가 아님 — 저장을 막는다(일반 사건으로 저장하면 두 번 센다). */
+  badBefore?: string | null;
   view: ScheduleView | null;
   viewError: string | null;
   /** 보낸다. 실패하면 보일 글, 성공(또는 보낼 것 없음)이면 null. */
@@ -77,9 +79,14 @@ function Fields({ values, set, errors, locked, view, viewError }: FieldsProps) {
   );
 }
 
-function Notes({ before, locked }: { before: number | null; locked: boolean }) {
+function Notes({ before, badBefore, locked }: { before: number | null; badBefore: string | null; locked: boolean }) {
   return (
     <>
+      {badBefore !== null && (
+        <p className="dl-error dl-note-error" role="alert">
+          {`실적 입력 전 버전 값이 올바르지 않습니다(${badBefore}). 일반 사건으로 저장하면 같은 늦음을 두 번 세므로 저장할 수 없습니다. 실적 입력에서 다시 열어 주세요.`}
+        </p>
+      )}
       {before !== null && (
         <p className="dl-note" role="note">
           실적 입력에서 감지한 지연입니다. 이미 일정에 들어 있어 반영된 사건으로 기록합니다(두 번 세지 않습니다).
@@ -94,7 +101,7 @@ function Notes({ before, locked }: { before: number | null; locked: boolean }) {
   );
 }
 
-export default function DelayForm({ event, initial, before, view, viewError, onSubmit, onCancel }: Props) {
+export default function DelayForm({ event, initial, before, badBefore = null, view, viewError, onSubmit, onCancel }: Props) {
   const [values, setValues] = useState(initial);
   const [errors, setErrors] = useState<FormErrors>({});
   const [failure, setFailure] = useState<string | null>(null);
@@ -122,7 +129,8 @@ export default function DelayForm({ event, initial, before, view, viewError, onS
   return (
     <form className="dl-form" aria-label={event ? '지연 사건 고치기' : '새 지연 사건'} onSubmit={submit} noValidate>
       <h3 className="dl-title">{event ? '지연 사건 고치기' : '새 지연 사건'}</h3>
-      <Notes before={before} locked={locked} />
+      {event && <p className="dl-form-sub">{`#${event.id} · ${event.cause}`}</p>}
+      <Notes before={before} badBefore={badBefore} locked={locked} />
       <Fields values={values} set={set} errors={errors} locked={locked} view={view} viewError={viewError} />
       {failure && (
         <p className="dl-error" role="alert">
@@ -130,7 +138,7 @@ export default function DelayForm({ event, initial, before, view, viewError, onS
         </p>
       )}
       <div className="dl-actions">
-        <Button variant="primary" type="submit" disabled={busy}>
+        <Button variant="primary" type="submit" disabled={busy || badBefore !== null}>
           {event ? '저장' : '등록'}
         </Button>
         <Button onClick={onCancel} disabled={busy}>

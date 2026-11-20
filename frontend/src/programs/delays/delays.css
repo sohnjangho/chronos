@@ -126,3 +126,5 @@
   .dl-kpi { border-right: 0; border-bottom: 1px solid var(--border); }
   .dl-gap { display: none; }
 }
+.dl-form-sub { margin: -6px 0 0; font-size: var(--fs-12); color: var(--fg-muted); overflow-wrap: anywhere; }
+.dl-note-error { padding: 6px 10px; border-radius: var(--radius-3); background: var(--tone-danger-bg); }

@@ -1,5 +1,6 @@
 // 대상 액티비티 고르기(화면 검수 2): WBS 묶음으로 나눈 목록 + 찾기(id·이름·묶음 이름). 목록은 정해진 높이 안에서 스크롤한다.
-import { useState } from 'react';
+// 키보드: 찾기 칸에서 ↓ 로 목록에 들어가고, 목록 안에서 ↑↓·Home·End 로 옮기고 Enter·Space 로 고른다(목록은 Tab 한 번).
+import { useId, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import type { Activity, ScheduleView } from '../../shared/schedule/scheduleApi';
 
 interface Props {
@@ -37,9 +38,52 @@ function Chosen({ view, value }: { view: ScheduleView | null; value: string }) {
   return <span className="dl-pick-chosen">{value ? `${value}${name ? ` ${name}` : ''}` : '고르지 않음'}</span>;
 }
 
+/** 목록 안 단추 사이를 ↑↓·Home·End 로 옮긴다. */
+function moveFocus(list: HTMLElement | null, key: string, from: Element | null): boolean {
+  const items = [...(list?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? [])];
+  if (items.length === 0) return false;
+  const at = items.indexOf(from as HTMLButtonElement);
+  const next = { ArrowDown: Math.min(at + 1, items.length - 1), ArrowUp: Math.max(at - 1, 0), Home: 0, End: items.length - 1 }[key];
+  if (next === undefined) return false;
+  items[next].focus();
+  return true;
+}
+
+function Options({ groups, value, onChange, listRef }: { groups: Group[]; value: string; onChange: (aid: string) => void; listRef: RefObject<HTMLDivElement | null> }) {
+  const first = groups[0]?.items[0]?.id;
+  const tabStop = groups.some((g) => g.items.some((a) => a.id === value)) ? value : first;
+  return groups.map((g) => (
+    <div role="group" aria-label={g.name} key={g.code || '-'}>
+      <div className="dl-pick-group" aria-hidden="true">{`${g.code ? `${g.code} ` : ''}${g.name}`}</div>
+      {g.items.map((a) => (
+        <button
+          key={a.id}
+          type="button"
+          role="option"
+          aria-selected={a.id === value}
+          tabIndex={a.id === tabStop ? 0 : -1}
+          className="dl-pick-item"
+          onClick={() => onChange(a.id)}
+          onKeyDown={(e) => moveFocus(listRef.current, e.key, e.currentTarget) && e.preventDefault()}
+        >
+          <span className="dl-pick-id">{a.id}</span>
+          <span className="dl-pick-name">{a.name}</span>
+        </button>
+      ))}
+    </div>
+  ));
+}
+
 export default function ActivityPicker({ view, viewError, value, onChange, disabled, error }: Props) {
   const [query, setQuery] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
+  const errorId = useId();
+  const describedBy = error ? errorId : undefined;
   const groups = view ? groupsOf(view, query) : [];
+  const fromSearch = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown' && moveFocus(listRef.current, 'Home', null)) e.preventDefault();
+  };
+  const empty = !view ? (viewError ? `일정을 읽을 수 없습니다: ${viewError}` : '일정을 읽는 중…') : groups.length === 0 ? '맞는 액티비티 없음' : null;
   return (
     <div className="dl-pick">
       <div className="dl-pick-head">
@@ -53,34 +97,24 @@ export default function ActivityPicker({ view, viewError, value, onChange, disab
             type="search"
             placeholder="액티비티 찾기"
             aria-label="액티비티 찾기"
+            aria-describedby={describedBy}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={fromSearch}
           />
-          <div role="listbox" aria-label="대상 액티비티" className="dl-pick-list">
-            {!view && <p className="dl-muted">{viewError ? `일정을 읽을 수 없습니다: ${viewError}` : '일정을 읽는 중…'}</p>}
-            {view && groups.length === 0 && <p className="dl-muted">맞는 액티비티 없음</p>}
-            {groups.map((g) => (
-              <div role="group" aria-label={g.name} key={g.code || '-'}>
-                <div className="dl-pick-group" aria-hidden="true">{`${g.code ? `${g.code} ` : ''}${g.name}`}</div>
-                {g.items.map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    role="option"
-                    aria-selected={a.id === value}
-                    className="dl-pick-item"
-                    onClick={() => onChange(a.id)}
-                  >
-                    <span className="dl-pick-id">{a.id}</span>
-                    <span className="dl-pick-name">{a.name}</span>
-                  </button>
-                ))}
-              </div>
-            ))}
+          <div className="dl-pick-list">
+            {empty && <p className="dl-muted">{empty}</p>}
+            <div role="listbox" aria-label="대상 액티비티" aria-describedby={describedBy} ref={listRef}>
+              <Options groups={groups} value={value} onChange={onChange} listRef={listRef} />
+            </div>
           </div>
         </>
       )}
-      {error && <span className="dl-error">{error}</span>}
+      {error && (
+        <span className="dl-error" id={errorId}>
+          {error}
+        </span>
+      )}
     </div>
   );
 }

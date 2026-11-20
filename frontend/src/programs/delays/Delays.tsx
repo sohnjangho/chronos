@@ -23,14 +23,22 @@ const NAME = '지연 기록';
 const positiveInt = (s: string | undefined) => (s && /^\d+$/.test(s) && Number(s) > 0 ? Number(s) : null);
 
 type Params = Record<string, string> | undefined;
-type Mode = { kind: 'detail' } | { kind: 'new'; initial: FormValues; before: number | null; n: number } | { kind: 'edit'; event: DelayEvent };
+type Mode =
+  | { kind: 'detail' }
+  | { kind: 'new'; initial: FormValues; before: number | null; badBefore: string | null; n: number }
+  | { kind: 'edit'; event: DelayEvent };
 
 let formSeq = 0; // 새 양식마다 다른 열쇠(같은 params 로 다시 열어도 칸을 새로 채운다)
 
-/** activity·days·before 가 있으면 그것으로 채운 새 사건 양식. */
+/**
+ * activity·days·before 가 있으면 그것으로 채운 새 사건 양식. before 가 있는데 버전 번호가 아니면 badBefore 로 남긴다 —
+ * 일반 사건으로 저장하면 이미 일정에 들어간 늦음을 두 번 세므로 양식이 저장을 막는다.
+ */
 function prefill(params: Params): Mode | null {
   if (!params?.activity && !params?.days && !params?.before) return null;
-  return { kind: 'new', initial: emptyValues({ activity_id: params.activity ?? '', days: params.days ?? '' }), before: positiveInt(params.before), n: ++formSeq };
+  const before = positiveInt(params.before);
+  const badBefore = params.before !== undefined && before === null ? params.before : null;
+  return { kind: 'new', initial: emptyValues({ activity_id: params.activity ?? '', days: params.days ?? '' }), before, badBefore, n: ++formSeq };
 }
 
 interface ToolbarProps {
@@ -60,7 +68,8 @@ function Toolbar({ filters, onFilters, onAdd, onCompare, canCompare, busy }: Too
         <option value="reflected">상태: 반영됨</option>
       </select>
       <span className="dl-gap" />
-      <Button onClick={onCompare} disabled={busy || !canCompare} title={canCompare ? undefined : '열린 사건이 없습니다'}>
+      {!canCompare && <span className="dl-muted">열린 사건이 없어 비교판을 만들 수 없습니다.</span>}
+      <Button onClick={onCompare} disabled={busy || !canCompare}>
         비교판에서 보기
       </Button>
       <Button onClick={() => openProgram('chat', { ask: ASK_ALL })}>만회 계획 요청</Button>
@@ -171,6 +180,7 @@ function SidePane({ mode, setMode, selected, act, submit, view, viewError }: Sid
       event={mode.kind === 'edit' ? mode.event : null}
       initial={mode.kind === 'edit' ? valuesOf(mode.event) : mode.initial}
       before={mode.kind === 'new' ? mode.before : null}
+      badBefore={mode.kind === 'new' ? mode.badBefore : null}
       view={view}
       viewError={viewError}
       onSubmit={submit}
@@ -189,6 +199,11 @@ function DelaysBody({ windowId, scheduleId, params }: { windowId: string; schedu
 
   const submit = useSubmit(scheduleId, data, mode, setMode, setSelectedId, act.redraw);
 
+  /** 줄 고르기. 고치는 중에 다른 사건을 고르면 양식을 닫고 그 사건의 자세히로(다른 사건에 저장되지 않게). */
+  const select = (e: DelayEvent) => {
+    setSelectedId(e.id);
+    if (mode.kind === 'edit' && mode.event.id !== e.id) setMode({ kind: 'detail' });
+  };
   const events = (data?.events ?? []).filter(
     (e) => (filters.resp === 'all' || e.responsibility === filters.resp) && (filters.status === 'all' || e.status === filters.status),
   );
@@ -197,7 +212,7 @@ function DelaysBody({ windowId, scheduleId, params }: { windowId: string; schedu
       {loadError}
     </p>
   ) : data ? (
-    <DelayTable events={events} filtered={events.length < data.events.length} selectedId={selectedId} onSelect={(e) => setSelectedId(e.id)} />
+    <DelayTable events={events} filtered={events.length < data.events.length} selectedId={selectedId} onSelect={select} />
   ) : (
     <p className="dl-muted dl-pad">지연 기록을 읽는 중…</p>
   );
@@ -207,7 +222,7 @@ function DelaysBody({ windowId, scheduleId, params }: { windowId: string; schedu
       <Toolbar
         filters={filters}
         onFilters={setFilters}
-        onAdd={() => setMode({ kind: 'new', initial: emptyValues(), before: null, n: ++formSeq })}
+        onAdd={() => setMode({ kind: 'new', initial: emptyValues(), before: null, badBefore: null, n: ++formSeq })}
         onCompare={() => void act.compare()}
         canCompare={(data?.totals.open_count ?? 0) > 0}
         busy={act.busy}

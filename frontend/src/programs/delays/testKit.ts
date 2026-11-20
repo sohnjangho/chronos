@@ -57,6 +57,7 @@ let writeQueue: Reply[] = [];
 let scenarioReply: Reply = { status: 200, body: { scenario_id: 1 } };
 let previewReply: Reply = { status: 200, body: { view: V, moved: [] } };
 let calls: { method: string; url: string; body: unknown }[] = [];
+let previewGate: Promise<void> | null = null;
 
 /** 지연 목록 GET 의 응답(쓰기의 기본 응답도 이것). */
 export function mockDelays(data: DelaysData) {
@@ -74,6 +75,12 @@ export function mockScenarioError(status: number, body: unknown) {
 export function mockDelayPreview(p: { view: PreviewView; moved: MovedActivity[] }) {
   previewReply = { status: 200, body: p };
 }
+/** 미리 보기 응답을 붙잡아 둔다. 돌려준 함수를 부르면 보낸다. */
+export function holdDelayPreview() {
+  let release!: () => void;
+  previewGate = new Promise<void>((ok) => (release = ok));
+  return release;
+}
 
 function route(method: string, url: string): Reply {
   if (url === '/api/schedules/1/delays/scenario') return scenarioReply;
@@ -90,6 +97,7 @@ export function stubDelaysApi() {
   scenarioReply = { status: 200, body: { scenario_id: 1 } };
   previewReply = { status: 200, body: { view: V, moved: [] } };
   calls = [];
+  previewGate = null;
   const base = fetchMock;
   vi.stubGlobal(
     'fetch',
@@ -99,6 +107,7 @@ export function stubDelaysApi() {
       const method = init?.method ?? 'GET';
       calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
       const r = route(method, url);
+      if (url.endsWith('/preview') && previewGate) return previewGate.then(() => json(r.status, r.body));
       return Promise.resolve(json(r.status, r.body));
     }),
   );
