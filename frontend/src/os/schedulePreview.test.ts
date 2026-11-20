@@ -55,3 +55,8 @@ test('logout (resetShellState) drops every preview', () => {
   resetShellState();
   expect(useSchedulePreview.getState().previews).toEqual({});
 });
+
+test('the delay window can hold a preview too and its source says so', () => {
+  useSchedulePreview.getState().set({ ...preview(1), source: 'delays' });
+  expect(useSchedulePreview.getState().previews[1]?.source).toBe('delays');
+});

@@ -1,7 +1,7 @@
-// 일정 미리 보기: 조건·규칙 창(나중에 지연 기록)이 저장하지 않고 계산한 일정을 간트차트(나중에 CPM)에 넘기는 OS 저장소.
+// 일정 미리 보기: 조건·규칙 창·지연 기록 창이 저장하지 않고 계산한 일정을 간트차트(나중에 CPM)에 넘기는 OS 저장소.
 // 프로그램끼리는 import 하지 않으므로 여기(os)에 둔다. 간트는 previews[일정 id] 가 있으면 그 일정을 그리고, 저장된 보기와
 // 액티비티마다 서버 값을 견주어 바뀐 칸(Plan 칸 plan_* · Actual·예측 칸 es/ef)의 이전 자리를 점선 막대로 남긴다.
-// moved 는 목록·글에만 쓴다. 로그아웃(resetShellState)·조건 창 닫기·되돌리기·확정에서 지운다.
+// moved 는 목록·글에만 쓴다. 로그아웃(resetShellState)·미리 보기를 건 창을 닫을 때·되돌리기·확정에서 지운다. source = 건 창.
 import { create } from 'zustand';
 
 /** 미리 보기 일정의 액티비티(서버 ScheduleView 의 activities 한 줄). 날짜는 'YYYY-MM-DD'. */
@@ -66,7 +66,7 @@ export interface SchedulePreview {
   scheduleId: number;
   view: PreviewView;
   moved: MovedActivity[];
-  source: 'conditions';
+  source: 'conditions' | 'delays';
 }
 
 interface SchedulePreviewState {
