@@ -1102,10 +1102,10 @@ test('server error message is shown', async () => { mockPostError(422, { code: '
 **Produces:**
 - 프로그램 `compare`, params `id` · `base`(기본 `current`) · `other`(기본: 열린 복사본 가운데 가장 새것, 없으면 `plan`).
 - 위: 기준 ▾ / 비교 ▾(`PlanPicker`: 묶음 "현재·Plan" / "버전"(버전 목록) / "만약에 복사본"(낡음 표시), 찾기) · 보기 [같은 차트][좌우 비교][차이 표] · [+ 만약에 복사본] · [복사본 버리기](비교가 복사본일 때) · [이 안을 반영 (승인함으로)](비교가 열린 복사본일 때).
-- 여러 안 요약 표(`SummaryTable`): 안 · 준공 · Plan 대비 · 기한 여유 · 크리티컬 수 · 조건 위반 · 자원 최고 부하 · 바꾸는 것. 줄을 누르면 그 안이 비교가 된다. 낡은 복사본은 "기준 일정이 바뀌었습니다" 배지.
+- 여러 안 요약 표(`SummaryTable`): 안 · 준공 · Plan 대비 · 기한 여유 · 크리티컬 수 · 조건 위반 · 자원 최고 부하 · 바꾸는 것. 줄을 누르면 그 안이 비교가 된다. 낡은 복사본은 "기준 일정이 바뀌었습니다" 배지(반영된 복사본은 `status` 가 applied 라 늘 stale 이므로 배지를 띄우지 않는다).
 - 같은 차트(`OverlayChart`): 액티비티마다 윗줄 기준 막대·아랫줄 비교 막대, 비교 막대 색 `pulled` `--success` · `pushed` `--danger` · 같음 회색. [달라진 것만 | 전체], 기한 세로선(`deadline_float` 이 있으면). 좌우 비교(`SideBySide`): 두 간트를 같은 척도로 나란히, 세로 스크롤 맞물림. 차이 표(`DiffTable`): ID · 이름 · 구분 · 시작 차이 · 종료 차이 · OD(기준→비교), 근무일 `−3일`/`+2일`.
 - `rows.ts`: `visibleRows(rows, onlyChanged) → RowOut[]`, `deltaText(n: number | null) → string`(`−3일`·`+2일`·`0`·`—`).
-- [이 안을 반영]: `SubmitDialog`(제목 기본 = 복사본 이름, [ ] "승인되면 이 안을 새 Plan으로") → `POST …/submit {title, reset_plan}` → `refreshApprovals()` → `open('approvals', {id: String(approval_id)})`. 409 는 서버 글 그대로(낡음이면 버튼을 끔).
+- [이 안을 반영]: `SubmitDialog`(제목 기본 = 복사본 이름; PM 11-20: Plan 다시 잡기 체크 없음) → `POST …/submit {title}` → `refreshApprovals()` → `open('approvals', {id: String(approval_id)})`. 409 는 서버 글 그대로(낡음이면 버튼을 끔).
 - [+ 만약에 복사본]: `WhatIfDialog`("무엇을 바꿔 볼까요?" 글 칸) → `open('chat', {ask: '만약에 복사본을 만들어 줘: <글>'})`.
 
 - [ ] **Step 1: 실패하는 시험**
@@ -1116,7 +1116,7 @@ test('changed-only hides same rows', async () => { await userEvent.click(screen.
 test.each([[-3, '−3일'], [2, '+2일'], [0, '0'], [null, '—']])('delta %s', (n, t) => expect(deltaText(n)).toBe(t))
 test('diff table shows workday deltas', async () => { await userEvent.click(screen.getByRole('button', { name: '차이 표' })); expect(within(diffRow('B')).getByText('−3일')).toBeVisible() })
 test('side by side scrolls together', async () => { await userEvent.click(screen.getByRole('button', { name: '좌우 비교' })); fireEvent.scroll(pane(0), { target: { scrollTop: 120 } }); expect(pane(1).scrollTop).toBe(120) })
-test('submit sends title and reset plan then opens approvals', async () => { mockSubmit({ approval_id: 7, applied: false, status: 'submitted' }); await userEvent.click(screen.getByRole('button', { name: '이 안을 반영 (승인함으로)' })); await userEvent.click(screen.getByLabelText('승인되면 이 안을 새 Plan으로')); await userEvent.click(screen.getByRole('button', { name: '보내기' })); expect(lastBody()).toEqual({ title: '만회안 A · 병행 우선', reset_plan: true }); expect(openSpy).toHaveBeenCalledWith('approvals', { id: '7' }) })
+test('submit sends title then opens approvals', async () => { mockSubmit({ approval_id: 7, applied: false, status: 'submitted' }); await userEvent.click(screen.getByRole('button', { name: '이 안을 반영 (승인함으로)' })); await userEvent.click(screen.getByRole('button', { name: '보내기' })); expect(lastBody()).toEqual({ title: '만회안 A · 병행 우선' }); expect(openSpy).toHaveBeenCalledWith('approvals', { id: '7' }) })
 test('stale scenario cannot be submitted', async () => { mockCompare({ ...C, other: { ...C.other, stale: true } }); expect(await screen.findByRole('button', { name: '이 안을 반영 (승인함으로)' })).toBeDisabled(); expect(screen.getByText('기준 일정이 바뀌었습니다')).toBeVisible() })
 test('what-if asks the agent through chat', async () => { await userEvent.click(screen.getByRole('button', { name: '+ 만약에 복사본' })); await userEvent.type(screen.getByRole('textbox'), '크레인 2대로 하면?'); await userEvent.click(screen.getByRole('button', { name: '에이전트에게 맡기기' })); expect(openSpy).toHaveBeenCalledWith('chat', { ask: '만약에 복사본을 만들어 줘: 크레인 2대로 하면?' }) })
 test('params pick base and other', async () => { render(<Compare windowId="w1" params={{ id: '1', base: 's:4', other: 's:5' }} />); await waitFor(() => expect(lastUrl()).toContain('base=s:4&other=s:5')) })
