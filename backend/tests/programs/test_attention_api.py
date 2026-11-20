@@ -2,7 +2,8 @@
 
 from datetime import date
 
-from app.core.model import Relation
+import app.programs.attention.service as attention_service
+from app.core.model import Constraint, Relation
 from app.store.delays import DelayEventRow
 from tests.approval_doubles import finish_by
 from tests.schedules import make, sample, store, task
@@ -62,3 +63,36 @@ def test_unreadable_schedule_is_danger(client, admin, session):
     session.commit()
     got = item_of(client, admin, sid)
     assert got["level"] == "danger" and got["violations"] == 1 and got["finish"] is None
+
+
+def test_late_task_alone_is_a_warning(client, admin, session):
+    started_late = task("A", 3, actual_start=date(2027, 3, 3), progress=0.5)
+    sid = store(session, make([started_late, task("B", 2)], [Relation("A", "B")]))
+    got = item_of(client, admin, sid)
+    assert got["late_count"] > 0 and got["violations"] == 0 and got["negative_float_count"] == 0
+    assert got["level"] == "warning" and got["finish_delta"] > 0
+
+
+def test_negative_float_alone_is_danger(client, admin, session):
+    from dataclasses import replace
+
+    capped = replace(task("B", 2), constraint=Constraint("FNLT", date(2027, 3, 4)))
+    sid = store(session, make([task("A", 3), capped], [Relation("A", "B")]))
+    got = item_of(client, admin, sid)
+    assert got["negative_float_count"] > 0 and got["violations"] == 0 and got["level"] == "danger"
+
+
+def test_one_failing_schedule_does_not_break_the_list(client, admin, session, monkeypatch):
+    bad = store(session, sample())
+    good = store(session, make([task("A", 3)]))
+    real = attention_service.check
+
+    def flaky(schedule, conditions):
+        if len(schedule.activities) == 2:
+            raise RuntimeError("점검 실패")
+        return real(schedule, conditions)
+
+    monkeypatch.setattr(attention_service, "check", flaky)
+    found = {i["id"]: i for i in items(client, admin)}
+    assert found[bad]["level"] == "danger" and found[bad]["violations"] == 1 and found[bad]["finish"] is None
+    assert found[good]["level"] == "ok"

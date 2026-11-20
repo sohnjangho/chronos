@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test, vi } from 'vitest';
-import { stubFetch } from '../test-helpers';
+import { json, stubFetch } from '../test-helpers';
 import AttentionWidget from './AttentionWidget';
 import { reasonText, type AttentionItem } from './attention';
+import { useApprovals } from './approvals';
 import { useWindows } from './windowStore';
 
 function item(name: string, level: AttentionItem['level'], extra: Partial<AttentionItem> = {}): AttentionItem {
@@ -20,6 +21,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   useWindows.getState().reset();
+  useApprovals.setState({ pending: 0 });
 });
 
 test('widget lists schedules needing attention', async () => {
@@ -79,4 +81,44 @@ test('reasonText says why in one line', () => {
     '조건 위반 2건 · 여유 부족 3건 · 늦은 작업 1개',
   );
   expect(reasonText(item('b', 'danger', { finish: null, violations: 1 }))).toBe('일정을 계산할 수 없음');
+});
+
+test('a warning line shows the 주의 badge', async () => {
+  mockAttention([item('지하 주차장 방수', 'warning', { open_delays: 1 })]);
+  render(<AttentionWidget />);
+  expect(await screen.findByText('주의')).toBeVisible();
+  expect(screen.queryByText('위험')).toBeNull();
+});
+
+test('the title shows no number until the first data arrives', async () => {
+  let answer: (r: Response) => void = () => {};
+  stubFetch({ '/api/attention': () => new Promise<Response>((r) => (answer = r)) });
+  render(<AttentionWidget />);
+  expect(screen.getByText('주의할 일정')).toBeVisible();
+  expect(screen.queryByText(/주의할 일정 \d/)).toBeNull();
+  await act(async () => answer(json(200, { items: [DANGER] })));
+  expect(await screen.findByText('주의할 일정 1')).toBeVisible();
+});
+
+test('a failed refetch keeps the last list', async () => {
+  let calls = 0;
+  stubFetch({ '/api/attention': () => (++calls === 1 ? json(200, { items: [DANGER] }) : json(500, { code: 'x', message: 'x', detail: null })) });
+  render(<AttentionWidget />);
+  expect(await screen.findByText('주의할 일정 1')).toBeVisible();
+  document.dispatchEvent(new Event('visibilitychange'));
+  await vi.waitFor(() => expect(calls).toBe(2));
+  await act(async () => {});
+  expect(screen.getByText('주의할 일정 1')).toBeVisible();
+  expect(screen.queryByText('불러오지 못했습니다')).toBeNull();
+});
+
+test('sits next to the approval widget, or at the left edge when that one is hidden', async () => {
+  mockAttention([]);
+  useApprovals.setState({ pending: 2 });
+  const { unmount } = render(<AttentionWidget />);
+  expect(screen.getByRole('region', { name: '주의할 일정' })).toHaveStyle({ left: '290px' });
+  unmount();
+  useApprovals.setState({ pending: 0 });
+  render(<AttentionWidget />);
+  expect(screen.getByRole('region', { name: '주의할 일정' })).toHaveStyle({ left: '24px' });
 });

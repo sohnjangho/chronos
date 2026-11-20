@@ -8,7 +8,6 @@ danger = 음수 여유 > 0 이거나 위반 > 0, warning = 늦은 task > 0 이�
 from sqlalchemy.orm import Session
 
 from app.core.calendar import WorkCalendar
-from app.core.cpm import ScheduleError
 from app.harness.assemble import assemble_all, prepare_stored
 from app.harness.checks import check
 from app.harness.conditions import read_conditions
@@ -27,18 +26,17 @@ def _level(negative: int, violations: int, late: int, open_delays: int) -> str:
     return "warning" if late > 0 or open_delays > 0 else "ok"
 
 
-def _item(session: Session, record: ScheduleRecord) -> AttentionItem:
-    open_delays = len(open_events(session, record.id))
-    base = {"id": record.id, "name": record.name, "domain": record.domain, "open_delays": open_delays}
+def _broken(record: ScheduleRecord, open_delays: int) -> AttentionItem:
+    return AttentionItem(
+        id=record.id, name=record.name, domain=record.domain, open_delays=open_delays, finish=None,
+        plan_finish=None, finish_delta=None, late_count=0, negative_float_count=0, violations=1, level="danger",
+    )
+
+
+def _compute(session: Session, record: ScheduleRecord, open_delays: int) -> AttentionItem:
     schedule, stored, n = load(session, record.id)
-    try:
-        ready = prepare_stored(schedule, stored)
-        cpm = run(ready)
-    except ScheduleError:
-        return AttentionItem(
-            **base, finish=None, plan_finish=None, finish_delta=None, late_count=0,
-            negative_float_count=0, violations=1, level="danger",
-        )
+    ready = prepare_stored(schedule, stored)
+    cpm = run(ready)
     plan = plan_of(session, record.id, n, cpm)
     view = view_of(session, record.id, n, schedule, ready, cpm, plan)
     readable, _ = read_conditions(stored)
@@ -47,10 +45,20 @@ def _item(session: Session, record: ScheduleRecord) -> AttentionItem:
     negative = view["summary"]["negative_float_count"]
     delta = WorkCalendar(ready.calendar).workdays_between(plan.finish, cpm.finish) if plan else None
     return AttentionItem(
-        **base, finish=cpm.finish, plan_finish=plan.finish if plan else None, finish_delta=delta,
-        late_count=late, negative_float_count=negative, violations=violations,
+        id=record.id, name=record.name, domain=record.domain, open_delays=open_delays, finish=cpm.finish,
+        plan_finish=plan.finish if plan else None, finish_delta=delta, late_count=late,
+        negative_float_count=negative, violations=violations,
         level=_level(negative, violations, late, open_delays),
     )
+
+
+def _item(session: Session, record: ScheduleRecord) -> AttentionItem:
+    """일정 하나. 어디서 실패하든(계산 불가·점검 오류) 그 일정만 danger 로 두고 전체 목록은 막지 않는다."""
+    open_delays = len(open_events(session, record.id))
+    try:
+        return _compute(session, record, open_delays)
+    except Exception:  # noqa: BLE001 - 일정 하나의 오류가 위젯 전체를 막지 않게
+        return _broken(record, open_delays)
 
 
 def attention(session: Session) -> AttentionOut:
