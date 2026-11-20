@@ -1,4 +1,5 @@
-"""에이전트에게 보내는 메시지 조립: 지시문 + 분야 지식 + 지금 상황(화면·일정 요약·조건 수·날짜 도우미) + 대화 기록.
+"""에이전트에게 보내는 메시지 조립: 지시문 + 분야 지식 + 지금 상황(화면·일정 요약·조건 수·이 대화에 붙인 파일·날짜 도우미)
++ 대화 기록.
 
 대화 기록은 마지막 HISTORY_LIMIT 개 메시지만 본다(요약은 하지 않는다). 도구 호출과 결과는 짝을 맞춰 보낸다.
 화면 사건(role "event")은 모델에 보내지 않는다. 날짜 도우미의 날짜는 모두 코드가 계산한다.
@@ -18,12 +19,13 @@ from sqlalchemy.orm import Session
 from app.core.cpm import ScheduleError
 from app.domains.loader import domains, levels_prompt, load
 from app.harness.conditions import read_conditions
+from app.store import files as file_store
 from app.store import my_rules
 from app.store.chats import recent_messages
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound
 from app.store.schedules import load as load_schedule
-from app.store.tables import ChatMessage, User
+from app.store.tables import ChatMessage, FileRow, User
 from app.store.view import view_data
 from app.tools.context import SCHEDULE_NOT_FOUND_MESSAGE
 from app.tools.registry import ToolResult
@@ -38,6 +40,9 @@ CUT_NOTE = "\n(뒤는 생략)"
 NOT_RUN = json.dumps({"error": "실행하지 않았습니다(턴이 중간에 멈췄습니다)."}, ensure_ascii=False)
 _LAYERS = (("base", "기본"), ("domain", "분야"), ("mine", "내 규칙"), ("input", "입력"))
 RULES_SHOWN, RULE_TEXT_LIMIT = 10, 60  # 대화 맥락에 보일 내 규칙 수·글 길이
+FILES_SHOWN, SUMMARY_LIMIT = 20, 120  # 「이 대화에 붙인 파일」 줄의 파일 수(최근 것)·한 줄 요약 길이
+AXIS_ORDER = ("종류", "공종", "현장", "시기", "출처")  # 분류 축 차례(설계 5-2). 그 밖의 축은 뒤에
+FILE_STATUS = {"received": "읽는 중", "extracted": "읽음", "indexed": "저장됨", "classified": "분류됨", "failed": "실패"}
 RULE_TITLE_PREFIX = "내 규칙 저장 — "  # rules.propose 가 만드는 승인 건 제목의 앞(tools/out/propose_rule.TITLE_PREFIX)
 SEOUL = ZoneInfo("Asia/Seoul")
 _WEEKDAYS = "월화수목금토일"
@@ -136,10 +141,13 @@ def system_prompt() -> str:
 
 
 def build_context(session: Session, user: User, chat_session_id: int, ui: UiContext) -> list[dict]:
-    """LLM 에 보낼 메시지: system(지시문 + 지금 상황 + 날짜 도우미) 하나 뒤에 마지막 30개 대화 메시지(event 제외)."""
+    """LLM 에 보낼 메시지: system(지시문 + 지금 상황 + 이 대화에 붙인 파일 + 날짜 도우미) 하나 뒤에
+    마지막 30개 대화 메시지(event 제외)."""
     rows = recent_messages(session, chat_session_id, HISTORY_LIMIT)
     helper = "\n".join(date_helper(rows, today()))
-    system = "\n\n".join([system_prompt(), situation(session, user, ui), helper])
+    attached = files_line(session, chat_session_id)
+    now = situation(session, user, ui) + (f"\n{attached}" if attached else "")
+    system = f"{system_prompt()}\n\n{now}\n\n{helper}"
     return [{"role": "system", "content": system}, *history(rows)]
 
 
@@ -210,6 +218,35 @@ def _activity_line(view: dict, activity_id: str) -> str:
     return f"- 고른 액티비티: {a['id']} {a['name']} · 시작 {a['es']} · 끝 {a['ef']} · 여유 {a['tf']}일 · {critical}"
 
 
+def files_line(session: Session, chat_session_id: int) -> str | None:
+    """'- 이 대화에 붙인 파일: #12 시방서.pdf (pdf · 시방서·골조 · 분류됨) "요약" | …'. 붙인 차례로 최근 FILES_SHOWN 개,
+    넘으면 끝에 「외 n개」. 지운 파일은 '#12 시방서.pdf (지워짐)'. 붙인 파일이 없으면 None."""
+    rows = file_store.session_files(session, chat_session_id)
+    if not rows:
+        return None
+    shown = [_file_text(session, f) for f in rows[-FILES_SHOWN:]]
+    more = [f"외 {len(rows) - FILES_SHOWN}개"] if len(rows) > FILES_SHOWN else []
+    return "- 이 대화에 붙인 파일: " + " | ".join(shown + more)
+
+
+def _axis_rank(axis: str) -> int:
+    return AXIS_ORDER.index(axis) if axis in AXIS_ORDER else len(AXIS_ORDER)
+
+
+def _file_text(session: Session, f: FileRow) -> str:
+    head = f"#{f.id} {f.name}"
+    if f.deleted_at is not None:
+        return f"{head} (지워짐)"
+    axes = file_store.axes_of(session, f.id)
+    values = "·".join(v for axis in sorted(axes, key=_axis_rank) for v in axes[axis])
+    status = FILE_STATUS.get(f.status, f.status) + (f" — {f.reason}" if f.reason else "")
+    text = f"{head} ({' · '.join(p for p in (f.kind, values, status) if p)})"
+    summary = (f.summary or "").strip()
+    if summary:
+        text += f' "{summary[:SUMMARY_LIMIT]}{"…" if len(summary) > SUMMARY_LIMIT else ""}"'
+    return text
+
+
 # ── 대화 기록 ───────────────────────────────────────────────────────
 
 
@@ -258,7 +295,7 @@ def wire(role: str, content: dict) -> dict:
             return {"role": "user", "content": submission_text(content)}
         if content.get("kind") == "approval_rejected":
             return {"role": "user", "content": rejection_text(content)}
-        return {"role": "user", "content": content.get("text", "")}
+        return {"role": "user", "content": _with_files(content.get("text", ""), content.get("files"))}
     if role == "tool":
         return {"role": "tool", "tool_call_id": content["tool_call_id"], "content": content["content"]}
     calls = content.get("tool_calls") or []
@@ -272,6 +309,13 @@ def wire(role: str, content: dict) -> dict:
             for c in calls
         ],
     }
+
+
+def _with_files(text: str, refs: list[dict] | None) -> str:
+    """사용자 글 끝에 그 메시지에 붙인 파일(id·이름)을 적는다. 그림 자체는 그 턴에만 보낸다(app.agent.image_turn)."""
+    if not refs:
+        return text
+    return f"{text}\n(붙인 파일: {', '.join(f'#{r['file_id']} {r['name']}' for r in refs)})"
 
 
 def _not_run(call_ids: list[str]) -> list[dict]:

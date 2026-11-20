@@ -14,6 +14,7 @@ EventType = Literal[
     "questionnaire",
     "approval",
     "usage",
+    "notice",  # 한 줄 안내(예: 그림 턴의 모델 바꿈). 저장하지 않는다
     "error",
     "done",
     "ping",  # 기다리는 동안 연결을 살려 두는 것. SSE 주석 줄로 나간다

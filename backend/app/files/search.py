@@ -3,6 +3,7 @@
 - 뜻 쪽은 jobs.active_model(다시 넣기 중이면 옛 모델)로 물음을 임베딩해 그 모델 컬렉션에서 찾는다. 점수(코사인)가
   MIN_SCORE 보다 낮은 조각은 버린다. 뜻 검색을 껐거나 물음 임베딩(QUERY_TIMEOUT_S)·Qdrant 찾기가 실패하면 낱말 쪽만.
 - filters = {축: [값…]}: 축마다 값 가운데 하나를 가진 파일, 축끼리는 모두(AND). 빈 목록인 축은 거르지 않는다.
+- file_ids(한 파일 안에서 찾기 등)를 주면 그 파일들 안에서만 — filters 와 함께면 둘 다 맞는 파일.
 - prefer_file_ids(지금 대화에 붙인 파일)의 조각은 점수 ×PREFER. 숨긴(지운) 파일의 조각은 나오지 않는다.
 - 받은 세션은 읽기만 한다.
 """
@@ -109,12 +110,18 @@ async def search(
     limit: int = 8,
     filters: dict[str, list[str]] | None = None,
     prefer_file_ids: list[int] | None = None,
+    file_ids: list[int] | None = None,
 ) -> list[Hit]:
-    """숨기지 않은 파일의 조각을 뜻+낱말로 찾는다(점수 큰 차례로 limit 개까지)."""
-    file_ids = _filtered(session, filters)
-    if file_ids == [] or not query.strip():
+    """숨기지 않은 파일의 조각을 뜻+낱말로 찾는다(점수 큰 차례로 limit 개까지).
+
+    file_ids 를 주면 그 파일들 안에서만(filters 와 함께면 둘 다 맞는 파일).
+    """
+    allowed = _filtered(session, filters)
+    if file_ids is not None:
+        allowed = sorted(set(file_ids) if allowed is None else set(file_ids) & set(allowed))
+    if allowed == [] or not query.strip():
         return []
     pool = limit * POOL
-    keyword = files.keyword_search(session, query, pool, file_ids)
-    meaning = await _meaning(session, query, pool, file_ids)
+    keyword = files.keyword_search(session, query, pool, allowed)
+    meaning = await _meaning(session, query, pool, allowed)
     return _fuse(keyword, meaning, limit, set(prefer_file_ids or ()))

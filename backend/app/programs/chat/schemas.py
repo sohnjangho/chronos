@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MAX_TEXT = 4000
+MAX_FILES = 10  # 한 메시지에 붙이는 파일 수(첨부 한도와 같다)
 
 
 class ChatSessionIn(BaseModel):
@@ -24,7 +25,7 @@ class UiIn(BaseModel):
 
 class MessageIn(BaseModel):
     """text(사용자 글)·questionnaire_id(제출한 질문지로 이어 가기)·approval_id(거부하고 다시 짜게 한 승인 건으로
-    이어 가기) 가운데 하나만 보낸다."""
+    이어 가기) 가운데 하나만 보낸다. file_ids(이번 메시지에 붙인 파일, POST /api/files 의 file_id)는 text 와 함께만."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -32,11 +33,14 @@ class MessageIn(BaseModel):
     ui: UiIn = Field(default_factory=UiIn)
     questionnaire_id: int | None = None
     approval_id: int | None = None
+    file_ids: list[int] = Field(default_factory=list, max_length=MAX_FILES)
 
     @model_validator(mode="after")
     def _exactly_one_input(self) -> "MessageIn":
         if sum(x is not None for x in (self.text, self.questionnaire_id, self.approval_id)) != 1:
             raise ValueError("text·questionnaire_id·approval_id 가운데 하나만 보냅니다.")
+        if self.file_ids and self.text is None:
+            raise ValueError("파일은 글(text)과 함께 보냅니다.")
         return self
 
 
@@ -84,9 +88,20 @@ class RetryOut(BaseModel):
     decided_at: datetime
 
 
+class ChatFileOut(BaseModel):
+    """이 대화에 붙인 파일 하나(지운 파일도 deleted true 로 남는다). 까닭·분류 값은 GET /api/files/{id}."""
+
+    file_id: int
+    name: str
+    kind: str  # image|table|sheet|pdf|doc|text
+    status: str  # received|extracted|indexed|classified|failed
+    deleted: bool
+
+
 class ChatSessionDetail(ChatSessionOut):
     running: bool  # 지금 턴이 돌고 있는가
     model: ChatModelOut | None  # 이 대화에서 고른 모델. null 이면 설정의 대화 배정(normal)
+    files: list[ChatFileOut]  # 이 대화에 붙인 파일, 붙인 차례
     messages: list[MessageOut]  # 오래된 것부터 전부
     pending_retries: list[RetryOut]  # 오래된 것부터. 이어 가면(approval_id 로 메시지를 보내면) 빠진다
 

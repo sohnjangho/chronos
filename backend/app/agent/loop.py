@@ -1,4 +1,4 @@
-"""에이전트 루프: 대화 메시지 하나를 받아 LLM(normal)과 도구를 오가며(ReAct) 사건을 흘려보낸다.
+"""에이전트 루프: 대화 메시지 하나를 받아 LLM(normal, 그림 턴이면 vision — image_turn)과 도구를 오가며(ReAct) 사건을 흘려보낸다.
 
 한 턴의 흐름: 사용자 메시지 저장 → 메시지 조립(context.build_context) → LLM 에 도구 목록과 함께 묻기 →
 도구 호출이 오면 단계마다 workflow·tool_start → 도구 실행(도구가 내는 사건은 바로 흘려보냄) → tool_end·workflow
@@ -18,13 +18,13 @@ import logging
 import math
 import time
 import traceback
-from collections.abc import AsyncIterator, Coroutine
+from collections.abc import AsyncIterator, Coroutine, Sequence
 from contextlib import aclosing
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.agent import turns
+from app.agent import image_turn, turns
 from app.agent.context import (
     UiContext,
     arguments_text,
@@ -166,14 +166,17 @@ class _Turn:
         self.trace: TraceLog | None = None  # 실행 추적(app.agent.trace)
         self.llm_ev, self.llm_t0, self.last_text = None, 0.0, ""  # 지금 llm 사건·그 시작·마지막 답 글
         self.chat_model: assignments.Assignment | None = None  # 이 대화에서 고른 모델(대화 호출에만, 설계 5-5)
+        self.vision = image_turn.Vision()  # 그림 턴: 그림 읽기(vision) 모델·image_url (app.agent.image_turn)
 
     # ── 시작·끝 ──
 
-    def begin(self, text: str | None, questionnaire_id: int | None, approval_id: int | None) -> None:
-        """사용자 메시지를 저장하고(대화 제목·일정도 정함) commit 한 뒤 LLM 에 보낼 메시지를 만든다."""
+    def begin(self, text: str | None, questionnaire_id: int | None, approval_id: int | None,
+              file_ids: Sequence[int] = ()) -> None:
+        """사용자 메시지를 저장하고(대화 제목·일정·붙인 파일도) commit 한 뒤 LLM 에 보낼 메시지를 만든다."""
         self.calls_before = last_call_id(self.session)
         chat = chats.get_chat(self.session, self.chat_id)
-        content = _user_content(self.session, text, questionnaire_id, approval_id)
+        picked = image_turn.picked(self.session, file_ids)
+        content = _user_content(self.session, text, questionnaire_id, approval_id) | image_turn.refs(picked)
         title = _TITLES.get(content["kind"]) or content["text"].strip()[:TITLE_LIMIT]
         if not chat.title:
             chat.title = title
@@ -184,10 +187,12 @@ class _Turn:
         request = wire("user", content)["content"]  # 모델이 읽는 글 그대로
         self.log = WorkflowLog(self.session, self.chat_id, title=title, request=request)
         message = chats.add_message(self.session, self.chat_id, "user", content)
+        image_turn.attach(self.session, self.chat_id, picked)
         self.session.commit()
         self.trace = TraceLog(self.session, self.chat_id, message.id)
         ui = UiContext(self.ui.program, self.schedule_id, self.ui.selected_activity)
         self.messages = build_context(self.session, self.user, self.chat_id, ui)
+        self.vision.start(self.messages, picked)
         tools = registry.as_llm_tools()
         parts = context_parts(self.session, self.user, self.chat_id, ui, tools)
         self.trace.context(parts, len(self.messages) - 1, len(tools))
@@ -234,11 +239,13 @@ class _Turn:
             for _ in range(max_steps):
                 if self.stopping():
                     return
-                self.llm_ev = self.trace.llm_start(self.messages, "normal")
+                for event in self.vision.flush(self.session, self.messages):  # 끼울 그림·그림 읽기 안내
+                    yield event
+                self.llm_ev = self.trace.llm_start(image_turn.for_trace(self.messages), self.vision.purpose)
                 self.session.commit()  # llm 사건(ms 없음)을 호출 전에 쓴다
                 self.llm_t0 = time.perf_counter()
                 with assignments.using_chat_model(self.chat_model):  # 이 호출 작업에만(도구 안 호출은 배정 그대로)
-                    self.start(self.llm.chat("normal", self.messages, tools=registry.as_llm_tools(),
+                    self.start(self.llm.chat(self.vision.purpose, self.messages, tools=registry.as_llm_tools(),
                                              chat_session_id=self.chat_id))
                 while (event := await self.waiting()) is not None:
                     yield event
@@ -348,6 +355,7 @@ class _Turn:
         """도구 결과를 기록한다: 단계 닫기, 모아 둔 사건을 event 메시지로, tool 메시지 — 한 번에 commit."""
         result = self.task.result()
         self.task = None
+        self.vision.after_tool(call.name, result)
         if not result.ok:
             self.session.rollback()  # 실패한 도구가 남긴 쓰기는 저장하지 않는다
         stopped = result.ok and turns.stop_requested(self.chat_id)  # 도는 동안 멈춤을 눌렀다
@@ -378,18 +386,19 @@ async def run_turn(
     max_steps: int = MAX_STEPS,
     questionnaire_id: int | None = None,
     approval_id: int | None = None,
+    file_ids: Sequence[int] = (),
 ) -> AsyncIterator[AgentEvent]:
     """한 턴을 돌며 사건을 내보낸다. 마지막 사건은 늘 done({}).
 
     text·questionnaire_id(제출된 질문지의 답·가정으로 이어 가기)·approval_id(거부하고 다시 짜게 한 승인 건으로
-    이어 가기) 가운데 하나를 준다.
+    이어 가기) 가운데 하나를 준다. file_ids 는 text 와 함께 이번 메시지에 붙인 파일(그림이 있으면 그림 턴 — image_turn).
     대화가 이 사용자의 것인지, 질문지·승인 건이 맞는지, 이미 도는 턴이 있는지는 부르는 쪽(대화 API)이 확인한다.
     턴을 시작하다 실패해도 error(internal_error)·done 으로 끝난다.
     스트림이 닫히거나(연결 끊김) 취소되면 실행을 stopped 로 닫고 그대로 끝난다(더 내보내지 않는다).
     """
     turn = _Turn(session, user, chat_session_id, ui, llm or default_llm(session))
     try:
-        turn.begin(text, questionnaire_id, approval_id)
+        turn.begin(text, questionnaire_id, approval_id, file_ids)
         async with aclosing(turn.events(max_steps)) as events:
             async for event in events:
                 yield event
