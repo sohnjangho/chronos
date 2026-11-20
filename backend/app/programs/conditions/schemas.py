@@ -47,6 +47,14 @@ class ChangesIn(Strict):
     changes: list[Change] = Field(max_length=100)
 
 
+class EvidenceRef(BaseModel):
+    """조건을 받친 근거(출처 링크)."""
+
+    id: int
+    title: str
+    url: str
+
+
 class ConditionOut(BaseModel):
     id: str
     layer: Layer
@@ -61,6 +69,7 @@ class ConditionOut(BaseModel):
     message: str | None
     overridden_by: str | None
     used_by: list[str] | None  # 이 조건이 걸리는 액티비티(자원·꼬리표·마일스톤 조건만)
+    evidence: list[EvidenceRef] = []  # 근거 검색으로 붙인 출처(일정과 그 일정을 만든 초안의 링크)
 
 
 class LayersOut(BaseModel):

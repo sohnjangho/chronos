@@ -8,6 +8,7 @@ import { useSchedulePreview } from '../../os/schedulePreview';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
 import { json } from '../../test-helpers';
+import ConditionItem from './ConditionItem';
 import Conditions from './Conditions';
 import type { Cond, Preview } from './condApi';
 import manifest from './index';
@@ -465,5 +466,43 @@ describe('Fix round 2', () => {
     expect(reads).toBe(2);
     expect(column('④ 입력 조건')).toBeVisible();
     expect(qty('타워크레인')).toHaveValue('1');
+  });
+});
+
+describe('Task 27 · 조건 출처 링크', () => {
+  const finishBy = INPUTS[2];
+  const sourceItem = (over: Partial<Cond>) => {
+    const c = { ...finishBy, ...over };
+    return (
+      <ul>
+        <ConditionItem cond={c} saved={c} change={undefined} resources={[]} onEdit={() => {}} />
+      </ul>
+    );
+  };
+
+  test('condition shows its sources as links', () => {
+    render(sourceItem({ evidence: [{ id: 1, title: '골조 공기 기준', url: 'https://example.com/a' }] }));
+    expect(screen.getByText('출처 1')).toBeVisible();
+    expect(screen.getByRole('link', { name: '골조 공기 기준' })).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByRole('link', { name: '골조 공기 기준' })).toHaveAttribute('target', '_blank');
+    expect(screen.getByRole('link', { name: '골조 공기 기준' })).toHaveAttribute('href', 'https://example.com/a');
+  });
+
+  test('without sources there is no source line', () => {
+    render(sourceItem({ evidence: [] }));
+    expect(screen.queryByText(/^출처/)).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  test('the conditions window shows the sources the server sent under that condition', async () => {
+    const sources = [
+      { id: 3, title: '철근콘크리트 골조 공기 기준', url: 'https://example.com/a' },
+      { id: 4, title: '동절기 양생 연구', url: 'https://journal.example.org/p/1' },
+    ];
+    setup({ [URL]: makeView(INPUTS.map((c) => (c.id === 'in.finish_by' ? { ...c, evidence: sources } : c))) });
+    await renderC();
+    expect(within(item('준공 기한')).getByText('출처 2')).toBeVisible();
+    expect(within(item('준공 기한')).getAllByRole('link').map((a) => a.textContent)).toEqual(sources.map((s) => s.title));
+    expect(within(item('타워크레인')).queryByText(/^출처/)).toBeNull();
   });
 });

@@ -27,6 +27,7 @@ class FactIn(BaseModel):
     label: str
     value: str
     source: str
+    evidence_ids: list[int] = Field(default_factory=list, description="받친 근거(evidence__search 의 evidence_id)")
 
 
 class RunIn(BaseModel):

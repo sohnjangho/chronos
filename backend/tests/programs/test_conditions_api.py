@@ -127,7 +127,7 @@ def test_condition_shape(client, admin, sid):
     assert crane == {
         "id": "in.crane", "layer": "input", "kind": "resource_cap", "params": {"resource_id": "crane", "capacity": 1},
         "text": "타워크레인 1대", "source": "프롬프트", "enabled": True, "editable": True, "state": "passed",
-        "message": crane["message"], "overridden_by": None, "used_by": ["B", "C"],
+        "message": crane["message"], "overridden_by": None, "used_by": ["B", "C"], "evidence": [],
     }
     # 맞춤이 푼 겹침은 알림(통과)이다: 용량 1대로 B 뒤에 C 를 미뤘다
     assert crane["message"].startswith("맞추기 전 날짜로는 타워크레인 필요량이 용량(1대)을 넘는 날이")

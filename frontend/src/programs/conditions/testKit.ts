@@ -15,6 +15,7 @@ export const cond = (over: Partial2<Cond> & Pick<Cond, 'id' | 'layer' | 'kind' |
   message: null,
   overridden_by: null,
   used_by: null,
+  evidence: [],
   ...over,
 });
 

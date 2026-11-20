@@ -3,6 +3,7 @@
 조건은 일정의 지금 버전에 저장된 dict 목록이다. 읽을 때마다 기본 규칙과 함께 조립(assemble_all)하고
 점검(check)한다. 일정은 화면·점검과 같은 준비(harness.prepare)를 거쳐 run(compute → level(shift=True))한다.
 한 요청 안에서 한 조건 목록의 점검과 계산은 쓸 때 한 번만 한다(_Side). 점검(check)은 하네스 안에서 따로 계산한다.
+조건 줄마다 근거 검색으로 붙인 출처(evidence: 일정과 그 일정을 만든 초안의 링크)를 함께 보낸다.
 - 미리 보기는 아무것도 저장하지 않는다. 저장된 버전이 계산되지 않아도 고친 조건을 미리 볼 수 있다(before 는 None).
 - 확정은 Task 11 의 승인 판단(assess)과 승인 건(store.approvals, requested_kind "user")으로 간다: 승인이 필요하면
   pending 건, 아니면 그 자리에서 반영(status auto, 되돌릴 버전 restore_to). 반영한 버전의 by_kind 는 "user".
@@ -37,6 +38,7 @@ from app.programs.conditions.schemas import (
 )
 from app.store import approvals, chats
 from app.store.drafts import violation_json
+from app.store.evidence import for_conditions
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound, get_record, load, run, to_json
 from app.store.settings import approval_mode
@@ -106,10 +108,19 @@ def _load(session: Session, schedule_id: int, base_version: int | None = None) -
     return _Loaded(record, schedule, stored, n)
 
 
-def _conditions_out(loaded: _Loaded, s: _Side, user: User) -> ConditionsOut:
+def _with_evidence(session: Session, schedule_id: int, layers: dict) -> dict:
+    """조건 줄마다 붙인 근거 [{id, title, url}](없으면 [])."""
+    found = for_conditions(session, schedule_id)
+    for row in (r for rows in layers.values() for r in rows):
+        row["evidence"] = [{"id": e.id, "title": e.title, "url": e.url} for e in found.get(row["id"], [])]
+    return layers
+
+
+def _conditions_out(session: Session, loaded: _Loaded, s: _Side, user: User) -> ConditionsOut:
+    layers = states.layers(loaded.schedule, s.assembled, s.report, user)
     return ConditionsOut.model_validate({
         "schedule_id": loaded.record.id, "name": loaded.record.name, "version": loaded.n,
-        "layers": states.layers(loaded.schedule, s.assembled, s.report, user),
+        "layers": _with_evidence(session, loaded.record.id, layers),
         "summary": states.summary(s.report),
         "invalid": s.unreadable + s.report.invalid,
         "resources": to_json(loaded.schedule)["resources"],
@@ -118,7 +129,7 @@ def _conditions_out(loaded: _Loaded, s: _Side, user: User) -> ConditionsOut:
 
 def get_conditions(session: Session, schedule_id: int, user: User) -> ConditionsOut:
     loaded = _load(session, schedule_id)
-    return _conditions_out(loaded, _Side(loaded.schedule, loaded.stored), user)
+    return _conditions_out(session, loaded, _Side(loaded.schedule, loaded.stored), user)
 
 
 def _changed(session: Session, schedule_id: int, body: ChangesIn, user: User) -> tuple[_Loaded, _Side, _Side]:
@@ -142,7 +153,7 @@ def preview(session: Session, schedule_id: int, body: ChangesIn, user: User) -> 
         "after": side(cpm, len(violations)),
         "moved": moved(loaded.schedule, saved, cpm) if saved else [],
         "violations": [violation_json(v) for v in violations],
-        "conditions": _conditions_out(loaded, after, user),
+        "conditions": _conditions_out(session, loaded, after, user),
     })
 
 

@@ -175,6 +175,9 @@
 .cd-used { margin-top: 4px; min-width: 0; color: var(--fg-muted); font-size: var(--fs-12); }
 .cd-used summary { cursor: pointer; }
 .cd-used p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.cd-src { margin-top: 4px; min-width: 0; color: var(--fg-muted); font-size: var(--fs-12); }
+.cd-src p { margin: 2px 0 0; overflow-wrap: anywhere; }
+.cd-src a { color: var(--accent-text); }
 .cd-root .cd-toggle { padding: 1px 8px; font-size: var(--fs-11); }
 
 @container (max-width: 1099px) {

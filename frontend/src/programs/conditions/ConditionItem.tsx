@@ -74,8 +74,25 @@ function UsedBy({ cond }: { cond: Cond }) {
   );
 }
 
+/** 출처: 「출처 n」 아래 근거 링크(새 탭). 없으면 그리지 않는다. */
+function Sources({ cond }: { cond: Cond }) {
+  if (cond.evidence.length === 0) return null;
+  return (
+    <div className="cd-src">
+      <span>{`출처 ${cond.evidence.length}`}</span>
+      {cond.evidence.map((e) => (
+        <p key={e.id}>
+          <a href={e.url} target="_blank" rel="noopener noreferrer">
+            {e.title}
+          </a>
+        </p>
+      ))}
+    </div>
+  );
+}
+
 /**
- * 조건 하나: 이름(+값 칸) · 상태 배지 · 켜기/끄기 / 틀린 값의 까닭 / 출처 · 바꾼 값 / 까닭 / 걸리는 액티비티(접음).
+ * 조건 하나: 이름(+값 칸) · 상태 배지 · 켜기/끄기 / 틀린 값의 까닭 / 출처 · 바꾼 값 / 까닭 / 근거 링크 / 걸리는 액티비티(접음).
  * 이름은 보이는 상태(미리 보기면 미리 보기 값)의 종류와 값으로 만든다. 값 칸의 이름은 저장된 조건으로 둔다.
  */
 export default function ConditionItem({ cond, saved, change, resources, onEdit }: ItemProps) {
@@ -116,6 +133,7 @@ export default function ConditionItem({ cond, saved, change, resources, onEdit }
         {note && <span className="cd-note">{note}</span>}
       </div>
       {cond.message && <p className={`cd-msg is-${cond.state}`}>{cond.message}</p>}
+      <Sources cond={cond} />
       <UsedBy cond={cond} />
     </li>
   );

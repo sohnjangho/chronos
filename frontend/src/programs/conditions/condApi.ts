@@ -20,6 +20,15 @@ export interface Cond {
   overridden_by: string | null;
   /** 이 조건이 걸리는 액티비티(자원·꼬리표·마일스톤 조건만). */
   used_by: string[] | null;
+  /** 근거 검색으로 붙인 출처(없으면 []). 서버가 http(s) 주소만 보낸다. */
+  evidence: EvidenceRef[];
+}
+
+/** 조건을 받친 근거 하나(출처 링크). */
+export interface EvidenceRef {
+  id: number;
+  title: string;
+  url: string;
 }
 
 export interface Summary {
