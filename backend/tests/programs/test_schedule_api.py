@@ -1,12 +1,14 @@
 """일정 API: 계산 포함 응답, 고치기, 버전·변경 이력."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
 from app.core.cpm import ScheduleError
 from app.core.model import BlockedPeriod, CalendarSpec, Relation, Resource
 from app.programs.schedule import edits, service
+from app.store import scenarios
+from app.store.delays import DelayEventRow, delayed_base
 from app.store.schedules import to_json
 from app.store.tables import ChangeLog, ScheduleVersion
 from app.store.versions import mark_plan, save_new_version
@@ -406,6 +408,28 @@ def test_restore_of_invalid_version_is_422_and_saves_nothing(client, admin, sess
     assert len(_versions(client, admin, sid)) == 2
     session.expire_all()
     assert session.query(ChangeLog).filter_by(schedule_id=sid).count() == 1
+
+
+def test_approved_recorded_delays_do_not_move_plan(client, admin, session):
+    """PM 결정 11-20: 기록한 지연은 Plan 을 옮기지 않는다. 진행 중 P(rd 늘림)와 시작 전 Q(start_floor)에 같은 3일
+    지연을 기록해 승인하면 둘 다 late +3 이고 Plan(P·Q 3/1~3/5)은 그대로다."""
+    sid = store(session, make([task("P", 5), task("Q", 5)]))
+    assert _patch(client, admin, sid, "P", 1, actual_start="2027-03-01").status_code == 200
+    for aid in "PQ":
+        session.add(DelayEventRow(schedule_id=sid, activity_id=aid, start_date=date(2027, 3, 1), days=3, created_by="김하늘"))
+    session.commit()
+    d = delayed_base(session, sid)
+    assert {a.id: (a.rd, a.start_floor) for a in d.schedule.activities} == {"P": (8, None), "Q": (None, date(2027, 3, 4))}
+    sc = scenarios.create(session, schedule_id=sid, base_version=d.version, name="지연 반영안 (2건)", source="delay",
+                          schedule=d.schedule, conditions=d.conditions, delay_event_ids=d.event_ids, created_by="김하늘")
+    session.commit()
+    aid = client.post(f"/api/schedules/{sid}/scenarios/{sc.id}/submit", json={}, headers=admin).json()["approval_id"]
+    r = client.post(f"/api/approvals/{aid}/decide", json={"decision": "approve", "note": ""}, headers=admin)
+    assert r.status_code == 200, r.json()
+    v = _get(client, admin, sid)
+    assert v["version"] == 3 and _plan_dates(v) == [("P", "2027-03-01", "2027-03-05"), ("Q", "2027-03-01", "2027-03-05")]
+    assert [(_act(v, i)["ef"], _act(v, i)["status"]) for i in "PQ"] == [("2027-03-10", "late +3"), ("2027-03-10", "late +3")]
+    assert (v["plan_finish"], v["finish"], v["summary"]["warning_count"]) == ("2027-03-05", "2027-03-10", 2)
 
 
 def test_marked_plan_stays_in_the_version_list(client, admin, session, sid):
