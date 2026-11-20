@@ -533,3 +533,43 @@ describe('fix round 1 · resume, new chat, separation, reset', () => {
     expect(useChat.getState().threads).toEqual({});
   });
 });
+
+describe('Task 25 · params.ask', () => {
+  const real = { send: useChat.getState().send, newChat: useChat.getState().newChat, openSession: useChat.getState().openSession };
+  const sendSpy = vi.fn();
+  const newChatSpy = vi.fn();
+  const openSessionSpy = vi.fn();
+  beforeEach(() => {
+    sendSpy.mockReset().mockResolvedValue(true);
+    newChatSpy.mockReset();
+    openSessionSpy.mockReset().mockResolvedValue(undefined);
+    useChat.setState({ send: sendSpy, newChat: newChatSpy, openSession: openSessionSpy });
+    placeWindow(480);
+  });
+  afterEach(() => useChat.setState(real));
+
+  test('ask param sends once in a new chat', async () => {
+    const params = { ask: '만회 계획을 만들어 줘' };
+    const view = render(<StrictMode><ChatAgain params={params} /></StrictMode>);
+    await waitFor(() => expect(sendSpy).toHaveBeenCalledTimes(1));
+    expect(sendSpy).toHaveBeenCalledWith('만회 계획을 만들어 줘');
+    expect(newChatSpy).toHaveBeenCalled();
+    view.rerender(<StrictMode><ChatAgain params={params} /></StrictMode>);
+    await act(async () => {});
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('ask with session opens that session first', async () => {
+    render(<ChatAgain params={{ session: '4', ask: '지연 영향을 알려 줘' }} />);
+    await waitFor(() => expect(openSessionSpy).toHaveBeenCalledWith(4));
+    await waitFor(() => expect(sendSpy).toHaveBeenCalledWith('지연 영향을 알려 줘'));
+    expect(newChatSpy).not.toHaveBeenCalled();
+    expect(openSessionSpy.mock.invocationCallOrder[0]).toBeLessThan(sendSpy.mock.invocationCallOrder[0]);
+  });
+
+  test('rejected ask leaves a notice', async () => {
+    sendSpy.mockResolvedValue(false);
+    render(<ChatAgain params={{ ask: 'x' }} />);
+    expect(await screen.findByText('앞의 요청이 끝난 뒤 다시 보내 주세요.')).toBeVisible();
+  });
+});

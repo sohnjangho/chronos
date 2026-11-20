@@ -117,7 +117,6 @@ test('dragging the corner resizes the window', async () => {
 });
 
 test('dock shows running programs and admin-only programs only to admins', async () => {
-  register(m('dev', { name: '개발 콘솔', adminOnly: true }));
   render(<Desktop />);
   expect(dockIcon('개발 콘솔')).toBeInTheDocument();
   await userEvent.click(dockIcon('스케줄'));

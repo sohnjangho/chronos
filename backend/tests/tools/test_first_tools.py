@@ -61,8 +61,8 @@ async def test_open_window_rejects_a_misspelled_field(ctx, events):
 
 # Task 16b: 일정판(schedule)은 스케줄·간트차트·CPM·공정률 프로그램으로 나뉘었다. 도구는 화면에 있는 프로그램만 연다.
 OPENABLE = [
-    "chat", "questionnaire", "workflow", "approvals", "explorer", "settings",
-    "schedule-table", "gantt", "cpm", "progress", "conditions",
+    "chat", "questionnaire", "workflow", "approvals", "explorer", "settings", "devconsole",
+    "schedule-table", "gantt", "cpm", "progress", "compare", "conditions", "delays",
 ]
 
 
@@ -70,7 +70,7 @@ def test_open_window_offers_the_screen_programs_by_id_and_name():
     spec = {t.name: t for t in list_tools()}["ui.open_window"]
     schema = spec.input_model.model_json_schema()
     assert schema["properties"]["program"]["enum"] == OPENABLE
-    for text in ("schedule-table(스케줄", "gantt(간트차트", "cpm(CPM", "progress(공정률"):
+    for text in ("schedule-table(스케줄", "gantt(간트차트", "cpm(CPM", "progress(공정률", "compare(비교판", "delays(지연 기록", "devconsole(개발 콘솔"):
         assert text in spec.description
     assert "일정판" not in spec.description
 

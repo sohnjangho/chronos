@@ -22,16 +22,42 @@ function useWide(windowId: string): boolean {
   return (outer * 100) / zoom >= WIDE_MIN;
 }
 
+export const ASK_REJECTED = '앞의 요청이 끝난 뒤 다시 보내 주세요.';
+
+/** 이미 보낸 ask 의 params 객체(StrictMode 가 효과를 두 번 불러도, 같은 params 로 다시 그려져도 한 번만 보낸다). */
+const asked = new WeakSet<object>();
+
+/** 보내기가 거절됐다는 안내를 지금 대화의 안내 줄에 둔다(이미 다른 안내가 있으면 그대로). */
+function noteRejected() {
+  useChat.setState((s) => {
+    const id = s.currentId;
+    if (id === null) return s.notice ? s : { notice: ASK_REJECTED };
+    const t = s.threads[id];
+    return !t || t.notice ? s : { threads: { ...s.threads, [id]: { ...t, notice: ASK_REJECTED } } };
+  });
+}
+
 /**
  * params: session(그 대화 열기) · resume_questionnaire(제출한 질문지로 이어 가기) · resume_approval(다시 짜기로
- * 거부한 승인 건으로 이어 가기) · compose(입력창에 미리 넣을 글, 보내지는 않는다 — Composer 가 읽는다).
+ * 거부한 승인 건으로 이어 가기) · compose(입력창에 미리 넣을 글, 보내지는 않는다 — Composer 가 읽는다) ·
+ * ask(보낼 글: session 이 있으면 그 대화를 열고, 없으면 새 대화에서 한 번 보낸다).
  * 열린 창에 새 params 가 오면(같은 값이어도) 다시 따른다.
  */
 function useFollowParams(params: ProgramProps['params']) {
   useEffect(() => {
     const session = Number(params?.session);
-    if (!Number.isInteger(session) || session <= 0) return;
     const chat = useChat.getState();
+    if (params?.ask && !asked.has(params)) {
+      asked.add(params);
+      const ask = params.ask;
+      void (async () => {
+        if (Number.isInteger(session) && session > 0) await chat.openSession(session);
+        else chat.newChat();
+        if (!(await useChat.getState().send(ask))) noteRejected();
+      })();
+      return;
+    }
+    if (!Number.isInteger(session) || session <= 0) return;
     const questionnaire = Number(params?.resume_questionnaire);
     const approval = Number(params?.resume_approval);
     if (questionnaire > 0) void chat.resume(session, { questionnaire_id: questionnaire });

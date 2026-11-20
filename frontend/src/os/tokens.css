@@ -68,6 +68,12 @@
   --tile-orange-to: #c2501a;
   --tile-fuchsia-from: #d68ae6;
   --tile-fuchsia-to: #9a35b5;
+  --tile-lime-from: #86c13f;
+  --tile-lime-to: #3f7a0c;
+  --tile-brown-from: #c49a6c;
+  --tile-brown-to: #7a4e2a;
+  --tile-graphite-from: #5f6672;
+  --tile-graphite-to: #20242c;
   --tile-slate-from: #8c98ae;
   --tile-slate-to: #4a5670;
 
@@ -150,6 +156,12 @@
   --tile-orange-to: #a8430f;
   --tile-fuchsia-from: #c97ddb;
   --tile-fuchsia-to: #82289a;
+  --tile-lime-from: #78b034;
+  --tile-lime-to: #346a08;
+  --tile-brown-from: #b58b5e;
+  --tile-brown-to: #6a4222;
+  --tile-graphite-from: #525966;
+  --tile-graphite-to: #181b21;
   --tile-slate-from: #7f8ba2;
   --tile-slate-to: #3c475e;
 }

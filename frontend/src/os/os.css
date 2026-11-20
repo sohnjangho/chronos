@@ -123,6 +123,9 @@ body {
 .os-tone-rose { --tile-from: var(--tile-rose-from); --tile-to: var(--tile-rose-to); }
 .os-tone-orange { --tile-from: var(--tile-orange-from); --tile-to: var(--tile-orange-to); }
 .os-tone-fuchsia { --tile-from: var(--tile-fuchsia-from); --tile-to: var(--tile-fuchsia-to); }
+.os-tone-lime { --tile-from: var(--tile-lime-from); --tile-to: var(--tile-lime-to); }
+.os-tone-brown { --tile-from: var(--tile-brown-from); --tile-to: var(--tile-brown-to); }
+.os-tone-graphite { --tile-from: var(--tile-graphite-from); --tile-to: var(--tile-graphite-to); }
 .os-tone-slate { --tile-from: var(--tile-slate-from); --tile-to: var(--tile-slate-to); }
 .os-mark {
   display: inline-flex;

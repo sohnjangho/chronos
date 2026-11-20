@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { getProgram, programs } from '../os/registry';
 import { registerPrograms } from './index';
 
-test('every plan-1 program is registered with its id, name, kind and size', () => {
+test('every program is registered with its id, name, kind and size', () => {
   registerPrograms();
   const rows = programs('user').map((p) => [p.id, p.name, p.kind, p.defaultSize.w, p.defaultSize.h]);
   expect(rows).toEqual([
@@ -18,7 +18,9 @@ test('every plan-1 program is registered with its id, name, kind and size', () =
     ['gantt', '간트차트', 'work', 1600, 900],
     ['cpm', 'CPM', 'work', 1600, 900],
     ['progress', '공정률', 'work', 1400, 860],
+    ['compare', '비교판', 'work', 1600, 900],
     ['conditions', '조건·규칙', 'work', 1400, 860],
+    ['delays', '지연 기록', 'work', 1400, 860],
   ]);
   expect(programs('user').filter((p) => p.badge === 'approvals').map((p) => p.id)).toEqual(['approvals']);
   expect(programs('user').some((p) => p.adminOnly)).toBe(false);
@@ -32,4 +34,22 @@ test('the schedule board is gone: its four tool programs each have their own ico
   const drawings = tools.map((p) => renderToStaticMarkup(p.icon as ReactElement));
   expect(new Set(drawings).size).toBe(4);
   expect(drawings.every((d) => d.startsWith('<svg'))).toBe(true);
+});
+
+test('devconsole is registered after settings and shows for admins only', () => {
+  registerPrograms();
+  const ids = (role: 'admin' | 'user') => programs(role).map((p) => p.id);
+  expect(ids('admin')).toEqual([
+    'chat', 'questionnaire', 'workflow', 'approvals', 'explorer', 'settings', 'devconsole',
+    'schedule-table', 'gantt', 'cpm', 'progress', 'compare', 'conditions', 'delays',
+  ]);
+  expect(ids('user')).not.toContain('devconsole');
+  const dev = getProgram('devconsole')!;
+  expect([dev.name, dev.kind, dev.adminOnly, dev.defaultSize]).toEqual(['개발 콘솔', 'system', true, { w: 1600, h: 900 }]);
+});
+
+test('every program has its own tile tone', () => {
+  registerPrograms();
+  const tones = programs('admin').map((p) => p.tone);
+  expect(new Set(tones).size).toBe(tones.length);
 });
