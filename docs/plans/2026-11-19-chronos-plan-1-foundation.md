@@ -297,7 +297,7 @@ def test_unknown_resource_id_is_ignored():
 - `store.versions.restore(session, schedule_id, n, *, by_name) -> int` — n번 내용을 새 버전으로 만든다(이력은 지우지 않음)
 - `to_json(schedule) -> dict`, `from_json(d) -> Schedule` (왕복 동일)
 - 계산 포함 응답 `ScheduleView`: `{id, name, domain, level, version, data_date, finish, plan_finish, wbs[], activities[{…Activity, plan_start, plan_finish, tf, ff, critical, status, weight}], relations[], resources[], summary{critical_count, negative_float_count, warning_count}}`
-  - `plan_start/plan_finish`: `is_plan` 버전의 계산값. `status`: `done`(actual_finish 있음) / `late +n` / `early -n` / `on_plan` — Plan과 Actual(없으면 현재 계산값)의 근무일 차이
+  - `plan_start/plan_finish`: 같은 버전을 실적·Data Date·기록한 지연의 시작 하한 없이 계산한 값(PM 11-20, Task 16c). `is_plan` 은 「처음 계획」 표시일 뿐이다. `status`: `done`(actual_finish 있음) / `late +n` / `early -n` / `on_plan` — Plan과 Actual(없으면 현재 계산값)의 근무일 차이
   - `weight`: 기간 비례(`od / Σod`)
 - API: `GET /api/schedules`, `GET /api/schedules/{id}`, `PATCH /api/schedules/{id}/activities/{aid}`, `POST /api/schedules/{id}/activities`, `DELETE …/activities/{aid}`, `PUT /api/schedules/{id}/activities/{aid}/predecessors` (본문 `[{pred,type,lag}]`), `GET /api/schedules/{id}/versions`, `POST /api/schedules/{id}/versions/{n}/restore`. 사용자가 직접 고친 것은 바로 새 버전(`by_kind='user'`). 요청 본문에 `base_version` 필수.
 - 고쳐서 계산이 깨지면(`ScheduleError`) `422 {"code":"schedule_invalid","message":"선후 관계가 고리를 이룹니다." …}` 저장하지 않음
