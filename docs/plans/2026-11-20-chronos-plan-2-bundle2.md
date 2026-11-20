@@ -1256,6 +1256,24 @@ assert progress_after["cpm"]["finish_variance"]["days"] <= progress_before["cpm"
 
 ---
 
+### Task 43: 창 움직임 효과 — 맥OS처럼 짧게 [opus] · 아무 때나(셸 파일만)
+
+**[PM 요청 11-20]** 프로그램 창이 열리고 닫히고, 최소화·최대화(전체 화면)될 때 맥OS처럼 짧은 움직임을 넣는다. 셸(`frontend/src/os/**`)만 고친다.
+
+**Files:** Modify `frontend/src/os/{Window.tsx,windowStore.ts,Dock.tsx,os.css}` (필요하면 `frontend/src/os/windowMotion.ts` 새로) + 그 시험
+
+**Produces / 규칙:**
+- **열기:** Dock 아이콘(또는 연 곳 — 앱 서랍·검색·다른 창의 요청이면 화면 가운데 아래)에서 창 자리로 커지며 나타남(scale 0.6→1, opacity 0→1, 원점 = 아이콘 쪽), 약 220ms, ease-out. 이미 열린 창을 앞으로 가져올 때는 움직임 없음.
+- **닫기:** 창 자리에서 살짝 작아지며 사라짐(scale 1→0.92, opacity 1→0), 약 160ms, ease-in. 움직임이 끝난 뒤 store 에서 지운다(그동안 클릭은 막음).
+- **최소화:** Dock 의 그 프로그램 아이콘 쪽으로 줄어들며 들어감(맥OS 「크기 조절」 효과 — 지니 효과는 하지 않는다), 약 260ms. 복귀는 거꾸로.
+- **최대화(전체 화면)·복귀:** 창 틀이 지금 자리에서 작업 영역 크기로 부드럽게 바뀜(위치·크기 transition), 약 200ms. 끌기·크기 조절 중에는 움직임 없음.
+- 모두 CSS transform/opacity 또는 Web Animations API 로(새 의존성 없음), 레이아웃을 흔들지 않게 transform 위주. 움직이는 동안에도 창 안의 프로그램은 다시 마운트되지 않는다.
+- `prefers-reduced-motion: reduce` 이면 움직임 없이 바로 바뀐다. 시험 환경(jsdom)에서는 움직임을 끄는 스위치로 기존 시험이 그대로 통과한다.
+- 성능: 창 10개가 열려 있어도 60fps 근처(transform 만), 움직임 중 Dock 확대와 겹쳐도 깨지지 않음.
+
+- [ ] **Step 1: 실패하는 시험** — 열기·닫기·최소화·최대화 때 움직임 class/animation 이 붙고, 끝난 뒤 store 상태가 맞음(닫기는 끝난 뒤 제거), 움직임 중 클릭 막힘, reduced-motion 에서 바로 바뀜, 이미 열린 창 앞으로는 움직임 없음.
+- [ ] **Step 2~5:** 실패 확인 → 구현 → 통과 확인 → FHD Chrome 에서 녹화 또는 연속 캡처로 확인 → 커밋 `feat: 창 움직임 효과`
+
 ### ◆ Checkpoint C — 실제 Liner 로 묶음 2 시연 흐름
 
 - [ ] 테일넷 주소로 띄우고 씨앗 `demo` 를 넣는다. 실제 Liner 연결로 처음부터 끝까지: 대화로 지연 말하기 → 영향 카드·지연 기록 → 만회 계획 요청 → 비교판에서 안 고르기 → 승인 → CPM·진행 탭이 바뀜. 걸린 시간·모델 호출 수·토큰·단축안 추천이 LLM 에서 왔는지(실패 시 코드 고름)를 일지에 적는다.
