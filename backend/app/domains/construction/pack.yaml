@@ -164,4 +164,4 @@ assumption_defaults:
   - key: legal_periods
     label: 인허가·법정 기간
     value: 근거 검색(legal)으로 확인한다
-    note: 착공신고·사용승인 같은 인허가 처리 기한, 법정 작업 금지·안전 규정은 근거 검색 mode legal 로 찾는다. 자재·장비 공급업체 납기는 business.
+    note: 착공신고·사용승인 같은 인허가 처리 기한, 법정 작업 금지·안전 규정은 근거 검색 mode legal 로 찾는다. 자재·장비 공급업체 납기는 business. 찾지 못하면 기간을 정하지 말고 사용자에게 묻거나 '확인 필요'로 남긴다(기본값 없음).

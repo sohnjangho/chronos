@@ -142,3 +142,16 @@ async def test_field_search_business_and_module_transport(session, monkeypatch):
 async def test_field_search_needs_a_liner_connection(session):
     with pytest.raises(search.SearchNotReady):
         await field_search(session, "q", "legal", transport=mock_json())
+
+
+async def test_field_search_time_limit_matches_web(session, monkeypatch):
+    add_connection(session)
+    seen = {}
+
+    async def fake_call(base_url, secret, name, arguments, *, timeout, transport):
+        seen["timeout"] = timeout
+        return []
+
+    monkeypatch.setattr(mcp_client, "call_tool", fake_call)
+    await field_search(session, "q", "legal")
+    assert seen["timeout"] == 20

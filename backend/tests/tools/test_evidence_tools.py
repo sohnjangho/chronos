@@ -23,7 +23,8 @@ from tests.llm_doubles import KEY, FakeLiner, add_connection
 from tests.search_doubles import hit, mock, mock_json, route, web_body
 
 LIMIT_MESSAGE = "이번 요청에서 근거 검색을 3번 했습니다. 찾은 근거나 분야 기본값을 쓰세요."
-FALLBACK = "근거 없이 분야 기본값을 쓰고 '근거 검색 실패'라고 적으세요."
+FALLBACK = ("근거 없이 분야 기본값을 쓰고 '근거 검색 실패'라고 적으세요. 분야 기본값이 없는 항목은 값을 지어내지 말고 "
+            "사용자에게 묻거나 '확인 필요'로 남기세요. 지어낸 값을 분야 기본값이라고 적지 마세요.")
 
 
 @pytest.fixture
@@ -138,7 +139,7 @@ async def test_failures_count_toward_the_limit(ctx_chat, session, liner_conn, mo
 async def test_failure_tells_the_agent_to_fall_back(ctx, events, session, liner_conn, monkeypatch):
     monkeypatch.setattr(search, "TRANSPORT", mock(402, {}))
     r = await call("evidence.search", {"query": "층당 골조 기간"}, ctx)
-    assert r.error.endswith("근거 없이 분야 기본값을 쓰고 '근거 검색 실패'라고 적으세요.")
+    assert r.error.endswith("지어낸 값을 분야 기본값이라고 적지 마세요.") and "'확인 필요'" in r.error
     assert r.error == f"Liner 크레딧이 부족합니다. {FALLBACK}"
     row = session.query(EvidenceSearch).one()
     assert (row.ok, row.error_code, row.result_count, row.query) == (False, "no_credit", 0, "층당 골조 기간")
@@ -354,6 +355,16 @@ async def test_fallback_web_failure_is_also_recorded(ctx, events, session, liner
     assert rows == [("business", False, "rate_limited"), ("web", False, "no_credit")] and events == []
 
 
+@pytest.mark.parametrize("status,message", [(401, "API 키가 맞지 않습니다."), (403, "API 키가 맞지 않습니다."),
+                                            (402, "Liner 크레딧이 부족합니다.")])
+async def test_account_errors_do_not_fall_back(ctx, events, session, liner_conn, monkeypatch, status, message):
+    mcp, web = mock_json(call=status), mock(200, web_body())
+    monkeypatch.setattr(search, "TRANSPORT", route(mcp, web))
+    r = await call("evidence.search", {"query": "q", "mode": "legal"}, ctx)
+    assert r.error == f"{message} {FALLBACK}" and web.requests == [] and events == []
+    assert [s.mode for s in session.query(EvidenceSearch)] == ["legal"]
+
+
 async def test_field_search_without_a_connection_does_not_fall_back(ctx, session):
     r = await call("evidence.search", {"query": "q", "mode": "legal"}, ctx)
     assert r.error == f"근거 검색에는 Liner 연결이 필요합니다. 설정에서 연결해 주세요. {FALLBACK}"
@@ -366,6 +377,7 @@ async def test_field_search_key_is_not_logged_or_returned(session, liner_conn, c
     monkeypatch.setattr(search, "TRANSPORT", route(mcp, web))
     r = await call("evidence.search", {"query": "q", "mode": "legal"}, ctx)
     assert not r.ok and mcp.requests[0].headers["authorization"] == f"Bearer {KEY}"
+    assert r.error == f"API 키가 맞지 않습니다. {FALLBACK}" and web.requests == []  # 같은 계정이라 대체하지 않는다
     assert KEY not in caplog.text and KEY not in json.dumps(dataclasses.asdict(r), ensure_ascii=False)
     assert all(KEY not in str(s.__dict__) for s in session.query(EvidenceSearch))
 
@@ -373,12 +385,15 @@ async def test_field_search_key_is_not_logged_or_returned(session, liner_conn, c
 def test_guide_says_which_mode_to_use():
     text = (context.GUIDES_DIR / "evidence.md").read_text(encoding="utf-8")
     for words in ("인허가", "법정 기간", "작업 금지", "안전 규정", "legal", "공급업체", "리드타임", "business",
-                  "scholar", "web", FIELD_FALLBACK):
+                  "scholar", "web", FIELD_FALLBACK, "'확인 필요'", "지어낸 값을 \"분야 기본값\"이라고 적지 않는다",
+                  "hostname", "law.go.kr", "국가법령정보센터", "관보", "블로그", "참고로만"):
         assert words in text, words
 
 
 def test_domain_packs_point_to_the_field_search():
     construction = {a.key: a for a in load("construction").assumption_defaults}
     assert "legal" in construction["legal_periods"].note and "인허가" in construction["legal_periods"].label
+    assert "찾지 못하면 기간을 정하지 말고 사용자에게 묻거나 '확인 필요'로 남긴다(기본값 없음)." in (
+        construction["legal_periods"].note)
     assert "근거 검색(legal)" in load("construction").prompt()
     assert "근거 검색(business)" in load("manufacturing").prompt()

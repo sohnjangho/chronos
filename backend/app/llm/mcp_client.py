@@ -42,7 +42,12 @@ def mcp_url(base_url: str) -> str:
 
 
 def _message(response: httpx.Response, request_id: int) -> dict:
-    """응답 본문의 JSON-RPC 메시지. SSE 면 이 요청 id 의 result·error 를 담은 `data:` 줄."""
+    """응답 본문의 JSON-RPC 메시지. SSE 면 이 요청 id 의 result·error 를 담은 `data:` 줄.
+
+    SSE 읽기의 한계: 본문 전체를 다 받은 뒤 읽는다(흘려 읽지 않음 — 시간 제한은 호출 전체에 걸려 있다).
+    한 사건의 `data:` 가 여러 줄로 나뉘면 잇지 않고 줄마다 따로 JSON 으로 읽는다(그런 사건은 버려진다).
+    11-20 실측에서 Liner 는 SSE 를 쓰지 않았다.
+    """
     if "text/event-stream" in response.headers.get("content-type", ""):
         for line in response.text.splitlines():
             if not line.startswith("data:"):
@@ -134,7 +139,7 @@ async def call_tool(base_url: str, secret: str, name: str, arguments: dict, *, t
 
 
 async def field_search(session: Session, query: str, mode: search.SearchMode, *, max_results: int = 5,
-                       timeout_s: float = 30, transport: httpx.AsyncBaseTransport | None = None) -> SearchResult:
+                       timeout_s: float = 20, transport: httpx.AsyncBaseTransport | None = None) -> SearchResult:
     """기본 Liner 연결로 분야 검색(legal·business)을 한 번 한다. 결과는 웹 검색과 같은 규칙으로 고른다.
 
     부를 수 없으면 SearchNotReady(보내지 않음), 보낸 뒤 실패하면 SearchFailed. 세션은 읽기만 한다.

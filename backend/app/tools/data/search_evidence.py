@@ -26,9 +26,12 @@ logger = logging.getLogger(__name__)
 
 LIMIT = 3
 LIMIT_MESSAGE = "이번 요청에서 근거 검색을 3번 했습니다. 찾은 근거나 분야 기본값을 쓰세요."
-FALLBACK = "근거 없이 분야 기본값을 쓰고 '근거 검색 실패'라고 적으세요."
+FALLBACK = ("근거 없이 분야 기본값을 쓰고 '근거 검색 실패'라고 적으세요. 분야 기본값이 없는 항목은 값을 지어내지 말고 "
+            "사용자에게 묻거나 '확인 필요'로 남기세요. 지어낸 값을 분야 기본값이라고 적지 마세요.")
 NOT_READY_CODE = "not_ready"
 FIELD_FALLBACK = "분야 검색 실패 → 웹 검색"
+# 키·크레딧 오류는 같은 계정의 웹 검색도 똑같이 실패하므로 대체하지 않는다.
+NO_FALLBACK_CODES = frozenset({"bad_key", "no_credit"})
 DESCRIPTION_MAX = 300  # 에이전트에게 보이는 요약 길이(표에는 받은 글 전체)
 
 
@@ -96,7 +99,8 @@ def _card(search_id: int, args: SearchIn, mode: str, results: list[HitOut], note
 
 
 class _Failed(Exception):
-    """한 번 찾기가 실패했다(실패 줄은 이미 남겼다). fallback = 웹으로 다시 해 볼 수 있는 실패인지."""
+    """한 번 찾기가 실패했다(실패 줄은 이미 남겼다). fallback = 웹으로 다시 해 볼 수 있는 실패인지
+    (보낸 뒤 실패했고 계정 오류가 아님)."""
 
     def __init__(self, message: str, fallback: bool) -> None:
         super().__init__(message)
@@ -111,9 +115,9 @@ async def _find(ctx: ToolContext, args: SearchIn, mode: search.SearchMode) -> se
             return await mcp_client.field_search(ctx.session, args.query, mode, max_results=args.max_results)
         return await search.liner_search(ctx.session, args.query, mode, max_results=args.max_results)
     except (search.SearchNotReady, search.SearchFailed) as e:
-        failed = isinstance(e, search.SearchFailed)
-        _record_failure(ctx, args, mode, e.code if failed else NOT_READY_CODE, int((time.perf_counter() - start) * 1000))
-        raise _Failed(e.message, fallback=failed) from None
+        code = e.code if isinstance(e, search.SearchFailed) else NOT_READY_CODE
+        _record_failure(ctx, args, mode, code, int((time.perf_counter() - start) * 1000))
+        raise _Failed(e.message, fallback=code not in NO_FALLBACK_CODES | {NOT_READY_CODE}) from None
 
 
 @tool(
@@ -121,7 +125,8 @@ async def _find(ctx: ToolContext, args: SearchIn, mode: search.SearchMode) -> se
     "분야 기준값(예: 철근콘크리트 층당 골조 기간)의 근거를 찾아 보관한다. mode: 인허가·법정 기간·작업 금지·안전 규정은 "
     "legal, 공급업체·자재·부품 리드타임은 business, 학술 기준은 scholar, 그 밖은 web. "
     "한 요청에 3번까지(실패 포함, 분야 검색 실패 뒤 웹으로 다시 한 것도 센다). 결과마다 evidence_id 가 있다: 그 값으로 정한 가정의 evidence_ids 에 넣고, "
-    "생성 뒤 evidence__attach 로 초안·조건에 붙인다. 실패하면 분야 기본값을 쓰고 '근거 검색 실패'라고 적는다.",
+    "생성 뒤 evidence__attach 로 초안·조건에 붙인다. 실패하면 분야 기본값을 쓰고 '근거 검색 실패'라고 적는다 — "
+    "분야 기본값이 없는 항목은 지어내지 말고 사용자에게 묻거나 '확인 필요'로 남긴다.",
     mutates=True,
 )
 async def search_evidence(args: SearchIn, ctx: ToolContext) -> SearchOut:
