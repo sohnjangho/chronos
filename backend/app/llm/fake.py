@@ -2,6 +2,8 @@
 
 환경 변수 CHRONOS_FAKE_LLM 이 정확히 "1" 일 때만 `LlmClient` 의 기본 transport 가 된다(기본은 꺼짐).
 꺼져 있으면 `transport()` 가 RuntimeError 를 내므로 가짜를 만들 수조차 없다. PM 앱에는 켜지 않는다.
+**바꾸는 것은 `LlmClient` 의 Chat Completions 뿐이다.** 근거 검색(search.py)·MCP(mcp_client.py)·연결 시험(llm_settings)·
+Liner 시각화(visualization.py)는 따로 부르므로, 불리면 그대로 밖(Liner)으로 나간다.
 
 대본(화면 끝에서 끝까지 시험 `frontend/e2e/demo.spec.ts` 의 범위만):
 - 도구 호출이 아직 없는 대화의 첫 요청이고 ask.questionnaire 도구를 받았으면 → 일정 질문지(질문 셋)를 연다.

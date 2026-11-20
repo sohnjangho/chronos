@@ -22,7 +22,7 @@ const noCrossProgramImports = (depth) => ({
 });
 
 export default defineConfig(
-  { ignores: ['dist'] },
+  { ignores: ['dist', '.playwright-browsers'] }, // .playwright-browsers: e2e 크로미움(scripts/e2e-local.sh)
   js.configs.recommended,
   tseslint.configs.recommended,
   {

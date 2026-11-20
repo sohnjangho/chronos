@@ -14,6 +14,7 @@ import pytest
 import app.tools.generate as generate_pkg
 from app.agent import loop
 from app.llm.client import LlmClient
+from app.tools.registry import to_llm_name
 from tests.gen_doubles import START_FACT, WBS_OK, act, input_condition, sched
 from tests.gen_doubles import reply as json_reply
 from tests.llm_doubles import add_connection
@@ -116,9 +117,22 @@ def _ask_and_answer(client, h, liner) -> int:
     events = _send(client, h, chat_id, questionnaire_id=qid)
     card = next(d for name, d in events if name == "card" and d.get("kind") == "generation_result")
     assert (card["ok"], card["draft_id"], card["finish"]) == (True, 1, FINISH_V1)
-    run_out = json.loads(liner.bodies[7]["messages"][-1]["content"])  # generate.run 결과를 받은 루프 요청
+    run_out = _tool_result(liner, "generate.run")
     assert [r["violations"] for r in run_out["rounds"]] == [1, 1, 0]  # 3회차 통과
     return next(d["id"] for name, d in events if name == "approval")
+
+
+def _tool_result(liner: ScriptedLlm, name: str) -> dict:
+    """루프가 LLM 에 돌려준 도구 결과(그 도구를 부른 호출 id 의 tool 메시지)."""
+    wire = to_llm_name(name)
+    for body in liner.bodies:
+        waiting: set[str] = set()  # 호출 id 는 턴마다 겹칠 수 있어 차례대로 본다
+        for m in body["messages"]:
+            if m["role"] == "tool" and m.get("tool_call_id") in waiting:
+                return json.loads(m["content"])
+            if m["role"] == "assistant":
+                waiting = {c["id"] for c in m.get("tool_calls") or [] if c["function"]["name"] == wire}
+    raise AssertionError(f"{name} 결과를 받은 요청이 없습니다")
 
 
 def _approve(client, h, approval_id: int) -> dict:
@@ -151,4 +165,5 @@ def test_generate_then_change_conditions_then_restore(client, liner):
     versions = _ok(client.get(f"/api/schedules/{sid}/versions", headers=h))
     assert view_after_restore["version"] == 3
     assert [v["n"] for v in versions] == [3, 2, 1] and versions[-1]["is_plan"] is True
+    assert [v["is_plan"] for v in versions] == [False, False, True]  # 「처음 계획」 표시는 버전 1 에만
     assert view_after_restore["finish"] == view_v1["finish"]

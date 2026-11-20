@@ -19,7 +19,7 @@
 | **대화로 일정 만들기 → 질문지** | **바탕화면 · 주의할 일정** |
 | ![질문지](docs/demo/shots/07-대화-질문지.png) | ![바탕화면](docs/demo/shots/02-바탕화면.png) |
 
-화면은 `bash scripts/e2e-local.sh`(아래 「시험」)가 1920×1080 으로 찍어 `docs/demo/shots/` 에 둔다. 예시 일정 「5층 사무동 신축」은 가상이다.
+화면은 `bash scripts/e2e-local.sh`(아래 「시험」)가 1920×1080 으로 찍었다(`E2E_SHOTS_DIR` 로 `docs/demo/shots/` 를 줄 때). 예시 일정 「5층 사무동 신축」은 가상이다.
 
 ## 구조
 
@@ -94,11 +94,19 @@ Docker 로도 띄울 수 있다(선택): `.env` 를 만든 뒤 `docker compose u
 
 ```bash
 bash scripts/check-local.sh   # 비밀 검사 · 줄 수 · ruff · pytest · eslint · tsc · vitest · vite build
-bash scripts/e2e-local.sh     # 끝에서 끝까지(Playwright, 1920×1080) — 처음 한 번: cd frontend && npx playwright install chromium
+bash scripts/e2e-local.sh     # 끝에서 끝까지(Playwright, 1920×1080)
 ```
 
+처음 한 번 크로미움을 `frontend/.playwright-browsers` 에만 받는다(맥 전체 캐시를 건드리지 않음 — 스크립트도 같은 자리를 쓴다):
+
+```bash
+cd frontend && PLAYWRIGHT_BROWSERS_PATH="$PWD/.playwright-browsers" PLAYWRIGHT_SKIP_BROWSER_GC=1 npx playwright install chromium
+```
+
+단계 화면은 기본으로 임시 폴더에 찍힌다. 위의 캡처를 다시 찍을 때만 `E2E_SHOTS_DIR="$PWD/docs/demo/shots" bash scripts/e2e-local.sh`.
+
 - 서버 끝에서 끝까지(`backend/tests/e2e/test_generate_flow.py`): 대화 → 질문지 → 생성(3회차 통과) → 승인 → 조건 미리 보기(크레인 2대) → 확정·승인 → 버전 1로 되돌리기. LLM 은 대본 가짜(`ScriptedLlm`).
-- 화면 끝에서 끝까지(`frontend/e2e/demo.spec.ts`): `e2e-local.sh` 가 임시 폴더에 예시 일정을 넣고, 서버를 `CHRONOS_FAKE_LLM=1`(시험·시연 전용 가짜 Liner, `backend/app/llm/fake.py`)로 8310·5700 포트에 띄워 돈다. Liner 를 부르지 않고 `data/` 를 건드리지 않는다.
+- 화면 끝에서 끝까지(`frontend/e2e/demo.spec.ts`): `e2e-local.sh` 가 임시 폴더에 예시 일정을 넣고, 서버를 `CHRONOS_FAKE_LLM=1`(시험·시연 전용 가짜 Liner, `backend/app/llm/fake.py`)로 8310·5700 포트에 띄워 돈다. 이 시험의 흐름은 Liner 를 부르지 않고 `data/` 를 건드리지 않는다. 가짜는 Chat Completions(`LlmClient`)만 바꾼다 — 근거 검색·MCP·연결 시험·시각화는 불리면 그대로 Liner 로 나간다.
 
 ## 문서
 

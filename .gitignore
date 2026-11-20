@@ -28,3 +28,6 @@ dist/
 
 # 작업 진행 기록(커밋하지 않음)
 .superpowers/
+
+# Playwright 브라우저(scripts/e2e-local.sh 가 frontend 안에만 설치)
+frontend/.playwright-browsers/

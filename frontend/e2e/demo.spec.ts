@@ -3,15 +3,19 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 // 화면 끝에서 끝까지(1920×1080): 로그인 → Dock 에서 간트차트 → 막대와 크리티컬 색 → 조건·규칙에서 크레인 2 →
 // 미리 보기 문구와 간트 점선 막대 → 되돌리기 → 대화창에서 생성 요청 → 질문지 열림.
 // 자료: 씨앗 일정 「5층 사무동 신축」(python -m app.seed demo), LLM: 서버의 CHRONOS_FAKE_LLM=1(가짜 Liner).
-// 단계마다 화면을 docs/demo/shots/ 에 저장한다. 실행은 bash scripts/e2e-local.sh.
+// 단계 화면은 E2E_SHOTS_DIR 에 저장한다. 없으면 이 시험의 결과 폴더(임시) — 커밋한 docs/demo/shots/ 는
+// E2E_SHOTS_DIR 로 그 폴더를 줄 때만 바뀐다. 실행은 bash scripts/e2e-local.sh.
 
 const LOGIN_ID = process.env.E2E_LOGIN_ID ?? 'demo-admin';
 const PASSWORD = process.env.E2E_PASSWORD ?? 'demo-pass-e2e';
 const SCHEDULE = '5층 사무동 신축';
 const REQUEST = '5층 사무동 공정표 만들어 줘. 착공은 2027년 3월 2일이야.';
+// 화면 시계를 고정한다(메뉴바 시각이 매번 같게). 대회 기간의 한 날 — 씨앗 일정(2027) 앞이라 간트에 「오늘」 선이
+// 들어오지 않는다(Data Date 선과 겹치지 않게).
+const NOW = new Date('2026-11-20T09:00:00+09:00');
 
 async function shot(page: Page, name: string) {
-  const dir = `${test.info().project.testDir}/../../docs/demo/shots`;
+  const dir = process.env.E2E_SHOTS_DIR || test.info().outputPath('shots');
   await page.screenshot({ path: `${dir}/${name}.png` });
 }
 
@@ -41,6 +45,7 @@ async function scrollUntil(gantt: Locator, found: Locator) {
 }
 
 async function login(page: Page) {
+  await page.clock.setFixedTime(NOW);
   await page.goto('/');
   await page.getByLabel('아이디').fill(LOGIN_ID);
   await page.getByLabel('비밀번호').fill(PASSWORD);

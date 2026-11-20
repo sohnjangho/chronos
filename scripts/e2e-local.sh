@@ -4,12 +4,18 @@
 # - 임시 자료 폴더(mktemp)에 씨앗 일정(python -m app.seed demo)을 넣고, 가짜 LLM(CHRONOS_FAKE_LLM=1)으로
 #   백엔드를 띄운다. Liner 를 부르지 않는다. ~/projects/chronos/data 와 PM 앱(8210/5600)은 건드리지 않는다.
 # - 포트: 백엔드 E2E_API_PORT(기본 8310), 화면 E2E_WEB_PORT(기본 5700).
-# - 단계 화면은 docs/demo/shots/ 에 저장된다. 끝나면 서버를 끄고 임시 폴더를 지운다.
-# 준비: backend/.venv, frontend/node_modules, 크로미움(cd frontend && npx playwright install chromium).
+# - 단계 화면은 E2E_SHOTS_DIR(없으면 새 임시 폴더, 끝에 경로를 알림)에 저장된다. 커밋한 화면을 다시 찍을 때만
+#   E2E_SHOTS_DIR="$PWD/docs/demo/shots" 를 준다. 끝나면 서버를 끄고 자료 임시 폴더를 지운다.
+# - 브라우저는 frontend/.playwright-browsers 에만 둔다(맥 전체 캐시 ~/Library/Caches/ms-playwright 를 건드리지 않음).
+# 준비: backend/.venv, frontend/node_modules, 크로미움 한 번:
+#   cd frontend && PLAYWRIGHT_BROWSERS_PATH="$PWD/.playwright-browsers" PLAYWRIGHT_SKIP_BROWSER_GC=1 npx playwright install chromium
 # 쓰는 법: bash scripts/e2e-local.sh [playwright test 인자…]
 set -euo pipefail
+CALLER_PWD="$(pwd)"
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
+export PLAYWRIGHT_BROWSERS_PATH="${ROOT}/frontend/.playwright-browsers"
+export PLAYWRIGHT_SKIP_BROWSER_GC=1
 PY="${ROOT}/backend/.venv/bin/python"
 API_PORT="${E2E_API_PORT:-8310}"
 WEB_PORT="${E2E_WEB_PORT:-5700}"
@@ -95,9 +101,16 @@ if ! grep -q "CHRONOS_FAKE_LLM=1" "${WORK}/backend.log"; then
 fi
 echo "    가짜 LLM 경고 확인: $(grep -m1 "CHRONOS_FAKE_LLM=1" "${WORK}/backend.log")"
 
+SHOTS="${E2E_SHOTS_DIR:-}"
+if [ -z "${SHOTS}" ]; then
+  SHOTS="$(mktemp -d "${TMPDIR:-/tmp}"/chronos-e2e-shots.XXXXXX)"
+elif [ "${SHOTS#/}" = "${SHOTS}" ]; then
+  SHOTS="${CALLER_PWD}/${SHOTS}"  # 상대 경로는 부른 곳 기준
+fi
+
 echo "==> Playwright (1920×1080)"
 cd "${ROOT}/frontend"
-E2E_BASE_URL="http://127.0.0.1:${WEB_PORT}" E2E_LOGIN_ID="${CHRONOS_ADMIN_ID}" \
+E2E_SHOTS_DIR="${SHOTS}" E2E_BASE_URL="http://127.0.0.1:${WEB_PORT}" E2E_LOGIN_ID="${CHRONOS_ADMIN_ID}" \
   E2E_PASSWORD="${CHRONOS_ADMIN_PASSWORD}" E2E_OUTPUT_DIR="${WORK}/playwright" \
   npx playwright test "$@"
-echo "끝에서 끝까지 시험 통과 — 화면: docs/demo/shots/"
+echo "끝에서 끝까지 시험 통과 — 화면: ${SHOTS}"
