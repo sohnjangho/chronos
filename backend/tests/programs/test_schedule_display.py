@@ -22,8 +22,9 @@ def test_view_carries_domain_display(client, admin, sid_manufacturing):
 
 
 def test_construction_display_comes_from_its_pack(client, admin, sid):
+    """기한 세로선 이름은 「준공 기한」(계산한 준공일로 읽히지 않게)."""
     assert client.get(f"/api/schedules/{sid}", headers=admin).json()["display"] == {
-        "gantt_group_by": "wbs", "deadline_label": "준공", "extra_columns": []}
+        "gantt_group_by": "wbs", "deadline_label": "준공 기한", "extra_columns": []}
 
 
 def test_unknown_domain_gets_the_default_display(client, admin, session):

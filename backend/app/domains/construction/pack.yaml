@@ -25,7 +25,7 @@ default_calendar:
   holidays: KR
 
 # 일정판 표시 설정
-display: {gantt_group_by: wbs, deadline_label: 준공, extra_columns: []}
+display: {gantt_group_by: wbs, deadline_label: 준공 기한, extra_columns: []}
 
 # 분야 규칙(하네스 ② 겹). 모양은 app/harness/conditions.Condition 과 같다.
 rules:

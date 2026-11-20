@@ -373,3 +373,11 @@ describe('분야 표시 설정', () => {
     expect(screen.queryByRole('columnheader', { name: '주요 자원' })).toBeNull();
   });
 });
+
+// Task 40 리뷰: WBS 깊이 들여쓰기가 ID 글을 밀어 「M…」로 잘리지 않게, 들여쓰기는 이름 칸에 둔다.
+test('the ID cell is never indented; the WBS depth shows on the name cell', async () => {
+  await renderSchedule();
+  expect(cell('A2020', 'ID').style.paddingLeft).toBe('');
+  expect(cell('A2020', 'ID')).toHaveTextContent('A2020');
+  expect(cell('A2020', '이름').style.paddingLeft).toBe('24px'); // 8 + 깊이 1 × 16
+});

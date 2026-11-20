@@ -16,7 +16,7 @@ import { exportImage } from './exportSheet';
 import GanttToolbar from './GanttToolbar';
 import LeftGrid from './LeftGrid';
 import { useConditionMarks } from './marks';
-import { cellTexts, planOf, previewGhosts, rangeOf, rowIndex, todayIso, vmarks } from './model';
+import { cellTexts, deadlineLabel, planOf, previewGhosts, rangeOf, rowIndex, todayIso, vmarks } from './model';
 import ResourceStrip from './ResourceStrip';
 import { useDrag } from './useDrag';
 import { useEditing, useGanttColumns, useLayersAndRows, useReveal } from './useGanttState';
@@ -150,7 +150,7 @@ export default function GanttTab() {
           g.groupByWith(by);
           vp.nav.top();
         }}
-        visible={cols.visible} onVisible={cols.change} hasSelection={!!selected} hasDataDate={!!view.data_date}
+        visible={cols.visible} onVisible={cols.change} deadlineLabel={deadlineLabel(view)} hasSelection={!!selected} hasDataDate={!!view.data_date}
         onZoom={vp.nav.zoom} onFit={vp.nav.fit} onExpandAll={g.expandAll} onCollapseAll={g.collapseAll} onPage={vp.nav.page}
         {...act}
       />

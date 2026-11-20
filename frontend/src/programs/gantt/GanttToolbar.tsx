@@ -26,6 +26,8 @@ export interface ToolbarProps {
   onCollapseAll(): void;
   onCsv(): void;
   onImage(): void;
+  /** 기한 세로선 이름(분야 표시 설정, 예: 납기·준공 기한). 범례가 같은 말을 쓴다. */
+  deadlineLabel: string;
 }
 
 const LAYERS: { key: keyof Layers; label: string; swatch: string }[] = [
@@ -78,7 +80,7 @@ const LEGEND: [string, string][] = [
   ['is-forecast', '예측 — 옅은 점선 막대: 실적이 끝난 곳(시작 전이면 시작)부터 지금 계산의 종료(EF)까지. 지연은 예측 막대가 Plan 막대보다 길어져 보입니다'],
   ['is-cpm', '크리티컬(CPM 층) — 예측 막대를 빨강으로(지금 계산에서 여유 0 이하). 관계선도 아래 칸을 이으며 두 끝이 모두 크리티컬이면 빨강'],
   ['is-float', '여유 꼬리(CPM 층) — 예측 막대 끝(EF)에서 LF(늦은 종료)까지 아래 칸 밑의 회색 줄'],
-  ['is-ms', '마일스톤 ◆(위 칸 Plan · 아래 칸 실적이나 예측) · 기한 ◇(마일스톤 기한 조건) · 준공 기한 빨간 점선(finish_by 조건)'],
+  ['is-ms', '마일스톤 ◆(위 칸 Plan · 아래 칸 실적이나 예측) · 기한 ◇(마일스톤 기한 조건) · {deadline} 빨간 점선(finish_by 조건)'],
   ['is-data', 'Data Date 주황 세로선 · 오늘 파란 세로선'],
   ['is-weekend', '쉬는 날 — 근무 달력(주 5일 토·일, 주 6일 일요일) 음영. 공휴일은 일정 자료에 없어 그리지 않는다'],
   ['is-blocked', '작업 금지 기간 — 빨간 빗금 띠와 위 이름표 「<꼬리표> 작업 금지」(조건의 금지 기간). 그 꼬리표를 단 줄은 더 진하게'],
@@ -86,13 +88,13 @@ const LEGEND: [string, string][] = [
   ['is-lane', '자원 줄 — 그 자원을 쓰는 액티비티 기간(겹치면 진함). 날마다 필요량·용량 넘침은 서버가 계산해 주면 그린다(다음 묶음)'],
 ];
 
-function Legend() {
+function Legend({ deadline }: { deadline: string }) {
   return (
     <ul className="sch-pop-body gt-legend">
       {LEGEND.map(([cls, text]) => (
         <li key={cls}>
           <span className={`gt-swatch ${cls}`} aria-hidden="true" />
-          {text}
+          {text.replace('{deadline}', deadline)}
         </li>
       ))}
     </ul>
@@ -132,7 +134,7 @@ export default function GanttToolbar(p: ToolbarProps) {
         {() => <ColumnPanel visible={p.visible} onVisible={p.onVisible} />}
       </Popover>
       <Popover button="범례" label="범례" align="right">
-        {() => <Legend />}
+        {() => <Legend deadline={p.deadlineLabel} />}
       </Popover>
       <History />
       <Button onClick={p.onCsv}>CSV 내보내기</Button>

@@ -69,3 +69,9 @@ test('deadline label follows the domain', async () => {
   expect(await screen.findByText(/납기 09\.10/)).toBeVisible();
   expect(screen.queryByText(/기한 09\.10/)).toBeNull();
 });
+
+test('the legend names the deadline line the way the domain does', async () => {
+  await renderGantt();
+  await userEvent.click(tool('범례'));
+  expect(screen.getByRole('dialog', { name: '범례' })).toHaveTextContent('납기 빨간 점선(finish_by 조건)');
+});

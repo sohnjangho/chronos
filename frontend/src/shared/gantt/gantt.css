@@ -17,7 +17,6 @@
 .gantt-band.is-selected { fill: var(--bg-selected); }
 .gantt-row-line { stroke: var(--bg-app); stroke-width: 1; }
 .gantt-weekend { fill: var(--bg-app); opacity: 0.7; pointer-events: none; }
-.gantt-blocked { fill: var(--danger); opacity: 0.08; }
 .gantt-float { fill: var(--fg-muted); opacity: 0.7; }
 
 /* 위 칸 Plan · 아래 칸 Actual(진하게)·예측(옅게 + 점선 테두리). CPM 층의 크리티컬 빨강은 예측에만. */

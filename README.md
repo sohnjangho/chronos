@@ -78,7 +78,8 @@ cp .env.example .env
 set -a; source .env; set +a
 export CHRONOS_DATA_DIR="$PWD/data"
 
-# 4) (선택) 가상 예시 일정 넣기 — 여러 번 돌려도 같다(같은 이름의 일정만 지우고 다시 만든다)
+# 4) (선택) 가상 예시 일정 둘 넣기 — 「5층 사무동 신축」(건설)·「가상 부품 공장 — 브래킷 BR-200 2만 개」(생산).
+#    여러 번 돌려도 같다(같은 이름의 일정만 지우고 다시 만든다)
 (cd backend && .venv/bin/python -m app.seed demo)
 
 # 5) 서버(8210)와 화면(5600)

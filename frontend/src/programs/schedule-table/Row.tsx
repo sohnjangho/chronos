@@ -6,6 +6,8 @@ import { pinClass, type CellCtx, type ColKey, type ColumnDef } from '../../share
 import type { GridRow } from '../../shared/schedule/rows';
 
 const indent = (depth: number) => ({ paddingLeft: 10 + depth * 16 });
+/** 액티비티 줄의 WBS 깊이는 이름 칸에 들여 쓴다(ID 칸에 들이면 깊은 줄의 ID 가 「M…」로 잘린다). */
+const nameIndent = (depth: number) => ({ paddingLeft: 8 + depth * 16 });
 
 /** 누른 칸(없으면 지금 칸, 그것도 없으면 이름). */
 const colOf = (target: EventTarget, fallback: ColKey | null): ColKey =>
@@ -80,7 +82,7 @@ function Row(p: RowProps) {
           <td
             key={col.key}
             className={classes.filter(Boolean).join(' ') || undefined}
-            style={col.key === 'id' ? indent(p.depth) : undefined}
+            style={col.key === 'name' ? nameIndent(p.depth) : undefined}
             data-col={col.key}
             title={!editing && text ? text : undefined}
           >

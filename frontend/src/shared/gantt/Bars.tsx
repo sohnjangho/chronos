@@ -116,15 +116,6 @@ export function FloatTail({ id, x, w, y, title }: { id: string; x: number; w: nu
   );
 }
 
-/** 작업 금지 기간 음영(전체 높이). */
-export function Blocked({ tag, x, w, h, title }: { tag: string; x: number; w: number; h: number; title: string }) {
-  return (
-    <rect className="gantt-blocked" data-blocked={tag} x={x} y={0} width={w} height={h}>
-      <title>{title}</title>
-    </rect>
-  );
-}
-
 /** 점선 막대(미리 보기 이전 자리·끌기 중 새 자리). lane: 어느 칸(Plan·Actual·예측)에. */
 export function Ghost({ x, w, y, lane = 'plan', ...rest }: { x: number; w: number; y: number; lane?: Lane } & Omit<SVGProps<SVGRectElement>, 'x' | 'y'>) {
   return <rect className="gantt-ghost" x={x} y={y + LANE_Y[lane]} width={Math.max(w, 2)} height={BAR_H} rx={2} {...rest} />;
