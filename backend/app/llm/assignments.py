@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.store.tables import LlmAssignment, LlmConnection
 
-Purpose = Literal["light", "normal", "hard", "longdoc"]
+Purpose = Literal["light", "normal", "hard", "longdoc", "vision", "embedding"]
 
 # 쓰임새별 기본 배정: (모델, 라우팅 전략). 기본 연결을 가리킨다.
 DEFAULT_ASSIGNMENTS: dict[str, tuple[str, str | None]] = {
@@ -19,7 +19,11 @@ DEFAULT_ASSIGNMENTS: dict[str, tuple[str, str | None]] = {
     "normal": ("liner-claude-router", "balanced"),
     "hard": ("liner-claude-router", "quality"),
     "longdoc": ("liner-mark", None),
+    "vision": ("liner-claude-router", "balanced"),  # 그림 읽기(계획 3)
+    "embedding": ("openai/text-embedding-3-small", None),  # 임베딩(계획 3)
 }
+# 설정 화면 「작업별 모델 배정」 표에 나오는 쓰임새. vision·embedding 줄은 Task 52 가 표(API·화면)에 더한다.
+TABLE_PURPOSES = ("light", "normal", "hard", "longdoc")
 
 
 @dataclass(frozen=True)
@@ -34,25 +38,24 @@ def default_connection(session: Session) -> LlmConnection | None:
     return session.scalar(select(LlmConnection).where(LlmConnection.is_default))
 
 
+def _resolve(stored: dict[str, LlmAssignment], default: LlmConnection | None, purpose: str) -> Assignment:
+    found = stored.get(purpose)
+    if found is not None:
+        return Assignment(purpose, found.connection_id, found.model, found.routing_strategy)
+    model, strategy = DEFAULT_ASSIGNMENTS[purpose]
+    return Assignment(purpose, default.id if default else None, model, strategy)
+
+
 def resolve_all(session: Session) -> list[Assignment]:
-    """네 쓰임새 모두(light·normal·hard·longdoc 순)."""
+    """배정 표의 네 쓰임새(light·normal·hard·longdoc 순, TABLE_PURPOSES)."""
     stored = {a.purpose: a for a in session.scalars(select(LlmAssignment))}
     default = default_connection(session)
-    items = []
-    for purpose, (model, strategy) in DEFAULT_ASSIGNMENTS.items():
-        found = stored.get(purpose)
-        if found is not None:
-            items.append(
-                Assignment(purpose, found.connection_id, found.model, found.routing_strategy)
-            )
-        else:
-            items.append(Assignment(purpose, default.id if default else None, model, strategy))
-    return items
+    return [_resolve(stored, default, purpose) for purpose in TABLE_PURPOSES]
 
 
 def resolve(session: Session, purpose: str) -> Assignment:
-    """한 쓰임새의 배정. 없는 쓰임새면 KeyError."""
-    for item in resolve_all(session):
-        if item.purpose == purpose:
-            return item
-    raise KeyError(purpose)
+    """한 쓰임새의 배정(vision·embedding 포함). 없는 쓰임새면 KeyError."""
+    if purpose not in DEFAULT_ASSIGNMENTS:
+        raise KeyError(purpose)
+    found = session.get(LlmAssignment, purpose)
+    return _resolve({purpose: found} if found else {}, default_connection(session), purpose)

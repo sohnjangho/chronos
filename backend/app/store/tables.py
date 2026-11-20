@@ -2,7 +2,7 @@
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import JSON, ForeignKey, String, Text
+from sqlalchemy import DDL, JSON, ForeignKey, String, Text, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -220,6 +220,10 @@ class ChatSession(Base):
     title: Mapped[str] = mapped_column(String(100), default="")
     schedule_id: Mapped[int | None] = mapped_column(default=None)  # 대화가 다루는 일정 (FK 아님)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    # 계획 3. 이 대화에만 고른 모델(없으면 설정의 normal 배정). 연결 id 는 FK 아님
+    model_connection_id: Mapped[int | None] = mapped_column(default=None)
+    model_name: Mapped[str | None] = mapped_column(String(200), default=None)
+    model_routing: Mapped[str | None] = mapped_column(String(10), default=None)  # cost|balanced|quality
 
 
 class ChatMessage(Base):
@@ -443,3 +447,111 @@ class Visual(Base):
     latency_ms: Mapped[int | None] = mapped_column(default=None)
     created_by: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+# ── 계획 3: 첨부·자료함·정보 API (FK 없음) ──────────────────────────
+
+
+class FileRow(Base):
+    """받은 파일 하나. 같은 내용(sha256)은 한 줄만 둔다. 원본은 data/files/<sha[:2]>/<sha>. 모양은 app/store/files.py.
+
+    kind: image|table|sheet|pdf|doc|text. status: received → extracted → indexed → classified, 실패면 failed.
+    reason: 실패나 주의(스캔 문서)의 한국어 까닭. deleted_at 이 있으면 숨김(검색·목록에서 뺀다).
+    """
+
+    __tablename__ = "files"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64), unique=True)
+    name: Mapped[str] = mapped_column(String(255))
+    ext: Mapped[str] = mapped_column(String(10))
+    kind: Mapped[str] = mapped_column(String(10))
+    size: Mapped[int]
+    status: Mapped[str] = mapped_column(String(10), default="received")
+    reason: Mapped[str | None] = mapped_column(String(200), default=None)
+    uploaded_by: Mapped[int]  # 올린 사용자 id (FK 아님)
+    uploaded_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    pages: Mapped[int | None] = mapped_column(default=None)  # PDF 쪽 수 · 엑셀 시트 수
+    summary: Mapped[str] = mapped_column(Text, default="")  # 한 줄 요약(분류 단계, Task 49)
+    deleted_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+class FileChunk(Base):
+    """파일 글 조각 하나. locator 는 출처 위치(「3쪽」·「공정표 행 1–20」·「본문」). 낱말 검색은 file_chunks_fts."""
+
+    __tablename__ = "file_chunks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    file_id: Mapped[int] = mapped_column(index=True)
+    seq: Mapped[int]  # 파일 안 차례(0부터)
+    locator: Mapped[str] = mapped_column(String(100))
+    text: Mapped[str] = mapped_column(Text)
+
+
+class FileAxis(Base):
+    """파일의 분류 값 하나(축 종류·공종·현장·시기·출처)."""
+
+    __tablename__ = "file_axes"
+
+    file_id: Mapped[int] = mapped_column(primary_key=True)
+    axis: Mapped[str] = mapped_column(String(20), primary_key=True)
+    value: Mapped[str] = mapped_column(String(100), primary_key=True)
+
+
+class AxisValue(Base):
+    """축마다 지금 있는 값. is_new 면 자료함에 「새」 표시."""
+
+    __tablename__ = "axis_values"
+
+    axis: Mapped[str] = mapped_column(String(20), primary_key=True)
+    value: Mapped[str] = mapped_column(String(100), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    is_new: Mapped[bool] = mapped_column(default=True)
+
+
+class ChatSessionFile(Base):
+    """대화에 붙인 파일."""
+
+    __tablename__ = "chat_session_files"
+
+    session_id: Mapped[int] = mapped_column(primary_key=True)
+    file_id: Mapped[int] = mapped_column(primary_key=True)
+    attached_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
+class InfoConnection(Base):
+    """정보 API 연결(첫 프리셋 kma_datagokr). 키는 암호문과 끝 4자리만 둔다."""
+
+    __tablename__ = "info_connections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    preset: Mapped[str] = mapped_column(String(30))
+    base_url: Mapped[str] = mapped_column(String(500))
+    secret_ciphertext: Mapped[str] = mapped_column(Text)
+    secret_last4: Mapped[str] = mapped_column(String(4))
+    status: Mapped[str] = mapped_column(String(10), default="unknown")  # 'ok' | 'failed' | 'unknown'
+    checked_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+class ReindexJob(Base):
+    """임베딩 모델을 바꿀 때 모든 조각을 새 컬렉션에 다시 넣는 작업. status: running|done|failed."""
+
+    __tablename__ = "reindex_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    model: Mapped[str] = mapped_column(String(200))
+    collection: Mapped[str] = mapped_column(String(200))
+    total: Mapped[int] = mapped_column(default=0)
+    done: Mapped[int] = mapped_column(default=0)
+    status: Mapped[str] = mapped_column(String(10), default="running")
+    started_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    finished_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+# 낱말 검색(FTS5). rowid = file_chunks.id. create_all 이 부를 때마다(기존 DB 에도) 없으면 만든다.
+event.listen(
+    Base.metadata,
+    "after_create",
+    DDL("CREATE VIRTUAL TABLE IF NOT EXISTS file_chunks_fts USING fts5(text)").execute_if(dialect="sqlite"),
+)
