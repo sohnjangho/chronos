@@ -567,6 +567,30 @@ class ReindexJob(Base):
     finished_at: Mapped[datetime | None] = mapped_column(default=None)
 
 
+class FieldItem(Base):
+    """현장 모바일 협업 항목(일일 체크인 · 사진 AI 판독 · 만회안 공종 의견 · D-3 핸드오프 점검)."""
+
+    __tablename__ = "field_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # checkin | photo | poll | handoff
+    activity_id: Mapped[str] = mapped_column(String(50))
+    activity_name: Mapped[str] = mapped_column(String(200))
+    trade: Mapped[str] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | responded | applied
+    title: Mapped[str] = mapped_column(String(200))
+    prompt_text: Mapped[str] = mapped_column(Text, default="")
+    response_choice: Mapped[str | None] = mapped_column(String(40), default=None)
+    reported_progress: Mapped[int | None] = mapped_column(default=None)
+    reported_rd: Mapped[int | None] = mapped_column(default=None)
+    response_note: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    approval_id: Mapped[int | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+
 # 낱말 검색(FTS5). rowid = file_chunks.id. create_all 이 부를 때마다(기존 DB 에도) 없으면 만든다.
 event.listen(
     Base.metadata,

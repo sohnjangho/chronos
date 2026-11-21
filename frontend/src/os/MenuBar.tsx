@@ -1,6 +1,6 @@
 import { useApprovals } from './approvals';
 import Clock from './Clock';
-import { BellIcon, ChronosMark, InboxIcon, MoonIcon, PersonIcon, SearchIcon, SunIcon } from './icons';
+import { BellIcon, ChronosMark, InboxIcon, MobileFieldIcon, MoonIcon, PersonIcon, SearchIcon, SunIcon } from './icons';
 import MenuGroup from './MenuGroup';
 import { appNameMenu, helpMenu, logoMenu, programMenus, ROLE_NAMES, userMenuItems, windowMenu } from './menus';
 import { getProgram } from './registry';
@@ -8,6 +8,7 @@ import ScheduleSelector from './ScheduleSelector';
 import { useSession } from './session';
 import { useShell } from './shell';
 import { useTheme } from './theme';
+import { useDeviceMode } from './useIsMobile';
 import { activeWindow, useWindows } from './windowStore';
 import { useZoom } from './zoom';
 import './menubar.css';
@@ -38,6 +39,18 @@ function TopButtons() {
   const notices = 0; // 알림은 묶음 3에서 연결한다.
   return (
     <>
+      <button
+        type="button"
+        className="os-tb"
+        aria-label="모바일·태블릿 현장 뷰"
+        data-tip="모바일·태블릿 현장 뷰"
+        onClick={() => {
+          open('progress', { view: 'field' });
+          useDeviceMode.getState().setMode('tablet');
+        }}
+      >
+        <MobileFieldIcon />
+      </button>
       <button type="button" className="os-tb" aria-label="검색 (Ctrl+K)" data-tip="검색 (Ctrl+K)" onClick={() => useShell.getState().setPalette(true)}>
         <SearchIcon />
       </button>

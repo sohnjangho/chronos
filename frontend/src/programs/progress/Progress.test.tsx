@@ -182,3 +182,38 @@ test('an old version on screen disables the report visual button', async () => {
   expect(screen.getByRole('button', { name: '보고서용 그림' })).toBeDisabled();
   expect(screen.getByText('지금 버전으로만 만들 수 있습니다')).toBeVisible();
 });
+
+test('toggles into 현장 모바일 점검 and switches among the 4 field collaboration tabs', async () => {
+  const sampleField = {
+    schedule_id: 1,
+    schedule_name: '5층 사무동 신축',
+    activities: [{ id: 'A1010', name: '1층 철근', progress: 45, rd: 3 }],
+    summary: { checkin_total: 2, checkin_responded: 1, photo_total: 1, poll_total: 1, poll_feasible: 0, poll_conditional: 1, poll_infeasible: 0, handoff_total: 1, handoff_ready: 0 },
+    items: [
+      { id: 1, schedule_id: 1, kind: 'checkin', activity_id: 'A1010', activity_name: '1층 철근', trade: '골조팀 박반장', status: 'pending', title: '[오늘 체크인] A1010', prompt_text: '진행 회신', response_choice: null, reported_progress: 45, reported_rd: 3, response_note: '', payload_json: {}, approval_id: null, created_at: '2026-11-21T00:00:00Z', updated_at: '2026-11-21T00:00:00Z' },
+    ],
+  };
+  const baseFetch = globalThis.fetch;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith('/api/schedules/1/field')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(sampleField), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      return baseFetch(input, init);
+    }),
+  );
+  show();
+  await screen.findByText('20.0%');
+  await userEvent.click(screen.getByRole('button', { name: '현장 모바일 점검' }));
+  expect(await screen.findByRole('region', { name: '현장 모바일 협업 허브' })).toBeVisible();
+  expect(screen.getByText('골조팀 박반장')).toBeVisible();
+  expect(screen.getByRole('tab', { name: '사진 AI 판독' })).toBeVisible();
+  expect(screen.getByRole('tab', { name: '만회안 의견 조회' })).toBeVisible();
+  expect(screen.getByRole('tab', { name: 'D-3 핸드오프 점검' })).toBeVisible();
+});

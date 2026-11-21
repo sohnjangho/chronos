@@ -38,6 +38,7 @@ export const AppsIcon = ({ size = 24 }: { size?: number } = {}) =>
     'M14.5 13H18a1.5 1.5 0 0 1 1.5 1.5V18a1.5 1.5 0 0 1-1.5 1.5h-3.5A1.5 1.5 0 0 1 13 18v-3.5A1.5 1.5 0 0 1 14.5 13z',
   );
 export const PanelIcon = () => line(22, 'M4 5h16v14H4z', 'M14 5v14', 'M16.5 9h1.5', 'M16.5 12h1.5');
+export const MobileFieldIcon = () => line(18, 'M6 3.5h8a1.5 1.5 0 0 1 1.5 1.5v14A1.5 1.5 0 0 1 14 20.5H6A1.5 1.5 0 0 1 4.5 19V5A1.5 1.5 0 0 1 6 3.5z', 'M9 17.5h2', 'M18 8h2.5a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H18');
 
 /** ChronOS 마크: 강조색 둥근 사각 안의 시계. size 는 한 변(px). */
 export function ChronosMark({ size = 24 }: { size?: number }) {

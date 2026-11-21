@@ -10,6 +10,7 @@ import Button from '../../shared/ui/Button';
 import { VisualButton } from '../../shared/visual/VisualFrame';
 import DelayTop from './DelayTop';
 import { exportImage } from './exportSheet';
+import FieldHub from './FieldHub';
 import { pct, weightModeLabel } from './format';
 import KpiRow from './KpiRow';
 import Lookahead from './Lookahead';
@@ -48,7 +49,25 @@ function useProgress(id: number, unit: Unit, version: number | undefined, weight
   return state;
 }
 
-function Toolbar({ scheduleId, data, version, unit, onUnit, onImage }: { scheduleId: number; data: ProgressData | null; version?: number; unit: Unit; onUnit: (u: Unit) => void; onImage: () => void }) {
+function Toolbar({
+  scheduleId,
+  data,
+  version,
+  unit,
+  view,
+  onToggleField,
+  onUnit,
+  onImage,
+}: {
+  scheduleId: number;
+  data: ProgressData | null;
+  version?: number;
+  unit: Unit;
+  view: 'dashboard' | 'field';
+  onToggleField: () => void;
+  onUnit: (u: Unit) => void;
+  onImage: () => void;
+}) {
   return (
     <div role="group" aria-label="공정률 도구" className="sch-toolbar pg-toolbar">
       {data?.data_date_assumed && (
@@ -69,6 +88,9 @@ function Toolbar({ scheduleId, data, version, unit, onUnit, onImage }: { schedul
       {data && (
         <span className="pg-weight" title="가중치 방식은 스케줄 창에서 바꿉니다">{`가중치: ${weightModeLabel(data.weight_mode)}`}</span>
       )}
+      <Button aria-pressed={view === 'field'} onClick={onToggleField}>
+        현장 모바일 점검
+      </Button>
       <span className="sch-gap" />
       <Button onClick={onImage} disabled={!data}>
         그림 내보내기
@@ -102,20 +124,37 @@ function Body({ data, scheduleId, planStart }: { data: ProgressData; scheduleId:
   );
 }
 
-export default function ProgressTab() {
+export default function ProgressTab({ initialView = 'dashboard' }: { initialView?: 'dashboard' | 'field' } = {}) {
   const scheduleId = useScheduleStore().getState().scheduleId;
   const version = useSchedule((s) => s.view?.version);
   const weightMode = useSchedule((s) => s.view?.weight_mode);
   const name = useSchedule((s) => s.view?.name ?? '');
   const planStart = useSchedule((s) => planStartOf(s.view));
   const [unit, setUnit] = useState<Unit>('week');
+  const [view, setView] = useState<'dashboard' | 'field'>(initialView);
+  const [seenInitial, setSeenInitial] = useState(initialView);
+  if (initialView !== seenInitial) {
+    setSeenInitial(initialView);
+    setView(initialView);
+  }
   const { data, error } = useProgress(scheduleId, unit, version, weightMode);
   const onImage = () => data && void exportImage(data, name, `${name} v${data.version} 공정률`);
   return (
     <div className="pg-tab">
-      <Toolbar scheduleId={scheduleId} data={data} version={version} unit={unit} onUnit={setUnit} onImage={onImage} />
+      <Toolbar
+        scheduleId={scheduleId}
+        data={data}
+        version={version}
+        unit={unit}
+        view={view}
+        onToggleField={() => setView((v) => (v === 'field' ? 'dashboard' : 'field'))}
+        onUnit={setUnit}
+        onImage={onImage}
+      />
       <div className="pg-scroll">
-        {error ? (
+        {view === 'field' ? (
+          <FieldHub scheduleId={scheduleId} />
+        ) : error ? (
           <p className="pg-empty" role="alert">
             {error}
           </p>

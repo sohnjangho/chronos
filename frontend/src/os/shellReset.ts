@@ -6,6 +6,7 @@ import { useEvidence } from './evidence';
 import { useSchedulePreview } from './schedulePreview';
 import { useShell } from './shell';
 import { useUiContext } from './uiContext';
+import { useDeviceMode } from './useIsMobile';
 import { useWindows } from './windowStore';
 
 /**
@@ -19,6 +20,7 @@ export function resetShellState(): void {
   useUiContext.getState().reset();
   useSchedulePreview.getState().reset();
   useShell.setState({ dialog: null, drawer: 'closed', palette: false, dockRevealed: false, announcement: '' });
+  useDeviceMode.setState({ mode: 'auto' });
   useWindows.getState().reset();
   useApprovals.setState({ pending: 0 });
   useCurrentSchedule.setState({ userId: null, current: null });

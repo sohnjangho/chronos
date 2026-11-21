@@ -329,3 +329,66 @@ def test_plan_compliance_percent_rounds_half_up(client, admin, session):
     first = replace(s.activities[0], actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 1), progress=1.0)
     _save(session, sid, replace(s, data_date=date(2027, 3, 15), activities=(first, *s.activities[1:])), 1)
     assert get_progress(client, admin, sid)["cpm"]["plan_compliance"] == {"pct": 13, "done": 1, "due": 8}
+
+
+def test_field_workflows_checkin_photo_poll_handoff_and_apply(client, admin, sid_progress):
+    r0 = client.get(f"/api/schedules/{sid_progress}/field", headers=admin)
+    assert r0.status_code == 200
+    body = r0.json()
+    assert body["summary"]["checkin_total"] >= 2
+    assert body["summary"]["photo_total"] >= 1
+    assert body["summary"]["poll_total"] >= 2
+    assert body["summary"]["handoff_total"] >= 1
+
+    # 1. 관리자 일일 체크인 발송 및 담당자 응답 → 승인함 반영
+    d_res = client.post(f"/api/schedules/{sid_progress}/field/checkins/dispatch", json={"activity_ids": ["B"]}, headers=admin)
+    assert d_res.status_code == 200
+    new_checkin = next(i for i in d_res.json()["items"] if i["kind"] == "checkin" and i["activity_id"] == "B" and i["status"] == "pending")
+    resp_res = client.post(
+        f"/api/schedules/{sid_progress}/field/{new_checkin['id']}/respond",
+        json={"response_choice": "delayed", "reported_progress": 30, "reported_rd": 6, "response_note": "자재 반입 지연"},
+        headers=admin,
+    )
+    assert resp_res.status_code == 200
+    app_res = client.post(f"/api/schedules/{sid_progress}/field/{new_checkin['id']}/apply", headers=admin)
+    assert app_res.status_code == 200
+    applied_item = next(i for i in app_res.json()["items"] if i["id"] == new_checkin["id"])
+    assert applied_item["status"] == "applied" and applied_item["approval_id"] is not None
+
+    # 2. 현장 사진 AI 진도 판독
+    p_res = client.post(
+        f"/api/schedules/{sid_progress}/field/photos",
+        json={"activity_id": "A", "photo_name": "rebar_check.jpg", "note": "골조 철근 배근 완료"},
+        headers=admin,
+    )
+    assert p_res.status_code == 200
+    assert p_res.json()["summary"]["photo_total"] == body["summary"]["photo_total"] + 1
+
+    # 3. 만회안 의견 조회 발송 → 조건부 불가 회신 → 내 규칙 승인 상신
+    poll_res = client.post(
+        f"/api/schedules/{sid_progress}/field/polls",
+        json={"activity_id": "B", "scenario_title": "주말 작업 2일 단축", "target_delta_days": -2, "prompt_text": "토요일 투입 가능 여부?"},
+        headers=admin,
+    )
+    assert poll_res.status_code == 200
+    poll_item = poll_res.json()["items"][0]
+    assert poll_item["kind"] == "poll" and poll_item["status"] == "pending"
+    poll_resp = client.post(
+        f"/api/schedules/{sid_progress}/field/{poll_item['id']}/respond",
+        json={"response_choice": "conditional", "response_note": "주말 크레인 소음 규제 제외 시 가능"},
+        headers=admin,
+    )
+    assert poll_resp.status_code == 200
+    poll_apply = client.post(f"/api/schedules/{sid_progress}/field/{poll_item['id']}/apply", headers=admin)
+    assert poll_apply.status_code == 200
+    assert next(i for i in poll_apply.json()["items"] if i["id"] == poll_item["id"])["approval_id"] is not None
+
+    # 4. D-3 핸드오프 준비 점검
+    handoff = next(i for i in app_res.json()["items"] if i["kind"] == "handoff")
+    h_res = client.post(
+        f"/api/schedules/{sid_progress}/field/{handoff['id']}/handoff",
+        json={"pred_handover_ok": True, "material": True, "equipment": True, "workforce": True, "response_note": "전부 준비 완료"},
+        headers=admin,
+    )
+    assert h_res.status_code == 200
+    assert h_res.json()["summary"]["handoff_ready"] >= 1

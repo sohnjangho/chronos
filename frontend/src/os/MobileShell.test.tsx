@@ -45,12 +45,13 @@ test('renders MobileShell on <=768px and switches tabs, schedule sub-tabs, and m
   expect(within(nav).getByRole('button', { name: /자료함/ })).toBeVisible();
   expect(within(nav).getByRole('button', { name: /전체/ })).toBeVisible();
 
-  // 일정 탭 → 4개 세그먼트(스케줄·간트·공정률·지연)
+  // 일정 탭 → 5개 세그먼트(스케줄·간트·공정률·지연·현장 점검)
   await userEvent.click(within(nav).getByRole('button', { name: /일정/ }));
   const sub = screen.getByRole('tablist', { name: '일정 보기 전환' });
   expect(within(sub).getByRole('tab', { name: '스케줄' })).toHaveAttribute('aria-selected', 'true');
   await userEvent.click(within(sub).getByRole('tab', { name: '공정률' }));
   expect(within(sub).getByRole('tab', { name: '공정률' })).toHaveAttribute('aria-selected', 'true');
+  expect(within(sub).getByRole('tab', { name: '현장 점검' })).toBeVisible();
 
   // 전체 탭 → 일반 사용자는 개발 콘솔이 보이지 않는다
   await userEvent.click(within(nav).getByRole('button', { name: /전체/ }));
@@ -63,4 +64,10 @@ test('renders MobileShell on <=768px and switches tabs, schedule sub-tabs, and m
     useWindows.getState().open('library');
   });
   expect(within(nav).getByRole('button', { name: /자료함/ })).toHaveAttribute('aria-current', 'page');
+
+  // 화면 형태 전환(태블릿 → PC 창)
+  await userEvent.click(screen.getByRole('button', { name: '태블릿' }));
+  expect(screen.getByTestId('mobile-shell')).toHaveAttribute('data-device', 'tablet');
+  await userEvent.click(screen.getByRole('button', { name: 'PC 창' }));
+  expect(screen.getByTestId('desktop-surface')).toBeVisible();
 });

@@ -1,4 +1,4 @@
-/* 스마트폰 전용 앱 셸(폭 <= 768px) */
+/* 스마트폰(<= 768px) · 태블릿 전용 앱 셸. 색·글꼴은 tokens.css 변수만 쓴다. */
 .mob-root {
   display: flex;
   flex-direction: column;
@@ -49,11 +49,38 @@
   color: inherit;
   cursor: pointer;
   padding: 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-2);
   font-size: var(--fs-13);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  white-space: nowrap;
+}
+
+.mob-dev-switch {
+  display: inline-flex;
+  border-radius: var(--radius-2);
+  border: 1px solid var(--on-topbar-line);
+  background: var(--on-topbar-fill);
+  overflow: hidden;
+  flex: none;
+}
+.mob-dev-btn {
+  border: 0;
+  background: transparent;
+  color: var(--on-topbar-fg);
+  font-size: var(--fs-11);
+  padding: 4px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mob-dev-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+@media (max-width: 440px) {
+  .mob-dev-switch { display: none; }
 }
 
 .mob-subbar {
@@ -63,18 +90,20 @@
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel-alt);
+  overflow-x: auto;
 }
 
 .mob-sub-btn {
-  flex: 1;
+  flex: 1 0 auto;
   border: 1px solid var(--border);
   background: var(--bg-panel);
   color: var(--fg-muted);
-  border-radius: 6px;
-  padding: 6px 4px;
+  border-radius: var(--radius-2);
+  padding: 6px 8px;
   font-size: var(--fs-12);
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .mob-sub-btn.is-on {
@@ -126,7 +155,7 @@
   gap: 6px;
   padding: 12px 6px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-4);
   background: var(--bg-panel);
   color: var(--fg);
   cursor: pointer;
@@ -160,13 +189,13 @@
 }
 
 .mob-tab.is-active {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 700;
 }
 
 .mob-tab-icon {
   position: relative;
-  font-size: var(--fs-18);
+  font-size: var(--fs-16);
   line-height: 1;
 }
 
@@ -190,25 +219,55 @@
   text-align: center;
 }
 
-/* 모바일 내부 프로그램 레이아웃 보정(자료함 세로 쌓기, 나눔 막대 숨김) */
-.mob-root .lib-body {
+/* 태블릿 뷰(data-device="tablet") 최적화: 4열 앱 서랍, 넓은 툴바 패딩, 2열 현장 협업 카드 */
+.mob-root[data-device="tablet"] .mob-head {
+  padding: 0 18px;
+}
+.mob-root[data-device="tablet"] .mob-subbar {
+  padding: 8px 18px;
+  gap: 8px;
+}
+.mob-root[data-device="tablet"] .mob-more {
+  padding: 22px 28px;
+}
+.mob-root[data-device="tablet"] .mob-more-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+.mob-root[data-device="tablet"] .mob-nav {
+  padding-left: 10%;
+  padding-right: 10%;
+}
+
+/* 스마트폰(data-device="phone") 터치 가독성 보정 */
+.mob-root[data-device="phone"] .pg-choice-btn {
+  min-height: 40px;
+}
+.mob-root[data-device="phone"] .pg-flabel input,
+.mob-root[data-device="phone"] .pg-flabel select,
+.mob-root[data-device="phone"] .pg-finput-text {
+  min-height: 38px;
+}
+
+/* 모바일 내부 프로그램 레이아웃 보정(자료함·지연 기록 세로 쌓기, 나눔 막대 숨김) */
+.mob-root[data-device="phone"] .lib-body {
   flex-direction: column;
   overflow-y: auto;
 }
-.mob-root .lib-facets {
+.mob-root[data-device="phone"] .lib-facets {
   width: 100%;
   flex: 0 0 auto;
   max-height: 220px;
   border-right: 0;
   border-bottom: 1px solid var(--border);
 }
-.mob-root .lib-splitter {
+.mob-root[data-device="phone"] .lib-splitter {
   display: none;
 }
-.mob-root .lib-detail-pane {
+.mob-root[data-device="phone"] .lib-detail-pane {
   width: 100% !important;
   border-top: 1px solid var(--border);
 }
 .mob-root .os-site-btn {
-  max-width: 140px;
+  max-width: 160px;
 }
