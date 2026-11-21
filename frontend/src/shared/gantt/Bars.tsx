@@ -107,12 +107,19 @@ export function Summary({ id, x, w, y }: { id: string; x: number; w: number; y: 
   return <rect className="gantt-summary" data-summary={id} x={x} y={y + 12} width={Math.max(w, 1)} height={6} rx={3} />;
 }
 
-/** 여유 꼬리: 예측 막대 끝(EF 다음 날 0시)부터 LF 끝까지, 아래 칸 밑의 가는 줄. */
+/** 여유 꼬리: 예측 막대 끝(EF 다음 날 0시)부터 LF 끝까지, 점선 + 끝 눈금(|)으로 연결선과 구분한다. */
 export function FloatTail({ id, x, w, y, title }: { id: string; x: number; w: number; y: number; title: string }) {
+  const width = Math.max(w, 1);
+  const cy = y + LANE_Y.track + BAR_H + 2;
+  const x2 = x + width;
   return (
-    <rect className="gantt-float" data-float={id} x={x} y={y + LANE_Y.track + BAR_H + 1} width={Math.max(w, 1)} height={2}>
-      <title>{title}</title>
-    </rect>
+    <g className="gantt-float-group">
+      <line className="gantt-float-line" x1={x} y1={cy} x2={x2} y2={cy} />
+      <line className="gantt-float-cap" x1={x2} y1={cy - 3} x2={x2} y2={cy + 3} />
+      <rect className="gantt-float" data-float={id} x={x} y={cy - 1} width={width} height={2}>
+        <title>{title}</title>
+      </rect>
+    </g>
   );
 }
 

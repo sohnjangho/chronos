@@ -85,19 +85,14 @@
   .os-dock-item.is-launching .os-dock-tile { animation: none; }
 }
 
-/* 반응형 Dock: 좁은 모니터(≤1280px, ≤1024px)에서 아이콘 자동 축소 및 가로 스크롤 */
-.os-dock {
-  max-width: calc(100vw - 24px);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.os-dock::-webkit-scrollbar { display: none; }
+/* 반응형 Dock: 좁은 모니터(≤1280px, ≤960px)에서 아이콘 자동 축소. overflow: visible 을 유지해 확대·말풍선이 잘리지 않게. */
 @media (max-width: 1280px) {
   .os-dock-wrap { --dock-tile: 40px; }
   .os-dock { gap: 6px; padding: 6px 10px; }
   .os-dock-sep { height: 32px; }
 }
-@media (max-width: 1024px) {
-  .os-dock-wrap { --dock-tile: 36px; }
+@media (max-width: 960px) {
+  .os-dock-wrap { --dock-tile: 34px; }
   .os-dock { gap: 4px; padding: 6px 8px; border-radius: 16px; }
+  .os-dock-sep { height: 28px; margin: 4px 2px 10px; }
 }
