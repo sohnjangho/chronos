@@ -30,7 +30,7 @@ def test_construction_display_comes_from_its_pack(client, admin, sid):
 def test_unknown_domain_gets_the_default_display(client, admin, session):
     sid = _store(session, "shipbuilding")
     assert client.get(f"/api/schedules/{sid}", headers=admin).json()["display"] == {
-        "gantt_group_by": "wbs", "deadline_label": "준공 기한", "extra_columns": []}
+        "gantt_group_by": "wbs", "deadline_label": "완료 기한", "extra_columns": []}
 
 
 def test_write_answers_carry_display_too(client, admin, sid_manufacturing):

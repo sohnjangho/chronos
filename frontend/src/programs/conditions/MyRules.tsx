@@ -4,16 +4,16 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../os/session';
 import { ApiError } from '../../shared/api';
+import { domainLabel } from '../../shared/domainLabels';
 import Button from '../../shared/ui/Button';
 import { isAdd, rulesApi, type MyRule } from './condApi';
 import type { ConditionsModel } from './condStore';
 
-const DOMAINS: Record<string, string> = { construction: '건설', production: '생산', research: '연구개발', commercialization: '사업화' };
 const messageOf = (e: unknown) => (e instanceof ApiError ? e.message : '요청을 처리할 수 없습니다.');
 
 /** "분야 전체 · 건설" / "이 일정". */
 export const scopeLabel = (r: Pick<MyRule, 'scope' | 'domain'>) =>
-  r.scope === 'schedule' ? '이 일정' : `분야 전체 · ${DOMAINS[r.domain] ?? r.domain}`;
+  r.scope === 'schedule' ? '이 일정' : `분야 전체 · ${domainLabel(r.domain)}`;
 
 /** 이 일정의 내 규칙 목록. 저장 버전이 바뀌면(확정 뒤) 다시 읽어 in_schedule 을 맞춘다. */
 function useRules(scheduleId: number, version: number) {

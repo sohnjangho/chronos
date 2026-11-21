@@ -126,9 +126,23 @@ async def test_tool_reports_every_problem_at_once(ctx):
     assert r.ok is False and "scope" in r.error and "floors" in r.error
 
 
-async def test_tool_rejects_an_unknown_domain(ctx, events):
-    r = await call("ask.questionnaire", ask([q("scope")], domain="farm"), ctx)
-    assert (r.ok, r.error) == (False, "없는 분야입니다: farm") and events == []
+async def test_tool_rejects_invalid_domain_and_accepts_custom_domains(ctx, events, session):
+    bad = await call("ask.questionnaire", ask([q("scope")], domain="../farm"), ctx)
+    assert (bad.ok, bad.error) == (False, "올바르지 않은 분야입니다: ../farm") and events == []
+
+    for dom in ("rnd", "permitting", "procurement"):
+        r = await call("ask.questionnaire", ask([q("scope")], domain=dom), ctx)
+        assert r.ok, r.error
+
+
+async def test_two_phase_guardrail_blocks_multi_question_sheet_when_domain_is_unknown(ctx, events):
+    questions = [q("scope"), q("structure"), q("finish_date", group="날짜")]
+    blocked = await call("ask.questionnaire", ask(questions, domain=None), ctx)
+    assert blocked.ok is False and "분야(주제)가 아직 확정되지 않았습니다" in blocked.error
+    assert events == [] and _rows(ctx.session) == 0
+
+    card = await call("ask.questionnaire", ask([q("topic"), q("detail")], domain=None), ctx)
+    assert card.ok and card.output["mode"] == "card"
 
 
 async def test_domain_and_level_may_be_left_out(ctx, session):

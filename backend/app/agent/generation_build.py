@@ -21,7 +21,7 @@ from app.core.model import (
     Schedule,
     WbsNode,
 )
-from app.domains.loader import ActivityType, DomainPack, levels
+from app.domains.loader import ActivityType, DomainPack, is_specialty_domain, levels
 from app.harness.assemble import holidays_of
 from app.harness.conditions import Condition, condition_problem, validate_params
 from app.llm.client import LlmReply
@@ -33,10 +33,13 @@ MAX_ACTIVITIES = 400
 NOT_JSON = "답이 JSON 객체가 아닙니다."
 CUT_BY_LENGTH = "답이 길이 제한에 걸려 잘렸습니다. 액티비티를 묶어 더 짧게 다시 내 주세요."
 START_LABEL = "착공일"
-# 착공일로 읽는 사실(fact)의 label. 이 말과 똑같을 때만("외부 마감 시작" 같은 것은 아니다)
-START_LABELS = frozenset({"착공", "착공일", "착수", "착수일", "시작일", "프로젝트 시작"})
+# 착공/시작일로 읽는 사실(fact)의 label.
+START_LABELS = frozenset(
+    {"착공", "착공일", "착수", "착수일", "시작", "시작일", "개시일", "프로젝트 시작", "프로젝트 착수", "발주일", "접수일"}
+)
 ROUGH_RESOURCE_MESSAGE = "개략 일정(L1·L2)에서는 자원을 다루지 않습니다."
 ISO_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_RES_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _MAX_ERRORS = 3
 
 
@@ -56,6 +59,13 @@ class PredIn(_Loose):
     lag: int = Field(default=0, ge=-MAX_LAG, le=MAX_LAG)
 
 
+class ResourceIn(_Loose):
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    unit: str = "명"
+    capacity: int = Field(default=1, ge=1, le=999)
+
+
 class ActIn(_Loose):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
@@ -63,6 +73,7 @@ class ActIn(_Loose):
     wbs: str
     od: int = Field(ge=0, le=MAX_OD)
     tags: list[str] = []
+    resources: list[str] = []
     predecessors: list[PredIn] = []
 
 
@@ -72,6 +83,7 @@ class WbsReply(_Loose):
 
 class DraftReply(_Loose):
     wbs: list[WbsIn] | None = None  # 고침에서 WBS 를 바꿀 때만
+    resources: list[ResourceIn] = []
     activities: list[ActIn] = Field(min_length=1, max_length=MAX_ACTIVITIES)
 
 
@@ -174,8 +186,10 @@ def _fact_date(fact: dict) -> date | None:
     return date.fromisoformat(found.group())
 
 
-def start_date(conditions: Sequence[Condition], facts: Sequence[dict], today: date) -> tuple[date, list[dict]]:
-    """(사업 시작일, 더할 가정). 조립된 목록의 켜진 start_after 조건 → 알고 있는 착공일 → 오늘 다음 월요일(가정)."""
+def start_date(
+    conditions: Sequence[Condition], facts: Sequence[dict], today: date, start_term: str = "착공"
+) -> tuple[date, list[dict]]:
+    """(사업 시작일, 더할 가정). 조립된 목록의 켜진 start_after 조건 → 알고 있는 시작/착공일 → 오늘 다음 월요일(가정)."""
     for c in reversed(conditions):
         if c.kind == "start_after" and c.enabled and condition_problem(c) is None:
             return date.fromisoformat(c.params["date"]), []
@@ -183,8 +197,9 @@ def start_date(conditions: Sequence[Condition], facts: Sequence[dict], today: da
         if (day := _fact_date(fact)) is not None:
             return day, []
     monday = today + timedelta(days=7 - today.weekday())
-    note = f"착공일을 알 수 없어 {monday.isoformat()}로 가정했습니다."
-    return monday, [{"label": START_LABEL, "value": note, "source": "가정"}]
+    label = f"{start_term}일"
+    note = f"{label}을 알 수 없어 {monday.isoformat()}로 가정했습니다."
+    return monday, [{"label": label, "value": note, "source": "가정"}]
 
 
 def condition_tags(conditions: Sequence[Condition]) -> list[str]:
@@ -205,39 +220,84 @@ class Setting:
     resources: tuple[Resource, ...]  # 정밀도에 자원이 없으면 비어 있다
     types: tuple[ActivityType, ...]
     known_tags: tuple[str, ...]  # 작업 유형 꼬리표 + 조건 꼬리표(차례 유지)
+    allow_resources: bool = True
+    strict_tags: bool = True
 
 
-def setting(pack: DomainPack, level: str, start: date, extra_tags: Sequence[str]) -> Setting:
+def setting(
+    pack: DomainPack,
+    level: str,
+    start: date,
+    extra_tags: Sequence[str],
+    conditions: Sequence[Condition] = (),
+    strict_tags: bool | None = None,
+) -> Setting:
     cal = pack.default_calendar
-    keys = pack.key_resources if uses_resources(level) else []
-    resources = tuple(Resource(k.id, k.name, k.unit, 1) for k in keys)
+    use_res = uses_resources(level)
+    res_map: dict[str, Resource] = {}
+    if use_res:
+        for k in pack.key_resources:
+            res_map[k.id] = Resource(k.id, k.name, k.unit, 1)
+        for c in conditions:
+            if c.kind == "resource_cap" and c.enabled and condition_problem(c) is None:
+                rid = str(c.params["resource_id"])
+                cap = int(c.params["capacity"])
+                if rid not in res_map and _RES_ID_RE.fullmatch(rid):
+                    res_map[rid] = Resource(rid, (c.text or rid)[:60], "단위", cap)
     known = dict.fromkeys([*(t.tag for t in pack.activity_types), *extra_tags])
+    strict = is_specialty_domain(pack.id) if strict_tags is None else strict_tags
     return Setting(
         start=start,
         calendar=CalendarSpec(cal.days_per_week, holidays_of(cal.holidays)),
-        resources=resources,
+        resources=tuple(res_map.values()),
         types=tuple(pack.activity_types),
         known_tags=tuple(known),
+        allow_resources=use_res,
+        strict_tags=strict,
     )
 
 
-def _classify(a: ActIn, s: Setting) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """(꼬리표, 자원). LLM 꼬리표는 아는 것만 두고, 이름에 작업 유형 낱말이 있으면 그 꼬리표를 더한다."""
-    tags = [t for t in a.tags if t in s.known_tags]
+def _classify(
+    a: ActIn, s: Setting, valid_res_ids: set[str] | None = None
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(꼬리표, 자원). 전문 분야는 아는 꼬리표만 두고, 범용 분야는 유효한 동적 꼬리표·자원을 모두 수용한다."""
+    if s.strict_tags:
+        tags = [t for t in a.tags if t in s.known_tags]
+    else:
+        tags = [t.strip() for t in a.tags if t.strip()]
     tags += [t.tag for t in s.types if any(word in a.name for word in t.name_keywords)]
     tags = list(dict.fromkeys(tags))
-    if not s.resources:
+    if not s.allow_resources:
         return tuple(tags), ()
-    resources = dict.fromkeys(r for t in s.types if t.tag in tags for r in t.resources)
-    return tuple(tags), tuple(resources)
+    allowed = valid_res_ids if valid_res_ids is not None else {r.id for r in s.resources}
+    res = dict.fromkeys(r for t in s.types if t.tag in tags for r in t.resources if r in allowed)
+    for rid in a.resources:
+        if rid in allowed:
+            res[rid] = None
+    return tuple(tags), tuple(res)
 
 
 def build(draft: DraftReply, nodes: Sequence[WbsIn], s: Setting) -> Schedule:
     """초안 → 일정. 날짜는 넣지 않는다(시작일·달력만, 계산은 core 가 한다)."""
+    res_map: dict[str, Resource] = {r.id: r for r in s.resources} if s.allow_resources else {}
+    if s.allow_resources:
+        for r in draft.resources:
+            rid = r.id.strip()
+            if not _RES_ID_RE.fullmatch(rid):
+                continue
+            unit = r.unit.strip()[:20]
+            if rid not in res_map:
+                res_map[rid] = Resource(rid, r.name.strip()[:60] or rid, unit or "명", r.capacity)
+            elif not s.strict_tags:
+                prev = res_map[rid]
+                next_unit = unit if prev.unit == "단위" and unit else prev.unit
+                res_map[rid] = Resource(prev.id, prev.name, next_unit, r.capacity)
+    valid_res_ids = set(res_map)
+
     activities = []
     relations = []
     for a in draft.activities:
-        tags, resources = _classify(a, s)
+        tags, resources = _classify(a, s, valid_res_ids)
         activities.append(Activity(a.id, a.name, a.kind, a.wbs, a.od, resources=resources, tags=tags))
         relations += [Relation(p.pred, a.id, p.type, p.lag) for p in a.predecessors]
     return Schedule(
@@ -246,5 +306,5 @@ def build(draft: DraftReply, nodes: Sequence[WbsIn], s: Setting) -> Schedule:
         wbs=tuple(WbsNode(n.code, n.name, n.parent) for n in nodes),
         activities=tuple(activities),
         relations=tuple(relations),
-        resources=s.resources,
+        resources=tuple(res_map.values()),
     )

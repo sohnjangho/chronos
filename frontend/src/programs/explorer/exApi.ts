@@ -1,5 +1,8 @@
 // 탐색기 API(이 작업의 GET /api/explorer/tree · DELETE /api/schedules/{id})와 일정·버전 API(Task 4).
 import { api } from '../../shared/api';
+import { domainLabel } from '../../shared/domainLabels';
+
+export { domainLabel };
 
 export interface TreeSchedule {
   id: number;
@@ -42,9 +45,6 @@ export const exApi = {
   /** 관리자만(아니면 403). 모든 버전·변경 이력이 함께 지워진다. */
   remove: (id: number) => api<{ deleted: number }>(`/api/schedules/${id}`, { method: 'DELETE' }),
 };
-
-const DOMAINS: Record<string, string> = { construction: '건설', production: '생산', manufacturing: '생산', research: '연구개발', commercialization: '사업화' };
-export const domainLabel = (d: string) => DOMAINS[d] ?? d;
 
 // 정밀도 이름은 backend/app/domains/levels.yaml 의 name 과 같다(그 목록을 주는 API 는 아직 없다).
 const LEVELS: Record<string, string> = { L1: '마스터', L2: '요약', L3: '관리', L4: '실행', L5: '상세' };

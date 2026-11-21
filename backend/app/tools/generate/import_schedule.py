@@ -100,7 +100,9 @@ class ImportIn(BaseModel):
     confirmed: bool = Field(
         default=False, description="사용자가 가져오기를 고르거나 가져오라고 했을 때만 true. false 면 확인(요약 카드)만"
     )
-    domain: str | None = Field(default=None, description="가져올 때: 분야 id(예: construction)")
+    domain: str | None = Field(
+        default=None, description="가져올 때: 분야 id(예: construction, manufacturing, rnd, permitting, procurement, general 등)"
+    )
     level: Literal["L1", "L2", "L3", "L4", "L5"] | None = Field(
         default=None, description="가져올 때: 정밀도(액티비티 수에 맞게)"
     )
@@ -223,7 +225,7 @@ async def _draft(ctx: ToolContext, llm: LlmClient, args: ImportIn, rows: Importe
         result = await generate(ctx, llm, domain=args.domain, level=args.level, request=_request(rows), facts=facts,
                                 assumptions=assumed, fixed=rows, max_rounds=2)  # 파일 값이 많아 고칠 것이 적다
     except UnknownDomain:
-        raise ToolError(f"없는 분야입니다: {args.domain}") from None
+        raise ToolError(f"올바르지 않은 분야입니다: {args.domain}") from None
     out = run_out(result)
     ctx.emit(result_card(out))
     return out

@@ -477,7 +477,7 @@ def _question(qid: str) -> dict:
 
 
 async def test_questionnaire_tool_gets_the_chat_session_id(run, session, chat_id):
-    args = {"purpose": "generate", "title": "일정 질문", "questions": [_question(x) for x in ("a", "b", "c")]}
+    args = {"purpose": "generate", "domain": "construction", "title": "일정 질문", "questions": [_question(x) for x in ("a", "b", "c")]}
     ev = await run(ScriptedLlm([calls("ask.questionnaire", args), reply("질문지에 답해 주세요.")]), "일정 만들어 줘")
     qid = next(e.data["id"] for e in ev if e.type == "questionnaire")
     assert session.get(QuestionnaireRecord, qid).chat_session_id == chat_id

@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.agent import context
 from app.agent.context import CUT_NOTE, UiContext, arguments_text
-from app.domains.loader import domains, levels_prompt, load
+from app.domains.loader import levels_prompt
 from app.llm.client import LlmReply
 from app.store.chats import recent_messages
 from app.store.tables import TraceEvent, User
@@ -198,15 +198,16 @@ def _count_parts(
     session: Session, user: User, chat_session_id: int, ui: UiContext, tools: list[dict],
     *, history_limit: int = context.HISTORY_LIMIT,
 ) -> list[dict]:
-    knowledge = "\n\n".join(load(d).prompt() for d in domains())
-    levels = levels_prompt()
     rows = recent_messages(session, chat_session_id, history_limit)
+    active_domains = context.detect_active_domains(session, ui, rows)
+    knowledge = context.packs_text(active_domains)
+    levels = levels_prompt()
     attached = context.files_line(session, chat_session_id)  # 지금 상황 끝의 「이 대화에 붙인 파일」 줄
     older = context.compact_older_note(session, chat_session_id, rows)
     last_text = " ".join(context._date_texts(rows))
     guides = context.select_guides(last_text, ui, has_files=attached is not None)
     chars = {
-        "지시문": len(context.system_prompt(guides)) - len(knowledge) - len(levels),
+        "지시문": len(context.system_prompt(guides, active_domains=active_domains)) - len(knowledge) - len(levels),
         "분야 지식": len(knowledge),
         "정밀도": len(levels),
         "지금 상황": len(context.situation(session, user, ui)) + (len(older) + 2 if older else 0),

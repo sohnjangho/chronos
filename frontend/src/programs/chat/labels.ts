@@ -35,8 +35,9 @@ const REASONS: Record<string, string> = {
 };
 export const reasonLabel = (reason: string) => REASONS[reason] ?? reason;
 
-const DOMAINS: Record<string, string> = { construction: '건설' };
-export const domainLabel = (domain: string) => DOMAINS[domain] ?? domain;
+import { domainLabel } from '../../shared/domainLabels';
+
+export { domainLabel };
 
 export const STEP_STATUS: Record<string, string> = { running: '진행 중', done: '끝남', failed: '실패', stopped: '멈춤' };
 

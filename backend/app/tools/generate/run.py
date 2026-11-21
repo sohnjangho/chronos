@@ -33,7 +33,9 @@ class FactIn(BaseModel):
 class RunIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    domain: str = Field(description="분야 id(예: construction)")
+    domain: str = Field(
+        description="분야 id (예: construction, manufacturing, rnd, permitting, procurement, software, general 등)"
+    )
     level: Literal["L1", "L2", "L3", "L4", "L5"] = Field(description="정밀도")
     request: str = Field(min_length=1, description="사용자의 요청(프롬프트)")
     facts: list[FactIn] = Field(default_factory=list, description="generate.extract_conditions 의 facts")
@@ -147,7 +149,7 @@ async def run(args: RunIn, ctx: ToolContext) -> RunOut:
             assumptions=[a.model_dump() for a in args.assumptions],
         )
     except UnknownDomain:
-        raise ToolError(f"없는 분야입니다: {args.domain}") from None
+        raise ToolError(f"올바르지 않은 분야입니다: {args.domain}") from None
     out = _out(result)
     ctx.emit(result_card(out))
     return out

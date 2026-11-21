@@ -274,7 +274,7 @@ def test_questionnaire_resume_rejects_a_wrong_questionnaire(client, admin, chat_
 
 
 def test_detail_returns_event_messages_in_order(client, admin, chat_id, scripted, session):
-    args = {"purpose": "generate", "title": "질문", "questions": [
+    args = {"purpose": "generate", "domain": "construction", "title": "질문", "questions": [
         {"id": x, "group": "범위", "question": f"{x}?", "assumption": f"{x} 가정"} for x in ("a", "b", "c")
     ]}
     scripted._script.clear()

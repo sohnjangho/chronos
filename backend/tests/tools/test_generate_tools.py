@@ -199,9 +199,23 @@ async def test_extract_reply_cut_by_length_is_a_clear_tool_error(ctx, liner, who
     assert not r.ok and r.error == "답이 길이 제한에 걸려 잘렸습니다. 요청을 나누어 다시 시도해 주세요."
 
 
-async def test_extract_unknown_domain(ctx):
-    r = await call("generate.extract_conditions", extract_args(domain="shipbuilding"), ctx)
-    assert not r.ok and r.error == "없는 분야입니다: shipbuilding"
+async def test_extract_rejects_invalid_domain(ctx):
+    r = await call("generate.extract_conditions", extract_args(domain="../ship"), ctx)
+    assert not r.ok and r.error == "올바르지 않은 분야입니다: ../ship"
+
+
+async def test_extract_accepts_custom_domain_and_dynamic_resources(ctx, liner):
+    script(
+        liner,
+        extracted(
+            [cond("resource_cap", "선임 연구원 2명", "프롬프트", resource_id="senior_researcher", capacity=2)],
+            facts=[{"label": "시작일", "value": "2027-03-02", "source": "프롬프트"}],
+        ),
+    )
+    r = await call("generate.extract_conditions", extract_args(domain="rnd", text="2027년 3월 2일 시작 전고체 배터리 R&D"), ctx)
+    assert r.ok, r.error
+    assert [c["id"] for c in r.output["conditions"]] == ["in.resource_cap.senior_researcher"]
+    assert r.output["dropped"] == []
 
 
 def run_args(**over) -> dict:
@@ -240,9 +254,9 @@ async def test_run_rejects_unreadable_condition(ctx):
     assert not r.ok and r.error == "조건을 읽을 수 없습니다: in.finish_by: 'date' 칸이 없습니다."
 
 
-async def test_run_unknown_domain(ctx):
-    r = await call("generate.run", run_args(domain="shipbuilding"), ctx)
-    assert not r.ok and r.error == "없는 분야입니다: shipbuilding"
+async def test_run_rejects_invalid_domain(ctx):
+    r = await call("generate.run", run_args(domain="../ship"), ctx)
+    assert not r.ok and r.error == "올바르지 않은 분야입니다: ../ship"
 
 
 async def test_run_llm_down(ctx, liner, session):

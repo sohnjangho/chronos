@@ -22,8 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.calendar import WorkCalendar
 from app.core.cpm import CpmResult, CpmRow, ScheduleError
 from app.core.model import Activity, CalendarSpec, Schedule
-from app.domains.loader import DisplaySpec, UnknownDomain
-from app.domains.loader import load as load_pack
+from app.domains.loader import DisplaySpec, UnknownDomain, resolve_pack
 from app.harness.assemble import prepare_stored
 from app.store.schedules import (
     activity_json,
@@ -112,11 +111,11 @@ def _blocked(calendar: CalendarSpec, start: date, finish: date) -> list[dict]:
 
 
 def _display(domain: str) -> dict:
-    """그 분야 묶음의 표시 설정. 묶음이 없는 분야면 기본값."""
+    """그 분야 묶음의 표시 설정. 묶음이 없는 분야면 중립 기본값."""
     try:
-        spec = load_pack(domain).display
+        spec = resolve_pack(domain).display
     except UnknownDomain:
-        spec = DisplaySpec()
+        spec = DisplaySpec(deadline_label="완료 기한")
     return spec.model_dump()
 
 

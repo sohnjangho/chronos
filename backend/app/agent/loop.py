@@ -174,6 +174,7 @@ class _Turn:
         self.history_limit = 30
         self.enable_skill_match = True
         self.enable_self_reflection = True
+        self.asked_questionnaire = False
 
     # ── 시작·끝 ──
 
@@ -294,7 +295,10 @@ class _Turn:
                         return
                     for event in self.start_tool(call, reply, text):
                         yield event
-                    self.start(registry.call(call.name, call.arguments, self.tool_context()))
+                    if call.name == "ask.questionnaire" and self.asked_questionnaire:
+                        self.start(self._reject_duplicate_questionnaire())
+                    else:
+                        self.start(registry.call(call.name, call.arguments, self.tool_context()))
                     while (event := await self.waiting()) is not None:
                         yield event
                     for event in self.end_tool(call):
@@ -384,6 +388,8 @@ class _Turn:
         result = self.vision.after_tool(call.name, result)  # 붙이지 않은 그림은 결과에 까닭(image_note)
         if not result.ok:
             self.session.rollback()  # 실패한 도구가 남긴 쓰기는 저장하지 않는다
+        if call.name == "ask.questionnaire" and result.ok:
+            self.asked_questionnaire = True
         stopped = result.ok and turns.stop_requested(self.chat_id)  # 도는 동안 멈춤을 눌렀다
         self.log.step_finished(self.step_n, result, stopped)
         for event in self.collected:
@@ -391,11 +397,13 @@ class _Turn:
         self.collected = []
         tool_content = result_text(result, limit=self.tool_output_limit)
         if not result.ok and self.enable_self_reflection:
+            reflection = (
+                "이번 턴에 이미 질문(카드 또는 질문지)을 보냈습니다. 도구를 더 호출하지 말고 사용자에게 답을 요청하며 턴을 마치세요."
+                if call.name == "ask.questionnaire" and self.asked_questionnaire
+                else f"도구 `{call.name}` 실패 — 오류 원인을 확인해 인자를 고치거나 대안 도구를 사용하세요."
+            )
             tool_content = json.dumps(
-                {
-                    "error": json_safe(result.error) or "도구 실행에 실패했습니다.",
-                    "reflection": f"도구 `{call.name}` 실패 — 오류 원인을 확인해 인자를 고치거나 대안 도구를 사용하세요.",
-                },
+                {"error": json_safe(result.error) or "도구 실행에 실패했습니다.", "reflection": reflection},
                 ensure_ascii=False,
             )
         self.save("tool", {"kind": "tool_result", "tool_call_id": call.id, "name": call.name, "ok": result.ok,
@@ -404,6 +412,14 @@ class _Turn:
         end = {"run_id": self.log.run_id, "n": self.step_n, "call_id": call.id, "tool": call.name,
                "ok": result.ok, "ms": result.ms, "error": json_safe(result.error)}
         return [AgentEvent("tool_end", end), self.log.event()]
+
+    async def _reject_duplicate_questionnaire(self) -> registry.ToolResult:
+        return registry.ToolResult(
+            ok=False,
+            output=None,
+            error="이번 턴에 이미 질문(카드 또는 질문지)을 보냈습니다. 사용자의 답을 기다린 뒤 다음 턴에 진행하세요.",
+            ms=0,
+        )
 
     def cancel_task(self) -> None:
         if self.task is not None and not self.task.done():

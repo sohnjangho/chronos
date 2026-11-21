@@ -190,7 +190,7 @@ async def test_rejected_schedule_rule_keeps_the_schedule(ctx_sid, session, clien
 @pytest.mark.parametrize(("args", "error"), [
     ({**DOMAIN_RULE, "condition": {**COND, "params": {}}}, "'days' 칸이 없습니다."),
     ({**DOMAIN_RULE, "condition": {**COND, "params": {"days": -1}}}, "'days' 칸 값이 올바르지 않습니다: 0 이상의 정수"),
-    ({**DOMAIN_RULE, "domain": "space"}, "알 수 없는 분야입니다: space"),
+    ({**DOMAIN_RULE, "domain": "../space"}, "올바르지 않은 분야입니다: ../space"),
 ])
 async def test_bad_rules_are_refused_and_save_nothing(ctx_sid, session, args, error):
     r = await call("rules.propose", args, ctx_sid)

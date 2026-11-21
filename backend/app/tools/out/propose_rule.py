@@ -18,7 +18,7 @@ from app.agent.approval import _needs
 from app.agent.events import AgentEvent
 from app.agent.ops import Strict
 from app.agent.proposals import Proposal, ProposalError, propose
-from app.domains.loader import domains
+from app.domains.loader import is_valid_domain_id
 from app.harness.conditions import Condition, validate_params
 from app.store import approvals
 from app.store.schedules import get_record, load
@@ -67,9 +67,9 @@ def _condition(args: RuleConditionIn) -> Condition:
 def _domain(args: ProposeRuleIn, ctx: ToolContext) -> str:
     """분야 범위에 분야를 주면 그 분야, 아니면 대상 일정의 분야(일정 범위는 늘 그 일정의 분야)."""
     if args.scope == "domain" and args.domain is not None:
-        if args.domain not in domains():
-            raise ToolError(f"알 수 없는 분야입니다: {args.domain}")
-        return args.domain
+        if not is_valid_domain_id(args.domain):
+            raise ToolError(f"올바르지 않은 분야입니다: {args.domain}")
+        return args.domain.strip()
     if ctx.schedule_id is None:
         raise ToolError(NO_DOMAIN_MESSAGE if args.scope == "domain" else NO_SCHEDULE_MESSAGE)
     with explained_schedule_errors():

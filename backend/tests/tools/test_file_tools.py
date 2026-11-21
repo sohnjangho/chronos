@@ -125,8 +125,8 @@ async def test_trace_counts_the_files_line(session, admin_user, chat_id, put):
     tools = registry.as_llm_tools()
     parts = {p["name"]: p["chars"] for p in context_parts(session, admin_user, chat_id, UiContext(), tools)}
     system = build_context(session, admin_user, chat_id, UiContext())[0]["content"]
-    text_parts = ["지시문", "분야 지식", "정밀도", "지금 상황", "날짜 도우미"]
-    assert sum(parts[n] for n in text_parts) == len(system) - 4
+    text_parts = ["지시문", "분야 지식", "정밀도", "지금 상황", "붙인 파일", "날짜 도우미"]
+    assert parts["붙인 파일"] > 0 and sum(parts[n] for n in text_parts) == len(system) - 4
 
 
 async def test_no_files_no_line(session, admin_user, chat_id):

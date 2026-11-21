@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from app.agent.events import AgentEvent
-from app.domains.loader import domains
+from app.domains.loader import is_valid_domain_id
 from app.store import questionnaires as store
 from app.store.questionnaires import Prefilled, Question
 from app.tools.context import ToolContext, ToolError
@@ -25,7 +25,10 @@ class AskIn(BaseModel):
         description="무엇을 하려고 묻는가: 일정 만들기·지연 등록·보고서·만회 계획·확인"
     )
     title: str = Field(min_length=1, max_length=60, description="질문지 제목")
-    domain: str | None = Field(default=None, description="분야 id(예: construction). 모르면 null")
+    domain: str | None = Field(
+        default=None,
+        description="분야 id (예: construction, manufacturing, rnd, permitting, procurement, general 등). 모르면 null",
+    )
     level: Literal["L1", "L2", "L3", "L4", "L5"] | None = Field(default=None, description="정밀도. 모르면 null")
     questions: list[Question] = Field(min_length=1, max_length=15, description="물을 질문 1~15개")
     prefilled: list[Prefilled] = Field(
@@ -51,8 +54,12 @@ class AskOut(RootModel[CardOut | OpenedOut]):
 
 def _problems(args: AskIn) -> list[str]:
     problems = []
-    if args.domain is not None and args.domain not in domains():
-        problems.append(f"없는 분야입니다: {args.domain}")
+    if args.domain is not None and not is_valid_domain_id(args.domain):
+        problems.append(f"올바르지 않은 분야입니다: {args.domain}")
+    if args.purpose == "generate" and args.domain is None and len(args.questions) > CARD_LIMIT:
+        problems.append(
+            "분야(주제)가 아직 확정되지 않았습니다(domain=null). 먼저 1~2개 질문(카드 모드)으로 어떤 일정인지 확인한 뒤, 다음 턴에 해당 분야에 맞춘 질문지를 여세요."
+        )
     return problems + store.question_problems(args.questions)
 
 

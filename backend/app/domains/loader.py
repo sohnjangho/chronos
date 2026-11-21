@@ -8,6 +8,7 @@
 from collections import Counter
 from functools import cache
 from pathlib import Path
+import re
 from typing import Annotated, Literal
 
 import yaml
@@ -275,6 +276,92 @@ def domains() -> list[str]:
     return sorted(p.parent.name for p in ROOT.glob("*/pack.yaml"))
 
 
+DOMAIN_ID_RE = re.compile(r"^[a-zA-Z0-9가-힣][a-zA-Z0-9가-힣_\-\s]{0,39}$")
+
+KNOWN_DOMAIN_NAMES: dict[str, str] = {
+    "general": "일반",
+    "rnd": "R&D 연구개발",
+    "research": "연구개발",
+    "permitting": "인허가",
+    "procurement": "자재 공급",
+    "software": "소프트웨어 개발",
+    "marketing": "마케팅·행사",
+    "event": "행사·운영",
+    "commercialization": "사업화",
+}
+
+
+def is_valid_domain_id(raw: str) -> bool:
+    """안전하고 유효한 분야 id 인지 검사한다(경로 문자·빈 글 차단)."""
+    if not isinstance(raw, str):
+        return False
+    cleaned = raw.strip()
+    if not cleaned or ".." in cleaned or "/" in cleaned or "\\" in cleaned:
+        return False
+    return bool(DOMAIN_ID_RE.fullmatch(cleaned))
+
+
+def is_specialty_domain(domain_id: str) -> bool:
+    """YAML 전문 분야 팩이 있는 분야인지."""
+    return domain_id in domains()
+
+
+def general_pack(domain_id: str = "general", name: str | None = None) -> DomainPack:
+    """건설·생산 외 모든 분야에 적용하는 범용 중립 분야 묶음."""
+    cleaned = domain_id.strip() or "general"
+    display_name = name or KNOWN_DOMAIN_NAMES.get(cleaned.lower(), cleaned)
+    return DomainPack.model_validate(
+        {
+            "id": cleaned,
+            "name": display_name,
+            "terms": {
+                "activity": "작업",
+                "resource": "자원",
+                "start": "시작",
+                "deadline": "완료 기한",
+                "milestone": "마일스톤",
+                "wbs": "WBS",
+                "calendar": "작업 달력",
+                "float": "여유",
+                "critical_path": "크리티컬 패스",
+                "contingency": "예비 기간",
+                "actual": "실적",
+            },
+            "default_calendar": {"days_per_week": 5, "holidays": "KR"},
+            "display": {"gantt_group_by": "wbs", "deadline_label": "완료 기한", "extra_columns": []},
+            "rules": [],
+            "key_resources": [],
+            "activity_types": [],
+            "wbs_template": [
+                {"code": "1", "name": "기획·정의", "parent": None},
+                {"code": "2", "name": "준비·설계", "parent": None},
+                {"code": "3", "name": "실행·구현", "parent": None},
+                {"code": "4", "name": "검증·완료", "parent": None},
+            ],
+            "assumption_defaults": [
+                {
+                    "key": "contingency_ratio",
+                    "label": "예비 기간 비율",
+                    "value": "10%",
+                    "note": "전체 일정 대비 버퍼. 완료 직전에 모아 둔다.",
+                },
+                {
+                    "key": "workdays_per_week",
+                    "label": "주 근무일",
+                    "value": "5일",
+                    "note": "토·일요일과 한국 법정 공휴일은 쉰다.",
+                },
+                {
+                    "key": "external_lead_times",
+                    "label": "외부 심사·납기 기준",
+                    "value": "근거 검색(legal/business/web)으로 확인한다",
+                    "note": "법정 심사 기간은 legal, 공급·제조 리드타임은 business, 시험·인증 기준은 web/scholar로 찾는다.",
+                },
+            ],
+        }
+    )
+
+
 @cache
 def _load(domain_id: str) -> DomainPack:
     pack = read_pack(ROOT / domain_id / "pack.yaml")
@@ -288,3 +375,12 @@ def load(domain_id: str) -> DomainPack:
     if domain_id not in domains():
         raise UnknownDomain(domain_id)
     return _load(domain_id).model_copy(deep=True)
+
+
+def resolve_pack(domain_id: str) -> DomainPack:
+    """등록된 전문 팩이 있으면 그것을, 없으면 범용 기본 묶음을 돌려준다. 부적합한 id 만 UnknownDomain."""
+    if not is_valid_domain_id(domain_id):
+        raise UnknownDomain(domain_id)
+    if domain_id in domains():
+        return load(domain_id)
+    return general_pack(domain_id)

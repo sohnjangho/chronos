@@ -7,6 +7,7 @@ LLM 이 낸 날짜(YYYY-MM-DD)는 그 연도가 원문(요청·질문지 답·�
 같은 id 가 다시 나오면 `.2`, `.3` … 을 붙인다.
 """
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -14,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 import app.tools.generate as package
 from app.agent.generation_build import ISO_DAY, ROUGH_RESOURCE_MESSAGE, uses_resources
 from app.agent.generation_steps import compact, level_line, strict_object, system_prompt
-from app.domains.loader import DomainPack, UnknownDomain, load
+from app.domains.loader import DomainPack, UnknownDomain, resolve_pack
 from app.harness.conditions import Condition, validate_params
 from app.llm.client import LlmFailed, LlmNotReady
 from app.tools.context import ToolContext, ToolError
@@ -83,7 +84,9 @@ class ExtractIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(min_length=1, description="사용자의 요청(프롬프트)")
-    domain: str = Field(description="분야 id(예: construction)")
+    domain: str = Field(
+        description="분야 id (예: construction, manufacturing, rnd, permitting, procurement, software, general 등)"
+    )
     level: Literal["L1", "L2", "L3", "L4", "L5"] = Field(description="정밀도")
     answers: list[AnswerIn] = Field(default_factory=list, description="질문지·카드에서 받은 답")
     assumed: list[AssumedIn] = Field(default_factory=list, description="답하지 않아 가정으로 넘긴 질문")
@@ -146,13 +149,19 @@ def _params(p: _Proposed, pack: DomainPack) -> dict:
     return params
 
 
+_RES_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+
+
 def _problem(p: _Proposed, pack: DomainPack, level: str) -> str | None:
     if p.kind not in ALLOWED_KINDS:
         return f"쓸 수 없는 조건 종류입니다: {p.kind}"
     if p.kind == "resource_cap" and not uses_resources(level):
         return ROUGH_RESOURCE_MESSAGE
-    if p.kind == "resource_cap" and p.resource_id not in {k.id for k in pack.key_resources}:
-        return f"없는 자원입니다: {p.resource_id}"
+    if p.kind == "resource_cap":
+        if pack.key_resources and p.resource_id not in {k.id for k in pack.key_resources}:
+            return f"없는 자원입니다: {p.resource_id}"
+        if not pack.key_resources and not (p.resource_id and _RES_ID_RE.fullmatch(p.resource_id)):
+            return f"자원 id 형식이 올바르지 않습니다: {p.resource_id}"
     return None
 
 
@@ -217,7 +226,10 @@ def _user_text(args: ExtractIn, pack: DomainPack) -> str:
     lines += [f"- {a.question} → {a.answer}" for a in args.answers] or ["(없음)"]
     lines.append("답하지 않아 가정으로 넘긴 질문:")
     lines += [f"- {a.question} → 가정: {a.assumption}" for a in args.assumed] or ["(없음)"]
-    lines.append("분야 주요 자원 id: " + compact([k.id for k in pack.key_resources]))
+    if pack.key_resources:
+        lines.append("분야 주요 자원 id: " + compact([k.id for k in pack.key_resources]))
+    else:
+        lines.append("분야 주요 자원 id: 자유 지정 (사용자가 말한 자원 제한은 영문 snake_case resource_id 로 추출)")
     return "\n".join(lines)
 
 
@@ -252,9 +264,9 @@ async def _ask(args: ExtractIn, pack: DomainPack, ctx: ToolContext) -> _Reply:
 )
 async def extract_conditions(args: ExtractIn, ctx: ToolContext) -> ExtractOut:
     try:
-        pack = load(args.domain)
+        pack = resolve_pack(args.domain)
     except UnknownDomain:
-        raise ToolError(f"없는 분야입니다: {args.domain}") from None
+        raise ToolError(f"올바르지 않은 분야입니다: {args.domain}") from None
     reply = await _ask(args, pack, ctx)
     conditions, dropped = conditions_from(reply.conditions, pack, args)
     facts, dropped_facts = facts_from(reply.facts, _sources(args))

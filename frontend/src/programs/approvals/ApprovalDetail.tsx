@@ -1,5 +1,6 @@
 // 승인 건 하나: 제목·요청·승인이 필요한 이유(전후 값)·숫자·바뀌는 것 표. 결정 상자는 부르는 쪽이 붙인다.
 import { useWindows } from '../../os/windowStore';
+import { domainLabel } from '../../shared/domainLabels';
 import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import { STATUS, type ApprovalDetail as Detail, type Json } from './apvApi';
@@ -77,7 +78,6 @@ function Numbers({ item }: { item: Detail }) {
   );
 }
 
-const DOMAINS: Record<string, string> = { construction: '건설', production: '생산', research: '연구개발', commercialization: '사업화' };
 const md = (v: unknown) => asList(v).map(asText).join('.');
 
 /** 내 규칙의 종류와 값 한 줄(서버 자료라 칸이 빠져 있어도 던지지 않는다). */
@@ -104,7 +104,7 @@ function ruleValue(kind: string, p: Json): string {
 function RuleBlock({ item }: { item: Detail }) {
   const r = asObj(asObj(item.summary).rule);
   const domain = asText(r.domain);
-  const scope = r.scope === 'schedule' ? '이 일정' : `분야 전체 · ${DOMAINS[domain] ?? domain}`;
+  const scope = r.scope === 'schedule' ? '이 일정' : `분야 전체 · ${domainLabel(domain)}`;
   return (
     <section className="apv-rule" aria-label="내 규칙 저장">
       <b>내 규칙 저장</b>

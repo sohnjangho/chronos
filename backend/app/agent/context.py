@@ -9,6 +9,7 @@ import json
 import logging
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -18,13 +19,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.cpm import ScheduleError
-from app.domains.loader import domains, levels_prompt, load
+from app.domains.loader import domains, general_pack, is_specialty_domain, levels_prompt, load, resolve_pack
 from app.harness.conditions import read_conditions
 from app.store import files as file_store
 from app.store import my_rules
 from app.store.chats import recent_messages
 from app.store.messages import schedule_error_message
-from app.store.schedules import NotFound
+from app.store.schedules import NotFound, get_record
 from app.store.schedules import load as load_schedule
 from app.store.tables import ChatMessage, FileRow, User
 from app.store.view import view_data
@@ -134,16 +135,24 @@ _GUIDE_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("actuals", ("실적", "진도", "공정률", "착수", "완료", "data date"), ("progress", "schedule-table")),
     ("scenario", ("복사본", "만약에", "시나리오", "비교"), ("compare",)),
     ("rules", ("규칙", "조건", "제약", "크레인", "금지"), ("conditions",)),
-    ("evidence", ("근거", "기준", "법규", "법령", "인허가", "검색", "납기", "출처"), ()),
+    ("evidence", ("근거", "기준", "법규", "법령", "인허가", "검색", "납기", "출처", "리드타임", "조달", "통관", "인증", "시험", "r&d", "연구", "공급"), ()),
     ("weather", ("날씨", "비", "우천", "동절기", "기온", "장마", "한중", "기상", "예보"), ()),
     ("files", ("파일", "자료", "시방서", "사진", "도면", "첨부", "문서"), ("library",)),
     ("import", ("가져오", "엑셀", "xlsx", "csv", "초안", "공정표"), ("library",)),
     ("visual", ("그림", "차트", "보고서", "시각화", "그래프"), ("progress", "compare", "delays")),
 )
 
+_CREATION_CUES = ("만들", "짜", "생성", "새 일정", "새 스케줄", "새 스케쥴", "새로운 스케줄", "새로운 스케쥴", "계획 수립")
+_CONSTRUCTION_CUES = ("건설", "건축", "토목", "골조", "타설", "타워크레인", "철근", "거푸집", "시공", "리모델링", "사무동")
+_MANUFACTURING_CUES = ("생산", "제조", "프레스", "금형", "양산", "블랭킹", "브래킷", "공정 라인")
+_UNIVERSAL_OVERRIDE_CUES = (
+    "r&d", "연구개발", "연구 개발", "인허가", "자재공급", "자재 공급", "자재 조달",
+    "조달 일정", "공급 일정", "구매 일정", "물류 일정", "신약", "임상", "소프트웨어", "앱 개발", "마케팅", "행사",
+)
+
 
 def select_guides(user_text: str, ui: UiContext, has_files: bool) -> list[str]:
-    """사용자 요청·열린 화면·첨부 파일에 맞는 가이드 이름만 동적으로 고른다(맞는 것이 없으면 전체)."""
+    """사용자 요청·열린 화면·첨부 파일에 맞는 가이드 이름만 동적으로 고른다(맞는 것이 없으면 전체 또는 생성 가이드)."""
     q = (user_text or "").lower()
     prog = ui.program or ""
     picked: list[str] = []
@@ -151,19 +160,59 @@ def select_guides(user_text: str, ui: UiContext, has_files: bool) -> list[str]:
         if (has_files and name in ("files", "import")) or (prog in programs) or any(k in q for k in keywords):
             picked.append(name)
     if not picked:
+        if any(k in q for k in _CREATION_CUES):
+            return ["evidence", "rules", "files"]
         return [f.stem for f in sorted(GUIDES_DIR.glob("*.md")) if not f.name.startswith("_")]
     return picked
 
 
-def system_prompt(guide_names: list[str] | None = None) -> str:
+def detect_active_domains(session: Session, ui: UiContext, rows: list[ChatMessage]) -> list[str]:
+    """지금 턴의 일정·대화 맥락에 맞는 전문 분야 팩 id 만 고른다(맞지 않으면 [] → 범용 팩만 사용)."""
+    recent_user = " ".join(_date_texts(rows)).lower()
+    if any(k in recent_user for k in _UNIVERSAL_OVERRIDE_CUES):
+        return []
+    matched: list[str] = []
+    if any(k in recent_user for k in _CONSTRUCTION_CUES):
+        matched.append("construction")
+    if any(k in recent_user for k in _MANUFACTURING_CUES):
+        matched.append("manufacturing")
+    if matched:
+        return matched
+    if any(k in recent_user for k in _CREATION_CUES):
+        return []
+    if ui.schedule_id is not None:
+        try:
+            d = get_record(session, ui.schedule_id).domain
+            if is_specialty_domain(d):
+                return [d]
+        except NotFound:
+            pass
+    return []
+
+
+def packs_text(active_domains: Sequence[str] | None = None) -> str:
+    """system 메시지에 넣을 분야 지식 글. active_domains 가 [] 면 범용 기본 묶음만 넣는다."""
+    if active_domains is None:
+        return "\n\n".join(load(d).prompt() for d in domains())
+    if not active_domains:
+        return general_pack().prompt()
+    return "\n\n".join(resolve_pack(d).prompt() for d in active_domains)
+
+
+def system_prompt(
+    guide_names: list[str] | None = None,
+    *,
+    active_domains: Sequence[str] | None = None,
+) -> str:
     """prompts/system.md 에 분야 목록·정밀도 정의·분야 지식을 넣고, 끝에 지시문 조각을 붙인다.
     guide_names 가 None 이면 전체, 목록이면 고른 가이드만 동적으로 붙인다."""
     packs = [load(d) for d in domains()]
+    domain_list = ", ".join(f"{p.id}({p.name})" for p in packs)
     base = (
         PROMPT.read_text(encoding="utf-8")
-        .replace("{{domains}}", ", ".join(f"{p.id}({p.name})" for p in packs))
+        .replace("{{domains}}", domain_list)
         .replace("{{levels}}", levels_prompt())
-        .replace("{{packs}}", "\n\n".join(p.prompt() for p in packs))
+        .replace("{{packs}}", packs_text(active_domains))
     )
     all_guides = sorted(f for f in GUIDES_DIR.glob("*.md") if not f.name.startswith("_"))
     selected = all_guides if guide_names is None else [f for f in all_guides if f.stem in set(guide_names)]
@@ -207,8 +256,9 @@ def build_context(
     older = compact_older_note(session, chat_session_id, rows)
     last_text = " ".join(_date_texts(rows))
     guides = select_guides(last_text, ui, has_files=attached is not None)
+    active_domains = detect_active_domains(session, ui, rows)
     now = situation(session, user, ui) + (f"\n{attached}" if attached else "") + (f"\n\n{older}" if older else "")
-    system = f"{system_prompt(guides)}\n\n{now}\n\n{helper}"
+    system = f"{system_prompt(guides, active_domains=active_domains)}\n\n{now}\n\n{helper}"
     return [{"role": "system", "content": system}, *history(rows)]
 
 

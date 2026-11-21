@@ -35,7 +35,17 @@ export function answerText(questions: Question[], answers: Record<string, Answer
   return ['카드 질문에 답합니다.', ...lines].join('\n');
 }
 
-function QuestionRow({ q, value, onChange }: { q: Question; value: Answer | undefined; onChange(v: Answer | undefined): void }) {
+function QuestionRow({
+  q,
+  value,
+  onChange,
+  onEnterSubmit,
+}: {
+  q: Question;
+  value: Answer | undefined;
+  onChange(v: Answer | undefined): void;
+  onEnterSubmit?(): void;
+}) {
   const picked = value?.kind === 'option' ? value.value : null;
   return (
     <div className="ch-q">
@@ -64,6 +74,12 @@ function QuestionRow({ q, value, onChange }: { q: Question; value: Answer | unde
           placeholder="직접 입력"
           value={value?.kind === 'free' ? value.text : ''}
           onChange={(e) => onChange({ kind: 'free', text: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing && onEnterSubmit) {
+              e.preventDefault();
+              onEnterSubmit();
+            }
+          }}
         />
       )}
       {q.assumption && <p className="ch-muted ch-wrap">답하지 않으면: {q.assumption}</p>}
@@ -77,13 +93,20 @@ export default function MiniQuestionsCard({ data, ctx }: CardProps) {
   const [answers, setAnswers] = useState<Record<string, Answer | undefined>>({});
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
   async function submit() {
+    if (state !== 'idle' || questions.length === 0) return;
     setState('sending');
     setState((await ctx.sendText(answerText(questions, answers))) ? 'sent' : 'idle');
   }
   return (
     <Card title={asText(data.title) || '확인할 것'}>
       {questions.map((q) => (
-        <QuestionRow key={q.id} q={q} value={answers[q.id]} onChange={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))} />
+        <QuestionRow
+          key={q.id}
+          q={q}
+          value={answers[q.id]}
+          onChange={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))}
+          onEnterSubmit={questions.length === 1 ? () => void submit() : undefined}
+        />
       ))}
       <div className="ch-actions">
         <Button variant="primary" disabled={state !== 'idle' || questions.length === 0} onClick={() => void submit()}>

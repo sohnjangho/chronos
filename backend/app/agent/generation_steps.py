@@ -32,6 +32,7 @@ _WBS_LIST = {
 _PREDECESSOR = strict_object(
     {"pred": _STR, "type": {"type": "string", "enum": ["FS", "SS", "FF", "SF"]}, "lag": {"type": "integer"}}
 )
+_RESOURCE = strict_object({"id": _STR, "name": _STR, "unit": _STR, "capacity": {"type": "integer"}})
 _ACTIVITIES = {
     "type": "array",
     "items": strict_object(
@@ -42,14 +43,21 @@ _ACTIVITIES = {
             "wbs": _STR,
             "od": {"type": "integer"},
             "tags": {"type": "array", "items": _STR},
+            "resources": {"type": "array", "items": _STR},
             "predecessors": {"type": "array", "items": _PREDECESSOR},
         }
     ),
 }
 WBS_SCHEMA = strict_object({"wbs": _WBS_LIST})
-SCHEDULE_SCHEMA = strict_object({"activities": _ACTIVITIES})
+SCHEDULE_SCHEMA = strict_object({"resources": {"type": "array", "items": _RESOURCE}, "activities": _ACTIVITIES})
 # 고침: WBS 를 바꿀 때만 새 WBS 전체, 아니면 null
-REPAIR_SCHEMA = strict_object({"wbs": {"anyOf": [_WBS_LIST, {"type": "null"}]}, "activities": _ACTIVITIES})
+REPAIR_SCHEMA = strict_object(
+    {
+        "wbs": {"anyOf": [_WBS_LIST, {"type": "null"}]},
+        "resources": {"type": "array", "items": _RESOURCE},
+        "activities": _ACTIVITIES,
+    }
+)
 
 
 def system_prompt(name: str, pack: DomainPack) -> str:

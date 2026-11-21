@@ -43,9 +43,10 @@ from app.agent.generation_steps import (
     schedule_messages,
     wbs_messages,
 )
+from app.agent.domain_synth import synthesize_pack
 from app.core.cpm import CpmResult, ScheduleError
 from app.core.model import Schedule
-from app.domains.loader import DomainPack, load
+from app.domains.loader import DomainPack, is_specialty_domain, resolve_pack
 from app.files.schedule_import import REPAIR_NOTE, ImportedRows
 from app.harness.assemble import assemble
 from app.harness.checks import CheckReport, Violation
@@ -231,7 +232,8 @@ class _Loop:
         lines = ["지킬 조건을 어긴 곳:", *(f"- [{v.condition_id}] {_described(v)}" for v in scored.report.violations)]
         if cpm is not None:
             path = " → ".join(cpm.critical_path)
-            lines.append(f"코드가 계산한 결과: 준공 {cpm.finish.isoformat()}, 크리티컬 패스 {path}")
+            deadline_label = self.pack.terms.get("deadline", "완료")
+            lines.append(f"코드가 계산한 결과: {deadline_label} {cpm.finish.isoformat()}, 크리티컬 패스 {path}")
         self.violation_note = "\n".join(lines)
         fresh = [w for w in scored.warnings if w not in self.sent]
         if not fresh:
@@ -318,15 +320,32 @@ async def generate(
     끝낸다(가장 나은 초안이 있으면 저장, 없으면 reason "중단했습니다.").
     fixed(파일에서 가져온 행)를 주면 그 행으로 초안을 만든다(모듈 설명글 참고).
     """
-    pack = load(domain)
+    pack = resolve_pack(domain)
     inputs, notes = _for_level(level, inputs)
+    if fixed is None and not is_specialty_domain(domain):
+        pack = await synthesize_pack(
+            llm,
+            domain,
+            request,
+            facts=facts,
+            assumptions=assumptions,
+            conditions=inputs,
+            chat_session_id=getattr(ctx, "chat_session_id", None),
+        )
     domain_rules = [Condition.from_dict(r) for r in pack.rules_raw]
     conditions = assemble(domain_rules, my_rules.for_generation(ctx.session, domain), inputs)  # 켜진 분야 범위 내 규칙
-    start, start_note = start_date(conditions, facts, date.today())
+    start, start_note = start_date(conditions, facts, date.today(), start_term=pack.terms.get("start", "시작"))
     noted = [*(dict(a) for a in assumptions), *start_note]
-    s = setting(pack, level, start, condition_tags(conditions))
+    s = setting(
+        pack,
+        level,
+        start,
+        condition_tags(conditions),
+        conditions=conditions,
+        strict_tags=is_specialty_domain(pack.id),
+    )
     if fixed is not None:
-        s = replace(s, resources=())  # 가져오기: 자원 자동 붙이기 끄기(모든 정밀도)
+        s = replace(s, resources=(), allow_resources=False)  # 가져오기: 자원 자동 붙이기 끄기(모든 정밀도)
     effective = [c for c in conditions if c.layer not in ("base", "domain") and c.enabled]
     brief = Brief(level, request, [dict(f) for f in facts], noted, effective, list(s.known_tags))
     loop = _Loop(ctx, llm, pack, brief, s, conditions, notes, fixed)
