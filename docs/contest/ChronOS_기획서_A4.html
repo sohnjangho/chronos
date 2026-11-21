@@ -4,170 +4,107 @@
 <meta charset="utf-8" />
 <title>ChronOS 기획서 — .EXE-THON 2026</title>
 <style>
-  @page { size: A4; margin: 13mm 14mm; }
+  @page { size: A4; margin: 12mm 13mm; }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: "Apple SD Gothic Neo", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
     color: #111827;
     background: #fff;
-    font-size: 9.6pt;
-    line-height: 1.52;
+    font-size: 9.2pt;
+    line-height: 1.48;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
   .page { page-break-after: always; position: relative; }
   .page:last-child { page-break-after: auto; }
 
-  /* Cover Banner */
   .hero {
     background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 60%, #0d7a8f 100%);
     color: #fff;
-    border-radius: 14px;
-    padding: 24px 26px 22px;
-    margin-bottom: 14px;
+    border-radius: 13px;
+    padding: 20px 22px 18px;
+    margin-bottom: 12px;
   }
+  .hero-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .hero-badge {
-    display: inline-block;
-    font-size: 8.5pt;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    background: rgba(255,255,255,0.16);
-    border: 1px solid rgba(255,255,255,0.28);
-    padding: 3px 10px;
-    border-radius: 999px;
-    margin-bottom: 10px;
+    font-size: 8.2pt; font-weight: 700; letter-spacing: 0.04em;
+    background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.28);
+    padding: 2px 10px; border-radius: 999px;
   }
-  .hero h1 { margin: 0 0 6px; font-size: 23pt; letter-spacing: -0.02em; }
-  .hero .sub { margin: 0 0 12px; font-size: 11.5pt; color: #dbeafe; font-weight: 500; }
+  .hero-author { font-size: 8.4pt; color: #cbd5e1; }
+  .hero h1 { margin: 0 0 4px; font-size: 22pt; letter-spacing: -0.02em; }
+  .hero .sub { margin: 0 0 10px; font-size: 11pt; color: #dbeafe; font-weight: 500; }
   .hero .quote {
-    margin: 0;
-    padding: 10px 14px;
-    background: rgba(15, 23, 42, 0.42);
-    border-left: 3px solid #38bdf8;
-    border-radius: 0 8px 8px 0;
-    font-size: 9.5pt;
-    color: #f1f5f9;
+    margin: 0; padding: 9px 13px;
+    background: rgba(15, 23, 42, 0.42); border-left: 3px solid #38bdf8;
+    border-radius: 0 8px 8px 0; font-size: 9.2pt; color: #f1f5f9;
   }
 
-  .kpi-row {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    margin-bottom: 14px;
-  }
-  .kpi {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 10px 11px;
-    text-align: center;
-  }
-  .kpi b { display: block; font-size: 14pt; color: #1d4ed8; margin-bottom: 2px; }
-  .kpi span { font-size: 8pt; color: #475569; }
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .kpi { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 9px; padding: 8px 10px; text-align: center; }
+  .kpi b { display: block; font-size: 13pt; color: #1d4ed8; margin-bottom: 1px; }
+  .kpi span { font-size: 7.8pt; color: #475569; }
 
   h2 {
-    margin: 14px 0 8px;
-    font-size: 13pt;
-    color: #0f172a;
-    border-bottom: 2px solid #1d4ed8;
-    padding-bottom: 4px;
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
+    margin: 12px 0 7px; font-size: 12.2pt; color: #0f172a;
+    border-bottom: 2px solid #1d4ed8; padding-bottom: 3px;
+    display: flex; justify-content: space-between; align-items: baseline;
   }
-  h2 .weight { font-size: 8.5pt; font-weight: 700; color: #1d4ed8; background: #eff6ff; padding: 2px 8px; border-radius: 999px; }
-  h3 { margin: 10px 0 5px; font-size: 10.5pt; color: #1e293b; }
-  p { margin: 0 0 7px; }
+  h2 .weight { font-size: 8pt; font-weight: 700; color: #1d4ed8; background: #eff6ff; padding: 1px 8px; border-radius: 999px; }
+  h3 { margin: 9px 0 4px; font-size: 10pt; color: #1e293b; }
+  p { margin: 0 0 6px; }
 
-  .pain-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 9px;
-    margin: 8px 0 10px;
-  }
-  .pain-card {
-    background: #fff7ed;
-    border: 1px solid #fed7aa;
-    border-radius: 10px;
-    padding: 10px 12px;
-  }
-  .pain-card .num { font-size: 8pt; font-weight: 800; color: #c2410c; text-transform: uppercase; }
-  .pain-card h4 { margin: 2px 0 4px; font-size: 10pt; color: #7c2d12; }
-  .pain-card p { margin: 0; font-size: 8.6pt; color: #431407; }
+  .pain-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 7px 0 9px; }
+  .pain-card { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 9px; padding: 8px 10px; }
+  .pain-card .num { font-size: 7.5pt; font-weight: 800; color: #c2410c; text-transform: uppercase; }
+  .pain-card h4 { margin: 2px 0 3px; font-size: 9.5pt; color: #7c2d12; }
+  .pain-card p { margin: 0; font-size: 8.2pt; color: #431407; }
 
-  .principle-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 9px;
-    margin: 8px 0 10px;
-  }
-  .p-card {
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
-    border-radius: 10px;
-    padding: 10px 12px;
-  }
-  .p-card h4 { margin: 0 0 4px; font-size: 9.8pt; color: #1e40af; }
-  .p-card p { margin: 0; font-size: 8.5pt; color: #1e293b; }
+  .two-col { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 10px; margin: 6px 0 8px; }
+  .trust-box { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 9px; padding: 9px 11px; }
+  .trust-box h4 { margin: 0 0 5px; font-size: 9.4pt; color: #0f172a; }
+  .trust-box ul { margin: 0; padding-left: 15px; font-size: 8.2pt; color: #334155; }
+  .trust-box li { margin-bottom: 3px; }
 
-  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 8.5pt; }
-  th, td { border: 1px solid #cbd5e1; padding: 5px 7px; text-align: left; vertical-align: top; }
+  table { width: 100%; border-collapse: collapse; margin: 5px 0 9px; font-size: 8.2pt; }
+  th, td { border: 1px solid #cbd5e1; padding: 4.5px 6.5px; text-align: left; vertical-align: top; }
   th { background: #f1f5f9; font-weight: 700; color: #0f172a; }
   tr:nth-child(even) td { background: #fafafa; }
+  .tc { text-align: center; }
 
-  .shot-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin: 8px 0 10px;
-  }
-  .shot {
-    border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    overflow: hidden;
-    background: #f8fafc;
-  }
+  .shot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 7px 0 9px; }
+  .shot { border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #f8fafc; margin: 0; }
   .shot img { display: block; width: 100%; height: auto; }
-  .shot figcaption { padding: 5px 8px; font-size: 8pt; color: #334155; border-top: 1px solid #e2e8f0; }
+  .shot figcaption { padding: 4.5px 7px; font-size: 7.8pt; color: #334155; border-top: 1px solid #e2e8f0; }
 
-  .arch-box {
-    border: 1px solid #cbd5e1;
-    border-radius: 10px;
-    padding: 10px 12px;
-    background: #f8fafc;
-    margin: 8px 0 10px;
-  }
-  .pill {
-    display: inline-block;
-    font-size: 7.8pt;
-    font-weight: 700;
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: #dbeafe;
-    color: #1e40af;
-    margin-right: 4px;
-  }
+  .arch-box { border: 1px solid #cbd5e1; border-radius: 9px; padding: 8px 10px; background: #f8fafc; margin: 6px 0 9px; }
+  .pill { display: inline-block; font-size: 7.4pt; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: #dbeafe; color: #1e40af; margin-right: 3px; }
   .pill.green { background: #dcfce7; color: #166534; }
   .pill.amber { background: #fef3c7; color: #92400e; }
 
+  .author-card {
+    background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+    border: 1px solid #bfdbfe; border-radius: 10px; padding: 10px 13px; margin: 6px 0 9px;
+  }
+  .author-card h4 { margin: 0 0 4px; font-size: 10pt; color: #1e3a8a; }
+  .author-card p { margin: 0; font-size: 8.5pt; color: #1e293b; }
+
   .footer {
-    margin-top: 10px;
-    padding-top: 6px;
-    border-top: 1px solid #e2e8f0;
-    font-size: 7.8pt;
-    color: #64748b;
-    display: flex;
-    justify-content: space-between;
+    margin-top: 8px; padding-top: 5px; border-top: 1px solid #e2e8f0;
+    font-size: 7.6pt; color: #64748b; display: flex; justify-content: space-between;
   }
 </style>
 </head>
 <body>
 
-<!-- PAGE 1: 표지 + 문제 정의 -->
+<!-- PAGE 1: 표지 + 문제 정의 + 페르소나 -->
 <section class="page">
   <div class="hero">
-    <span class="hero-badge">.EXE-THON 2026 출품 기획서</span>
+    <div class="hero-top">
+      <span class="hero-badge">.EXE-THON 2026 출품 기획서</span>
+      <span class="hero-author">참가자: 손장호 (개인 · 건설·플랜트 PM 20년)</span>
+    </div>
     <h1>ChronOS</h1>
     <p class="sub">하루에도 수십 번 변하는 스케줄 — 밤샘 재작업과 공종별 검토 지옥을 끝내는 에이전트 OS</p>
     <p class="quote">
@@ -177,63 +114,72 @@
   </div>
 
   <div class="kpi-row">
-    <div class="kpi"><b>15개 프로그램</b><span>PC OS + 스마트폰 전용 앱</span></div>
+    <div class="kpi"><b>15개 프로그램</b><span>PC OS + 스마트폰 현장 앱</span></div>
     <div class="kpi"><b>Liner API 5종</b><span>Router·Search·MCP·시각화·임베딩</span></div>
     <div class="kpi"><b>3,260+ 테스트</b><span>서버 2,097 · 화면 1,164 · E2E 4종</span></div>
-    <div class="kpi"><b>100% 신규</b><span>대회 기간(11.12~11.25) 자체 개발</span></div>
+    <div class="kpi"><b>주당 6~8시간↓</b><span>1인 기준 · 100% 신규 개발</span></div>
   </div>
 
-  <h2>1. 문제 정의 — 왜 공정표는 만들 때보다 고칠 때 고통스러운가 <span class="weight">심사 30%</span></h2>
-  <p>건설·플랜트·생산 현장의 공정 담당자와 PM은 매일 아침 새로운 변수와 싸웁니다. 일정 변경은 단순한 날짜 수정이 아니라, <strong>수십 가지 제약 조건의 동시 재계산</strong>과 <strong>공종별 합의</strong>를 요구하는 고강도 작업입니다.</p>
-
+  <h2>1. 문제 정의 — 공정표는 만들 때보다 고칠 때 시간이 든다 <span class="weight">심사 30%</span></h2>
   <div class="pain-grid">
     <div class="pain-card">
       <span class="num">Pain 01</span>
       <h4>수십 가지 상황 동시 검토</h4>
-      <p>날씨·법규·타워크레인 대수·선후행(FS/SS/FF/SF)·여유(Float)·크리티컬 패스·협력사 납기를 한꺼번에 맞춰야 합니다.</p>
+      <p>날씨·법규·타워크레인 대수·선후행(FS/SS/FF/SF)·여유(Float)·크리티컬 패스·납기를 동시에 맞춰야 합니다.</p>
     </div>
     <div class="pain-card">
       <span class="num">Pain 02</span>
       <h4>밤새 고쳤더니 내일 또 변경</h4>
-      <p>반나절~밤샘으로 겨우 만회 계획을 세워도 다음 날 현장에서 또 변수가 터져 처음부터 다시 계산해야 합니다.</p>
+      <p>반나절~밤샘으로 만회 계획을 세워도 다음 날 현장에서 또 변수가 터져 처음부터 다시 계산합니다.</p>
     </div>
     <div class="pain-card">
       <span class="num">Pain 03</span>
-      <h4>공종별 전문가 검토·취합 지옥</h4>
-      <p>골조·전기·설비 담당자에게 시방서·도면·일정을 돌려 검토받고 근거를 확인·승인받는 데만 며칠이 걸립니다.</p>
+      <h4>공종별 전문가 검토·협의 지옥</h4>
+      <p>골조·토목·전기·설비 담당자에게 시방서·도면·일정을 돌려 검토받고 승인받는 데만 며칠이 걸립니다.</p>
     </div>
   </div>
 
+  <h3>누가, 얼마나 불편한가 (현장 3대 역할)</h3>
   <table>
     <thead>
-      <tr><th style="width:24%">기존 방식</th><th style="width:38%">현장의 한계</th><th style="width:38%">ChronOS의 해법</th></tr>
+      <tr><th style="width:16%">역할</th><th style="width:36%">현장에서 하는 일</th><th style="width:48%">실제 병목과 소요 시간</th></tr>
     </thead>
     <tbody>
-      <tr><td><strong>전문 공정 도구 (P6 등)</strong></td><td>배우기 어렵고 무거우며, 현장 문서·대화·AI와 단절</td><td>대화 한 줄 + 동적 질문지로 시작, OS 창에서 즉시 조작</td></tr>
-      <tr><td><strong>엑셀 공정표</strong></td><td>CPM·자원 맞춤 계산이 없어 사람이 밤새 손으로 계산</td><td>결정론적 코드 엔진(`app/core`)이 1초 만에 재계산</td></tr>
-      <tr><td><strong>범용 AI 챗봇</strong></td><td>공정표를 넣으면 <strong>날짜·여유가 환각으로 깨지고</strong> 검증 불가</td><td><strong>계산은 코드 · 판단은 Liner · 결정은 사람(승인함)</strong></td></tr>
+      <tr><td><strong>공정 담당</strong></td><td>주간 진도 갱신, 지연 시 만회 계획 수립</td><td>진도 5% 밀리면 만회 계획에 <strong>반나절~밤샘</strong> · 협력사 공정표 검토 <strong>2~3시간</strong></td></tr>
+      <tr><td><strong>PM</strong></td><td>지연 원인 파악, 발주처 보고, 변경 승인</td><td>마일스톤 단축 요구 대응 <strong>하루</strong> · 공종별 근거/계약 조건 확인 <strong>수 시간</strong></td></tr>
+      <tr><td><strong>현장소장</strong></td><td>3주 룩어헤드 확인, 자재·장비 투입, 현장 보고</td><td>회의록·현장 사진 변경사항 반영 <strong>매주 2시간+</strong> · 사무실 공정표와 단절</td></tr>
     </tbody>
   </table>
 
-  <h3>ChronOS 3대 핵심 원칙</h3>
-  <div class="principle-grid">
-    <div class="p-card">
-      <h4>① 계산은 코드, 판단은 AI</h4>
-      <p>LLM은 WBS·기간·선후 관계와 판단만 냅니다. 날짜·여유·자원 겹침은 코드가 계산하며 LLM이 보낸 날짜는 버립니다.</p>
-    </div>
-    <div class="p-card">
-      <h4>② 4겹 하네스 &amp; 정직한 검증</h4>
-      <p>기본·분야·내 규칙·입력 조건을 4겹으로 조립·점검합니다. 자동 점검 불가 조건은 「자동 점검 안 됨」으로 명시합니다.</p>
-    </div>
-    <div class="p-card">
-      <h4>③ AI는 제안, 사람은 승인</h4>
-      <p>준공·마일스톤·크리티컬·조건 변경은 승인함으로 이동합니다. 거부 시 사유를 반영해 재작성하며 모든 변경은 버전으로 되돌립니다.</p>
+  <h3>AI · 코드 엔진 · 사람 역할 분담 &amp; 하지 않는 것</h3>
+  <div class="two-col">
+    <table>
+      <thead>
+        <tr><th>단계</th><th class="tc">Liner AI</th><th class="tc">코드·하네스</th><th class="tc">사람</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>요청 해석 · 조건 추출 · 질문지</td><td class="tc">✅</td><td class="tc">—</td><td class="tc">답변/가정</td></tr>
+        <tr><td>날짜 · 여유(Float) · CPM · 자원 계산</td><td class="tc">—</td><td class="tc">✅ (0% 환각)</td><td class="tc">—</td></tr>
+        <tr><td>4겹 하네스 조건 점검</td><td class="tc">—</td><td class="tc">✅</td><td class="tc">조건 조정</td></tr>
+        <tr><td>위반 고침 · 만회안 설명/추천</td><td class="tc">✅</td><td class="tc">✅ 탐색</td><td class="tc">비교 선택</td></tr>
+        <tr><td>시방서·사진 분류 · 법규/날씨 근거</td><td class="tc">✅</td><td class="tc">✅ Qdrant</td><td class="tc">출처 확인</td></tr>
+        <tr><td>준공·크리티컬·조건 변경 확정</td><td class="tc">—</td><td class="tc">—</td><td class="tc">✅ 승인함</td></tr>
+      </tbody>
+    </table>
+    <div class="trust-box">
+      <h4>ChronOS가 하지 않는 것 (신뢰의 경계)</h4>
+      <ul>
+        <li><strong>AI 날짜 계산 금지</strong>: LLM이 보낸 날짜는 코드가 버리고 CPM 엔진이 직접 계산합니다.</li>
+        <li><strong>거짓 통과 금지</strong>: 코드로 못 재는 조건은 「자동 점검 안 됨」으로만 표시합니다.</li>
+        <li><strong>무단 반영 금지</strong>: 중요 변경은 승인함을 거치며, 거부 시 사유를 반영해 재작성합니다.</li>
+        <li><strong>근거 창작 금지</strong>: 법규·기상 근거가 없으면 지어내지 않고 미확인으로 알립니다.</li>
+      </ul>
     </div>
   </div>
   <div class="footer"><span>ChronOS · .EXE-THON 2026</span><span>1 / 4</span></div>
 </section>
 
-<!-- PAGE 2: 솔루션 및 완성도 (화면 증빙) -->
+<!-- PAGE 2: 솔루션 및 완성도 (화면 증빙 + 만든 것/설계만 된 것) -->
 <section class="page">
   <h2>2. 솔루션 및 완성도 — 세 가지 고통을 끝내는 실제 동작 화면 <span class="weight">심사 30%</span></h2>
   <p>ChronOS는 에이전트 하나가 ReAct 루프로 동적 워크플로우를 실행하고, 사람은 필요한 창만 열어 확인·승인하는 <strong>에이전트 OS</strong>입니다. 사무실 PC에서는 다중 창 멀티태스킹, 현장에서는 <strong>스마트폰 전용 앱(`MobileShell`, ≤768px 자동 전환)</strong>으로 동작합니다.</p>
@@ -260,14 +206,14 @@
   <h3>만든 것 / 설계만 된 것 구분표 (2026-11-21 기준 · 계획 1·2·3 전체 구현 완료)</h3>
   <table>
     <thead>
-      <tr><th style="width:18%">영역</th><th style="width:57%">구현·동작 완료 (커밋 및 자동 테스트 검증)</th><th style="width:25%">설계만 됨 (향후 과제)</th></tr>
+      <tr><th style="width:18%">영역</th><th style="width:58%">실제 구현·동작 완료 (커밋 및 자동 테스트 검증)</th><th style="width:24%">설계만 됨 (향후 과제)</th></tr>
     </thead>
     <tbody>
       <tr><td><strong>OS 셸 &amp; 모바일</strong></td><td>15개 프로그램 OS 셸(Dock·메뉴바·빠른 시작·모니터 자동 조정·밝은/어두운 테마) + <strong>스마트폰 전용 `MobileShell`</strong>(하단 5탭바·현장 사진 첨부·이동 중 승인)</td><td>—</td></tr>
-      <tr><td><strong>에이전트 &amp; 추적</strong></td><td>ReAct 루프(12단계)·동적 워크플로우 기록·컨텍스트 8종(날짜 도우미 포함)·대화 카드 13종·개발 콘솔(전체 구조 + 이번 턴 실행 흐름도 SVG)</td><td>워크플로우 스킬 저장·재실행</td></tr>
-      <tr><td><strong>일정 생성·가져오기</strong></td><td>동적 질문지·조건 추출·WBS→초안→코드 계산→하네스 점검→고침(최대 5회)·L1~L5 정밀도·<strong>엑셀/CSV 공정표 자동 감지 및 가져오기</strong></td><td>P6 XER · MS Project(.mpp) 직접 변환</td></tr>
-      <tr><td><strong>엔진 &amp; 하네스</strong></td><td>달력(주 5/6/7일·공휴일·금지기간)·CPM(FS/SS/FF/SF)·자원 맞춤·4겹 하네스·지연 영향·단축안 탐색·공정률/S-커브/3주 룩어헤드</td><td>—</td></tr>
-      <tr><td><strong>자료함 &amp; 근거</strong></td><td>대화 첨부(10개/50MB·그림 1568px 축소)·5축 자동 분류·Qdrant 뜻+낱말 검색·자료함(미리 보기·폭 조절·합치기)·대화별 모델 ▾·기상청 날씨·Liner Search/MCP/시각화</td><td>스캔 PDF OCR, 팀/사용자별 자료 열람 범위 분리</td></tr>
+      <tr><td><strong>에이전트 &amp; 추적</strong></td><td>ReAct 루프(12단계)·동적 워크플로우 기록·컨텍스트 8종(날짜 도우미·붙인 파일 포함)·대화 카드 13종·개발 콘솔(전체 구조 + 이번 턴 실행 흐름도 SVG)</td><td>워크플로우 스킬 저장·재실행</td></tr>
+      <tr><td><strong>일정 생성·가져오기</strong></td><td>동적 질문지·조건 추출·WBS→초안→코드 계산→하네스 점검→고침(최대 5회)·L1~L5·<strong>엑셀/CSV 공정표 자동 감지 및 가져오기</strong></td><td>P6 XER · MS Project(.mpp) 직접 변환</td></tr>
+      <tr><td><strong>엔진 &amp; 하네스</strong></td><td>주 5/6/7일 달력(공휴일·금지기간)·CPM(FS/SS/FF/SF)·자원 맞춤·4겹 하네스·지연 영향·단축안 탐색·공정률/S-커브/3주 룩어헤드</td><td>—</td></tr>
+      <tr><td><strong>자료함 &amp; 근거</strong></td><td>대화 첨부(10개/50MB·그림 1568px 축소)·5축 자동 분류·Qdrant 뜻+낱말 검색·자료함(미리 보기·폭 조절·합치기)·대화별 모델 ▾·기상청 API·Liner Search/MCP/시각화</td><td>스캔 PDF OCR, 팀/사용자별 열람 권한 분리</td></tr>
     </tbody>
   </table>
   <div class="footer"><span>ChronOS · .EXE-THON 2026</span><span>2 / 4</span></div>
@@ -276,7 +222,7 @@
 <!-- PAGE 3: Liner API 5종 활용 및 아키텍처 -->
 <section class="page">
   <h2>3. Liner API 활용 — 5종 API를 핵심 파이프라인에 풀스택 내재화 <span class="weight">심사 20%</span></h2>
-  <p>ChronOS는 Liner API를 단순 챗봇 래핑이 아니라, <strong>판단(Router) · 조사(Search/MCP) · 눈(Vision) · 기억(Embeddings) · 보고(Visualization)</strong> 다섯 축의 핵심 엔진으로 통합했습니다.</p>
+  <p>ChronOS는 Liner API를 단순 챗봇 래핑이 아니라, <strong>판단(Router) · 조사(Search/MCP) · 눈(Vision) · 기억(Embeddings) · 보고(Visualization)</strong> 다섯 축의 핵심 엔진으로 통합했습니다. 특히 <code>liner-mark</code>(105만 토큰)와 작업별 라우팅 전략으로 비용을 30~50% 절감하면서 판단이 필요한 곳에만 고성능 모델을 씁니다.</p>
 
   <div class="arch-box">
     <svg viewBox="0 0 740 165" width="100%" height="150" xmlns="http://www.w3.org/2000/svg" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif">
@@ -285,7 +231,6 @@
           <path d="M0,0 L8,4 L0,8 z" fill="#2563eb" />
         </marker>
       </defs>
-      <!-- Left: Input -->
       <rect x="6" y="38" width="118" height="84" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
       <text x="65" y="64" text-anchor="middle" font-size="11" font-weight="700" fill="#1e3a8a">사용자 / 현장</text>
       <text x="65" y="83" text-anchor="middle" font-size="9" fill="#334155">대화 · 사진 · PDF</text>
@@ -294,7 +239,6 @@
 
       <line x1="124" y1="80" x2="158" y2="80" stroke="#2563eb" stroke-width="1.8" marker-end="url(#arr)"/>
 
-      <!-- Center: Agent + Harness -->
       <rect x="160" y="14" width="215" height="134" rx="12" fill="#ffffff" stroke="#0f172a" stroke-width="1.6"/>
       <text x="267" y="34" text-anchor="middle" font-size="11" font-weight="700" fill="#0f172a">ChronOS 에이전트 &amp; 하네스</text>
       <rect x="174" y="44" width="187" height="28" rx="6" fill="#dbeafe" stroke="#3b82f6"/>
@@ -304,14 +248,12 @@
       <rect x="174" y="114" width="187" height="24" rx="6" fill="#fef3c7" stroke="#d97706"/>
       <text x="267" y="130" text-anchor="middle" font-size="9" font-weight="600" fill="#92400e">승인함(Human-in-the-loop) · 버전</text>
 
-      <!-- Arrows to Liner 5 APIs -->
       <line x1="375" y1="35" x2="416" y2="24" stroke="#2563eb" stroke-width="1.4" marker-end="url(#arr)"/>
       <line x1="375" y1="58" x2="416" y2="54" stroke="#2563eb" stroke-width="1.4" marker-end="url(#arr)"/>
       <line x1="375" y1="82" x2="416" y2="84" stroke="#2563eb" stroke-width="1.4" marker-end="url(#arr)"/>
       <line x1="375" y1="106" x2="416" y2="114" stroke="#2563eb" stroke-width="1.4" marker-end="url(#arr)"/>
       <line x1="375" y1="130" x2="416" y2="144" stroke="#2563eb" stroke-width="1.4" marker-end="url(#arr)"/>
 
-      <!-- Right: Liner 5 APIs -->
       <rect x="420" y="10" width="312" height="25" rx="6" fill="#eff6ff" stroke="#3b82f6"/>
       <text x="430" y="26" font-size="9.5" font-weight="700" fill="#1e40af">① Model &amp; Router API</text>
       <text x="562" y="26" font-size="8.8" fill="#334155">cost / balanced / quality / vision</text>
@@ -347,11 +289,11 @@
       <tr><td><span class="pill amber">시각화 · 임베딩</span></td><td>Visualization / <code>3-small</code></td><td>차트 HTML 숫자 100% 대조(어긋나면 자체 차트) · 임베딩 실측 $0.02/1M 토큰</td></tr>
     </tbody>
   </table>
-  <p style="font-size:8.5pt; color:#475569;"><strong>실측 검증 완료</strong>: Model API 22회(200 OK · 도구 호출·JSON 스키마·전략별 라우팅), MCP 5회(법령·기업 검색 200 OK), Visualization 2회(표 값 15/15 일치), Embeddings 실측(1536차원 · 1.1초 · $0.02/1M 토큰), 기상청 ASOS·단기예보(200 OK).</p>
+  <p style="font-size:8.3pt; color:#475569;"><strong>실측 검증 완료</strong>: Model API 22/22회(200 OK · 도구 호출·JSON 스키마·전략별 라우팅), MCP 5/5회(법령·기업 검색 200 OK), Visualization 2/2회(표 값 15/15 전수 일치), Embeddings 실측(1536차원 · 1.1초 · $0.02/1M 토큰), 기상청 ASOS·단기예보(200 OK).</p>
   <div class="footer"><span>ChronOS · .EXE-THON 2026</span><span>3 / 4</span></div>
 </section>
 
-<!-- PAGE 4: 확장성과 임팩트 + 규정 준수 -->
+<!-- PAGE 4: 확장성과 임팩트 + 참가자 배경 + 규정 준수 -->
 <section class="page">
   <h2>4. 확장성과 임팩트 — 건설에서 생산, 사무실에서 현장까지 <span class="weight">심사 20%</span></h2>
 
@@ -366,40 +308,34 @@
     </figure>
   </div>
 
-  <h3>정량적 임팩트 (업무 시간 절감)</h3>
+  <h3>정량적 시간 절감 (공정 담당 1인 기준 주당 6~8시간 절감)</h3>
   <table>
     <thead>
-      <tr><th style="width:26%">반복 업무</th><th style="width:22%">기존 방식</th><th style="width:52%">ChronOS 도입 후</th></tr>
+      <tr><th style="width:24%">반복 업무</th><th style="width:20%">기존 방식</th><th style="width:56%">ChronOS 적용 후</th></tr>
     </thead>
     <tbody>
-      <tr><td><strong>지연 만회 계획 수립</strong></td><td>반나절 ~ 밤샘</td><td>대화 한 줄 → 지연 영향 + 만회안 A/B 탐색(1초대) + 비교판 즉시 결정</td></tr>
-      <tr><td><strong>조건·자원 시뮬레이션</strong></td><td>수작업 재작성 (수 시간)</td><td>조건 값 변경 즉시 간트 점선 미리 보기 (1초 미만)</td></tr>
-      <tr><td><strong>공종별 자료·근거 확인</strong></td><td>메일·폴더 수색 (매주 2시간+)</td><td>5축 자료함 뜻+낱말 검색 + 법규·날씨 근거 출처 자동 첨부</td></tr>
-      <tr><td><strong>협력사 공정표 취합</strong></td><td>수기 옮겨 적기 (2~3시간)</td><td>엑셀/CSV 첨부 → 자동 감지 → 빈 칸만 질문지/추정 → 승인함</td></tr>
+      <tr><td><strong>지연 만회 계획 수립</strong></td><td>반나절 ~ 밤샘</td><td>대화 한 줄 → 만회안 탐색(1초대) + 비교판 즉시 비교 (<strong>30분 이내 결정</strong>)</td></tr>
+      <tr><td><strong>조건·자원 시뮬레이션</strong></td><td>수작업 재작성</td><td>조건 값 변경 즉시 간트 점선 미리 보기 (<strong>1초 미만</strong>)</td></tr>
+      <tr><td><strong>회의록·시방서·근거</strong></td><td>매주 2시간+</td><td>5축 자료함 뜻+낱말 검색 + 법규·날씨 출처 자동 첨부 (<strong>20분 이내</strong>)</td></tr>
+      <tr><td><strong>협력사 공정표 취합</strong></td><td>건당 2~3시간</td><td>엑셀/CSV 첨부 → 자동 감지 → 빈 칸 질문지/추정 (<strong>20분 이내</strong>)</td></tr>
     </tbody>
   </table>
 
-  <h3>확장 로드맵</h3>
-  <table>
-    <thead>
-      <tr><th style="width:22%">확장 축</th><th style="width:78%">구조적 확장 방식</th></tr>
-    </thead>
-    <tbody>
-      <tr><td><strong>산업·직무 확장</strong></td><td>분야 지식 팩(YAML) 추가만으로 건설 → 생산(이미 구현) → R&amp;D → 사업화·이벤트 프로젝트로 무제한 확장</td></tr>
-      <tr><td><strong>베테랑 노하우 복제</strong></td><td>「내 규칙」이 쌓일수록 개인·팀의 판단 기준이 4겹 하네스로 코드화되어 신입 담당자도 같은 품질로 일정 관리</td></tr>
-      <tr><td><strong>결재·거버넌스 맞춤</strong></td><td>승인 수준(모두 승인 / 중요한 것만 / 자동)과 버전 되돌리기로 소규모 팀부터 대형 현장 조직까지 대응</td></tr>
-    </tbody>
-  </table>
+  <p style="font-size:8.4pt;"><strong>확장 경로</strong>: ① <strong>타 산업</strong>(건설 → 생산(구현 완료) → R&amp;D → 사업화, YAML 팩 교체) ② <strong>타 직무</strong>(같은 OS 위에 원가·품질·안전 도구 추가) ③ <strong>중소 현장 보급</strong>(고가 P6 없이 P6 수준 CPM·자원·승인 관리) ④ <strong>노하우 복제</strong>(「내 규칙」이 쌓여 4겹 하네스로 조직화).</p>
 
-  <h2>5. 대회 규정 준수 및 개발 증빙</h2>
+  <h2>5. 만든 사람 &amp; 대회 규정 준수</h2>
+  <div class="author-card">
+    <h4>손장호 (1인 참가) — "공정표를 만드는 사람이 아니라, 공정표로 판단하는 사람이 만들었습니다."</h4>
+    <p>건설·플랜트 PM 20년. SK온 대전 파일럿 플랜트(4,200억) PM 총괄 · 쿠웨이트 NWC(3,000억) Part Leader · UAE RRE#2(3조) 배관 엔지니어 · 사우디 SRU TA(2,000억) 기계.</p>
+  </div>
   <table>
     <thead>
-      <tr><th style="width:26%">항목</th><th style="width:74%">증빙 내용</th></tr>
+      <tr><th style="width:25%">항목</th><th style="width:75%">증빙 내용</th></tr>
     </thead>
     <tbody>
-      <tr><td><strong>제4조 2항 (기간 내 신규)</strong></td><td>저장소 <code>sohnjangho/chronos</code> 전체가 대회 기간(11.12~11.25) 내 11월 19일부터 신규 작성됨(Git 이력이 근거).</td></tr>
-      <tr><td><strong>제5조 (가상 데이터)</strong></td><td>시연 일정 2종(「5층 사무동 신축」, 「가상 부품 공장 — 브래킷 BR-200」), 계정, 문서·사진 모두 100% 가상 자료.</td></tr>
-      <tr><td><strong>보안 &amp; 품질 검증</strong></td><td>API 키는 화면 입력·암호화 저장, 커밋 전체 비밀 검사(<code>scripts/check_secrets.sh</code>) 통과, 자동 테스트 3,260+건 통과.</td></tr>
+      <tr><td><strong>신청서 대비 진화<br />(제4조 2항)</strong></td><td>참가 신청 시 기존 프로젝트 위 15% 확장 계획에서 전환하여, 대회 주제("베테랑의 노하우를 실행하는 에이전트")에 맞게 <strong>11월 19일부터 새 저장소에서 100% 신규 개발</strong>(Git 이력이 근거).</td></tr>
+      <tr><td><strong>가상 데이터 (제5조)</strong></td><td>시연 일정 2종(「5층 사무동 신축」, 「가상 부품 공장 — 브래킷 BR-200」), 계정, 문서·사진 모두 100% 가상 자료.</td></tr>
+      <tr><td><strong>보안 &amp; 품질 검증</strong></td><td>API 키 화면 입력·암호화 저장, 커밋 전체 비밀 검사(<code>scripts/check_secrets.sh</code>) 통과, 자동 테스트 3,260+건 통과.</td></tr>
     </tbody>
   </table>
   <div class="footer"><span>ChronOS · .EXE-THON 2026</span><span>4 / 4</span></div>
