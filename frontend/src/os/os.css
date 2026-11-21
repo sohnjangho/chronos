@@ -445,8 +445,8 @@ body {
     0 20px 54px color-mix(in srgb, var(--bg-topbar) 46%, transparent);
 }
 .os-win.is-stage-behind {
-  transform: perspective(1200px) translate3d(-18px, 10px, 0) scale(0.96);
-  opacity: 0.78;
+  transform: perspective(1200px) translate3d(-28px, 14px, 0) scale(0.95);
+  opacity: 0.72;
 }
 .os-win-agent-bar {
   flex: none;

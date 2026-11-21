@@ -83,9 +83,9 @@ const TOOL_PROGRAM_FALLBACK: Record<string, string> = {
   'visual.make': 'progress',
 };
 
-const STAGE_WORKFLOW_MS = 480;
-const STAGE_TOOL_MS = 720;
-const STAGE_DONE_MS = 900;
+const STAGE_WORKFLOW_MS = 1100;
+const STAGE_TOOL_MS = 1500;
+const STAGE_DONE_MS = 1200;
 
 let pacingEnabled = import.meta.env.MODE !== 'test';
 let windowSyncEnabled = import.meta.env.MODE !== 'test';
