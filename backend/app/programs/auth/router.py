@@ -9,6 +9,7 @@ from app.programs.auth.schemas import (
     AccountOut,
     LoginIn,
     LoginOut,
+    MeUpdate,
     UserCreate,
     UserOut,
     UserUpdate,
@@ -32,6 +33,11 @@ def login(body: LoginIn, session: SessionDep) -> LoginOut:
 @router.get("/me")
 def me(user: Annotated[User, Depends(current_user)]) -> UserOut:
     return UserOut.model_validate(user)
+
+
+@router.patch("/me")
+def update_me(body: MeUpdate, session: SessionDep, user: Annotated[User, Depends(current_user)]) -> UserOut:
+    return UserOut.model_validate(service.update_me(session, user, body))
 
 
 @router.get("/users", dependencies=[AdminOnly])

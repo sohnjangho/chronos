@@ -15,13 +15,19 @@ afterEach(resetAll);
 test('user role sees no admin sections', () => {
   renderAs('user');
   expect(screen.queryByText('LLM 연결')).toBeNull();
-  expect(within(nav()).getAllByRole('button').map((b) => b.textContent)).toEqual(['내 정보']);
+  expect(within(nav()).getAllByRole('button').map((b) => b.textContent)).toEqual([
+    '내 정보',
+    '화면 · 테마',
+    '차트 · 표 기본값',
+  ]);
 });
 
-test('admin sees the mockup sections and opens LLM 연결 first', () => {
+test('admin sees the expanded sections and opens LLM 연결 first', () => {
   renderAs('admin');
   expect(within(nav()).getAllByRole('button').map((b) => b.textContent)).toEqual([
     '내 정보',
+    '화면 · 테마',
+    '차트 · 표 기본값',
     'LLM 연결',
     '정보 API 연결',
     '작업별 모델 배정',
@@ -76,13 +82,55 @@ test('a new section param on the open window switches the section', async () => 
 test('program menus list the sections for the role and open them in the settings window', () => {
   signInAs('user');
   expect(manifest.menus?.map((m) => m.label)).toEqual(['보기']);
-  expect(manifest.menus?.[0].items.map((i) => i.label)).toEqual(['내 정보']);
+  expect(manifest.menus?.[0].items.map((i) => i.label)).toEqual(['내 정보', '화면 · 테마', '차트 · 표 기본값']);
   signInAs('admin');
   const items = manifest.menus?.[0].items ?? [];
-  expect(items.map((i) => i.label)).toEqual(['내 정보', 'LLM 연결', '정보 API 연결', '작업별 모델 배정', '계정 (관리자·사용자)', '승인 수준']);
+  expect(items.map((i) => i.label)).toEqual([
+    '내 정보',
+    '화면 · 테마',
+    '차트 · 표 기본값',
+    'LLM 연결',
+    '정보 API 연결',
+    '작업별 모델 배정',
+    '계정 (관리자·사용자)',
+    '승인 수준',
+  ]);
   act(() => void useWindows.getState().open('settings'));
   const id = useWindows.getState().wins[0].id;
-  act(() => items[3].action(id));
+  act(() => items.find((i) => i.label === '작업별 모델 배정')!.action(id));
   expect(useWindows.getState().wins).toHaveLength(1);
   expect(useWindows.getState().wins[0].params).toEqual({ section: 'assign' });
+});
+
+test('user updates own profile name and password in 내 정보', async () => {
+  const { fetchMock } = renderAs('user', { section: 'me' }, {
+    'PATCH /api/auth/me': { id: 1, name: '홍길동', role: 'user' },
+  });
+  await userEvent.clear(screen.getByLabelText('표시 이름'));
+  await userEvent.type(screen.getByLabelText('표시 이름'), '홍길동');
+  await userEvent.type(screen.getByLabelText('새 비밀번호'), 'new-secret-9');
+  await userEvent.click(screen.getByRole('button', { name: '변경 저장' }));
+  expect(await screen.findByText('내 정보를 저장했습니다.')).toBeVisible();
+  expect(sent(fetchMock, 'PATCH /api/auth/me')).toEqual([{ name: '홍길동', password: 'new-secret-9' }]);
+});
+
+test('화면 · 테마 toggles theme and 차트 · 표 기본값 renders gantt palette swatches', async () => {
+  renderAs('user', { section: 'appearance' });
+  expect(heading()).toHaveTextContent('화면 · 테마');
+  await userEvent.click(screen.getByRole('button', { name: /야간 모드/ }));
+  expect(document.documentElement.dataset.theme).toBe('dark');
+  await userEvent.click(screen.getByRole('button', { name: /주간 모드/ }));
+  expect(document.documentElement.dataset.theme).toBe('light');
+
+  await userEvent.click(within(nav()).getByRole('button', { name: '차트 · 표 기본값' }));
+  expect(heading()).toHaveTextContent('차트 · 표 기본값');
+  expect(screen.getByRole('group', { name: 'Plan (기준 계획) 색상' })).toBeVisible();
+  expect(screen.getByRole('slider', { name: '크리티컬 연결선 투명도' })).toBeVisible();
+});
+
+test('승인 수준 has button to open DevConsole agent settings tab', async () => {
+  renderAs('admin', { section: 'approval' });
+  await userEvent.click(screen.getByRole('button', { name: '개발 콘솔에서 에이전트 설정 열기' }));
+  const wins = useWindows.getState().wins;
+  expect(wins.some((w) => w.programId === 'devconsole' && w.params?.tab === 'harness')).toBe(true);
 });

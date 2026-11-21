@@ -38,6 +38,7 @@ from app.agent.workflow_log import TITLE_LIMIT, WorkflowLog
 from app.llm import assignments
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply, Usage
 from app.store import approvals, chats, questionnaires, skills
+from app.store import settings as settings_store
 from app.store.llm_usage import UsageSum, last_call_id, usage_since
 from app.store.tables import User
 from app.tools import registry
@@ -168,12 +169,23 @@ class _Turn:
         self.llm_ev, self.llm_t0, self.last_text = None, 0.0, ""  # 지금 llm 사건·그 시작·마지막 답 글
         self.chat_model: assignments.Assignment | None = None  # 이 대화에서 고른 모델(대화 호출에만, 설계 5-5)
         self.vision = image_turn.Vision()  # 그림 턴: 그림 읽기(vision) 모델·image_url (app.agent.image_turn)
+        self.max_steps_cfg = MAX_STEPS
+        self.tool_output_limit = 4000
+        self.history_limit = 30
+        self.enable_skill_match = True
+        self.enable_self_reflection = True
 
     # ── 시작·끝 ──
 
     def begin(self, text: str | None, questionnaire_id: int | None, approval_id: int | None,
               file_ids: Sequence[int] = ()) -> None:
         """사용자 메시지를 저장하고(대화 제목·일정·붙인 파일도) commit 한 뒤 LLM 에 보낼 메시지를 만든다."""
+        cfg = settings_store.get_agent_config(self.session)
+        self.max_steps_cfg = int(cfg["max_steps"])
+        self.tool_output_limit = int(cfg["tool_output_limit"])
+        self.history_limit = int(cfg["history_limit"])
+        self.enable_skill_match = bool(cfg["enable_skill_match"])
+        self.enable_self_reflection = bool(cfg["enable_self_reflection"])
         self.calls_before = last_call_id(self.session)
         chat = chats.get_chat(self.session, self.chat_id)
         picked = image_turn.picked(self.session, file_ids)
@@ -192,14 +204,14 @@ class _Turn:
         self.session.commit()
         self.trace = TraceLog(self.session, self.chat_id, message.id)
         ui = UiContext(self.ui.program, self.schedule_id, self.ui.selected_activity)
-        self.messages = build_context(self.session, self.user, self.chat_id, ui)
-        self.matched_skill = skills.match_skill(self.session, text or "")
+        self.messages = build_context(self.session, self.user, self.chat_id, ui, history_limit=self.history_limit)
+        self.matched_skill = skills.match_skill(self.session, text or "") if self.enable_skill_match else None
         if self.matched_skill is not None and self.messages and self.messages[0].get("role") == "system":
             self.messages[0]["content"] += "\n\n" + skills.skill_prompt_block(self.matched_skill)
             skills.record_use(self.session, self.matched_skill.id)
         self.vision.start(self.messages, picked)
         tools = registry.as_llm_tools()
-        parts = context_parts(self.session, self.user, self.chat_id, ui, tools)
+        parts = context_parts(self.session, self.user, self.chat_id, ui, tools, history_limit=self.history_limit)
         self.trace.context(parts, len(self.messages) - 1, len(tools))
         self.trace.skill(self.matched_skill)
 
@@ -377,8 +389,8 @@ class _Turn:
         for event in self.collected:
             chats.add_message(self.session, self.chat_id, "event", _storable({"type": event.type, "data": event.data}))
         self.collected = []
-        tool_content = result_text(result)
-        if not result.ok:
+        tool_content = result_text(result, limit=self.tool_output_limit)
+        if not result.ok and self.enable_self_reflection:
             tool_content = json.dumps(
                 {
                     "error": json_safe(result.error) or "도구 실행에 실패했습니다.",
@@ -406,7 +418,7 @@ async def run_turn(
     ui: UiContext,
     *,
     llm: LlmClient | None = None,
-    max_steps: int = MAX_STEPS,
+    max_steps: int | None = None,
     questionnaire_id: int | None = None,
     approval_id: int | None = None,
     file_ids: Sequence[int] = (),
@@ -422,7 +434,8 @@ async def run_turn(
     turn = _Turn(session, user, chat_session_id, ui, llm or default_llm(session))
     try:
         turn.begin(text, questionnaire_id, approval_id, file_ids)
-        async with aclosing(turn.events(max_steps)) as events:
+        steps = max_steps if max_steps is not None else turn.max_steps_cfg
+        async with aclosing(turn.events(steps)) as events:
             async for event in events:
                 yield event
         turn.close_log()

@@ -5,7 +5,7 @@ import History from '../../shared/schedule/History';
 import type { ColKey } from '../../shared/schedule/columns';
 import { ColumnPanel } from '../../shared/schedule/FilterPanel';
 import Popover from '../../shared/schedule/Popover';
-import { GANTT_PALETTE, type GanttColors } from './ganttColors';
+import { GANTT_PALETTE, type GanttColors } from '../../shared/schedule/ganttColors';
 import type { GroupBy } from './grouping';
 import type { Layers } from './model';
 

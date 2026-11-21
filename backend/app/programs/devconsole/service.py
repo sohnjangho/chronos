@@ -39,7 +39,7 @@ from app.programs.devconsole.schemas import (
     UsageOut,
 )
 from app.store import traces as store
-from app.store.settings import approval_mode
+from app.store.settings import approval_mode, get_agent_config
 from app.store.tables import LlmCall, TraceEvent, WorkflowStep
 from app.store.timeutil import as_utc
 from app.store.workflows import steps_of
@@ -95,7 +95,11 @@ def get_turn(session: Session, turn_id: int) -> TurnDetail:
     steps = steps_of(session, row.run_id) if row.run_id is not None else []
     inner = store.inner_calls(session, row.chat_session_id, row.started_at, row.ended_at)
     turn = _turn_out(row)
-    structure = _structure(row, events, steps, running=turn.status == "running", mode=approval_mode(session))
+    cfg = get_agent_config(session)
+    structure = _structure(
+        row, events, steps, running=turn.status == "running", mode=cfg["approval_mode"],
+        max_steps=cfg["max_steps"], check_retries=cfg["max_check_retries"],
+    )
     return TurnDetail(turn=turn, structure=structure, timeline=_timeline(events, steps, inner, row.started_at))
 
 
@@ -227,7 +231,7 @@ def _branch_signals(llms: list[TraceEvent], steps: list[WorkflowStep], skill_ev:
 
 
 def _structure(row: store.TurnRow, events: list[TraceEvent], steps: list[WorkflowStep], *, running: bool,
-               mode: str) -> StructureOut:
+               mode: str, max_steps: int = MAX_STEPS, check_retries: int = 5) -> StructureOut:
     llms = [e for e in events if e.kind == "llm"]
     ctx = next((e for e in events if e.kind == "context"), None)
     skill_ev = next((e for e in events if e.kind == "skill"), None)
@@ -235,7 +239,7 @@ def _structure(row: store.TurnRow, events: list[TraceEvent], steps: list[Workflo
     cells: dict[str, list[WorkflowStep]] = {"tool": [], "check": [], "approval": []}
     for step in steps:
         cells[_cell(step.tool)].append(step)
-    settings = {"tool": None, "check": CHECK_SETTING, "approval": f"승인 수준: {MODE_LABELS.get(mode, mode)}"}
+    settings = {"tool": None, "check": f"점검 한도 {check_retries}회", "approval": f"승인 수준: {MODE_LABELS.get(mode, mode)}"}
     skill_matched = skill_ev is not None and bool(skill_ev.output_text)
     skill_detail = (
         _detail(**{"in": skill_ev.input_text}, out=skill_ev.output_text, ms=skill_ev.ms)
@@ -262,7 +266,7 @@ def _structure(row: store.TurnRow, events: list[TraceEvent], steps: list[Workflo
         nodes.append(NodeOut(key=key, label=label, state=state, count=count, detail=detail))
     edges_lit, harness_summary = _branch_signals(llms, steps, skill_ev)
     return StructureOut(
-        nodes=nodes, loop_count=len(llms), limit=MAX_STEPS,
+        nodes=nodes, loop_count=len(llms), limit=max_steps,
         edges_lit=edges_lit, harness_summary=harness_summary,
     )
 

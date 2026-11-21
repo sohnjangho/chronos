@@ -168,9 +168,22 @@ export interface SkillRegistryItem {
   use_count: number;
 }
 
+export type ApprovalMode = 'all' | 'important' | 'auto';
+
+export interface AgentConfig {
+  approval_mode: ApprovalMode;
+  max_steps: number;
+  max_check_retries: number;
+  tool_output_limit: number;
+  history_limit: number;
+  enable_skill_match: boolean;
+  enable_self_reflection: boolean;
+}
+
 export interface CatalogOut {
   principles: string[];
   harness: HarnessRule[];
+  agent_config?: AgentConfig;
   sources: {
     system_file: string;
     system_raw: string;
@@ -193,4 +206,7 @@ export const devApi = {
   usage: (days: number, group: UsageGroup) => api<UsageOut>(`/api/devconsole/usage?days=${days}&group=${group}`),
   catalog: () => api<CatalogOut>('/api/devconsole/catalog'),
   testHarness: (ruleId: string) => api<HarnessTestOut>(`/api/devconsole/harness/${ruleId}/test`, { method: 'POST' }),
+  getAgentConfig: () => api<AgentConfig>('/api/devconsole/agent-config'),
+  saveAgentConfig: (cfg: AgentConfig) =>
+    api<AgentConfig>('/api/devconsole/agent-config', { method: 'PUT', body: JSON.stringify(cfg) }),
 };

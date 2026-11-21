@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.programs.auth.schemas import UserCreate, UserUpdate
+from app.programs.auth.schemas import MeUpdate, UserCreate, UserUpdate
 from app.security.passwords import hash_password, verify_password
 from app.store.tables import User
 
@@ -48,6 +48,16 @@ def update_user(session: Session, user_id: int, data: UserUpdate) -> User:
         user.name = data.name
     if data.role is not None:
         user.role = data.role
+    if data.password is not None:
+        user.password_hash = hash_password(data.password)
+    session.commit()
+    return user
+
+
+def update_me(session: Session, user: User, data: MeUpdate) -> User:
+    """로그인한 사용자 본인의 이름·비밀번호만 바꾼다."""
+    if data.name is not None:
+        user.name = data.name
     if data.password is not None:
         user.password_hash = hash_password(data.password)
     session.commit()

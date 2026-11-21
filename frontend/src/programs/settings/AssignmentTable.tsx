@@ -125,7 +125,13 @@ function AssignmentRow({ item, connections, lists, onSaved, onReindex }: RowProp
         </span>
         <ModelCell label={label} draft={draft} connections={connections} picker={picker} finding={finding} onFind={() => setFinding((f) => !f)} onChange={change} />
         <span className="st-arow-std">
-          {!embedding && isRouter(draft.model) && <StrategySelect label={label} value={draft.routing_strategy} onPick={(s) => change({ routing_strategy: s })} />}
+          {!embedding && isRouter(draft.model) ? (
+            <StrategySelect label={label} value={draft.routing_strategy} onPick={(s) => change({ routing_strategy: s })} />
+          ) : (
+            <span className="st-direct-pill" aria-hidden="true">
+              직접 호출
+            </span>
+          )}
         </span>
       </div>
       {finding && <FindPanel label={label} models={picker.all} embedding={embedding} onPick={pickFound} />}

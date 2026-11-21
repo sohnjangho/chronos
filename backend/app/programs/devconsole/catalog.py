@@ -11,6 +11,7 @@ from app.agent.loop import MAX_STEPS
 from app.domains.loader import domains, levels_prompt, load
 from app.errors import ApiError
 from app.programs.devconsole.service import APPROVAL_TOOLS, CHECK_TOOLS
+from app.store import settings as settings_store
 from app.store import skills as skill_store
 from app.store.tables import WorkflowStep
 from app.tools import registry
@@ -130,11 +131,20 @@ def _harness_stats(session: Session) -> dict[str, dict[str, int]]:
 def get_catalog(session: Session) -> dict[str, Any]:
     """하네스 카탈로그 + 프롬프트/가이드/도메인 원천 + 도구/스킬 등록부를 한 번에 반환."""
     registry.load_all()
+    cfg = settings_store.get_agent_config(session)
     stats = _harness_stats(session)
-    harness = [
-        {**rule, "passed_count": stats.get(rule["id"], {}).get("passed", 0), "blocked_count": stats.get(rule["id"], {}).get("blocked", 0)}
-        for rule in HARNESS_RULES
-    ]
+    harness = []
+    for rule in HARNESS_RULES:
+        entry = {
+            **rule,
+            "passed_count": stats.get(rule["id"], {}).get("passed", 0),
+            "blocked_count": stats.get(rule["id"], {}).get("blocked", 0),
+        }
+        if rule["id"] == "H-LIM-01":
+            entry["title"] = f"ReAct 루프 단계 한도({cfg['max_steps']}바퀴) 및 하네스 재시도 한도({cfg['max_check_retries']}회) 강제"
+        elif rule["id"] == "H-IN-01":
+            entry["title"] = f"도구 결과 길이 상한({cfg['tool_output_limit']:,}자) 절단 및 API 비밀키 추적 차단"
+        harness.append(entry)
 
     # 프롬프트 & 동적 가이드 원천 파일 직접 읽기 (사본 없음)
     raw_system = agent_context.PROMPT.read_text(encoding="utf-8")
@@ -193,6 +203,7 @@ def get_catalog(session: Session) -> dict[str, Any]:
     return {
         "principles": HARNESS_PRINCIPLES,
         "harness": harness,
+        "agent_config": cfg,
         "sources": {
             "system_file": "app/agent/prompts/system.md",
             "system_raw": raw_system,

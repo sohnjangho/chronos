@@ -15,7 +15,7 @@ import { useColWidths } from '../../shared/schedule/useColWidths';
 import Chart from './Chart';
 import type { ChartModel } from './ChartRows';
 import { exportImage } from './exportSheet';
-import { useGanttColors } from './ganttColors';
+import { useGanttColors } from '../../shared/schedule/ganttColors';
 import GanttToolbar from './GanttToolbar';
 import LeftGrid from './LeftGrid';
 import { useConditionMarks } from './marks';

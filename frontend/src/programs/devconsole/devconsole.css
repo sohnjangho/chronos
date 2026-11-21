@@ -576,3 +576,66 @@
 }
 .dc-harness-test-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--fs-12); }
 .dc-src-split { display: flex; flex-direction: column; gap: 14px; }
+
+/* ── 에이전트 · 하네스 실행 설정 카드 ── */
+.dc-cfg-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  background: var(--bg-panel-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dc-cfg-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.dc-cfg-head h3 { margin: 0 0 2px; font-size: var(--fs-14); font-weight: 700; }
+.dc-cfg-actions { display: flex; align-items: center; gap: 6px; }
+.dc-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.dc-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.dc-btn:disabled { opacity: 0.5; cursor: default; }
+.dc-cfg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 10px 12px;
+}
+.dc-cfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-12);
+  color: var(--fg-muted);
+}
+.dc-cfg-field input,
+.dc-cfg-field select {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: var(--fs-12);
+  color: var(--fg);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  padding: 5px 8px;
+}
+.dc-cfg-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-12);
+}
+.dc-cfg-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.dc-ok { color: var(--success-text); font-size: var(--fs-12); font-weight: 600; }

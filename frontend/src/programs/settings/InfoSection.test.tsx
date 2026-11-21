@@ -38,7 +38,7 @@ afterEach(resetAll);
 test('the nav has 정보 API 연결 next to LLM 연결 and the card shows the connection', async () => {
   openInfo();
   const names = within(nav()).getAllByRole('button').map((b) => b.textContent);
-  expect(names.slice(0, 3)).toEqual(['내 정보', 'LLM 연결', '정보 API 연결']);
+  expect(names.indexOf('정보 API 연결')).toBe(names.indexOf('LLM 연결') + 1);
   expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('정보 API 연결');
   const c = await screen.findByRole('article', { name: '기상청 날씨' });
   for (const text of ['기상청(공공데이터포털)', '미확인', KMA_URL, '확인한 적 없음']) expect(within(c).getByText(text)).toBeVisible();

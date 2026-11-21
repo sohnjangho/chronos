@@ -141,13 +141,43 @@ export function setup(role: 'admin' | 'user' = 'admin') {
   byId.clear();
   byId.set(38, done({ turn_id: 38, request: OLDER.request, started_at: OLDER.started_at }, { unpaired: true }));
   usageBody = usage();
-  fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const sampleCatalog = {
+    principles: ['원칙 1'],
+    harness: [
+      {
+        id: 'H-LIM-01',
+        area: '루프',
+        title: 'ReAct 루프 단계 한도(12바퀴) 및 하네스 재시도 한도(5회) 강제',
+        description: '한도 강제',
+        code: 'app/agent/loop.py',
+        mode: '코드 강제',
+        feedback_sample: '{}',
+        passed_count: 3,
+        blocked_count: 0,
+      },
+    ],
+    agent_config: {
+      approval_mode: 'important',
+      max_steps: 12,
+      max_check_retries: 5,
+      tool_output_limit: 4000,
+      history_limit: 30,
+      enable_skill_match: true,
+      enable_self_reflection: true,
+    },
+    sources: { system_file: 'system.md', system_raw: 'prompt', system_chars: 6, levels_prompt: 'L3', guides: [], domains: [] },
+    registry: { tools: [], skills: [] },
+  };
+  fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === '/api/devconsole/turns?limit=30') return json(200, list);
     const m = /^\/api\/devconsole\/turns\/(\d+)$/.exec(url);
     if (m && Number(m[1]) === 41) return detailResponse(queue.length > 1 ? queue.shift()! : queue[0]);
     if (m && byId.has(Number(m[1]))) return json(200, byId.get(Number(m[1])));
     if (url.startsWith('/api/devconsole/usage?')) return json(200, usageBody);
+    if (url === '/api/devconsole/catalog') return json(200, sampleCatalog);
+    if (url === '/api/devconsole/agent-config' && init?.method === 'PUT') return json(200, JSON.parse(String(init.body)));
+    if (url === '/api/devconsole/agent-config') return json(200, sampleCatalog.agent_config);
     return json(404, { code: 'not_found', message: '찾을 수 없습니다.', detail: null });
   });
   vi.stubGlobal('fetch', fetchMock);

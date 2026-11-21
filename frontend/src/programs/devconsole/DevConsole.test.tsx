@@ -391,4 +391,15 @@ describe('Fix round 1', () => {
       delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
     }
   });
+
+  test('params.tab opens harness tab and saves live agent config', async () => {
+    render(<DevConsole windowId="w1" params={{ tab: 'harness' }} />);
+    const cfg = await screen.findByRole('region', { name: '에이전트 · 하네스 실행 설정' });
+    await userEvent.selectOptions(within(cfg).getByLabelText('승인 수준'), 'auto');
+    const maxSteps = within(cfg).getByLabelText('ReAct 루프 단계 한도') as HTMLInputElement;
+    await userEvent.clear(maxSteps);
+    await userEvent.type(maxSteps, '16');
+    await userEvent.click(within(cfg).getByRole('button', { name: '에이전트 설정 저장' }));
+    expect(await within(cfg).findByText('에이전트 설정을 저장했습니다.')).toBeVisible();
+  });
 });

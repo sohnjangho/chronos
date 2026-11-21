@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import Field from '../../shared/ui/Field';
 import InfoCard, { KEY_HINT } from './InfoCard';
@@ -90,7 +91,7 @@ function AddForm({ onSaved, onCancel }: { onSaved(): void; onCancel(): void }) {
   );
 }
 
-/** 「정보 API 연결」(관리자): 에이전트 도구가 쓰는 바깥 정보. LLM 연결과 같은 모양의 카드. */
+/** 「정보 API 연결」(관리자): 에이전트 도구가 쓰는 바깥 정보. 지원 프리셋 카드와 연결 카드 목록. */
 export default function InfoSection() {
   const { connections, error, reload } = useInfoConnections();
   const [adding, setAdding] = useState(false);
@@ -98,24 +99,34 @@ export default function InfoSection() {
     setAdding(false);
     reload();
   };
+  const kmaConnected = connections?.some((c) => c.preset === 'kma') ?? false;
   return (
     <div className="st-pane">
       <div className="st-head">
-        <h2>정보 API 연결</h2>
+        <div>
+          <h2>정보 API 연결</h2>
+          <p className="st-muted">에이전트 도구가 쓰는 바깥 정보 · 키는 암호화하고 끝 4자리만 보입니다.</p>
+        </div>
         <Button variant="primary" disabled={adding} onClick={() => setAdding(true)}>
           + 연결 추가
         </Button>
       </div>
-      <p className="st-muted">에이전트 도구가 쓰는 바깥 정보 · 키는 암호화하고 끝 4자리만 보입니다.</p>
       <ErrorLine error={error} />
+      <section className="st-card st-card-subtle" aria-label="지원 정보 API 프리셋">
+        <div className="st-card-head">
+          <b className="st-card-name">지원 정보 API: 기상청 (공공데이터포털 · info.weather)</b>
+          <span className="st-gap" />
+          <Badge tone={kmaConnected ? 'success' : 'neutral'}>{kmaConnected ? '등록됨' : '미등록'}</Badge>
+        </div>
+        <p className="st-muted">
+          쓰는 도구 info.weather — 지난 해들 그 달 통계(코드가 계산) · 3일 예보. 숫자는 근거로만 붙이고 날짜 계산에는 넣지 않습니다.
+        </p>
+      </section>
       {connections?.length === 0 && !adding && (
         <p className="st-muted">아직 연결이 없습니다. 「+ 연결 추가」로 기상청 서비스 키를 넣어 주세요.</p>
       )}
       {connections?.map((c) => <InfoCard key={c.id} conn={c} onChanged={reload} />)}
       {adding && <AddForm onSaved={saved} onCancel={() => setAdding(false)} />}
-      <p className="st-muted">
-        쓰는 도구 info.weather — 지난 해들 그 달 통계(코드가 계산) · 3일 예보. 숫자는 근거로만 붙이고 날짜 계산에는 넣지 않습니다.
-      </p>
     </div>
   );
 }

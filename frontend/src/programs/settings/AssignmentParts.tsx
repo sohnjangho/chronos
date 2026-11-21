@@ -40,7 +40,7 @@ export type Picker = ReturnType<typeof usePicker>;
 
 function VendorSelect({ label, groups, value, onPick }: { label: string; groups: VendorGroup[]; value: string; onPick(v: string): void }) {
   return (
-    <select className="st-select" aria-label={`${label} 업체`} value={value} onChange={(e) => onPick(e.target.value)}>
+    <select className="st-select st-select-vendor" aria-label={`${label} 업체`} value={value} onChange={(e) => onPick(e.target.value)}>
       {groups.map((g) => (
         <option key={g.vendor} value={g.vendor}>
           {`${g.vendor_name} (${g.models.length})`}
@@ -61,7 +61,7 @@ function ModelSelect({ label, value, picker, onPick }: { label: string; value: s
   const { vendorModels, current } = picker;
   const extra = value !== '' && !vendorModels.some((m) => m.id === value);
   return (
-    <select className="st-select" aria-label={`${label} 모델`} value={value} onChange={(e) => onPick(e.target.value)}>
+    <select className="st-select st-select-model" aria-label={`${label} 모델`} value={value} onChange={(e) => onPick(e.target.value)}>
       {value === '' && (
         <option value="" disabled>
           모델 고르기
@@ -79,7 +79,7 @@ function ModelSelect({ label, value, picker, onPick }: { label: string; value: s
 
 function ConnectionSelect({ label, value, connections, onPick }: { label: string; value: number | null; connections: Connection[]; onPick(id: number): void }) {
   return (
-    <select className="st-select" aria-label={`${label} 연결`} value={value ?? ''} onChange={(e) => onPick(Number(e.target.value))}>
+    <select className="st-select st-select-conn" aria-label={`${label} 연결`} value={value ?? ''} onChange={(e) => onPick(Number(e.target.value))}>
       {connections.map((c) => (
         <option key={c.id} value={c.id}>
           {c.name}
@@ -113,25 +113,27 @@ interface CellProps {
   onChange(patch: Partial<Assignment>): void;
 }
 
-/** 연결(둘 이상일 때) → 업체 → 모델, 그리고 [찾기]. 연결을 바꾸면 모델을 다시 고른다. */
+/** 연결(둘 이상일 때) → 업체 → 모델 · [찾기] 를 한 가로줄로 정렬하고, 가격은 아래 작은 한 줄로 보인다. */
 export function ModelCell({ label, draft, connections, picker, finding, onFind, onChange }: CellProps) {
   return (
-    <span className="st-arow-model">
-      {connections.length > 1 && (
-        <ConnectionSelect
-          label={label}
-          value={draft.connection_id}
-          connections={connections}
-          onPick={(id) => onChange({ connection_id: id, model: '', routing_strategy: null })}
-        />
-      )}
-      {picker.groups.length > 0 && <VendorSelect label={label} groups={picker.groups} value={picker.vendor} onPick={picker.setVendor} />}
-      <ModelSelect label={label} value={draft.model} picker={picker} onPick={(m) => onChange(withModel(draft, m))} />
+    <div className="st-arow-model">
+      <div className="st-arow-controls">
+        {connections.length > 1 && (
+          <ConnectionSelect
+            label={label}
+            value={draft.connection_id}
+            connections={connections}
+            onPick={(id) => onChange({ connection_id: id, model: '', routing_strategy: null })}
+          />
+        )}
+        {picker.groups.length > 0 && <VendorSelect label={label} groups={picker.groups} value={picker.vendor} onPick={picker.setVendor} />}
+        <ModelSelect label={label} value={draft.model} picker={picker} onPick={(m) => onChange(withModel(draft, m))} />
+        <Button aria-label={`${label} 모델 찾기`} aria-expanded={finding} disabled={picker.all.length === 0} onClick={onFind}>
+          찾기
+        </Button>
+      </div>
       {picker.current?.price && <span className="st-price">{priceText(picker.current.price)}</span>}
-      <Button aria-label={`${label} 모델 찾기`} aria-expanded={finding} disabled={picker.all.length === 0} onClick={onFind}>
-        찾기
-      </Button>
-    </span>
+    </div>
   );
 }
 

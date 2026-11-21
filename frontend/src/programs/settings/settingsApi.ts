@@ -1,4 +1,4 @@
-import type { Role } from '../../os/session';
+import type { Role, User } from '../../os/session';
 import { api } from '../../shared/api';
 import type { Account, ApprovalMode, ReindexState } from './model';
 
@@ -12,11 +12,13 @@ export interface NewAccount {
 }
 
 export type AccountPatch = Partial<Omit<NewAccount, 'login_id'>>;
+export type MePatch = { name?: string; password?: string };
 
-/** 승인 수준(Task 11)·계정(Task 1)·임베딩 다시 넣기(Task 48) API. */
+/** 승인 수준(Task 11)·계정(Task 1)·내 정보 수정·임베딩 다시 넣기(Task 48) API. */
 export const settingsApi = {
   approval: () => api<{ mode: ApprovalMode }>('/api/settings/approval'),
   saveApproval: (mode: ApprovalMode) => api<{ mode: ApprovalMode }>('/api/settings/approval', json('PUT', { mode })),
+  updateMe: (body: MePatch) => api<User>('/api/auth/me', json('PATCH', body)),
   accounts: () => api<Account[]>('/api/auth/users'),
   createAccount: (body: NewAccount) => api<Account>('/api/auth/users', json('POST', body)),
   updateAccount: (id: number, body: AccountPatch) => api<Account>(`/api/auth/users/${id}`, json('PATCH', body)),

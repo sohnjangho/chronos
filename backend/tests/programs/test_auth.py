@@ -142,3 +142,14 @@ def test_too_long_password_is_rejected_not_500(client, admin):
     new = {"login_id": "kim", "name": "김", "role": "user", "password": "가" * 30}
     r = client.post("/api/auth/users", headers=admin, json=new)
     assert r.status_code == 422 and r.json()["code"] == "invalid_request"
+
+
+def test_me_patch_updates_own_name_and_password(client, user):
+    r = client.patch("/api/auth/me", headers=user, json={"name": "김내정보", "password": "my-new-pass"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "김내정보" and r.json()["role"] == "user"
+    assert login(client, "user1", "user-pass").status_code == 401
+    assert login(client, "user1", "my-new-pass").json()["user"]["name"] == "김내정보"
+    # role 같은 정의되지 않은 필드는 거부한다.
+    bad = client.patch("/api/auth/me", headers=user, json={"role": "admin"})
+    assert bad.status_code == 422

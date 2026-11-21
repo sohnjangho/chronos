@@ -30,7 +30,7 @@ function useConnections() {
   return { connections, error, reload };
 }
 
-/** 「LLM 연결」: 시안처럼 왼쪽에 연결 카드와 연결 추가, 오른쪽에 작업별 모델 배정. */
+/** 「LLM 연결」: 위쪽에 연결 카드와 연결 추가, 아래쪽에 작업별 모델 배정(전체 폭 정렬). */
 export default function LlmSection() {
   const { connections, error, reload } = useConnections();
   const [adding, setAdding] = useState(false);
@@ -49,7 +49,10 @@ export default function LlmSection() {
     <div className="st-llm">
       <div className="st-col">
         <div className="st-head">
-          <h2>LLM 연결</h2>
+          <div>
+            <h2>LLM 연결</h2>
+            <p className="st-muted">AI 제공자 연결 키는 암호화 저장되며 실패 시 원인(키 · 주소 · 시간 초과 · 한도)을 안내합니다.</p>
+          </div>
           <Button variant="primary" disabled={adding} onClick={add}>
             + 연결 추가
           </Button>
@@ -61,10 +64,12 @@ export default function LlmSection() {
         )}
         {connections?.map((c) => <ConnectionCard key={c.id} conn={c} onChanged={reload} />)}
         {adding && <Wizard onSaved={saved} onCancel={() => setAdding(false)} />}
-        <p className="st-muted">실패하면 원인별로 안내합니다: 키가 틀림 · 주소가 틀림 · 시간 초과 · 한도 초과.</p>
       </div>
       <div className="st-side">
-        <h3>작업별 모델 배정</h3>
+        <div className="st-section-head">
+          <h3>작업별 모델 배정</h3>
+          <p className="st-muted">에이전트의 6가지 쓰임새마다 사용할 업체·모델과 라우팅 기준을 한 줄씩 지정합니다.</p>
+        </div>
         <AssignmentTable connections={connections} />
       </div>
     </div>
@@ -75,8 +80,11 @@ export default function LlmSection() {
 export function AssignSection() {
   const { connections, error } = useConnections();
   return (
-    <div className="st-pane">
-      <h2>작업별 모델 배정</h2>
+    <div className="st-pane st-pane-wide">
+      <div className="st-section-head">
+        <h2>작업별 모델 배정</h2>
+        <p className="st-muted">에이전트의 6가지 쓰임새마다 사용할 업체·모델과 라우팅 기준을 지정합니다.</p>
+      </div>
       <ErrorLine error={error} />
       <AssignmentTable connections={connections} />
     </div>

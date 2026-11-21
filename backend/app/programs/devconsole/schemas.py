@@ -5,7 +5,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.store.traces import UsageGroup, UsageOut
 
-__all__ = ["NodeDetail", "NodeOut", "StructureOut", "TimelineItem", "TurnDetail", "TurnOut", "UsageGroup", "UsageOut"]
+__all__ = [
+    "AgentConfigOut",
+    "AgentConfigPatch",
+    "NodeDetail",
+    "NodeOut",
+    "StructureOut",
+    "TimelineItem",
+    "TurnDetail",
+    "TurnOut",
+    "UsageGroup",
+    "UsageOut",
+]
 
 TurnStatus = Literal["running", "done", "failed", "stopped"]
 
@@ -73,3 +84,25 @@ class TurnDetail(BaseModel):
     turn: TurnOut
     structure: StructureOut
     timeline: list[TimelineItem]
+
+
+class AgentConfigOut(BaseModel):
+    approval_mode: Literal["all", "important", "auto"]
+    max_steps: int = Field(ge=4, le=24)
+    max_check_retries: int = Field(ge=1, le=10)
+    tool_output_limit: int = Field(ge=1000, le=16000)
+    history_limit: int = Field(ge=6, le=60)
+    enable_skill_match: bool
+    enable_self_reflection: bool
+
+
+class AgentConfigPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approval_mode: Literal["all", "important", "auto"] | None = None
+    max_steps: int | None = Field(default=None, ge=4, le=24)
+    max_check_retries: int | None = Field(default=None, ge=1, le=10)
+    tool_output_limit: int | None = Field(default=None, ge=1000, le=16000)
+    history_limit: int | None = Field(default=None, ge=6, le=60)
+    enable_skill_match: bool | None = None
+    enable_self_reflection: bool | None = None

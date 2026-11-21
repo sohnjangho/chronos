@@ -142,16 +142,34 @@ function StructureView({ detail }: { detail: TurnDetail }) {
   );
 }
 
-function AdminConsole() {
-  const [tab, setTab] = useState<Tab>('structure');
+function resolveTab(tabParam: string | undefined): Tab {
+  return TABS.some((t) => t.id === tabParam) ? (tabParam as Tab) : 'structure';
+}
+
+function AdminConsole({ params }: { params?: Record<string, string> }) {
+  const [tab, setTab] = useState<Tab>(() => resolveTab(params?.tab));
+  const [seenParams, setSeenParams] = useState(params);
+  if (params !== seenParams) {
+    setSeenParams(params);
+    if (params?.tab) setTab(resolveTab(params.tab));
+  }
   const [catalog, setCatalog] = useState<CatalogOut | null>(null);
+  const [catalogTick, setCatalogTick] = useState(0);
   const d = useTurnData();
   const turnTab = tab === 'structure' || tab === 'trace';
   const catTab = tab === 'harness' || tab === 'sources' || tab === 'registry';
   useEffect(() => {
-    if (!catTab || catalog) return;
-    void devApi.catalog().then(setCatalog).catch(() => {});
-  }, [catTab, catalog]);
+    if (!catTab) return;
+    let live = true;
+    void devApi
+      .catalog()
+      .then((c) => live && setCatalog(c))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [catTab, catalogTick]);
+  const reloadCatalog = () => setCatalogTick((t) => t + 1);
   const empty = d.turns?.length === 0 ? '아직 기록된 요청이 없습니다. 대화창에서 에이전트에게 요청하면 여기에 쌓입니다.' : '불러오는 중…';
   return (
     <div className="dc-root">
@@ -172,7 +190,7 @@ function AdminConsole() {
       <div className="dc-body" role="tabpanel" aria-label={TABS.find((t) => t.id === tab)!.label}>
         {tab === 'usage' && <UsageTab />}
         {catTab && !catalog && <p className="dc-empty">원천 카탈로그를 불러오는 중…</p>}
-        {tab === 'harness' && catalog && <HarnessTab catalog={catalog} />}
+        {tab === 'harness' && catalog && <HarnessTab catalog={catalog} onSaved={reloadCatalog} />}
         {tab === 'sources' && catalog && <SourcesTab catalog={catalog} />}
         {tab === 'registry' && catalog && <RegistryTab catalog={catalog} />}
         {turnTab && !d.detail && !d.error && <p className="dc-empty">{empty}</p>}
@@ -187,8 +205,7 @@ function AdminConsole() {
   );
 }
 
-export default function DevConsole(_: ProgramProps) {
-  void _;
+export default function DevConsole({ params }: ProgramProps) {
   const admin = useSession((s) => s.session?.user.role === 'admin');
   if (!admin) {
     return (
@@ -197,5 +214,5 @@ export default function DevConsole(_: ProgramProps) {
       </div>
     );
   }
-  return <AdminConsole />;
+  return <AdminConsole params={params} />;
 }

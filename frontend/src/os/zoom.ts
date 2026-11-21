@@ -12,6 +12,7 @@ interface ZoomState {
   zoomIn(programId: string): void;
   zoomOut(programId: string): void;
   reset(programId: string): void;
+  resetAll(): void;
 }
 
 export const zoomOf = (levels: Record<string, number>, programId: string) => levels[programId] ?? 100;
@@ -46,5 +47,9 @@ export const useZoom = create<ZoomState>((set, get) => {
     zoomIn: (id) => put(id, step(zoomOf(get().levels, id), 1)),
     zoomOut: (id) => put(id, step(zoomOf(get().levels, id), -1)),
     reset: (id) => put(id, 100),
+    resetAll() {
+      savePref('zoom', get().userId, {});
+      set({ levels: {} });
+    },
   };
 });

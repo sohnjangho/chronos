@@ -16,6 +16,7 @@ interface DockState {
   unpin(id: string, allIds: string[]): void;
   /** id 를 차례 to 자리로 옮긴다. */
   move(id: string, to: number, allIds: string[]): void;
+  resetDefault(): void;
 }
 
 /**
@@ -50,6 +51,10 @@ export const useDock = create<DockState>((set, get) => {
       const rest = current(allIds).filter((x) => x !== id);
       rest.splice(Math.max(0, Math.min(to, rest.length)), 0, id);
       save(rest);
+    },
+    resetDefault() {
+      savePref('dock', get().userId, null);
+      set({ pinned: null });
     },
   };
 });

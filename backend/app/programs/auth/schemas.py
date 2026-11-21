@@ -52,3 +52,10 @@ class UserUpdate(BaseModel):
     name: Name | None = None
     role: Role | None = None
     password: NewPassword | None = None
+
+
+class MeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Name | None = None
+    password: NewPassword | None = None

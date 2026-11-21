@@ -178,23 +178,29 @@ class TraceLog:
                   error=None if ok else (text or status)[:_ERROR_LIMIT], output_text=_cut(text, TEXT_LIMIT))
 
 
-def context_parts(session: Session, user: User, chat_session_id: int, ui: UiContext, tools: list[dict]) -> list[dict]:
+def context_parts(
+    session: Session, user: User, chat_session_id: int, ui: UiContext, tools: list[dict],
+    *, history_limit: int = context.HISTORY_LIMIT,
+) -> list[dict]:
     """모델에 보내는 맥락의 재료마다 글자 수: [{name, chars}] CONTEXT_PARTS 차례.
 
     지시문·분야 지식·정밀도·지금 상황·날짜 도우미는 system 메시지의 조각이다(지시문 = system.md 와 지시문 조각).
     대화 = 기록 메시지 JSON, 도구 목록 = 도구 정의 JSON 의 글자 수. 세다가 실패하면 경고만 남기고 [].
     """
     try:
-        return _count_parts(session, user, chat_session_id, ui, tools)
+        return _count_parts(session, user, chat_session_id, ui, tools, history_limit=history_limit)
     except Exception as exc:  # noqa: BLE001 — 추적 기록은 턴을 바꾸지 않는다
         _warn("context_parts", exc)
         return []
 
 
-def _count_parts(session: Session, user: User, chat_session_id: int, ui: UiContext, tools: list[dict]) -> list[dict]:
+def _count_parts(
+    session: Session, user: User, chat_session_id: int, ui: UiContext, tools: list[dict],
+    *, history_limit: int = context.HISTORY_LIMIT,
+) -> list[dict]:
     knowledge = "\n\n".join(load(d).prompt() for d in domains())
     levels = levels_prompt()
-    rows = recent_messages(session, chat_session_id, context.HISTORY_LIMIT)
+    rows = recent_messages(session, chat_session_id, history_limit)
     attached = context.files_line(session, chat_session_id)  # 지금 상황 끝의 「이 대화에 붙인 파일」 줄
     older = context.compact_older_note(session, chat_session_id, rows)
     last_text = " ".join(context._date_texts(rows))

@@ -124,7 +124,7 @@ def test_admin_only(client, user):
     assert client.get("/api/devconsole/turns", headers=user).json()["code"] == "admin_only"
 
 
-@pytest.mark.parametrize("path", ["/api/devconsole/turns", "/api/devconsole/turns/1", "/api/devconsole/usage"])
+@pytest.mark.parametrize("path", ["/api/devconsole/turns", "/api/devconsole/turns/1", "/api/devconsole/usage", "/api/devconsole/agent-config"])
 def test_every_route_is_admin_only(client, user, path):
     r = client.get(path, headers=user)
     assert (r.status_code, r.json()["code"]) == (403, "admin_only")
@@ -464,3 +464,45 @@ def test_catalog_and_harness_block_simulation(client, admin):
     sim_body = sim.json()
     assert sim_body["rule_id"] == "H-RES-01" and sim_body["blocked"] is True
     assert sim_body["model_feedback"]["passed"] is False
+
+
+def test_agent_config_roundtrip_and_turn_structure_sync(client, admin, user, finished_turn):
+    r0 = client.get("/api/devconsole/agent-config", headers=admin)
+    assert r0.status_code == 200
+    assert r0.json() == {
+        "approval_mode": "important",
+        "max_steps": 12,
+        "max_check_retries": 5,
+        "tool_output_limit": 4000,
+        "history_limit": 30,
+        "enable_skill_match": True,
+        "enable_self_reflection": True,
+    }
+    assert client.put("/api/devconsole/agent-config", headers=user, json={"max_steps": 8}).status_code == 403
+
+    r1 = client.put(
+        "/api/devconsole/agent-config",
+        headers=admin,
+        json={
+            "approval_mode": "auto",
+            "max_steps": 8,
+            "max_check_retries": 3,
+            "tool_output_limit": 6000,
+            "history_limit": 20,
+            "enable_skill_match": False,
+            "enable_self_reflection": False,
+        },
+    )
+    assert r1.status_code == 200
+    assert r1.json()["max_steps"] == 8 and r1.json()["enable_skill_match"] is False
+
+    turn = get_turn(client, admin, finished_turn)
+    assert turn["structure"]["limit"] == 8
+    n = nodes(turn)
+    assert n["check"]["detail"]["settings"] == "점검 한도 3회"
+    assert n["approval"]["detail"]["settings"] == "승인 수준: 자동"
+
+    cat = client.get("/api/devconsole/catalog", headers=admin).json()
+    assert cat["agent_config"]["max_steps"] == 8
+    lim_rule = next(r for r in cat["harness"] if r["id"] == "H-LIM-01")
+    assert "8바퀴" in lim_rule["title"] and "3회" in lim_rule["title"]

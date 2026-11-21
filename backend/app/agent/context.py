@@ -197,9 +197,11 @@ def compact_older_note(session: Session, chat_session_id: int, recent_rows: list
     return "## 이전 대화 요약 (압축됨)\n" + "\n".join(bullets)
 
 
-def build_context(session: Session, user: User, chat_session_id: int, ui: UiContext) -> list[dict]:
-    """LLM 에 보낼 메시지: system(동적 가이드 + 지금 상황 + 붙인 파일 + 이전 대화 압축 + 날짜 도우미) + 최근 30개 대화."""
-    rows = recent_messages(session, chat_session_id, HISTORY_LIMIT)
+def build_context(
+    session: Session, user: User, chat_session_id: int, ui: UiContext, *, history_limit: int = HISTORY_LIMIT
+) -> list[dict]:
+    """LLM 에 보낼 메시지: system(동적 가이드 + 지금 상황 + 붙인 파일 + 이전 대화 압축 + 날짜 도우미) + 최근 N개 대화."""
+    rows = recent_messages(session, chat_session_id, history_limit)
     helper = "\n".join(date_helper(rows, today()))
     attached = files_line(session, chat_session_id)
     older = compact_older_note(session, chat_session_id, rows)
@@ -343,10 +345,10 @@ def arguments_text(arguments: dict | None, raw: str | None) -> str:
     return "{}" if text.strip() == "null" else text
 
 
-def result_text(result: ToolResult) -> str:
-    """도구 결과를 LLM 에 보낼 JSON 글. 4,000자를 넘으면 자르고 "(뒤는 생략)" 을 붙인다."""
+def result_text(result: ToolResult, *, limit: int = RESULT_LIMIT) -> str:
+    """도구 결과를 LLM 에 보낼 JSON 글. limit 자를 넘으면 자르고 "(뒤는 생략)" 을 붙인다."""
     text = json.dumps(result.output if result.ok else {"error": result.error}, ensure_ascii=False)
-    return text if len(text) <= RESULT_LIMIT else text[:RESULT_LIMIT] + CUT_NOTE
+    return text if len(text) <= limit else text[:limit] + CUT_NOTE
 
 
 def wire(role: str, content: dict) -> dict:

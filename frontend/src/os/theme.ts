@@ -7,6 +7,7 @@ interface ThemeState {
   userId: number | null;
   theme: Theme;
   load(userId: number | null): void;
+  setTheme(theme: Theme): void;
   toggle(): void;
 }
 
@@ -22,6 +23,11 @@ export const useTheme = create<ThemeState>((set, get) => ({
     const theme: Theme = loadPref('theme', userId) === 'dark' ? 'dark' : 'light';
     apply(theme);
     set({ userId, theme });
+  },
+  setTheme(theme) {
+    savePref('theme', get().userId, theme);
+    apply(theme);
+    set({ theme });
   },
   toggle() {
     const theme: Theme = get().theme === 'dark' ? 'light' : 'dark';
