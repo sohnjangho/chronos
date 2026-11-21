@@ -49,7 +49,21 @@ export default function Login() {
 
       <div className="os-login-pane">
         <div className="os-login-brand">
-          <img src="/media/chronos-logo.png" alt="ChronOS — AI Schedule Agent" className="os-login-logo" />
+          <div className="os-login-logo-wrap">
+            <video
+              className="os-login-logo-video"
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="auto"
+              poster="/media/chronos-logo.png"
+              aria-label="ChronOS — AI Schedule Agent"
+            >
+              <source src="/media/chronos-logo-motion.mp4" type="video/mp4" />
+            </video>
+            <img src="/media/chronos-logo.png" alt="" aria-hidden="true" className="os-login-logo-static" />
+          </div>
           <div className="os-login-tagline">일정을 만들고, 지키고, 고치는 에이전트 OS</div>
         </div>
 
