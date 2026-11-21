@@ -269,12 +269,41 @@
 }
 
 /* 스마트폰(data-device="phone") 본문·입력·터치 가독성 보정 */
-.mob-root[data-device="phone"] .mob-head-left { gap: 8px; }
-.mob-root[data-device="phone"] .os-site-btn {
-  max-width: 148px;
+.mob-root[data-device="phone"] .mob-head {
+  padding: 0 10px;
+  gap: 6px;
+}
+.mob-root[data-device="phone"] .mob-head-left {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 6px;
+}
+.mob-root[data-device="phone"] .mob-head-right {
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 2px;
+}
+.mob-root[data-device="phone"] .mob-title {
+  font-size: var(--fs-14);
+}
+.mob-root[data-device="phone"] .mob-icon-btn {
+  min-width: 36px;
+  width: 36px;
   min-height: 36px;
-  padding: 4px 10px;
-  font-size: var(--fs-12);
+  padding: 6px;
+}
+.mob-root[data-device="phone"] .mob-text-btn {
+  min-width: auto;
+  min-height: 36px;
+  padding: 6px 8px;
+  font-size: var(--fs-11);
+  flex: none;
+}
+.mob-root[data-device="phone"] .os-site-btn {
+  max-width: 112px;
+  min-height: 36px;
+  padding: 4px 8px;
+  font-size: var(--fs-11);
 }
 
 /* 대화(Chat) 프로그램 스마트폰 최적화 */
