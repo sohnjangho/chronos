@@ -446,3 +446,21 @@ def test_usage_when_nothing_happened(client, admin):
     u = client.get("/api/devconsole/usage", headers=admin).json()
     assert u == {"rows": [], "totals": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": None, "failed": 0},
                  "cost_known": False, "searches": {"calls": 0, "failed": 0}}
+
+
+def test_catalog_and_harness_block_simulation(client, admin):
+    res = client.get("/api/devconsole/catalog", headers=admin)
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["principles"]) >= 5
+    rule_ids = [r["id"] for r in body["harness"]]
+    assert "H-CPM-01" in rule_ids and "H-RES-01" in rule_ids and "H-LOOP-01" in rule_ids
+    assert body["sources"]["system_chars"] > 100
+    assert len(body["sources"]["guides"]) >= 10
+    assert len(body["registry"]["tools"]) >= 15
+
+    sim = client.post("/api/devconsole/harness/H-RES-01/test", headers=admin)
+    assert sim.status_code == 200
+    sim_body = sim.json()
+    assert sim_body["rule_id"] == "H-RES-01" and sim_body["blocked"] is True
+    assert sim_body["model_feedback"]["passed"] is False

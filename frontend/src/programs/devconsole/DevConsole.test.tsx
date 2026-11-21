@@ -44,9 +44,16 @@ afterEach(() => {
 });
 
 describe('지시서 시험', () => {
-  test('three tabs only', () => {
+  test('six tabs including harness, sources, and registry', () => {
     show();
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['에이전트 구조', '실행 추적', '사용량·비용']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
+      '에이전트 구조',
+      '하네스·차단 시험',
+      '프롬프트·지식',
+      '도구·스킬',
+      '실행 추적',
+      '사용량·비용',
+    ]);
   });
 
   test('now node is lit and loop count shown', async () => {

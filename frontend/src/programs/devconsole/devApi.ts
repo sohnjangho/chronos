@@ -114,10 +114,83 @@ export interface UsageOut {
   searches: { calls: number; failed: number };
 }
 
+export interface HarnessRule {
+  id: string;
+  area: string;
+  title: string;
+  description: string;
+  code: string;
+  mode: string;
+  feedback_sample: string;
+  passed_count: number;
+  blocked_count: number;
+}
+
+export interface HarnessTestOut {
+  rule_id: string;
+  title: string;
+  blocked: boolean;
+  simulated_input: string;
+  model_feedback: Record<string, unknown>;
+}
+
+export interface GuideSource {
+  name: string;
+  file: string;
+  chars: number;
+  keywords: string[];
+  programs: string[];
+  content: string;
+}
+
+export interface DomainSource {
+  id: string;
+  name: string;
+  file: string;
+  knowledge: string;
+}
+
+export interface ToolRegistryItem {
+  name: string;
+  llm_name: string;
+  program: string | null;
+  category: string;
+  description: string;
+  schema: Record<string, unknown>;
+}
+
+export interface SkillRegistryItem {
+  id: number;
+  name: string;
+  description: string;
+  triggers: string[];
+  steps: { tool: string; why?: string }[];
+  use_count: number;
+}
+
+export interface CatalogOut {
+  principles: string[];
+  harness: HarnessRule[];
+  sources: {
+    system_file: string;
+    system_raw: string;
+    system_chars: number;
+    levels_prompt: string;
+    guides: GuideSource[];
+    domains: DomainSource[];
+  };
+  registry: {
+    tools: ToolRegistryItem[];
+    skills: SkillRegistryItem[];
+  };
+}
+
 export const RECENT = 30;
 
 export const devApi = {
   turns: () => api<Turn[]>(`/api/devconsole/turns?limit=${RECENT}`),
   turn: (id: number) => api<TurnDetail>(`/api/devconsole/turns/${id}`),
   usage: (days: number, group: UsageGroup) => api<UsageOut>(`/api/devconsole/usage?days=${days}&group=${group}`),
+  catalog: () => api<CatalogOut>('/api/devconsole/catalog'),
+  testHarness: (ruleId: string) => api<HarnessTestOut>(`/api/devconsole/harness/${ruleId}/test`, { method: 'POST' }),
 };

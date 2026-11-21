@@ -1,0 +1,105 @@
+// 프롬프트 · 동적 가이드 · 도메인 지식 원천 열람 탭 (사본 없이 백엔드 원문 파일 직접 표시).
+import { useState } from 'react';
+import Badge from '../../shared/ui/Badge';
+import type { CatalogOut } from './devApi';
+
+export default function SourcesTab({ catalog }: { catalog: CatalogOut }) {
+  const { sources } = catalog;
+  const [section, setSection] = useState<'guides' | 'system' | 'domains'>('guides');
+  const [pickedGuide, setPickedGuide] = useState<string>(sources.guides[0]?.name ?? '');
+  const guide = sources.guides.find((g) => g.name === pickedGuide) ?? sources.guides[0];
+
+  return (
+    <div className="dc-scroll dc-cat-wrap">
+      <div className="dc-cat-header">
+        <h2 className="dc-cat-h2">프롬프트 · 동적 가이드 · 도메인 지식 원천</h2>
+        <p className="dc-muted">
+          화면용 사본이 아니라 에이전트 컨텍스트 조립기(<code>app/agent/context.py</code>)가 턴마다 실제로 읽는 마크다운·YAML 원천 파일을 그대로 보여 줍니다.
+        </p>
+      </div>
+      <div className="dc-chip-bar" role="group" aria-label="원천 구분">
+        <button type="button" className={`dc-mode-btn${section === 'guides' ? ' is-on' : ''}`} onClick={() => setSection('guides')}>
+          {`동적 가이드 (${sources.guides.length}개)`}
+        </button>
+        <button type="button" className={`dc-mode-btn${section === 'system' ? ' is-on' : ''}`} onClick={() => setSection('system')}>
+          {`기본 시스템 지시문 (${sources.system_chars.toLocaleString()}자)`}
+        </button>
+        <button type="button" className={`dc-mode-btn${section === 'domains' ? ' is-on' : ''}`} onClick={() => setSection('domains')}>
+          {`도메인 팩 · 정밀도 (${sources.domains.length}개)`}
+        </button>
+      </div>
+
+      {section === 'guides' && (
+        <div className="dc-src-split">
+          <table className="dc-cat-table" aria-label="동적 가이드 목록">
+            <thead>
+              <tr>
+                <th>가이드</th>
+                <th>원천 파일</th>
+                <th>동적 선택 키워드 (select_guides)</th>
+                <th>연동 화면</th>
+                <th>분량</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sources.guides.map((g) => (
+                <tr key={g.name} className={`dc-cat-row${guide?.name === g.name ? ' is-picked' : ''}`} onClick={() => setPickedGuide(g.name)}>
+                  <td>
+                    <button type="button" className="dc-link" onClick={() => setPickedGuide(g.name)}>
+                      <b>{g.name}</b>
+                    </button>
+                  </td>
+                  <td>
+                    <code>{g.file}</code>
+                  </td>
+                  <td>{g.keywords.length ? g.keywords.map((k) => <span key={k} className="dc-tag">{k}</span>) : <span className="dc-muted">—</span>}</td>
+                  <td>{g.programs.length ? g.programs.map((p) => <Badge key={p} tone="info">{p}</Badge>) : <span className="dc-muted">공통</span>}</td>
+                  <td>{`${g.chars.toLocaleString()}자`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {guide && (
+            <div className="dc-principles-box">
+              <div className="dc-harness-test-head">
+                <b>{`${guide.name}.md 원문`}</b>
+                <code>{guide.file}</code>
+                <Badge tone="info">{`${guide.chars.toLocaleString()}자`}</Badge>
+              </div>
+              <pre className="dc-code-block">{guide.content}</pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {section === 'system' && (
+        <div className="dc-principles-box">
+          <div className="dc-harness-test-head">
+            <b>기본 시스템 프롬프트 원문</b>
+            <code>{sources.system_file}</code>
+            <Badge tone="info">{`${sources.system_chars.toLocaleString()}자`}</Badge>
+          </div>
+          <pre className="dc-code-block">{sources.system_raw}</pre>
+        </div>
+      )}
+
+      {section === 'domains' && (
+        <div className="dc-src-split">
+          {sources.domains.map((d) => (
+            <div key={d.id} className="dc-principles-box">
+              <div className="dc-harness-test-head">
+                <b>{`${d.name} (${d.id})`}</b>
+                <code>{d.file}</code>
+              </div>
+              <pre className="dc-code-block">{d.knowledge}</pre>
+            </div>
+          ))}
+          <div className="dc-principles-box">
+            <b>일정 정밀도 정의 (L1 ~ L5)</b>
+            <pre className="dc-code-block">{sources.levels_prompt}</pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

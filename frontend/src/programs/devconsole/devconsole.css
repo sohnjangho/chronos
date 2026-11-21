@@ -507,3 +507,72 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── AX 인재전쟁(약속선) 스타일 하네스 · 원천 · 도구/스킬 카탈로그 탭 ── */
+.dc-cat-wrap {
+  padding: 16px 20px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+}
+.dc-cat-header { display: flex; flex-direction: column; gap: 4px; }
+.dc-cat-h2 { margin: 0; font-size: var(--fs-16); font-weight: 700; }
+.dc-principles-box {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: var(--bg-panel-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dc-principles-box ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-12); }
+.dc-chip-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+.dc-cat-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-12);
+}
+.dc-cat-table th {
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--fg-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--bg-panel-alt);
+  white-space: nowrap;
+}
+.dc-cat-row td {
+  padding: 10px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.dc-cat-row.is-picked td { background: var(--bg-selected); }
+.dc-cat-id, .dc-cat-area, .dc-cat-stat, .dc-cat-act { white-space: nowrap; }
+.dc-cat-counts { display: flex; gap: 4px; flex-wrap: wrap; }
+.dc-cat-title { font-weight: 700; font-size: var(--fs-13); margin-bottom: 2px; }
+.dc-cat-code { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.dc-cat-code .dc-tag { margin-left: 0; }
+.dc-code-block {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-2);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.dc-harness-test-res {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-2);
+  border: 1px solid var(--danger);
+  background: var(--tone-danger-bg);
+}
+.dc-harness-test-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--fs-12); }
+.dc-src-split { display: flex; flex-direction: column; gap: 14px; }

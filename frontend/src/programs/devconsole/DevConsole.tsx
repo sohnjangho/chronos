@@ -6,9 +6,12 @@ import { useSession } from '../../os/session';
 import Badge from '../../shared/ui/Badge';
 import Tabs from '../../shared/ui/Tabs';
 import AgentStructure from './AgentStructure';
-import type { NodeKey, TurnDetail } from './devApi';
+import { devApi, type CatalogOut, type NodeKey, type TurnDetail } from './devApi';
 import { cost, seconds, status, tokens } from './format';
+import HarnessTab from './HarnessTab';
 import NodeDetail from './NodeDetail';
+import RegistryTab from './RegistryTab';
+import SourcesTab from './SourcesTab';
 import TraceTimeline from './TraceTimeline';
 import TurnFlowDiagram from './TurnFlowDiagram';
 import TurnPicker from './TurnPicker';
@@ -16,9 +19,12 @@ import UsageTab from './UsageTab';
 import { useTurnData } from './useTurnData';
 import './devconsole.css';
 
-type Tab = 'structure' | 'trace' | 'usage';
+type Tab = 'structure' | 'harness' | 'sources' | 'registry' | 'trace' | 'usage';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'structure', label: '에이전트 구조' },
+  { id: 'harness', label: '하네스·차단 시험' },
+  { id: 'sources', label: '프롬프트·지식' },
+  { id: 'registry', label: '도구·스킬' },
   { id: 'trace', label: '실행 추적' },
   { id: 'usage', label: '사용량·비용' },
 ];
@@ -138,8 +144,14 @@ function StructureView({ detail }: { detail: TurnDetail }) {
 
 function AdminConsole() {
   const [tab, setTab] = useState<Tab>('structure');
+  const [catalog, setCatalog] = useState<CatalogOut | null>(null);
   const d = useTurnData();
-  const turnTab = tab !== 'usage';
+  const turnTab = tab === 'structure' || tab === 'trace';
+  const catTab = tab === 'harness' || tab === 'sources' || tab === 'registry';
+  useEffect(() => {
+    if (!catTab || catalog) return;
+    void devApi.catalog().then(setCatalog).catch(() => {});
+  }, [catTab, catalog]);
   const empty = d.turns?.length === 0 ? '아직 기록된 요청이 없습니다. 대화창에서 에이전트에게 요청하면 여기에 쌓입니다.' : '불러오는 중…';
   return (
     <div className="dc-root">
@@ -159,6 +171,10 @@ function AdminConsole() {
       )}
       <div className="dc-body" role="tabpanel" aria-label={TABS.find((t) => t.id === tab)!.label}>
         {tab === 'usage' && <UsageTab />}
+        {catTab && !catalog && <p className="dc-empty">원천 카탈로그를 불러오는 중…</p>}
+        {tab === 'harness' && catalog && <HarnessTab catalog={catalog} />}
+        {tab === 'sources' && catalog && <SourcesTab catalog={catalog} />}
+        {tab === 'registry' && catalog && <RegistryTab catalog={catalog} />}
         {turnTab && !d.detail && !d.error && <p className="dc-empty">{empty}</p>}
         {tab === 'structure' && d.detail && <StructureView key={d.detail.turn.turn_id} detail={d.detail} />}
         {tab === 'trace' && d.detail && (
