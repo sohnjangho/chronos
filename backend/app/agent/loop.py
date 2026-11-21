@@ -37,7 +37,7 @@ from app.agent.trace import TraceLog, context_parts
 from app.agent.workflow_log import TITLE_LIMIT, WorkflowLog
 from app.llm import assignments
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply, Usage
-from app.store import approvals, chats, questionnaires
+from app.store import approvals, chats, questionnaires, skills
 from app.store.llm_usage import UsageSum, last_call_id, usage_since
 from app.store.tables import User
 from app.tools import registry
@@ -193,10 +193,15 @@ class _Turn:
         self.trace = TraceLog(self.session, self.chat_id, message.id)
         ui = UiContext(self.ui.program, self.schedule_id, self.ui.selected_activity)
         self.messages = build_context(self.session, self.user, self.chat_id, ui)
+        self.matched_skill = skills.match_skill(self.session, text or "")
+        if self.matched_skill is not None and self.messages and self.messages[0].get("role") == "system":
+            self.messages[0]["content"] += "\n\n" + skills.skill_prompt_block(self.matched_skill)
+            skills.record_use(self.session, self.matched_skill.id)
         self.vision.start(self.messages, picked)
         tools = registry.as_llm_tools()
         parts = context_parts(self.session, self.user, self.chat_id, ui, tools)
         self.trace.context(parts, len(self.messages) - 1, len(tools))
+        self.trace.skill(self.matched_skill)
 
     def close_log(self) -> None:
         """턴의 사용량(llm_calls 합)을 읽고 실행 기록을 닫는다."""
@@ -237,6 +242,8 @@ class _Turn:
 
     async def events(self, max_steps: int) -> AsyncIterator[AgentEvent]:
         try:
+            if getattr(self, "matched_skill", None) is not None:
+                yield AgentEvent("notice", {"text": f"저장된 스킬 「{self.matched_skill.name}」을 적용했습니다."})
             for _ in range(max_steps):
                 if self.stopping():
                     return
@@ -370,8 +377,17 @@ class _Turn:
         for event in self.collected:
             chats.add_message(self.session, self.chat_id, "event", _storable({"type": event.type, "data": event.data}))
         self.collected = []
+        tool_content = result_text(result)
+        if not result.ok:
+            tool_content = json.dumps(
+                {
+                    "error": json_safe(result.error) or "도구 실행에 실패했습니다.",
+                    "reflection": f"도구 `{call.name}` 실패 — 오류 원인을 확인해 인자를 고치거나 대안 도구를 사용하세요.",
+                },
+                ensure_ascii=False,
+            )
         self.save("tool", {"kind": "tool_result", "tool_call_id": call.id, "name": call.name, "ok": result.ok,
-                           "content": result_text(result)})
+                           "content": tool_content})
         self.session.commit()
         end = {"run_id": self.log.run_id, "n": self.step_n, "call_id": call.id, "tool": call.name,
                "ok": result.ok, "ms": result.ms, "error": json_safe(result.error)}

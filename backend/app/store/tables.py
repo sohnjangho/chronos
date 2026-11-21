@@ -256,6 +256,22 @@ class WorkflowRun(Base):
     cost: Mapped[float | None] = mapped_column(default=None)  # 턴의 비용 합(알려 준 것이 없으면 None)
 
 
+class SkillRow(Base):
+    """성공한 워크플로우를 저장해 재실행하는 스킬(베테랑 노하우 실행)."""
+
+    __tablename__ = "skills"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(String(240), default="")
+    triggers_json: Mapped[list] = mapped_column(JSON, default=list)  # 매칭 키워드 목록
+    steps_json: Mapped[list] = mapped_column(JSON, default=list)  # [{tool, why}]
+    source_run_id: Mapped[int | None] = mapped_column(ForeignKey("workflow_runs.id"), default=None)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    use_count: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+
 class WorkflowStep(Base):
     """실행 기록의 한 단계 = 도구 호출 한 번. input_json·output_json 은 JSON 글."""
 

@@ -278,7 +278,8 @@ async def test_tool_results_go_back_as_json_text_cut_at_4000(run, session, chat_
     tool_messages = [m for m in llm.bodies[2]["messages"] if m["role"] == "tool"]
     full = json.dumps({"text": "가" * 5000}, ensure_ascii=False)
     assert tool_messages[0] == {"role": "tool", "tool_call_id": "call_1", "content": full[:4000] + "\n(뒤는 생략)"}
-    assert json.loads(tool_messages[1]["content"]) == {"error": "대상 일정이 없습니다."}
+    err_payload = json.loads(tool_messages[1]["content"])
+    assert err_payload["error"] == "대상 일정이 없습니다." and "reflection" in err_payload
     assert stored(session, chat_id)[2][1]["content"] == full[:4000] + "\n(뒤는 생략)"
 
 

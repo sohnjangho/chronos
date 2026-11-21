@@ -165,15 +165,24 @@ def _parsed_output(step: WorkflowStep) -> dict:
         return {}
 
 
-def _branch_signals(llms: list[TraceEvent], steps: list[WorkflowStep]) -> tuple[list[str], dict | None]:
+def _branch_signals(llms: list[TraceEvent], steps: list[WorkflowStep], skill_ev: TraceEvent | None = None) -> tuple[list[str], dict | None]:
     """실제 실행 기록에서 분기 플래그와 하네스 점검 요약을 뽑는다."""
     lit: list[str] = []
+    if skill_ev is not None and skill_ev.output_text:
+        lit.append("skill_matched")
     if any(e.label == "vision" for e in llms):
         lit.append("vision_turn")
     if any(s.tool.startswith("files.") or s.tool == "schedule.import" for s in steps):
         lit.append("files_used")
     if any(s.tool == "info.weather" for s in steps):
         lit.append("weather_used")
+    failed_seen = False
+    for s in steps:
+        if s.status == "failed":
+            failed_seen = True
+        elif failed_seen and s.status == "done":
+            lit.append("self_corrected")
+            break
 
     check_steps = [s for s in steps if s.tool in CHECK_TOOLS]
     harness_summary: dict | None = None
@@ -221,15 +230,22 @@ def _structure(row: store.TurnRow, events: list[TraceEvent], steps: list[Workflo
                mode: str) -> StructureOut:
     llms = [e for e in events if e.kind == "llm"]
     ctx = next((e for e in events if e.kind == "context"), None)
+    skill_ev = next((e for e in events if e.kind == "skill"), None)
     end = next((e for e in events if e.kind == "end"), None)
     cells: dict[str, list[WorkflowStep]] = {"tool": [], "check": [], "approval": []}
     for step in steps:
         cells[_cell(step.tool)].append(step)
     settings = {"tool": None, "check": CHECK_SETTING, "approval": f"승인 수준: {MODE_LABELS.get(mode, mode)}"}
+    skill_matched = skill_ev is not None and bool(skill_ev.output_text)
+    skill_detail = (
+        _detail(**{"in": skill_ev.input_text}, out=skill_ev.output_text, ms=skill_ev.ms)
+        if skill_matched
+        else _detail(**{"in": skill_ev.input_text if skill_ev is not None else SKILL_NOTE})
+    )
     found = {
         "request": (1, _detail(**{"in": _request(row)})),
         "context": (int(ctx is not None), _context_detail(ctx, llms)),
-        "skill": (0, _detail(**{"in": SKILL_NOTE})),
+        "skill": (int(skill_matched), skill_detail),
         "plan": (len(llms[:1]), _llm_detail(llms[:1])),
         "judge": (len(llms[1:]), _llm_detail(llms[1:])),
         **{k: (len(v), _steps_detail(v, settings[k])) for k, v in cells.items()},
@@ -239,9 +255,12 @@ def _structure(row: store.TurnRow, events: list[TraceEvent], steps: list[Workflo
     nodes = []
     for key, label in NODES:
         count, detail = found[key]
-        state = "skipped" if key == "skill" else "now" if key == now else "past" if count else "todo"
+        if key == "skill":
+            state = "past" if skill_matched else "skipped"
+        else:
+            state = "now" if key == now else "past" if count else "todo"
         nodes.append(NodeOut(key=key, label=label, state=state, count=count, detail=detail))
-    edges_lit, harness_summary = _branch_signals(llms, steps)
+    edges_lit, harness_summary = _branch_signals(llms, steps, skill_ev)
     return StructureOut(
         nodes=nodes, loop_count=len(llms), limit=MAX_STEPS,
         edges_lit=edges_lit, harness_summary=harness_summary,

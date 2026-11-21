@@ -159,6 +159,17 @@ class TraceLog:
             event.run_id = run_id
 
     @_quiet
+    def skill(self, matched: object | None) -> None:
+        """스킬 매칭 결과 기록(맞는 스킬이 있으면 이름·단계를 output_text 에 남긴다)."""
+        if matched is None:
+            self._add("skill", label="스킬 찾기", started_at=datetime.now(UTC), ms=0, input_text="일치하는 스킬 없음",
+                      output_text="")
+            return
+        out = json.dumps({"id": matched.id, "name": matched.name, "steps": matched.steps_json}, ensure_ascii=False)
+        self._add("skill", label=f"스킬 적용: {matched.name}"[:_LABEL_LIMIT], started_at=datetime.now(UTC), ms=0,
+                  input_text=matched.name, output_text=_cut(out, TEXT_LIMIT))
+
+    @_quiet
     def end(self, status: Literal["done", "failed", "stopped"], text: str | None) -> None:
         """끝 사건: label 은 상태, output_text 는 마지막 답 글(실패·멈춤이면 그 안내), ms 는 턴 전체 시간."""
         ok = status == "done"
@@ -185,11 +196,14 @@ def _count_parts(session: Session, user: User, chat_session_id: int, ui: UiConte
     levels = levels_prompt()
     rows = recent_messages(session, chat_session_id, context.HISTORY_LIMIT)
     attached = context.files_line(session, chat_session_id)  # 지금 상황 끝의 「이 대화에 붙인 파일」 줄
+    older = context.compact_older_note(session, chat_session_id, rows)
+    last_text = " ".join(context._date_texts(rows))
+    guides = context.select_guides(last_text, ui, has_files=attached is not None)
     chars = {
-        "지시문": len(context.system_prompt()) - len(knowledge) - len(levels),
+        "지시문": len(context.system_prompt(guides)) - len(knowledge) - len(levels),
         "분야 지식": len(knowledge),
         "정밀도": len(levels),
-        "지금 상황": len(context.situation(session, user, ui)),
+        "지금 상황": len(context.situation(session, user, ui)) + (len(older) + 2 if older else 0),
         "붙인 파일": len(attached) + 1 if attached else 0,
         "날짜 도우미": len("\n".join(context.date_helper(rows, context.today()))),
         "대화": len(json.dumps(context.history(rows), ensure_ascii=False)),

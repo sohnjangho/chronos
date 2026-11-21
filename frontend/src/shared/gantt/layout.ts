@@ -34,6 +34,14 @@ export function linkPath(from: LinkEnd, to: LinkEnd, type: RelType, rowH: number
     const v = fromEnd ? lo : hi;
     return `M ${r(sx)} ${r(sy)} H ${r(v)} V ${r(ey)} H ${r(ex)}`;
   }
+  // FS 에서 후행이 선행 끝과 바로 이어지거나 좁게 떨어져 있으면(0 <= ex - sx < 2*GAP)
+  // 오른쪽으로 삐져나갔다가 되돌아오는 꺾은선 대신 사이 가운데 x 로 곧장 내려가 닿는다.
+  if (type === 'FS' && ex >= sx) {
+    const v = (sx + ex) / 2;
+    return Math.abs(ex - sx) < 0.5
+      ? `M ${r(sx)} ${r(sy)} V ${r(ey)} H ${r(ex)}`
+      : `M ${r(sx)} ${r(sy)} H ${r(v)} V ${r(ey)} H ${r(ex)}`;
+  }
   const midY = ey > sy ? to.row * rowH : (to.row + 1) * rowH;
   return `M ${r(sx)} ${r(sy)} H ${r(exitX)} V ${r(midY)} H ${r(enterX)} V ${r(ey)} H ${r(ex)}`;
 }

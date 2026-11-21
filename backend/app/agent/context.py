@@ -14,6 +14,7 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.cpm import ScheduleError
@@ -127,9 +128,36 @@ def date_helper(rows: list[ChatMessage], base: date) -> list[str]:
     return lines
 
 
-def system_prompt() -> str:
-    """prompts/system.md 에 분야 목록·정밀도 정의·분야 지식을 넣고, 끝에 지시문 조각(GUIDES_DIR/*.md,
-    이름이 "_" 로 시작하지 않는 것)을 이름 순으로 빈 줄 하나를 두고 붙인 지시문."""
+_GUIDE_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("delay", ("지연", "늦어", "밀렸", "밀림", "늦음"), ("delays",)),
+    ("shorten", ("만회", "단축", "앞당", "압축", "병행", "복구"), ("compare",)),
+    ("actuals", ("실적", "진도", "공정률", "착수", "완료", "data date"), ("progress", "schedule-table")),
+    ("scenario", ("복사본", "만약에", "시나리오", "비교"), ("compare",)),
+    ("rules", ("규칙", "조건", "제약", "크레인", "금지"), ("conditions",)),
+    ("evidence", ("근거", "기준", "법규", "법령", "인허가", "검색", "납기", "출처"), ()),
+    ("weather", ("날씨", "비", "우천", "동절기", "기온", "장마", "한중", "기상", "예보"), ()),
+    ("files", ("파일", "자료", "시방서", "사진", "도면", "첨부", "문서"), ("library",)),
+    ("import", ("가져오", "엑셀", "xlsx", "csv", "초안", "공정표"), ("library",)),
+    ("visual", ("그림", "차트", "보고서", "시각화", "그래프"), ("progress", "compare", "delays")),
+)
+
+
+def select_guides(user_text: str, ui: UiContext, has_files: bool) -> list[str]:
+    """사용자 요청·열린 화면·첨부 파일에 맞는 가이드 이름만 동적으로 고른다(맞는 것이 없으면 전체)."""
+    q = (user_text or "").lower()
+    prog = ui.program or ""
+    picked: list[str] = []
+    for name, keywords, programs in _GUIDE_RULES:
+        if (has_files and name in ("files", "import")) or (prog in programs) or any(k in q for k in keywords):
+            picked.append(name)
+    if not picked:
+        return [f.stem for f in sorted(GUIDES_DIR.glob("*.md")) if not f.name.startswith("_")]
+    return picked
+
+
+def system_prompt(guide_names: list[str] | None = None) -> str:
+    """prompts/system.md 에 분야 목록·정밀도 정의·분야 지식을 넣고, 끝에 지시문 조각을 붙인다.
+    guide_names 가 None 이면 전체, 목록이면 고른 가이드만 동적으로 붙인다."""
     packs = [load(d) for d in domains()]
     base = (
         PROMPT.read_text(encoding="utf-8")
@@ -137,18 +165,48 @@ def system_prompt() -> str:
         .replace("{{levels}}", levels_prompt())
         .replace("{{packs}}", "\n\n".join(p.prompt() for p in packs))
     )
-    guides = sorted(f for f in GUIDES_DIR.glob("*.md") if not f.name.startswith("_"))
-    return "\n\n".join([base, *(f.read_text(encoding="utf-8") for f in guides)])
+    all_guides = sorted(f for f in GUIDES_DIR.glob("*.md") if not f.name.startswith("_"))
+    selected = all_guides if guide_names is None else [f for f in all_guides if f.stem in set(guide_names)]
+    return "\n\n".join([base, *(f.read_text(encoding="utf-8") for f in selected)])
+
+
+def compact_older_note(session: Session, chat_session_id: int, recent_rows: list[ChatMessage]) -> str:
+    """최근 HISTORY_LIMIT 개 밖으로 밀린 옛 사용자 요청들을 한 줄씩 압축 요약한다."""
+    recent_ids = {r.id for r in recent_rows}
+    older = list(
+        session.scalars(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == chat_session_id, ChatMessage.role == "user")
+            .order_by(ChatMessage.id)
+        )
+    )
+    dropped = [r for r in older if r.id not in recent_ids]
+    if not dropped:
+        return ""
+    bullets: list[str] = []
+    for r in dropped[-10:]:
+        c = r.content_json or {}
+        if c.get("kind") == "text" and c.get("text"):
+            bullets.append(f"- 사용자 요청: {_clip(str(c['text']).strip(), 80)}")
+        elif c.get("kind") == "questionnaire_submitted":
+            bullets.append(f"- 질문지 #{c.get('questionnaire_id')} 제출")
+        elif c.get("kind") == "approval_rejected":
+            bullets.append(f"- 승인 거부 재요청: {_clip(str(c.get('title', '')), 60)}")
+    if not bullets:
+        return ""
+    return "## 이전 대화 요약 (압축됨)\n" + "\n".join(bullets)
 
 
 def build_context(session: Session, user: User, chat_session_id: int, ui: UiContext) -> list[dict]:
-    """LLM 에 보낼 메시지: system(지시문 + 지금 상황 + 이 대화에 붙인 파일 + 날짜 도우미) 하나 뒤에
-    마지막 30개 대화 메시지(event 제외)."""
+    """LLM 에 보낼 메시지: system(동적 가이드 + 지금 상황 + 붙인 파일 + 이전 대화 압축 + 날짜 도우미) + 최근 30개 대화."""
     rows = recent_messages(session, chat_session_id, HISTORY_LIMIT)
     helper = "\n".join(date_helper(rows, today()))
     attached = files_line(session, chat_session_id)
-    now = situation(session, user, ui) + (f"\n{attached}" if attached else "")
-    system = f"{system_prompt()}\n\n{now}\n\n{helper}"
+    older = compact_older_note(session, chat_session_id, rows)
+    last_text = " ".join(_date_texts(rows))
+    guides = select_guides(last_text, ui, has_files=attached is not None)
+    now = situation(session, user, ui) + (f"\n{attached}" if attached else "") + (f"\n\n{older}" if older else "")
+    system = f"{system_prompt(guides)}\n\n{now}\n\n{helper}"
     return [{"role": "system", "content": system}, *history(rows)]
 
 

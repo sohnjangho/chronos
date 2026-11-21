@@ -36,7 +36,7 @@ function sub(n: StructureNode, turn: Turn): string {
       return sum ? `재료 ${parts.length}가지 · ≈${tokens(sum)} 토큰` : `재료 ${parts.length}가지`;
     }
     case 'skill':
-      return '묶음 3';
+      return count && typeof detail.in === 'string' ? `적용 · ${detail.in}` : '일치 없음';
     case 'plan':
     case 'judge':
       if (!count) return n.state === 'now' ? '호출 중' : none;
@@ -84,11 +84,13 @@ function Sources({ boxes, node }: { boxes: ReturnType<typeof nodeBoxes>; node: S
 }
 
 const SIDE: { key: 'skillrun' | 'inbox'; label: string; sub: string }[] = [
-  { key: 'skillrun', label: '스킬 실행', sub: '묶음 3에서 · 순서 고정' },
+  { key: 'skillrun', label: '스킬 실행', sub: '저장된 워크플로우 적용' },
   { key: 'inbox', label: '승인함', sub: '사람이 승인·거부' },
 ];
 
 const BRANCH_LABELS: Record<string, string> = {
+  skill_matched: '스킬 적용됨',
+  self_corrected: '자가 수정 복구',
   vision_turn: '그림 읽기 전환 (vision)',
   files_used: '자료·파일 도구',
   weather_used: '기상청 날씨 근거',

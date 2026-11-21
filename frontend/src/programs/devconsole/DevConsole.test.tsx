@@ -57,10 +57,10 @@ describe('지시서 시험', () => {
     expect(screen.getByText('/ 한도 12')).toBeVisible();
   });
 
-  test('skill node says it comes later', async () => {
+  test('skill node says no match when skipped', async () => {
     show();
     expect(await node('스킬 찾기')).toHaveClass('skipped');
-    expect(screen.getByText('묶음 3')).toBeVisible();
+    expect(screen.getByText('일치 없음')).toBeVisible();
   });
 
   test('clicking a node shows its detail folded', async () => {

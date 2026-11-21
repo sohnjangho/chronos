@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RunOut(BaseModel):
@@ -32,3 +32,22 @@ class StepOut(BaseModel):
 class RunDetail(RunOut):
     request: str
     steps: list[StepOut]
+
+
+class SkillCreateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=240)
+    triggers: list[str] = Field(default_factory=list, max_length=12)
+
+
+class SkillOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    triggers: list[str]
+    steps: list[dict]
+    source_run_id: int | None
+    use_count: int
+    created_at: datetime

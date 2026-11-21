@@ -66,8 +66,8 @@ def traced(session) -> list[TraceEvent]:
 async def test_turn_writes_context_llm_and_end(run, session):
     await run(ScriptedLlm([calls("schedule.read", {}), reply("두 개입니다")]), "몇 개야?")
     ev = session.query(TraceEvent).order_by(TraceEvent.seq).all()
-    assert [e.kind for e in ev] == ["context", "llm", "llm", "end"] and len({e.turn_id for e in ev}) == 1
-    assert ev[1].model and ev[-1].label == "done"
+    assert [e.kind for e in ev] == ["context", "skill", "llm", "llm", "end"] and len({e.turn_id for e in ev}) == 1
+    assert ev[2].model and ev[-1].label == "done"
 
 
 async def test_llm_event_is_written_before_the_call(run, session):
@@ -85,7 +85,7 @@ async def test_llm_event_is_written_before_the_call(run, session):
 
     await run(ScriptedLlm([reply("네")], on_request=probe), "안녕")
     pending, rows = seen
-    assert pending is False and [r[0] for r in rows] == ["context", "llm"] and rows[1][1] is None
+    assert pending is False and [r[0] for r in rows] == ["context", "skill", "llm"] and rows[2][1] is None
 
 
 async def test_trace_never_contains_the_key(run, session):  # Review Focus 4
@@ -109,7 +109,7 @@ async def test_turn_id_is_the_user_message_id(run, session, chat_id):
     user_message = session.scalars(select(ChatMessage).where(ChatMessage.role == "user")).one()
     assert {e.turn_id for e in traced(session)} == {user_message.id}
     assert {e.chat_session_id for e in traced(session)} == {chat_id}
-    assert [e.seq for e in traced(session)] == [1, 2, 3]
+    assert [e.seq for e in traced(session)] == [1, 2, 3, 4]
 
 
 async def test_llm_event_keeps_model_tokens_cost_ms_and_the_reply(run, session):
@@ -158,7 +158,7 @@ async def test_end_of_a_step_limit_turn(run, session):
     await run(ScriptedLlm([calls("schedule.read", {})] * 5), "x", max_steps=2)
     end = traced(session)[-1]
     assert (end.label, end.ok, end.error) == ("failed", False, "단계 한도에 닿아 멈췄습니다.")
-    assert [e.kind for e in traced(session)] == ["context", "llm", "llm", "end"]
+    assert [e.kind for e in traced(session)] == ["context", "skill", "llm", "llm", "end"]
 
 
 async def test_end_of_a_stopped_turn(run, session, chat_id):

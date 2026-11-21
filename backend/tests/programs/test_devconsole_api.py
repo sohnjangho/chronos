@@ -249,7 +249,7 @@ def test_node_labels_and_detail_shape(client, admin, finished_turn):
                       "조건 점검", "승인 판단", "응답·기록"]
     n = nodes(body)
     assert all(set(x["detail"]) == {"in", "out", "ms", "model", "settings"} for x in n.values())
-    assert n["skill"]["detail"]["in"] == "스킬은 묶음 3에서 — 지금은 늘 없음" and n["skill"]["count"] == 0
+    assert n["skill"]["detail"]["in"] == "일치하는 스킬 없음" and n["skill"]["count"] == 0
     assert (n["request"]["state"], n["request"]["detail"]["in"]) == ("past", "몇 개야?")
     assert n["plan"]["detail"]["model"] == "claude-opus-5.5" and n["tool"]["detail"]["model"] is None
     assert n["tool"]["detail"]["in"] == [{"n": 1, "tool": "schedule.read", "input": "{}"}]

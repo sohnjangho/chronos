@@ -107,6 +107,7 @@ export function edgesFor(nodes: { key: NodeKey; state: NodeState }[], edgesLit: 
   const passed = (k: BoxKey) => (k === 'skill' ? skillPassed : visited(of(k)));
   return EDGES.map(({ from, to, label, unknown }) => {
     const flagLit =
+      (from === 'skill' && to === 'skillrun' && litFlags.has('skill_matched')) ||
       (from === 'check' && to === 'judge' && litFlags.has('check_repair')) ||
       (from === 'approval' && to === 'inbox' && litFlags.has('approval_inbox'));
     const lit = flagLit || (!unknown && passed(from) && passed(to));

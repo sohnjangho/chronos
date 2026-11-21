@@ -3,12 +3,13 @@
 import { useState } from 'react';
 import type { ProgramProps } from '../../os/registry';
 import Badge from '../../shared/ui/Badge';
+import Button from '../../shared/ui/Button';
 import { cost, stepStatus, tokens } from './labels';
 import RunList from './RunList';
 import StepDetail from './StepDetail';
 import StepGraph from './StepGraph';
 import { useWorkflowData } from './useWorkflowData';
-import type { RunDetail } from './wfApi';
+import { wfApi, type RunDetail } from './wfApi';
 import './workflow.css';
 
 /** 고르지 않았으면 실행 중인 단계, 없으면 마지막 단계. */
@@ -36,14 +37,36 @@ function Legend({ run }: { run: RunDetail }) {
 
 function RunView({ run, error }: { run: RunDetail; error: string | null }) {
   const [picked, setPicked] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const n = picked ?? autoStep(run);
   const step = run.steps.find((s) => s.n === n) ?? null;
+
+  async function saveAsSkill() {
+    setSaving(true);
+    setSavedMsg(null);
+    try {
+      const s = await wfApi.saveSkill(run.id, run.title || `워크플로우 #${run.id}`);
+      setSavedMsg(`스킬 「${s.name}」로 저장했습니다.`);
+    } catch (e) {
+      setSavedMsg(e instanceof Error ? e.message : '스킬을 저장하지 못했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <>
       <main className="wf-main">
         <header className="wf-head">
           <h2 className="wf-title wf-wrap">{run.title || '제목 없는 실행'}</h2>
           <Badge tone={run.status === 'running' ? 'info' : run.status === 'failed' ? 'danger' : 'neutral'}>{stepStatus(run.status)}</Badge>
+          {run.status === 'done' && run.steps.length > 0 && (
+            <Button disabled={saving} onClick={() => void saveAsSkill()}>
+              {saving ? '저장 중…' : '스킬로 저장'}
+            </Button>
+          )}
+          {savedMsg && <span className="wf-muted" role="status">{savedMsg}</span>}
           {run.request && <p className="wf-request wf-wrap">{`요청: "${run.request}"`}</p>}
           {error && (
             <p className="wf-error" role="alert">

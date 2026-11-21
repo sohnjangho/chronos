@@ -31,3 +31,8 @@ test('SF goes from the predecessor start to the successor end', () => {
 test('coordinates are rounded to one decimal', () => {
   expect(linkPath({ x: 0, w: 10.123, row: 0 }, { x: 40.06, w: 5, row: 1 }, 'FS', 30)).toBe('M 10.1 15 H 16.1 V 45 H 40.1');
 });
+
+test('back-to-back FS links drop straight without protruding right', () => {
+  expect(linkPath(A, { x: 100, w: 50, row: 2 }, 'FS', 30)).toBe('M 100 15 V 75 H 100');
+  expect(linkPath(A, { x: 106, w: 50, row: 2 }, 'FS', 30)).toBe('M 100 15 H 103 V 75 H 106');
+});

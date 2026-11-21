@@ -37,9 +37,27 @@ export interface RunDetail extends RunItem {
   steps: Step[];
 }
 
+export interface SkillItem {
+  id: number;
+  name: string;
+  description: string;
+  triggers: string[];
+  steps: { tool: string; why?: string }[];
+  source_run_id: number | null;
+  use_count: number;
+  created_at: string;
+}
+
 export const wfApi = {
   runs: () => api<RunItem[]>('/api/workflows/runs'),
   run: (id: number) => api<RunDetail>(`/api/workflows/runs/${id}`),
+  skills: () => api<SkillItem[]>('/api/workflows/skills'),
+  saveSkill: (runId: number, name: string, triggers: string[] = []) =>
+    api<SkillItem>(`/api/workflows/runs/${runId}/save-skill`, {
+      method: 'POST',
+      body: JSON.stringify({ name, triggers }),
+    }),
+  deleteSkill: (skillId: number) => api<void>(`/api/workflows/skills/${skillId}`, { method: 'DELETE' }),
 };
 
 /** 서버가 잘라 보내는 길이(관리자가 아닐 때). */
