@@ -32,7 +32,7 @@ export default function Login() {
 
       <div className="os-login-pane">
         <div className="os-login-brand">
-          <img src="/media/chronos-logo.jpg" alt="ChronOS — AI Schedule Agent" className="os-login-logo" />
+          <img src="/media/chronos-logo.png" alt="ChronOS — AI Schedule Agent" className="os-login-logo" />
           <div className="os-login-tagline">일정을 만들고, 지키고, 고치는 에이전트 OS</div>
         </div>
 
