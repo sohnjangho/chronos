@@ -91,9 +91,19 @@ function TitleBar({ win, startDrag }: { win: Win; startDrag: StartDrag }) {
 
   return (
     <div className="os-win-bar" onPointerDown={onPointerDown} onDoubleClick={(e) => isButton(e) || toggleMaximize(win.id)}>
-      <button type="button" className="os-lt os-lt-close" aria-label="닫기" onClick={() => close(win.id)} />
-      <button type="button" className="os-lt os-lt-min" aria-label="최소화" onClick={() => minimize(win.id)} />
-      <button type="button" className="os-lt os-lt-max" aria-label="확대" onClick={() => toggleMaximize(win.id)} />
+      <div className="os-lights">
+        <button type="button" className="os-lt os-lt-close" aria-label="닫기" title="닫기" onClick={() => close(win.id)}>
+          <svg viewBox="0 0 8 8" aria-hidden="true"><path d="M1.5 1.5l5 5M6.5 1.5l-5 5" /></svg>
+        </button>
+        <button type="button" className="os-lt os-lt-min" aria-label="최소화" title="최소화" onClick={() => minimize(win.id)}>
+          <svg viewBox="0 0 8 8" aria-hidden="true"><path d="M1.5 4h5" /></svg>
+        </button>
+        <button type="button" className="os-lt os-lt-max" aria-label="확대" title={win.maximized ? '원래 크기로' : '최대화'} onClick={() => toggleMaximize(win.id)}>
+          <svg viewBox="0 0 8 8" aria-hidden="true">
+            {win.maximized ? <path d="M2 5.5h3.5V2M6 2.5H2.5V6" /> : <path d="M4 1.5v5M1.5 4h5" />}
+          </svg>
+        </button>
+      </div>
       <div className="os-win-title">{win.title}</div>
     </div>
   );

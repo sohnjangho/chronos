@@ -1,7 +1,7 @@
 // 간트차트 화면(설계 8-2): 왼쪽 WBS/ID 표 + 가운데 나눔선 + 오른쪽 날짜 막대 차트 + 아래 자원 줄.
 // 고치기는 모두 일정 저장소의 쓰기 줄(같은 일정을 보는 창들이 함께 씀)로 보내고 서버가 다시 계산한 일정으로 다시 그린다.
 // 조건·규칙 창의 미리 보기(OS useSchedulePreview)가 있으면 그 일정을 그리고, 움직인 것의 이전 자리를 점선으로 남긴다.
-import { useMemo, useRef, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useMemo, useRef, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useSchedulePreview, type SchedulePreview } from '../../os/schedulePreview';
 import { ROW_H } from '../../shared/gantt/Bars';
 import Button from '../../shared/ui/Button';
@@ -14,6 +14,7 @@ import { useColWidths } from '../../shared/schedule/useColWidths';
 import Chart from './Chart';
 import type { ChartModel } from './ChartRows';
 import { exportImage } from './exportSheet';
+import { useGanttColors } from './ganttColors';
 import GanttToolbar from './GanttToolbar';
 import LeftGrid from './LeftGrid';
 import { useConditionMarks } from './marks';
@@ -126,6 +127,7 @@ export default function GanttTab() {
   const vp = useViewport(range, g.rows.length);
   const cols = useGanttColumns();
   const colW = useColWidths('schedule.gantt.colWidths');
+  const { colors, setColor, resetColors } = useGanttColors();
   const ed = useEditing(g.rows, cols.columns, !!preview, vp, g.toggle);
   useReveal(view, g.rows, g.groupBy, g.setCollapsed, vp);
   const { drag, begin } = useDrag(vp.scale, view.calendar);
@@ -145,11 +147,17 @@ export default function GanttTab() {
   };
   const act = toolbarActions({ notify, stored, view, m, vp, range, today, selected, columns: cols.columns });
 
+  const colorStyle = {
+    '--gt-plan': colors.plan,
+    '--gt-actual': colors.actual,
+    '--gt-cpm': colors.cpm,
+  } as CSSProperties;
+
   return (
-    <div className="gt-tab">
+    <div className="gt-tab" style={colorStyle}>
       <GanttToolbar
         query={g.query} onQuery={g.setQuery} filter={g.filter} onFilter={g.setFilter} wbs={view.wbs}
-        layers={g.layers} onLayer={g.flipLayer} groupBy={g.groupBy} onGroupBy={(by) => {
+        layers={g.layers} onLayer={g.flipLayer} colors={colors} onColor={setColor} onResetColors={resetColors} groupBy={g.groupBy} onGroupBy={(by) => {
           g.groupByWith(by);
           vp.nav.top();
         }}

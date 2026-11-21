@@ -28,43 +28,63 @@ interface ToolbarProps {
   onExport(): void;
 }
 
-/** 위 도구줄: 행 추가·삭제 · 검색 · 필터 · 열 · 되돌리기·다시 하기 · 가중치 · 진척 · CSV 내보내기. 좁으면 줄을 바꾼다. */
+/** 위 도구줄: 엑셀/PPT 스타일 리본 구역(편집 · 찾기·필터 · 보기 · 이력 · 진척·내보내기). */
 export default function Toolbar(p: ToolbarProps) {
   const n = filterCount(p.filter);
   return (
     <div role="toolbar" aria-label="스케줄표 도구" className="sch-toolbar">
-      <Button variant="primary" disabled={!p.canAdd} onClick={p.onAdd}>
-        + 행 추가
-      </Button>
-      <Button variant="danger" data-act="delete" disabled={!p.canDelete} onClick={p.onDelete}>
-        삭제
-      </Button>
-      <input
-        type="search"
-        className="sch-search"
-        aria-label="코드·이름 검색"
-        placeholder="코드·이름 검색"
-        value={p.query}
-        onChange={(e) => p.onQuery(e.target.value)}
-      />
-      <Popover button={n ? `필터 ${n}` : '필터'} label="필터">
-        {() => <FilterPanel filter={p.filter} onFilter={p.onFilter} wbs={p.wbs} />}
-      </Popover>
-      <Popover button="열" label="열">
-        {() => <ColumnPanel visible={p.visible} onVisible={p.onVisible} />}
-      </Popover>
-      <span className="sch-sep" aria-hidden="true" />
-      <History />
-      <label className="sch-weight">
-        가중치
-        <select aria-label="가중치" value={p.weightMode} onChange={(e) => p.onWeightMode(e.target.value as WeightMode)}>
-          <option value="duration">기간 비례</option>
-          <option value="manual">직접 입력</option>
-        </select>
-      </label>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          <Button variant="primary" disabled={!p.canAdd} onClick={p.onAdd}>+ 행 추가</Button>
+          <Button variant="danger" data-act="delete" disabled={!p.canDelete} onClick={p.onDelete}>삭제</Button>
+        </div>
+        <span className="sch-rib-label">편집</span>
+      </div>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          <input
+            type="search"
+            className="sch-search"
+            aria-label="코드·이름 검색"
+            placeholder="코드·이름 검색"
+            value={p.query}
+            onChange={(e) => p.onQuery(e.target.value)}
+          />
+          <Popover button={n ? `필터 ${n}` : '필터'} label="필터">
+            {() => <FilterPanel filter={p.filter} onFilter={p.onFilter} wbs={p.wbs} />}
+          </Popover>
+        </div>
+        <span className="sch-rib-label">찾기·필터</span>
+      </div>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          <Popover button="열" label="열">
+            {() => <ColumnPanel visible={p.visible} onVisible={p.onVisible} />}
+          </Popover>
+          <label className="sch-weight">
+            가중치
+            <select aria-label="가중치" value={p.weightMode} onChange={(e) => p.onWeightMode(e.target.value as WeightMode)}>
+              <option value="duration">기간 비례</option>
+              <option value="manual">직접 입력</option>
+            </select>
+          </label>
+        </div>
+        <span className="sch-rib-label">보기·설정</span>
+      </div>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          <History />
+        </div>
+        <span className="sch-rib-label">이력</span>
+      </div>
       <span className="sch-gap" />
-      {p.progress !== null && <Badge tone="info">{`전체 가중 진척도 ${percent(p.progress)}%`}</Badge>}
-      <Button onClick={p.onExport}>CSV 내보내기</Button>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          {p.progress !== null && <Badge tone="info">{`전체 가중 진척도 ${percent(p.progress)}%`}</Badge>}
+          <Button onClick={p.onExport}>CSV 내보내기</Button>
+        </div>
+        <span className="sch-rib-label">진척·내보내기</span>
+      </div>
     </div>
   );
 }

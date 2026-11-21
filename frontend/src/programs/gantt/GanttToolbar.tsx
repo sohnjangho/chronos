@@ -7,6 +7,7 @@ import { ColumnPanel, FilterPanel } from '../../shared/schedule/FilterPanel';
 import Popover from '../../shared/schedule/Popover';
 import { filterCount, type RowFilter } from '../../shared/schedule/rows';
 import type { Wbs } from '../../shared/schedule/scheduleApi';
+import { GANTT_PALETTE, type GanttColors } from './ganttColors';
 import type { GroupBy } from './grouping';
 import type { Layers } from './model';
 
@@ -18,6 +19,9 @@ export interface ToolbarProps {
   wbs: Wbs[];
   layers: Layers;
   onLayer(key: keyof Layers): void;
+  colors: GanttColors;
+  onColor(key: keyof GanttColors, hex: string): void;
+  onResetColors(): void;
   groupBy: GroupBy;
   onGroupBy(by: GroupBy): void;
   visible: ColKey[];
@@ -95,57 +99,115 @@ function Legend({ deadline }: { deadline: string }) {
   );
 }
 
-const Sep = () => <span className="sch-sep" aria-hidden="true" />;
+const COLOR_ROWS: { key: keyof GanttColors; label: string }[] = [
+  { key: 'plan', label: 'Plan' },
+  { key: 'actual', label: 'Actual·예측' },
+  { key: 'cpm', label: 'CPM (크리티컬)' },
+];
+
+function ColorPanel({ colors, onColor, onReset }: { colors: GanttColors; onColor(k: keyof GanttColors, hex: string): void; onReset(): void }) {
+  return (
+    <div className="sch-pop-body gt-color-panel">
+      {COLOR_ROWS.map((row) => (
+        <div key={row.key} className="gt-color-row">
+          <span className="gt-color-label">{row.label}</span>
+          <div className="gt-color-dots">
+            {GANTT_PALETTE.map((c) => {
+              const active = colors[row.key] === c.hex;
+              return (
+                <button
+                  key={c.hex}
+                  type="button"
+                  className={`gt-color-dot${active ? ' is-on' : ''}`}
+                  style={{ background: c.hex }}
+                  aria-label={`${row.label} ${c.name}`}
+                  aria-pressed={active}
+                  title={c.name}
+                  onClick={() => onColor(row.key, c.hex)}
+                />
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <Button onClick={onReset}>기본색 복원</Button>
+    </div>
+  );
+}
 
 export default function GanttToolbar(p: ToolbarProps) {
   const n = filterCount(p.filter);
   return (
     <div role="toolbar" aria-label="간트 도구" className="sch-toolbar gt-toolbar">
-      <input
-        type="search"
-        className="sch-search"
-        aria-label="코드·이름 검색"
-        placeholder="코드·이름 검색"
-        value={p.query}
-        onChange={(e) => p.onQuery(e.target.value)}
-      />
-      <Popover button={n ? `필터 ${n}` : '필터'} label="필터">
-        {() => <FilterPanel filter={p.filter} onFilter={p.onFilter} wbs={p.wbs} />}
-      </Popover>
-      <Sep />
-      <LayerChips layers={p.layers} onLayer={p.onLayer} />
-      <Sep />
-      <Button aria-label="축소" onClick={() => p.onZoom(1 / 1.25)}>−</Button>
-      <Button aria-label="확대" onClick={() => p.onZoom(1.25)}>+</Button>
-      <Button onClick={p.onFit}>맞춤</Button>
-      <Button disabled={!p.hasSelection} title={p.hasSelection ? undefined : '액티비티를 먼저 고르세요'} onClick={p.onFitSelected}>
-        선택 맞춤
-      </Button>
-      <Button disabled={!p.hasDataDate} title={p.hasDataDate ? undefined : '이 일정에는 Data Date 가 없습니다'} onClick={p.onDataDate}>
-        Data Date
-      </Button>
-      <Button onClick={p.onToday}>오늘</Button>
-      <Button aria-label="이전 기간" onClick={() => p.onPage(-1)}>‹</Button>
-      <Button aria-label="다음 기간" onClick={() => p.onPage(1)}>›</Button>
-      <Sep />
-      <span className="sch-muted">묶는 기준</span>
-      {(['wbs', 'resource'] as const).map((by) => (
-        <button key={by} type="button" className="gt-chip" aria-pressed={p.groupBy === by} onClick={() => p.onGroupBy(by)}>
-          {by === 'wbs' ? 'WBS' : '자원'}
-        </button>
-      ))}
-      <Button onClick={p.onExpandAll}>모두 펼치기</Button>
-      <Button onClick={p.onCollapseAll}>모두 접기</Button>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          <input
+            type="search"
+            className="sch-search"
+            aria-label="코드·이름 검색"
+            placeholder="코드·이름 검색"
+            value={p.query}
+            onChange={(e) => p.onQuery(e.target.value)}
+          />
+          <Popover button={n ? `필터 ${n}` : '필터'} label="필터">
+            {() => <FilterPanel filter={p.filter} onFilter={p.onFilter} wbs={p.wbs} />}
+          </Popover>
+        </div>
+        <span className="sch-rib-label">찾기·필터</span>
+      </div>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          <LayerChips layers={p.layers} onLayer={p.onLayer} />
+          <Popover button="색상" label="색상">
+            {() => <ColorPanel colors={p.colors} onColor={p.onColor} onReset={p.onResetColors} />}
+          </Popover>
+        </div>
+        <span className="sch-rib-label">층·색상</span>
+      </div>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          <Button aria-label="축소" onClick={() => p.onZoom(1 / 1.25)}>−</Button>
+          <Button aria-label="확대" onClick={() => p.onZoom(1.25)}>+</Button>
+          <Button onClick={p.onFit}>맞춤</Button>
+          <Button disabled={!p.hasSelection} title={p.hasSelection ? undefined : '액티비티를 먼저 고르세요'} onClick={p.onFitSelected}>
+            선택 맞춤
+          </Button>
+          <Button disabled={!p.hasDataDate} title={p.hasDataDate ? undefined : '이 일정에는 Data Date 가 없습니다'} onClick={p.onDataDate}>
+            Data Date
+          </Button>
+          <Button onClick={p.onToday}>오늘</Button>
+          <Button aria-label="이전 기간" onClick={() => p.onPage(-1)}>‹</Button>
+          <Button aria-label="다음 기간" onClick={() => p.onPage(1)}>›</Button>
+        </div>
+        <span className="sch-rib-label">화면·이동</span>
+      </div>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          {(['wbs', 'resource'] as const).map((by) => (
+            <button key={by} type="button" className="gt-chip" aria-pressed={p.groupBy === by} onClick={() => p.onGroupBy(by)}>
+              {by === 'wbs' ? 'WBS' : '자원'}
+            </button>
+          ))}
+          <Button onClick={p.onExpandAll}>모두 펼치기</Button>
+          <Button onClick={p.onCollapseAll}>모두 접기</Button>
+        </div>
+        <span className="sch-rib-label">묶는 기준</span>
+      </div>
       <span className="sch-gap" />
-      <Popover button="열" label="열" align="right">
-        {() => <ColumnPanel visible={p.visible} onVisible={p.onVisible} />}
-      </Popover>
-      <Popover button="범례" label="범례" align="right">
-        {() => <Legend deadline={p.deadlineLabel} />}
-      </Popover>
-      <History />
-      <Button onClick={p.onCsv}>CSV 내보내기</Button>
-      <Button onClick={p.onImage}>그림 내보내기</Button>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          <Popover button="열" label="열" align="right">
+            {() => <ColumnPanel visible={p.visible} onVisible={p.onVisible} />}
+          </Popover>
+          <Popover button="범례" label="범례" align="right">
+            {() => <Legend deadline={p.deadlineLabel} />}
+          </Popover>
+          <History />
+          <Button onClick={p.onCsv}>CSV 내보내기</Button>
+          <Button onClick={p.onImage}>그림 내보내기</Button>
+        </div>
+        <span className="sch-rib-label">보기·이력·내보내기</span>
+      </div>
     </div>
   );
 }

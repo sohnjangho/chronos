@@ -22,18 +22,18 @@
 .gantt-float-cap { stroke: var(--fg-muted); stroke-width: 1.25; opacity: 0.55; pointer-events: none; }
 
 /* 위 칸 Plan · 아래 칸 Actual(진하게)·예측(옅게 + 점선 테두리). CPM 층의 크리티컬 빨강은 예측에만. */
-.gantt-bar { fill: var(--accent); fill-opacity: 0.45; stroke: var(--accent-text); stroke-width: 1; } /* 테두리가 바탕과 3:1 이상(WCAG 1.4.11) */
-.gantt-actualbar { fill: var(--success); pointer-events: none; }
-.gantt-forecast { fill: var(--success); fill-opacity: 0.22; stroke: var(--success); stroke-width: 1; stroke-dasharray: 3 2; pointer-events: none; }
-.gantt-forecast.critical { fill: var(--danger); fill-opacity: 0.28; stroke: var(--danger); }
+.gantt-bar { fill: var(--gt-plan, var(--accent)); fill-opacity: 0.45; stroke: var(--gt-plan, var(--accent-text)); stroke-width: 1; } /* 테두리가 바탕과 3:1 이상(WCAG 1.4.11) */
+.gantt-actualbar { fill: var(--gt-actual, var(--success)); pointer-events: none; }
+.gantt-forecast { fill: var(--gt-actual, var(--success)); fill-opacity: 0.22; stroke: var(--gt-actual, var(--success)); stroke-width: 1; stroke-dasharray: 3 2; pointer-events: none; }
+.gantt-forecast.critical { fill: var(--gt-cpm, var(--danger)); fill-opacity: 0.28; stroke: var(--gt-cpm, var(--danger)); }
 .gantt-handle { fill: transparent; cursor: ew-resize; }
 .gantt-handle:hover { fill: var(--fg); fill-opacity: 0.25; }
 .gantt-summary { fill: var(--neutral-strong); }
 .gantt-ms { fill: var(--fg); }
-.gantt-ms.is-plan { fill: var(--accent); }
-.gantt-ms.is-actual { fill: var(--success); }
-.gantt-ms.is-forecast { fill: var(--success); fill-opacity: 0.35; stroke: var(--success); stroke-width: 1; }
-.gantt-ms.is-forecast.critical { fill: var(--danger); stroke: var(--danger); }
+.gantt-ms.is-plan { fill: var(--gt-plan, var(--accent)); }
+.gantt-ms.is-actual { fill: var(--gt-actual, var(--success)); }
+.gantt-ms.is-forecast { fill: var(--gt-actual, var(--success)); fill-opacity: 0.35; stroke: var(--gt-actual, var(--success)); stroke-width: 1; }
+.gantt-ms.is-forecast.critical { fill: var(--gt-cpm, var(--danger)); stroke: var(--gt-cpm, var(--danger)); }
 .gantt-due { fill: var(--bg-panel); stroke: var(--danger); stroke-width: 1.5; }
 .gantt-ghost { fill: none; stroke: var(--fg-muted); stroke-width: 1.5; stroke-dasharray: 4 3; pointer-events: none; }
 .gantt-ghost.is-drag { stroke: var(--accent); }
@@ -48,7 +48,7 @@
 .gantt-vline.is-today { stroke: var(--accent); stroke-width: 1; }
 
 .gantt-link { fill: none; stroke: var(--fg-muted); stroke-width: 1.2; stroke-linejoin: round; stroke-linecap: round; }
-.gantt-link.critical { stroke: var(--danger); stroke-width: 1.5; }
+.gantt-link.critical { stroke: var(--gt-cpm, var(--danger)); stroke-width: 1.5; }
 .gantt-arrow { fill: var(--fg-muted); }
-.gantt-arrow.critical { fill: var(--danger); }
+.gantt-arrow.critical { fill: var(--gt-cpm, var(--danger)); }
 .gantt-svg .gantt-lag { font-size: 10px; fill: var(--fg-muted); }

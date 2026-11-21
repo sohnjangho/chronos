@@ -21,12 +21,12 @@ interface Pt {
 
 export const MOTION_MS: Record<Motion, number> = { open: 220, close: 160, minimize: 260, restore: 260, zoom: 200 };
 
-const EASE_OUT = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const EASING: Record<Motion, string> = {
   open: EASE_OUT,
   close: 'cubic-bezier(0.4, 0, 1, 1)', // ease-in
-  minimize: 'cubic-bezier(0.4, 0, 0.2, 1)', // ease-in-out, 복귀는 거꾸로 돌린다
-  restore: 'cubic-bezier(0.4, 0, 0.2, 1)',
+  minimize: 'cubic-bezier(0.32, 0.72, 0, 1)', // 부드러운 스르륵 곡선
+  restore: 'cubic-bezier(0.22, 1, 0.36, 1)',
   zoom: EASE_OUT,
 };
 

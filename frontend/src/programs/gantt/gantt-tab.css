@@ -10,10 +10,10 @@
 .gt-chip:disabled { opacity: 0.5; cursor: default; }
 .gt-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .gt-swatch { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--fg-muted); }
-.gt-swatch.is-plan { background: var(--accent); }
-.gt-swatch.is-actual { background: var(--success); }
-.gt-swatch.is-forecast { background: none; border: 1px dashed var(--success); }
-.gt-swatch.is-cpm { background: var(--danger); }
+.gt-swatch.is-plan { background: var(--gt-plan, var(--accent)); }
+.gt-swatch.is-actual { background: var(--gt-actual, var(--success)); }
+.gt-swatch.is-forecast { background: none; border: 1px dashed var(--gt-actual, var(--success)); }
+.gt-swatch.is-cpm { background: var(--gt-cpm, var(--danger)); }
 .gt-swatch.is-ms { transform: rotate(45deg) scale(0.8); background: var(--fg); }
 .gt-swatch.is-data { width: 3px; background: var(--warning); }
 .gt-swatch.is-weekend { background: var(--bg-app); border: 1px solid var(--border); }
@@ -73,10 +73,22 @@
   padding: 2px 2px; box-sizing: border-box; border-left: 1px solid var(--border);
   font-size: 9px; font-weight: 700; line-height: 11px; letter-spacing: -0.02em; user-select: none;
 }
-.gt-lane-p { color: var(--accent-text); }
-.gt-lane-a { color: var(--success); }
-.gt-lane-a.is-crit { color: var(--danger-text); }
+.gt-lane-p { color: var(--gt-plan, var(--accent-text)); }
+.gt-lane-a { color: var(--gt-actual, var(--success)); }
+.gt-lane-a.is-crit { color: var(--gt-cpm, var(--danger-text)); }
 .gt-lane-p.is-off, .gt-lane-a.is-off { opacity: 0.25; }
+
+/* 10색 팔레트 팝오버 */
+.gt-color-panel { width: 256px; gap: 10px; }
+.gt-color-row { display: flex; flex-direction: column; gap: 5px; width: 100%; }
+.gt-color-label { font-size: var(--fs-12); font-weight: 600; color: var(--fg); }
+.gt-color-dots { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; }
+.gt-color-dot {
+  width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.gt-color-dot:hover { transform: scale(1.18); }
+.gt-color-dot.is-on { border-color: var(--bg-panel); box-shadow: 0 0 0 2px var(--fg); transform: scale(1.1); }
 .gt-cell.num { text-align: right; font-variant-numeric: tabular-nums; }
 .gt-cell.editable { cursor: text; }
 .gt-cell.danger { color: var(--danger-text); font-weight: 700; }

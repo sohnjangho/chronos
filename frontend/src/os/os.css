@@ -31,9 +31,13 @@ body {
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
-  box-shadow: 0 12px 40px color-mix(in srgb, var(--bg-topbar) 55%, transparent);
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--bg-topbar) 40%, transparent);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
   overflow: hidden;
   outline: none;
+}
+.os-win.is-active {
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--bg-topbar) 62%, transparent);
 }
 .os-win[hidden] { display: none; }
 /* 창 움직임(windowMotion.ts, transform·opacity 만): 움직이는 동안만 합성 층으로 올린다. */
@@ -50,10 +54,42 @@ body {
   user-select: none;
   cursor: default;
 }
-.os-lt { width: 12px; height: 12px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; background: var(--border-strong); }
-.os-win.is-active .os-lt-close { background: var(--danger); }
-.os-win.is-active .os-lt-min { background: var(--warning); }
-.os-win.is-active .os-lt-max { background: var(--success); }
+.os-lights { display: inline-flex; align-items: center; gap: 8px; padding: 4px 2px; }
+.os-lt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--bg-topbar) 18%, transparent);
+  padding: 0;
+  cursor: pointer;
+  background: var(--border-strong);
+  transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), filter 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
+}
+.os-lt svg {
+  width: 8px;
+  height: 8px;
+  fill: none;
+  stroke: color-mix(in srgb, var(--bg-topbar) 72%, transparent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.os-win.is-active .os-lt-close,
+.os-lights:hover .os-lt-close { background: var(--danger); }
+.os-win.is-active .os-lt-min,
+.os-lights:hover .os-lt-min { background: var(--warning); }
+.os-win.is-active .os-lt-max,
+.os-lights:hover .os-lt-max { background: var(--success); }
+.os-lights:hover .os-lt svg,
+.os-lt:focus-visible svg { opacity: 1; }
+.os-lt:hover { transform: scale(1.16); filter: brightness(1.08); box-shadow: 0 0 0 2px color-mix(in srgb, var(--fg) 14%, transparent); }
+.os-lt:active { transform: scale(0.9); filter: brightness(0.82); }
+.os-lt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .os-win-title { flex: 1; text-align: center; font-weight: 500; margin-right: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .os-win:not(.is-active) .os-win-title { color: var(--fg-muted); }
 .os-win-body { flex: 1; min-height: 0; overflow: auto; position: relative; }

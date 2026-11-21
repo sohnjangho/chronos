@@ -14,7 +14,14 @@
 .sch-muted { color: var(--fg-muted); font-size: var(--fs-12); }
 .sch-gap { flex: 1; }
 
-.sch-toolbar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 7px 12px; border-bottom: 1px solid var(--border); }
+.sch-toolbar { flex: none; display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; padding: 5px 10px 4px; border-bottom: 1px solid var(--border); background: var(--bg-panel-alt); }
+.sch-rib-group {
+  display: inline-flex; flex-direction: column; justify-content: space-between; align-items: stretch;
+  gap: 3px; padding: 2px 8px 1px; border-right: 1px solid var(--border);
+}
+.sch-rib-group:last-child { border-right: 0; }
+.sch-rib-items { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.sch-rib-label { text-align: center; font-size: 10px; line-height: 12px; color: var(--fg-muted); letter-spacing: -0.01em; user-select: none; }
 .sch-sep { width: 1px; height: 20px; background: var(--border); }
 .sch-pop-root { position: relative; }
 .sch-pop {
