@@ -54,7 +54,9 @@ function AgentConfigPanel({ initial, onSaved }: { initial?: AgentConfig; onSaved
       <div className="dc-cfg-head">
         <div>
           <h3>에이전트 · 하네스 실행 설정</h3>
-          <p className="dc-muted">저장 즉시 다음 대화 턴부터 에이전트 루프(`app/agent/loop.py`)와 개발 콘솔 추적 한도에 적용됩니다.</p>
+          <p className="dc-muted">
+            저장 즉시 다음 대화 턴부터 에이전트 루프(<code>app/agent/loop.py</code>)와 개발 콘솔 추적 한도에 적용됩니다.
+          </p>
         </div>
         <div className="dc-cfg-actions">
           <button
