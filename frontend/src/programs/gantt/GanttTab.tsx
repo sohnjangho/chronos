@@ -3,6 +3,7 @@
 // 조건·규칙 창의 미리 보기(OS useSchedulePreview)가 있으면 그 일정을 그리고, 움직인 것의 이전 자리를 점선으로 남긴다.
 import { useMemo, useRef, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useSchedulePreview, type SchedulePreview } from '../../os/schedulePreview';
+import { pushToast } from '../../os/ToastStack';
 import { ROW_H } from '../../shared/gantt/Bars';
 import Button from '../../shared/ui/Button';
 import { dot } from '../../shared/schedule/format';
@@ -157,7 +158,7 @@ export default function GanttTab() {
     <div className="gt-tab" style={colorStyle}>
       <GanttToolbar
         query={g.query} onQuery={g.setQuery} filter={g.filter} onFilter={g.setFilter} wbs={view.wbs}
-        layers={g.layers} onLayer={g.flipLayer} colors={colors} onColor={setColor} onResetColors={resetColors} groupBy={g.groupBy} onGroupBy={(by) => {
+        layers={g.layers} onLayer={g.flipLayer} colors={colors} onColor={setColor} onResetColors={() => { resetColors(); pushToast('간트 색상을 기본값으로 복원했습니다.', 'success'); }} groupBy={g.groupBy} onGroupBy={(by) => {
           g.groupByWith(by);
           vp.nav.top();
         }}

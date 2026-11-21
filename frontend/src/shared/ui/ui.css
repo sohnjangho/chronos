@@ -8,8 +8,14 @@
   border-radius: var(--radius-2);
   padding: 4px 10px;
   cursor: pointer;
+  transition: transform 0.1s ease, background 0.12s ease, border-color 0.12s ease;
 }
 .ui-btn:hover:not(:disabled) { background: var(--bg-panel-alt); }
+.ui-btn:active:not(:disabled) { transform: scale(0.97); }
+@media (prefers-reduced-motion: reduce) {
+  .ui-btn { transition: none; }
+  .ui-btn:active:not(:disabled) { transform: none; }
+}
 .ui-btn:disabled { color: var(--fg-muted); cursor: default; opacity: 0.6; }
 .ui-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .ui-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }

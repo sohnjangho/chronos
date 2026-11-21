@@ -11,6 +11,8 @@ import {
   type RefObject,
 } from 'react';
 import { getProgram } from './registry';
+import { detectSnap, snapRect, useSnap } from './snap';
+import { pushToast } from './ToastStack';
 import { playMotion } from './windowMotion';
 import { resizeRect, useWindows, workArea, type Edge, type Rect, type Win } from './windowStore';
 import { useZoom, zoomOf } from './zoom';
@@ -43,7 +45,7 @@ function ProgramView({ win }: { win: Win }) {
   );
 }
 
-type StartDrag = (e: ReactPointerEvent, onDrag: (dx: number, dy: number) => void) => void;
+type StartDrag = (e: ReactPointerEvent, onDrag: (dx: number, dy: number, ev: PointerEvent) => void, onEnd?: () => void) => void;
 
 /**
  * 누른 곳에서 움직인 거리를 알린다. 놓기·취소(pointercancel)·창 밖으로 포커스가 나감(blur)·
@@ -52,20 +54,21 @@ type StartDrag = (e: ReactPointerEvent, onDrag: (dx: number, dy: number) => void
 function useDrag(): StartDrag {
   const stopRef = useRef<(() => void) | null>(null);
   useEffect(() => () => stopRef.current?.(), []);
-  return useCallback((e, onDrag) => {
+  return useCallback((e, onDrag, onEnd) => {
     e.preventDefault();
     stopRef.current?.();
     // 브라우저에는 늘 있다. jsdom 에는 없다.
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const x0 = e.clientX;
     const y0 = e.clientY;
-    const move = (ev: PointerEvent) => (ev.buttons === 0 ? stop() : onDrag(ev.clientX - x0, ev.clientY - y0));
+    const move = (ev: PointerEvent) => (ev.buttons === 0 ? stop() : onDrag(ev.clientX - x0, ev.clientY - y0, ev));
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
       window.removeEventListener('pointercancel', stop);
       window.removeEventListener('blur', stop);
       stopRef.current = null;
+      onEnd?.();
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
@@ -79,14 +82,33 @@ const EDGES: Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
 
 const isButton = (e: { target: EventTarget }) => (e.target as Element).closest('button') !== null;
 
-/** 신호등 단추와 제목. 끌면 옮기고, 두 번 누르면 확대·복귀. */
+/** 신호등 단추와 제목. 끌면 옮기고(가장자리 스냅 포함), 두 번 누르면 확대·복귀. */
 function TitleBar({ win, startDrag }: { win: Win; startDrag: StartDrag }) {
-  const { close, minimize, toggleMaximize, move } = useWindows.getState();
+  const { close, minimize, toggleMaximize, move, setBounds } = useWindows.getState();
 
   function onPointerDown(e: ReactPointerEvent) {
     if (win.maximized || isButton(e)) return;
     const { x, y } = win;
-    startDrag(e, (dx, dy) => move(win.id, x + dx, y + dy));
+    startDrag(
+      e,
+      (dx, dy, ev) => {
+        move(win.id, x + dx, y + dy);
+        if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+          useSnap.getState().setZone(detectSnap(ev.clientX, ev.clientY));
+        }
+      },
+      () => {
+        const zone = useSnap.getState().zone;
+        useSnap.getState().setZone(null);
+        if (!zone) return;
+        if (zone === 'top') {
+          toggleMaximize(win.id);
+        } else {
+          setBounds(win.id, snapRect(zone));
+          pushToast(zone === 'left' ? '창을 왼쪽 절반으로 정렬했습니다.' : '창을 오른쪽 절반으로 정렬했습니다.');
+        }
+      },
+    );
   }
 
   return (

@@ -29,9 +29,10 @@ export function magnification(d: number): number {
 
 type Item = Exclude<DockEntry, { kind: 'sep' }>;
 
-/** 새로 실행된 프로그램 id(짧은 튀어 오름). 동작 줄이기면 없다. */
-function useLaunching(running: Set<string>): string[] {
+/** 새로 실행된 프로그램 또는 새 승인 건 도착 시 짧은 튀어 오름. 동작 줄이기면 없다. */
+function useLaunching(running: Set<string>, approvals: number): string[] {
   const prev = useRef(running);
+  const prevApprovals = useRef(approvals);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [launching, setLaunching] = useState<string[]>([]);
   const key = [...running].sort().join(',');
@@ -42,6 +43,13 @@ function useLaunching(running: Set<string>): string[] {
     setLaunching((l) => [...l, ...added]);
     timers.current.push(setTimeout(() => setLaunching((l) => l.filter((id) => !added.includes(id))), 700));
   }, [key]); // running 은 key(정렬한 id 글)로 본다
+  useEffect(() => {
+    const grew = approvals > prevApprovals.current;
+    prevApprovals.current = approvals;
+    if (!grew || prefersReducedMotion()) return;
+    setLaunching((l) => [...l, 'approvals']);
+    timers.current.push(setTimeout(() => setLaunching((l) => l.filter((id) => id !== 'approvals')), 700));
+  }, [approvals]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   return launching;
 }
@@ -231,7 +239,7 @@ export default function Dock() {
   const model = useDockModel(current);
   const [menu, setMenu, closeMenu] = useItemMenu(buttons, model.items.length);
   const { entries, items, tabStop } = model;
-  const launching = useLaunching(model.running);
+  const launching = useLaunching(model.running, model.pending);
   const auto = useAutoHide(model.maximized, menu !== null, wrapRef);
   const mag = useMagnify(items.length, tiles, menu !== null);
   const onKeyDown = rovingKeys({ count: items.length, tabStop, current, setCurrent, buttons, openMenu: setMenu, hide: auto.hide });

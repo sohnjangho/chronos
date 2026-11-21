@@ -13,6 +13,8 @@ import SearchPalette from './SearchPalette';
 import { useSession } from './session';
 import { useShell } from './shell';
 import { useShellShortcuts } from './shortcuts';
+import { snapRect, useSnap } from './snap';
+import ToastStack from './ToastStack';
 import Window from './Window';
 import { activeWindow, useWindows } from './windowStore';
 import './userScope';
@@ -27,6 +29,8 @@ export default function Desktop() {
   const locked = useSession((s) => s.locked);
   const announcement = useShell((s) => s.announcement);
   const inset = useWindows((s) => s.insetRight);
+  const snapZone = useSnap((s) => s.zone);
+  const snapBox = snapZone ? snapRect(snapZone) : null;
   useApprovalPolling();
   useShellShortcuts();
   useEffect(() => {
@@ -49,11 +53,19 @@ export default function Desktop() {
         <AttentionWidget />
         <QuickStartWidget />
         <div className="os-windows">
+          {snapBox && (
+            <div
+              className="os-snap-ghost"
+              aria-hidden="true"
+              style={{ left: snapBox.x + 6, top: snapBox.y + 6, width: snapBox.w - 12, height: snapBox.h - 12 }}
+            />
+          )}
           {wins.map((w) => (
             <Window key={w.id} win={w} active={w === active} />
           ))}
         </div>
         <Dock />
+        <ToastStack />
         <ShellDialogs />
         <ContextPanel />
         <AppDrawer />

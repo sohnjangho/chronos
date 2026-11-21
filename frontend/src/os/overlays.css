@@ -42,11 +42,39 @@
 .os-pick-empty { padding: 12px 8px; color: var(--fg-muted); }
 
 /* ── 전역 검색 ── */
-.os-palette-back { position: absolute; inset: 0; z-index: 6; background: color-mix(in srgb, var(--bg-topbar) 30%, transparent); }
-.os-palette { position: absolute; top: 96px; left: 50%; width: min(640px, calc(100vw - 32px)); transform: translateX(-50%); }
+.os-palette-back {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: color-mix(in srgb, var(--bg-topbar) 32%, transparent);
+  backdrop-filter: blur(8px);
+  animation: os-fade-in 0.16s ease-out;
+}
+.os-palette {
+  position: absolute;
+  top: 96px;
+  left: 50%;
+  width: min(640px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  animation: os-pop-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
 .os-palette .os-pick { padding: 8px; border-radius: var(--radius-4); }
 .os-palette .os-pick-input { height: 40px; font-size: var(--fs-15); }
 .os-palette .os-pick-list { max-height: min(480px, calc(100vh - 220px)); }
+
+@keyframes os-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes os-pop-in {
+  from { opacity: 0; transform: translate(-50%, -10px) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-palette-back,
+  .os-palette,
+  .os-drawer { animation: none; }
+}
 
 /* ── 앱 서랍 ── */
 .os-drawer {
@@ -63,6 +91,7 @@
   background: color-mix(in srgb, var(--bg-topbar) 78%, transparent);
   backdrop-filter: blur(20px);
   color: var(--on-topbar-fg);
+  animation: os-fade-in 0.18s ease-out;
 }
 .os-drawer-head { display: flex; gap: 8px; width: min(480px, 100%); }
 .os-drawer-search {
