@@ -33,19 +33,7 @@ export default function Login() {
 
   return (
     <div className="os-login">
-      <video
-        className="os-login-video"
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="metadata"
-        poster="/media/login-poster.jpg"
-        aria-hidden="true"
-      >
-        <source src="/media/login-bg.mp4" type="video/mp4" />
-      </video>
-      <div className="os-login-scrim" aria-hidden="true" />
+      <div className="os-login-backdrop" aria-hidden="true" />
 
       <div className="os-login-pane">
         <div className="os-login-brand">
@@ -57,7 +45,7 @@ export default function Login() {
               muted
               playsInline
               preload="auto"
-              poster="/media/chronos-logo.png"
+              poster="/media/chronos-logo-poster.jpg"
               aria-label="ChronOS — AI Schedule Agent"
             >
               <source src="/media/chronos-logo-motion.mp4" type="video/mp4" />
@@ -112,6 +100,21 @@ export default function Login() {
         </form>
 
         <div className="os-login-foot">2026 .EXE-THON 출품작 · Liner API로 동작합니다</div>
+      </div>
+
+      <div className="os-login-stage" aria-hidden="true">
+        <video
+          className="os-login-video"
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+          poster="/media/login-poster.jpg"
+          aria-hidden="true"
+        >
+          <source src="/media/login-bg.mp4" type="video/mp4" />
+        </video>
       </div>
     </div>
   );

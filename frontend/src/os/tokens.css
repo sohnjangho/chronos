@@ -1,6 +1,8 @@
 /* 색·글꼴 값은 여기 변수만 쓴다(밝은 테마는 시안과 같은 값). 어두운 테마는 <html data-theme="dark">. */
 :root {
   --bg-topbar: #1b2845;
+  --bg-login: #02060c;
+  --bg-login-nebula: #0c2240;
   --bg-app: #edf2f8;
   --bg-panel: #ffffff;
   --bg-panel-alt: #f4f7fb;
@@ -105,6 +107,8 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg-topbar: #060a14;
+  --bg-login: #02060c;
+  --bg-login-nebula: #0c2240;
   --bg-app: #0c111d;
   --bg-panel: #131b2b;
   --bg-panel-alt: #0f1623;
