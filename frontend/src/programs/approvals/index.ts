@@ -9,7 +9,7 @@ const manifest: ProgramManifest = {
   kind: 'system',
   defaultSize: { w: 1200, h: 760 },
   badge: 'approvals',
-  icon: glyph('M4 4h16v16H4z', 'M8 12l3 3 5-6'),
+  icon: glyph('M12 3.5l7 2.8v5.4c0 4.5-3 7.9-7 9.3-4-1.4-7-4.8-7-9.3V6.3z', 'M8.8 12.2l2.3 2.3 4.4-4.8'),
   component: lazy(() => import('./Approvals')),
 };
 

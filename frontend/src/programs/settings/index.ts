@@ -20,7 +20,7 @@ const manifest: ProgramManifest = {
   name: '설정',
   kind: 'system',
   defaultSize: { w: 1300, h: 860 },
-  icon: glyph('M4 7h16', 'M4 17h16', 'M9 4v6', 'M15 14v6'),
+  icon: glyph('M9 4.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z', 'M15 14.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z', 'M4 7h2.5', 'M11.5 7H20', 'M4 17h8.5', 'M17.5 17H20'),
   component: lazy(() => import('./Settings')),
   // 메뉴바가 그릴 때마다 읽는다. 관리자 구역은 관리자에게만 보인다(역할은 로그인할 때 정해진다).
   get menus() {

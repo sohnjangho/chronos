@@ -9,7 +9,7 @@ const manifest: ProgramManifest = {
   tone: 'teal',
   kind: 'system',
   defaultSize: { w: 1180, h: 860 },
-  icon: glyph('M9 3h6v3H9z', 'M7 4.5H5V21h14V4.5h-2', 'M8 12l2 2 4-4', 'M8 17.5h8'),
+  icon: glyph('M9.5 3.5h5a1 1 0 0 1 1 1v2h-7v-2a1 1 0 0 1 1-1z', 'M8.5 5H7a2 2 0 0 0-2 2v11.5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1.5', 'M8.5 12.5l2.2 2.2 4.8-4.8', 'M8.5 17.5h7'),
   component: lazy(() => import('./Questionnaire')),
 };
 

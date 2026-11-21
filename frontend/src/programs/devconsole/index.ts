@@ -10,7 +10,7 @@ const manifest: ProgramManifest = {
   kind: 'system',
   adminOnly: true,
   defaultSize: { w: 1600, h: 900 },
-  icon: glyph('M4 5h16v14H4z', 'M7.5 10l2.5 2-2.5 2', 'M12.5 15h4'),
+  icon: glyph('M5.5 4.5h13A2 2 0 0 1 20.5 6.5v11a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2z', 'M7.5 9.8l2.8 2.2-2.8 2.2', 'M12.5 14.5h4'),
   component: lazy(() => import('./DevConsole')),
 };
 

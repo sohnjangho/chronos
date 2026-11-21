@@ -9,7 +9,7 @@ const manifest: ProgramManifest = {
   tone: 'orange',
   kind: 'work',
   defaultSize: { w: 1600, h: 900 },
-  icon: glyph('M4 4v16h16', 'M7 7h7', 'M10 11h8', 'M8 15h6'),
+  icon: glyph('M7.5 6h5a1.5 1.5 0 0 1 0 3h-5a1.5 1.5 0 0 1 0-3z', 'M10.5 10.5h7a1.5 1.5 0 0 1 0 3h-7a1.5 1.5 0 0 1 0-3z', 'M8.5 15h5.5a1.5 1.5 0 0 1 0 3H8.5a1.5 1.5 0 0 1 0-3z', 'M4 4.5v15'),
   component: lazy(() => import('./Gantt')),
 };
 

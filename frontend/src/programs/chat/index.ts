@@ -21,7 +21,7 @@ const manifest: ProgramManifest = {
   tone: 'violet',
   kind: 'system',
   defaultSize: SMALL,
-  icon: glyph('M4 5h16v11H10l-6 4z', 'M8 9.5h8', 'M8 12.5h5'),
+  icon: glyph('M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5v-3.5H6A2.5 2.5 0 0 1 3.5 14V7A2.5 2.5 0 0 1 6 4.5z', 'M8 9h8', 'M8 12.2h5'),
   menus: [
     {
       label: '대화',

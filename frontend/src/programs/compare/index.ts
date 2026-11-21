@@ -9,7 +9,7 @@ const manifest: ProgramManifest = {
   tone: 'lime',
   kind: 'work',
   defaultSize: { w: 1600, h: 900 },
-  icon: glyph('M4 5h7v14H4z', 'M13 5h7v14h-7z', 'M7 9h1', 'M16 9h1', 'M7 13h1', 'M16 13h1'),
+  icon: glyph('M5.5 4.5h4A1.5 1.5 0 0 1 11 6v12a1.5 1.5 0 0 1-1.5 1.5h-4A1.5 1.5 0 0 1 4 18V6a1.5 1.5 0 0 1 1.5-1.5z', 'M14.5 4.5h4A1.5 1.5 0 0 1 20 6v12a1.5 1.5 0 0 1-1.5 1.5h-4A1.5 1.5 0 0 1 13 18V6a1.5 1.5 0 0 1 1.5-1.5z', 'M6.5 9h2', 'M15.5 9h2', 'M6.5 13h2', 'M15.5 13h2'),
   component: lazy(() => import('./Compare')),
 };
 

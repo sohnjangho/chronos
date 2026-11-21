@@ -9,7 +9,7 @@ const manifest: ProgramManifest = {
   tone: 'rose',
   kind: 'work',
   defaultSize: { w: 1400, h: 860 },
-  icon: glyph('M4 4v16h16', 'M7 17c3 0 4-1.5 5.5-5S16 7 19 7'),
+  icon: glyph('M6.5 17c3 0 4.2-1.8 5.8-5.2S16 6.8 19.5 6.8V19H6.5z', 'M4.5 4.5v13a1.5 1.5 0 0 0 1.5 1.5h13.5'),
   component: lazy(() => import('./Progress')),
 };
 

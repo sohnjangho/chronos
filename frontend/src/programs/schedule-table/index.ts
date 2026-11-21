@@ -9,7 +9,7 @@ const manifest: ProgramManifest = {
   tone: 'blue',
   kind: 'work',
   defaultSize: { w: 1600, h: 900 },
-  icon: glyph('M4 5h16v14H4z', 'M4 10h16', 'M4 14.5h16', 'M9 5v14'),
+  icon: glyph('M5.5 4.5h13A2 2 0 0 1 20.5 6.5v11a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2z', 'M3.8 9.5h16.4', 'M3.8 14.2h16.4', 'M9.2 4.8v14.4'),
   component: lazy(() => import('./ScheduleTable')),
 };
 

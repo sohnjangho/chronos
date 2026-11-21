@@ -1,13 +1,17 @@
 /* 색·글꼴 값은 여기 변수만 쓴다(밝은 테마는 시안과 같은 값). 어두운 테마는 <html data-theme="dark">. */
 :root {
-  --bg-topbar: #14213d;
-  --bg-app: #f3f5f8;
-  --bg-panel: #fff;
-  --bg-panel-alt: #f7f9fb;
-  --bg-selected: #e3edfb;
-  --bg-desktop: linear-gradient(160deg, #0f1a33 0%, #1b2a4a 55%, #2a2f6b 100%);
-  --fg: #1c2333;
-  --fg-muted: #5b6577;
+  --bg-topbar: #1b2845;
+  --bg-app: #edf2f8;
+  --bg-panel: #ffffff;
+  --bg-panel-alt: #f4f7fb;
+  --bg-selected: #dceafe;
+  --bg-desktop:
+    radial-gradient(circle at 18% 16%, #ffffff 0%, transparent 46%),
+    radial-gradient(circle at 84% 20%, #bae6fd 0%, transparent 52%),
+    radial-gradient(circle at 74% 84%, #ddd6fe 0%, transparent 54%),
+    linear-gradient(150deg, #dbeafe 0%, #bfdbfe 48%, #c7d2fe 100%);
+  --fg: #182132;
+  --fg-muted: #566175;
   --border: #d9dfe8;
   --border-strong: #b9c2d0;
   --accent: #2f6fdb;
@@ -43,9 +47,9 @@
   --menu-hover-bg: #eef2f7;
   --menu-shadow: 0 4px 16px color-mix(in srgb, var(--bg-topbar) 14%, transparent);
   /* Dock */
-  --dock-surface: color-mix(in srgb, var(--bg-topbar) 80%, transparent);
-  --dock-shadow: 0 20px 40px color-mix(in srgb, var(--bg-topbar) 45%, transparent);
-  --dock-active-tint: color-mix(in srgb, var(--accent) 22%, transparent);
+  --dock-surface: color-mix(in srgb, var(--bg-topbar) 56%, transparent);
+  --dock-shadow: 0 18px 38px color-mix(in srgb, var(--bg-topbar) 32%, transparent);
+  --dock-active-tint: color-mix(in srgb, var(--accent) 24%, transparent);
 
   /* 프로그램 아이콘 타일(밝음 → 어두움 대각선) */
   --tile-blue-from: #5b97f5;
@@ -100,16 +104,19 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg-topbar: #0a1020;
-  --bg-app: #121826;
-  --bg-panel: #1a2232;
-  --bg-panel-alt: #151c2a;
-  --bg-selected: #1e3355;
-  --bg-desktop: linear-gradient(160deg, #060b16 0%, #0e1628 55%, #191b40 100%);
-  --fg: #e4e9f2;
-  --fg-muted: #9aa6ba;
-  --border: #2a3446;
-  --border-strong: #3b475d;
+  --bg-topbar: #060a14;
+  --bg-app: #0c111d;
+  --bg-panel: #131b2b;
+  --bg-panel-alt: #0f1623;
+  --bg-selected: #1c3258;
+  --bg-desktop:
+    radial-gradient(circle at 78% 18%, #172554 0%, transparent 48%),
+    radial-gradient(circle at 16% 80%, #1e1b4b 0%, transparent 50%),
+    linear-gradient(160deg, #03060e 0%, #081021 55%, #111833 100%);
+  --fg: #e6ecf5;
+  --fg-muted: #94a2b8;
+  --border: #243044;
+  --border-strong: #36455d;
   /* 흰 글자(12~14px)와 4.5:1 이상 */
   --accent: #336fd9;
   --accent-text: #85b0ff;
@@ -136,7 +143,8 @@
   --on-topbar-muted: #8f9bb0;
   --menu-hover-bg: #243049;
   --menu-shadow: 0 4px 16px color-mix(in srgb, var(--bg-topbar) 60%, transparent);
-  --dock-shadow: 0 20px 40px color-mix(in srgb, var(--bg-topbar) 70%, transparent);
+  --dock-surface: color-mix(in srgb, var(--bg-topbar) 76%, transparent);
+  --dock-shadow: 0 20px 44px color-mix(in srgb, var(--bg-topbar) 78%, transparent);
 
   --tile-blue-from: #4f8cf0;
   --tile-blue-to: #1a43a6;
