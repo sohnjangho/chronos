@@ -7,6 +7,7 @@ export interface GanttColors {
   plan: string;
   actual: string;
   cpm: string;
+  linkOpacity: number;
 }
 
 export const GANTT_PALETTE: { name: string; hex: string }[] = [
@@ -26,6 +27,7 @@ export const DEFAULT_GANTT_COLORS: GanttColors = {
   plan: '#2563eb',
   actual: '#16a34a',
   cpm: '#dc2626',
+  linkOpacity: 0.9,
 };
 
 const PREF = 'schedule.gantt.colors';
@@ -34,10 +36,12 @@ const VALID = new Set(GANTT_PALETTE.map((c) => c.hex));
 function loadColors(userId: number | null): GanttColors {
   const saved = loadPref(PREF, userId) as Partial<GanttColors> | null;
   if (!saved || typeof saved !== 'object') return DEFAULT_GANTT_COLORS;
+  const op = typeof saved.linkOpacity === 'number' && saved.linkOpacity >= 0.1 && saved.linkOpacity <= 1 ? saved.linkOpacity : DEFAULT_GANTT_COLORS.linkOpacity;
   return {
     plan: saved.plan && VALID.has(saved.plan) ? saved.plan : DEFAULT_GANTT_COLORS.plan,
     actual: saved.actual && VALID.has(saved.actual) ? saved.actual : DEFAULT_GANTT_COLORS.actual,
     cpm: saved.cpm && VALID.has(saved.cpm) ? saved.cpm : DEFAULT_GANTT_COLORS.cpm,
+    linkOpacity: op,
   };
 }
 
@@ -46,9 +50,21 @@ export function useGanttColors() {
   const [colors, setColors] = useState<GanttColors>(() => loadColors(userId));
 
   const setColor = useCallback(
-    (key: keyof GanttColors, hex: string) => {
+    (key: 'plan' | 'actual' | 'cpm', hex: string) => {
       setColors((prev) => {
         const next = { ...prev, [key]: hex };
+        savePref(PREF, userId, next);
+        return next;
+      });
+    },
+    [userId],
+  );
+
+  const setLinkOpacity = useCallback(
+    (opacity: number) => {
+      const clamped = Math.round(Math.min(1, Math.max(0.1, opacity)) * 100) / 100;
+      setColors((prev) => {
+        const next = { ...prev, linkOpacity: clamped };
         savePref(PREF, userId, next);
         return next;
       });
@@ -61,5 +77,5 @@ export function useGanttColors() {
     savePref(PREF, userId, DEFAULT_GANTT_COLORS);
   }, [userId]);
 
-  return { colors, setColor, resetColors };
+  return { colors, setColor, setLinkOpacity, resetColors };
 }

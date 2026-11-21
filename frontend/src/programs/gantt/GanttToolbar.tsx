@@ -3,24 +3,18 @@
 import Button from '../../shared/ui/Button';
 import History from '../../shared/schedule/History';
 import type { ColKey } from '../../shared/schedule/columns';
-import { ColumnPanel, FilterPanel } from '../../shared/schedule/FilterPanel';
+import { ColumnPanel } from '../../shared/schedule/FilterPanel';
 import Popover from '../../shared/schedule/Popover';
-import { filterCount, type RowFilter } from '../../shared/schedule/rows';
-import type { Wbs } from '../../shared/schedule/scheduleApi';
 import { GANTT_PALETTE, type GanttColors } from './ganttColors';
 import type { GroupBy } from './grouping';
 import type { Layers } from './model';
 
 export interface ToolbarProps {
-  query: string;
-  onQuery(q: string): void;
-  filter: RowFilter;
-  onFilter(f: RowFilter): void;
-  wbs: Wbs[];
   layers: Layers;
   onLayer(key: keyof Layers): void;
   colors: GanttColors;
-  onColor(key: keyof GanttColors, hex: string): void;
+  onColor(key: 'plan' | 'actual' | 'cpm', hex: string): void;
+  onLinkOpacity(opacity: number): void;
   onResetColors(): void;
   groupBy: GroupBy;
   onGroupBy(by: GroupBy): void;
@@ -99,13 +93,23 @@ function Legend({ deadline }: { deadline: string }) {
   );
 }
 
-const COLOR_ROWS: { key: keyof GanttColors; label: string }[] = [
+const COLOR_ROWS: { key: 'plan' | 'actual' | 'cpm'; label: string }[] = [
   { key: 'plan', label: 'Plan' },
   { key: 'actual', label: 'Actual·예측' },
   { key: 'cpm', label: 'CPM (크리티컬)' },
 ];
 
-function ColorPanel({ colors, onColor, onReset }: { colors: GanttColors; onColor(k: keyof GanttColors, hex: string): void; onReset(): void }) {
+function ColorPanel({
+  colors,
+  onColor,
+  onLinkOpacity,
+  onReset,
+}: {
+  colors: GanttColors;
+  onColor(k: 'plan' | 'actual' | 'cpm', hex: string): void;
+  onLinkOpacity(op: number): void;
+  onReset(): void;
+}) {
   return (
     <div className="sch-pop-body gt-color-panel">
       {COLOR_ROWS.map((row) => (
@@ -130,36 +134,31 @@ function ColorPanel({ colors, onColor, onReset }: { colors: GanttColors; onColor
           </div>
         </div>
       ))}
+      <label className="gt-color-row">
+        <span className="gt-color-label">{`크리티컬 연결선 투명도 (${Math.round(colors.linkOpacity * 100)}%)`}</span>
+        <input
+          type="range"
+          min={10}
+          max={100}
+          step={5}
+          value={Math.round(colors.linkOpacity * 100)}
+          aria-label="크리티컬 연결선 투명도"
+          onChange={(e) => onLinkOpacity(Number(e.target.value) / 100)}
+        />
+      </label>
       <Button onClick={onReset}>기본색 복원</Button>
     </div>
   );
 }
 
 export default function GanttToolbar(p: ToolbarProps) {
-  const n = filterCount(p.filter);
   return (
     <div role="toolbar" aria-label="간트 도구" className="sch-toolbar gt-toolbar">
       <div className="sch-rib-group">
         <div className="sch-rib-items">
-          <input
-            type="search"
-            className="sch-search"
-            aria-label="코드·이름 검색"
-            placeholder="코드·이름 검색"
-            value={p.query}
-            onChange={(e) => p.onQuery(e.target.value)}
-          />
-          <Popover button={n ? `필터 ${n}` : '필터'} label="필터">
-            {() => <FilterPanel filter={p.filter} onFilter={p.onFilter} wbs={p.wbs} />}
-          </Popover>
-        </div>
-        <span className="sch-rib-label">찾기·필터</span>
-      </div>
-      <div className="sch-rib-group">
-        <div className="sch-rib-items">
           <LayerChips layers={p.layers} onLayer={p.onLayer} />
           <Popover button="색상" label="색상">
-            {() => <ColorPanel colors={p.colors} onColor={p.onColor} onReset={p.onResetColors} />}
+            {() => <ColorPanel colors={p.colors} onColor={p.onColor} onLinkOpacity={p.onLinkOpacity} onReset={p.onResetColors} />}
           </Popover>
         </div>
         <span className="sch-rib-label">층·색상</span>

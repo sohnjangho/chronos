@@ -4,19 +4,13 @@ import { percent } from '../../shared/schedule/format';
 import History from '../../shared/schedule/History';
 import { useScheduleStore } from '../../shared/schedule/scope';
 import type { ColKey } from '../../shared/schedule/columns';
-import { ColumnPanel, FilterPanel } from '../../shared/schedule/FilterPanel';
+import { ColumnPanel } from '../../shared/schedule/FilterPanel';
 import Popover from '../../shared/schedule/Popover';
-import { filterCount, type RowFilter } from '../../shared/schedule/rows';
-import type { Activity, Wbs, WeightMode } from '../../shared/schedule/scheduleApi';
+import type { Activity, WeightMode } from '../../shared/schedule/scheduleApi';
 
 interface ToolbarProps {
-  query: string;
-  onQuery(q: string): void;
-  filter: RowFilter;
-  onFilter(f: RowFilter): void;
   visible: ColKey[];
   onVisible(keys: ColKey[]): void;
-  wbs: Wbs[];
   canDelete: boolean;
   canAdd: boolean;
   /** 전체 가중 진척(0~1), 가중치가 없으면 null. */
@@ -28,9 +22,8 @@ interface ToolbarProps {
   onExport(): void;
 }
 
-/** 위 도구줄: 엑셀/PPT 스타일 리본 구역(편집 · 찾기·필터 · 보기 · 이력 · 진척·내보내기). */
+/** 위 도구줄: 엑셀/PPT 스타일 리본 구역(편집 · 보기·설정 · 이력 · 진척·내보내기). */
 export default function Toolbar(p: ToolbarProps) {
-  const n = filterCount(p.filter);
   return (
     <div role="toolbar" aria-label="스케줄표 도구" className="sch-toolbar">
       <div className="sch-rib-group">
@@ -39,22 +32,6 @@ export default function Toolbar(p: ToolbarProps) {
           <Button variant="danger" data-act="delete" disabled={!p.canDelete} onClick={p.onDelete}>삭제</Button>
         </div>
         <span className="sch-rib-label">편집</span>
-      </div>
-      <div className="sch-rib-group">
-        <div className="sch-rib-items">
-          <input
-            type="search"
-            className="sch-search"
-            aria-label="코드·이름 검색"
-            placeholder="코드·이름 검색"
-            value={p.query}
-            onChange={(e) => p.onQuery(e.target.value)}
-          />
-          <Popover button={n ? `필터 ${n}` : '필터'} label="필터">
-            {() => <FilterPanel filter={p.filter} onFilter={p.onFilter} wbs={p.wbs} />}
-          </Popover>
-        </div>
-        <span className="sch-rib-label">찾기·필터</span>
       </div>
       <div className="sch-rib-group">
         <div className="sch-rib-items">

@@ -5,6 +5,10 @@ import { HEADER_H } from '../../shared/gantt/Header';
 import { ROW_H } from '../../shared/gantt/Bars';
 import CellEditor, { type EditEnd } from '../../shared/schedule/CellEditor';
 import type { CellCtx, ColKey, ColumnDef } from '../../shared/schedule/columns';
+import { FilterPanel } from '../../shared/schedule/FilterPanel';
+import Popover from '../../shared/schedule/Popover';
+import { filterCount, type RowFilter } from '../../shared/schedule/rows';
+import type { Wbs } from '../../shared/schedule/scheduleApi';
 import { ColResizeHandle } from '../../shared/schedule/useColWidths';
 import type { GanttRow } from './grouping';
 import type { Layers } from './model';
@@ -23,6 +27,11 @@ interface GridProps {
   layers?: Layers;
   widthOf?(c: ColumnDef): number;
   onResizeCol?(key: ColKey, w: number): void;
+  query: string;
+  onQuery(q: string): void;
+  filter: RowFilter;
+  onFilter(f: RowFilter): void;
+  wbs: Wbs[];
   texts: Map<string, Omit<CellCtx, 'a'>>;
   selected: string | null;
   editing: Editing | null;
@@ -54,7 +63,7 @@ const idWidth = (columns: ColumnDef[], wOf: (col: ColumnDef) => number) => {
   return idCol ? wOf(idCol) : 0;
 };
 
-interface RowProps extends Omit<GridProps, 'rows' | 'vp' | 'width' | 'columns' | 'texts' | 'selected' | 'editing' | 'onResizeCol'> {
+interface RowProps extends Omit<GridProps, 'rows' | 'vp' | 'width' | 'columns' | 'texts' | 'selected' | 'editing' | 'onResizeCol' | 'query' | 'onQuery' | 'filter' | 'onFilter' | 'wbs'> {
   row: GanttRow;
   index: number;
   columns: ColumnDef[];
@@ -149,6 +158,7 @@ export default function LeftGrid(p: GridProps) {
   const shown = p.rows.slice(p.vp.first, p.vp.last + 1);
   const isSel = (row: GanttRow) => !!row.activity && row.activity.id === p.selected;
   const anySel = shown.some(isSel);
+  const fCount = filterCount(p.filter);
   return (
     <div className="gt-left" style={{ width: p.width }}>
       <div role="treegrid" aria-label="간트 표" aria-rowcount={p.rows.length} className="gt-tree">
@@ -162,6 +172,19 @@ export default function LeftGrid(p: GridProps) {
             ))}
             <div className="gt-lane-head" aria-hidden="true">구분</div>
           </div>
+        </div>
+        <div className="gt-filter-bar">
+          <input
+            type="search"
+            className="sch-search gt-filter-search"
+            aria-label="코드·이름 검색"
+            placeholder="코드·이름 검색"
+            value={p.query}
+            onChange={(e) => p.onQuery(e.target.value)}
+          />
+          <Popover button={fCount ? `필터 ${fCount}` : '필터'} label="필터">
+            {() => <FilterPanel filter={p.filter} onFilter={p.onFilter} wbs={p.wbs} />}
+          </Popover>
         </div>
         <div
           className="gt-left-body"

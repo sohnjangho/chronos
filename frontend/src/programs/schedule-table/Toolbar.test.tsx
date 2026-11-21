@@ -84,26 +84,26 @@ test('the delete confirmation closes when the selection changes', async () => {
 describe('찾기·거르기', () => {
   test('search keeps matching ids or names and their WBS rows', async () => {
     await renderSchedule();
-    await userEvent.type(within(toolbar()).getByRole('searchbox', { name: '코드·이름 검색' }), '골조');
+    await userEvent.type(screen.getByRole('searchbox', { name: '코드·이름 검색' }), '골조');
     expect(row('A2010')).toBeVisible();
     expect(row('A2020')).toBeVisible();
     expect(row('wbs:2')).toBeVisible();
     expect(rowOrNull('A3010')).toBeNull();
     expect(rowOrNull('wbs:3')).toBeNull();
-    await userEvent.clear(within(toolbar()).getByRole('searchbox', { name: '코드·이름 검색' }));
-    await userEvent.type(within(toolbar()).getByRole('searchbox', { name: '코드·이름 검색' }), 'a30');
+    await userEvent.clear(screen.getByRole('searchbox', { name: '코드·이름 검색' }));
+    await userEvent.type(screen.getByRole('searchbox', { name: '코드·이름 검색' }), 'a30');
     expect(row('A3010')).toBeVisible();
     expect(rowOrNull('A2020')).toBeNull();
   });
 
   test('filter by status, critical and WBS', async () => {
     await renderSchedule();
-    await userEvent.click(button('필터'));
+    await userEvent.click(screen.getByRole('button', { name: '필터' }));
     const panel = screen.getByRole('dialog', { name: '필터' });
     await userEvent.click(within(panel).getByRole('checkbox', { name: '지연' }));
     expect(row('A2020')).toBeVisible();
     expect(rowOrNull('A3010')).toBeNull();
-    expect(button('필터 1')).toBeVisible();
+    expect(screen.getByRole('button', { name: '필터 1' })).toBeVisible();
     await userEvent.click(within(panel).getByRole('checkbox', { name: '지연' }));
     await userEvent.click(within(panel).getByRole('checkbox', { name: '크리티컬만' }));
     expect(rowOrNull('A3020')).toBeNull();

@@ -28,14 +28,12 @@
 .sch-grid .num { text-align: right; font-variant-numeric: tabular-nums; }
 .sch-grid .pin1 { position: sticky; left: 0; z-index: 1; }
 .sch-grid .pin2 { position: sticky; left: var(--sch-id-w, 96px); z-index: 1; box-shadow: 1px 0 0 var(--border); }
-.sch-col-resize {
-  position: absolute; top: 0; right: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 4;
+.sch-grid .sch-filter-cell {
+  position: sticky; top: 34px; z-index: 2; height: 34px; padding: 0 8px;
+  background: var(--bg-panel); border-bottom: 1px solid var(--border); overflow: visible;
 }
-.sch-col-resize:hover { background: var(--accent); opacity: 0.55; }
-.sch-row-resize {
-  position: absolute; left: 0; right: 6px; bottom: 0; height: 5px; cursor: row-resize; z-index: 4;
-}
-.sch-row-resize:hover { background: var(--accent); opacity: 0.55; }
+.sch-filter-inner { position: sticky; left: 8px; display: inline-flex; align-items: center; gap: 6px; }
+.sch-filter-inner .sch-search { height: 24px; }
 .sch-grid th.pin1,
 .sch-grid th.pin2 { z-index: 3; }
 .sch-row { cursor: default; }

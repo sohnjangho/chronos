@@ -47,8 +47,8 @@
 .gantt-vline.is-deadline { stroke: var(--danger); stroke-dasharray: 6 4; }
 .gantt-vline.is-today { stroke: var(--accent); stroke-width: 1; }
 
-.gantt-link { fill: none; stroke: var(--fg-muted); stroke-width: 1.2; stroke-linejoin: round; stroke-linecap: round; }
-.gantt-link.critical { stroke: var(--gt-cpm, var(--danger)); stroke-width: 1.5; }
-.gantt-arrow { fill: var(--fg-muted); }
-.gantt-arrow.critical { fill: var(--gt-cpm, var(--danger)); }
+.gantt-link { fill: none; stroke: var(--fg-muted); stroke-width: 1.2; stroke-linejoin: round; stroke-linecap: round; opacity: calc(var(--gt-link-opacity, 0.9) * 0.78); }
+.gantt-link.critical { stroke: var(--gt-cpm, var(--danger)); stroke-width: 1.5; opacity: var(--gt-link-opacity, 0.9); }
+.gantt-arrow { fill: var(--fg-muted); opacity: calc(var(--gt-link-opacity, 0.9) * 0.78); }
+.gantt-arrow.critical { fill: var(--gt-cpm, var(--danger)); opacity: var(--gt-link-opacity, 0.9); }
 .gantt-svg .gantt-lag { font-size: 10px; fill: var(--fg-muted); }

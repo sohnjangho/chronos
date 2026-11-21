@@ -128,7 +128,7 @@ export default function GanttTab() {
   const vp = useViewport(range, g.rows.length);
   const cols = useGanttColumns();
   const colW = useColWidths('schedule.gantt.colWidths');
-  const { colors, setColor, resetColors } = useGanttColors();
+  const { colors, setColor, setLinkOpacity, resetColors } = useGanttColors();
   const ed = useEditing(g.rows, cols.columns, !!preview, vp, g.toggle);
   useReveal(view, g.rows, g.groupBy, g.setCollapsed, vp);
   const { drag, begin } = useDrag(vp.scale, view.calendar);
@@ -152,13 +152,13 @@ export default function GanttTab() {
     '--gt-plan': colors.plan,
     '--gt-actual': colors.actual,
     '--gt-cpm': colors.cpm,
+    '--gt-link-opacity': colors.linkOpacity,
   } as CSSProperties;
 
   return (
     <div className="gt-tab" style={colorStyle}>
       <GanttToolbar
-        query={g.query} onQuery={g.setQuery} filter={g.filter} onFilter={g.setFilter} wbs={view.wbs}
-        layers={g.layers} onLayer={g.flipLayer} colors={colors} onColor={setColor} onResetColors={() => { resetColors(); pushToast('간트 색상을 기본값으로 복원했습니다.', 'success'); }} groupBy={g.groupBy} onGroupBy={(by) => {
+        layers={g.layers} onLayer={g.flipLayer} colors={colors} onColor={setColor} onLinkOpacity={setLinkOpacity} onResetColors={() => { resetColors(); pushToast('간트 색상을 기본값으로 복원했습니다.', 'success'); }} groupBy={g.groupBy} onGroupBy={(by) => {
           g.groupByWith(by);
           vp.nav.top();
         }}
@@ -170,6 +170,7 @@ export default function GanttTab() {
       <div className="gt-main" ref={mainRef}>
         <LeftGrid
           rows={g.rows} vp={vp} width={left} columns={cols.columns} layers={g.layers} widthOf={colW.widthOf} onResizeCol={colW.resize}
+          query={g.query} onQuery={g.setQuery} filter={g.filter} onFilter={g.setFilter} wbs={view.wbs}
           texts={texts} selected={selected} editing={ed.editing}
           onRowKey={ed.onRowKey} onToggle={g.toggle} onEdit={ed.onEdit} onCommit={ed.onCommit} onCancel={ed.onCancel}
           onPick={(row) => row.activity && select(row.activity.id)}

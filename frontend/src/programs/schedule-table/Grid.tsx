@@ -1,10 +1,12 @@
 import type { CSSProperties, KeyboardEvent, RefObject } from 'react';
-import type { Activity } from '../../shared/schedule/scheduleApi';
+import type { Activity, Wbs } from '../../shared/schedule/scheduleApi';
 import { pinClass, type ColKey, type ColumnDef } from '../../shared/schedule/columns';
 import type { EditEnd } from '../../shared/schedule/CellEditor';
+import { FilterPanel } from '../../shared/schedule/FilterPanel';
+import Popover from '../../shared/schedule/Popover';
 import { ColResizeHandle, RowResizeHandle } from '../../shared/schedule/useColWidths';
 import Row, { GroupRow } from './Row';
-import type { GridRow } from '../../shared/schedule/rows';
+import { filterCount, type GridRow, type RowFilter } from '../../shared/schedule/rows';
 
 export interface GridProps {
   rows: GridRow[];
@@ -14,6 +16,11 @@ export interface GridProps {
   onResizeCol?(key: ColKey, w: number): void;
   rowHeight?: number;
   onResizeRow?(h: number): void;
+  query: string;
+  onQuery(q: string): void;
+  filter: RowFilter;
+  onFilter(f: RowFilter): void;
+  wbs: Wbs[];
   /** 액티비티 id → 선행 글·WBS 이름·주요 자원 이름. */
   texts: Map<string, { preds: string; wbsLabel: string; resources: string }>;
   selected: string | null;
@@ -75,6 +82,7 @@ export default function Grid(p: GridProps) {
     '--sch-id-w': `${idW}px`,
     ...(p.rowHeight ? { '--sch-row-h': `${p.rowHeight}px` } : null),
   } as CSSProperties;
+  const fCount = filterCount(p.filter);
   return (
     <table className="sch-grid" aria-label="스케줄표" style={tableStyle}>
       <colgroup>
@@ -93,6 +101,23 @@ export default function Grid(p: GridProps) {
               {idx === 0 && p.onResizeRow && <RowResizeHandle height={p.rowHeight ?? 32} onResize={p.onResizeRow} />}
             </th>
           ))}
+        </tr>
+        <tr className="sch-filter-row">
+          <td colSpan={p.columns.length} className="sch-filter-cell">
+            <div className="sch-filter-inner">
+              <input
+                type="search"
+                className="sch-search"
+                aria-label="코드·이름 검색"
+                placeholder="코드·이름 검색"
+                value={p.query}
+                onChange={(e) => p.onQuery(e.target.value)}
+              />
+              <Popover button={fCount ? `필터 ${fCount}` : '필터'} label="필터">
+                {() => <FilterPanel filter={p.filter} onFilter={p.onFilter} wbs={p.wbs} />}
+              </Popover>
+            </div>
+          </td>
         </tr>
       </thead>
       <tbody ref={p.bodyRef} onKeyDown={onKeyDown}>

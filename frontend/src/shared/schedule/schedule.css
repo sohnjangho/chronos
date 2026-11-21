@@ -14,15 +14,75 @@
 .sch-muted { color: var(--fg-muted); font-size: var(--fs-12); }
 .sch-gap { flex: 1; }
 
-.sch-toolbar { flex: none; display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; padding: 5px 10px 4px; border-bottom: 1px solid var(--border); background: var(--bg-panel-alt); }
-.sch-rib-group {
-  display: inline-flex; flex-direction: column; justify-content: space-between; align-items: stretch;
-  gap: 3px; padding: 2px 8px 1px; border-right: 1px solid var(--border);
+.sch-toolbar {
+  flex: none;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 6px;
+  padding: 5px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel-alt);
 }
-.sch-rib-group:last-child { border-right: 0; }
-.sch-rib-items { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; }
-.sch-rib-label { text-align: center; font-size: 10px; line-height: 12px; color: var(--fg-muted); letter-spacing: -0.01em; user-select: none; }
+.sch-toolbar::-webkit-scrollbar { display: none; }
+.sch-rib-group {
+  flex: none;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 3px;
+  padding: 4px 8px 3px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.sch-rib-items { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 5px; }
+.sch-rib-label {
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 12px;
+  color: var(--fg-muted);
+  border-top: 1px solid var(--bg-app);
+  padding-top: 2px;
+  letter-spacing: -0.01em;
+  user-select: none;
+}
 .sch-sep { width: 1px; height: 20px; background: var(--border); }
+.sch-col-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 4;
+}
+.sch-col-resize::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  right: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.sch-col-resize:hover::after { background: var(--accent); }
+.sch-row-resize {
+  position: absolute;
+  left: 0;
+  right: 8px;
+  bottom: 0;
+  height: 5px;
+  cursor: row-resize;
+  z-index: 4;
+}
+.sch-row-resize:hover { background: var(--accent); opacity: 0.55; }
 .sch-pop-root { position: relative; }
 .sch-pop {
   position: absolute; top: calc(100% + 4px); left: 0; z-index: 6; min-width: 200px;

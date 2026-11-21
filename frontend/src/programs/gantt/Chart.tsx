@@ -13,6 +13,7 @@ export default function Chart({ m, vp }: { m: ChartModel; vp: Viewport }) {
       <div className="gt-head" ref={vp.headRef}>
         <Header scale={m.scale} marks={headerMarks(m.vmarks)} />
       </div>
+      <div className="gt-head-sub" aria-hidden="true" />
       <div className="gt-body" ref={vp.bodyRef} onScroll={vp.sync} data-px-per-day={m.scale.pxPerDay}>
         <div className="gt-spacer" style={{ width: m.total, height: totalH }}>
           {shownH > 0 && (

@@ -214,13 +214,8 @@ export default function TableTab() {
   return (
     <div className="sch-table-tab">
       <Toolbar
-        query={rs.query}
-        onQuery={rs.setQuery}
-        filter={rs.filter}
-        onFilter={rs.setFilter}
         visible={visible}
         onVisible={change}
-        wbs={view.wbs}
         canAdd={view.wbs.length > 0}
         canDelete={!!sel}
         progress={weightedProgress(view.activities)}
@@ -240,6 +235,11 @@ export default function TableTab() {
           onResizeCol={colW.resize}
           rowHeight={rowH.rowHeight}
           onResizeRow={rowH.resizeRow}
+          query={rs.query}
+          onQuery={rs.setQuery}
+          filter={rs.filter}
+          onFilter={rs.setFilter}
+          wbs={view.wbs}
           texts={texts}
           selected={selected}
           bodyRef={bodyRef}
