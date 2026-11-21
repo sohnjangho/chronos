@@ -1,6 +1,6 @@
 // 간트 줄: WBS 나무(기본) 또는 주요 자원별 줄. 묶음 줄의 요약 막대는 아래 액티비티의 Plan(plan_start~plan_finish) 범위다.
 import type { Activity, ScheduleView, Wbs } from '../../shared/schedule/scheduleApi';
-import { wbsLabel, wbsTree } from '../../shared/schedule/rows';
+import { activityMatcher, filterCount, NO_FILTER, wbsLabel, wbsTree, type RowFilter } from '../../shared/schedule/rows';
 
 export type GroupBy = 'wbs' | 'resource';
 
@@ -38,31 +38,42 @@ const actRow = (a: Activity, depth: number, key = a.id): GanttRow => ({
   key, kind: a.kind === 'task' ? 'activity' : 'milestone', label: a.name, activity: a, depth,
 });
 
-function byWbs(view: ScheduleView, collapsed: ReadonlySet<string>): GanttRow[] {
+function byWbs(view: ScheduleView, collapsed: ReadonlySet<string>, filter: RowFilter): GanttRow[] {
   const tree = wbsTree(view);
+  const active = filter.query.trim() !== '' || filterCount(filter) > 0;
+  const matches = active ? activityMatcher(view, filter) : null;
   const walk = (w: Wbs, depth: number): GanttRow[] => {
-    const under = tree.under(w.code);
+    const ownActs = matches ? (tree.acts.get(w.code) ?? []).filter(matches) : (tree.acts.get(w.code) ?? []);
+    const subRows = (tree.children.get(w.code) ?? []).flatMap((c) => walk(c, depth + 1));
+    if (active && ownActs.length === 0 && !subRows.some((r) => r.kind !== 'group' || !r.open)) return [];
+    const under = matches ? tree.under(w.code).filter(matches) : tree.under(w.code);
     const open = !collapsed.has(w.code);
     const group: GanttRow = { key: w.code, kind: 'group', label: wbsLabel(w), depth, open, count: under.length, ...span(under) };
     if (!open) return [group];
-    const own = (tree.acts.get(w.code) ?? []).map((a) => actRow(a, depth + 1));
-    return [group, ...own, ...(tree.children.get(w.code) ?? []).flatMap((c) => walk(c, depth + 1))];
+    const own = ownActs.map((a) => actRow(a, depth + 1));
+    return [group, ...own, ...subRows];
   };
   return tree.roots.flatMap((w) => walk(w, 0));
 }
 
 /** 자원 줄 차례: 일정의 주요 자원, 그다음 목록에 없는 자원 id(만난 차례), 마지막에 자원 없음. */
-function lanes(view: ScheduleView): { key: string; label: string; acts: Activity[] }[] {
+function lanes(view: ScheduleView, filter: RowFilter): { key: string; label: string; acts: Activity[] }[] {
+  const active = filter.query.trim() !== '' || filterCount(filter) > 0;
+  const matches = active ? activityMatcher(view, filter) : null;
+  const list = matches ? view.activities.filter(matches) : view.activities;
   const known = new Map(view.resources.map((r) => [r.id, `${r.name} (${r.capacity}${r.unit})`]));
   const ids = [...known.keys()];
-  for (const a of view.activities) for (const id of a.resources) if (!ids.includes(id)) ids.push(id);
-  const out = ids.map((id) => ({ key: `res:${id}`, label: known.get(id) ?? id, acts: view.activities.filter((a) => a.resources.includes(id)) }));
-  const none = view.activities.filter((a) => a.resources.length === 0);
-  return [...out.filter((l) => l.acts.length > 0 || known.has(l.key.slice(4))), ...(none.length ? [{ key: NO_RESOURCE, label: '자원 없음', acts: none }] : [])];
+  for (const a of list) for (const id of a.resources) if (!ids.includes(id)) ids.push(id);
+  const out = ids.map((id) => ({ key: `res:${id}`, label: known.get(id) ?? id, acts: list.filter((a) => a.resources.includes(id)) }));
+  const none = list.filter((a) => a.resources.length === 0);
+  return [
+    ...out.filter((l) => l.acts.length > 0 || (!active && known.has(l.key.slice(4)))),
+    ...(none.length ? [{ key: NO_RESOURCE, label: '자원 없음', acts: none }] : []),
+  ];
 }
 
-function byResource(view: ScheduleView, collapsed: ReadonlySet<string>): GanttRow[] {
-  return lanes(view).flatMap(({ key, label, acts }) => {
+function byResource(view: ScheduleView, collapsed: ReadonlySet<string>, filter: RowFilter): GanttRow[] {
+  return lanes(view, filter).flatMap(({ key, label, acts }) => {
     const open = !collapsed.has(key);
     const group: GanttRow = { key, kind: 'group', label, depth: 0, open, count: acts.length, lane: acts, ...span(acts) };
     return open ? [group, ...acts.map((a) => actRow(a, 1, `${key}/${a.id}`))] : [group];
@@ -70,12 +81,12 @@ function byResource(view: ScheduleView, collapsed: ReadonlySet<string>): GanttRo
 }
 
 /** 보일 줄. 접은 묶음은 묶음 줄만(요약 막대·자원 줄 막대는 남는다). */
-export function rowsFor(view: ScheduleView, by: GroupBy, collapsed: ReadonlySet<string>): GanttRow[] {
-  return by === 'wbs' ? byWbs(view, collapsed) : byResource(view, collapsed);
+export function rowsFor(view: ScheduleView, by: GroupBy, collapsed: ReadonlySet<string>, filter: RowFilter = NO_FILTER): GanttRow[] {
+  return by === 'wbs' ? byWbs(view, collapsed, filter) : byResource(view, collapsed, filter);
 }
 
 /** 모든 묶음 줄의 열쇠(모두 접기). */
 export function groupKeys(view: ScheduleView, by: GroupBy): string[] {
-  if (by === 'resource') return lanes(view).map((l) => l.key);
+  if (by === 'resource') return lanes(view, NO_FILTER).map((l) => l.key);
   return [...wbsTree(view).children.values()].flat().map((w) => w.code);
 }

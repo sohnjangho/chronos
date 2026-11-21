@@ -1,11 +1,12 @@
 import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
-import { STATUS_KEYS, percent, type StatusKey } from '../../shared/schedule/format';
+import { percent } from '../../shared/schedule/format';
 import History from '../../shared/schedule/History';
 import { useScheduleStore } from '../../shared/schedule/scope';
-import { COLUMNS, FIXED, type ColKey } from '../../shared/schedule/columns';
+import type { ColKey } from '../../shared/schedule/columns';
+import { ColumnPanel, FilterPanel } from '../../shared/schedule/FilterPanel';
 import Popover from '../../shared/schedule/Popover';
-import { filterCount, NO_FILTER, wbsLabel, type RowFilter } from '../../shared/schedule/rows';
+import { filterCount, type RowFilter } from '../../shared/schedule/rows';
 import type { Activity, Wbs, WeightMode } from '../../shared/schedule/scheduleApi';
 
 interface ToolbarProps {
@@ -25,63 +26,6 @@ interface ToolbarProps {
   onAdd(): void;
   onDelete(): void;
   onExport(): void;
-}
-
-function FilterPanel({ filter, onFilter, wbs }: Pick<ToolbarProps, 'filter' | 'onFilter' | 'wbs'>) {
-  const flip = (k: StatusKey) =>
-    onFilter({ ...filter, statuses: filter.statuses.includes(k) ? filter.statuses.filter((s) => s !== k) : [...filter.statuses, k] });
-  return (
-    <div className="sch-pop-body">
-      <fieldset className="sch-fieldset">
-        <legend>상태</legend>
-        {STATUS_KEYS.map((s) => (
-          <label key={s.key} className="sch-check">
-            <input type="checkbox" checked={filter.statuses.includes(s.key)} onChange={() => flip(s.key)} />
-            {s.label}
-          </label>
-        ))}
-      </fieldset>
-      <label className="sch-check">
-        <input type="checkbox" checked={filter.criticalOnly} onChange={(e) => onFilter({ ...filter, criticalOnly: e.target.checked })} />
-        크리티컬만
-      </label>
-      <label className="sch-field">
-        WBS
-        <select value={filter.wbs ?? ''} onChange={(e) => onFilter({ ...filter, wbs: e.target.value || null })}>
-          <option value="">전체</option>
-          {wbs.map((w) => (
-            <option key={w.code} value={w.code}>
-              {wbsLabel(w)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <Button onClick={() => onFilter({ ...NO_FILTER, query: filter.query })}>필터 지우기</Button>
-    </div>
-  );
-}
-
-function ColumnPanel({ visible, onVisible }: Pick<ToolbarProps, 'visible' | 'onVisible'>) {
-  const flip = (k: ColKey) => onVisible(visible.includes(k) ? visible.filter((v) => v !== k) : [...visible, k]);
-  const group = (optional: boolean) =>
-    COLUMNS.filter((c) => !FIXED.includes(c.key) && !!c.optional === optional).map((c) => (
-      <label key={c.key} className="sch-check">
-        <input type="checkbox" checked={visible.includes(c.key)} onChange={() => flip(c.key)} />
-        {c.header}
-      </label>
-    ));
-  return (
-    <div className="sch-pop-body sch-cols">
-      <fieldset className="sch-fieldset">
-        <legend>기본 칸</legend>
-        {group(false)}
-      </fieldset>
-      <fieldset className="sch-fieldset">
-        <legend>켜는 칸</legend>
-        {group(true)}
-      </fieldset>
-    </div>
-  );
 }
 
 /** 위 도구줄: 행 추가·삭제 · 검색 · 필터 · 열 · 되돌리기·다시 하기 · 가중치 · 진척 · CSV 내보내기. 좁으면 줄을 바꾼다. */

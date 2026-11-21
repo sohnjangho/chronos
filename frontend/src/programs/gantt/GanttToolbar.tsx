@@ -2,12 +2,20 @@
 // 열 · 범례 · 되돌리기·다시 하기 · CSV·그림 내보내기. 꺼진 단추는 title 로 까닭을 말한다. 좁으면 줄을 바꾼다.
 import Button from '../../shared/ui/Button';
 import History from '../../shared/schedule/History';
-import { COLUMNS, type ColKey } from '../../shared/schedule/columns';
+import type { ColKey } from '../../shared/schedule/columns';
+import { ColumnPanel, FilterPanel } from '../../shared/schedule/FilterPanel';
 import Popover from '../../shared/schedule/Popover';
+import { filterCount, type RowFilter } from '../../shared/schedule/rows';
+import type { Wbs } from '../../shared/schedule/scheduleApi';
 import type { GroupBy } from './grouping';
 import type { Layers } from './model';
 
 export interface ToolbarProps {
+  query: string;
+  onQuery(q: string): void;
+  filter: RowFilter;
+  onFilter(f: RowFilter): void;
+  wbs: Wbs[];
   layers: Layers;
   onLayer(key: keyof Layers): void;
   groupBy: GroupBy;
@@ -60,20 +68,6 @@ function LayerChips({ layers, onLayer }: Pick<ToolbarProps, 'layers' | 'onLayer'
   );
 }
 
-function ColumnPanel({ visible, onVisible }: Pick<ToolbarProps, 'visible' | 'onVisible'>) {
-  const flip = (k: ColKey) => onVisible(visible.includes(k) ? visible.filter((v) => v !== k) : [...visible, k]);
-  return (
-    <div className="sch-pop-body gt-cols">
-      {COLUMNS.filter((c) => c.key !== 'id' && c.key !== 'name').map((c) => (
-        <label key={c.key} className="sch-check">
-          <input type="checkbox" checked={visible.includes(c.key)} onChange={() => flip(c.key)} />
-          {c.header}
-        </label>
-      ))}
-    </div>
-  );
-}
-
 const LEGEND: [string, string][] = [
   ['is-plan', 'Plan(위 칸) — 지금 일정을 실적 없이 계산한 날짜(Plan 시작~종료). 고치거나 승인하면 바뀝니다'],
   ['is-actual', 'Actual·예측(아래 칸) — 진한 초록은 실적: 실제 시작~실제 종료, 진행 중이면 Data Date 까지'],
@@ -104,8 +98,21 @@ function Legend({ deadline }: { deadline: string }) {
 const Sep = () => <span className="sch-sep" aria-hidden="true" />;
 
 export default function GanttToolbar(p: ToolbarProps) {
+  const n = filterCount(p.filter);
   return (
     <div role="toolbar" aria-label="간트 도구" className="sch-toolbar gt-toolbar">
+      <input
+        type="search"
+        className="sch-search"
+        aria-label="코드·이름 검색"
+        placeholder="코드·이름 검색"
+        value={p.query}
+        onChange={(e) => p.onQuery(e.target.value)}
+      />
+      <Popover button={n ? `필터 ${n}` : '필터'} label="필터">
+        {() => <FilterPanel filter={p.filter} onFilter={p.onFilter} wbs={p.wbs} />}
+      </Popover>
+      <Sep />
       <LayerChips layers={p.layers} onLayer={p.onLayer} />
       <Sep />
       <Button aria-label="축소" onClick={() => p.onZoom(1 / 1.25)}>−</Button>

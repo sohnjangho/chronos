@@ -1,7 +1,7 @@
 // 간트차트 화면(설계 8-2): 왼쪽 WBS/ID 표 + 가운데 나눔선 + 오른쪽 날짜 막대 차트 + 아래 자원 줄.
 // 고치기는 모두 일정 저장소의 쓰기 줄(같은 일정을 보는 창들이 함께 씀)로 보내고 서버가 다시 계산한 일정으로 다시 그린다.
 // 조건·규칙 창의 미리 보기(OS useSchedulePreview)가 있으면 그 일정을 그리고, 움직인 것의 이전 자리를 점선으로 남긴다.
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useMemo, useRef, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useSchedulePreview, type SchedulePreview } from '../../os/schedulePreview';
 import { ROW_H } from '../../shared/gantt/Bars';
 import Button from '../../shared/ui/Button';
@@ -10,6 +10,7 @@ import type { ScheduleView } from '../../shared/schedule/scheduleApi';
 import { useNotify, useSchedule, useSelect } from '../../shared/schedule/scope';
 import type { ColumnDef } from '../../shared/schedule/columns';
 import { download, toCsv } from '../../shared/schedule/csv';
+import { useColWidths } from '../../shared/schedule/useColWidths';
 import Chart from './Chart';
 import type { ChartModel } from './ChartRows';
 import { exportImage } from './exportSheet';
@@ -19,7 +20,7 @@ import { useConditionMarks } from './marks';
 import { cellTexts, deadlineLabel, planOf, previewGhosts, rangeOf, rowIndex, todayIso, vmarks } from './model';
 import ResourceStrip from './ResourceStrip';
 import { useDrag } from './useDrag';
-import { useEditing, useGanttColumns, useLayersAndRows, useReveal } from './useGanttState';
+import { useEditing, useGanttColumns, useGanttLeftWidth, useLayersAndRows, useReveal } from './useGanttState';
 import { useViewport, type Viewport } from './useViewport';
 import './gantt-tab.css';
 
@@ -124,12 +125,13 @@ export default function GanttTab() {
   const range = useMemo(() => rangeOf([view, stored], marks), [view, stored, marks]);
   const vp = useViewport(range, g.rows.length);
   const cols = useGanttColumns();
+  const colW = useColWidths('schedule.gantt.colWidths');
   const ed = useEditing(g.rows, cols.columns, !!preview, vp, g.toggle);
   useReveal(view, g.rows, g.groupBy, g.setCollapsed, vp);
   const { drag, begin } = useDrag(vp.scale, view.calendar);
   const texts = useMemo(() => cellTexts(view), [view]);
   const mainRef = useRef<HTMLDivElement>(null);
-  const [leftW, setLeftW] = useState(470);
+  const [leftW, setLeftW] = useGanttLeftWidth(470);
   const maxLeft = Math.max(LEFT_MIN, (mainRef.current?.clientWidth || 1400) - CHART_MIN - SPLIT_W);
   const left = Math.min(leftW, maxLeft);
 
@@ -146,6 +148,7 @@ export default function GanttTab() {
   return (
     <div className="gt-tab">
       <GanttToolbar
+        query={g.query} onQuery={g.setQuery} filter={g.filter} onFilter={g.setFilter} wbs={view.wbs}
         layers={g.layers} onLayer={g.flipLayer} groupBy={g.groupBy} onGroupBy={(by) => {
           g.groupByWith(by);
           vp.nav.top();
@@ -157,7 +160,8 @@ export default function GanttTab() {
       {preview && <PreviewBanner scheduleId={stored.id} source={preview.source} />}{noPlan && <NoPlanBanner />}
       <div className="gt-main" ref={mainRef}>
         <LeftGrid
-          rows={g.rows} vp={vp} width={left} columns={cols.columns} texts={texts} selected={selected} editing={ed.editing}
+          rows={g.rows} vp={vp} width={left} columns={cols.columns} layers={g.layers} widthOf={colW.widthOf} onResizeCol={colW.resize}
+          texts={texts} selected={selected} editing={ed.editing}
           onRowKey={ed.onRowKey} onToggle={g.toggle} onEdit={ed.onEdit} onCommit={ed.onCommit} onCancel={ed.onCancel}
           onPick={(row) => row.activity && select(row.activity.id)}
         />

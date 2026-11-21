@@ -6,7 +6,7 @@ import type { EditEnd } from '../../shared/schedule/CellEditor';
 import { COLUMNS, type ColKey, type ColumnDef } from '../../shared/schedule/columns';
 import { commitCell } from '../../shared/schedule/edits';
 import { parse, ParseError } from '../../shared/schedule/predecessors';
-import { ancestors, wbsTree } from '../../shared/schedule/rows';
+import { ancestors, NO_FILTER, wbsTree, type RowFilter } from '../../shared/schedule/rows';
 import type { ScheduleView } from '../../shared/schedule/scheduleApi';
 import type { ScheduleState } from '../../shared/schedule/scheduleStore';
 import { useSchedule, useScheduleStore, useSelect, useWindowId } from '../../shared/schedule/scope';
@@ -15,12 +15,14 @@ import type { Editing } from './LeftGrid';
 import type { Layers } from './model';
 import type { Viewport } from './useViewport';
 
-/** 층·묶는 기준·접기. 처음 묶는 기준은 그 분야의 표시 설정(없으면 WBS), 사용자가 바꾸면 그대로 둔다. */
+/** 층·묶는 기준·접기·찾기·거르기. 처음 묶는 기준은 그 분야의 표시 설정(없으면 WBS), 사용자가 바꾸면 그대로 둔다. */
 export function useLayersAndRows(view: ScheduleView) {
   const [layers, setLayers] = useState<Layers>({ plan: true, actual: true, cpm: true });
   const [groupBy, setGroupBy] = useState<GroupBy>(() => view.display?.gantt_group_by ?? 'wbs');
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const rows = useMemo(() => rowsFor(view, groupBy, collapsed), [view, groupBy, collapsed]);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<RowFilter>(NO_FILTER);
+  const rows = useMemo(() => rowsFor(view, groupBy, collapsed, { ...filter, query }), [view, groupBy, collapsed, filter, query]);
   const toggle = useCallback((key: string, open?: boolean) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -30,7 +32,7 @@ export function useLayersAndRows(view: ScheduleView) {
     });
   }, []);
   return {
-    layers, groupBy, rows, toggle, setCollapsed,
+    layers, groupBy, rows, toggle, setCollapsed, query, setQuery, filter, setFilter,
     flipLayer: (k: keyof Layers) => setLayers((l) => ({ ...l, [k]: !l[k] })),
     groupByWith: (by: GroupBy) => {
       setGroupBy(by);
@@ -39,6 +41,26 @@ export function useLayersAndRows(view: ScheduleView) {
     expandAll: () => setCollapsed(new Set()),
     collapseAll: () => setCollapsed(new Set(groupKeys(view, groupBy))),
   };
+}
+
+const LEFT_W_PREF = 'schedule.gantt.leftWidth';
+
+/** 간트 왼쪽 표 폭(로그인 사용자별로 기억). */
+export function useGanttLeftWidth(fallback = 470) {
+  const userId = useSession((s) => s.session?.user.id ?? null);
+  const [leftW, setLeftWState] = useState<number>(() => {
+    const saved = loadPref(LEFT_W_PREF, userId);
+    return typeof saved === 'number' && Number.isFinite(saved) && saved >= 220 && saved <= 1200 ? Math.round(saved) : fallback;
+  });
+  const setLeftW = useCallback(
+    (w: number) => {
+      const rounded = Math.round(w);
+      setLeftWState(rounded);
+      savePref(LEFT_W_PREF, userId, rounded);
+    },
+    [userId],
+  );
+  return [leftW, setLeftW] as const;
 }
 
 const PREF = 'schedule.gantt.columns';

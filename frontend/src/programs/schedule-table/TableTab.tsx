@@ -9,6 +9,7 @@ import { ancestors, buildRows, NO_FILTER, wbsLabel, wbsTree, weightedProgress, t
 import type { Activity, PredItem, ScheduleView } from '../../shared/schedule/scheduleApi';
 import type { ScheduleState } from '../../shared/schedule/scheduleStore';
 import { useSchedule, useScheduleStore, useWindowId } from '../../shared/schedule/scope';
+import { useColWidths, useRowHeight } from '../../shared/schedule/useColWidths';
 import DelayNotice from './DelayNotice';
 import Grid from './Grid';
 import RelationsPanel from './RelationsPanel';
@@ -198,6 +199,8 @@ export default function TableTab() {
   const selected = useSchedule((s) => s.selected);
   const weightMode = view.weight_mode ?? 'duration';
   const { visible, change, columns } = useVisibleColumns(weightMode === 'manual', view.display?.extra_columns ?? []);
+  const colW = useColWidths('schedule.table.colWidths');
+  const rowH = useRowHeight('schedule.table.rowHeight', 32);
   const store = useScheduleStore();
   const texts = useTexts(view);
   const bodyRef = useRef<HTMLTableSectionElement>(null);
@@ -233,6 +236,10 @@ export default function TableTab() {
         <Grid
           rows={rs.rows}
           columns={columns}
+          widthOf={colW.widthOf}
+          onResizeCol={colW.resize}
+          rowHeight={rowH.rowHeight}
+          onResizeRow={rowH.resizeRow}
           texts={texts}
           selected={selected}
           bodyRef={bodyRef}

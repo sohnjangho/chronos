@@ -5,7 +5,9 @@ import { HEADER_H } from '../../shared/gantt/Header';
 import { ROW_H } from '../../shared/gantt/Bars';
 import CellEditor, { type EditEnd } from '../../shared/schedule/CellEditor';
 import type { CellCtx, ColKey, ColumnDef } from '../../shared/schedule/columns';
+import { ColResizeHandle } from '../../shared/schedule/useColWidths';
 import type { GanttRow } from './grouping';
+import type { Layers } from './model';
 import type { Viewport } from './useViewport';
 
 export interface Editing {
@@ -18,6 +20,9 @@ interface GridProps {
   vp: Viewport;
   width: number;
   columns: ColumnDef[];
+  layers?: Layers;
+  widthOf?(c: ColumnDef): number;
+  onResizeCol?(key: ColKey, w: number): void;
   texts: Map<string, Omit<CellCtx, 'a'>>;
   selected: string | null;
   editing: Editing | null;
@@ -33,24 +38,35 @@ const NO_TEXT = { preds: '', wbsLabel: '', resources: '' };
 /** 편집기 첫 값: 글 칸은 보이는 글, 고르는 칸은 지금 값(유형 코드·WBS 코드). 스케줄표와 같다. */
 const initialOf = (c: ColumnDef, ctx: CellCtx) => (c.edit === 'kind' ? ctx.a.kind : c.edit === 'wbs' ? ctx.a.wbs : c.text(ctx));
 const NAME_MIN = 140;
+const LANE_TAG_W = 34;
 /** ID·이름 칸은 왼쪽 표를 옆으로 밀어도 붙어 있다(이름은 ID 폭만큼 오른쪽에). */
-const cellStyle = (c: ColumnDef, idW: number) =>
-  c.key === 'name' ? { flex: `1 0 ${NAME_MIN}px`, minWidth: NAME_MIN, left: idW } : { flex: `0 0 ${c.width}px`, ...(c.key === 'id' ? { left: 0 } : null) };
+const cellStyle = (c: ColumnDef, idW: number, wOf: (col: ColumnDef) => number) => {
+  const w = wOf(c);
+  if (c.key === 'name') {
+    const custom = w !== c.width;
+    return custom ? { flex: `0 0 ${w}px`, minWidth: w, left: idW } : { flex: `1 0 ${NAME_MIN}px`, minWidth: NAME_MIN, left: idW };
+  }
+  return { flex: `0 0 ${w}px`, ...(c.key === 'id' ? { left: 0 } : null) };
+};
 const pin = (c: ColumnDef) => (c.key === 'id' || c.key === 'name' ? ' pin' : '');
-const idWidth = (columns: ColumnDef[]) => columns.find((c) => c.key === 'id')?.width ?? 0;
+const idWidth = (columns: ColumnDef[], wOf: (col: ColumnDef) => number) => {
+  const idCol = columns.find((c) => c.key === 'id');
+  return idCol ? wOf(idCol) : 0;
+};
 
-interface RowProps extends Omit<GridProps, 'rows' | 'vp' | 'width' | 'columns' | 'texts' | 'selected' | 'editing'> {
+interface RowProps extends Omit<GridProps, 'rows' | 'vp' | 'width' | 'columns' | 'texts' | 'selected' | 'editing' | 'onResizeCol'> {
   row: GanttRow;
   index: number;
   columns: ColumnDef[];
+  wOf(c: ColumnDef): number;
   ctx: Omit<CellCtx, 'a'>;
   selected: boolean;
   tabbable: boolean;
   editingCol: ColKey | null;
 }
 
-function GroupCells({ row, columns, onToggle }: Pick<RowProps, 'row' | 'columns' | 'onToggle'>) {
-  const w = idWidth(columns) + NAME_MIN;
+function GroupCells({ row, columns, wOf, onToggle }: Pick<RowProps, 'row' | 'columns' | 'wOf' | 'onToggle'>) {
+  const w = idWidth(columns, wOf) + NAME_MIN;
   return (
     <div role="gridcell" className="gt-cell gt-group-cell pin" style={{ flex: `0 0 ${w}px`, left: 0, paddingLeft: 6 + row.depth * 14 }} title={row.label}>
       <button type="button" className="gt-toggle" tabIndex={-1} aria-label={row.label} aria-expanded={row.open} onClick={() => onToggle(row.key)}>
@@ -72,7 +88,7 @@ function ActivityCell({ p, c, ctx }: { p: RowProps; c: ColumnDef; ctx: CellCtx }
       role="gridcell"
       data-col={c.key}
       className={classes}
-      style={{ ...cellStyle(c, idWidth(p.columns)), ...(c.key === 'id' ? { paddingLeft: 6 + p.row.depth * 14 } : null) }}
+      style={{ ...cellStyle(c, idWidth(p.columns, p.wOf), p.wOf), ...(c.key === 'id' ? { paddingLeft: 6 + p.row.depth * 14 } : null) }}
       title={!editing && text ? text : undefined}
       onDoubleClick={() => p.onEdit(p.row.key, c.key)}
     >
@@ -108,9 +124,17 @@ const LeftRow = memo(function LeftRow(p: RowProps) {
       onKeyDown={(e) => p.onRowKey(e, p.row, p.index)}
     >
       {!ctx ? (
-        <GroupCells row={p.row} columns={p.columns} onToggle={p.onToggle} />
+        <GroupCells row={p.row} columns={p.columns} wOf={p.wOf} onToggle={p.onToggle} />
       ) : (
-        p.columns.map((c) => <ActivityCell key={c.key} p={p} c={c} ctx={ctx} />)
+        <>
+          {p.columns.map((c) => (
+            <ActivityCell key={c.key} p={p} c={c} ctx={ctx} />
+          ))}
+          <div className="gt-lane-tag" aria-hidden="true">
+            <span className={`gt-lane-p${p.layers && !p.layers.plan ? ' is-off' : ''}`}>Plan</span>
+            <span className={`gt-lane-a${p.layers?.cpm && a?.critical ? ' is-crit' : ''}${p.layers && !p.layers.actual ? ' is-off' : ''}`}>Act</span>
+          </div>
+        </>
       )}
     </div>
   );
@@ -119,8 +143,9 @@ const LeftRow = memo(function LeftRow(p: RowProps) {
 /** 간트 왼쪽 표(treegrid). 넓으면 표 본문 안에서만 옆으로 밀리고(머리가 따라옴) ID·이름 칸은 붙어 있다. */
 export default function LeftGrid(p: GridProps) {
   const headRef = useRef<HTMLDivElement>(null);
-  const minW = p.columns.reduce((n, c) => n + (c.key === 'name' ? NAME_MIN : c.width), 0);
-  const idW = idWidth(p.columns);
+  const wOf = p.widthOf ?? ((c: ColumnDef) => c.width);
+  const minW = p.columns.reduce((n, c) => n + (c.key === 'name' ? Math.max(NAME_MIN, wOf(c) === c.width ? NAME_MIN : wOf(c)) : wOf(c)), 0) + LANE_TAG_W;
+  const idW = idWidth(p.columns, wOf);
   const shown = p.rows.slice(p.vp.first, p.vp.last + 1);
   const isSel = (row: GanttRow) => !!row.activity && row.activity.id === p.selected;
   const anySel = shown.some(isSel);
@@ -130,10 +155,12 @@ export default function LeftGrid(p: GridProps) {
         <div className="gt-left-head" ref={headRef} style={{ height: HEADER_H }}>
           <div role="row" className="gt-head-row" style={{ minWidth: minW }}>
             {p.columns.map((c) => (
-              <div key={c.key} role="columnheader" className={`gt-cell${c.align === 'right' ? ' num' : ''}${pin(c)}`} style={cellStyle(c, idW)}>
+              <div key={c.key} role="columnheader" className={`gt-cell gt-hcell${c.align === 'right' ? ' num' : ''}${pin(c)}`} style={cellStyle(c, idW, wOf)}>
                 {c.key === 'id' ? 'WBS / ID' : c.header}
+                {p.onResizeCol && <ColResizeHandle label={c.key === 'id' ? 'WBS / ID' : c.header} width={wOf(c)} onResize={(w) => p.onResizeCol!(c.key, w)} />}
               </div>
             ))}
+            <div className="gt-lane-head" aria-hidden="true">구분</div>
           </div>
         </div>
         <div
@@ -149,6 +176,8 @@ export default function LeftGrid(p: GridProps) {
                 row={row}
                 index={p.vp.first + i}
                 columns={p.columns}
+                layers={p.layers}
+                wOf={wOf}
                 ctx={(row.activity && p.texts.get(row.activity.id)) || NO_TEXT}
                 selected={isSel(row)}
                 tabbable={isSel(row) || (!anySel && i === 0)}

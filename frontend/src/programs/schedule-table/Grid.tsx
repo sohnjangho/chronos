@@ -1,13 +1,19 @@
-import type { KeyboardEvent, RefObject } from 'react';
+import type { CSSProperties, KeyboardEvent, RefObject } from 'react';
 import type { Activity } from '../../shared/schedule/scheduleApi';
 import { pinClass, type ColKey, type ColumnDef } from '../../shared/schedule/columns';
 import type { EditEnd } from '../../shared/schedule/CellEditor';
+import { ColResizeHandle, RowResizeHandle } from '../../shared/schedule/useColWidths';
 import Row, { GroupRow } from './Row';
 import type { GridRow } from '../../shared/schedule/rows';
 
 export interface GridProps {
   rows: GridRow[];
   columns: ColumnDef[];
+  /** 열 너비 계산·조정(사용자별 기억). */
+  widthOf?(c: ColumnDef): number;
+  onResizeCol?(key: ColKey, w: number): void;
+  rowHeight?: number;
+  onResizeRow?(h: number): void;
   /** 액티비티 id → 선행 글·WBS 이름·주요 자원 이름. */
   texts: Map<string, { preds: string; wbsLabel: string; resources: string }>;
   selected: string | null;
@@ -59,20 +65,32 @@ function useRowKeys(p: GridProps) {
 /** 스케줄표 본체. 머리줄은 위에, ID·이름 칸은 왼쪽에 붙어 있다. */
 export default function Grid(p: GridProps) {
   const onKeyDown = useRowKeys(p);
-  const minWidth = p.columns.reduce((n, c) => n + c.width, 0);
+  const wOf = p.widthOf ?? ((c: ColumnDef) => c.width);
+  const minWidth = p.columns.reduce((n, c) => n + wOf(c), 0);
+  const idCol = p.columns.find((c) => c.key === 'id');
+  const idW = idCol ? wOf(idCol) : 96;
   const tabKey = p.rows.some((r) => r.key === p.focusKey) ? p.focusKey : p.rows[0]?.key;
+  const tableStyle = {
+    minWidth,
+    '--sch-id-w': `${idW}px`,
+    ...(p.rowHeight ? { '--sch-row-h': `${p.rowHeight}px` } : null),
+  } as CSSProperties;
   return (
-    <table className="sch-grid" aria-label="스케줄표" style={{ minWidth }}>
+    <table className="sch-grid" aria-label="스케줄표" style={tableStyle}>
       <colgroup>
-        {p.columns.map((c) => (
-          <col key={c.key} style={c.flex ? undefined : { width: c.width }} />
-        ))}
+        {p.columns.map((c) => {
+          const w = wOf(c);
+          const hasCustom = w !== c.width;
+          return <col key={c.key} style={c.flex && !hasCustom ? undefined : { width: w }} />;
+        })}
       </colgroup>
       <thead>
         <tr>
-          {p.columns.map((c) => (
+          {p.columns.map((c, idx) => (
             <th key={c.key} scope="col" className={[c.align === 'right' && 'num', pinClass(c.key)].filter(Boolean).join(' ') || undefined}>
               {c.header}
+              {p.onResizeCol && <ColResizeHandle label={c.header} width={wOf(c)} onResize={(w) => p.onResizeCol!(c.key, w)} />}
+              {idx === 0 && p.onResizeRow && <RowResizeHandle height={p.rowHeight ?? 32} onResize={p.onResizeRow} />}
             </th>
           ))}
         </tr>

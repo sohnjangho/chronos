@@ -76,6 +76,11 @@ export function ancestors(parentOf: Map<string, string | null>, code: string): s
   return out;
 }
 
+export function activityMatcher(view: ScheduleView, f: RowFilter) {
+  const tree = wbsTree(view);
+  return matcher(f, (code) => ancestors(tree.parentOf, code).includes(f.wbs!));
+}
+
 function matcher(f: RowFilter, inWbs: (code: string) => boolean) {
   const q = f.query.trim().toLowerCase();
   return (a: Activity) =>
