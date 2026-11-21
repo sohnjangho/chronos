@@ -108,6 +108,8 @@ function SearchHeader({
   query,
   queryInput,
   runningJob,
+  facetsOpen,
+  onToggleFacets,
   onInput,
   onSubmit,
   onClear,
@@ -115,12 +117,17 @@ function SearchHeader({
   query: string;
   queryInput: string;
   runningJob: ReindexJob | null;
+  facetsOpen: boolean;
+  onToggleFacets(): void;
   onInput(v: string): void;
   onSubmit(): void;
   onClear(): void;
 }) {
   return (
     <header className="lib-head">
+      <Button type="button" onClick={onToggleFacets} aria-expanded={facetsOpen}>
+        {facetsOpen ? '분류 접기' : '분류 보기'}
+      </Button>
       <form
         className="lib-search"
         role="search"
@@ -163,6 +170,7 @@ export default function Library() {
   const [mergeBusy, setMergeBusy] = useState<string | null>(null);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
+  const [facetsOpen, setFacetsOpen] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth > 768));
 
   const { width, startResize, stepResize } = useDetailWidth(userId);
   const refreshAll = useCallback(() => setReloadTick((t) => t + 1), []);
@@ -220,6 +228,8 @@ export default function Library() {
         query={query}
         queryInput={queryInput}
         runningJob={runningJob}
+        facetsOpen={facetsOpen}
+        onToggleFacets={() => setFacetsOpen((v) => !v)}
         onInput={setQueryInput}
         onSubmit={() => { setPage(1); setQuery(queryInput.trim()); }}
         onClear={() => { setQueryInput(''); setQuery(''); setPage(1); }}
@@ -227,7 +237,9 @@ export default function Library() {
       {error && <p className="lib-error lib-top-error" role="alert">{error}</p>}
 
       <div className="lib-body">
-        <FacetBar axes={axes} filters={filters} onToggle={toggleFilter} onClear={() => { setPage(1); setFilters({}); }} />
+        {facetsOpen && (
+          <FacetBar axes={axes} filters={filters} onToggle={toggleFilter} onClear={() => { setPage(1); setFilters({}); }} />
+        )}
         <main className="lib-center">
           {isAdmin && <MergeSuggestions items={suggestions} busyKey={mergeBusy} error={mergeError} onMerge={handleMerge} />}
           <FileList data={listData} loading={loading} selectedId={selectedId} query={query} onSelect={(f) => setSelectedId(f.file_id)} onPage={setPage} />

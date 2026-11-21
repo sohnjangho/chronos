@@ -8,6 +8,7 @@ import ShellDialogs from './Dialogs';
 import Dock from './Dock';
 import LockScreen from './LockScreen';
 import MenuBar from './MenuBar';
+import QuickStartWidget from './QuickStartWidget';
 import SearchPalette from './SearchPalette';
 import { useSession } from './session';
 import { useShell } from './shell';
@@ -46,6 +47,7 @@ export default function Desktop() {
         <MenuBar />
         <ApprovalWidget />
         <AttentionWidget />
+        <QuickStartWidget />
         <div className="os-windows">
           {wins.map((w) => (
             <Window key={w.id} win={w} active={w === active} />

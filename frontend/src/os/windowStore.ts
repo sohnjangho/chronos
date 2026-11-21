@@ -60,7 +60,9 @@ function sizeWithin(win: Rect, w: number, h: number) {
 
 function fitSize(size: { w: number; h: number }) {
   const s = screenSize();
-  return { w: clamp(Math.round(size.w), MIN_W, s.w), h: clamp(Math.round(size.h), MIN_H, s.h - MENUBAR_H) };
+  // 일반 창(defaultSize.h <= 1200)은 760px 이상 화면에서 Dock 영역을 침범하지 않게 자동 조정한다.
+  const maxH = s.h >= 760 && size.h <= 1200 ? Math.max(MIN_H, s.h - MENUBAR_H - DOCK_RESERVE) : s.h - MENUBAR_H;
+  return { w: clamp(Math.round(size.w), MIN_W, s.w), h: clamp(Math.round(size.h), MIN_H, maxH) };
 }
 
 /**

@@ -1,0 +1,214 @@
+/* 스마트폰 전용 앱 셸(폭 <= 768px) */
+.mob-root {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--bg-surface, var(--bg));
+  color: var(--fg);
+}
+
+.mob-head {
+  flex: 0 0 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--topbar-surface, #141a2e);
+  color: var(--on-topbar-fg, #fff);
+  border-bottom: 1px solid var(--on-topbar-line, rgba(255, 255, 255, 0.12));
+}
+
+.mob-head-left,
+.mob-head-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mob-brand {
+  display: inline-flex;
+  align-items: center;
+}
+
+.mob-title {
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mob-icon-btn,
+.mob-text-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mob-subbar {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg-panel));
+}
+
+.mob-sub-btn {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--bg-surface, var(--bg));
+  color: var(--fg-muted);
+  border-radius: 6px;
+  padding: 6px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mob-sub-btn.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent, #fff);
+}
+
+.mob-main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+.mob-main > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.mob-loading {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--fg-muted);
+}
+
+.mob-more {
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.mob-more-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.mob-more-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.mob-more-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel, var(--bg-elevated));
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.mob-more-name {
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.mob-nav {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel, var(--bg-elevated));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.mob-tab {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  padding: 8px 4px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.mob-tab.is-active {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.mob-tab-icon {
+  position: relative;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.mob-tab-label {
+  font-size: 11px;
+}
+
+.mob-badge {
+  position: absolute;
+  top: -5px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger, #dc2626);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* 모바일 내부 프로그램 레이아웃 보정(자료함 세로 쌓기, 나눔 막대 숨김) */
+.mob-root .lib-body {
+  flex-direction: column;
+  overflow-y: auto;
+}
+.mob-root .lib-facets {
+  width: 100%;
+  flex: 0 0 auto;
+  max-height: 220px;
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+}
+.mob-root .lib-splitter {
+  display: none;
+}
+.mob-root .lib-detail-pane {
+  width: 100% !important;
+  border-top: 1px solid var(--border);
+}
+.mob-root .os-site-btn {
+  max-width: 140px;
+}

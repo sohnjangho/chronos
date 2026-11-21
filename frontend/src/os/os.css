@@ -240,3 +240,22 @@ body {
 .os-keys th { text-align: left; font-weight: 400; padding: 4px 8px 4px 0; white-space: nowrap; }
 .os-keys td { padding: 4px 0; color: var(--fg-muted); }
 .os-keys kbd { font-family: var(--font-sans); font-size: var(--fs-12); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; background: var(--bg-panel-alt); }
+
+/* 빠른 시작 위젯 (바탕화면 우측 상단, 좁은 화면에서는 숨김) */
+.os-quick-widget {
+  left: auto;
+  right: 24px;
+  width: 240px;
+}
+.os-quick-item {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.os-quick-desc {
+  font-size: var(--fs-12);
+  color: var(--fg-muted);
+}
+@media (max-width: 960px) {
+  .os-quick-widget { display: none; }
+}

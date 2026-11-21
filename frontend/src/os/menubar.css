@@ -181,3 +181,13 @@
   .os-mb-btn { padding: 0 4px; }
   .os-site-btn { min-width: 160px; }
 }
+
+/* 좁은 모니터(≤1180px) 메뉴바 겹침 방지 */
+@media (max-width: 1180px) {
+  .os-clock { display: none; }
+  .os-menubar { gap: 6px; padding: 0 10px; }
+}
+@media (max-width: 960px) {
+  .os-menubar-menus { gap: 2px; }
+  .os-site-btn { max-width: 170px; }
+}

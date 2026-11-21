@@ -84,3 +84,20 @@
   .os-dock-tile { transition: none; }
   .os-dock-item.is-launching .os-dock-tile { animation: none; }
 }
+
+/* 반응형 Dock: 좁은 모니터(≤1280px, ≤1024px)에서 아이콘 자동 축소 및 가로 스크롤 */
+.os-dock {
+  max-width: calc(100vw - 24px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.os-dock::-webkit-scrollbar { display: none; }
+@media (max-width: 1280px) {
+  .os-dock-wrap { --dock-tile: 40px; }
+  .os-dock { gap: 6px; padding: 6px 10px; }
+  .os-dock-sep { height: 32px; }
+}
+@media (max-width: 1024px) {
+  .os-dock-wrap { --dock-tile: 36px; }
+  .os-dock { gap: 4px; padding: 6px 8px; border-radius: 16px; }
+}
