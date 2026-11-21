@@ -75,52 +75,68 @@ export interface CpmToolbarProps {
   counts: string;
 }
 
-const Sep = () => <span className="sch-sep" aria-hidden="true" />;
 const WBS_OFF = '선택 항목 보기는 WBS 로 거르지 않습니다';
 
 export default function CpmToolbar(p: CpmToolbarProps) {
   return (
     <div role="toolbar" aria-label="CPM 도구" className="sch-toolbar cpm-toolbar">
-      {LAYERS.map((l) => (
-        <button key={l.key} type="button" className="cpm-chip-btn" aria-pressed={p.layers[l.key]} onClick={() => p.onLayer(l.key)}>
-          <span className={`cpm-swatch is-${l.key}`} aria-hidden="true" />
-          {l.label}
-        </button>
-      ))}
-      <Sep />
-      {MODES.map((m) => {
-        const off = m.key === 'selected' && !p.hasSelection && p.mode !== 'selected';
-        return (
-          <button
-            key={m.key} type="button" className="cpm-chip-btn" aria-pressed={p.mode === m.key} disabled={off}
-            title={off ? '카드를 먼저 고르세요' : undefined} onClick={() => p.onMode(m.key)}
-          >
-            {m.label}
-          </button>
-        );
-      })}
-      <Sep />
-      <Find onFind={p.onFind} />
-      <Button title="끌어 옮긴 자리를 버리고 다시 배치합니다" onClick={p.onAutoLayout}>자동 배치</Button>
-      <Button onClick={p.onFit}>맞춤</Button>
-      <span className="sch-gap" />
-      {/* 선택 항목 보기는 WBS 로 거르지 않는다 — 끄고 까닭을 title 로(꺼진 칸에도 말풍선이 뜨게 감싼 칸에 단다). */}
-      <span className="cpm-wbs-wrap" title={p.mode === 'selected' ? WBS_OFF : undefined}>
-        <select
-          className="cpm-wbs" aria-label="WBS" value={p.wbs ?? ''} disabled={p.mode === 'selected'}
-          onChange={(e) => p.onWbs(e.target.value || null)}
-        >
-          <option value="">전체 WBS</option>
-          {p.wbsGroups.map((w) => (
-            <option key={w.code} value={w.code}>{`${w.code} ${w.name}`}</option>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          {LAYERS.map((l) => (
+            <button key={l.key} type="button" className="cpm-chip-btn" aria-pressed={p.layers[l.key]} onClick={() => p.onLayer(l.key)}>
+              <span className={`cpm-swatch is-${l.key}`} aria-hidden="true" />
+              {l.label}
+            </button>
           ))}
-        </select>
-      </span>
-      <Popover button="범례" label="범례" align="right">
-        {() => <Legend />}
-      </Popover>
-      <Button onClick={p.onPng}>PNG 내보내기</Button>
-      <span className="cpm-counts">{p.counts}</span>
+        </div>
+        <span className="sch-rib-label">층</span>
+      </div>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          {MODES.map((m) => {
+            const off = m.key === 'selected' && !p.hasSelection && p.mode !== 'selected';
+            return (
+              <button
+                key={m.key} type="button" className="cpm-chip-btn" aria-pressed={p.mode === m.key} disabled={off}
+                title={off ? '카드를 먼저 고르세요' : undefined} onClick={() => p.onMode(m.key)}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="sch-rib-label">보기</span>
+      </div>
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          <Find onFind={p.onFind} />
+          <Button title="끌어 옮긴 자리를 버리고 다시 배치합니다" onClick={p.onAutoLayout}>자동 배치</Button>
+          <Button onClick={p.onFit}>맞춤</Button>
+        </div>
+        <span className="sch-rib-label">찾기·배치</span>
+      </div>
+      <span className="sch-gap" />
+      <div className="sch-rib-group">
+        <div className="sch-rib-items">
+          <span className="cpm-wbs-wrap" title={p.mode === 'selected' ? WBS_OFF : undefined}>
+            <select
+              className="cpm-wbs" aria-label="WBS" value={p.wbs ?? ''} disabled={p.mode === 'selected'}
+              onChange={(e) => p.onWbs(e.target.value || null)}
+            >
+              <option value="">전체 WBS</option>
+              {p.wbsGroups.map((w) => (
+                <option key={w.code} value={w.code}>{`${w.code} ${w.name}`}</option>
+              ))}
+            </select>
+          </span>
+          <Popover button="범례" label="범례" align="right">
+            {() => <Legend />}
+          </Popover>
+          <Button onClick={p.onPng}>PNG 내보내기</Button>
+          <span className="cpm-counts">{p.counts}</span>
+        </div>
+        <span className="sch-rib-label">범위·내보내기</span>
+      </div>
     </div>
   );
 }

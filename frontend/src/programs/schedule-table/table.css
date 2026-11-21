@@ -23,7 +23,8 @@
 }
 .sch-grid th {
   position: sticky; top: 0; z-index: 2; height: 34px; text-align: left;
-  background: var(--bg-panel-alt); color: var(--fg-muted); font-size: var(--fs-12); font-weight: 500; border-bottom: 1px solid var(--border);
+  background: var(--bg-panel-alt); color: var(--fg-muted); font-size: var(--fs-12); font-weight: 500;
+  border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
 }
 .sch-grid .num { text-align: right; font-variant-numeric: tabular-nums; }
 .sch-grid .pin1 { position: sticky; left: 0; z-index: 1; }
@@ -76,7 +77,7 @@
 
 /* 가중치 방식 · 머리줄 Data Date 칸 · 지연 알림 띠 */
 .sch-weight { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-12); color: var(--fg-muted); white-space: nowrap; }
-.sch-weight select { height: 28px; font: inherit; font-size: var(--fs-12); color: var(--fg); background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: var(--radius-2); }
+.sch-weight select { height: 28px; padding: 0 22px 0 8px; font: inherit; font-size: var(--fs-12); color: var(--fg); background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: var(--radius-2); }
 .sch-dd { display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px; border: 1px dashed transparent; border-radius: var(--radius-2); background: none; color: inherit; font: inherit; cursor: pointer; }
 .sch-dd:hover, .sch-dd:focus-visible { border-color: var(--border-strong); background: var(--bg-panel-alt); }
 .sch-dd-edit { display: inline-flex; align-items: center; gap: 6px; }
