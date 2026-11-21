@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
 import type { DockEntry } from './dockStore';
-import { AppsIcon } from './icons';
-import ProgramIcon from './ProgramIcon';
+import ProgramIcon, { SystemIcon } from './ProgramIcon';
 
 export interface DockItemProps {
   entry: Exclude<DockEntry, { kind: 'sep' }>;
@@ -107,9 +106,7 @@ function DockTile({ entry, index, scale, badge, tileRef }: DockItemProps) {
   return (
     <span ref={tileRef} className="os-dock-tile" data-dock-index={index} style={scale === null ? undefined : { transform: `scale(${scale})` }}>
       {entry.kind === 'apps' ? (
-        <span className="os-icon os-tone-slate os-icon-apps" aria-hidden="true">
-          <AppsIcon />
-        </span>
+        <SystemIcon id="apps" size={48} className="os-icon-apps" />
       ) : (
         <ProgramIcon program={entry.program} size={48} />
       )}

@@ -1,10 +1,10 @@
 // 태블릿(iPad 등) 전용 워크스테이션 셸.
 // 스마트폰의 하단 탭바 대신 왼쪽 76px 아이콘 레일 + 상단 명령 바 + 좌우 분할(Split View: 메인 화면 + 보조 AI·승인·현장 패널)을 제공한다.
-import { Suspense, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useAgentView } from './agentView';
 import { useApprovalPolling, useApprovals } from './approvals';
-import { AppsIcon, ChronosMark, MoonIcon, PanelIcon, SunIcon } from './icons';
-import ProgramIcon from './ProgramIcon';
+import { ChronosMark, MoonIcon, PanelIcon, SunIcon } from './icons';
+import ProgramIcon, { SystemIcon } from './ProgramIcon';
 import { getProgram, programs, type ProgramManifest } from './registry';
 import ScheduleSelector from './ScheduleSelector';
 import { useSession } from './session';
@@ -239,7 +239,7 @@ export default function TabletShell() {
                   onClick={() => pickRail(item.id)}
                 >
                   <span className="tab-rail-ico-wrap">
-                    <ProgramIcon program={m} size={32} />
+                    <ProgramIcon program={m} size={32} iconId={item.id === 'field' ? 'field' : undefined} />
                     {item.id === 'approvals' && pending > 0 && (
                       <span className="tab-rail-badge">{pending > 99 ? '99+' : pending}</span>
                     )}
@@ -257,9 +257,7 @@ export default function TabletShell() {
               onClick={() => setShowApps((s) => !s)}
             >
               <span className="tab-rail-ico-wrap">
-                <span className="os-icon os-tone-slate" style={{ '--icon-size': '32px' } as CSSProperties} aria-hidden="true">
-                  <AppsIcon size={18} />
-                </span>
+                <SystemIcon id="apps" size={32} />
               </span>
               <span className="tab-rail-label">전체 앱</span>
             </button>

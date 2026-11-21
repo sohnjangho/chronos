@@ -1,4 +1,6 @@
-/* 스마트폰(<= 768px) · 태블릿 전용 앱 셸. 색·글꼴은 tokens.css 변수만 쓴다. */
+/* 스마트폰(<= 768px) · 태블릿 전용 앱 셸. 색·글꼴은 tokens.css 변수만 쓴다.
+   스마트폰(data-device="phone")은 Apple HIG(17pt 본문·44pt 터치), Material Design 3(16sp·48dp·필 인디케이터),
+   국내 모바일 웹 가독성(16px 본문·입력 자동확대 방지·여유로운 행간) 기준에 맞춰 스케일을 확장한다. */
 .mob-root {
   display: flex;
   flex-direction: column;
@@ -7,15 +9,16 @@
   overflow: hidden;
   background: var(--bg-panel);
   color: var(--fg);
+  font-size: var(--fs-14);
 }
 
 .mob-head {
-  flex: 0 0 48px;
+  flex: 0 0 var(--topbar-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 10px;
+  padding: 0 12px;
   background: var(--bg-topbar);
   color: var(--on-topbar-fg);
   border-bottom: 1px solid var(--on-topbar-line);
@@ -25,17 +28,18 @@
 .mob-head-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
 .mob-brand {
   display: inline-flex;
   align-items: center;
+  flex: none;
 }
 
 .mob-title {
-  font-size: var(--fs-14);
+  font-size: var(--fs-16);
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -48,9 +52,12 @@
   background: transparent;
   color: inherit;
   cursor: pointer;
-  padding: 6px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 8px 10px;
   border-radius: var(--radius-2);
-  font-size: var(--fs-13);
+  font-size: var(--fs-12);
+  font-weight: 500;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -70,7 +77,7 @@
   background: transparent;
   color: var(--on-topbar-fg);
   font-size: var(--fs-11);
-  padding: 4px 7px;
+  padding: 6px 8px;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -86,20 +93,23 @@
 .mob-subbar {
   flex: 0 0 auto;
   display: flex;
-  gap: 4px;
-  padding: 6px 10px;
+  gap: 8px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel-alt);
   overflow-x: auto;
+  scrollbar-width: none;
 }
+.mob-subbar::-webkit-scrollbar { display: none; }
 
 .mob-sub-btn {
   flex: 1 0 auto;
+  min-height: 40px;
   border: 1px solid var(--border);
   background: var(--bg-panel);
   color: var(--fg-muted);
-  border-radius: var(--radius-2);
-  padding: 6px 8px;
+  border-radius: 999px;
+  padding: 8px 14px;
   font-size: var(--fs-12);
   font-weight: 600;
   cursor: pointer;
@@ -130,30 +140,34 @@
   padding: 32px 16px;
   text-align: center;
   color: var(--fg-muted);
+  font-size: var(--fs-14);
 }
 
 .mob-more {
-  padding: 16px;
+  padding: 20px 16px 24px;
   overflow-y: auto;
 }
 
 .mob-more-title {
-  margin: 0 0 12px;
-  font-size: var(--fs-14);
+  margin: 0 0 16px;
+  font-size: var(--fs-16);
+  font-weight: 700;
 }
 
 .mob-more-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .mob-more-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 12px 6px;
+  justify-content: center;
+  gap: 10px;
+  min-height: 110px;
+  padding: 16px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-4);
   background: var(--bg-panel);
@@ -163,28 +177,33 @@
 
 .mob-more-name {
   font-size: var(--fs-12);
+  line-height: 1.3;
   font-weight: 600;
   text-align: center;
+  word-break: keep-all;
 }
 
 .mob-nav {
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
+  min-height: 68px;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding: 6px 4px calc(8px + env(safe-area-inset-bottom, 0px));
 }
 
 .mob-tab {
   border: 0;
   background: transparent;
   color: var(--fg-muted);
-  padding: 8px 4px 6px;
+  min-height: 54px;
+  padding: 4px 2px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  gap: 4px;
   cursor: pointer;
 }
 
@@ -195,31 +214,41 @@
 
 .mob-tab-icon {
   position: relative;
-  font-size: var(--fs-16);
-  line-height: 1;
+  width: 46px;
+  height: 32px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.16s ease;
+}
+
+.mob-tab.is-active .mob-tab-icon {
+  background: var(--tone-info-bg);
 }
 
 .mob-tab-label {
   font-size: var(--fs-11);
+  line-height: 1.2;
 }
 
 .mob-badge {
   position: absolute;
-  top: -5px;
-  right: -10px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  top: -4px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: 999px;
   background: var(--danger);
   color: var(--on-accent);
   font-size: var(--fs-11);
   font-weight: 700;
-  line-height: 16px;
+  line-height: 18px;
   text-align: center;
 }
 
-/* 태블릿 뷰(data-device="tablet") 최적화: 4열 앱 서랍, 넓은 툴바 패딩, 2열 현장 협업 카드 */
+/* 태블릿 뷰(data-device="tablet") 최적화: 5열 앱 서랍, 넓은 툴바 패딩 */
 .mob-root[data-device="tablet"] .mob-head {
   padding: 0 18px;
 }
@@ -239,14 +268,107 @@
   padding-right: 10%;
 }
 
-/* 스마트폰(data-device="phone") 터치 가독성 보정 */
-.mob-root[data-device="phone"] .pg-choice-btn {
+/* 스마트폰(data-device="phone") 본문·입력·터치 가독성 보정 */
+.mob-root[data-device="phone"] .mob-head-left { gap: 8px; }
+.mob-root[data-device="phone"] .os-site-btn {
+  max-width: 148px;
+  min-height: 36px;
+  padding: 4px 10px;
+  font-size: var(--fs-12);
+}
+
+/* 대화(Chat) 프로그램 스마트폰 최적화 */
+.mob-root[data-device="phone"] .ch-root,
+.mob-root[data-device="phone"] .ch-root.is-narrow {
+  font-size: var(--fs-14);
+  line-height: 1.55;
+}
+.mob-root[data-device="phone"] .ch-bar {
+  height: 48px;
+  padding: 0 14px;
+  gap: 8px;
+}
+.mob-root[data-device="phone"] .ch-pill {
+  min-height: 36px;
+  padding: 6px 12px;
+}
+.mob-root[data-device="phone"] .ch-thread {
+  gap: 16px;
+  padding: 16px 14px;
+}
+.mob-root[data-device="phone"] .ch-me {
+  max-width: 86%;
+  padding: 12px 16px;
+  border-radius: 18px;
+}
+.mob-root[data-device="phone"] .ch-compose-wrap {
+  padding: 0 12px 12px;
+}
+.mob-root[data-device="phone"] .ch-compose {
+  padding: 12px 14px;
+  border-radius: 18px;
+}
+.mob-root[data-device="phone"] .ch-compose textarea {
+  min-height: 46px;
+  height: auto;
+  font-size: var(--fs-14);
+  line-height: 1.45;
+}
+.mob-root[data-device="phone"] .ch-attach-btn {
+  min-width: 40px;
   min-height: 40px;
+  font-size: var(--fs-15);
+}
+.mob-root[data-device="phone"] .ch-send {
+  min-height: 40px;
+  padding: 8px 18px;
+}
+.mob-root[data-device="phone"] .ch-th {
+  min-height: 46px;
+  padding: 10px 12px;
+}
+
+/* 공정률·현장 점검 프로그램 스마트폰 최적화 */
+.mob-root[data-device="phone"] .pg-scroll {
+  padding: 14px;
+  gap: 14px;
+}
+.mob-root[data-device="phone"] .pg-fkpi {
+  padding: 14px;
+  gap: 4px;
+}
+.mob-root[data-device="phone"] .pg-fkpi b {
+  font-size: var(--fs-16);
+  line-height: 1.35;
+}
+.mob-root[data-device="phone"] .pg-fcard,
+.mob-root[data-device="phone"] .pg-fbox {
+  padding: 16px;
+  gap: 12px;
+}
+.mob-root[data-device="phone"] .pg-field-subbar .pg-seg button {
+  min-height: 42px;
+  padding: 8px 10px;
+}
+.mob-root[data-device="phone"] .pg-choice-btn {
+  min-height: 46px;
+  padding: 10px 12px;
+  font-weight: 600;
 }
 .mob-root[data-device="phone"] .pg-flabel input,
 .mob-root[data-device="phone"] .pg-flabel select,
 .mob-root[data-device="phone"] .pg-finput-text {
-  min-height: 38px;
+  min-height: 46px;
+  padding: 10px 12px;
+  font-size: var(--fs-14);
+}
+.mob-root[data-device="phone"] .pg-fcheck {
+  min-height: 40px;
+  gap: 8px;
+}
+.mob-root[data-device="phone"] .pg-fcheck input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
 }
 
 /* 모바일 내부 프로그램 레이아웃 보정(자료함·지연 기록 세로 쌓기, 나눔 막대 숨김) */
@@ -267,9 +389,6 @@
 .mob-root[data-device="phone"] .lib-detail-pane {
   width: 100% !important;
   border-top: 1px solid var(--border);
-}
-.mob-root .os-site-btn {
-  max-width: 160px;
 }
 .mob-root .pg-tab.is-field-view .pg-toolbar {
   display: none;

@@ -181,3 +181,17 @@
   --tile-slate-from: #7f8ba2;
   --tile-slate-to: #3c475e;
 }
+
+/* 스마트폰(data-device="phone") 전용 가독성·터치 스케일 (Apple HIG · Material Design 3 · 국내 모바일 앱 기준) */
+[data-device="phone"] {
+  --fs-11: 13px;
+  --fs-12: 14px;
+  --fs-13: 15px;
+  --fs-14: 16px;
+  --fs-15: 17px;
+  --fs-16: 18px;
+  --fs-20: 22px;
+  --fs-28: 30px;
+  --row-h: 44px;
+  --topbar-h: 56px;
+}

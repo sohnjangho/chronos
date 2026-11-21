@@ -1,4 +1,5 @@
-import type { ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
+import { getCustomIconUrl } from './customIcons';
 
 // 셸이 쓰는 선 아이콘(직접 그림). 색은 currentColor.
 function line(size: number, ...paths: string[]): ReactElement {
@@ -40,10 +41,25 @@ export const AppsIcon = ({ size = 24 }: { size?: number } = {}) =>
 export const PanelIcon = () => line(22, 'M4 5h16v14H4z', 'M14 5v14', 'M16.5 9h1.5', 'M16.5 12h1.5');
 export const MobileFieldIcon = () => line(18, 'M6 3.5h8a1.5 1.5 0 0 1 1.5 1.5v14A1.5 1.5 0 0 1 14 20.5H6A1.5 1.5 0 0 1 4.5 19V5A1.5 1.5 0 0 1 6 3.5z', 'M9 17.5h2', 'M18 8h2.5a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H18');
 
-/** ChronOS 마크: 강조색 둥근 사각 안의 시계. size 는 한 변(px). */
+/** ChronOS 마크: 커스텀 chronos 아이콘이 있으면 우선 사용하고, 없으면 강조색 둥근 사각 안의 시계. size 는 한 변(px). */
 export function ChronosMark({ size = 24 }: { size?: number }) {
+  const customSrc = getCustomIconUrl('chronos');
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [customSrc]);
+
+  if (customSrc && !failed) {
+    return (
+      <span className="os-mark is-custom" data-icon-id="chronos" style={{ width: size, height: size }} aria-hidden="true">
+        <img src={customSrc} alt="" className="os-icon-img" draggable={false} onError={() => setFailed(true)} />
+      </span>
+    );
+  }
+
   return (
-    <span className="os-mark" style={{ width: size, height: size }} aria-hidden="true">
+    <span className="os-mark" data-icon-id="chronos" style={{ width: size, height: size }} aria-hidden="true">
       {line(Math.round(size * 0.7), 'M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z', 'M12 7.5V12l3 2')}
     </span>
   );

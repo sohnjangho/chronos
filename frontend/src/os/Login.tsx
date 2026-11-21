@@ -32,7 +32,7 @@ export default function Login() {
   }
 
   return (
-    <div className="os-login">
+    <div className="os-login" data-device={detected}>
       <div className="os-login-backdrop" aria-hidden="true" />
 
       <div className="os-login-pane">

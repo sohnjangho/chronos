@@ -4,6 +4,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useApprovalPolling, useApprovals } from './approvals';
 import { ChronosMark, MoonIcon, SunIcon } from './icons';
+import ProgramIcon, { SystemIcon } from './ProgramIcon';
 import { getProgram, programs, type ProgramManifest } from './registry';
 import ScheduleSelector from './ScheduleSelector';
 import { useSession } from './session';
@@ -39,9 +40,7 @@ function MoreGrid({ list, onPick }: { list: ProgramManifest[]; onPick(id: string
       <div className="mob-more-grid">
         {list.map((p) => (
           <button key={p.id} type="button" className="mob-more-btn" onClick={() => onPick(p.id)}>
-            <span className={`os-icon os-tone-${p.tone ?? 'slate'}`} style={{ '--icon-size': '44px' } as React.CSSProperties} aria-hidden="true">
-              {p.icon}
-            </span>
+            <ProgramIcon program={p} size={56} />
             <span className="mob-more-name">{p.name}</span>
           </button>
         ))}
@@ -80,11 +79,15 @@ function DeviceSwitch({ device }: { device: 'phone' | 'tablet' }) {
 function MobileHeader({
   title,
   device,
+  manifest,
+  isField,
   showBack,
   onBack,
 }: {
   title: string;
   device: 'phone' | 'tablet';
+  manifest?: ProgramManifest;
+  isField?: boolean;
   showBack: boolean;
   onBack(): void;
 }) {
@@ -101,7 +104,7 @@ function MobileHeader({
           </button>
         ) : (
           <span className="mob-brand" aria-hidden="true">
-            <ChronosMark />
+            {manifest ? <ProgramIcon program={manifest} size={28} iconId={isField ? 'field' : undefined} /> : <ChronosMark size={28} />}
           </span>
         )}
         <span className="mob-title">{title}</span>
@@ -129,30 +132,33 @@ function MobileTabBar({
   pending: number;
   onSelect(next: TabId): void;
 }) {
-  const items: { id: TabId; label: string; icon: string; badge?: number }[] = [
-    { id: 'chat', label: '대화', icon: '💬' },
-    { id: 'schedule', label: '일정·현장', icon: '📅' },
-    { id: 'approvals', label: '승인', icon: '✓', badge: pending },
-    { id: 'library', label: '자료함', icon: '📁' },
-    { id: 'more', label: '전체', icon: '☰' },
+  const items: { id: TabId; label: string; programId?: string; systemId?: 'apps'; badge?: number }[] = [
+    { id: 'chat', label: '대화', programId: 'chat' },
+    { id: 'schedule', label: '일정·현장', programId: 'schedule-table' },
+    { id: 'approvals', label: '승인', programId: 'approvals', badge: pending },
+    { id: 'library', label: '자료함', programId: 'library' },
+    { id: 'more', label: '전체', systemId: 'apps' },
   ];
   return (
     <nav className="mob-nav" aria-label="모바일 탐색">
-      {items.map((it) => (
-        <button
-          key={it.id}
-          type="button"
-          className={`mob-tab${tab === it.id ? ' is-active' : ''}`}
-          aria-current={tab === it.id ? 'page' : undefined}
-          onClick={() => onSelect(it.id)}
-        >
-          <span className="mob-tab-icon" aria-hidden="true">
-            {it.icon}
-            {it.badge && it.badge > 0 ? <span className="mob-badge">{it.badge > 99 ? '99+' : it.badge}</span> : null}
-          </span>
-          <span className="mob-tab-label">{it.label}</span>
-        </button>
-      ))}
+      {items.map((it) => {
+        const prog = it.programId ? getProgram(it.programId) : undefined;
+        return (
+          <button
+            key={it.id}
+            type="button"
+            className={`mob-tab${tab === it.id ? ' is-active' : ''}`}
+            aria-current={tab === it.id ? 'page' : undefined}
+            onClick={() => onSelect(it.id)}
+          >
+            <span className="mob-tab-icon" aria-hidden="true">
+              {prog ? <ProgramIcon program={prog} size={26} /> : <SystemIcon id={it.systemId ?? 'apps'} size={26} />}
+              {it.badge && it.badge > 0 ? <span className="mob-badge">{it.badge > 99 ? '99+' : it.badge}</span> : null}
+            </span>
+            <span className="mob-tab-label">{it.label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }
@@ -227,6 +233,8 @@ export default function MobileShell() {
       <MobileHeader
         title={title}
         device={device}
+        manifest={manifest}
+        isField={tab === 'schedule' && scheduleSub === 'field'}
         showBack={tab === 'more' && moreProgram !== null}
         onBack={() => setMoreProgram(null)}
       />
