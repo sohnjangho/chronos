@@ -12,14 +12,14 @@ from app.agent.generation import generate
 from app.agent.loop import run_turn
 from app.domains.loader import UnknownDomain, resolve_pack
 from app.harness.conditions import Condition
-from app.llm.client import LlmClient
+from app.llm.client import MAX_TOKENS, LlmClient
 from app.store import chats
 from app.store.schedules import create_schedule
 from app.store.tables import User
 from app.tools import registry
 from app.tools.context import ToolContext
 from tests.gen_doubles import act, script
-from tests.llm_doubles import FakeLiner, add_connection
+from tests.llm_doubles import FakeLiner, add_connection, chat_body
 from tests.loop_doubles import ScriptedLlm, calls, reply
 from tests.schedules import sample
 
@@ -206,3 +206,53 @@ def test_build_context_avoids_construction_bias_for_blank_or_universal_requests(
             session.commit()
             sys_prompt = context.build_context(session, admin, cid, ui)[0]["content"]
             assert "타워크레인" not in sys_prompt and "대표 WBS 틀:\n- 1 기초" not in sys_prompt
+
+
+async def test_generate_rejects_disconnected_zero_relation_draft_and_repairs(session):
+    add_connection(session)
+    liner = FakeLiner()
+    wbs = {
+        "wbs": [
+            {"code": "1", "name": "단계 1", "parent": None},
+            {"code": "1.1", "name": "세부 1", "parent": "1"},
+        ]
+    }
+    disconnected = {
+        "resources": [],
+        "activities": [
+            act("A1", "작업 1", "1.1", 3, []),
+            act("A2", "작업 2", "1.1", 4, []),
+            act("A3", "작업 3", "1.1", 5, []),
+            act("A4", "작업 4", "1.1", 2, []),
+        ],
+    }
+    connected = {
+        "resources": [],
+        "activities": [
+            act("A1000", "시작", "1.1", 0, [], kind="start_ms"),
+            act("A1010", "작업 1", "1.1", 3, ["A1000"]),
+            act("A1020", "작업 2", "1.1", 4, ["A1010"]),
+            act("A1030", "완료", "1.1", 0, ["A1020"], kind="finish_ms"),
+        ],
+    }
+    script(liner, _profile_reply("연구개발", "researcher", "연구원"), wbs, disconnected, connected)
+    llm = LlmClient(session, transport=liner.transport)
+    admin = session.query(User).filter_by(login_id="admin").one()
+    chat = chats.create_chat(session, user_id=admin.id)
+    ctx = ToolContext(session=session, user=admin, schedule_id=None, chat_session_id=chat.id, emit=lambda _e: None)
+
+    r = await generate(ctx, llm, domain="rnd", level="L3", request="연구 일정", facts=[{"label": "시작일", "value": "2027-03-02", "source": "프롬프트"}])
+    assert r.ok, r.reason
+    assert r.rounds[0].violations == -1 and r.rounds[1].violations == 0
+    assert len(r.schedule.relations) == 3
+
+
+async def test_llm_client_max_tokens_override_preserves_defaults(session):
+    add_connection(session)
+    liner = FakeLiner()
+    liner.push(chat_body("기본"), chat_body("상향"))
+    llm = LlmClient(session, transport=liner.transport)
+    await llm.chat("light", [{"role": "user", "content": "hi"}])
+    assert liner.last_body["max_tokens"] == MAX_TOKENS["light"]
+    await llm.chat("light", [{"role": "user", "content": "hi"}], max_tokens=6000)
+    assert liner.last_body["max_tokens"] == 6000

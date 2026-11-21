@@ -167,7 +167,14 @@ async def synthesize_pack(
         {"role": "user", "content": _user_message(domain, request, facts, assumptions, conditions)},
     ]
     try:
-        reply = await llm.chat("light", messages, json_schema=SYNTH_SCHEMA, timeout_s=60, chat_session_id=chat_session_id)
+        reply = await llm.chat(
+            "light",
+            messages,
+            json_schema=SYNTH_SCHEMA,
+            timeout_s=60,
+            chat_session_id=chat_session_id,
+            max_tokens=6000,
+        )
         if not isinstance(reply.parsed, dict):
             return base
         return _build_pack(base, reply.parsed, conditions)

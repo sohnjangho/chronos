@@ -132,9 +132,15 @@ def _wire_messages(messages: list[dict]) -> list[dict]:
 
 
 def _request_body(
-    target: _Target, purpose: Purpose, messages: list[dict], tools: list[dict] | None, json_schema: dict | None
+    target: _Target,
+    purpose: Purpose,
+    messages: list[dict],
+    tools: list[dict] | None,
+    json_schema: dict | None,
+    max_tokens: int | None = None,
 ) -> dict:
-    body: dict = {"model": target.model, "messages": _wire_messages(messages), "max_tokens": MAX_TOKENS[purpose]}
+    limit = MAX_TOKENS[purpose] if max_tokens is None else max_tokens
+    body: dict = {"model": target.model, "messages": _wire_messages(messages), "max_tokens": limit}
     if tools:
         body["tools"] = tools
     if json_schema is not None:
@@ -354,10 +360,11 @@ class LlmClient:
         json_schema: dict | None = None,
         timeout_s: float = 60,
         chat_session_id: int | None = None,
+        max_tokens: int | None = None,
     ) -> LlmReply:
         """한 번 부른다. 연결이 없으면 LlmNotReady, 보낸 뒤 실패하면 LlmFailed.
 
-        - timeout_s 는 호출 전체에 건다. tools 는 registry.as_llm_tools() 형식. max_tokens 는 MAX_TOKENS.
+        - timeout_s 는 호출 전체에 건다. tools 는 registry.as_llm_tools() 형식. max_tokens 기본값은 MAX_TOKENS.
         - json_schema 를 주면 strict 모드로 그 모양의 JSON 을 요청한다. strict 모드는 모든 속성이
           required 에 들어 있고 additionalProperties 가 false 여야 하므로(중첩 객체도) 스키마를
           그렇게 써서 넘긴다. 답이 JSON 객체면 reply.parsed 에 담는다(아니면 parsed=None,
@@ -375,7 +382,7 @@ class LlmClient:
           된다. 그러면 SQLite busy timeout(기본 5초)을 기다린 뒤 사용량 기록이 빠질 수 있다.
         """
         target = self._target(purpose)
-        body = _request_body(target, purpose, messages, tools, json_schema)
+        body = _request_body(target, purpose, messages, tools, json_schema, max_tokens=max_tokens)
         reply: LlmReply | None = None
         error: LlmError | None = None
         start = time.perf_counter()

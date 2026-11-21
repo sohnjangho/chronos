@@ -140,5 +140,10 @@ async def ask(
 ) -> LlmReply:
     """hard 쓰임새로 한 번 부른다. 실패(LlmNotReady·LlmFailed)는 그대로 올라간다."""
     return await llm.chat(
-        "hard", messages, json_schema=schema, timeout_s=HARD_TIMEOUT_S, chat_session_id=chat_session_id
+        "hard",
+        messages,
+        json_schema=schema,
+        timeout_s=HARD_TIMEOUT_S,
+        chat_session_id=chat_session_id,
+        max_tokens=32000,
     )

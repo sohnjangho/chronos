@@ -241,7 +241,9 @@ async def _ask(args: ExtractIn, pack: DomainPack, ctx: ToolContext) -> _Reply:
     llm = package.client_for(ctx)
     chat_session_id = getattr(ctx, "chat_session_id", None)  # 문맥이 대화 id 를 가질 때만
     try:
-        reply = await llm.chat("light", messages, json_schema=EXTRACT_SCHEMA, chat_session_id=chat_session_id)
+        reply = await llm.chat(
+            "light", messages, json_schema=EXTRACT_SCHEMA, chat_session_id=chat_session_id, max_tokens=6000
+        )
     except LlmNotReady as e:
         raise ToolError(e.message) from None
     except LlmFailed as e:

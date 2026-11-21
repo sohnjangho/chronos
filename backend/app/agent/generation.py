@@ -195,6 +195,17 @@ class _Loop:
             if self.fixed is not None:
                 reply = self.fixed.merge(reply)  # 파일 값으로 덮는다(빈 칸 행이 빠졌으면 DraftProblem)
             self.draft, self.wbs = read_draft(reply, self.wbs or [])
+            if self.fixed is None and len(self.draft.activities) >= 3:
+                with_preds = sum(1 for a in self.draft.activities if a.predecessors)
+                kinds = {a.kind for a in self.draft.activities}
+                min_linked = max(1, (len(self.draft.activities) - 1) // 2)
+                if with_preds < min_linked or (
+                    len(self.draft.activities) >= 4 and "start_ms" not in kinds and "finish_ms" not in kinds
+                ):
+                    raise DraftProblem(
+                        "선후 관계(predecessors) 또는 시작/완료 마일스톤(start_ms·finish_ms)이 빠져 작업이 연결되지 않았습니다. 시작 마일스톤에서 완료 마일스톤까지 모든 작업을 FS·SS·FF 선후 관계로 연결해 다시 작성하세요.",
+                        len(self.draft.activities),
+                    )
         except DraftProblem as problem:
             self.broken(problem)
             return None
