@@ -367,6 +367,45 @@ body {
   background: color-mix(in srgb, var(--bg-topbar) 55%, transparent);
 }
 .os-login-card .os-card-note { color: var(--on-topbar-muted); }
+.os-login-device { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.os-login-dev-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--fs-12);
+  color: var(--on-topbar-muted);
+}
+.os-login-dev-detected {
+  font-size: var(--fs-11);
+  color: var(--on-topbar-fg);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--on-topbar-fill);
+  border: 1px solid var(--on-topbar-line);
+}
+.os-login-dev-seg {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+.os-login-dev-btn {
+  border: 1px solid var(--on-topbar-line);
+  background: var(--on-topbar-fill);
+  color: var(--on-topbar-fg);
+  border-radius: var(--radius-2);
+  padding: 6px 4px;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.os-login-dev-btn:hover { background: var(--on-topbar-hover); }
+.os-login-dev-btn[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
 @media (max-width: 820px) {
   .os-login { justify-content: center; padding: 20px; }
   .os-login-brand { align-items: center; text-align: center; }

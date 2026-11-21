@@ -1,0 +1,344 @@
+/* 태블릿(iPad 등) 전용 워크스테이션 셸. 색·글꼴은 tokens.css 변수만 쓴다. */
+.tab-root {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--bg-app);
+  color: var(--fg);
+}
+
+.tab-head {
+  flex: 0 0 var(--topbar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 14px;
+  background: var(--bg-topbar);
+  color: var(--on-topbar-fg);
+  border-bottom: 1px solid var(--on-topbar-line);
+}
+.tab-head-left,
+.tab-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tab-title {
+  font-size: var(--fs-15);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-pill {
+  font-size: var(--fs-11);
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--on-topbar-fill);
+  border: 1px solid var(--on-topbar-line);
+  color: var(--on-topbar-muted);
+  white-space: nowrap;
+}
+
+.tab-split-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--on-topbar-line);
+  background: var(--on-topbar-fill);
+  color: var(--on-topbar-fg);
+  border-radius: var(--radius-2);
+  padding: 5px 10px;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tab-split-btn[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.tab-split-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tab-dev-switch {
+  display: inline-flex;
+  border-radius: var(--radius-2);
+  border: 1px solid var(--on-topbar-line);
+  background: var(--on-topbar-fill);
+  overflow: hidden;
+  flex: none;
+}
+.tab-dev-btn {
+  border: 0;
+  background: transparent;
+  color: var(--on-topbar-fg);
+  font-size: var(--fs-11);
+  padding: 5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tab-dev-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+.tab-icon-btn,
+.tab-text-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: var(--radius-2);
+  font-size: var(--fs-13);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+.tab-icon-btn:hover,
+.tab-text-btn:hover { background: var(--on-topbar-hover); }
+
+.tab-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+/* 왼쪽 76px 아이콘 레일 */
+.tab-rail {
+  flex: 0 0 76px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  padding: 8px 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.tab-rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tab-rail-foot {
+  flex: none;
+  padding-top: 8px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tab-rail-btn {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  border-radius: var(--radius-3);
+  padding: 7px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.tab-rail-btn:hover { background: var(--bg-panel-alt); color: var(--fg); }
+.tab-rail-btn[aria-current="page"] {
+  background: var(--bg-selected);
+  color: var(--tone-info-fg);
+  font-weight: 700;
+}
+.tab-rail-ico-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tab-rail-label {
+  font-size: var(--fs-11);
+  line-height: 14px;
+  white-space: nowrap;
+}
+.tab-rail-badge {
+  position: absolute;
+  top: -4px;
+  right: -7px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: var(--fs-11);
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* 메인 스테이지 + 보조 분할 창 */
+.tab-stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+.tab-primary {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.tab-primary-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.tab-primary-body > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.tab-side {
+  flex: 0 0 clamp(320px, 36%, 440px);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+.tab-side-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-panel-alt);
+  border-bottom: 1px solid var(--border);
+}
+.tab-side-tabs {
+  display: inline-flex;
+  gap: 4px;
+  min-width: 0;
+}
+.tab-side-tab {
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  border-radius: var(--radius-2);
+  padding: 4px 10px;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tab-side-tab.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.tab-side-close {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: var(--fs-16);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-2);
+  cursor: pointer;
+}
+.tab-side-close:hover { background: var(--bg-app); color: var(--fg); }
+.tab-side-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.tab-side-body > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 전체 프로그램 (4열 이상 iPadOS 앱 서랍) */
+.tab-apps {
+  padding: 24px 28px;
+  overflow-y: auto;
+}
+.tab-apps-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 18px;
+}
+.tab-apps-head h2 { margin: 0; font-size: var(--fs-16); }
+.tab-muted { color: var(--fg-muted); font-size: var(--fs-12); }
+.tab-apps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 14px;
+}
+.tab-app-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-4);
+  background: var(--bg-panel-alt);
+  color: var(--fg);
+  cursor: pointer;
+}
+.tab-app-tile:hover {
+  border-color: var(--accent);
+  background: var(--bg-selected);
+}
+.tab-app-name {
+  font-size: var(--fs-13);
+  font-weight: 600;
+  text-align: center;
+}
+
+.tab-loading {
+  padding: 36px 20px;
+  text-align: center;
+  color: var(--fg-muted);
+}
+
+/* 태블릿 현장 점검 화면에서 S-커브 도구줄 중복 숨김 */
+.tab-root .pg-tab.is-field-view .pg-toolbar {
+  display: none;
+}
+
+/* 세로형 태블릿(<= 860px)에서 분할 화면을 켰을 때 주/보조 폭 균형 */
+@media (max-width: 860px) {
+  .tab-side {
+    flex: 0 0 46%;
+  }
+}

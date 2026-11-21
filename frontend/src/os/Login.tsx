@@ -2,12 +2,29 @@ import { useState, type FormEvent } from 'react';
 import Button from '../shared/ui/Button';
 import Field from '../shared/ui/Field';
 import { useSignIn } from './auth';
+import { useDetectedDevice, useDeviceMode, type DeviceMode, type ResolvedDevice } from './useIsMobile';
+
+const DETECTED_LABEL: Record<ResolvedDevice, string> = {
+  desktop: '데스크톱',
+  tablet: '태블릿',
+  phone: '스마트폰',
+};
+
+const LOGIN_DEVICES: { id: DeviceMode; label: string }[] = [
+  { id: 'auto', label: '자동' },
+  { id: 'desktop', label: '데스크톱' },
+  { id: 'tablet', label: '태블릿' },
+  { id: 'phone', label: '스마트폰' },
+];
 
 /** 시안 「로그인」: 우측 홀로그램 배경 동영상 + 좌측 브랜드 로고·글래스 로그인 패널. */
 export default function Login() {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const { busy, error, submit } = useSignIn();
+  const deviceMode = useDeviceMode((s) => s.mode);
+  const setDeviceMode = useDeviceMode((s) => s.setMode);
+  const detected = useDetectedDevice();
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -50,6 +67,25 @@ export default function Login() {
               required
             />
           </Field>
+          <div className="os-login-device">
+            <div className="os-login-dev-head">
+              <span>접속 화면</span>
+              <span className="os-login-dev-detected">{`자동 감지: ${DETECTED_LABEL[detected]}`}</span>
+            </div>
+            <div className="os-login-dev-seg" role="group" aria-label="접속 화면 선택">
+              {LOGIN_DEVICES.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="os-login-dev-btn"
+                  aria-pressed={deviceMode === item.id}
+                  onClick={() => setDeviceMode(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
           {error && (
             <p className="os-card-error" role="alert">
               {error}

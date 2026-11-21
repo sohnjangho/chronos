@@ -66,9 +66,24 @@ test('renders MobileShell on <=768px and switches tabs, schedule sub-tabs, and m
   });
   expect(within(nav).getByRole('button', { name: /자료함/ })).toHaveAttribute('aria-current', 'page');
 
-  // 화면 형태 전환(태블릿 → PC 창)
+  // 화면 형태 전환(스마트폰 → 태블릿 전용 셸 → PC 창)
   await userEvent.click(screen.getByRole('button', { name: '태블릿' }));
-  expect(screen.getByTestId('mobile-shell')).toHaveAttribute('data-device', 'tablet');
+  const tablet = screen.getByTestId('tablet-shell');
+  expect(tablet).toBeVisible();
+  expect(tablet).toHaveAttribute('data-device', 'tablet');
+  const rail = screen.getByRole('navigation', { name: '태블릿 탐색' });
+  await userEvent.click(within(rail).getByRole('button', { name: '현장 점검' }));
+  expect(within(rail).getByRole('button', { name: '현장 점검' })).toHaveAttribute('aria-current', 'page');
+
+  // 태블릿 좌우 분할 전환 및 전체 앱 서랍 권한 필터 확인
+  const splitBtn = screen.getByRole('button', { name: '좌우 분할' });
+  await userEvent.click(splitBtn);
+  expect(screen.getByRole('complementary', { name: '보조 분할 화면' })).toBeVisible();
+  await userEvent.click(within(rail).getByRole('button', { name: '전체 앱' }));
+  const apps = screen.getByLabelText('전체 프로그램');
+  expect(within(apps).getByRole('button', { name: '자료함' })).toBeVisible();
+  expect(within(apps).queryByRole('button', { name: '개발 콘솔' })).toBeNull();
+
   await userEvent.click(screen.getByRole('button', { name: 'PC 창' }));
   expect(screen.getByTestId('desktop-surface')).toBeVisible();
 });
