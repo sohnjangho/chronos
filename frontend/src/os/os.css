@@ -486,7 +486,7 @@ body {
   .os-login {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto;
-    align-content: center;
+    align-content: safe center;
     justify-items: center;
     overflow-y: auto;
     padding: 24px 20px 32px;
@@ -499,8 +499,8 @@ body {
     width: 100%;
   }
   .os-login-video {
-    height: min(290px, 34vh);
-    max-width: min(380px, 92vw);
+    height: min(320px, 34vh);
+    max-width: min(540px, 92vw);
   }
   .os-login-pane {
     width: min(360px, 100%);
@@ -512,10 +512,17 @@ body {
   .os-login-foot { text-align: center; }
 }
 @media (max-width: 520px) {
-  .os-login-video {
-    height: min(210px, 27vh);
-    max-width: 88vw;
+  .os-login {
+    padding: 14px 20px 20px;
+    gap: 6px;
   }
+  .os-login-video {
+    height: min(180px, 22vh);
+    max-width: 96vw;
+  }
+  .os-login-pane { gap: 16px; }
+  .os-login-card { gap: 16px; }
+  .os-login-foot { margin-top: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .os-login-video,
