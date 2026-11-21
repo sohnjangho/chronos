@@ -12,7 +12,7 @@ export default function FileChips({ items, notice, onRemove }: Props) {
   const failed = items.filter((i) => i.status === 'failed' && i.reason);
 
   return (
-    <div className="ch-file-tray" aria-label="붙인 파일">
+    <div className="ch-file-tray" role="region" aria-label="붙인 파일">
       {items.length > 0 && (
         <div className="ch-file-list">
           {items.map((item) => (

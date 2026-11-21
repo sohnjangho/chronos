@@ -49,7 +49,7 @@ NODES = (
     ("judge", "판단 (모델)"), ("tool", "도구 실행"), ("check", "조건 점검"), ("approval", "승인 판단"),
     ("respond", "응답·기록"),
 )
-CHECK_TOOLS = frozenset({"harness.check", "generate.run"})
+CHECK_TOOLS = frozenset({"harness.check", "generate.run", "schedule.import"})
 APPROVAL_TOOLS = frozenset({"out.submit_change", "scenario.submit", "rules.propose"})
 SKILL_NOTE = "스킬은 묶음 3에서 — 지금은 늘 없음"
 CHECK_SETTING = "점검 한도 5회"
@@ -157,6 +157,66 @@ def _now(llms: list[TraceEvent], steps: list[WorkflowStep]) -> str:
     return _cell(open_step.tool) if open_step is not None else "judge"
 
 
+def _parsed_output(step: WorkflowStep) -> dict:
+    try:
+        out = json.loads(step.output_json or "")
+        return out if isinstance(out, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+def _branch_signals(llms: list[TraceEvent], steps: list[WorkflowStep]) -> tuple[list[str], dict | None]:
+    """실제 실행 기록에서 분기 플래그와 하네스 점검 요약을 뽑는다."""
+    lit: list[str] = []
+    if any(e.label == "vision" for e in llms):
+        lit.append("vision_turn")
+    if any(s.tool.startswith("files.") or s.tool == "schedule.import" for s in steps):
+        lit.append("files_used")
+    if any(s.tool == "info.weather" for s in steps):
+        lit.append("weather_used")
+
+    check_steps = [s for s in steps if s.tool in CHECK_TOOLS]
+    harness_summary: dict | None = None
+    if check_steps:
+        rounds, passed, violations, uncheckable = 0, 0, 0, 0
+        for s in check_steps:
+            out = _parsed_output(s)
+            r = out.get("rounds")
+            rounds += len(r) if isinstance(r, list) else (r if isinstance(r, int) else 1)
+            for key, acc in (("passed", "p"), ("violations", "v"), ("uncheckable", "u")):
+                val = out.get(key)
+                n = len(val) if isinstance(val, list) else (val if isinstance(val, int) else 0)
+                if acc == "p":
+                    passed += n
+                elif acc == "v":
+                    violations += n
+                else:
+                    uncheckable += n
+            if isinstance(out.get("uncheckable_count"), int):
+                uncheckable += out["uncheckable_count"]
+        if rounds > len(check_steps) or violations > 0:
+            lit.append("check_repair")
+        harness_summary = {
+            "tools": [s.tool for s in check_steps],
+            "rounds": rounds,
+            "passed": passed,
+            "violations": violations,
+            "uncheckable": uncheckable,
+        }
+
+    for s in steps:
+        if s.tool not in APPROVAL_TOOLS:
+            continue
+        out = _parsed_output(s)
+        if out.get("applied") is False or (out.get("approval_id") and out.get("applied") is not True):
+            if "approval_inbox" not in lit:
+                lit.append("approval_inbox")
+        elif out.get("applied") is True:
+            if "approval_auto" not in lit:
+                lit.append("approval_auto")
+    return lit, harness_summary
+
+
 def _structure(row: store.TurnRow, events: list[TraceEvent], steps: list[WorkflowStep], *, running: bool,
                mode: str) -> StructureOut:
     llms = [e for e in events if e.kind == "llm"]
@@ -181,7 +241,11 @@ def _structure(row: store.TurnRow, events: list[TraceEvent], steps: list[Workflo
         count, detail = found[key]
         state = "skipped" if key == "skill" else "now" if key == now else "past" if count else "todo"
         nodes.append(NodeOut(key=key, label=label, state=state, count=count, detail=detail))
-    return StructureOut(nodes=nodes, loop_count=len(llms), limit=MAX_STEPS)
+    edges_lit, harness_summary = _branch_signals(llms, steps)
+    return StructureOut(
+        nodes=nodes, loop_count=len(llms), limit=MAX_STEPS,
+        edges_lit=edges_lit, harness_summary=harness_summary,
+    )
 
 
 # ── 시간표 ──────────────────────────────────────────────────────────

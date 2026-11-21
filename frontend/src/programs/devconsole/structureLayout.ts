@@ -18,7 +18,7 @@ export type BoxKey = NodeKey | SideKey | SourceKey;
 export const SOURCES: { key: SourceKey; label: string; parts: string[] }[] = [
   { key: 'src0', label: '지시문·정밀도', parts: ['지시문', '정밀도'] },
   { key: 'src1', label: '분야 지식', parts: ['분야 지식'] },
-  { key: 'src2', label: '지금 상황·날짜', parts: ['지금 상황', '날짜 도우미'] },
+  { key: 'src2', label: '상황·파일·날짜', parts: ['지금 상황', '붙인 파일', '날짜 도우미'] },
   { key: 'src3', label: '대화 기록', parts: ['대화'] },
   { key: 'src4', label: '도구 목록', parts: ['도구 목록'] },
 ];
@@ -96,18 +96,23 @@ const EDGES: { from: BoxKey; to: BoxKey; label?: string; unknown?: true }[] = [
   { from: 'approval', to: 'respond' },
 ];
 
-/** 그릴 선과 그 상태. 들른 칸(past·now, 늘 건너뛰는 스킬 찾기는 지나가는 칸)끼리의 선만 불을 켠다. */
-export function edgesFor(nodes: { key: NodeKey; state: NodeState }[]): Edge[] {
+/** 그릴 선과 그 상태. 들른 칸끼리의 선과 실제 실행된 분기(edgesLit)에 불을 켠다. */
+export function edgesFor(nodes: { key: NodeKey; state: NodeState }[], edgesLit: string[] = []): Edge[] {
   const state = new Map<string, NodeState>(nodes.map((n) => [n.key, n.state]));
+  const litFlags = new Set(edgesLit);
   const sourceState = state.get('context');
   const of = (k: BoxKey) => (k.startsWith('src') ? sourceState : state.get(k));
   const visited = (s: NodeState | undefined) => s === 'past' || s === 'now';
   const skillPassed = visited(state.get('plan'));
   const passed = (k: BoxKey) => (k === 'skill' ? skillPassed : visited(of(k)));
   return EDGES.map(({ from, to, label, unknown }) => {
-    const lit = !unknown && passed(from) && passed(to);
+    const flagLit =
+      (from === 'check' && to === 'judge' && litFlags.has('check_repair')) ||
+      (from === 'approval' && to === 'inbox' && litFlags.has('approval_inbox'));
+    const lit = flagLit || (!unknown && passed(from) && passed(to));
     const s: Edge['state'] = !lit ? 'todo' : of(to) === 'now' ? 'now' : 'past';
-    return { from, to, ...(label && { label }), state: s, ...(unknown && { unknown }) };
+    const isUnknown = unknown && !flagLit;
+    return { from, to, ...(label && { label }), state: s, ...(isUnknown && { unknown: true as const }) };
   });
 }
 

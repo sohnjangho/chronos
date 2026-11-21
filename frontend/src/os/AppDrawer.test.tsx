@@ -38,7 +38,7 @@ test('the logo menu opens the drawer with every program and a focused search box
   render(<Desktop />);
   await userEvent.click(screen.getByRole('button', { name: 'ChronOS 메뉴' }));
   await userEvent.click(screen.getByRole('menuitem', { name: '앱 목록' }));
-  expect(within(drawer()).getAllByRole('button', { name: /^.+ 열기$/ })).toHaveLength(13);
+  expect(within(drawer()).getAllByRole('button', { name: /^.+ 열기$/ })).toHaveLength(14);
   const search = within(drawer()).getByRole('searchbox', { name: '프로그램 찾기' });
   expect(search).toHaveFocus();
   await userEvent.type(search, '스케줄');

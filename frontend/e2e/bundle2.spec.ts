@@ -101,7 +101,7 @@ async function askRecovery(page: Page, chat: Locator): Promise<Locator> {
   await expect(options.locator('.ch-option.is-pick')).toHaveCount(1); // 추천 하나
   const compare = win(page, '비교판');
   await expect(compare).toBeVisible();
-  await chat.locator('.os-win-title').click();
+  await dock(page, '에이전트 대화').click();
   await shot(page, '05-대화-만회안');
   return compare;
 }

@@ -31,7 +31,7 @@ from app.store.tables import TraceEvent, User
 
 logger = logging.getLogger(__name__)
 
-CONTEXT_PARTS = ("지시문", "분야 지식", "정밀도", "지금 상황", "날짜 도우미", "대화", "도구 목록")
+CONTEXT_PARTS = ("지시문", "분야 지식", "정밀도", "지금 상황", "붙인 파일", "날짜 도우미", "대화", "도구 목록")
 TEXT_LIMIT = 60_000  # input_text·output_text 전체 한도
 MESSAGE_LIMIT = 4_000  # 메시지 하나의 content(도구 인자도) 한도
 CONTEXT_LABEL = "컨텍스트 조립"
@@ -184,12 +184,13 @@ def _count_parts(session: Session, user: User, chat_session_id: int, ui: UiConte
     knowledge = "\n\n".join(load(d).prompt() for d in domains())
     levels = levels_prompt()
     rows = recent_messages(session, chat_session_id, context.HISTORY_LIMIT)
-    attached = context.files_line(session, chat_session_id)  # 지금 상황 끝의 「이 대화에 붙인 파일」 줄(앞 줄바꿈 1자)
+    attached = context.files_line(session, chat_session_id)  # 지금 상황 끝의 「이 대화에 붙인 파일」 줄
     chars = {
         "지시문": len(context.system_prompt()) - len(knowledge) - len(levels),
         "분야 지식": len(knowledge),
         "정밀도": len(levels),
-        "지금 상황": len(context.situation(session, user, ui)) + (len(attached) + 1 if attached else 0),
+        "지금 상황": len(context.situation(session, user, ui)),
+        "붙인 파일": len(attached) + 1 if attached else 0,
         "날짜 도우미": len("\n".join(context.date_helper(rows, context.today()))),
         "대화": len(json.dumps(context.history(rows), ensure_ascii=False)),
         "도구 목록": len(json.dumps(tools, ensure_ascii=False)),

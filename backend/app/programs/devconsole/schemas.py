@@ -48,6 +48,8 @@ class StructureOut(BaseModel):
     nodes: list[NodeOut]
     loop_count: int  # llm 사건 수
     limit: int  # MAX_STEPS
+    edges_lit: list[str] = Field(default_factory=list)  # 실제 실행된 분기: check_repair·approval_inbox·approval_auto·vision_turn·files_used·weather_used
+    harness_summary: dict[str, Any] | None = None  # 하네스 점검 요약(rounds·passed·violations·uncheckable·tools)
 
 
 class TimelineItem(BaseModel):

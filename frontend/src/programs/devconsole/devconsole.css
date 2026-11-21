@@ -419,3 +419,91 @@
   .dc-canvas { overflow: visible; }
   .dc-detail { width: auto; flex: none; overflow: visible; border-left: 0; border-top: 2px solid var(--border); }
 }
+
+/* Phase 3: 개발 콘솔 분기 배지 · 하네스 요약 · 이번 턴 실행 흐름도 */
+.dc-modebar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+
+.dc-mode-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dc-mode-btn.is-on {
+  background: var(--accent-soft, rgba(59, 130, 246, 0.14));
+  border-color: var(--accent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.dc-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px 2px;
+}
+
+.dc-sig {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.dc-sig.is-harness,
+.dc-sig.is-check_repair {
+  border-color: var(--accent);
+}
+
+.dc-sig.is-approval_inbox {
+  border-color: var(--warn, #d97706);
+}
+
+.dc-flow-wrap {
+  overflow-y: auto;
+}
+
+.dc-flow-node {
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  padding: 6px 10px;
+}
+
+.dc-flow-node.is-llm {
+  border-color: var(--accent);
+}
+
+.dc-flow-node.is-check {
+  border-color: #16a34a;
+}
+
+.dc-flow-node.is-approval {
+  border-color: #d97706;
+}
+
+.dc-flow-node.is-inner_llm {
+  border-style: dashed;
+}
+
+.dc-flow-node.is-fail {
+  border-color: var(--danger, #dc2626);
+}
+
+.dc-flow-title,
+.dc-flow-sub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

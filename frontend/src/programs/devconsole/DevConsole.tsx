@@ -10,6 +10,7 @@ import type { NodeKey, TurnDetail } from './devApi';
 import { cost, seconds, status, tokens } from './format';
 import NodeDetail from './NodeDetail';
 import TraceTimeline from './TraceTimeline';
+import TurnFlowDiagram from './TurnFlowDiagram';
 import TurnPicker from './TurnPicker';
 import UsageTab from './UsageTab';
 import { useTurnData } from './useTurnData';
@@ -78,14 +79,34 @@ function TurnStats({ detail, halted, checkedAt }: { detail: TurnDetail; halted: 
 
 function StructureView({ detail }: { detail: TurnDetail }) {
   const [picked, setPicked] = useState<NodeKey | null>(null);
-  const { nodes } = detail.structure;
+  const [mode, setMode] = useState<'arch' | 'flow'>('arch');
+  const { nodes, edges_lit: edgesLit, harness_summary: harnessSummary } = detail.structure;
   const key = picked ?? nodes.find((n) => n.state === 'now')?.key ?? 'respond';
   const node = nodes.find((n) => n.key === key) ?? nodes[0];
   const inner = detail.timeline.filter((t) => t.kind === 'inner_llm').length;
   return (
     <div className="dc-split">
       <div className="dc-board">
-        <AgentStructure nodes={nodes} turn={detail.turn} selected={node?.key ?? null} onSelect={setPicked} />
+        <div className="dc-modebar" role="group" aria-label="다이어그램 보기 전환">
+          <button type="button" className={`dc-mode-btn${mode === 'arch' ? ' is-on' : ''}`} aria-pressed={mode === 'arch'} onClick={() => setMode('arch')}>
+            전체 구조
+          </button>
+          <button type="button" className={`dc-mode-btn${mode === 'flow' ? ' is-on' : ''}`} aria-pressed={mode === 'flow'} onClick={() => setMode('flow')}>
+            이번 턴 실행 흐름도
+          </button>
+        </div>
+        {mode === 'arch' ? (
+          <AgentStructure
+            nodes={nodes}
+            turn={detail.turn}
+            selected={node?.key ?? null}
+            edgesLit={edgesLit}
+            harnessSummary={harnessSummary}
+            onSelect={setPicked}
+          />
+        ) : (
+          <TurnFlowDiagram detail={detail} selected={node?.key ?? null} onSelect={setPicked} />
+        )}
         <div className="dc-legend">
           <span>
             <i className="dc-sw is-past" />

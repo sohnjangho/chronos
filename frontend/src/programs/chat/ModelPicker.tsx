@@ -72,6 +72,11 @@ export default function ModelPicker() {
           </button>
           {loading && <p className="ch-muted">불러오는 중…</p>}
           {error && <p className="ch-file-err">{error}</p>}
+          {!loading && !error && groups.every((g) => g.models.length === 0) && (
+            <p className="ch-muted ch-model-hint">
+              선택할 수 있는 모델이 없습니다. 설정 &gt; LLM 연결에서 연결 테스트를 먼저 실행해 주세요.
+            </p>
+          )}
           {groups.map((g) => (
             <div key={g.connection_id} className="ch-model-group">
               <div className="ch-model-gname">{g.name}</div>

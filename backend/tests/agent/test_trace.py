@@ -215,7 +215,7 @@ async def test_context_event_lists_the_parts(run, session):
     assert ctx.kind == "context" and ctx.label == "컨텍스트 조립" and ctx.ms is not None
     assert [p["name"] for p in body["parts"]] == list(CONTEXT_PARTS)
     assert body["history_count"] == 1 and body["tool_count"] == len(registry.as_llm_tools())
-    assert all(p["chars"] > 0 for p in body["parts"])
+    assert all(p["chars"] > 0 for p in body["parts"] if p["name"] != "붙인 파일")
 
 
 def test_context_parts_add_up_to_what_the_model_sees(session, admin_user, chat_id, sid):

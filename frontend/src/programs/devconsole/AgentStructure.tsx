@@ -1,7 +1,7 @@
 // 에이전트 구조 그림(SVG, 시안 A안): 흐름 칸 아홉 + 곁 칸(컨텍스트 재료 다섯, 스킬 실행·승인함).
 // 칸 모양: past 채움 · now 강조 테두리와 빛 · todo 점선 · skipped 회색 + "묶음 3". 칸은 폭에 맞춰 자리를 다시 잡는다.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { NodeKey, StructureNode, Turn } from './devApi';
+import type { HarnessSummary, NodeKey, StructureNode, Turn } from './devApi';
 import { hourMinute, seconds, tokens } from './format';
 import { contextParts, STATE } from './NodeDetail';
 import { edgeShape, edgesFor, nodeBoxes, SOURCES, type Box, type Edge } from './structureLayout';
@@ -88,14 +88,25 @@ const SIDE: { key: 'skillrun' | 'inbox'; label: string; sub: string }[] = [
   { key: 'inbox', label: '승인함', sub: '사람이 승인·거부' },
 ];
 
+const BRANCH_LABELS: Record<string, string> = {
+  vision_turn: '그림 읽기 전환 (vision)',
+  files_used: '자료·파일 도구',
+  weather_used: '기상청 날씨 근거',
+  check_repair: '하네스 고침 루프',
+  approval_inbox: '승인함 대기',
+  approval_auto: '자동 반영',
+};
+
 interface Props {
   nodes: StructureNode[];
   turn: Turn;
   selected: NodeKey | null;
+  edgesLit?: string[];
+  harnessSummary?: HarnessSummary | null;
   onSelect(key: NodeKey): void;
 }
 
-export default function AgentStructure({ nodes, turn, selected, onSelect }: Props) {
+export default function AgentStructure({ nodes, turn, selected, edgesLit = [], harnessSummary, onSelect }: Props) {
   const { ref, width } = useWidth(900);
   const nowKey = nodes.find((n) => n.state === 'now')?.key ?? null;
   const nowRef = useRef<HTMLButtonElement>(null);
@@ -104,11 +115,25 @@ export default function AgentStructure({ nodes, turn, selected, onSelect }: Prop
     if (nowKey) nowRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }, [turn.turn_id, nowKey]);
   const boxes = useMemo(() => nodeBoxes(width), [width]);
-  const edges = useMemo(() => edgesFor(nodes), [nodes]);
+  const edges = useMemo(() => edgesFor(nodes, edgesLit), [nodes, edgesLit]);
   const height = Math.max(...Object.values(boxes).map((b) => b.y + b.h)) + 20;
   const context = nodes.find((n) => n.key === 'context');
   return (
     <div ref={ref} className="dc-canvas">
+      {(edgesLit.length > 0 || harnessSummary) && (
+        <div className="dc-signals" aria-label="실행된 분기 및 하네스 요약">
+          {edgesLit.map((flag) => (
+            <span key={flag} className={`dc-sig is-${flag}`}>
+              {BRANCH_LABELS[flag] ?? flag}
+            </span>
+          ))}
+          {harnessSummary && (
+            <span className="dc-sig is-harness">
+              {`하네스 ${harnessSummary.rounds}회차 · 통과 ${harnessSummary.passed} · 위반 ${harnessSummary.violations} · 자동점검안됨 ${harnessSummary.uncheckable}`}
+            </span>
+          )}
+        </div>
+      )}
       <svg role="group" aria-label="에이전트 구조" className="dc-svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
         <defs>
           {(['past', 'now', 'todo'] as const).map((s) => (

@@ -40,7 +40,7 @@ test('the app drawer returns focus to its opener and keeps Tab inside', async ()
   expect(search).toHaveFocus();
   await userEvent.tab({ shift: true });
   expect(drawer.contains(document.activeElement)).toBe(true);
-  within(drawer).getByRole('button', { name: '지연 기록 열기' }).focus();
+  within(drawer).getByRole('button', { name: '자료함 열기' }).focus();
   await userEvent.tab();
   expect(search).toHaveFocus();
   await userEvent.keyboard('{Escape}');

@@ -66,6 +66,10 @@ test('plan 3: chat attach, model picker, library search & axes edit, settings em
   await axisInput.press('Enter');
   await expect(detail.getByText('시방서')).toBeVisible();
 
+  // 자료함 → [대화에 붙이기] 연동 확인
+  await detail.getByRole('button', { name: '대화에 붙이기' }).click();
+  await expect(chatWin.getByRole('region', { name: '붙인 파일' }).getByText('동절기_시방서.txt')).toBeVisible();
+
   // 3. 설정 → 임베딩 줄 & 정보 API 연결 구역 확인
   await dock(page, '설정').click();
   const setWin = win(page, '설정');

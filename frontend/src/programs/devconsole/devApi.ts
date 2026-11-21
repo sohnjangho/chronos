@@ -41,11 +41,23 @@ export interface StructureNode {
   detail: NodeDetail;
 }
 
+export interface HarnessSummary {
+  tools: string[];
+  rounds: number;
+  passed: number;
+  violations: number;
+  uncheckable: number;
+}
+
 export interface Structure {
   nodes: StructureNode[];
   /** llm 사건 수. */
   loop_count: number;
   limit: number;
+  /** 실제 실행된 분기: check_repair·approval_inbox·approval_auto·vision_turn·files_used·weather_used. */
+  edges_lit?: string[];
+  /** 하네스 점검 요약. */
+  harness_summary?: HarnessSummary | null;
 }
 
 /** context 칸 in 의 재료 하나. tokens 는 첫 호출 입력 토큰을 글자 비중으로 나눈 어림(없으면 null). */
