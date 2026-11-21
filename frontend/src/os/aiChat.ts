@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api, ApiError } from '../shared/api';
 import { streamPost } from '../shared/sse';
+import { useAgentView } from './agentView';
 import type { ContextSource } from './contextStore';
 import { frontVisibleWindow, useUiContext } from './uiContext';
 import { useWindows } from './windowStore';
@@ -79,6 +80,14 @@ export const useAiChat = create<AiChatState>((set, get) => {
             const d = data as { text?: string; message?: string };
             if (type === 'text' && d.text) add(gen, { who: 'agent', text: d.text });
             if (type === 'error') add(gen, { who: 'error', text: d.message ?? '처리 중 문제가 생겼습니다.' });
+            if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
+              const av = useAgentView.getState();
+              const obj = data as Record<string, unknown>;
+              if (type === 'workflow') av.onWorkflowEvent(obj);
+              else if (type === 'tool_start') av.onToolStart(obj);
+              else if (type === 'tool_end') av.onToolEnd(obj);
+              else if (type === 'done') av.onTurnDone();
+            }
           },
           controller.signal,
         );

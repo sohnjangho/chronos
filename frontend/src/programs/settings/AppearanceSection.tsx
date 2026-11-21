@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { useAgentView, type AgentViewMode } from '../../os/agentView';
 import { useDock } from '../../os/dockStore';
 import { getProgram } from '../../os/registry';
 import { useTheme, type Theme } from '../../os/theme';
+import { useDetectedDevice, useDeviceMode, type DeviceMode, type ResolvedDevice } from '../../os/useIsMobile';
 import { useZoom } from '../../os/zoom';
 import Button from '../../shared/ui/Button';
 
@@ -10,10 +12,46 @@ const THEMES: { id: Theme; title: string; subtitle: string; previewClass: string
   { id: 'dark', title: '야간 모드 (Midnight Aurora)', subtitle: '깊은 네이비 오로라 바탕과 저눈부심 다크 패널', previewClass: 'is-dark' },
 ];
 
-/** 「화면 · 테마」: 주간/야간 모드 전환, 프로그램별 창 배율 초기화, Dock 고정 구성 복원. */
+const AGENT_VIEW_MODES: { id: AgentViewMode; title: string; desc: string }[] = [
+  {
+    id: 'stage',
+    title: '스테이지 창 전환 · 포커스 추적 (Computer Use 권장)',
+    desc: '요청 시 워크플로우 창이 열려 노드가 생성되고, 각 단계의 도구 프로그램 창이 스테이지 전환 이펙트와 함께 전면 포커스로 작동합니다.',
+  },
+  {
+    id: 'workflow',
+    title: '워크플로우 창만 포커스',
+    desc: '도구 프로그램 창을 열지 않고 워크플로우 실행 그래프 창만 전면으로 열어 단계 진행 상황을 실시간 표시합니다.',
+  },
+  {
+    id: 'off',
+    title: '끄기 (대화창 내부만 표시)',
+    desc: '자동 창 전환 없이 에이전트 대화창 안의 도구 진행 상태만 표시합니다.',
+  },
+];
+
+const DEVICE_MODES: { id: DeviceMode; label: string; desc: string }[] = [
+  { id: 'auto', label: '자동 감지 (권장)', desc: '접속한 기기(스마트폰·태블릿·데스크톱)를 자동 판별해 맞는 화면으로 엽니다.' },
+  { id: 'desktop', label: '데스크톱 (PC 창)', desc: '다중 창과 하단 Dock · 스테이지 전환을 쓰는 PC 화면으로 고정합니다.' },
+  { id: 'tablet', label: '태블릿', desc: '2열 카드와 5열 앱 서랍 중심의 태블릿 전용 셸로 전환합니다.' },
+  { id: 'phone', label: '스마트폰', desc: '1열 터치 최적화와 하단 5탭바 중심의 모바일 셸로 전환합니다.' },
+];
+
+const DEVICE_LABELS: Record<ResolvedDevice, string> = {
+  desktop: '데스크톱 (PC 창)',
+  tablet: '태블릿',
+  phone: '스마트폰',
+};
+
+/** 「화면 · 테마」: 주간/야간 모드, Computer Use 연출, 기기 형태 전환, 창 배율 초기화, Dock 복원. */
 export default function AppearanceSection() {
   const theme = useTheme((s) => s.theme);
   const setTheme = useTheme((s) => s.setTheme);
+  const agentViewMode = useAgentView((s) => s.mode);
+  const setAgentViewMode = useAgentView((s) => s.setMode);
+  const deviceMode = useDeviceMode((s) => s.mode);
+  const setDeviceMode = useDeviceMode((s) => s.setMode);
+  const detectedDevice = useDetectedDevice();
   const levels = useZoom((s) => s.levels);
   const resetZoom = useZoom((s) => s.reset);
   const resetAllZoom = useZoom((s) => s.resetAll);
@@ -61,6 +99,66 @@ export default function AppearanceSection() {
               </button>
             );
           })}
+        </div>
+      </section>
+
+      <section className="st-card" aria-label="에이전트 실시간 작업 화면 연출">
+        <div className="st-card-head">
+          <b className="st-card-name">에이전트 실시간 작업 화면 연출 (Computer Use 뷰)</b>
+          <span className="st-gap" />
+          <span className="st-muted">
+            {AGENT_VIEW_MODES.find((m) => m.id === agentViewMode)?.id === 'stage'
+              ? '스테이지 포커스 켜짐'
+              : agentViewMode === 'workflow'
+                ? '워크플로우만 포커스'
+                : '꺼짐'}
+          </span>
+        </div>
+        <div className="st-radios" role="group" aria-label="에이전트 작업 연출 방식">
+          {AGENT_VIEW_MODES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="st-theme-card"
+              aria-pressed={agentViewMode === item.id}
+              onClick={() => {
+                setAgentViewMode(item.id);
+                setNotice(`에이전트 실시간 작업 화면 연출을 「${item.title}」(으)로 설정했습니다.`);
+              }}
+            >
+              <span className="st-theme-meta">
+                <b>{item.title}</b>
+                <span className="st-muted">{item.desc}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="st-card" aria-label="접속 기기 화면 형태">
+        <div className="st-card-head">
+          <b className="st-card-name">접속 기기 화면 형태 (자동 인식 · 수동 전환)</b>
+          <span className="st-gap" />
+          <span className="st-muted">{`자동 감지된 현재 기기: ${DEVICE_LABELS[detectedDevice]}`}</span>
+        </div>
+        <div className="st-theme-grid" role="group" aria-label="화면 형태 선택">
+          {DEVICE_MODES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="st-theme-card"
+              aria-pressed={deviceMode === item.id}
+              onClick={() => {
+                setDeviceMode(item.id);
+                setNotice(`화면 형태를 「${item.label}」(으)로 변경했습니다.`);
+              }}
+            >
+              <span className="st-theme-meta">
+                <b>{item.label}</b>
+                <span className="st-muted">{item.desc}</span>
+              </span>
+            </button>
+          ))}
         </div>
       </section>
 

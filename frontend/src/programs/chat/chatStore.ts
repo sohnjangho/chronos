@@ -1,6 +1,7 @@
 // 대화창 상태. 스트림은 창이 아니라 이 store 에 산다 — 대화를 바꾸거나 창을 닫았다 열어도 도는 답이 이어진다.
 // 로그아웃(사용자 바뀜)하면 도는 답을 멈추고 비운다.
 import { create } from 'zustand';
+import { useAgentView } from '../../os/agentView';
 import { useAiChat } from '../../os/aiChat';
 import { useSession } from '../../os/session';
 import { useWindows } from '../../os/windowStore';
@@ -60,6 +61,11 @@ function onEvent(id: number, type: string, data: unknown) {
     return;
   }
   if (type === 'questionnaire' && data.id !== undefined) open('questionnaire', { id: String(data.id), session: String(id) });
+  const av = useAgentView.getState();
+  if (type === 'workflow') av.onWorkflowEvent(data);
+  else if (type === 'tool_start') av.onToolStart(data);
+  else if (type === 'tool_end') av.onToolEnd(data);
+  else if (type === 'done') av.onTurnDone();
   patch(id, (t) => applyEvent(t, type, data));
 }
 

@@ -433,3 +433,63 @@ body {
 @media (max-width: 960px) {
   .os-quick-widget { display: none; }
 }
+
+/* ── 에이전트 스테이지 전환 · 전면 포커스 (Computer Use 뷰) ── */
+.os-win:not([data-motion]) {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
+}
+.os-win.is-agent-focus {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 42%, transparent),
+    0 20px 54px color-mix(in srgb, var(--bg-topbar) 46%, transparent);
+}
+.os-win.is-stage-behind {
+  transform: perspective(1200px) translate3d(-18px, 10px, 0) scale(0.96);
+  opacity: 0.78;
+}
+.os-win-agent-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-12);
+}
+.os-win-agent-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+  animation: os-agent-pulse 1.2s ease-in-out infinite;
+}
+.os-win-agent-tag {
+  font-size: var(--fs-11);
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  white-space: nowrap;
+}
+.os-win-agent-label {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes os-agent-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.45); opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-win:not([data-motion]) { transition: none; }
+  .os-win.is-stage-behind { transform: none; }
+  .os-win-agent-pulse { animation: none; }
+}

@@ -161,6 +161,8 @@ interface WindowState {
    * 없어진 프로그램 id(옛 일정판 schedule)는 지금 프로그램으로 연다(registry.resolveProgram).
    */
   open(programId: string, params?: Params, from?: 'dock'): string;
+  /** 에이전트 실시간 작업 연출용: 해당 프로그램 창을 열거나 앞으로 가져오며 스테이지 전환 이펙트를 건다. */
+  stageFocus(programId: string, params?: Params): string;
   close(id: string): void;
   focus(id: string): void;
   move(id: string, x: number, y: number): void;
@@ -189,6 +191,17 @@ interface WindowState {
 
 const initial = { wins: [] as Win[], topZ: 0, seq: 0, lastOpen: null, deactivated: false, insetRight: 0 };
 
+function nextIdAndZ(s: Pick<WindowState, 'wins' | 'topZ' | 'seq'>): { seq: number; z: number } {
+  let maxSeq = s.seq;
+  let maxZ = s.topZ;
+  for (const w of s.wins) {
+    if (w.z > maxZ) maxZ = w.z;
+    const m = /^w(\d+)$/.exec(w.id);
+    if (m) maxSeq = Math.max(maxSeq, Number(m[1]));
+  }
+  return { seq: maxSeq + 1, z: maxZ + 1 };
+}
+
 /** 새 창: 프로그램 기본 크기(화면에 맞춤), 계단식 자리, 맨 앞. */
 function newWindow(
   s: Pick<WindowState, 'wins' | 'topZ' | 'seq' | 'lastOpen'>,
@@ -198,13 +211,14 @@ function newWindow(
   const program = getProgram(programId);
   const size = fitSize(program?.defaultSize ?? FALLBACK_SIZE);
   const pos = cascadeFrom(s.wins.length ? s.lastOpen : null, size.w, size.h);
+  const next = nextIdAndZ(s);
   return {
-    id: `w${s.seq + 1}`,
+    id: `w${next.seq}`,
     programId,
     title: program?.name ?? programId,
     ...pos,
     ...size,
-    z: s.topZ + 1,
+    z: next.z,
     minimized: false,
     maximized: false,
     ...(params ? { params } : {}),
@@ -286,8 +300,24 @@ export const useWindows = create<WindowState>((set, get) => {
       }
       const s = get();
       const win = newWindow(s, programId, params);
-      set({ seq: s.seq + 1, topZ: win.z, lastOpen: { x: win.x, y: win.y }, wins: [...s.wins, win], deactivated: false });
+      set({ seq: Number(win.id.slice(1)), topZ: win.z, lastOpen: { x: win.x, y: win.y }, wins: [...s.wins, win], deactivated: false });
       startMotion(set, win.id, 'open', from === 'dock' ? { fromDock: true } : {});
+      return win.id;
+    },
+    stageFocus(requested, requestedParams) {
+      const { id: programId, params } = resolveProgram(requested, requestedParams);
+      if (getProgram(programId)?.adminOnly && useSession.getState().session?.user.role !== 'admin') return '';
+      const found = get().wins.find((w) => w.programId === programId && !isClosing(w));
+      if (found) {
+        const alreadyTop = activeWindow(get())?.id === found.id && !found.minimized;
+        raise(found.id, () => ({ minimized: false, ...(params ? { params } : {}) }));
+        if (!alreadyTop) startMotion(set, found.id, 'stage');
+        return found.id;
+      }
+      const s = get();
+      const win = newWindow(s, programId, params);
+      set({ seq: Number(win.id.slice(1)), topZ: win.z, lastOpen: { x: win.x, y: win.y }, wins: [...s.wins, win], deactivated: false });
+      startMotion(set, win.id, 'stage');
       return win.id;
     },
     focus: (id) => restore(id),

@@ -8,6 +8,7 @@ import App from './App';
 import { useApprovals } from './approvals';
 import { useSession } from './session';
 import { resetShellState } from './shellReset';
+import { detectClientDevice, useDeviceMode } from './useIsMobile';
 import { useWindows } from './windowStore';
 
 beforeAll(() => registerPrograms());
@@ -70,4 +71,27 @@ test('renders MobileShell on <=768px and switches tabs, schedule sub-tabs, and m
   expect(screen.getByTestId('mobile-shell')).toHaveAttribute('data-device', 'tablet');
   await userEvent.click(screen.getByRole('button', { name: 'PC 창' }));
   expect(screen.getByTestId('desktop-surface')).toBeVisible();
+});
+
+test('auto device detection classifies phone, tablet, and desktop by User-Agent, touch, and viewport', () => {
+  expect(detectClientDevice(390, 844)).toBe('phone');
+  expect(detectClientDevice(820, 1180)).toBe('tablet');
+  expect(detectClientDevice(1024, 1366)).toBe('tablet');
+  expect(detectClientDevice(1440, 900)).toBe('desktop');
+
+  const origUa = navigator.userAgent;
+  const origTouch = navigator.maxTouchPoints;
+  Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)', configurable: true });
+  expect(detectClientDevice(1280, 900)).toBe('tablet');
+
+  Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', configurable: true });
+  expect(detectClientDevice(1280, 900)).toBe('phone');
+
+  Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', configurable: true });
+  Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true });
+  expect(detectClientDevice(1180, 820)).toBe('tablet');
+
+  Object.defineProperty(navigator, 'userAgent', { value: origUa, configurable: true });
+  Object.defineProperty(navigator, 'maxTouchPoints', { value: origTouch, configurable: true });
+  useDeviceMode.getState().setMode('auto');
 });

@@ -4,6 +4,7 @@ import { lazy, useEffect } from 'react';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
 import { signInAsDemo, stubFetch } from '../test-helpers';
+import { setAgentWindowSync, useAgentView } from './agentView';
 import { useApprovals } from './approvals';
 import Desktop from './Desktop';
 import { register } from './registry';
@@ -62,6 +63,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   resetShellState();
+  setAgentWindowSync(false);
   setWindowMotion(false);
   delete (Element.prototype as { animate?: unknown }).animate;
   vi.unstubAllGlobals();
@@ -234,4 +236,24 @@ test('the program inside a window is not remounted by any motion', async () => {
   await settle(240);
   expect(playedOn(d).length).toBeGreaterThanOrEqual(5);
   expect(mounts).toBe(1);
+});
+
+test('Computer Use stageFocus opens workflow and tool windows with stage motion and focus banner', async () => {
+  setAgentWindowSync(true);
+  render(<Desktop />);
+  act(() => {
+    useAgentView.getState().onToolStart({ run_id: 9, n: 1, call_id: 'c1', tool: 'calc.cpm', program: 'cpm', arguments: '{"schedule_id":1}' });
+  });
+  const wf = dialog('워크플로우');
+  const cpm = dialog('CPM');
+  expect(cpm).toHaveAttribute('data-motion', 'stage');
+  expect(cpm).toHaveClass('is-agent-focus');
+  expect(wf).toHaveClass('is-stage-behind');
+  expect(within(cpm).getByRole('status', { name: '에이전트 실시간 작업' })).toHaveTextContent('Computer Use1단계 실행 중 · 주공정(CPM) 계산');
+
+  act(() => {
+    useAgentView.getState().onToolEnd({ run_id: 9, n: 1, call_id: 'c1', tool: 'calc.cpm', ok: true, ms: 40 });
+    useAgentView.getState().onTurnDone();
+  });
+  expect(useAgentView.getState().focus.active).toBe(false);
 });

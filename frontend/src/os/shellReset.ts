@@ -1,3 +1,4 @@
+import { useAgentView } from './agentView';
 import { useAiChat } from './aiChat';
 import { useApprovals } from './approvals';
 import { useContextPanel } from './contextStore';
@@ -14,6 +15,7 @@ import { useWindows } from './windowStore';
  * 창 id 가 w1 부터 다시 시작해도 앞 사람의 근거·대화가 보이지 않게 한다.
  */
 export function resetShellState(): void {
+  useAgentView.getState().reset();
   useAiChat.getState().reset();
   useContextPanel.getState().reset();
   useEvidence.setState({ byWindow: {} });

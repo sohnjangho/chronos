@@ -1,5 +1,6 @@
-// 실행 목록·고른 실행의 상세. 고른 실행이 도는 동안 2초마다 상세와 목록을 다시 읽고, 끝나거나 창을 닫으면 멈춘다.
+// 실행 목록·고른 실행의 상세. 고른 실행이 도는 동안 2초마다 상세와 목록을 다시 읽고, SSE 사건(agentView)이 오면 즉시 갱신한다.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAgentView } from '../../os/agentView';
 import { ApiError } from '../../shared/api';
 import { wfApi, type RunDetail, type RunItem } from './wfApi';
 
@@ -33,6 +34,8 @@ export function useWorkflowData(paramRun: string | undefined) {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const current = useRef<number | null>(null);
+  const workflowTick = useAgentView((s) => s.workflowTick);
+  const lastRunId = useAgentView((s) => s.lastRunId);
 
   const loadRuns = useCallback(async () => {
     try {
@@ -66,6 +69,12 @@ export function useWorkflowData(paramRun: string | undefined) {
     current.current = selected;
     if (selected !== null) void loadRun(selected);
   }, [selected, loadRun]);
+  useEffect(() => {
+    if (workflowTick === 0) return;
+    const targetId = paramRun ? Number(paramRun) : (selected ?? lastRunId);
+    void loadRuns();
+    if (targetId !== null) void loadRun(targetId);
+  }, [workflowTick, lastRunId, paramRun, selected, loadRuns, loadRun]);
 
   usePolling(run !== null && run.id === selected && run.status === 'running' ? selected : null, loadRun, loadRuns);
 

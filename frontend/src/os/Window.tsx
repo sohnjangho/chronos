@@ -10,6 +10,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { useAgentView } from './agentView';
 import { getProgram } from './registry';
 import { detectSnap, snapRect, useSnap } from './snap';
 import { pushToast } from './ToastStack';
@@ -152,10 +153,13 @@ export default function Window({ win, active }: { win: Win; active: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const startDrag = useDrag();
   const zoom = useZoom((s) => zoomOf(s.levels, win.programId));
+  const agentFocus = useAgentView((s) => s.focus);
   const { focus, setBounds } = useWindows.getState();
   const rect = win.maximized ? workArea() : win;
   // 닫히는·최소화되는 동안에는 누를 수 없다(inert). 최소화는 Dock 으로 줄어든 뒤에 숨긴다.
   const leaving = win.motion === 'close' || win.motion === 'minimize';
+  const isAgentTarget = agentFocus.active && active && agentFocus.programId === win.programId;
+  const isStageBehind = agentFocus.active && !active && !win.minimized && !leaving;
   useMotion(ref, win, rect);
 
   // 앞으로 올 때마다(열기·Dock·복귀) 창 안으로 포커스. 이미 창 안에 포커스가 있으면 두기.
@@ -173,6 +177,10 @@ export default function Window({ win, active }: { win: Win; active: boolean }) {
     startDrag(e, (dx, dy) => setBounds(win.id, resizeRect(start, edge, dx, dy)));
   }
 
+  const classes = ['os-win', active && 'is-active', isAgentTarget && 'is-agent-focus', isStageBehind && 'is-stage-behind']
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <div
       ref={ref}
@@ -182,12 +190,19 @@ export default function Window({ win, active }: { win: Win; active: boolean }) {
       hidden={win.minimized && win.motion !== 'minimize'}
       inert={leaving}
       data-motion={win.motion}
-      className={`os-win${active ? ' is-active' : ''}`}
+      className={classes}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: win.z }}
       onPointerDownCapture={raise}
       onFocus={raise}
     >
       <TitleBar win={win} startDrag={startDrag} />
+      {isAgentTarget && (
+        <div className="os-win-agent-bar" role="status" aria-label="에이전트 실시간 작업">
+          <span className="os-win-agent-pulse" aria-hidden="true" />
+          <b className="os-win-agent-tag">Computer Use</b>
+          <span className="os-win-agent-label">{agentFocus.label}</span>
+        </div>
+      )}
       <div className="os-win-body">
         <div className="os-win-zoom" data-zoom={zoom} style={{ '--zoom': zoom / 100 } as CSSProperties}>
           <ProgramView win={win} />

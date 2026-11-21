@@ -1,6 +1,8 @@
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test } from 'vitest';
+import { useAgentView } from '../../os/agentView';
+import { useDeviceMode } from '../../os/useIsMobile';
 import { useWindows } from '../../os/windowStore';
 import { signInAs } from '../../test-helpers';
 import manifest from './index';
@@ -121,6 +123,14 @@ test('화면 · 테마 toggles theme and 차트 · 표 기본값 renders gantt p
   expect(document.documentElement.dataset.theme).toBe('dark');
   await userEvent.click(screen.getByRole('button', { name: /주간 모드/ }));
   expect(document.documentElement.dataset.theme).toBe('light');
+
+  await userEvent.click(screen.getByRole('button', { name: /^워크플로우 창만 포커스/ }));
+  expect(useAgentView.getState().mode).toBe('workflow');
+  await userEvent.click(screen.getByRole('button', { name: /^끄기/ }));
+  expect(useAgentView.getState().mode).toBe('off');
+  await userEvent.click(screen.getByRole('button', { name: /^스마트폰/ }));
+  expect(useDeviceMode.getState().mode).toBe('phone');
+  useDeviceMode.getState().setMode('auto');
 
   await userEvent.click(within(nav()).getByRole('button', { name: '차트 · 표 기본값' }));
   expect(heading()).toHaveTextContent('차트 · 표 기본값');

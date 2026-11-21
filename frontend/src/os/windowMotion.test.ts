@@ -8,6 +8,7 @@ import {
   openFrames,
   setDockAnchor,
   setWindowMotion,
+  stageFrames,
   zoomFrames,
 } from './windowMotion';
 
@@ -42,8 +43,16 @@ test('reduced motion turns motion off even when the switch is on', () => {
   expect(motionOn()).toBe(true);
 });
 
-test('durations: open 220, close 160, minimize and restore 260, maximize 200 (ms)', () => {
-  expect(MOTION_MS).toEqual({ open: 220, close: 160, minimize: 260, restore: 260, zoom: 200 });
+test('durations: open 220, close 160, minimize and restore 260, maximize 200, stage 320 (ms)', () => {
+  expect(MOTION_MS).toEqual({ open: 220, close: 160, minimize: 260, restore: 260, zoom: 200, stage: 320 });
+});
+
+test('stageFrames enters from stage perspective with slight overshoot and settles at 1', () => {
+  const frames = stageFrames();
+  expect(frames).toHaveLength(3);
+  expect(frames[0]).toMatchObject({ opacity: 0.72 });
+  expect(String(frames[0].transform)).toContain('perspective(1200px)');
+  expect(frames.at(-1)).toMatchObject({ opacity: 1 });
 });
 
 test('open grows from 0.6 to full size and fades in, about the origin point in window coordinates', () => {

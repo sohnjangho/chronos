@@ -55,10 +55,19 @@ function DeviceSwitch({ device }: { device: 'phone' | 'tablet' }) {
   const setMode = useDeviceMode((s) => s.setMode);
   return (
     <div className="mob-dev-switch" role="group" aria-label="화면 형태">
-      <button type="button" className="mob-dev-btn" aria-pressed={mode === 'phone' || (mode === 'auto' && device === 'phone')} onClick={() => setMode('phone')}>
+      <button
+        type="button"
+        className="mob-dev-btn"
+        aria-pressed={mode === 'auto'}
+        title={`현재 자동 감지: ${device === 'tablet' ? '태블릿' : '스마트폰'}`}
+        onClick={() => setMode('auto')}
+      >
+        자동
+      </button>
+      <button type="button" className="mob-dev-btn" aria-pressed={mode === 'phone'} onClick={() => setMode('phone')}>
         폰
       </button>
-      <button type="button" className="mob-dev-btn" aria-pressed={mode === 'tablet' || (mode === 'auto' && device === 'tablet')} onClick={() => setMode('tablet')}>
+      <button type="button" className="mob-dev-btn" aria-pressed={mode === 'tablet'} onClick={() => setMode('tablet')}>
         태블릿
       </button>
       <button type="button" className="mob-dev-btn" aria-pressed={false} onClick={() => setMode('desktop')}>

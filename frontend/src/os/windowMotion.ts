@@ -6,7 +6,7 @@
  */
 import type { Win } from './windowStore';
 
-export type Motion = 'open' | 'close' | 'minimize' | 'restore' | 'zoom';
+export type Motion = 'open' | 'close' | 'minimize' | 'restore' | 'zoom' | 'stage';
 
 interface Box {
   x: number;
@@ -19,15 +19,16 @@ interface Pt {
   y: number;
 }
 
-export const MOTION_MS: Record<Motion, number> = { open: 220, close: 160, minimize: 260, restore: 260, zoom: 200 };
+export const MOTION_MS: Record<Motion, number> = { open: 220, close: 160, minimize: 260, restore: 260, zoom: 200, stage: 320 };
 
 const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const EASING: Record<Motion, string> = {
   open: EASE_OUT,
   close: 'cubic-bezier(0.4, 0, 1, 1)', // ease-in
   minimize: 'cubic-bezier(0.32, 0.72, 0, 1)', // 부드러운 스르륵 곡선
-  restore: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  restore: EASE_OUT,
   zoom: EASE_OUT,
+  stage: EASE_OUT,
 };
 
 // 시험(jsdom)에서는 기본으로 끈다. 움직임을 보는 시험만 setWindowMotion(true) 로 켠다.
@@ -201,6 +202,15 @@ export function zoomFrames(from: Box, to: Box): Keyframe[] {
   ];
 }
 
+/** 스테이지 포커스 전환(iPad Stage Manager / Windows 3D 전환 감성): 뒤쪽 무대에서 입체적으로 전면 포커스 진입. */
+export function stageFrames(): Keyframe[] {
+  return [
+    { transform: 'perspective(1200px) translate3d(-40px, 16px, 0px) scale(0.91) rotateY(6deg)', opacity: 0.72 },
+    { offset: 0.65, transform: 'perspective(1200px) translate3d(4px, -2px, 0px) scale(1.008) rotateY(-1deg)', opacity: 1 },
+    { transform: 'perspective(1200px) translate3d(0px, 0px, 0px) scale(1) rotateY(0deg)', opacity: 1 },
+  ];
+}
+
 export interface MotionTarget {
   kind: Motion;
   /** 지금 그린 창 자리. */
@@ -216,6 +226,7 @@ function framesFor(t: MotionTarget): Keyframe[] {
   if (t.kind === 'open') return openFrames(t.rect, t.fromDock ? icon() : bottomCenter());
   if (t.kind === 'close') return closeFrames();
   if (t.kind === 'zoom') return zoomFrames(t.from, t.rect);
+  if (t.kind === 'stage') return stageFrames();
   return minimizeFrames(t.rect, icon());
 }
 
