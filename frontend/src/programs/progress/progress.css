@@ -2,7 +2,7 @@
    좁으면(본문 폭 기준 container query) 아래 카드가 두 줄 → 한 줄, 마일스톤은 S-커브 아래로 내려간다.
    잘라 감추지 않는다: 표·그림 칸이 카드보다 넓으면 그 자료 칸만 가로로 밀리고(화면 검수 1), 긴 글은 줄을 바꾼다. */
 .pg-tab { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg-app); }
-.pg-toolbar { background: var(--bg-panel); row-gap: 6px; }
+.pg-toolbar { background: var(--bg-panel); row-gap: 6px; flex-wrap: wrap; }
 .pg-assumed { font-size: var(--fs-12); color: var(--warning-text); background: var(--tone-warning-bg); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
 .pg-weight { font-size: var(--fs-12); color: var(--fg-muted); border: 1px solid var(--border); border-radius: var(--radius-2); padding: 3px 10px; white-space: nowrap; }
 .pg-seg { display: inline-flex; }
@@ -13,7 +13,8 @@
 .pg-seg button + button { border-left: 0; }
 .pg-seg button:first-child { border-radius: var(--radius-2) 0 0 var(--radius-2); }
 .pg-seg button:last-child { border-radius: 0 var(--radius-2) var(--radius-2) 0; }
-.pg-seg button[aria-pressed="true"] { background: var(--tone-info-bg); border-color: var(--accent); color: var(--tone-info-fg); font-weight: 500; }
+.pg-seg button[aria-pressed="true"],
+.pg-seg button[aria-selected="true"] { background: var(--tone-info-bg); border-color: var(--accent); color: var(--tone-info-fg); font-weight: 500; }
 .pg-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .pg-scroll {
@@ -141,9 +142,6 @@
 @container (max-width: 820px) {
   .pg-field-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@container (max-width: 460px) {
-  .pg-field-kpis { grid-template-columns: minmax(0, 1fr); }
-}
 .pg-fkpi {
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -164,6 +162,27 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-3);
   background: var(--bg-panel);
+}
+.pg-field-subbar .pg-seg button { white-space: nowrap; }
+@container (max-width: 520px) {
+  .pg-fkpi { padding: 8px 10px; }
+  .pg-fkpi b { font-size: var(--fs-13); line-height: 18px; }
+  .pg-field-subbar { padding: 8px; }
+  .pg-field-subbar .pg-seg {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 4px;
+  }
+  .pg-field-subbar .pg-seg button {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-2);
+    padding: 6px 8px;
+  }
+  .pg-field-subbar .pg-seg button[aria-pressed="true"],
+  .pg-field-subbar .pg-seg button[aria-selected="true"] {
+    border-color: var(--accent);
+  }
 }
 .pg-field-grid {
   display: grid;

@@ -271,3 +271,6 @@
 .mob-root .os-site-btn {
   max-width: 160px;
 }
+.mob-root .pg-tab.is-field-view .pg-toolbar {
+  display: none;
+}

@@ -140,7 +140,7 @@ export default function ProgressTab({ initialView = 'dashboard' }: { initialView
   const { data, error } = useProgress(scheduleId, unit, version, weightMode);
   const onImage = () => data && void exportImage(data, name, `${name} v${data.version} 공정률`);
   return (
-    <div className="pg-tab">
+    <div className={view === 'field' ? 'pg-tab is-field-view' : 'pg-tab'}>
       <Toolbar
         scheduleId={scheduleId}
         data={data}
