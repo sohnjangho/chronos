@@ -127,10 +127,20 @@ def schedule_messages(pack: DomainPack, brief: Brief, wbs: list[dict]) -> list[d
 
 
 def repair_messages(
-    pack: DomainPack, brief: Brief, wbs: list[dict], draft: list[dict] | None, feedback: str
+    pack: DomainPack,
+    brief: Brief,
+    wbs: list[dict],
+    draft: list[dict] | None,
+    feedback: str,
+    resources: list[dict] | None = None,
 ) -> list[dict]:
     """draft 가 None 이면(앞 답을 읽지 못함) 처음부터 전체 초안을 내게 한다."""
-    current = compact({"activities": draft}) if draft is not None else "(읽은 초안 없음 — 전체 초안을 처음부터 낸다)"
+    if draft is None:
+        current = "(읽은 초안 없음 — 전체 초안을 처음부터 낸다)"
+    elif resources:
+        current = compact({"resources": resources, "activities": draft})
+    else:
+        current = compact({"activities": draft})
     user = f"{brief.text()}\nWBS: {compact(wbs)}\n지금 초안: {current}\n고칠 것:\n{feedback}"
     return _messages(system_prompt("repair", pack), user)
 

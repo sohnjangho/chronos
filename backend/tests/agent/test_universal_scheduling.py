@@ -256,3 +256,45 @@ async def test_llm_client_max_tokens_override_preserves_defaults(session):
     assert liner.last_body["max_tokens"] == MAX_TOKENS["light"]
     await llm.chat("light", [{"role": "user", "content": "hi"}], max_tokens=6000)
     assert liner.last_body["max_tokens"] == 6000
+
+
+async def test_generate_reports_exact_ids_for_bad_duration_and_dangling_pred_and_repairs(session):
+    add_connection(session)
+    liner = FakeLiner()
+    wbs = {
+        "wbs": [
+            {"code": "1", "name": "단계 1", "parent": None},
+            {"code": "1.1", "name": "세부 1", "parent": "1"},
+        ]
+    }
+    bad = {
+        "resources": [{"id": "buyer", "name": "구매담당", "unit": "명", "capacity": 1}],
+        "activities": [
+            act("A1000", "발주 시작", "1.1", 0, [], kind="start_ms"),
+            act("A1010", "장비 발주", "1.1", 0, ["A1000"], resources=["buyer"]),
+            act("A1020", "선적", "1.1", 5, ["A9999"], resources=["buyer"]),
+            act("A1030", "완료", "1.1", 0, ["A1020"], kind="finish_ms"),
+        ],
+    }
+    fixed = {
+        "resources": [{"id": "buyer", "name": "구매담당", "unit": "명", "capacity": 1}],
+        "activities": [
+            act("A1000", "발주 시작", "1.1", 0, [], kind="start_ms"),
+            act("A1010", "장비 발주", "1.1", 3, ["A1000"], resources=["buyer"]),
+            act("A1020", "선적", "1.1", 5, ["A1010"], resources=["buyer"]),
+            act("A1030", "완료", "1.1", 0, ["A1020"], kind="finish_ms"),
+        ],
+    }
+    script(liner, _profile_reply("자재 조달", "buyer", "구매담당"), wbs, bad, fixed)
+    llm = LlmClient(session, transport=liner.transport)
+    admin = session.query(User).filter_by(login_id="admin").one()
+    chat = chats.create_chat(session, user_id=admin.id)
+    ctx = ToolContext(session=session, user=admin, schedule_id=None, chat_session_id=chat.id, emit=lambda _e: None)
+
+    r = await generate(ctx, llm, domain="procurement", level="L3", request="자재 조달 일정")
+    assert r.ok, r.reason
+    assert [x.violations for x in r.rounds] == [-1, 0]
+    repair_user = liner.bodies[3]["messages"][-1]["content"]
+    assert "A1010(kind=task, od=0)" in repair_user
+    assert "A1020 → A9999" in repair_user
+    assert '"buyer"' in repair_user

@@ -90,10 +90,11 @@ class DraftReply(_Loose):
 class DraftProblem(Exception):
     """초안이 깨졌다. message 는 LLM 에 돌려줄 글, activity_count 는 읽은 액티비티 수(못 읽었으면 0)."""
 
-    def __init__(self, message: str, activity_count: int = 0) -> None:
+    def __init__(self, message: str, activity_count: int = 0, draft: DraftReply | None = None) -> None:
         super().__init__(message)
         self.message = message
         self.activity_count = activity_count
+        self.draft = draft
 
 
 def _reason(error: ValidationError) -> str:
@@ -133,17 +134,88 @@ def read_wbs(reply: LlmReply) -> list[WbsIn]:
     return nodes
 
 
-def read_draft(reply: LlmReply, wbs: list[WbsIn]) -> tuple[DraftReply, list[WbsIn]]:
+def draft_issues(draft: DraftReply, nodes: Sequence[WbsIn], *, check_connectivity: bool = False) -> str | None:
+    """초안 안의 깨진 항목들을 정확한 id 와 함께 모아 반환한다(문제 없으면 None)."""
+    issues: list[str] = []
+    seen_ids: set[str] = set()
+    dup_ids: list[str] = []
+    for a in draft.activities:
+        if a.id in seen_ids:
+            dup_ids.append(a.id)
+        seen_ids.add(a.id)
+    if dup_ids:
+        issues.append("같은 ID의 액티비티가 있습니다: " + ", ".join(dup_ids[:10]))
+
+    codes = {n.code for n in nodes}
+    missing = [f"{a.id} → {a.wbs}" for a in draft.activities if a.wbs not in codes]
+    if missing:
+        issues.append("없는 WBS 를 가리킵니다: " + ", ".join(missing[:10]))
+
+    bad_dur = [
+        f"{a.id}(kind={a.kind}, od={a.od})"
+        for a in draft.activities
+        if (a.kind == "task" and a.od < 1) or (a.kind != "task" and a.od != 0)
+    ]
+    if bad_dur:
+        issues.append(
+            "기간(od)이 올바르지 않습니다(task는 1 이상, start_ms·finish_ms는 0): " + ", ".join(bad_dur[:10])
+        )
+
+    bad_preds = [
+        f"{a.id} → {p.pred}"
+        for a in draft.activities
+        for p in a.predecessors
+        if p.pred not in seen_ids or p.pred == a.id
+    ]
+    if bad_preds:
+        issues.append("없는 선행 액티비티 또는 자기 자신을 가리킵니다: " + ", ".join(bad_preds[:10]))
+
+    if check_connectivity and len(draft.activities) >= 3:
+        with_preds = sum(1 for a in draft.activities if a.predecessors)
+        kinds = {a.kind for a in draft.activities}
+        min_linked = max(1, (len(draft.activities) - 1) // 2)
+        if with_preds < min_linked or (
+            len(draft.activities) >= 4 and "start_ms" not in kinds and "finish_ms" not in kinds
+        ):
+            issues.append(
+                "선후 관계(predecessors) 또는 시작/완료 마일스톤(start_ms·finish_ms)이 빠져 작업이 연결되지 않았습니다. 시작 마일스톤에서 완료 마일스톤까지 모든 작업을 FS·SS·FF 선후 관계로 연결해 다시 작성하세요."
+            )
+
+    return " / ".join(issues) if issues else None
+
+
+def cycle_ids(schedule: Schedule) -> list[str]:
+    """선후 관계 고리에 얽힌 액티비티 id 목록(순차 양방향 리프 제거)."""
+    nodes = [a.id for a in schedule.activities]
+    node_set = set(nodes)
+    succs: dict[str, set[str]] = {i: set() for i in nodes}
+    preds: dict[str, set[str]] = {i: set() for i in nodes}
+    for r in schedule.relations:
+        if r.pred in node_set and r.succ in node_set:
+            succs[r.pred].add(r.succ)
+            preds[r.succ].add(r.pred)
+    active = set(nodes)
+    changed = True
+    while changed:
+        changed = False
+        for i in list(active):
+            if not (preds[i] & active) or not (succs[i] & active):
+                active.remove(i)
+                changed = True
+    return [i for i in nodes if i in active]
+
+
+def read_draft(
+    reply: LlmReply, wbs: list[WbsIn], *, check_connectivity: bool = False
+) -> tuple[DraftReply, list[WbsIn]]:
     """(초안, 쓸 WBS). 초안이 새 WBS 를 내면 그것을 쓴다. 깨졌으면 DraftProblem."""
     draft = _read(reply, DraftReply)
     count = len(draft.activities)
     nodes = draft.wbs if draft.wbs else wbs
     if problem := wbs_problem(nodes):
-        raise DraftProblem(problem, count)
-    codes = {n.code for n in nodes}
-    missing = [f"{a.id} → {a.wbs}" for a in draft.activities if a.wbs not in codes]
-    if missing:
-        raise DraftProblem("없는 WBS 를 가리킵니다: " + ", ".join(missing), count)
+        raise DraftProblem(problem, count, draft=draft)
+    if issue := draft_issues(draft, nodes, check_connectivity=check_connectivity):
+        raise DraftProblem(issue, count, draft=draft)
     return draft, nodes
 
 

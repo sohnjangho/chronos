@@ -12,6 +12,7 @@ LLM 은 구조와 기간·선후 관계만 낸다. 날짜·여유·조건 통과
 가져오기는 정밀도와 상관없이 주요 자원을 붙이지 않는다(파일에 없는 자원 맞춤이 파일 날짜를 옮기지 않게).
 """
 
+import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date
@@ -26,6 +27,7 @@ from app.agent.generation_build import (
     WbsIn,
     build,
     condition_tags,
+    cycle_ids,
     fit_warnings,
     read_draft,
     read_wbs,
@@ -57,6 +59,8 @@ from app.store import my_rules
 from app.store.drafts import create_draft
 from app.store.schedules import run
 from app.tools.context import ToolContext
+
+logger = logging.getLogger(__name__)
 
 GenStage = Literal["wbs", "schedule", "compute", "critical", "check"]
 # 이 기본 규칙을 어기면 초안이 깨진 것이다(LLM 이 고쳐야 한다). base.calendar 는 조건 탓이라 위반으로 센다.
@@ -174,7 +178,8 @@ class _Loop:
             messages = schedule_messages(self.pack, self.brief, wbs)
             return await ask(self.llm, messages, SCHEDULE_SCHEMA, self.chat_session_id)
         draft = [a.model_dump() for a in self.draft.activities] if self.draft else None
-        messages = repair_messages(self.pack, self.brief, wbs, draft, self.feedback)
+        resources = [r.model_dump() for r in self.draft.resources] if self.draft and self.draft.resources else None
+        messages = repair_messages(self.pack, self.brief, wbs, draft, self.feedback, resources=resources)
         if self.fixed is not None:  # repair.md 의 「activities 전부」 를 덮는다: '?' 칸 행만
             messages[-1]["content"] += f"\n{REPAIR_NOTE}"
         return await ask(self.llm, messages, REPAIR_SCHEMA, self.chat_session_id)
@@ -194,19 +199,10 @@ class _Loop:
         try:
             if self.fixed is not None:
                 reply = self.fixed.merge(reply)  # 파일 값으로 덮는다(빈 칸 행이 빠졌으면 DraftProblem)
-            self.draft, self.wbs = read_draft(reply, self.wbs or [])
-            if self.fixed is None and len(self.draft.activities) >= 3:
-                with_preds = sum(1 for a in self.draft.activities if a.predecessors)
-                kinds = {a.kind for a in self.draft.activities}
-                min_linked = max(1, (len(self.draft.activities) - 1) // 2)
-                if with_preds < min_linked or (
-                    len(self.draft.activities) >= 4 and "start_ms" not in kinds and "finish_ms" not in kinds
-                ):
-                    raise DraftProblem(
-                        "선후 관계(predecessors) 또는 시작/완료 마일스톤(start_ms·finish_ms)이 빠져 작업이 연결되지 않았습니다. 시작 마일스톤에서 완료 마일스톤까지 모든 작업을 FS·SS·FF 선후 관계로 연결해 다시 작성하세요.",
-                        len(self.draft.activities),
-                    )
+            self.draft, self.wbs = read_draft(reply, self.wbs or [], check_connectivity=self.fixed is None)
         except DraftProblem as problem:
+            if problem.draft is not None:
+                self.draft = problem.draft
             self.broken(problem)
             return None
         schedule = build(self.draft, self.wbs, self.setting)
@@ -236,7 +232,10 @@ class _Loop:
             raise DraftProblem(OUT_OF_RANGE, count) from None
         base = [v for v in report.violations if v.condition_id in BROKEN_RULES]
         if base:
-            raise DraftProblem(" / ".join(_described(v) for v in base), count)
+            msg = " / ".join(_described(v) for v in base)
+            if any(v.condition_id == "base.no_cycle" for v in base) and (ids := cycle_ids(schedule)):
+                msg += f" (고리 액티비티: {', '.join(ids[:10])})"
+            raise DraftProblem(msg, count)
         return cpm, report
 
     def repair_note(self, scored: _Scored, cpm: CpmResult | None) -> str:
@@ -260,6 +259,13 @@ class _Loop:
             assumptions = [*assumptions, *self.fixed.estimates(best.schedule)]
         base = {"conditions": self.conditions, "rounds": self.rounds, "assumptions": assumptions}
         if best is None:
+            if not stopped and failure is None:
+                logger.warning(
+                    "일정 초안 생성 실패(초안 없음): domain=%s rounds=%d feedback=%s",
+                    self.pack.id,
+                    len(self.rounds),
+                    self.feedback[:400],
+                )
             reason = STOPPED_REASON if stopped else f"일정을 만들지 못했습니다. {failure}" if failure else NO_DRAFT_REASON
             return GenResult(ok=False, draft_id=None, schedule=None, report=None, warnings=list(self.notes),
                              reason=reason, **base)
