@@ -9,6 +9,7 @@ import AgentStructure from './AgentStructure';
 import { devApi, type CatalogOut, type NodeKey, type TurnDetail } from './devApi';
 import { cost, seconds, status, tokens } from './format';
 import HarnessTab from './HarnessTab';
+import HealthTab from './HealthTab';
 import NodeDetail from './NodeDetail';
 import RegistryTab from './RegistryTab';
 import SourcesTab from './SourcesTab';
@@ -19,12 +20,13 @@ import UsageTab from './UsageTab';
 import { useTurnData } from './useTurnData';
 import './devconsole.css';
 
-type Tab = 'structure' | 'harness' | 'sources' | 'registry' | 'trace' | 'usage';
+type Tab = 'structure' | 'harness' | 'sources' | 'registry' | 'health' | 'trace' | 'usage';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'structure', label: '에이전트 구조' },
   { id: 'harness', label: '하네스·차단 시험' },
   { id: 'sources', label: '프롬프트·지식' },
   { id: 'registry', label: '도구·스킬' },
+  { id: 'health', label: '시스템 진단' },
   { id: 'trace', label: '실행 추적' },
   { id: 'usage', label: '사용량·비용' },
 ];
@@ -128,7 +130,7 @@ function StructureView({ detail }: { detail: TurnDetail }) {
           </span>
           <span>
             <i className="dc-sw is-skipped" />
-            건너뜀(묶음 3)
+            건너뜀
           </span>
           <span>
             <i className="dc-line-unknown" />
@@ -170,6 +172,16 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
     };
   }, [catTab, catalogTick]);
   const reloadCatalog = () => setCatalogTick((t) => t + 1);
+  const exportTurnJson = () => {
+    if (!d.detail) return;
+    const blob = new Blob([JSON.stringify(d.detail, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `chronos-turn-${d.detail.turn.turn_id}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
   const empty = d.turns?.length === 0 ? '아직 기록된 요청이 없습니다. 대화창에서 에이전트에게 요청하면 여기에 쌓입니다.' : '불러오는 중…';
   return (
     <div className="dc-root">
@@ -180,6 +192,11 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
         <div className="dc-top">
           <TurnPicker turns={d.turns} current={d.detail?.turn ?? null} onOpen={() => void d.reloadTurns()} onPick={d.select} />
           {d.detail && <TurnStats detail={d.detail} halted={d.halted} checkedAt={d.checkedAt} />}
+          {d.detail && (
+            <button type="button" className="dc-btn dc-export-btn" onClick={exportTurnJson}>
+              JSON 내보내기
+            </button>
+          )}
         </div>
       )}
       {turnTab && d.error && (
@@ -189,10 +206,11 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
       )}
       <div className="dc-body" role="tabpanel" aria-label={TABS.find((t) => t.id === tab)!.label}>
         {tab === 'usage' && <UsageTab />}
+        {tab === 'health' && <HealthTab />}
         {catTab && !catalog && <p className="dc-empty">원천 카탈로그를 불러오는 중…</p>}
         {tab === 'harness' && catalog && <HarnessTab catalog={catalog} onSaved={reloadCatalog} />}
         {tab === 'sources' && catalog && <SourcesTab catalog={catalog} />}
-        {tab === 'registry' && catalog && <RegistryTab catalog={catalog} />}
+        {tab === 'registry' && catalog && <RegistryTab catalog={catalog} onChanged={reloadCatalog} />}
         {turnTab && !d.detail && !d.error && <p className="dc-empty">{empty}</p>}
         {tab === 'structure' && d.detail && <StructureView key={d.detail.turn.turn_id} detail={d.detail} />}
         {tab === 'trace' && d.detail && (

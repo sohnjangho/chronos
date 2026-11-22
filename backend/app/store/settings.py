@@ -1,5 +1,6 @@
 """작업 공간 및 에이전트·하네스 실행 설정(settings 표: key → value)."""
 
+import json
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from app.store.tables import Setting
 APPROVAL_MODE = "approval_mode"
 DEFAULT_APPROVAL_MODE = "important"  # all | important | auto (app.agent.approval.Mode)
 VALID_APPROVAL_MODES = frozenset({"all", "important", "auto"})
+DISABLED_TOOLS_KEY = "agent_disabled_tools"
 
 DEFAULT_AGENT_CONFIG: dict[str, Any] = {
     "approval_mode": DEFAULT_APPROVAL_MODE,
@@ -103,3 +105,35 @@ def set_agent_config(session: Session, patch: dict[str, Any]) -> dict[str, Any]:
             _upsert(session, db_key, "true" if bool(patch[field]) else "false")
     session.commit()
     return get_agent_config(session)
+
+
+def get_disabled_tools(session: Session) -> list[str]:
+    """비활성화된 에이전트 도구 이름 목록을 돌려준다."""
+    row = session.get(Setting, DISABLED_TOOLS_KEY)
+    if row is None or not row.value:
+        return []
+    try:
+        parsed = json.loads(row.value)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    seen: list[str] = []
+    for item in parsed:
+        name = str(item).strip()
+        if name and name not in seen:
+            seen.append(name)
+    return seen
+
+
+def set_tool_enabled(session: Session, name: str, enabled: bool) -> list[str]:
+    """도구 활성/비활성 상태를 저장하고 비활성 목록을 돌려준다."""
+    disabled = set(get_disabled_tools(session))
+    if enabled:
+        disabled.discard(name)
+    else:
+        disabled.add(name)
+    ordered = sorted(disabled)
+    _upsert(session, DISABLED_TOOLS_KEY, json.dumps(ordered, ensure_ascii=False))
+    session.commit()
+    return ordered

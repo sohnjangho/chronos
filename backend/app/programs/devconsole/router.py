@@ -5,7 +5,18 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.programs.devconsole import catalog, service
-from app.programs.devconsole.schemas import AgentConfigOut, AgentConfigPatch, TurnDetail, TurnOut, UsageGroup, UsageOut
+from app.programs.devconsole.schemas import (
+    AgentConfigOut,
+    AgentConfigPatch,
+    HealthOut,
+    StopTurnOut,
+    ToolToggleIn,
+    ToolToggleOut,
+    TurnDetail,
+    TurnOut,
+    UsageGroup,
+    UsageOut,
+)
 from app.security.deps import require_admin
 from app.store import settings as settings_store
 
@@ -51,3 +62,18 @@ def read_agent_config(session: SessionDep) -> AgentConfigOut:
 def write_agent_config(body: AgentConfigPatch, session: SessionDep) -> AgentConfigOut:
     updated = settings_store.set_agent_config(session, body.model_dump(exclude_unset=True))
     return AgentConfigOut.model_validate(updated)
+
+
+@router.get("/health")
+def read_health(session: SessionDep) -> HealthOut:
+    return service.health(session)
+
+
+@router.post("/turns/{chat_id}/stop")
+def stop_active_turn(chat_id: int) -> StopTurnOut:
+    return service.stop_turn(chat_id)
+
+
+@router.put("/tools/{tool_name}")
+def toggle_tool(tool_name: str, body: ToolToggleIn, session: SessionDep) -> ToolToggleOut:
+    return service.toggle_tool(session, tool_name, body.enabled)

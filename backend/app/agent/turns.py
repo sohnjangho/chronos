@@ -55,3 +55,11 @@ def request_stop(chat_session_id: int) -> bool:
 def stop_requested(chat_session_id: int) -> bool:
     held = _running.get(chat_session_id)
     return held is not None and held.stop
+
+
+def active_turns() -> list[dict]:
+    """현재 실행 중인 턴 목록(chat_session_id 오름차순)."""
+    return [
+        {"chat_session_id": cid, "stop_requested": held.stop}
+        for cid, held in sorted(_running.items())
+    ]

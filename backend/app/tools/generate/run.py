@@ -15,6 +15,7 @@ from app.agent.generation import GenResult, generate
 from app.core.cpm import ScheduleError
 from app.domains.loader import UnknownDomain
 from app.harness.conditions import Condition, ConditionFormatError
+from app.store import settings as settings_store
 from app.store.drafts import violation_json
 from app.store.schedules import run as run_schedule
 from app.tools.context import ToolContext, ToolError
@@ -137,6 +138,7 @@ def result_card(out: RunOut) -> AgentEvent:
 )
 async def run(args: RunIn, ctx: ToolContext) -> RunOut:
     inputs = _inputs(args.conditions)
+    max_rounds = int(settings_store.get_agent_config(ctx.session)["max_check_retries"]) if ctx.session is not None else 5
     try:
         result = await generate(
             ctx,
@@ -147,6 +149,7 @@ async def run(args: RunIn, ctx: ToolContext) -> RunOut:
             facts=[f.model_dump() for f in args.facts],
             inputs=inputs,
             assumptions=[a.model_dump() for a in args.assumptions],
+            max_rounds=max_rounds,
         )
     except UnknownDomain:
         raise ToolError(f"올바르지 않은 분야입니다: {args.domain}") from None

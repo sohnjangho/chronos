@@ -130,6 +130,8 @@ export interface HarnessTestOut {
   rule_id: string;
   title: string;
   blocked: boolean;
+  engine?: string;
+  elapsed_ms?: number;
   simulated_input: string;
   model_feedback: Record<string, unknown>;
 }
@@ -140,6 +142,13 @@ export interface GuideSource {
   chars: number;
   keywords: string[];
   programs: string[];
+  content: string;
+}
+
+export interface PipelinePromptSource {
+  name: string;
+  file: string;
+  chars: number;
   content: string;
 }
 
@@ -155,6 +164,10 @@ export interface ToolRegistryItem {
   llm_name: string;
   program: string | null;
   category: string;
+  enabled?: boolean;
+  calls?: number;
+  failed?: number;
+  avg_ms?: number | null;
   description: string;
   schema: Record<string, unknown>;
 }
@@ -190,12 +203,50 @@ export interface CatalogOut {
     system_chars: number;
     levels_prompt: string;
     guides: GuideSource[];
+    pipeline_prompts?: PipelinePromptSource[];
     domains: DomainSource[];
   };
   registry: {
     tools: ToolRegistryItem[];
     skills: SkillRegistryItem[];
   };
+}
+
+export interface HealthOut {
+  llm: {
+    status: 'ok' | 'warn' | 'error';
+    connections_count: number;
+    assignments_count: number;
+    default_name: string | null;
+    default_provider: string | null;
+    default_base_url: string | null;
+    key_ready: boolean;
+    message: string;
+  };
+  qdrant: {
+    status: 'ok' | 'off' | 'error';
+    collections: string[];
+    points_count: number;
+    latency_ms: number | null;
+    message: string;
+  };
+  search: {
+    status: 'ok' | 'warn';
+    ready: boolean;
+    calls_7d: number;
+    failed_7d: number;
+    message: string;
+  };
+  db: {
+    status: 'ok';
+    size_bytes: number;
+    counts: Record<string, number>;
+  };
+  active_turns: {
+    chat_session_id: number;
+    title: string;
+    stop_requested: boolean;
+  }[];
 }
 
 export const RECENT = 30;
@@ -209,4 +260,13 @@ export const devApi = {
   getAgentConfig: () => api<AgentConfig>('/api/devconsole/agent-config'),
   saveAgentConfig: (cfg: AgentConfig) =>
     api<AgentConfig>('/api/devconsole/agent-config', { method: 'PUT', body: JSON.stringify(cfg) }),
+  health: () => api<HealthOut>('/api/devconsole/health'),
+  stopTurn: (chatId: number) =>
+    api<{ chat_session_id: number; stopped: boolean }>(`/api/devconsole/turns/${chatId}/stop`, { method: 'POST' }),
+  setToolEnabled: (name: string, enabled: boolean) =>
+    api<{ name: string; enabled: boolean }>(`/api/devconsole/tools/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+  deleteSkill: (skillId: number) => api<void>(`/api/workflows/skills/${skillId}`, { method: 'DELETE' }),
 };

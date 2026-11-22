@@ -639,3 +639,90 @@
 }
 .dc-cfg-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .dc-ok { color: var(--success-text); font-size: var(--fs-12); font-weight: 600; }
+
+/* 시스템 진단(Health) · 도구 제어 · 요청 필터 */
+.dc-health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.dc-health-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: var(--bg-panel-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dc-health-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dc-health-head h3 {
+  margin: 0;
+  font-size: var(--fs-14);
+  font-weight: 700;
+}
+.dc-health-kv {
+  margin: 4px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-12);
+}
+.dc-health-kv > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dc-health-kv dt {
+  color: var(--fg-muted);
+}
+.dc-health-kv dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+}
+.dc-health-turns {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dc-pick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.dc-tool-toggle {
+  padding: 3px 9px;
+  border-radius: var(--radius-2);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: var(--fs-11);
+  font-weight: 600;
+  cursor: pointer;
+}
+.dc-tool-toggle.is-on {
+  background: var(--tone-success-bg);
+  border-color: var(--success-text);
+  color: var(--success-text);
+}
+.dc-tool-meta {
+  margin-top: 4px;
+  font-size: var(--fs-11);
+  color: var(--fg-muted);
+}
+.dc-skill-del {
+  color: var(--danger-text);
+}
+.dc-export-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}

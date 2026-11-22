@@ -13,7 +13,14 @@ const GROUPS: { value: UsageGroup; label: string }[] = [
   { value: 'day', label: '날짜' },
   { value: 'purpose', label: '작업 종류' },
 ];
-const PURPOSES: Record<string, string> = { light: '가벼운 일', normal: '보통 일', hard: '어려운 일', longdoc: '긴 문서 읽기' };
+const PURPOSES: Record<string, string> = {
+  light: '가벼운 일',
+  normal: '보통 일',
+  hard: '어려운 일',
+  longdoc: '긴 문서 읽기',
+  vision: '그림 읽기',
+  embedding: '임베딩',
+};
 export const COST_NOTE = 'Liner가 비용 값을 보내지 않아 비용은 비어 있습니다(토큰만 셉니다).';
 
 function KeyCell({ row, group }: { row: UsageRow; group: UsageGroup }) {

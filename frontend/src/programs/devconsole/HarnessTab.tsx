@@ -223,6 +223,8 @@ function RuleRow({
           <div className="dc-harness-test-res" role="status">
             <div className="dc-harness-test-head">
               <Badge tone="danger">차단 시험 완료</Badge>
+              {tested.engine === 'live_harness' && <Badge tone="success">실엔진 검증</Badge>}
+              {tested.elapsed_ms !== undefined && <Badge tone="neutral">{`${tested.elapsed_ms}ms`}</Badge>}
               <span>{`시뮬레이션 입력: ${tested.simulated_input}`}</span>
             </div>
             <pre className="dc-code-block">{JSON.stringify(tested.model_feedback, null, 2)}</pre>
@@ -277,7 +279,7 @@ export default function HarnessTab({ catalog, onSaved }: { catalog: CatalogOut; 
       </div>
       <AgentConfigPanel initial={catalog.agent_config} onSaved={() => onSaved?.()} />
       <div className="dc-note">
-        <b>원천 연동</b> — 이 화면의 검사 위치·반려 문구·세션 통과/차단 수는 실제 실행 코드(<code>app/tools/harness/check.py</code>, <code>app/agent/loop.py</code>)와 워크플로우 실행 기록(DB)에서 직접 집계합니다.
+        <b>원천 연동</b> — 이 화면의 검사 위치·반려 문구·세션 통과/차단 수는 실제 실행 코드(<code>app/harness/checks.py</code>, <code>app/core/cpm.py</code>, <code>app/agent/loop.py</code>)와 워크플로우 실행 기록(DB)에서 직접 집계·실행합니다.
       </div>
       <div className="dc-principles-box">
         <b>원칙</b>

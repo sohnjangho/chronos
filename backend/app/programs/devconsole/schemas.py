@@ -6,12 +6,21 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.store.traces import UsageGroup, UsageOut
 
 __all__ = [
+    "ActiveTurnOut",
     "AgentConfigOut",
     "AgentConfigPatch",
+    "DbHealthOut",
+    "HealthOut",
+    "LlmHealthOut",
     "NodeDetail",
     "NodeOut",
+    "QdrantHealthOut",
+    "SearchHealthOut",
+    "StopTurnOut",
     "StructureOut",
     "TimelineItem",
+    "ToolToggleIn",
+    "ToolToggleOut",
     "TurnDetail",
     "TurnOut",
     "UsageGroup",
@@ -106,3 +115,66 @@ class AgentConfigPatch(BaseModel):
     history_limit: int | None = Field(default=None, ge=6, le=60)
     enable_skill_match: bool | None = None
     enable_self_reflection: bool | None = None
+
+
+class LlmHealthOut(BaseModel):
+    status: Literal["ok", "warn", "error"]
+    connections_count: int
+    assignments_count: int
+    default_name: str | None = None
+    default_provider: str | None = None
+    default_base_url: str | None = None
+    key_ready: bool
+    message: str
+
+
+class QdrantHealthOut(BaseModel):
+    status: Literal["ok", "off", "error"]
+    collections: list[str] = Field(default_factory=list)
+    points_count: int = 0
+    latency_ms: int | None = None
+    message: str
+
+
+class SearchHealthOut(BaseModel):
+    status: Literal["ok", "warn"]
+    ready: bool
+    calls_7d: int
+    failed_7d: int
+    message: str
+
+
+class DbHealthOut(BaseModel):
+    status: Literal["ok"]
+    size_bytes: int
+    counts: dict[str, int]
+
+
+class ActiveTurnOut(BaseModel):
+    chat_session_id: int
+    title: str
+    stop_requested: bool
+
+
+class HealthOut(BaseModel):
+    llm: LlmHealthOut
+    qdrant: QdrantHealthOut
+    search: SearchHealthOut
+    db: DbHealthOut
+    active_turns: list[ActiveTurnOut]
+
+
+class StopTurnOut(BaseModel):
+    chat_session_id: int
+    stopped: bool
+
+
+class ToolToggleIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
+class ToolToggleOut(BaseModel):
+    name: str
+    enabled: bool

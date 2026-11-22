@@ -124,7 +124,16 @@ def test_admin_only(client, user):
     assert client.get("/api/devconsole/turns", headers=user).json()["code"] == "admin_only"
 
 
-@pytest.mark.parametrize("path", ["/api/devconsole/turns", "/api/devconsole/turns/1", "/api/devconsole/usage", "/api/devconsole/agent-config"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/devconsole/turns",
+        "/api/devconsole/turns/1",
+        "/api/devconsole/usage",
+        "/api/devconsole/agent-config",
+        "/api/devconsole/health",
+    ],
+)
 def test_every_route_is_admin_only(client, user, path):
     r = client.get(path, headers=user)
     assert (r.status_code, r.json()["code"]) == (403, "admin_only")
@@ -506,3 +515,55 @@ def test_agent_config_roundtrip_and_turn_structure_sync(client, admin, user, fin
     assert cat["agent_config"]["max_steps"] == 8
     lim_rule = next(r for r in cat["harness"] if r["id"] == "H-LIM-01")
     assert "8바퀴" in lim_rule["title"] and "3회" in lim_rule["title"]
+    assert len(cat["sources"]["pipeline_prompts"]) >= 5
+    assert any(t["name"] == "schedule.read" and "calls" in t and t["enabled"] is True for t in cat["registry"]["tools"])
+
+
+def test_live_harness_rules_execute_real_engines(client, admin):
+    for rule_id in ("H-CPM-01", "H-RES-01", "H-CAL-01", "H-FIN-01", "H-APP-01", "H-IN-01"):
+        r = client.post(f"/api/devconsole/harness/{rule_id}/test", headers=admin)
+        assert r.status_code == 200, f"{rule_id}: {r.text}"
+        body = r.json()
+        assert body["engine"] == "live_harness"
+        assert isinstance(body["elapsed_ms"], int) and body["elapsed_ms"] >= 0
+        if rule_id in ("H-CPM-01", "H-RES-01", "H-CAL-01", "H-FIN-01"):
+            assert body["model_feedback"]["passed"] is False
+            assert len(body["model_feedback"]["violations"]) >= 1
+        elif rule_id == "H-APP-01":
+            assert body["model_feedback"]["needs_approval"] is True
+        elif rule_id == "H-IN-01":
+            assert body["model_feedback"]["truncated"] is True
+
+
+def test_health_stop_turn_and_tool_toggle_roundtrip(client, admin, user, session, finished_turn):
+    del finished_turn
+    h_res = client.get("/api/devconsole/health", headers=admin)
+    assert h_res.status_code == 200, h_res.text
+    h = h_res.json()
+    assert h["llm"]["status"] in ("ok", "warn", "error")
+    assert h["qdrant"]["status"] in ("ok", "off", "error")
+    assert "schedules" in h["db"]["counts"]
+
+    chat = chats.create_chat(session, user_id=_admin_id(session))
+    chat.title = "긴 실행"
+    session.commit()
+    held = turns.claim(chat.id)
+    try:
+        h2 = client.get("/api/devconsole/health", headers=admin).json()
+        assert any(t["chat_session_id"] == chat.id and t["title"] == "긴 실행" for t in h2["active_turns"])
+        stop_res = client.post(f"/api/devconsole/turns/{chat.id}/stop", headers=admin)
+        assert stop_res.status_code == 200 and stop_res.json()["stopped"] is True
+        assert turns.stop_requested(chat.id) is True
+    finally:
+        turns.release(chat.id, held)
+
+    assert client.put("/api/devconsole/tools/progress.read", headers=user, json={"enabled": False}).status_code == 403
+    try:
+        off_res = client.put("/api/devconsole/tools/progress.read", headers=admin, json={"enabled": False})
+        assert off_res.status_code == 200 and off_res.json() == {"name": "progress.read", "enabled": False}
+        cat_off = client.get("/api/devconsole/catalog", headers=admin).json()
+        entry_off = next(t for t in cat_off["registry"]["tools"] if t["name"] == "progress.read")
+        assert entry_off["enabled"] is False
+    finally:
+        on_res = client.put("/api/devconsole/tools/progress.read", headers=admin, json={"enabled": True})
+        assert on_res.status_code == 200 and on_res.json() == {"name": "progress.read", "enabled": True}

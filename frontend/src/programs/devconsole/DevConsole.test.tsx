@@ -44,13 +44,14 @@ afterEach(() => {
 });
 
 describe('지시서 시험', () => {
-  test('six tabs including harness, sources, and registry', () => {
+  test('seven tabs including harness, sources, registry, and health', () => {
     show();
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
       '에이전트 구조',
       '하네스·차단 시험',
       '프롬프트·지식',
       '도구·스킬',
+      '시스템 진단',
       '실행 추적',
       '사용량·비용',
     ]);
@@ -401,5 +402,52 @@ describe('Fix round 1', () => {
     await userEvent.type(maxSteps, '16');
     await userEvent.click(within(cfg).getByRole('button', { name: '에이전트 설정 저장' }));
     expect(await within(cfg).findByText('에이전트 설정을 저장했습니다.')).toBeVisible();
+  });
+
+  test('health tab renders diagnostics and stops an active turn', async () => {
+    render(<DevConsole windowId="w1" params={{ tab: 'health' }} />);
+    expect(await screen.findByText('기본 연결 및 인증 키 준비됨')).toBeVisible();
+    expect(screen.getByText('연결 정상 (컬렉션 1개 · 벡터 42건)')).toBeVisible();
+    expect(screen.getByText('골조 지연 만회')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: '강제 중단' }));
+    await waitFor(() => expect(urls().some((u) => u === '/api/devconsole/turns/7/stop')).toBe(true));
+  });
+
+  test('registry tab shows tool stats, toggles tool state, and deletes skills', async () => {
+    render(<DevConsole windowId="w1" params={{ tab: 'registry' }} />);
+    expect(await screen.findByText('호출 4회 · 실패 1건')).toBeVisible();
+    const toggleBtn = screen.getByRole('button', { name: 'progress.read 비활성화' });
+    await userEvent.click(toggleBtn);
+    await waitFor(() => expect(urls().some((u) => u.includes('/api/devconsole/tools/progress.read'))).toBe(true));
+    await userEvent.click(screen.getByRole('button', { name: '월간 공정 보고 스킬 삭제' }));
+    await waitFor(() => expect(screen.queryByText('월간 공정 보고')).toBeNull());
+  });
+
+  test('sources tab shows internal pipeline prompts and usage shows vision/embedding labels', async () => {
+    render(<DevConsole windowId="w1" params={{ tab: 'sources' }} />);
+    await userEvent.click(await screen.findByRole('button', { name: /내부 파이프라인 프롬프트/ }));
+    expect(await screen.findByText('# WBS prompt body')).toBeVisible();
+
+    mockUsage({
+      rows: [
+        { key: 'vision', calls: 1, input_tokens: 100, output_tokens: 20, cost: null, failed: 0 },
+        { key: 'embedding', calls: 2, input_tokens: 50, output_tokens: 0, cost: null, failed: 0 },
+      ],
+    });
+    await userEvent.click(screen.getByRole('tab', { name: '사용량·비용' }));
+    await userEvent.selectOptions(await screen.findByLabelText('묶는 기준'), 'purpose');
+    expect(await screen.findByText('그림 읽기')).toBeVisible();
+    expect(screen.getByText('임베딩')).toBeVisible();
+  });
+
+  test('turn picker filters failed/stopped turns', async () => {
+    render(<DevConsole windowId="w1" />);
+    await structure();
+    await userEvent.click(screen.getByRole('button', { name: /요청:/ }));
+    await userEvent.click(screen.getByRole('radio', { name: '실행 중' }));
+    expect(screen.getByText('골조가 4일 밀렸어. 만회 계획 세워 줘')).toBeVisible();
+    expect(screen.queryByText('5층 사무동 공정표 만들어 줘')).toBeNull();
+    await userEvent.click(screen.getByRole('radio', { name: '실패·중단' }));
+    expect(screen.getByText('찾는 요청이 없습니다.')).toBeVisible();
   });
 });

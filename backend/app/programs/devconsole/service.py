@@ -20,29 +20,61 @@ detail = {in, out, ms, model, settings}:
 """
 
 import json
-from datetime import datetime, timedelta
+import time
+from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agent import turns
 from app.agent.context import wire
 from app.agent.loop import MAX_STEPS
+from app.config import Settings
 from app.errors import ApiError
+from app.files import vectors
+from app.llm.assignments import default_connection
+from app.llm.connections import secret_is_sendable
 from app.programs.devconsole.schemas import (
+    ActiveTurnOut,
+    DbHealthOut,
+    HealthOut,
+    LlmHealthOut,
     NodeDetail,
     NodeOut,
+    QdrantHealthOut,
+    SearchHealthOut,
+    StopTurnOut,
     StructureOut,
     TimelineItem,
+    ToolToggleOut,
     TurnDetail,
     TurnOut,
     UsageGroup,
     UsageOut,
 )
+from app.security.crypto import SecretUnreadable, decrypt
+from app.store import settings as settings_store
 from app.store import traces as store
 from app.store.settings import approval_mode, get_agent_config
-from app.store.tables import LlmCall, TraceEvent, WorkflowStep
+from app.store.tables import (
+    Approval,
+    ChatSession,
+    EvidenceSearch,
+    FileRow,
+    LlmAssignment,
+    LlmCall,
+    LlmConnection,
+    ReportRow,
+    ScheduleRecord,
+    SkillRow,
+    TraceEvent,
+    User,
+    WorkflowRun,
+    WorkflowStep,
+)
 from app.store.timeutil import as_utc
 from app.store.workflows import steps_of
+from app.tools import registry
 
 NODES = (
     ("request", "요청 받기"), ("context", "컨텍스트 조립"), ("skill", "스킬 찾기"), ("plan", "워크플로우 짜기"),
@@ -51,7 +83,7 @@ NODES = (
 )
 CHECK_TOOLS = frozenset({"harness.check", "generate.run", "schedule.import"})
 APPROVAL_TOOLS = frozenset({"out.submit_change", "scenario.submit", "rules.propose"})
-SKILL_NOTE = "스킬은 묶음 3에서 — 지금은 늘 없음"
+SKILL_NOTE = "일치하는 스킬 없음"
 CHECK_SETTING = "점검 한도 5회"
 MODE_LABELS = {"all": "모두 승인", "important": "중요한 것만", "auto": "자동"}
 REQUEST_LIMIT = 60
@@ -361,3 +393,141 @@ def _timeline(events: list[TraceEvent], steps: list[WorkflowStep], inner: list[L
     for seq, item in enumerate(items, 1):
         item.seq = seq
     return items
+
+
+# ── 시스템 진단 · 턴 제어 · 도구 제어 ────────────────────────────────
+
+
+def _llm_health(session: Session) -> LlmHealthOut:
+    conn_count = session.scalar(select(func.count()).select_from(LlmConnection)) or 0
+    assign_count = session.scalar(select(func.count()).select_from(LlmAssignment)) or 0
+    conn = default_connection(session)
+    if conn is None:
+        return LlmHealthOut(
+            status="warn",
+            connections_count=conn_count,
+            assignments_count=assign_count,
+            key_ready=False,
+            message="기본 LLM 연결이 설정되지 않았습니다.",
+        )
+    key_ready = False
+    try:
+        key = decrypt(conn.secret_ciphertext)
+        key_ready = secret_is_sendable(key)
+    except SecretUnreadable:
+        key_ready = False
+    return LlmHealthOut(
+        status="ok" if key_ready else "error",
+        connections_count=conn_count,
+        assignments_count=assign_count,
+        default_name=conn.name,
+        default_provider=conn.provider,
+        default_base_url=conn.base_url,
+        key_ready=key_ready,
+        message="기본 연결 및 인증 키 준비됨" if key_ready else "저장된 API 키를 읽을 수 없거나 비어 있습니다.",
+    )
+
+
+def _qdrant_health() -> QdrantHealthOut:
+    store_obj = vectors.STORE
+    if store_obj is None:
+        return QdrantHealthOut(status="off", message="CHRONOS_QDRANT_URL 미설정 (키워드 검색만 사용)")
+    t0 = time.perf_counter()
+    try:
+        available = store_obj.available()
+    except Exception:  # noqa: BLE001
+        available = False
+    latency_ms = round((time.perf_counter() - t0) * 1000)
+    if not available:
+        return QdrantHealthOut(status="error", latency_ms=latency_ms, message="Qdrant 서버에 연결할 수 없습니다.")
+    cols: list[str] = []
+    points = 0
+    try:
+        cols = store_obj.collections()
+        for name in cols:
+            info = store_obj.client.get_collection(name)
+            points += int(getattr(info, "points_count", 0) or 0)
+    except Exception:  # noqa: BLE001
+        pass
+    return QdrantHealthOut(
+        status="ok",
+        collections=cols,
+        points_count=points,
+        latency_ms=latency_ms,
+        message=f"연결 정상 (컬렉션 {len(cols)}개 · 벡터 {points:,}건)",
+    )
+
+
+def _search_health(session: Session, llm_health: LlmHealthOut) -> SearchHealthOut:
+    since = (datetime.now(UTC) - timedelta(days=7)).replace(tzinfo=None)
+    calls = session.scalar(
+        select(func.count()).select_from(EvidenceSearch).where(
+            EvidenceSearch.mode != "weather", EvidenceSearch.created_at >= since
+        )
+    ) or 0
+    failed = session.scalar(
+        select(func.count()).select_from(EvidenceSearch).where(
+            EvidenceSearch.mode != "weather",
+            EvidenceSearch.created_at >= since,
+            EvidenceSearch.ok.is_(False),
+        )
+    ) or 0
+    ready = llm_health.default_provider == "liner" and llm_health.key_ready
+    msg = (
+        f"Liner Search/MCP 준비됨 (최근 7일 {calls}회 · 실패 {failed}건)"
+        if ready
+        else "Liner 기본 연결이 있어야 웹·법령 근거 검색이 동작합니다."
+    )
+    return SearchHealthOut(status="ok" if ready else "warn", ready=ready, calls_7d=calls, failed_7d=failed, message=msg)
+
+
+def _db_health(session: Session) -> DbHealthOut:
+    db_file = Settings().data_dir / "chronos.db"
+    size = db_file.stat().st_size if db_file.exists() else 0
+    counts = {
+        "users": session.scalar(select(func.count()).select_from(User)) or 0,
+        "schedules": session.scalar(select(func.count()).select_from(ScheduleRecord)) or 0,
+        "chats": session.scalar(select(func.count()).select_from(ChatSession)) or 0,
+        "workflow_runs": session.scalar(select(func.count()).select_from(WorkflowRun)) or 0,
+        "files": session.scalar(select(func.count()).select_from(FileRow).where(FileRow.deleted_at.is_(None))) or 0,
+        "approvals": session.scalar(select(func.count()).select_from(Approval).where(Approval.status == "pending")) or 0,
+        "reports": session.scalar(select(func.count()).select_from(ReportRow)) or 0,
+        "skills": session.scalar(select(func.count()).select_from(SkillRow)) or 0,
+    }
+    return DbHealthOut(status="ok", size_bytes=size, counts=counts)
+
+
+def health(session: Session) -> HealthOut:
+    llm_h = _llm_health(session)
+    qdrant_h = _qdrant_health()
+    search_h = _search_health(session, llm_h)
+    db_h = _db_health(session)
+    running = turns.active_turns()
+    titles = {}
+    if running:
+        cids = [t["chat_session_id"] for t in running]
+        rows = session.scalars(select(ChatSession).where(ChatSession.id.in_(cids)))
+        titles = {r.id: r.title or f"대화 #{r.id}" for r in rows}
+    active = [
+        ActiveTurnOut(
+            chat_session_id=t["chat_session_id"],
+            title=titles.get(t["chat_session_id"], f"대화 #{t['chat_session_id']}"),
+            stop_requested=t["stop_requested"],
+        )
+        for t in running
+    ]
+    return HealthOut(llm=llm_h, qdrant=qdrant_h, search=search_h, db=db_h, active_turns=active)
+
+
+def stop_turn(chat_session_id: int) -> StopTurnOut:
+    return StopTurnOut(chat_session_id=chat_session_id, stopped=turns.request_stop(chat_session_id))
+
+
+def toggle_tool(session: Session, tool_name: str, enabled: bool) -> ToolToggleOut:
+    registry.load_all()
+    known = {t.name for t in registry.list_tools(enabled_only=False)}
+    if tool_name not in known:
+        raise ApiError(404, "not_found", f"도구를 찾을 수 없습니다: {tool_name}")
+    registry.set_enabled(tool_name, enabled)
+    settings_store.set_tool_enabled(session, tool_name, enabled)
+    return ToolToggleOut(name=tool_name, enabled=enabled)

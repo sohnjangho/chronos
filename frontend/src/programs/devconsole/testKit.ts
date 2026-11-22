@@ -165,8 +165,73 @@ export function setup(role: 'admin' | 'user' = 'admin') {
       enable_skill_match: true,
       enable_self_reflection: true,
     },
-    sources: { system_file: 'system.md', system_raw: 'prompt', system_chars: 6, levels_prompt: 'L3', guides: [], domains: [] },
-    registry: { tools: [], skills: [] },
+    sources: {
+      system_file: 'system.md',
+      system_raw: 'prompt',
+      system_chars: 6,
+      levels_prompt: 'L3',
+      guides: [],
+      pipeline_prompts: [{ name: 'wbs', file: 'app/agent/prompts/wbs.md', chars: 120, content: '# WBS prompt body' }],
+      domains: [],
+    },
+    registry: {
+      tools: [
+        {
+          name: 'progress.read',
+          llm_name: 'progress__read',
+          program: 'progress',
+          category: '조회·계산·조작',
+          enabled: true,
+          calls: 4,
+          failed: 1,
+          avg_ms: 82,
+          description: '공정률과 SPI를 읽습니다.',
+          schema: { type: 'object', properties: {} },
+        },
+      ],
+      skills: [
+        {
+          id: 11,
+          name: '월간 공정 보고',
+          description: '공정률을 읽고 보고서를 만듭니다.',
+          triggers: ['월간', '보고서'],
+          steps: [{ tool: 'progress.read' }, { tool: 'report.generate' }],
+          use_count: 3,
+        },
+      ],
+    },
+  };
+  const sampleHealth = {
+    llm: {
+      status: 'ok',
+      connections_count: 1,
+      assignments_count: 4,
+      default_name: 'Liner 기본',
+      default_provider: 'liner',
+      default_base_url: 'https://api.example.com',
+      key_ready: true,
+      message: '기본 연결 및 인증 키 준비됨',
+    },
+    qdrant: {
+      status: 'ok',
+      collections: ['chunks__inst__embed__1536'],
+      points_count: 42,
+      latency_ms: 9,
+      message: '연결 정상 (컬렉션 1개 · 벡터 42건)',
+    },
+    search: {
+      status: 'ok',
+      ready: true,
+      calls_7d: 7,
+      failed_7d: 0,
+      message: 'Liner Search/MCP 준비됨 (최근 7일 7회 · 실패 0건)',
+    },
+    db: {
+      status: 'ok',
+      size_bytes: 204800,
+      counts: { users: 3, schedules: 2, chats: 5, workflow_runs: 6, files: 4, approvals: 1, reports: 2, skills: 1 },
+    },
+    active_turns: [{ chat_session_id: 7, title: '골조 지연 만회', stop_requested: false }],
   };
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -176,6 +241,21 @@ export function setup(role: 'admin' | 'user' = 'admin') {
     if (m && byId.has(Number(m[1]))) return json(200, byId.get(Number(m[1])));
     if (url.startsWith('/api/devconsole/usage?')) return json(200, usageBody);
     if (url === '/api/devconsole/catalog') return json(200, sampleCatalog);
+    if (url === '/api/devconsole/health') return json(200, sampleHealth);
+    if (/^\/api\/devconsole\/turns\/\d+\/stop$/.test(url) && init?.method === 'POST') {
+      return json(200, { chat_session_id: 7, stopped: true });
+    }
+    if (url.startsWith('/api/devconsole/tools/') && init?.method === 'PUT') {
+      const name = decodeURIComponent(url.replace('/api/devconsole/tools/', ''));
+      const body = JSON.parse(String(init.body));
+      sampleCatalog.registry.tools = sampleCatalog.registry.tools.map((t) => (t.name === name ? { ...t, enabled: body.enabled } : t));
+      return json(200, { name, enabled: body.enabled });
+    }
+    if (url.startsWith('/api/workflows/skills/') && init?.method === 'DELETE') {
+      const id = Number(url.replace('/api/workflows/skills/', ''));
+      sampleCatalog.registry.skills = sampleCatalog.registry.skills.filter((s) => s.id !== id);
+      return new Response(null, { status: 204 });
+    }
     if (url === '/api/devconsole/agent-config' && init?.method === 'PUT') return json(200, JSON.parse(String(init.body)));
     if (url === '/api/devconsole/agent-config') return json(200, sampleCatalog.agent_config);
     return json(404, { code: 'not_found', message: '찾을 수 없습니다.', detail: null });

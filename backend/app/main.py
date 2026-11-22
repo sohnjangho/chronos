@@ -11,6 +11,7 @@ from app.db import close_db, get_session, init_db
 from app.errors import install_error_handlers
 from app.files import jobs
 from app.programs.files.guard import UploadGuard
+from app.store import settings as settings_store
 from app.store.workflows import close_unfinished
 from app.tools import registry
 
@@ -40,9 +41,14 @@ def include_program_routers(target: FastAPI) -> list[str]:
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     validate_settings(Settings())
     init_db()
+    registry.load_all()  # 에이전트가 쓸 도구를 모두 등록한다
     with contextmanager(get_session)() as session:
         close_unfinished(session)  # 지난번에 끝나지 못한 실행 기록은 stopped 로 닫는다
-    registry.load_all()  # 에이전트가 쓸 도구를 모두 등록한다
+        for disabled in settings_store.get_disabled_tools(session):
+            try:
+                registry.set_enabled(disabled, False)
+            except KeyError:
+                pass
     jobs.start()  # 파일 뒤 작업 줄(임베딩·분류·다시 넣기). CHRONOS_QDRANT_URL 이 빈 값이면 뜻 검색만 끈다(분류는 된다)
     yield
     await jobs.stop()

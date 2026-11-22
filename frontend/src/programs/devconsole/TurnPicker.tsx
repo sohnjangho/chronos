@@ -35,9 +35,12 @@ function Choice({ t, current, onPick }: { t: Turn; current: boolean; onPick(): v
   );
 }
 
+type StatusFilter = 'all' | 'failed' | 'running';
+
 export default function TurnPicker({ turns, current, onOpen, onPick }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
 
@@ -50,15 +53,21 @@ export default function TurnPicker({ turns, current, onOpen, onPick }: Props) {
 
   const found = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = turns ?? [];
+    let list = turns ?? [];
+    if (statusFilter === 'failed') {
+      list = list.filter((t) => t.status === 'failed' || t.status === 'stopped');
+    } else if (statusFilter === 'running') {
+      list = list.filter((t) => t.status === 'running');
+    }
     return q ? list.filter((t) => `${t.request} ${t.user_name}`.toLowerCase().includes(q)) : list;
-  }, [turns, query]);
+  }, [turns, query, statusFilter]);
 
   /** 열 때마다 목록을 다시 읽고 찾기 글을 비운다. */
   const toggle = () => {
     if (!open) {
       onOpen();
       setQuery('');
+      setStatusFilter('all');
     }
     setOpen(!open);
   };
@@ -89,7 +98,27 @@ export default function TurnPicker({ turns, current, onOpen, onPick }: Props) {
             onChange={(e) => setQuery(e.target.value)}
             autoFocus
           />
-          <p className="dc-muted">{`최근 ${turns?.length ?? 0}개 요청${query.trim() ? ` 중 ${found.length}개` : ''}`}</p>
+          <div className="dc-pick-filters" role="radiogroup" aria-label="요청 상태 필터">
+            {(
+              [
+                ['all', '전체'],
+                ['failed', '실패·중단'],
+                ['running', '실행 중'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                className={`dc-mode-btn${statusFilter === id ? ' is-on' : ''}`}
+                aria-checked={statusFilter === id}
+                onClick={() => setStatusFilter(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="dc-muted">{`최근 ${turns?.length ?? 0}개 요청${query.trim() || statusFilter !== 'all' ? ` 중 ${found.length}개` : ''}`}</p>
           <div className="dc-pick-list">
             {turns === null && <p className="dc-muted">불러오는 중…</p>}
             {turns?.length === 0 && <p className="dc-muted">아직 기록된 요청이 없습니다.</p>}
