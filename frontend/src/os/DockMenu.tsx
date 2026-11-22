@@ -16,11 +16,17 @@ export function dockMenuItems(entry: DockEntry): MenuEntry[] {
   const { program, pinned } = entry;
   const w = useWindows.getState();
   const d = useDock.getState();
+  const allowed = allIds();
+  const cur = (d.pinned ?? allowed).filter((id) => allowed.includes(id));
+  const pos = cur.indexOf(program.id);
   const mine = w.wins.filter((x) => x.programId === program.id);
   const options: MenuEntry[] = [
     { type: 'title', label: '옵션' },
-    { label: 'Dock에 유지', checked: pinned, run: () => (pinned ? d.unpin(program.id, allIds()) : d.pin(program.id, allIds())) },
-    { label: 'Dock에서 제거', disabled: !pinned, run: () => d.unpin(program.id, allIds()) },
+    { label: 'Dock에 유지', checked: pinned, run: () => (pinned ? d.unpin(program.id, allowed) : d.pin(program.id, allowed)) },
+    { label: 'Dock에서 제거', disabled: !pinned, run: () => d.unpin(program.id, allowed) },
+    { label: '왼쪽으로 이동', disabled: !pinned || pos <= 0, run: () => d.moveBy(program.id, -1, allowed) },
+    { label: '오른쪽으로 이동', disabled: !pinned || pos < 0 || pos >= cur.length - 1, run: () => d.moveBy(program.id, 1, allowed) },
+    { label: 'Dock 아이콘 편집…', run: () => useShell.getState().setDrawer('edit') },
   ];
   if (!mine.length) return [{ label: '열기', run: () => w.open(program.id) }, SEPARATOR, ...options];
   return [

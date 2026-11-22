@@ -9,13 +9,14 @@ import { useShell } from './shell';
 import { useWindows } from './windowStore';
 import './overlays.css';
 
-/** 편집 모드의 Dock 차례: 끌어서 옮기거나, 포커스한 줄에서 Alt+←→ 로 옮긴다. */
+/** 편집 모드의 Dock 차례: 끌어서 옮기거나, 단추(←·→·×) 또는 Alt+←→ 로 조정한다. */
 function DockOrder({ all }: { all: ProgramManifest[] }) {
   const pinned = useDock((s) => s.pinned);
   const allIds = all.map((p) => p.id);
   const byId = new Map(all.map((p) => [p.id, p]));
   const order = (pinned ?? allIds).filter((id) => byId.has(id));
   const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const refs = useRef(new Map<string, HTMLLIElement | null>());
   const move = (id: string, to: number) => useDock.getState().move(id, to, allIds);
@@ -33,29 +34,88 @@ function DockOrder({ all }: { all: ProgramManifest[] }) {
 
   return (
     <div className="os-drawer-dock">
-      <div className="os-drawer-dock-title">Dock 차례 · 끌어서 옮기거나 Alt+←→</div>
+      <div className="os-drawer-dock-head">
+        <div className="os-drawer-dock-title">Dock 차례 · 끌어서 옮기거나 버튼 / Alt+←→</div>
+        <Button disabled={pinned === null} onClick={() => useDock.getState().resetDefault()}>
+          기본 순서 복원
+        </Button>
+      </div>
       <ol aria-label="Dock 차례" className="os-drawer-order">
-        {order.map((id, i) => (
-          <li
-            key={id}
-            ref={(el) => void refs.current.set(id, el)}
-            tabIndex={0}
-            draggable
-            className={dragId === id ? 'is-dragging' : undefined}
-            onDragStart={() => setDragId(id)}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (dragId && dragId !== id) move(dragId, i);
-              setDragId(null);
-            }}
-            onDragEnd={() => setDragId(null)}
-            onKeyDown={(e) => onKeyDown(e, id, i)}
-          >
-            <ProgramIcon program={byId.get(id)!} size={32} />
-            <span>{byId.get(id)!.name}</span>
-          </li>
-        ))}
+        {order.map((id, i) => {
+          const p = byId.get(id)!;
+          const liClass = [dragId === id ? 'is-dragging' : '', overId === id && dragId !== null && dragId !== id ? 'is-drop-target' : '']
+            .filter(Boolean)
+            .join(' ');
+          return (
+            <li
+              key={id}
+              ref={(el) => void refs.current.set(id, el)}
+              tabIndex={0}
+              draggable
+              className={liClass || undefined}
+              onDragStart={(e) => {
+                setDragId(id);
+                e.dataTransfer?.setData('text/plain', id);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (overId !== id) setOverId(id);
+              }}
+              onDragLeave={() => {
+                if (overId === id) setOverId(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const from = dragId || e.dataTransfer?.getData('text/plain') || null;
+                if (from && from !== id) move(from, i);
+                setDragId(null);
+                setOverId(null);
+              }}
+              onDragEnd={() => {
+                setDragId(null);
+                setOverId(null);
+              }}
+              onKeyDown={(e) => onKeyDown(e, id, i)}
+            >
+              <ProgramIcon program={p} size={32} />
+              <span>{p.name}</span>
+              <div className="os-drawer-order-btns">
+                <button
+                  type="button"
+                  className="os-drawer-order-btn"
+                  aria-label={`${p.name} 왼쪽으로 이동`}
+                  disabled={i === 0}
+                  onClick={() => move(id, i - 1)}
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M7.5 2.5L4 6l3.5 3.5" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="os-drawer-order-btn"
+                  aria-label={`${p.name} 오른쪽으로 이동`}
+                  disabled={i === order.length - 1}
+                  onClick={() => move(id, i + 1)}
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4.5 2.5L8 6l-3.5 3.5" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="os-drawer-order-btn"
+                  aria-label={`${p.name} Dock에서 빼기`}
+                  onClick={() => useDock.getState().unpin(id, allIds)}
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+                    <path d="M3 3l6 6M9 3L3 9" />
+                  </svg>
+                </button>
+              </div>
+            </li>
+          );
+        })}
       </ol>
     </div>
   );

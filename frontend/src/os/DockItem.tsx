@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type PointerEvent as ReactPointerEvent,
+  type Ref,
+} from 'react';
 import type { DockEntry } from './dockStore';
 import ProgramIcon, { SystemIcon } from './ProgramIcon';
 
@@ -15,11 +22,19 @@ export interface DockItemProps {
   scale: number | null;
   tabStop: boolean;
   menuOpen: boolean;
+  draggable?: boolean;
+  dragging?: boolean;
+  dropTarget?: boolean;
   buttonRef: Ref<HTMLButtonElement>;
   tileRef: Ref<HTMLSpanElement>;
   onLaunch(): void;
   onMenu(): void;
   onFocusItem(): void;
+  onDragStart?(e: ReactDragEvent): void;
+  onDragOver?(e: ReactDragEvent): void;
+  onDragLeave?(): void;
+  onDrop?(e: ReactDragEvent): void;
+  onDragEnd?(): void;
 }
 
 const LONG_PRESS_MS = 500;
@@ -64,10 +79,20 @@ export default function DockItem(p: DockItemProps) {
   const [hover, setHover] = useState(false);
   const [focused, setFocused] = useState(false);
   const press = useLongPress(p.onMenu);
-  const classes = ['os-dock-item', p.launching && 'is-launching'].filter(Boolean).join(' ');
+  const classes = ['os-dock-item', p.launching && 'is-launching', p.dragging && 'is-dragging', p.dropTarget && 'is-drop-target']
+    .filter(Boolean)
+    .join(' ');
   return (
-    <div className={classes}>
-      {(hover || focused) && !p.menuOpen && (
+    <div
+      className={classes}
+      draggable={p.draggable}
+      onDragStart={p.onDragStart}
+      onDragOver={p.onDragOver}
+      onDragLeave={p.onDragLeave}
+      onDrop={p.onDrop}
+      onDragEnd={p.onDragEnd}
+    >
+      {(hover || focused) && !p.menuOpen && !p.dragging && (
         <span role="tooltip" className="os-dock-tip">
           {p.name}
         </span>

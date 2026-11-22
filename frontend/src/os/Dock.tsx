@@ -159,7 +159,11 @@ function useDockModel(current: number | null) {
   const activeIndex = items.findIndex((e) => e.kind === 'program' && e.program.id === active?.programId);
   const tabStop = current ?? (activeIndex >= 0 ? activeIndex : 0);
   const maximized = wins.some((w) => w.maximized && !w.minimized);
-  return { running, active, entries, items, tabStop, maximized, pending };
+  const allowedIds = programs(role).map((p) => p.id);
+  const pinnedOrder = entries
+    .filter((e): e is Extract<DockEntry, { kind: 'program' }> => e.kind === 'program' && e.pinned)
+    .map((e) => e.program.id);
+  return { running, active, entries, items, tabStop, maximized, pending, allowedIds, pinnedOrder };
 }
 
 type Model = ReturnType<typeof useDockModel>;
@@ -178,15 +182,54 @@ interface ItemContext {
   launching: string[];
   scaleAt(i: number): number | null;
   menuOpen: boolean;
+  dragId: string | null;
+  overId: string | null;
   buttons: RefObject<(HTMLButtonElement | null)[]>;
   tiles: RefObject<(HTMLSpanElement | null)[]>;
   setMenu(i: number): void;
   setCurrent(i: number): void;
+  setDragId(id: string | null): void;
+  setOverId(id: string | null): void;
 }
 
 /** Dock 항목 하나의 속성. 누르면 프로그램을 열거나(앞으로·최소화 풀기) 앱 서랍을 연다. */
 function dockItemProps(entry: Item, i: number, c: ItemContext): DockItemProps {
   const { program, running, badge, state } = itemState(entry, c.model);
+  const pinnedProgram = entry.kind === 'program' && entry.pinned ? entry.program : null;
+  const dragProps: Partial<DockItemProps> = pinnedProgram
+    ? {
+        draggable: true,
+        dragging: c.dragId === pinnedProgram.id,
+        dropTarget: c.overId === pinnedProgram.id && c.dragId !== null && c.dragId !== pinnedProgram.id,
+        onDragStart: (e) => {
+          c.setDragId(pinnedProgram.id);
+          e.dataTransfer?.setData('text/plain', pinnedProgram.id);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+        },
+        onDragOver: (e) => {
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+          if (c.overId !== pinnedProgram.id) c.setOverId(pinnedProgram.id);
+        },
+        onDragLeave: () => {
+          if (c.overId === pinnedProgram.id) c.setOverId(null);
+        },
+        onDrop: (e) => {
+          e.preventDefault();
+          const from = c.dragId || e.dataTransfer?.getData('text/plain') || null;
+          const toIdx = c.model.pinnedOrder.indexOf(pinnedProgram.id);
+          if (from && from !== pinnedProgram.id && toIdx >= 0) {
+            useDock.getState().move(from, toIdx, c.model.allowedIds);
+          }
+          c.setDragId(null);
+          c.setOverId(null);
+        },
+        onDragEnd: () => {
+          c.setDragId(null);
+          c.setOverId(null);
+        },
+      }
+    : {};
   return {
     entry,
     index: i,
@@ -206,6 +249,7 @@ function dockItemProps(entry: Item, i: number, c: ItemContext): DockItemProps {
     onLaunch: () => (program ? useWindows.getState().open(program.id, undefined, 'dock') : useShell.getState().setDrawer('open')),
     onMenu: () => c.setMenu(i),
     onFocusItem: () => c.setCurrent(i),
+    ...dragProps,
   };
 }
 
@@ -236,19 +280,34 @@ export default function Dock() {
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const tiles = useRef<(HTMLSpanElement | null)[]>([]);
   const [current, setCurrent] = useState<number | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const model = useDockModel(current);
   const [menu, setMenu, closeMenu] = useItemMenu(buttons, model.items.length);
   const { entries, items, tabStop } = model;
   const launching = useLaunching(model.running, model.pending);
   const auto = useAutoHide(model.maximized, menu !== null, wrapRef);
-  const mag = useMagnify(items.length, tiles, menu !== null);
+  const mag = useMagnify(items.length, tiles, menu !== null || dragId !== null);
   const onKeyDown = rovingKeys({ count: items.length, tabStop, current, setCurrent, buttons, openMenu: setMenu, hide: auto.hide });
 
   useEffect(() => {
     if (auto.revealed === 'keyboard') buttons.current[tabStop]?.focus();
   }, [auto.revealed]); // 드러날 때 한 번만
 
-  const ctx: ItemContext = { model, launching, scaleAt: mag.scaleAt, menuOpen: menu !== null, buttons, tiles, setMenu, setCurrent };
+  const ctx: ItemContext = {
+    model,
+    launching,
+    scaleAt: mag.scaleAt,
+    menuOpen: menu !== null,
+    dragId,
+    overId,
+    buttons,
+    tiles,
+    setMenu,
+    setCurrent,
+    setDragId,
+    setOverId,
+  };
   let index = -1;
   const renderEntry = (entry: DockEntry) => {
     if (entry.kind === 'sep') return <div key={entry.key} role="separator" aria-orientation="vertical" className="os-dock-sep" />;

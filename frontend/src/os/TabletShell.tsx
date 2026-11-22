@@ -8,75 +8,103 @@ import ProgramIcon, { SystemIcon } from './ProgramIcon';
 import { getProgram, programs, type ProgramManifest } from './registry';
 import ScheduleSelector from './ScheduleSelector';
 import { useSession } from './session';
+import { defaultTabletRailIds, resolveTabletRail, tabletCatalog, useTabletRail } from './tabletRailStore';
 import { useTheme } from './theme';
 import { useDeviceMode } from './useIsMobile';
 import { useWindows } from './windowStore';
 import WorkflowRibbon from './WorkflowRibbon';
 import './tablet.css';
 
-type NavId =
-  | 'chat'
-  | 'schedule-table'
-  | 'gantt'
-  | 'progress'
-  | 'field'
-  | 'cpm'
-  | 'delays'
-  | 'workflow'
-  | 'approvals'
-  | 'library'
-  | 'settings';
-
-interface RailSpec {
-  id: NavId;
-  label: string;
-  programId: string;
-}
-
-const RAIL_MAIN: RailSpec[] = [
-  { id: 'chat', label: '대화', programId: 'chat' },
-  { id: 'schedule-table', label: '스케줄', programId: 'schedule-table' },
-  { id: 'gantt', label: '간트', programId: 'gantt' },
-  { id: 'progress', label: '공정률', programId: 'progress' },
-  { id: 'field', label: '현장 점검', programId: 'progress' },
-  { id: 'cpm', label: 'CPM', programId: 'cpm' },
-  { id: 'delays', label: '지연', programId: 'delays' },
-  { id: 'workflow', label: '워크플로우', programId: 'workflow' },
-  { id: 'approvals', label: '승인함', programId: 'approvals' },
-  { id: 'library', label: '자료함', programId: 'library' },
-];
-
-const RAIL_FIELD: RailSpec[] = [
-  { id: 'field', label: '현장 점검', programId: 'progress' },
-  { id: 'schedule-table', label: '스케줄', programId: 'schedule-table' },
-  { id: 'gantt', label: '간트', programId: 'gantt' },
-  { id: 'chat', label: '현장 AI', programId: 'chat' },
-];
-
-const ALL_RAIL_MAP = new Map<string, NavId>([
-  ...RAIL_MAIN.filter((r) => r.id !== 'field').map((r) => [r.programId, r.id] as [string, NavId]),
-  ['settings', 'settings'],
-]);
-
-function navForWindow(programId: string, params?: Record<string, string>): NavId | null {
+function navForWindow(programId: string, params?: Record<string, string>): string {
   if (programId === 'progress' && params?.view === 'field') return 'field';
-  return ALL_RAIL_MAP.get(programId) ?? null;
+  return programId;
 }
 
-function TabletAppsGrid({ list, onPick }: { list: ProgramManifest[]; onPick(id: string): void }) {
+interface AppsGridItem {
+  id: string;
+  fullName: string;
+  program: ProgramManifest;
+  iconId?: 'field';
+}
+
+function appsGridItems(list: ProgramManifest[]): AppsGridItem[] {
+  const out: AppsGridItem[] = [];
+  for (const p of list) {
+    out.push({ id: p.id, fullName: p.name, program: p });
+    if (p.id === 'progress') {
+      out.push({ id: 'field', fullName: '현장 모바일 점검', program: p, iconId: 'field' });
+    }
+  }
+  return out;
+}
+
+function TabletAppsGrid({
+  list,
+  pinnedSet,
+  railEdit,
+  isDefault,
+  onPick,
+  onToggleEdit,
+  onAddRail,
+  onRemoveRail,
+  onResetRail,
+}: {
+  list: ProgramManifest[];
+  pinnedSet: Set<string>;
+  railEdit: boolean;
+  isDefault: boolean;
+  onPick(id: string): void;
+  onToggleEdit(): void;
+  onAddRail(id: string): void;
+  onRemoveRail(id: string): void;
+  onResetRail(): void;
+}) {
+  const items = appsGridItems(list);
   return (
     <div className="tab-apps" aria-label="전체 프로그램">
       <div className="tab-apps-head">
-        <h2>전체 프로그램</h2>
-        <span className="tab-muted">원하는 프로그램을 선택해 태블릿 스테이지에서 바로 여세요.</span>
+        <div className="tab-apps-head-row">
+          <h2>전체 프로그램</h2>
+          <div className="tab-apps-actions">
+            <button type="button" className="tab-apps-action" aria-pressed={railEdit} onClick={onToggleEdit}>
+              {railEdit ? '편집 완료' : '메뉴 편집'}
+            </button>
+            {railEdit && (
+              <button type="button" className="tab-apps-action" disabled={isDefault} onClick={onResetRail}>
+                기본 메뉴 복원
+              </button>
+            )}
+          </div>
+        </div>
+        <span className="tab-muted">
+          {railEdit
+            ? '왼쪽 메뉴에 넣을 앱을 고르거나, 왼쪽 막대를 끌어·↑↓ 버튼으로 순서를 바꾸세요.'
+            : '원하는 프로그램을 선택해 태블릿 스테이지에서 바로 여세요.'}
+        </span>
       </div>
       <div className="tab-apps-grid">
-        {list.map((p) => (
-          <button key={p.id} type="button" className="tab-app-tile" onClick={() => onPick(p.id)}>
-            <ProgramIcon program={p} size={52} />
-            <span className="tab-app-name">{p.name}</span>
-          </button>
-        ))}
+        {items.map((item) => {
+          const inRail = pinnedSet.has(item.id);
+          return (
+            <div key={item.id} className="tab-app-card">
+              <button type="button" className="tab-app-tile" onClick={() => onPick(item.id)}>
+                <ProgramIcon program={item.program} size={52} iconId={item.iconId} />
+                <span className="tab-app-name">{item.fullName}</span>
+              </button>
+              {railEdit && item.id !== 'settings' && (
+                <button
+                  type="button"
+                  className={inRail ? 'tab-app-pin is-pinned' : 'tab-app-pin'}
+                  aria-pressed={inRail}
+                  aria-label={inRail ? `${item.fullName} 메뉴에서 빼기` : `${item.fullName} 메뉴에 추가`}
+                  onClick={() => (inRail ? onRemoveRail(item.id) : onAddRail(item.id))}
+                >
+                  {inRail ? '메뉴에서 빼기' : '+ 메뉴에 추가'}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -171,9 +199,11 @@ export default function TabletShell() {
   const wins = useWindows((s) => s.wins);
   const agentFocus = useAgentView((s) => s.focus);
 
-  const [navId, setNavId] = useState<NavId>(() => (role === 'field' ? 'field' : 'schedule-table'));
-  const [customProgram, setCustomProgram] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string>(() => (role === 'field' ? 'field' : 'schedule-table'));
   const [showApps, setShowApps] = useState(false);
+  const [railEdit, setRailEdit] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const [params, setParams] = useState<Record<string, string> | undefined>(undefined);
   const [splitOpen, setSplitOpen] = useState<boolean>(() => (typeof window !== 'undefined' ? window.innerWidth >= 960 : true));
   const lastTopRef = useRef<string | null>(null);
@@ -185,33 +215,25 @@ export default function TabletShell() {
     const sig = `${top.id}:${top.z}:${JSON.stringify(top.params ?? {})}`;
     if (sig === lastTopRef.current) return;
     lastTopRef.current = sig;
-    const mapped = navForWindow(top.programId, top.params);
     setShowApps(false);
-    if (mapped) {
-      setNavId(mapped);
-      setCustomProgram(null);
-    } else {
-      setCustomProgram(top.programId);
-    }
+    setActiveId(navForWindow(top.programId, top.params));
     setParams(top.params);
   }, [wins]);
 
-  const primaryProgramId =
-    customProgram ??
-    (navId === 'field' ? 'progress' : navId);
+  const primaryProgramId = activeId === 'field' ? 'progress' : activeId;
   const primaryManifest = !showApps ? getProgram(primaryProgramId) : undefined;
   const PrimaryScreen = primaryManifest?.component;
 
   const primaryParams =
-    navId === 'field' && !customProgram
+    activeId === 'field'
       ? { ...(params ?? {}), view: 'field' }
-      : navId === 'progress' && !customProgram
+      : activeId === 'progress'
         ? { ...(params ?? {}), view: 'dashboard' }
         : params;
 
   const title = showApps
     ? '전체 프로그램'
-    : navId === 'field' && !customProgram
+    : activeId === 'field'
       ? '현장 모바일 점검'
       : (primaryManifest?.name ?? 'ChronOS');
 
@@ -221,26 +243,25 @@ export default function TabletShell() {
 
   const showAgentBanner = agentFocus.active && !showApps && agentFocus.programId === primaryProgramId;
 
-  function pickRail(id: NavId) {
+  function pickRail(id: string) {
     setShowApps(false);
-    setCustomProgram(null);
-    setNavId(id);
+    setActiveId(id);
     setParams(undefined);
   }
 
   function pickApp(id: string) {
     setShowApps(false);
-    const mapped = navForWindow(id);
-    if (mapped) {
-      setNavId(mapped);
-      setCustomProgram(null);
-    } else {
-      setCustomProgram(id);
-    }
+    setRailEdit(false);
+    setActiveId(id);
     setParams(undefined);
   }
 
-  const railList = isFieldRole ? RAIL_FIELD : RAIL_MAIN;
+  const allowed = programs(role);
+  const savedRail = useTabletRail((s) => s.items);
+  const defaults = defaultTabletRailIds(role);
+  const railList = resolveTabletRail(role, allowed, savedRail);
+  const catalogSet = new Set(tabletCatalog(role, allowed).map((e) => e.id));
+  const pinnedSet = new Set(railList.map((r) => r.id));
   const settingsManifest = getProgram('settings');
 
   return (
@@ -277,12 +298,88 @@ export default function TabletShell() {
       <WorkflowRibbon />
 
       <div className="tab-body">
-        <nav className="tab-rail" aria-label="태블릿 탐색">
+        <nav className={railEdit ? 'tab-rail is-editing' : 'tab-rail'} aria-label="태블릿 탐색">
           <div className="tab-rail-scroll">
-            {railList.map((item) => {
+            {railList.map((item, idx) => {
               const m = getProgram(item.programId);
               if (!m) return null;
-              const isCurrent = !showApps && !customProgram && navId === item.id;
+              const isCurrent = !showApps && activeId === item.id;
+              if (railEdit) {
+                const itemCls = [
+                  'tab-rail-edit-item',
+                  dragId === item.id ? 'is-dragging' : '',
+                  overId === item.id && dragId !== null && dragId !== item.id ? 'is-drop-target' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
+                return (
+                  <div
+                    key={item.id}
+                    className={itemCls}
+                    data-rail-id={item.id}
+                    draggable
+                    onDragStart={(e) => {
+                      setDragId(item.id);
+                      e.dataTransfer?.setData('text/plain', item.id);
+                      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+                      if (overId !== item.id) setOverId(item.id);
+                    }}
+                    onDragLeave={() => {
+                      if (overId === item.id) setOverId(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const from = dragId || e.dataTransfer?.getData('text/plain') || null;
+                      if (from && from !== item.id) useTabletRail.getState().move(from, idx, defaults);
+                      setDragId(null);
+                      setOverId(null);
+                    }}
+                    onDragEnd={() => {
+                      setDragId(null);
+                      setOverId(null);
+                    }}
+                  >
+                    <span className="tab-rail-ico-wrap">
+                      <ProgramIcon program={m} size={28} iconId={item.iconId} />
+                    </span>
+                    <span className="tab-rail-label">{item.label}</span>
+                    <div className="tab-rail-edit-ctrls">
+                      <button
+                        type="button"
+                        className="tab-rail-mini"
+                        aria-label={`${item.label} 위로 이동`}
+                        disabled={idx === 0}
+                        onClick={() => useTabletRail.getState().moveBy(item.id, -1, defaults)}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        className="tab-rail-mini"
+                        aria-label={`${item.label} 아래로 이동`}
+                        disabled={idx === railList.length - 1}
+                        onClick={() => useTabletRail.getState().moveBy(item.id, 1, defaults)}
+                      >
+                        ↓
+                      </button>
+                      {!isFieldRole && (
+                        <button
+                          type="button"
+                          className="tab-rail-mini is-del"
+                          aria-label={`${item.label} 메뉴에서 제거`}
+                          onClick={() => useTabletRail.getState().remove(item.id, defaults)}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <button
                   key={item.id}
@@ -292,7 +389,7 @@ export default function TabletShell() {
                   onClick={() => pickRail(item.id)}
                 >
                   <span className="tab-rail-ico-wrap">
-                    <ProgramIcon program={m} size={32} iconId={item.id === 'field' ? 'field' : undefined} />
+                    <ProgramIcon program={m} size={32} iconId={item.iconId} />
                     {item.id === 'approvals' && pending > 0 && (
                       <span className="tab-rail-badge">{pending > 99 ? '99+' : pending}</span>
                     )}
@@ -303,6 +400,20 @@ export default function TabletShell() {
             })}
           </div>
           <div className="tab-rail-foot">
+            <button
+              type="button"
+              className={railEdit ? 'tab-rail-btn is-editing-on' : 'tab-rail-btn'}
+              aria-pressed={railEdit}
+              onClick={() =>
+                setRailEdit((prev) => {
+                  const next = !prev;
+                  if (next && !isFieldRole) setShowApps(true);
+                  return next;
+                })
+              }
+            >
+              <span className="tab-rail-label">{railEdit ? '편집 완료' : '메뉴 편집'}</span>
+            </button>
             {!isFieldRole && (
               <button
                 type="button"
@@ -320,7 +431,7 @@ export default function TabletShell() {
               <button
                 type="button"
                 className="tab-rail-btn"
-                aria-current={!showApps && !customProgram && navId === 'settings' ? 'page' : undefined}
+                aria-current={!showApps && activeId === 'settings' ? 'page' : undefined}
                 onClick={() => pickRail('settings')}
               >
                 <span className="tab-rail-ico-wrap">
@@ -343,7 +454,17 @@ export default function TabletShell() {
             )}
             <div className="tab-primary-body">
               {showApps ? (
-                <TabletAppsGrid list={programs(role)} onPick={pickApp} />
+                <TabletAppsGrid
+                  list={allowed}
+                  pinnedSet={pinnedSet}
+                  railEdit={railEdit}
+                  isDefault={savedRail === null}
+                  onPick={pickApp}
+                  onToggleEdit={() => setRailEdit((v) => !v)}
+                  onAddRail={(id) => catalogSet.has(id) && useTabletRail.getState().add(id, defaults)}
+                  onRemoveRail={(id) => useTabletRail.getState().remove(id, defaults)}
+                  onResetRail={() => useTabletRail.getState().resetDefault()}
+                />
               ) : PrimaryScreen ? (
                 <Suspense fallback={<p className="tab-loading">불러오는 중…</p>}>
                   <PrimaryScreen windowId="tablet-main" params={primaryParams} />

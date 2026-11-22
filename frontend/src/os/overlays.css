@@ -131,6 +131,7 @@
 .os-drawer-keep { display: flex; align-items: center; gap: 4px; font-size: var(--fs-12); color: var(--on-topbar-muted); cursor: pointer; }
 .os-drawer-empty { color: var(--on-topbar-muted); }
 .os-drawer-dock { width: min(960px, 100%); display: flex; flex-direction: column; gap: 8px; }
+.os-drawer-dock-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .os-drawer-dock-title { font-size: var(--fs-12); color: var(--on-topbar-muted); }
 .os-drawer-order {
   display: flex;
@@ -147,13 +148,22 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px 4px 4px;
+  padding: 4px 8px 4px 4px;
   border-radius: 10px;
   background: var(--on-topbar-fill);
   cursor: grab;
 }
 .os-drawer-order li:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .os-drawer-order li.is-dragging { opacity: 0.5; }
+.os-drawer-order li.is-drop-target { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--on-topbar-hover); }
+.os-drawer-order-btns { display: inline-flex; align-items: center; gap: 2px; margin-left: 2px; }
+.os-drawer-order-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0; border: 1px solid var(--on-topbar-line);
+  border-radius: 6px; background: var(--on-topbar-fill); color: var(--on-topbar-fg); cursor: pointer;
+}
+.os-drawer-order-btn:hover:not(:disabled) { background: var(--on-topbar-hover); border-color: var(--accent); }
+.os-drawer-order-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ── Context 패널 ── */
 .os-ctx-open {

@@ -83,3 +83,24 @@ test('edit mode adds and removes Dock programs and reorders them by drag or keyb
   await userEvent.click(within(drawer()).getByRole('button', { name: '완료' }));
   expect(within(drawer()).queryByRole('list', { name: 'Dock 차례' })).toBeNull();
 });
+
+test('edit mode supports move/remove icon buttons and 기본 순서 복원', async () => {
+  render(<Desktop />);
+  act(() => useShell.getState().setDrawer('edit'));
+  expect(screen.getByRole('button', { name: '기본 순서 복원' })).toBeDisabled();
+
+  await userEvent.click(screen.getByRole('button', { name: '에이전트 대화 오른쪽으로 이동' }));
+  expect(orderNames().slice(0, 2)).toEqual(['질문지', '에이전트 대화']);
+  await userEvent.click(screen.getByRole('button', { name: '에이전트 대화 왼쪽으로 이동' }));
+  expect(orderNames().slice(0, 2)).toEqual(['에이전트 대화', '질문지']);
+
+  await userEvent.click(screen.getByRole('button', { name: '질문지 Dock에서 빼기' }));
+  expect(orderNames()).not.toContain('질문지');
+  expect(dockNames()).not.toContain('질문지');
+  expect(screen.getByRole('button', { name: '기본 순서 복원' })).toBeEnabled();
+
+  await userEvent.click(screen.getByRole('button', { name: '기본 순서 복원' }));
+  expect(orderNames()).toContain('질문지');
+  expect(dockNames()).toContain('질문지');
+  expect(localStorage.getItem('chronos.dock.1')).toBeNull();
+});

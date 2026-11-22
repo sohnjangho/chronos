@@ -128,6 +128,10 @@
   padding: 8px 6px;
   box-sizing: border-box;
   overflow: hidden;
+  transition: flex-basis 0.14s ease;
+}
+.tab-rail.is-editing {
+  flex: 0 0 92px;
 }
 .tab-rail-scroll {
   flex: 1;
@@ -163,6 +167,61 @@
   background: var(--bg-selected);
   color: var(--tone-info-fg);
   font-weight: 700;
+}
+.tab-rail-btn.is-editing-on {
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  font-weight: 700;
+}
+.tab-rail-edit-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 4px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-3);
+  background: var(--bg-panel-alt);
+  color: var(--fg);
+  cursor: grab;
+  user-select: none;
+}
+.tab-rail-edit-item.is-dragging {
+  opacity: 0.45;
+}
+.tab-rail-edit-item.is-drop-target {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--tone-info-bg);
+}
+.tab-rail-edit-ctrls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.tab-rail-mini {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font-size: var(--fs-11);
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tab-rail-mini:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.tab-rail-mini.is-del:hover {
+  border-color: var(--danger);
+  background: var(--tone-danger-bg);
+  color: var(--danger-text);
 }
 .tab-rail-ico-wrap {
   position: relative;
@@ -303,6 +362,37 @@
   gap: 4px;
   margin-bottom: 18px;
 }
+.tab-apps-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tab-apps-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tab-apps-action {
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--bg-panel-alt);
+  color: var(--fg);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab-apps-action[aria-pressed="true"] {
+  background: var(--tone-info-bg);
+  border-color: var(--accent);
+  color: var(--tone-info-fg);
+}
+.tab-apps-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .tab-apps-head h2 { margin: 0; font-size: var(--fs-16); }
 .tab-muted { color: var(--fg-muted); font-size: var(--fs-12); }
 .tab-apps-grid {
@@ -310,7 +400,13 @@
   grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
   gap: 14px;
 }
+.tab-app-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .tab-app-tile {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -321,6 +417,21 @@
   background: var(--bg-panel-alt);
   color: var(--fg);
   cursor: pointer;
+}
+.tab-app-pin {
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font-size: var(--fs-11);
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab-app-pin.is-pinned {
+  background: var(--tone-danger-bg);
+  border-color: var(--danger);
+  color: var(--danger-text);
 }
 .tab-app-tile:hover {
   border-color: var(--accent);

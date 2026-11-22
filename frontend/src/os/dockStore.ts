@@ -16,6 +16,8 @@ interface DockState {
   unpin(id: string, allIds: string[]): void;
   /** id 를 차례 to 자리로 옮긴다. */
   move(id: string, to: number, allIds: string[]): void;
+  /** 보이는 Dock 차례에서 id 를 앞(-1)·뒤(+1) 한 칸 옮긴다. */
+  moveBy(id: string, delta: -1 | 1, allIds: string[]): void;
   resetDefault(): void;
 }
 
@@ -50,6 +52,15 @@ export const useDock = create<DockState>((set, get) => {
     move(id, to, allIds) {
       const rest = current(allIds).filter((x) => x !== id);
       rest.splice(Math.max(0, Math.min(to, rest.length)), 0, id);
+      save(rest);
+    },
+    moveBy(id, delta, allIds) {
+      const visible = current(allIds).filter((x) => allIds.includes(x));
+      const idx = visible.indexOf(id);
+      const next = idx + delta;
+      if (idx < 0 || next < 0 || next >= visible.length) return;
+      const rest = visible.filter((x) => x !== id);
+      rest.splice(next, 0, id);
       save(rest);
     },
     resetDefault() {

@@ -1,5 +1,5 @@
 // 스마트폰 전용 MobileShell(폭 <= 768px 자동 전환) 단위 시험.
-import { act, cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
@@ -9,6 +9,7 @@ import App from './App';
 import { useApprovals } from './approvals';
 import { useSession } from './session';
 import { resetShellState } from './shellReset';
+import { useTabletRail } from './tabletRailStore';
 import { detectClientDevice, useDeviceMode } from './useIsMobile';
 import { useWindows } from './windowStore';
 
@@ -32,6 +33,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   useWindows.getState().reset();
   useApprovals.setState({ pending: 0 });
+  useTabletRail.getState().load(null);
   useSession.getState().logout();
 });
 
@@ -160,4 +162,54 @@ test('tablet shell shows AI 대화 only side panel with collapse/expand and top 
   act(() => {
     useAgentView.getState().reset();
   });
+});
+
+test('tablet rail customization adds, removes, reorders via buttons and drag, persists per user, and resets', async () => {
+  vi.stubGlobal('innerWidth', 1024);
+  vi.stubGlobal('innerHeight', 1366);
+  signInAsDemo('admin', '관리자', 'admin', 1);
+  const first = render(<App />);
+
+  const rail = () => screen.getByRole('navigation', { name: '태블릿 탐색' });
+  const editIds = () =>
+    Array.from(rail().querySelectorAll<HTMLElement>('[data-rail-id]')).map((el) => el.dataset.railId!);
+
+  await userEvent.click(within(rail()).getByRole('button', { name: '메뉴 편집' }));
+  expect(screen.getByLabelText('전체 프로그램')).toBeVisible();
+  expect(editIds()).not.toContain('compare');
+  expect(editIds()).toContain('library');
+
+  await userEvent.click(screen.getByRole('button', { name: '비교판 메뉴에 추가' }));
+  expect(editIds().at(-1)).toBe('compare');
+
+  await userEvent.click(screen.getByRole('button', { name: '자료함 메뉴에서 빼기' }));
+  expect(editIds()).not.toContain('library');
+
+  await userEvent.click(within(rail()).getByRole('button', { name: '비교판 위로 이동' }));
+  expect(editIds().indexOf('compare')).toBe(editIds().length - 2);
+
+  const compareItem = rail().querySelector<HTMLElement>('[data-rail-id="compare"]')!;
+  const chatItem = rail().querySelector<HTMLElement>('[data-rail-id="chat"]')!;
+  fireEvent.dragStart(compareItem);
+  fireEvent.dragOver(chatItem);
+  fireEvent.drop(chatItem);
+  expect(editIds()[0]).toBe('compare');
+  expect(JSON.parse(localStorage.getItem('chronos.tabletRail.1')!)[0]).toBe('compare');
+  expect(JSON.parse(localStorage.getItem('chronos.tabletRail.1')!)).not.toContain('library');
+
+  await userEvent.click(within(rail()).getByRole('button', { name: '편집 완료' }));
+  await userEvent.click(within(rail()).getByRole('button', { name: '비교판' }));
+  expect(within(rail()).getByRole('button', { name: '비교판' })).toHaveAttribute('aria-current', 'page');
+
+  first.unmount();
+  render(<App />);
+  const buttons = within(rail()).getAllByRole('button').map((b) => b.textContent);
+  expect(buttons[0]).toBe('비교판');
+  expect(buttons).not.toContain('자료함');
+
+  await userEvent.click(within(rail()).getByRole('button', { name: '메뉴 편집' }));
+  await userEvent.click(screen.getByRole('button', { name: '기본 메뉴 복원' }));
+  expect(editIds()).toContain('library');
+  expect(editIds()).not.toContain('compare');
+  expect(localStorage.getItem('chronos.tabletRail.1')).toBeNull();
 });

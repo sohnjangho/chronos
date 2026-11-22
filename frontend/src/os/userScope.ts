@@ -4,15 +4,17 @@ import { useCurrentSchedule } from './currentSchedule';
 import { useDock } from './dockStore';
 import { onUserChange, useSession } from './session';
 import { resetShellState } from './shellReset';
+import { useTabletRail } from './tabletRailStore';
 import { useTheme } from './theme';
 import { useDeviceMode } from './useIsMobile';
 import { useZoom } from './zoom';
 
-/** 그 사람의 저장된 테마·배율·Dock·현장·에이전트 뷰·화면 형태 설정을 읽는다(null 이면 기본값). */
+/** 그 사람의 저장된 테마·배율·Dock·태블릿 메뉴·현장·에이전트 뷰·화면 형태 설정을 읽는다(null 이면 기본값). */
 function applyUser(userId: number | null) {
   useTheme.getState().load(userId);
   useZoom.getState().load(userId);
   useDock.getState().load(userId);
+  useTabletRail.getState().load(userId);
   useCurrentSchedule.getState().load(userId);
   useAgentView.getState().load(userId);
   useDeviceMode.getState().load(userId);

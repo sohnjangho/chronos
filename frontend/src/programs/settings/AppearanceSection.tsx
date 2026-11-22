@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useAgentView, type AgentViewMode } from '../../os/agentView';
 import { useDock } from '../../os/dockStore';
 import { getProgram } from '../../os/registry';
+import { useShell } from '../../os/shell';
+import { useTabletRail } from '../../os/tabletRailStore';
 import { useTheme, type Theme } from '../../os/theme';
 import { useDetectedDevice, useDeviceMode, type DeviceMode, type ResolvedDevice } from '../../os/useIsMobile';
 import { useZoom } from '../../os/zoom';
@@ -57,6 +59,8 @@ export default function AppearanceSection() {
   const resetAllZoom = useZoom((s) => s.resetAll);
   const pinned = useDock((s) => s.pinned);
   const resetDock = useDock((s) => s.resetDefault);
+  const tabletRail = useTabletRail((s) => s.items);
+  const resetTabletRail = useTabletRail((s) => s.resetDefault);
   const [notice, setNotice] = useState<string | null>(null);
 
   const customZooms = Object.entries(levels).filter(([, pct]) => pct !== 100);
@@ -194,8 +198,9 @@ export default function AppearanceSection() {
 
       <section className="st-card" aria-label="Dock 구성">
         <div className="st-card-head">
-          <b className="st-card-name">Dock 고정 구성</b>
+          <b className="st-card-name">Dock · 태블릿 메뉴 구성</b>
           <span className="st-gap" />
+          <Button onClick={() => useShell.getState().setDrawer('edit')}>Dock 아이콘 편집</Button>
           <Button
             disabled={pinned === null}
             onClick={() => {
@@ -208,8 +213,26 @@ export default function AppearanceSection() {
         </div>
         <p className="st-muted">
           {pinned === null
-            ? '현재 기본 Dock 구성을 사용 중입니다. (메뉴바 「보기」나 앱 서랍에서 아이콘을 고정·해제할 수 있습니다.)'
+            ? '현재 기본 Dock 구성을 사용 중입니다. (Dock 아이콘을 직접 끌어 순서를 바꾸거나 「Dock 아이콘 편집」에서 추가·제거할 수 있습니다.)'
             : `사용자 지정 Dock 사용 중 · 고정 프로그램 ${pinned.length}개`}
+        </p>
+        <div className="st-card-head">
+          <b className="st-card-name">태블릿 왼쪽 메뉴 구성</b>
+          <span className="st-gap" />
+          <Button
+            disabled={tabletRail === null}
+            onClick={() => {
+              resetTabletRail();
+              setNotice('태블릿 왼쪽 메뉴 구성을 기본값으로 복원했습니다.');
+            }}
+          >
+            태블릿 메뉴 기본값 복원
+          </Button>
+        </div>
+        <p className="st-muted">
+          {tabletRail === null
+            ? '현재 기본 태블릿 왼쪽 메뉴 구성을 사용 중입니다. (태블릿 왼쪽 하단 「메뉴 편집」에서 추가·제거·순서 변경 가능)'
+            : `사용자 지정 태블릿 메뉴 사용 중 · ${tabletRail.length}개`}
         </p>
       </section>
 

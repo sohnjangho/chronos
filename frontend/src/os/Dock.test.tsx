@@ -275,3 +275,31 @@ test('after Dock에서 제거 the focus moves to the neighbouring item', async (
   await userEvent.click(screen.getByRole('menuitem', { name: 'Dock에서 제거' }));
   expect(icon('워크플로우')).toHaveFocus();
 });
+
+test('direct drag-and-drop on the Dock reorders icons and persists per user', () => {
+  render(<Desktop />);
+  const workflowItem = icon('워크플로우').closest('.os-dock-item')!;
+  const chatItem = icon('에이전트 대화').closest('.os-dock-item')!;
+  fireEvent.dragStart(workflowItem);
+  fireEvent.dragOver(chatItem);
+  fireEvent.drop(chatItem);
+  expect(order().slice(0, 3)).toEqual(['앱 목록', '워크플로우', '에이전트 대화']);
+  expect(JSON.parse(localStorage.getItem('chronos.dock.1')!).slice(0, 2)).toEqual(['workflow', 'chat']);
+});
+
+test('item menu moves Dock icons left/right and opens edit drawer', async () => {
+  render(<Desktop />);
+  fireEvent.contextMenu(icon('에이전트 대화'));
+  expect(screen.getByRole('menuitem', { name: '왼쪽으로 이동' })).toBeDisabled();
+  await userEvent.click(screen.getByRole('menuitem', { name: '오른쪽으로 이동' }));
+  expect(order().slice(0, 3)).toEqual(['앱 목록', '질문지', '에이전트 대화']);
+
+  fireEvent.contextMenu(icon('에이전트 대화'));
+  await userEvent.click(screen.getByRole('menuitem', { name: '왼쪽으로 이동' }));
+  expect(order().slice(0, 3)).toEqual(['앱 목록', '에이전트 대화', '질문지']);
+
+  fireEvent.contextMenu(icon('에이전트 대화'));
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Dock 아이콘 편집…' }));
+  expect(useShell.getState().drawer).toBe('edit');
+  expect(screen.getByRole('list', { name: 'Dock 차례' })).toBeVisible();
+});
