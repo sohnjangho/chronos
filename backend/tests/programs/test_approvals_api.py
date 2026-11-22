@@ -7,7 +7,7 @@ from app.agent import loop
 from app.errors import ApiError
 from app.llm.client import LlmClient
 from app.store import chats
-from app.store.tables import Approval, ChangeLog, ScheduleDraft, ScheduleRecord, User
+from app.store.tables import Approval, ChangeLog, ScheduleDraft, ScheduleRecord, User, WorkflowRun
 from tests.approval_doubles import crane, make_draft, submit
 from tests.llm_doubles import add_connection
 from tests.loop_doubles import ScriptedLlm, calls, reply
@@ -388,3 +388,38 @@ def test_approving_a_first_save_whose_draft_was_used_meanwhile(client, admin, pe
     assert client.get(f"/api/approvals/{pending_first}", headers=admin).json()["status"] == "conflict"
     session.expire_all()
     assert session.scalars(select(ScheduleRecord)).all() == []
+
+
+def test_approve_closes_waiting_workflow_run(client, admin, pending, chat_id, session):
+    wf = WorkflowRun(chat_session_id=chat_id, title="R&D 일정", request="요청", status="waiting")
+    session.add(wf)
+    session.commit()
+    r = decide(client, pending, admin, "approve", "")
+    assert r.status_code == 200
+    session.expire_all()
+    wf_after = session.get(WorkflowRun, wf.id)
+    assert wf_after.status == "done" and wf_after.ended_at is not None
+
+
+def test_reject_closes_waiting_workflow_as_stopped_while_reject_retry_keeps_waiting(
+    client, admin, pending, chat_id, session
+):
+    wf = WorkflowRun(chat_session_id=chat_id, title="인허가 일정", request="요청", status="waiting")
+    session.add(wf)
+    session.commit()
+    r_retry = decide(client, pending, admin, "reject_retry", "일정 단축 필요")
+    assert r_retry.status_code == 200
+    session.expire_all()
+    wf_retry = session.get(WorkflowRun, wf.id)
+    assert wf_retry.status == "waiting" and wf_retry.ended_at is None
+
+
+def test_reject_without_retry_marks_waiting_workflow_stopped(client, admin, pending, chat_id, session):
+    wf = WorkflowRun(chat_session_id=chat_id, title="보류 일정", request="요청", status="waiting")
+    session.add(wf)
+    session.commit()
+    r_reject = decide(client, pending, admin, "reject", "반려")
+    assert r_reject.status_code == 200
+    session.expire_all()
+    wf_reject = session.get(WorkflowRun, wf.id)
+    assert wf_reject.status == "stopped" and wf_reject.ended_at is not None

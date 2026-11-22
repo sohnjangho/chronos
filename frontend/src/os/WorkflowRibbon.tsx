@@ -1,5 +1,5 @@
 import Button from '../shared/ui/Button';
-import { useAgentView } from './agentView';
+import { plannedGhostSteps, useAgentView } from './agentView';
 import './workflowRibbon.css';
 
 const GEN_STAGE_LABELS: Record<string, string> = {
@@ -28,15 +28,24 @@ export default function WorkflowRibbon() {
   if (!ribbon.visible || ribbon.collapsed || ribbon.steps.length === 0) return null;
 
   const running = ribbon.status === 'running';
-  const statusText =
-    ribbon.status === 'running'
-      ? '진행 중'
+  const waiting = ribbon.status === 'waiting';
+  const failed = ribbon.status === 'failed';
+  const statusText = running
+    ? '진행 중'
+    : waiting
+      ? ribbon.waitReason === 'approval'
+        ? '승인 대기 중'
+        : ribbon.waitReason === 'answer'
+          ? '답변 대기 중'
+          : '대기 중'
       : ribbon.status === 'done'
         ? '완료'
         : ribbon.status === 'stopped'
           ? '중단됨'
           : '실패';
+  const badgeClass = running ? 'is-running' : waiting ? 'is-waiting' : failed ? 'is-failed' : 'is-done';
   const genStageText = ribbon.genStage ? (GEN_STAGE_LABELS[ribbon.genStage] ?? ribbon.genStage) : null;
+  const ghosts = plannedGhostSteps(ribbon.steps, ribbon.status, ribbon.creatingNewProject);
 
   return (
     <section
@@ -45,8 +54,9 @@ export default function WorkflowRibbon() {
       className={`os-wf-ribbon is-${ribbon.status}`}
     >
       <div className="os-wf-ribbon-left">
-        <span className={`os-wf-ribbon-badge ${running ? 'is-running' : 'is-done'}`}>
+        <span className={`os-wf-ribbon-badge ${badgeClass}`}>
           {running && <span className="os-wf-ribbon-dot" aria-hidden="true" />}
+          {waiting && <span className="os-wf-ribbon-wait-ico" aria-hidden="true">⏸</span>}
           {statusText}
         </span>
         <span className="os-wf-ribbon-title">
@@ -70,6 +80,21 @@ export default function WorkflowRibbon() {
               {step.tool === 'generate.run' && step.status === 'running' && genStageText && (
                 <span className="os-wf-ribbon-sub">{genStageText}</span>
               )}
+            </span>
+          </li>
+        ))}
+        {ghosts.map((label, gIdx) => (
+          <li key={`ghost-${label}`} className="os-wf-ribbon-node-wrap">
+            {(ribbon.steps.length > 0 || gIdx > 0) && (
+              <span className="os-wf-ribbon-arrow" aria-hidden="true">
+                →
+              </span>
+            )}
+            <span className="os-wf-ribbon-node is-pending">
+              <span className="os-wf-ribbon-step-ico" aria-hidden="true">
+                ⇢
+              </span>
+              <span className="os-wf-ribbon-step-text">{`예정 · ${label}`}</span>
             </span>
           </li>
         ))}

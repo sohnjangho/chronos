@@ -39,7 +39,7 @@ import { domainLabel } from '../../shared/domainLabels';
 
 export { domainLabel };
 
-export const STEP_STATUS: Record<string, string> = { running: '진행 중', done: '끝남', failed: '실패', stopped: '멈춤' };
+export const STEP_STATUS: Record<string, string> = { running: '진행 중', waiting: '대기 중', done: '끝남', failed: '실패', stopped: '멈춤' };
 
 /** "2027-11-24" → "2027.11.24". 날짜가 아니면 그대로. */
 export const dotDate = (value: unknown) => (typeof value === 'string' ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$1.$2.$3') : '');

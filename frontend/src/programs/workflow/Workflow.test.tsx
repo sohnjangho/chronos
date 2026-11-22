@@ -184,4 +184,11 @@ describe('Fix round 1', () => {
     await act(() => vi.advanceTimersByTimeAsync(2000));
     expect(reads).toBe(3);
   });
+
+  test('waiting run shows 대기 중 badge and allows saving as skill', async () => {
+    setup({ 12: run({ status: 'waiting', ended_at: null }) });
+    await renderWorkflow();
+    expect(screen.getAllByText('대기 중').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: '스킬로 저장' })).toBeVisible();
+  });
 });

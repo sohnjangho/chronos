@@ -31,7 +31,8 @@ export interface WorkflowRibbonState {
   visible: boolean;
   collapsed: boolean;
   runId: number | null;
-  status: 'idle' | 'running' | 'done' | 'stopped' | 'failed';
+  status: 'idle' | 'running' | 'waiting' | 'done' | 'stopped' | 'failed';
+  waitReason: 'answer' | 'approval' | null;
   steps: RibbonStep[];
   genStage: string | null;
   creatingNewProject: boolean;
@@ -53,6 +54,7 @@ const EMPTY_RIBBON: WorkflowRibbonState = {
   collapsed: false,
   runId: null,
   status: 'idle',
+  waitReason: null,
   steps: [],
   genStage: null,
   creatingNewProject: false,
@@ -295,6 +297,7 @@ interface AgentViewState {
   onToolStart(data: Record<string, unknown>): void;
   onToolEnd(data: Record<string, unknown>): void;
   onTurnDone(): void;
+  completeWaitingWorkflow(status?: 'done' | 'stopped'): void;
   reset(): void;
 }
 
@@ -309,7 +312,45 @@ function validStepStatus(raw: unknown): RibbonStep['status'] {
 }
 
 function validRibbonStatus(raw: unknown): WorkflowRibbonState['status'] {
-  return raw === 'done' || raw === 'stopped' || raw === 'failed' ? raw : 'running';
+  return raw === 'waiting' || raw === 'done' || raw === 'stopped' || raw === 'failed' ? raw : 'running';
+}
+
+function inferWaitReason(steps: RibbonStep[]): 'answer' | 'approval' | null {
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const tool = steps[i].tool;
+    if (tool === 'ask.questionnaire') return 'answer';
+    if (tool === 'out.submit_change' || tool === 'scenario.submit' || tool === 'rules.propose') {
+      return 'approval';
+    }
+  }
+  return null;
+}
+
+/** 현재 실행/대기 중인 일정 생성 흐름에서 아직 남아 있는 후속 예정 단계를 돌려준다. */
+export function plannedGhostSteps(
+  steps: RibbonStep[],
+  status: WorkflowRibbonState['status'],
+  creatingNewProject: boolean,
+): string[] {
+  if (status !== 'running' && status !== 'waiting') return [];
+  const hasAsk = steps.some((s) => s.tool === 'ask.questionnaire');
+  const hasExtract = steps.some((s) => s.tool === 'generate.extract_conditions');
+  const hasGenerate = steps.some((s) => s.tool === 'generate.run');
+  const hasSubmit = steps.some(
+    (s) => s.tool === 'out.submit_change' || s.tool === 'scenario.submit' || s.tool === 'rules.propose',
+  );
+  if (hasSubmit) {
+    return status === 'waiting' ? ['최종 승인'] : [];
+  }
+  const nonGenFlow = steps.some((s) => s.tool.startsWith('delay.') || s.tool.startsWith('shorten.'));
+  if (creatingNewProject || hasExtract || hasGenerate || (status === 'waiting' && hasAsk && !nonGenFlow)) {
+    const planned: string[] = [];
+    if (!hasExtract && !hasGenerate) planned.push('조건 뽑기');
+    if (!hasGenerate) planned.push('스케줄·WBS 생성');
+    planned.push('승인 상신');
+    return planned;
+  }
+  return [];
 }
 
 export const useAgentView = create<AgentViewState>((set, get) => {
@@ -411,23 +452,27 @@ export const useAgentView = create<AgentViewState>((set, get) => {
       const cur = get().ribbon;
       const nextRunId = runId ?? cur.runId;
       const resetSteps = cur.runId !== null && nextRunId !== null && cur.runId !== nextRunId;
+      const mergedSteps = steps.length > 0 ? steps : resetSteps ? [] : cur.steps;
+      const keepOpen = status === 'running' || status === 'waiting';
       const nextRibbon: WorkflowRibbonState = {
         ...cur,
-        visible: steps.length > 0 ? true : cur.visible,
-        collapsed: status === 'running' ? false : cur.collapsed,
+        visible: mergedSteps.length > 0 ? true : cur.visible,
+        collapsed: keepOpen ? false : cur.collapsed,
         runId: nextRunId,
         status,
-        steps: steps.length > 0 ? steps : resetSteps ? [] : cur.steps,
+        waitReason: status === 'waiting' ? inferWaitReason(mergedSteps) : null,
+        steps: mergedSteps,
+        creatingNewProject: keepOpen ? (resetSteps ? false : cur.creatingNewProject) : false,
         ...(status !== 'running' ? { genStage: null } : {}),
       };
-      if (status === 'running') clearRibbonTimer();
+      if (keepOpen) clearRibbonTimer();
       set((s) => ({
         workflowTick: s.workflowTick + 1,
         ...(runId !== null ? { lastRunId: runId } : {}),
         ribbon: nextRibbon,
       }));
       syncTopInset(nextRibbon);
-      if (status !== 'running') scheduleRibbonCollapse();
+      if (!keepOpen && nextRibbon.visible && nextRibbon.steps.length > 0) scheduleRibbonCollapse();
     },
 
     onToolStart(data) {
@@ -468,6 +513,7 @@ export const useAgentView = create<AgentViewState>((set, get) => {
         collapsed: false,
         runId,
         status: 'running',
+        waitReason: null,
         steps: nextSteps,
         genStage: isNewRun ? null : prevRibbon.genStage,
         creatingNewProject,
@@ -560,15 +606,23 @@ export const useAgentView = create<AgentViewState>((set, get) => {
       const { mode, lastRunId, focus, ribbon } = get();
       const ranTools = sawToolInTurn;
       sawToolInTurn = false;
+      const waitReason =
+        ribbon.status === 'waiting' ? (ribbon.waitReason ?? inferWaitReason(ribbon.steps)) : null;
+      const nextStatus: WorkflowRibbonState['status'] =
+        ribbon.status === 'stopped' || ribbon.status === 'failed' || ribbon.status === 'waiting'
+          ? ribbon.status
+          : 'done';
       const completedRibbon: WorkflowRibbonState = {
         ...ribbon,
-        status: ribbon.status === 'stopped' || ribbon.status === 'failed' ? ribbon.status : 'done',
+        status: nextStatus,
+        waitReason,
         genStage: null,
         steps: ribbon.steps.map((st) => (st.status === 'running' ? { ...st, status: 'done' } : st)),
+        ...(nextStatus === 'waiting' ? {} : { creatingNewProject: false }),
       };
       set({ ribbon: completedRibbon });
       syncTopInset(completedRibbon);
-      if (completedRibbon.visible && completedRibbon.steps.length > 0) {
+      if (completedRibbon.visible && completedRibbon.steps.length > 0 && nextStatus !== 'waiting') {
         scheduleRibbonCollapse();
       }
 
@@ -605,9 +659,36 @@ export const useAgentView = create<AgentViewState>((set, get) => {
           totalSteps: total,
           tool: null,
           status: 'done',
-          label: '작업 완료 — 결과를 대화창에서 확인하세요',
+          label:
+            nextStatus === 'waiting'
+              ? waitReason === 'approval'
+                ? '승인 대기 — 승인함에서 검토 후 결정해 주세요'
+                : '답변 대기 — 질문에 답하면 이어서 생성합니다'
+              : '작업 완료 — 결과를 대화창에서 확인하세요',
         },
       });
+    },
+
+    completeWaitingWorkflow(status = 'done') {
+      const cur = get().ribbon;
+      set((s) => ({ workflowTick: s.workflowTick + 1 }));
+      if (cur.status !== 'waiting' && cur.status !== 'running') return;
+      clearRibbonTimer();
+      const nextRibbon: WorkflowRibbonState = {
+        ...cur,
+        status,
+        waitReason: null,
+        genStage: null,
+        creatingNewProject: false,
+        steps: cur.steps.map((st) =>
+          st.status === 'running' ? { ...st, status: status === 'stopped' ? 'stopped' : 'done' } : st,
+        ),
+      };
+      set({ ribbon: nextRibbon });
+      syncTopInset(nextRibbon);
+      if (nextRibbon.visible && nextRibbon.steps.length > 0) {
+        scheduleRibbonCollapse();
+      }
     },
 
     reset() {

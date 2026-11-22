@@ -62,11 +62,31 @@ def count(session: Session) -> CountOut:
     return CountOut(pending=approvals.pending_count(session))
 
 
+def _finish_waiting_workflow(session: Session, row: Approval, status: str, retry: bool) -> None:
+    """결재가 최종 승인/반려(재요청 제외)되면 해당 채팅 세션의 대기 중 워크플로우를 닫는다."""
+    if retry or row.chat_session_id is None:
+        return
+    from datetime import UTC, datetime
+    from sqlalchemy import select
+    from app.store.tables import WorkflowRun
+
+    waiting = session.scalars(
+        select(WorkflowRun)
+        .where(WorkflowRun.chat_session_id == row.chat_session_id, WorkflowRun.status == "waiting")
+        .order_by(WorkflowRun.id.desc())
+    ).first()
+    if waiting is None:
+        return
+    waiting.status = "done" if status == "approved" else "stopped"
+    waiting.ended_at = datetime.now(UTC)
+
+
 def _close(session: Session, row: Approval, status: str, user: User, note: str, retry: bool = False) -> None:
     """결정을 적고 commit 한다. 그 사이 다른 사람이 먼저 결정했으면 모두 되돌리고 409 already_decided."""
     if not approvals.record_decision(session, row, status, by=user.name, note=note, retry=retry):
         session.rollback()
         raise ApiError(409, "already_decided", ALREADY_DECIDED_MESSAGE)
+    _finish_waiting_workflow(session, row, status, retry)
     session.commit()
 
 

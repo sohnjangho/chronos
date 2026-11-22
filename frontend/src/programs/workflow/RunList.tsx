@@ -10,7 +10,13 @@ interface Props {
   onSelect(id: number): void;
 }
 
-const TONE: Record<string, 'info' | 'success' | 'danger' | 'neutral'> = { running: 'info', done: 'success', failed: 'danger', stopped: 'neutral' };
+const TONE: Record<string, 'info' | 'warning' | 'success' | 'danger' | 'neutral'> = {
+  running: 'info',
+  waiting: 'warning',
+  done: 'success',
+  failed: 'danger',
+  stopped: 'neutral',
+};
 
 function sub(r: RunItem): string {
   const took = r.ended_at ? seconds(Date.parse(r.ended_at) - Date.parse(r.started_at)) : '';

@@ -7,7 +7,7 @@ class RunOut(BaseModel):
     id: int
     chat_session_id: int
     title: str  # 요청 40자(질문지로 시작한 턴은 "질문지 답")
-    status: str  # running | done | failed | stopped
+    status: str  # running | waiting | done | failed | stopped
     started_at: datetime
     ended_at: datetime | None
     tokens: int  # 턴의 LLM 입력 + 출력 토큰(도구 안에서 부른 LLM 호출 포함)

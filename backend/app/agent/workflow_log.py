@@ -7,6 +7,7 @@
 import json
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agent.events import AgentEvent, json_safe
@@ -26,20 +27,45 @@ class WorkflowLog:
         self.run_id: int | None = None
         self.status = "running"
         self._run: WorkflowRun | None = None
+        self._resumable: WorkflowRun | None = session.scalars(
+            select(WorkflowRun)
+            .where(WorkflowRun.chat_session_id == chat_session_id, WorkflowRun.status == "waiting")
+            .order_by(WorkflowRun.id.desc())
+        ).first()
+        self._base_tokens = (self._resumable.tokens or 0) if self._resumable is not None else 0
+        self._base_cost = self._resumable.cost if self._resumable is not None else None
         self._steps: list[WorkflowStep] = []
         self._rows: list[dict] = []  # 화면에 보낼 {n, tool, program, status}
 
     def step_started(
         self, *, tool: str, program: str | None, why: str, arguments: str, model: str, tokens: int, cost: float | None
     ) -> int:
-        """단계를 연다(status running). 첫 단계면 실행 줄도 만든다. 단계 번호(1부터)를 돌려준다."""
+        """단계를 연다(status running). 첫 단계면 실행 줄도 만든다(waiting 실행이 있으면 이어간다). 단계 번호(1부터)를 돌려준다."""
         if self._run is None:
-            self._run = WorkflowRun(
-                chat_session_id=self.chat_session_id, title=self.title, request=self.request, status="running"
-            )
-            self.session.add(self._run)
-            self.session.flush()
-            self.run_id = self._run.id
+            if self._resumable is not None:
+                self._run = self._resumable
+                self._run.status = "running"
+                self._run.ended_at = None
+                self.run_id = self._run.id
+                existing = list(
+                    self.session.scalars(
+                        select(WorkflowStep)
+                        .where(WorkflowStep.run_id == self._run.id)
+                        .order_by(WorkflowStep.n.asc())
+                    )
+                )
+                self._steps = existing
+                self._rows = [
+                    {"n": s.n, "tool": s.tool, "program": s.program, "status": s.status}
+                    for s in existing
+                ]
+            else:
+                self._run = WorkflowRun(
+                    chat_session_id=self.chat_session_id, title=self.title, request=self.request, status="running"
+                )
+                self.session.add(self._run)
+                self.session.flush()
+                self.run_id = self._run.id
         n = len(self._steps) + 1
         step = WorkflowStep(
             run_id=self.run_id, n=n, tool=tool, program=program, why=why.strip()[:WHY_LIMIT], status="running",
@@ -72,9 +98,12 @@ class WorkflowLog:
                 row["status"] = step.status = "stopped" if status == "stopped" else "failed"
         self.status = status
         self._run.status = status
-        self._run.ended_at = datetime.now(UTC)
-        self._run.tokens = tokens
-        self._run.cost = cost
+        self._run.ended_at = None if status == "waiting" else datetime.now(UTC)
+        self._run.tokens = self._base_tokens + tokens
+        if self._base_cost is not None or cost is not None:
+            self._run.cost = round((self._base_cost or 0.0) + (cost or 0.0), 6)
+        else:
+            self._run.cost = None
 
     def event(self) -> AgentEvent:
         """workflow 사건: {run_id, status(실행), steps: [{n, tool, program, status}]}."""

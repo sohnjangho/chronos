@@ -856,3 +856,49 @@ async def test_text_answer_cut_by_length_says_so(run, session, chat_id, text, fi
     assert [e.data["text"] for e in ev if e.type == "text"] == [shown]
     assert stored(session, chat_id)[-1] == ("assistant", {"kind": "text", "text": shown})  # 저장한 글도 같다
     assert session.query(LlmCall).one().finish_reason == finish
+
+
+async def test_waiting_workflow_resumes_across_questionnaire_turns(run, session, chat_id):
+    ask_args = {
+        "purpose": "generate",
+        "title": "R&D 주제 확인",
+        "questions": [
+            {
+                "id": "q_topic",
+                "group": "주제",
+                "question": "어떤 연구개발 과제인가요?",
+                "assumption": "차세대 배터리 소재 개발",
+            }
+        ],
+    }
+    ev1 = await run(ScriptedLlm([calls("ask.questionnaire", ask_args), reply("주제를 알려 주세요.")]), "R&D 일정 만들어 줘")
+    wf_ev1 = [e.data for e in ev1 if e.type == "workflow"][-1]
+    wf = session.query(WorkflowRun).one()
+    assert wf.status == "waiting" and wf.ended_at is None
+    assert wf_ev1["run_id"] == wf.id and wf_ev1["status"] == "waiting"
+    assert [(s["n"], s["tool"], s["status"]) for s in wf_ev1["steps"]] == [(1, "ask.questionnaire", "done")]
+    tokens_after_turn1 = wf.tokens
+
+    ev2 = await run(
+        ScriptedLlm([calls("ask.questionnaire", {**ask_args, "domain": "rnd", "round": 2}), reply("세부 일정을 확인해 주세요.")]),
+        "차세대 전고체 배터리 개발입니다",
+    )
+    wf_ev2 = [e.data for e in ev2 if e.type == "workflow"][-1]
+    session.expire_all()
+    runs = session.scalars(select(WorkflowRun).where(WorkflowRun.chat_session_id == chat_id)).all()
+    assert len(runs) == 1 and runs[0].id == wf.id
+    assert runs[0].status == "waiting" and runs[0].ended_at is None
+    assert runs[0].tokens >= tokens_after_turn1
+    assert wf_ev2["status"] == "waiting" and [s["n"] for s in wf_ev2["steps"]] == [1, 2]
+
+    ev3 = await run(ScriptedLlm([calls("schedule.read", {}), reply("생성을 완료했습니다.")]), "진행해 주세요")
+    wf_ev3 = [e.data for e in ev3 if e.type == "workflow"][-1]
+    session.expire_all()
+    wf_final = session.get(WorkflowRun, wf.id)
+    assert wf_final.status == "done" and wf_final.ended_at is not None
+    assert wf_ev3["run_id"] == wf.id and wf_ev3["status"] == "done"
+    assert [(s["n"], s["tool"]) for s in wf_ev3["steps"]] == [
+        (1, "ask.questionnaire"),
+        (2, "ask.questionnaire"),
+        (3, "schedule.read"),
+    ]

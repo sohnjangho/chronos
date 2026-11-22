@@ -175,6 +175,7 @@ class _Turn:
         self.enable_skill_match = True
         self.enable_self_reflection = True
         self.asked_questionnaire = False
+        self.waiting_for_user = False
 
     # ── 시작·끝 ──
 
@@ -223,7 +224,8 @@ class _Turn:
         if self.log is not None:
             u = self.usage
             tokens = _count(u.input_tokens + u.output_tokens) if u else 0
-            self.log.finish(self.outcome.status, tokens=tokens, cost=_money(u.cost) if u else None)
+            wf_status = "waiting" if self.outcome.status == "done" and self.waiting_for_user else self.outcome.status
+            self.log.finish(wf_status, tokens=tokens, cost=_money(u.cost) if u else None)
         if self.trace is not None:
             self.trace.end(self.outcome.status, (self.outcome.error or {}).get("message", self.last_text))
         self.session.commit()
@@ -394,6 +396,15 @@ class _Turn:
                 self.schedule_id = created_sid
         if call.name == "ask.questionnaire" and result.ok:
             self.asked_questionnaire = True
+            self.waiting_for_user = True
+        elif call.name in ("out.submit_change", "scenario.submit", "rules.propose") and result.ok and isinstance(result.output, dict):
+            applied = result.output.get("applied")
+            if applied is False:
+                self.waiting_for_user = True
+            elif applied is True:
+                self.waiting_for_user = False
+        elif call.name in ("generate.run", "generate.extract_conditions", "schedule.create_project") and result.ok:
+            self.waiting_for_user = False
         stopped = result.ok and turns.stop_requested(self.chat_id)  # 도는 동안 멈춤을 눌렀다
         self.log.step_finished(self.step_n, result, stopped)
         for event in self.collected:

@@ -167,6 +167,18 @@
   border-color: color-mix(in srgb, #38bdf8 65%, transparent);
   background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
+.os-menubar-cu.is-waiting {
+  border-color: color-mix(in srgb, #f59e0b 60%, transparent);
+  background: color-mix(in srgb, #f59e0b 22%, transparent);
+  color: #fde68a;
+}
+.os-menubar-cu-wait-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fbbf24;
+  flex: none;
+}
 .os-menubar-cu-dot {
   width: 7px;
   height: 7px;

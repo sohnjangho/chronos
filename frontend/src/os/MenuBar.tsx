@@ -125,6 +125,23 @@ function ComputerUseBadge() {
     );
   }
 
+  if (ribbon.status === 'waiting' && ribbon.steps.length > 0) {
+    const rid = ribbon.runId ?? lastRunId;
+    const waitLabel = ribbon.waitReason === 'approval' ? '승인 대기 중' : '답변 대기 중';
+    return (
+      <button
+        type="button"
+        className="os-menubar-cu is-waiting"
+        aria-label={`워크플로우${rid ? ` #${rid}` : ''} ${waitLabel}`}
+        data-tip="워크플로우 진행 리본 열기·접기"
+        onClick={toggleRibbon}
+      >
+        <span className="os-menubar-cu-wait-dot" aria-hidden="true" />
+        <span>{`${rid ? `워크플로우 #${rid}` : '워크플로우'} · ${waitLabel} ▾`}</span>
+      </button>
+    );
+  }
+
   if (ribbon.collapsed && ribbon.steps.length > 0 && lastRunId !== null) {
     return (
       <button

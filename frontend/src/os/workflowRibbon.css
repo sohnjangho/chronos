@@ -42,6 +42,21 @@
   color: #bbf7d0;
 }
 
+.os-wf-ribbon-badge.is-waiting {
+  background: color-mix(in srgb, #f59e0b 26%, transparent);
+  color: #fde68a;
+}
+
+.os-wf-ribbon-badge.is-failed {
+  background: color-mix(in srgb, var(--danger) 26%, transparent);
+  color: #fecaca;
+}
+
+.os-wf-ribbon-wait-ico {
+  font-size: 10px;
+  line-height: 1;
+}
+
 .os-wf-ribbon-dot,
 .os-wf-ribbon-pulse {
   width: 7px;
@@ -113,6 +128,13 @@
 .os-wf-ribbon-node.is-failed {
   border-color: color-mix(in srgb, var(--danger) 55%, transparent);
   color: #fecaca;
+}
+
+.os-wf-ribbon-node.is-pending {
+  border-style: dashed;
+  background: transparent;
+  color: var(--on-topbar-muted);
+  opacity: 0.78;
 }
 
 .os-wf-ribbon-step-ico {

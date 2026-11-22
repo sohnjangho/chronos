@@ -18,7 +18,7 @@ export const toolLabel = (tool: string) => TOOLS[tool] ?? tool;
 export const programLabel = (program: string | null) =>
   program === null ? '뒷단 도구' : (getProgram(resolveProgram(program).id)?.name ?? program);
 
-export const STEP_STATUS: Record<string, string> = { running: '실행 중', done: '완료', failed: '실패', stopped: '멈춤', pending: '대기' };
+export const STEP_STATUS: Record<string, string> = { running: '실행 중', waiting: '대기 중', done: '완료', failed: '실패', stopped: '멈춤', pending: '대기' };
 export const stepStatus = (s: string) => STEP_STATUS[s] ?? s;
 
 const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';

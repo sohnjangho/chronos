@@ -292,3 +292,108 @@ test('workflow ribbon auto-collapses after 1.8s when pacing is enabled', async (
     vi.useRealTimers();
   }
 });
+
+test('continuous multi-turn workflow stays waiting without auto-collapse, shows ghost steps, and collapses after approval', async () => {
+  vi.useFakeTimers();
+  setAgentWindowSync(true);
+  setAgentViewPacing(true);
+  try {
+    render(<Desktop />);
+    act(() => {
+      useAgentView.getState().onToolStart({
+        run_id: 21,
+        n: 1,
+        call_id: 'c1',
+        tool: 'ask.questionnaire',
+        program: 'questionnaire',
+        arguments: '{"purpose":"generate","title":"R&D"}',
+      });
+    });
+    const ribbonRunning = screen.getByRole('region', { name: '워크플로우 진행 상황' });
+    expect(ribbonRunning).toHaveTextContent('진행 중');
+    expect(ribbonRunning).toHaveTextContent('1. 질문지 생성');
+    expect(ribbonRunning).toHaveTextContent('예정 · 조건 뽑기');
+    expect(ribbonRunning).toHaveTextContent('예정 · 스케줄·WBS 생성');
+    expect(ribbonRunning).toHaveTextContent('예정 · 승인 상신');
+
+    act(() => {
+      useAgentView.getState().onToolEnd({ run_id: 21, n: 1, call_id: 'c1', tool: 'ask.questionnaire', ok: true, ms: 20 });
+      useAgentView.getState().onWorkflowEvent({
+        run_id: 21,
+        status: 'waiting',
+        steps: [{ n: 1, tool: 'ask.questionnaire', program: 'questionnaire', status: 'done' }],
+      });
+      useAgentView.getState().onTurnDone();
+    });
+    const ribbonWaitAnswer = screen.getByRole('region', { name: '워크플로우 진행 상황' });
+    expect(ribbonWaitAnswer).toHaveTextContent('답변 대기 중');
+    expect(ribbonWaitAnswer).toHaveTextContent('예정 · 조건 뽑기');
+
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(screen.getByRole('region', { name: '워크플로우 진행 상황' })).toHaveTextContent('답변 대기 중');
+
+    act(() => {
+      useAgentView.getState().onToolStart({
+        run_id: 21,
+        n: 2,
+        call_id: 'c2',
+        tool: 'generate.extract_conditions',
+        program: 'conditions',
+        arguments: '{"schedule_id":5}',
+      });
+      useAgentView.getState().onToolEnd({ run_id: 21, n: 2, call_id: 'c2', tool: 'generate.extract_conditions', ok: true, ms: 20 });
+      useAgentView.getState().onToolStart({
+        run_id: 21,
+        n: 3,
+        call_id: 'c3',
+        tool: 'generate.run',
+        program: 'gantt',
+        arguments: '{"schedule_id":5}',
+      });
+      useAgentView.getState().onToolEnd({ run_id: 21, n: 3, call_id: 'c3', tool: 'generate.run', ok: true, ms: 30 });
+      useAgentView.getState().onToolStart({
+        run_id: 21,
+        n: 4,
+        call_id: 'c4',
+        tool: 'out.submit_change',
+        program: 'approvals',
+        arguments: '{"schedule_id":5}',
+      });
+      useAgentView.getState().onToolEnd({ run_id: 21, n: 4, call_id: 'c4', tool: 'out.submit_change', ok: true, ms: 20 });
+      useAgentView.getState().onWorkflowEvent({
+        run_id: 21,
+        status: 'waiting',
+        steps: [
+          { n: 1, tool: 'ask.questionnaire', program: 'questionnaire', status: 'done' },
+          { n: 2, tool: 'generate.extract_conditions', program: 'conditions', status: 'done' },
+          { n: 3, tool: 'generate.run', program: 'gantt', status: 'done' },
+          { n: 4, tool: 'out.submit_change', program: 'approvals', status: 'done' },
+        ],
+      });
+      useAgentView.getState().onTurnDone();
+    });
+
+    const ribbonWaitApproval = screen.getByRole('region', { name: '워크플로우 진행 상황' });
+    expect(ribbonWaitApproval).toHaveTextContent('승인 대기 중');
+    expect(ribbonWaitApproval).toHaveTextContent('1. 질문지 생성');
+    expect(ribbonWaitApproval).toHaveTextContent('4. 승인 상신');
+    expect(ribbonWaitApproval).toHaveTextContent('예정 · 최종 승인');
+
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(screen.getByRole('region', { name: '워크플로우 진행 상황' })).toHaveTextContent('승인 대기 중');
+
+    act(() => {
+      useAgentView.getState().completeWaitingWorkflow('done');
+    });
+    const ribbonDone = screen.getByRole('region', { name: '워크플로우 진행 상황' });
+    expect(ribbonDone).toHaveTextContent('완료');
+    expect(ribbonDone).not.toHaveTextContent('예정 ·');
+
+    await act(() => vi.advanceTimersByTimeAsync(1900));
+    expect(screen.queryByRole('region', { name: '워크플로우 진행 상황' })).toBeNull();
+    expect(screen.getByRole('button', { name: '워크플로우 #21 완료' })).toBeVisible();
+  } finally {
+    setAgentViewPacing(false);
+    vi.useRealTimers();
+  }
+});

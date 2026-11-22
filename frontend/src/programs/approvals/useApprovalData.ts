@@ -135,6 +135,11 @@ export function useApprovalData(paramId: string | undefined) {
           void import('../chat/chatStore').then(({ useChat }) => useChat.getState().bindSessionSchedule(chatId, sid));
         }
       }
+      if (decision === 'approve' || decision === 'reject') {
+        void import('../../os/agentView').then(({ useAgentView }) =>
+          useAgentView.getState().completeWaitingWorkflow(decision === 'approve' ? 'done' : 'stopped'),
+        );
+      }
     } catch (e) {
       setNotice({ tone: 'error', text: message(e) });
     }

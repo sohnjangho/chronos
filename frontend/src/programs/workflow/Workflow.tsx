@@ -60,8 +60,8 @@ function RunView({ run, error }: { run: RunDetail; error: string | null }) {
       <main className="wf-main">
         <header className="wf-head">
           <h2 className="wf-title wf-wrap">{run.title || '제목 없는 실행'}</h2>
-          <Badge tone={run.status === 'running' ? 'info' : run.status === 'failed' ? 'danger' : 'neutral'}>{stepStatus(run.status)}</Badge>
-          {run.status === 'done' && run.steps.length > 0 && (
+          <Badge tone={run.status === 'running' ? 'info' : run.status === 'waiting' ? 'warning' : run.status === 'failed' ? 'danger' : 'neutral'}>{stepStatus(run.status)}</Badge>
+          {(run.status === 'done' || run.status === 'waiting') && run.steps.length > 0 && (
             <Button disabled={saving} onClick={() => void saveAsSkill()}>
               {saving ? '저장 중…' : '스킬로 저장'}
             </Button>
