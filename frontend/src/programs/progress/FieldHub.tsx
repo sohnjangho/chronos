@@ -1,5 +1,7 @@
 // 현장 모바일 협업 허브: ① 일일 1분 체크인 ② 사진 AI 진도 판독 ③ 만회안 공종 의견 조회 ④ D-3 핸드오프 점검
 import { useEffect, useState, type ChangeEvent } from 'react';
+import { useSession } from '../../os/session';
+import { useActiveDevice } from '../../os/useIsMobile';
 import { useWindows } from '../../os/windowStore';
 import { ApiError } from '../../shared/api';
 import Badge from '../../shared/ui/Badge';
@@ -47,12 +49,12 @@ function CheckinCard({
   item,
   busy,
   onSave,
-  onApply,
+  onSubmitReport,
 }: {
   item: FieldItem;
   busy: boolean;
   onSave(choice: string, progress: number, rd: number, note: string): Promise<void>;
-  onApply(): Promise<void>;
+  onSubmitReport(choice: string, progress: number, rd: number, note: string): Promise<void>;
 }) {
   const [choice, setChoice] = useState(item.response_choice ?? 'on_track');
   const [progress, setProgress] = useState(item.reported_progress ?? 50);
@@ -72,9 +74,9 @@ function CheckinCard({
 
       <div className="pg-choice-row" role="group" aria-label="진행 상태 선택">
         {[
-          ['on_track', '정상 진행'],
-          ['delayed', '지연 우려'],
-          ['done', '완료 (100%)'],
+          ['on_track', '✓ 정상 진행'],
+          ['delayed', '⚠ 지연 우려'],
+          ['done', '★ 완료 (100%)'],
         ].map(([val, label]) => (
           <button
             key={val}
@@ -95,31 +97,59 @@ function CheckinCard({
         ))}
       </div>
 
-      <div className="pg-finputs">
+      <div className="pg-chip-row" role="group" aria-label="진도율 빠른 선택">
+        {[25, 50, 75, 100].map((pct) => (
+          <button
+            key={pct}
+            type="button"
+            className="pg-chip"
+            aria-pressed={progress === pct}
+            disabled={busy}
+            onClick={() => {
+              setProgress(pct);
+              if (pct === 100) {
+                setChoice('done');
+                setRd(0);
+              }
+            }}
+          >
+            {`${pct}%`}
+          </button>
+        ))}
+      </div>
+
+      <div className={choice === 'delayed' ? 'pg-finputs' : 'pg-finputs is-single'}>
         <label className="pg-flabel">
           <span>진도율 (%)</span>
           <input type="number" min={0} max={100} value={progress} disabled={busy} onChange={(e) => setProgress(Number(e.target.value))} />
         </label>
-        <label className="pg-flabel">
-          <span>잔여일 (RD)</span>
-          <input type="number" min={0} max={365} value={rd} disabled={busy} onChange={(e) => setRd(Number(e.target.value))} />
-        </label>
+        {choice === 'delayed' && (
+          <label className="pg-flabel">
+            <span>예상 잔여일 (RD)</span>
+            <input type="number" min={0} max={365} value={rd} disabled={busy} onChange={(e) => setRd(Number(e.target.value))} />
+          </label>
+        )}
       </div>
       <input
         type="text"
         className="pg-finput-text"
-        placeholder="현장 특이사항 · 메모 한 줄"
+        placeholder={choice === 'delayed' ? '지연 사유를 간단히 적어 주세요 (예: 자재 반입 2일 지연)' : '현장 특이사항 · 메모 한 줄 (선택)'}
         aria-label="현장 메모"
         value={note}
         disabled={busy}
         onChange={(e) => setNote(e.target.value)}
       />
       <div className="pg-fcard-foot">
-        <Button disabled={busy} onClick={() => void onSave(choice, progress, rd, note)}>
-          응답 저장
+        <Button
+          variant="primary"
+          className="pg-submit-one"
+          disabled={busy || item.approval_id !== null}
+          onClick={() => void onSubmitReport(choice, progress, rd, note)}
+        >
+          {item.approval_id !== null ? `보고·상신 완료 (#${item.approval_id})` : '현장 보고 제출 (저장·승인 반영)'}
         </Button>
-        <Button variant="primary" disabled={busy || item.approval_id !== null} onClick={() => void onApply()}>
-          {item.approval_id !== null ? `승인함 #${item.approval_id} 완료` : '승인함·지연기록 반영'}
+        <Button disabled={busy} onClick={() => void onSave(choice, progress, rd, note)}>
+          임시 저장
         </Button>
       </div>
     </article>
@@ -256,13 +286,11 @@ function PhotoCard({ item, busy, onApply }: { item: FieldItem; busy: boolean; on
 function PollCard({
   item,
   busy,
-  onSave,
-  onApply,
+  onSubmitPoll,
 }: {
   item: FieldItem;
   busy: boolean;
-  onSave(choice: string, note: string): Promise<void>;
-  onApply(): Promise<void>;
+  onSubmitPoll(choice: string, note: string): Promise<void>;
 }) {
   const [choice, setChoice] = useState(item.response_choice ?? 'feasible');
   const [note, setNote] = useState(item.response_note);
@@ -297,11 +325,8 @@ function PollCard({
         onChange={(e) => setNote(e.target.value)}
       />
       <div className="pg-fcard-foot">
-        <Button disabled={busy} onClick={() => void onSave(choice, note)}>
-          의견 회신
-        </Button>
-        <Button variant="primary" disabled={busy || item.approval_id !== null || !note.trim()} onClick={() => void onApply()}>
-          {item.approval_id !== null ? `내 규칙 #${item.approval_id} 상신됨` : '현장 조건을 내 규칙(승인함)으로 상신'}
+        <Button variant="primary" className="pg-submit-one" disabled={busy} onClick={() => void onSubmitPoll(choice, note)}>
+          {item.approval_id !== null ? `회신·상신 완료 (#${item.approval_id})` : '의견 회신 완료'}
         </Button>
       </div>
     </article>
@@ -387,6 +412,9 @@ function HandoffCard({
 }
 
 export default function FieldHub({ scheduleId }: { scheduleId: number }) {
+  const role = useSession((s) => s.session?.user.role ?? 'user');
+  const device = useActiveDevice();
+  const isSimpleField = role === 'field' || device === 'phone';
   const [data, setData] = useState<FieldData | null>(null);
   const [tab, setTab] = useState<FieldKind>('checkin');
   const [busy, setBusy] = useState(false);
@@ -433,24 +461,32 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
 
   return (
     <div className="pg-field-wrap" role="region" aria-label="현장 모바일 협업 허브">
-      <div className="pg-field-kpis">
-        <div className="pg-fkpi">
-          <span className="pg-muted">일일 체크인 응답률</span>
-          <b>{`${s.checkin_responded} / ${s.checkin_total}`}</b>
+      {isSimpleField ? (
+        <div className="pg-field-simple-bar" role="status" aria-label="오늘 현장 보고 요약">
+          <span>{`체크인 ${s.checkin_responded}/${s.checkin_total}`}</span>
+          <span>{`사진 판독 ${s.photo_total}건`}</span>
+          <span>{`핸드오프 ${s.handoff_ready}/${s.handoff_total}`}</span>
         </div>
-        <div className="pg-fkpi">
-          <span className="pg-muted">AI 사진 판독 증빙</span>
-          <b>{`${s.photo_total}건`}</b>
+      ) : (
+        <div className="pg-field-kpis">
+          <div className="pg-fkpi">
+            <span className="pg-muted">일일 체크인 응답률</span>
+            <b>{`${s.checkin_responded} / ${s.checkin_total}`}</b>
+          </div>
+          <div className="pg-fkpi">
+            <span className="pg-muted">AI 사진 판독 증빙</span>
+            <b>{`${s.photo_total}건`}</b>
+          </div>
+          <div className="pg-fkpi">
+            <span className="pg-muted">만회안 공종 의견</span>
+            <b>{`가능 ${s.poll_feasible} · 조건부 ${s.poll_conditional} · 불가 ${s.poll_infeasible}`}</b>
+          </div>
+          <div className="pg-fkpi">
+            <span className="pg-muted">D-3 핸드오프 준비</span>
+            <b>{`${s.handoff_ready} / ${s.handoff_total} 준비 완료`}</b>
+          </div>
         </div>
-        <div className="pg-fkpi">
-          <span className="pg-muted">만회안 공종 의견</span>
-          <b>{`가능 ${s.poll_feasible} · 조건부 ${s.poll_conditional} · 불가 ${s.poll_infeasible}`}</b>
-        </div>
-        <div className="pg-fkpi">
-          <span className="pg-muted">D-3 핸드오프 준비</span>
-          <b>{`${s.handoff_ready} / ${s.handoff_total} 준비 완료`}</b>
-        </div>
-      </div>
+      )}
 
       <div className="pg-field-subbar">
         <div role="tablist" aria-label="현장 협업 기능" className="pg-seg">
@@ -461,12 +497,12 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
           ))}
         </div>
         <span className="sch-gap" />
-        {tab === 'checkin' && (
+        {!isSimpleField && tab === 'checkin' && (
           <Button variant="primary" disabled={busy} onClick={() => void run(() => fieldApi.dispatchCheckins(scheduleId))}>
             관리자 에이전트: 오늘의 체크인 일괄 발송
           </Button>
         )}
-        {tab === 'poll' && (
+        {!isSimpleField && tab === 'poll' && (
           <Button variant="primary" disabled={busy} onClick={() => setPollOpen((o) => !o)}>
             {pollOpen ? '작성 닫기' : '+ 공종 담당자 의견 조회 발송'}
           </Button>
@@ -532,7 +568,18 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
                 onSave={(choice, prog, rd, note) =>
                   run(() => fieldApi.respond(scheduleId, item.id, { response_choice: choice, reported_progress: prog, reported_rd: rd, response_note: note }))
                 }
-                onApply={() => run(() => fieldApi.apply(scheduleId, item.id))}
+                onSubmitReport={(choice, prog, rd, note) =>
+                  run(async () => {
+                    const saved = await fieldApi.respond(scheduleId, item.id, {
+                      response_choice: choice,
+                      reported_progress: prog,
+                      reported_rd: rd,
+                      response_note: note,
+                    });
+                    if (saved.items.find((x) => x.id === item.id)?.approval_id !== null) return saved;
+                    return fieldApi.apply(scheduleId, item.id);
+                  })
+                }
               />
             );
           }
@@ -545,8 +592,14 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
                 key={item.id}
                 item={item}
                 busy={busy}
-                onSave={(choice, note) => run(() => fieldApi.respond(scheduleId, item.id, { response_choice: choice, response_note: note }))}
-                onApply={() => run(() => fieldApi.apply(scheduleId, item.id))}
+                onSubmitPoll={(choice, note) =>
+                  run(async () => {
+                    const saved = await fieldApi.respond(scheduleId, item.id, { response_choice: choice, response_note: note });
+                    const updated = saved.items.find((x) => x.id === item.id);
+                    if (!note.trim() || !updated || updated.approval_id !== null) return saved;
+                    return fieldApi.apply(scheduleId, item.id);
+                  })
+                }
               />
             );
           }

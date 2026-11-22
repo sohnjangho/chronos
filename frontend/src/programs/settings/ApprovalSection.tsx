@@ -75,7 +75,7 @@ export function MeSection() {
           <dt>이름</dt>
           <dd>{session?.user.name}</dd>
           <dt>등급</dt>
-          <dd>{isAdmin ? '관리자' : '사용자'}</dd>
+          <dd>{isAdmin ? '관리자' : session?.user.role === 'field' ? '현장 관리자' : '사용자'}</dd>
           <dt>아이디</dt>
           <dd>{session?.loginId}</dd>
           {!isAdmin && <ApprovalReadOnly />}

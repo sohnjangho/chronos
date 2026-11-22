@@ -153,3 +153,12 @@ def test_me_patch_updates_own_name_and_password(client, user):
     # role 같은 정의되지 않은 필드는 거부한다.
     bad = client.patch("/api/auth/me", headers=user, json={"role": "admin"})
     assert bad.status_code == 422
+
+
+def test_admin_creates_field_user_and_last_admin_cannot_demote_to_field(client, admin):
+    new = {"login_id": "site1", "name": "박현장", "role": "field", "password": "field-pass"}
+    r = client.post("/api/auth/users", headers=admin, json=new)
+    assert r.status_code == 201 and r.json()["role"] == "field"
+    assert login(client, "site1", "field-pass").json()["user"]["role"] == "field"
+    demote = client.patch("/api/auth/users/1", headers=admin, json={"role": "field"})
+    assert demote.status_code == 422 and demote.json()["code"] == "last_admin"

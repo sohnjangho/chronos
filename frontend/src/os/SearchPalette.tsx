@@ -7,7 +7,7 @@ import PickList, { type PickGroup } from './PickList';
 import ProgramIcon from './ProgramIcon';
 import { programs } from './registry';
 import { scheduleText, type ScheduleItem } from './ScheduleSelector';
-import { useSession } from './session';
+import { useSession, type Role } from './session';
 import { useShell } from './shell';
 import { useWindows } from './windowStore';
 import './overlays.css';
@@ -39,7 +39,7 @@ function usePaletteData(scheduleId: number | null) {
 }
 
 interface GroupArgs {
-  role: 'admin' | 'user';
+  role: Role;
   query: string;
   currentId: number | undefined;
   data: ReturnType<typeof usePaletteData>;

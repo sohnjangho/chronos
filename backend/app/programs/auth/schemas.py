@@ -4,7 +4,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.security.passwords import MAX_PASSWORD_BYTES
 
-Role = Literal["admin", "user"]
+Role = Literal["admin", "user", "field"]
 
 
 def _fits_bcrypt(password: str) -> str:

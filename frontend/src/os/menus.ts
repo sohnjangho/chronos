@@ -11,7 +11,7 @@ import { useZoom, ZOOM_STEPS, zoomOf } from './zoom';
 const noop = () => {};
 const windows = () => useWindows.getState();
 const shell = () => useShell.getState();
-export const ROLE_NAMES = { admin: '관리자', user: '사용자' } as const;
+export const ROLE_NAMES = { admin: '관리자', user: '사용자', field: '현장 관리자' } as const;
 
 export function logoMenu(): MenuSpec {
   return {

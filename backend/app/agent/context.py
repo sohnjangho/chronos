@@ -266,7 +266,7 @@ def build_context(
 
 
 def situation(session: Session, user: User, ui: UiContext) -> str:
-    role = "관리자" if user.role == "admin" else "일반 사용자"
+    role = {"admin": "관리자", "field": "현장 관리자"}.get(user.role, "일반 사용자")
     lines = ["## 지금 상황", f"- 사용자: {user.name} ({role})", f"- 열린 프로그램: {ui.program or '없음'}"]
     return "\n".join(lines + _schedule_lines(session, ui))
 

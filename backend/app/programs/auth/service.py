@@ -42,7 +42,7 @@ def update_user(session: Session, user_id: int, data: UserUpdate) -> User:
     user = session.get(User, user_id)
     if user is None:
         raise ApiError(404, "user_not_found", "계정을 찾을 수 없습니다.")
-    if user.role == "admin" and data.role == "user" and _admin_count(session) == 1:
+    if user.role == "admin" and data.role is not None and data.role != "admin" and _admin_count(session) == 1:
         raise ApiError(422, "last_admin", "관리자가 한 명은 있어야 합니다.")
     if data.name is not None:
         user.name = data.name

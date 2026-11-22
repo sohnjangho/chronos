@@ -104,15 +104,27 @@
 
 .mob-sub-btn {
   flex: 1 0 auto;
-  min-height: 40px;
+  min-height: 44px;
   border: 1px solid var(--border);
   background: var(--bg-panel);
   color: var(--fg-muted);
   border-radius: 999px;
-  padding: 8px 14px;
-  font-size: var(--fs-12);
+  padding: 8px 16px;
+  font-size: var(--fs-14);
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.mob-role-pill {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--on-topbar-line);
+  background: var(--on-topbar-fill);
+  color: var(--on-topbar-fg);
+  font-size: var(--fs-11);
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -157,7 +169,7 @@
 .mob-more-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 
 .mob-more-btn {
@@ -166,7 +178,7 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: 110px;
+  min-height: 120px;
   padding: 16px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-4);
@@ -176,7 +188,7 @@
 }
 
 .mob-more-name {
-  font-size: var(--fs-12);
+  font-size: var(--fs-14);
   line-height: 1.3;
   font-weight: 600;
   text-align: center;
@@ -187,17 +199,20 @@
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  min-height: 68px;
+  min-height: 72px;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
   padding: 6px 4px calc(8px + env(safe-area-inset-bottom, 0px));
+}
+.mob-nav.is-field-nav {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .mob-tab {
   border: 0;
   background: transparent;
   color: var(--fg-muted);
-  min-height: 54px;
+  min-height: 56px;
   padding: 4px 2px;
   display: flex;
   flex-direction: column;
@@ -214,8 +229,8 @@
 
 .mob-tab-icon {
   position: relative;
-  width: 46px;
-  height: 32px;
+  width: 52px;
+  height: 34px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
@@ -228,8 +243,9 @@
 }
 
 .mob-tab-label {
-  font-size: var(--fs-11);
-  line-height: 1.2;
+  font-size: var(--fs-13);
+  font-weight: 600;
+  line-height: 1.25;
 }
 
 .mob-badge {
@@ -268,58 +284,64 @@
   padding-right: 10%;
 }
 
-/* 스마트폰(data-device="phone") 본문·입력·터치 가독성 보정 */
+/* 스마트폰(data-device="phone") 본문·입력·터치 가독성 보정 (iOS HIG / MD3 기준) */
+.mob-root[data-device="phone"] {
+  font-size: var(--fs-15);
+}
 .mob-root[data-device="phone"] .mob-head {
-  padding: 0 10px;
+  flex: 0 0 56px;
+  padding: 0 12px;
   gap: 6px;
 }
 .mob-root[data-device="phone"] .mob-head-left {
   flex: 1 1 auto;
   min-width: 0;
-  gap: 6px;
+  gap: 8px;
 }
 .mob-root[data-device="phone"] .mob-head-right {
   flex: 0 1 auto;
   min-width: 0;
-  gap: 2px;
+  gap: 4px;
 }
 .mob-root[data-device="phone"] .mob-title {
-  font-size: var(--fs-14);
+  font-size: var(--fs-16);
 }
 .mob-root[data-device="phone"] .mob-icon-btn {
-  min-width: 36px;
-  width: 36px;
-  min-height: 36px;
-  padding: 6px;
+  min-width: 44px;
+  width: 44px;
+  min-height: 44px;
+  padding: 8px;
+  font-size: var(--fs-14);
 }
 .mob-root[data-device="phone"] .mob-text-btn {
   min-width: auto;
-  min-height: 36px;
-  padding: 6px 8px;
-  font-size: var(--fs-11);
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: var(--fs-13);
   flex: none;
 }
 .mob-root[data-device="phone"] .os-site-btn {
-  max-width: 112px;
-  min-height: 36px;
-  padding: 4px 8px;
-  font-size: var(--fs-11);
+  max-width: 132px;
+  min-height: 40px;
+  padding: 6px 10px;
+  font-size: var(--fs-13);
 }
 
 /* 대화(Chat) 프로그램 스마트폰 최적화 */
 .mob-root[data-device="phone"] .ch-root,
 .mob-root[data-device="phone"] .ch-root.is-narrow {
-  font-size: var(--fs-14);
+  font-size: var(--fs-15);
   line-height: 1.55;
 }
 .mob-root[data-device="phone"] .ch-bar {
-  height: 48px;
+  height: 52px;
   padding: 0 14px;
   gap: 8px;
 }
 .mob-root[data-device="phone"] .ch-pill {
-  min-height: 36px;
-  padding: 6px 12px;
+  min-height: 40px;
+  padding: 6px 14px;
+  font-size: var(--fs-13);
 }
 .mob-root[data-device="phone"] .ch-thread {
   gap: 16px;
@@ -338,23 +360,25 @@
   border-radius: 18px;
 }
 .mob-root[data-device="phone"] .ch-compose textarea {
-  min-height: 46px;
+  min-height: 48px;
   height: auto;
-  font-size: var(--fs-14);
+  font-size: var(--fs-16);
   line-height: 1.45;
 }
 .mob-root[data-device="phone"] .ch-attach-btn {
-  min-width: 40px;
-  min-height: 40px;
-  font-size: var(--fs-15);
+  min-width: 44px;
+  min-height: 44px;
+  font-size: var(--fs-16);
 }
 .mob-root[data-device="phone"] .ch-send {
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 18px;
+  font-size: var(--fs-14);
 }
 .mob-root[data-device="phone"] .ch-th {
-  min-height: 46px;
+  min-height: 48px;
   padding: 10px 12px;
+  font-size: var(--fs-14);
 }
 
 /* 공정률·현장 점검 프로그램 스마트폰 최적화 */
@@ -375,25 +399,36 @@
   padding: 16px;
   gap: 12px;
 }
+.mob-root[data-device="phone"] .pg-fcard-title {
+  font-size: var(--fs-16);
+}
+.mob-root[data-device="phone"] .pg-fcard-trade,
+.mob-root[data-device="phone"] .pg-muted,
+.mob-root[data-device="phone"] .pg-flabel {
+  font-size: var(--fs-13);
+}
 .mob-root[data-device="phone"] .pg-field-subbar .pg-seg button {
-  min-height: 42px;
-  padding: 8px 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: var(--fs-14);
 }
 .mob-root[data-device="phone"] .pg-choice-btn {
-  min-height: 46px;
+  min-height: 48px;
   padding: 10px 12px;
+  font-size: var(--fs-14);
   font-weight: 600;
 }
 .mob-root[data-device="phone"] .pg-flabel input,
 .mob-root[data-device="phone"] .pg-flabel select,
 .mob-root[data-device="phone"] .pg-finput-text {
-  min-height: 46px;
+  min-height: 48px;
   padding: 10px 12px;
-  font-size: var(--fs-14);
+  font-size: var(--fs-16);
 }
 .mob-root[data-device="phone"] .pg-fcheck {
-  min-height: 40px;
+  min-height: 44px;
   gap: 8px;
+  font-size: var(--fs-14);
 }
 .mob-root[data-device="phone"] .pg-fcheck input[type="checkbox"] {
   width: 20px;

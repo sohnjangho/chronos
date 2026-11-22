@@ -231,6 +231,48 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px 12px;
 }
+.pg-finputs.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.pg-field-simple-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-3);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: var(--fs-13);
+  font-weight: 600;
+  color: var(--fg);
+}
+.pg-chip-row {
+  display: flex;
+  gap: 6px;
+}
+.pg-chip {
+  flex: 1 1 0;
+  min-height: 36px;
+  font: inherit;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.pg-chip[aria-pressed="true"] {
+  background: var(--tone-info-bg);
+  border-color: var(--accent);
+  color: var(--tone-info-fg);
+}
+.pg-submit-one.ui-btn {
+  flex: 1 1 180px;
+  min-height: 44px;
+  justify-content: center;
+  font-weight: 700;
+}
 @container (max-width: 520px) {
   .pg-fgrid-form { grid-template-columns: minmax(0, 1fr); }
 }

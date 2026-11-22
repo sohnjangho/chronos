@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { loadJson, saveJson } from './storage';
 
-export type Role = 'admin' | 'user';
+export type Role = 'admin' | 'user' | 'field';
 
 export interface User {
   id: number;

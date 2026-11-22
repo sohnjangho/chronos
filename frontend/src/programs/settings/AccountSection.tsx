@@ -7,7 +7,7 @@ import type { Account, LlmError } from './model';
 import { ErrorLine, toProblem } from './parts';
 import { settingsApi } from './settingsApi';
 
-const ROLE_LABELS: Record<Role, string> = { admin: '관리자', user: '사용자' };
+const ROLE_LABELS: Record<Role, string> = { admin: '관리자', user: '사용자', field: '현장 관리자' };
 const COLUMNS: Column<Account>[] = [
   { key: 'name', header: '이름', render: (a) => <span title={a.name}>{a.name}</span> },
   { key: 'login_id', header: '아이디', render: (a) => <span title={a.login_id}>{a.login_id}</span> },
@@ -45,6 +45,7 @@ function RoleSelect({ value, onChange }: { value: Role; onChange(r: Role): void 
     <Field label="등급">
       <select value={value} onChange={(e) => onChange(e.target.value as Role)}>
         <option value="user">사용자</option>
+        <option value="field">현장 관리자</option>
         <option value="admin">관리자</option>
       </select>
     </Field>

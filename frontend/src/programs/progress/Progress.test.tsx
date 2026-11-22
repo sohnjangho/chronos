@@ -216,4 +216,8 @@ test('toggles into 현장 모바일 점검 and switches among the 4 field collab
   expect(screen.getByRole('tab', { name: '사진 AI 판독' })).toBeVisible();
   expect(screen.getByRole('tab', { name: '만회안 의견 조회' })).toBeVisible();
   expect(screen.getByRole('tab', { name: 'D-3 핸드오프 점검' })).toBeVisible();
+  expect(screen.getByRole('button', { name: '현장 보고 제출 (저장·승인 반영)' })).toBeVisible();
+  expect(screen.queryByLabelText('예상 잔여일 (RD)')).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: '⚠ 지연 우려' }));
+  expect(screen.getByLabelText('예상 잔여일 (RD)')).toBeVisible();
 });

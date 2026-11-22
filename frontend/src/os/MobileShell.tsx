@@ -23,6 +23,11 @@ const SCHEDULE_SUBS = [
   { id: 'field', label: '현장 점검' },
 ] as const;
 
+const SCHEDULE_FIELD_SUBS = [
+  { id: 'gantt', label: '간트' },
+  { id: 'schedule-table', label: '스케줄' },
+] as const;
+
 const SCHEDULE_IDS = new Set<string>(['schedule-table', 'gantt', 'progress', 'delays']);
 
 function tabForProgram(programId: string): TabId {
@@ -40,7 +45,7 @@ function MoreGrid({ list, onPick }: { list: ProgramManifest[]; onPick(id: string
       <div className="mob-more-grid">
         {list.map((p) => (
           <button key={p.id} type="button" className="mob-more-btn" onClick={() => onPick(p.id)}>
-            <ProgramIcon program={p} size={56} />
+            <ProgramIcon program={p} size={64} />
             <span className="mob-more-name">{p.name}</span>
           </button>
         ))}
@@ -81,6 +86,7 @@ function MobileHeader({
   device,
   manifest,
   isField,
+  isFieldRole,
   showBack,
   onBack,
 }: {
@@ -88,6 +94,7 @@ function MobileHeader({
   device: 'phone' | 'tablet';
   manifest?: ProgramManifest;
   isField?: boolean;
+  isFieldRole?: boolean;
   showBack: boolean;
   onBack(): void;
 }) {
@@ -104,10 +111,11 @@ function MobileHeader({
           </button>
         ) : (
           <span className="mob-brand" aria-hidden="true">
-            {manifest ? <ProgramIcon program={manifest} size={28} iconId={isField ? 'field' : undefined} /> : <ChronosMark size={28} />}
+            {manifest ? <ProgramIcon program={manifest} size={30} iconId={isField ? 'field' : undefined} /> : <ChronosMark size={30} />}
           </span>
         )}
         <span className="mob-title">{title}</span>
+        {isFieldRole && <span className="mob-role-pill">현장 전용</span>}
       </div>
       <div className="mob-head-right">
         <ScheduleSelector />
@@ -125,13 +133,48 @@ function MobileHeader({
 
 function MobileTabBar({
   tab,
+  scheduleSub,
+  isFieldRole,
   pending,
   onSelect,
+  onSelectFieldNav,
 }: {
   tab: TabId;
+  scheduleSub: string;
+  isFieldRole: boolean;
   pending: number;
   onSelect(next: TabId): void;
+  onSelectFieldNav(mode: 'field' | 'schedule' | 'chat'): void;
 }) {
+  if (isFieldRole) {
+    const fieldItems: { id: 'field' | 'schedule' | 'chat'; label: string; programId: string; iconId?: string; active: boolean }[] = [
+      { id: 'field', label: '현장 점검', programId: 'progress', iconId: 'field', active: tab === 'schedule' && scheduleSub === 'field' },
+      { id: 'schedule', label: '일정·간트', programId: 'gantt', active: tab === 'schedule' && scheduleSub !== 'field' },
+      { id: 'chat', label: '현장 AI', programId: 'chat', active: tab === 'chat' },
+    ];
+    return (
+      <nav className="mob-nav is-field-nav" aria-label="모바일 현장 탐색">
+        {fieldItems.map((it) => {
+          const prog = getProgram(it.programId);
+          return (
+            <button
+              key={it.id}
+              type="button"
+              className={`mob-tab${it.active ? ' is-active' : ''}`}
+              aria-current={it.active ? 'page' : undefined}
+              onClick={() => onSelectFieldNav(it.id)}
+            >
+              <span className="mob-tab-icon" aria-hidden="true">
+                {prog && <ProgramIcon program={prog} size={28} iconId={it.iconId} />}
+              </span>
+              <span className="mob-tab-label">{it.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    );
+  }
+
   const items: { id: TabId; label: string; programId?: string; systemId?: 'apps'; badge?: number }[] = [
     { id: 'chat', label: '대화', programId: 'chat' },
     { id: 'schedule', label: '일정·현장', programId: 'schedule-table' },
@@ -152,7 +195,7 @@ function MobileTabBar({
             onClick={() => onSelect(it.id)}
           >
             <span className="mob-tab-icon" aria-hidden="true">
-              {prog ? <ProgramIcon program={prog} size={26} /> : <SystemIcon id={it.systemId ?? 'apps'} size={26} />}
+              {prog ? <ProgramIcon program={prog} size={28} /> : <SystemIcon id={it.systemId ?? 'apps'} size={28} />}
               {it.badge && it.badge > 0 ? <span className="mob-badge">{it.badge > 99 ? '99+' : it.badge}</span> : null}
             </span>
             <span className="mob-tab-label">{it.label}</span>
@@ -166,15 +209,23 @@ function MobileTabBar({
 export default function MobileShell() {
   useApprovalPolling();
   const role = useSession((s) => s.session?.user.role ?? 'user');
+  const isFieldRole = role === 'field';
   const pending = useApprovals((s) => s.pending);
   const wins = useWindows((s) => s.wins);
   const device = useResolvedDevice();
 
-  const [tab, setTab] = useState<TabId>('chat');
-  const [scheduleSub, setScheduleSub] = useState<string>('schedule-table');
+  const [tab, setTab] = useState<TabId>(() => (role === 'field' ? 'schedule' : 'chat'));
+  const [scheduleSub, setScheduleSub] = useState<string>(() => (role === 'field' ? 'field' : 'schedule-table'));
   const [moreProgram, setMoreProgram] = useState<string | null>(null);
   const [params, setParams] = useState<Record<string, string> | undefined>(undefined);
   const lastTopRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (isFieldRole && (tab === 'approvals' || tab === 'library' || tab === 'more')) {
+      setTab('schedule');
+      setScheduleSub('field');
+    }
+  }, [isFieldRole, tab]);
 
   // 프로그램 내부에서 useWindows.open(id, params) 호출 시 모바일/태블릿 화면도 해당 프로그램으로 자동 전환.
   useEffect(() => {
@@ -228,6 +279,20 @@ export default function MobileShell() {
     setParams(undefined);
   }
 
+  function selectFieldNav(mode: 'field' | 'schedule' | 'chat') {
+    setParams(undefined);
+    if (mode === 'chat') {
+      setTab('chat');
+      return;
+    }
+    setTab('schedule');
+    if (mode === 'field') setScheduleSub('field');
+    else setScheduleSub(scheduleSub === 'schedule-table' ? 'schedule-table' : 'gantt');
+  }
+
+  const showSubbar = tab === 'schedule' && (!isFieldRole || scheduleSub !== 'field');
+  const subList = isFieldRole ? SCHEDULE_FIELD_SUBS : SCHEDULE_SUBS;
+
   return (
     <div className="mob-root" data-testid="mobile-shell" data-device={device}>
       <MobileHeader
@@ -235,13 +300,14 @@ export default function MobileShell() {
         device={device}
         manifest={manifest}
         isField={tab === 'schedule' && scheduleSub === 'field'}
+        isFieldRole={isFieldRole}
         showBack={tab === 'more' && moreProgram !== null}
         onBack={() => setMoreProgram(null)}
       />
 
-      {tab === 'schedule' && (
+      {showSubbar && (
         <div className="mob-subbar" role="tablist" aria-label="일정 보기 전환">
-          {SCHEDULE_SUBS.map((s) => (
+          {subList.map((s) => (
             <button
               key={s.id}
               type="button"
@@ -276,7 +342,14 @@ export default function MobileShell() {
         )}
       </main>
 
-      <MobileTabBar tab={tab} pending={pending} onSelect={selectTab} />
+      <MobileTabBar
+        tab={tab}
+        scheduleSub={scheduleSub}
+        isFieldRole={isFieldRole}
+        pending={pending}
+        onSelect={selectTab}
+        onSelectFieldNav={selectFieldNav}
+      />
     </div>
   );
 }

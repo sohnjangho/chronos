@@ -11,6 +11,7 @@ import { useSession } from './session';
 import { useTheme } from './theme';
 import { useDeviceMode } from './useIsMobile';
 import { useWindows } from './windowStore';
+import WorkflowRibbon from './WorkflowRibbon';
 import './tablet.css';
 
 type NavId =
@@ -25,8 +26,6 @@ type NavId =
   | 'approvals'
   | 'library'
   | 'settings';
-
-type SideId = 'chat' | 'approvals' | 'field';
 
 interface RailSpec {
   id: NavId;
@@ -47,10 +46,11 @@ const RAIL_MAIN: RailSpec[] = [
   { id: 'library', label: '자료함', programId: 'library' },
 ];
 
-const SIDE_TABS: { id: SideId; label: string; programId: string; params?: Record<string, string> }[] = [
-  { id: 'chat', label: 'AI 대화', programId: 'chat' },
-  { id: 'approvals', label: '승인함', programId: 'approvals' },
-  { id: 'field', label: '현장 점검', programId: 'progress', params: { view: 'field' } },
+const RAIL_FIELD: RailSpec[] = [
+  { id: 'field', label: '현장 점검', programId: 'progress' },
+  { id: 'schedule-table', label: '스케줄', programId: 'schedule-table' },
+  { id: 'gantt', label: '간트', programId: 'gantt' },
+  { id: 'chat', label: '현장 AI', programId: 'chat' },
 ];
 
 const ALL_RAIL_MAP = new Map<string, NavId>([
@@ -103,9 +103,67 @@ function TabletDeviceSwitch() {
   );
 }
 
+function TabletWorkflowBadge() {
+  const focus = useAgentView((s) => s.focus);
+  const ribbon = useAgentView((s) => s.ribbon);
+  const lastRunId = useAgentView((s) => s.lastRunId);
+  const toggleRibbon = useAgentView((s) => s.toggleRibbon);
+
+  if (focus.active || ribbon.status === 'running') {
+    const total = Math.max(1, focus.stepN, focus.totalSteps, ribbon.steps.length);
+    const step = Math.max(1, focus.stepN || ribbon.steps.length);
+    const summary = focus.label || ribbon.steps[ribbon.steps.length - 1]?.label || '실행 중';
+    return (
+      <button
+        type="button"
+        className="tab-cu-btn is-active"
+        aria-label="Computer-Use 상태"
+        data-tip="워크플로우 진행 리본 열기·접기"
+        onClick={toggleRibbon}
+      >
+        <span className="tab-cu-dot" aria-hidden="true" />
+        <span className="tab-cu-tag">Computer-Use</span>
+        <span className="tab-cu-step">{`${step}/${total} · ${summary}`}</span>
+      </button>
+    );
+  }
+
+  if (ribbon.status === 'waiting' && ribbon.steps.length > 0) {
+    const rid = ribbon.runId ?? lastRunId;
+    const waitLabel = ribbon.waitReason === 'approval' ? '승인 대기 중' : '답변 대기 중';
+    return (
+      <button
+        type="button"
+        className="tab-cu-btn is-waiting"
+        aria-label={`워크플로우${rid ? ` #${rid}` : ''} ${waitLabel}`}
+        onClick={toggleRibbon}
+      >
+        <span className="tab-cu-wait-dot" aria-hidden="true" />
+        <span>{`${rid ? `워크플로우 #${rid}` : '워크플로우'} · ${waitLabel} ▾`}</span>
+      </button>
+    );
+  }
+
+  if (ribbon.collapsed && ribbon.steps.length > 0 && lastRunId !== null) {
+    return (
+      <button
+        type="button"
+        className="tab-cu-btn is-done"
+        aria-label={`워크플로우 #${lastRunId} 완료`}
+        onClick={toggleRibbon}
+      >
+        <span>{`워크플로우 #${lastRunId} 완료 ▾`}</span>
+      </button>
+    );
+  }
+
+  return null;
+}
+
 export default function TabletShell() {
   useApprovalPolling();
   const role = useSession((s) => s.session?.user.role ?? 'user');
+  const isFieldRole = role === 'field';
   const logout = useSession((s) => s.logout);
   const theme = useTheme((s) => s.theme);
   const toggleTheme = useTheme((s) => s.toggle);
@@ -113,12 +171,11 @@ export default function TabletShell() {
   const wins = useWindows((s) => s.wins);
   const agentFocus = useAgentView((s) => s.focus);
 
-  const [navId, setNavId] = useState<NavId>('schedule-table');
+  const [navId, setNavId] = useState<NavId>(() => (role === 'field' ? 'field' : 'schedule-table'));
   const [customProgram, setCustomProgram] = useState<string | null>(null);
   const [showApps, setShowApps] = useState(false);
   const [params, setParams] = useState<Record<string, string> | undefined>(undefined);
   const [splitOpen, setSplitOpen] = useState<boolean>(() => (typeof window !== 'undefined' ? window.innerWidth >= 960 : true));
-  const [sideTab, setSideTab] = useState<SideId>('chat');
   const lastTopRef = useRef<string | null>(null);
 
   // 프로그램 내부에서 open(...) 또는 Computer Use stageFocus(...) 가 호출되면 태블릿 스테이지도 따라간다.
@@ -158,17 +215,9 @@ export default function TabletShell() {
       ? '현장 모바일 점검'
       : (primaryManifest?.name ?? 'ChronOS');
 
-  // 보조 분할 창이 주 화면과 같은 프로그램이 되지 않도록 자동 보정한다.
-  const effectiveSide: SideId =
-    sideTab === 'chat' && primaryProgramId === 'chat'
-      ? 'approvals'
-      : sideTab === 'approvals' && primaryProgramId === 'approvals'
-        ? 'chat'
-        : sideTab === 'field' && navId === 'field' && !customProgram
-          ? 'chat'
-          : sideTab;
-  const sideSpec = SIDE_TABS.find((t) => t.id === effectiveSide) ?? SIDE_TABS[0];
-  const SideScreen = getProgram(sideSpec.programId)?.component;
+  const ChatSideScreen = getProgram('chat')?.component;
+  const showSidePanel = splitOpen && ChatSideScreen && primaryProgramId !== 'chat';
+  const showExpandTab = !splitOpen && ChatSideScreen && primaryProgramId !== 'chat';
 
   const showAgentBanner = agentFocus.active && !showApps && agentFocus.programId === primaryProgramId;
 
@@ -191,6 +240,7 @@ export default function TabletShell() {
     setParams(undefined);
   }
 
+  const railList = isFieldRole ? RAIL_FIELD : RAIL_MAIN;
   const settingsManifest = getProgram('settings');
 
   return (
@@ -199,15 +249,16 @@ export default function TabletShell() {
         <div className="tab-head-left">
           <ChronosMark size={24} />
           <span className="tab-title">{title}</span>
-          <span className="tab-pill">태블릿</span>
+          <span className="tab-pill">{isFieldRole ? '태블릿 · 현장 전용' : '태블릿'}</span>
         </div>
         <div className="tab-head-right">
+          <TabletWorkflowBadge />
           <ScheduleSelector />
           <button
             type="button"
             className="tab-split-btn"
             aria-pressed={splitOpen}
-            title="좌우 분할 화면 전환"
+            title="오른쪽 AI 대화 패널 열기·접기"
             onClick={() => setSplitOpen((v) => !v)}
           >
             <PanelIcon />
@@ -223,10 +274,12 @@ export default function TabletShell() {
         </div>
       </header>
 
+      <WorkflowRibbon />
+
       <div className="tab-body">
         <nav className="tab-rail" aria-label="태블릿 탐색">
           <div className="tab-rail-scroll">
-            {RAIL_MAIN.map((item) => {
+            {railList.map((item) => {
               const m = getProgram(item.programId);
               if (!m) return null;
               const isCurrent = !showApps && !customProgram && navId === item.id;
@@ -250,17 +303,19 @@ export default function TabletShell() {
             })}
           </div>
           <div className="tab-rail-foot">
-            <button
-              type="button"
-              className="tab-rail-btn"
-              aria-current={showApps ? 'page' : undefined}
-              onClick={() => setShowApps((s) => !s)}
-            >
-              <span className="tab-rail-ico-wrap">
-                <SystemIcon id="apps" size={32} />
-              </span>
-              <span className="tab-rail-label">전체 앱</span>
-            </button>
+            {!isFieldRole && (
+              <button
+                type="button"
+                className="tab-rail-btn"
+                aria-current={showApps ? 'page' : undefined}
+                onClick={() => setShowApps((s) => !s)}
+              >
+                <span className="tab-rail-ico-wrap">
+                  <SystemIcon id="apps" size={32} />
+                </span>
+                <span className="tab-rail-label">전체 앱</span>
+              </button>
+            )}
             {settingsManifest && (
               <button
                 type="button"
@@ -299,33 +354,37 @@ export default function TabletShell() {
             </div>
           </main>
 
-          {splitOpen && SideScreen && (
+          {showSidePanel && (
             <aside className="tab-side" aria-label="보조 분할 화면">
               <div className="tab-side-bar">
-                <div className="tab-side-tabs" role="tablist" aria-label="보조 화면 선택">
-                  {SIDE_TABS.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={effectiveSide === t.id}
-                      className={`tab-side-tab${effectiveSide === t.id ? ' is-on' : ''}`}
-                      onClick={() => setSideTab(t.id)}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-                <button type="button" className="tab-side-close" aria-label="분할 화면 닫기" onClick={() => setSplitOpen(false)}>
-                  ×
+                <span className="tab-side-title">AI 대화</span>
+                <button
+                  type="button"
+                  className="tab-side-collapse"
+                  aria-label="오른쪽 보조 패널 접기"
+                  onClick={() => setSplitOpen(false)}
+                >
+                  접기 ▸
                 </button>
               </div>
               <div className="tab-side-body">
                 <Suspense fallback={<p className="tab-loading">불러오는 중…</p>}>
-                  <SideScreen windowId="tablet-side" params={sideSpec.params} />
+                  <ChatSideScreen windowId="tablet-side" />
                 </Suspense>
               </div>
             </aside>
+          )}
+          {showExpandTab && (
+            <button
+              type="button"
+              className="tab-side-expand"
+              aria-label="오른쪽 보조 패널 펼치기"
+              title="AI 대화 보조 패널 펼치기"
+              onClick={() => setSplitOpen(true)}
+            >
+              <span aria-hidden="true">◂</span>
+              <span className="tab-side-expand-txt">AI 대화</span>
+            </button>
           )}
         </div>
       </div>

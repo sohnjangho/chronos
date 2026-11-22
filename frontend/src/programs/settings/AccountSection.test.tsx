@@ -58,3 +58,27 @@ test('a long login id without hyphens may wrap in the edit form', async () => {
   const form = screen.getByRole('region', { name: '계정 고치기' });
   expect(within(form).getByText(longId)).toHaveClass('st-wrap');
 });
+
+test('admin can select field role (현장 관리자) when creating an account', async () => {
+  let users: Account[] = [{ id: 1, name: '손장호', role: 'admin', login_id: 'jhsohn' }];
+  const { fetchMock } = renderAs('admin', ACCOUNT, {
+    '/api/auth/users': () => json(200, users),
+    'POST /api/auth/users': (init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      users = [...users, { id: 3, name: body.name, role: body.role, login_id: body.login_id }];
+      return json(201, users[1]);
+    },
+  });
+  await screen.findByRole('table', { name: '계정' });
+  await userEvent.click(screen.getByRole('button', { name: '+ 계정 추가' }));
+  const form = screen.getByRole('region', { name: '계정 추가' });
+  await userEvent.type(within(form).getByLabelText('아이디'), 'site1');
+  await userEvent.type(within(form).getByLabelText('이름'), '박현장');
+  await userEvent.selectOptions(within(form).getByLabelText('등급'), 'field');
+  await userEvent.type(within(form).getByLabelText('비밀번호'), PASSWORD);
+  await userEvent.click(within(form).getByRole('button', { name: '만들기' }));
+  expect(await within(screen.getByRole('table', { name: '계정' })).findByText('현장 관리자')).toBeVisible();
+  expect(sent(fetchMock, 'POST /api/auth/users')).toEqual([
+    { login_id: 'site1', name: '박현장', role: 'field', password: PASSWORD },
+  ]);
+});

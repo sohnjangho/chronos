@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
 import { signInAsDemo, stubFetch } from '../test-helpers';
+import { useAgentView } from './agentView';
 import App from './App';
 import { useApprovals } from './approvals';
 import { useSession } from './session';
@@ -109,4 +110,54 @@ test('auto device detection classifies phone, tablet, and desktop by User-Agent,
   Object.defineProperty(navigator, 'userAgent', { value: origUa, configurable: true });
   Object.defineProperty(navigator, 'maxTouchPoints', { value: origTouch, configurable: true });
   useDeviceMode.getState().setMode('auto');
+});
+
+test('field role boots into dedicated simplified mobile navigation without approvals/library/more tabs', () => {
+  signInAsDemo('field', '박현장', 'site1', 3);
+  render(<App />);
+  expect(screen.getByTestId('mobile-shell')).toBeVisible();
+  expect(screen.getByText('현장 전용')).toBeVisible();
+  expect(screen.getByText('현장 모바일 점검')).toBeVisible();
+
+  const fieldNav = screen.getByRole('navigation', { name: '모바일 현장 탐색' });
+  expect(within(fieldNav).getByRole('button', { name: '현장 점검' })).toBeVisible();
+  expect(within(fieldNav).getByRole('button', { name: '일정·간트' })).toBeVisible();
+  expect(within(fieldNav).getByRole('button', { name: '현장 AI' })).toBeVisible();
+  expect(within(fieldNav).queryByRole('button', { name: /승인|자료함|전체/ })).toBeNull();
+});
+
+test('tablet shell shows AI 대화 only side panel with collapse/expand and top WorkflowRibbon', async () => {
+  vi.stubGlobal('innerWidth', 1024);
+  vi.stubGlobal('innerHeight', 1366);
+  signInAsDemo('admin', '관리자', 'admin', 1);
+  render(<App />);
+  const tablet = screen.getByTestId('tablet-shell');
+  expect(tablet).toBeVisible();
+
+  const side = screen.getByRole('complementary', { name: '보조 분할 화면' });
+  expect(side).toBeVisible();
+  expect(within(side).queryByRole('tab', { name: '승인함' })).toBeNull();
+  expect(within(side).queryByRole('tab', { name: '현장 점검' })).toBeNull();
+
+  await userEvent.click(within(side).getByRole('button', { name: '오른쪽 보조 패널 접기' }));
+  expect(screen.queryByRole('complementary', { name: '보조 분할 화면' })).toBeNull();
+  const expandBtn = screen.getByRole('button', { name: '오른쪽 보조 패널 펼치기' });
+  expect(expandBtn).toBeVisible();
+  await userEvent.click(expandBtn);
+  expect(screen.getByRole('complementary', { name: '보조 분할 화면' })).toBeVisible();
+
+  act(() => {
+    useAgentView.getState().onToolStart({
+      run_id: 33,
+      n: 1,
+      call_id: 'c1',
+      tool: 'calc.cpm',
+      program: 'cpm',
+      arguments: '{"schedule_id":1}',
+    });
+  });
+  expect(screen.getByRole('region', { name: '워크플로우 진행 상황' })).toHaveTextContent('워크플로우 #33');
+  act(() => {
+    useAgentView.getState().reset();
+  });
 });
