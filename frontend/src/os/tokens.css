@@ -80,6 +80,8 @@
   --tile-brown-to: #7a4e2a;
   --tile-cyan-from: #38c5d9;
   --tile-cyan-to: #0d7a8f;
+  --tile-emerald-from: #2fb880;
+  --tile-emerald-to: #0d704a;
   --tile-graphite-from: #5f6672;
   --tile-graphite-to: #20242c;
   --tile-slate-from: #8c98ae;
@@ -176,6 +178,8 @@
   --tile-brown-to: #6a4222;
   --tile-cyan-from: #2db4c7;
   --tile-cyan-to: #0a6778;
+  --tile-emerald-from: #27a370;
+  --tile-emerald-to: #0a5a3b;
   --tile-graphite-from: #525966;
   --tile-graphite-to: #181b21;
   --tile-slate-from: #7f8ba2;

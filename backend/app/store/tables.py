@@ -597,6 +597,47 @@ class FieldItem(Base):
     updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
 
+class ReportTemplate(Base):
+    """보고서 양식(프로젝트별 기억 · 타 프로젝트에서 선택·복사 가능). cadence: monthly | quarterly."""
+
+    __tablename__ = "report_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(index=True)
+    cadence: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(160))
+    is_default: Mapped[bool] = mapped_column(default=True)
+    source_file_id: Mapped[int | None] = mapped_column(default=None)
+    source_file_name: Mapped[str | None] = mapped_column(String(260), default=None)
+    sections_json: Mapped[list] = mapped_column(JSON, default=list)
+    style_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+
+class ReportRow(Base):
+    """생성된 월간·분기별 보고서 스냅샷."""
+
+    __tablename__ = "reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(index=True)
+    template_id: Mapped[int | None] = mapped_column(default=None)
+    template_name: Mapped[str] = mapped_column(String(160))
+    cadence: Mapped[str] = mapped_column(String(20))
+    period_label: Mapped[str] = mapped_column(String(60))
+    title: Mapped[str] = mapped_column(String(200))
+    data_date: Mapped[str] = mapped_column(String(20))
+    schedule_version: Mapped[int] = mapped_column(default=1)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    blocks_json: Mapped[list] = mapped_column(JSON, default=list)
+    style_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+
 # 낱말 검색(FTS5). rowid = file_chunks.id. create_all 이 부를 때마다(기존 DB 에도) 없으면 만든다.
 event.listen(
     Base.metadata,

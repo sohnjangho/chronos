@@ -11,11 +11,12 @@ import gantt from './gantt';
 import library from './library';
 import progress from './progress';
 import questionnaire from './questionnaire';
+import reports from './reports';
 import scheduleTable from './schedule-table';
 import settings from './settings';
 import workflow from './workflow';
 
 /** 프로그램을 Dock 차례(시스템 → 업무)로 등록한다. 일정 도구는 스케줄 · 간트차트 · CPM · 공정률. */
 export function registerPrograms(): void {
-  [chat, questionnaire, workflow, approvals, explorer, settings, devconsole, scheduleTable, gantt, cpm, progress, compare, conditions, delays, library].forEach(register);
+  [chat, questionnaire, workflow, approvals, explorer, settings, devconsole, scheduleTable, gantt, cpm, progress, compare, conditions, delays, reports, library].forEach(register);
 }

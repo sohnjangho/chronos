@@ -45,7 +45,7 @@ afterEach(() => {
 
 test('the Dock is a toolbar: 앱 목록 first, programs, a separator between system and work programs', () => {
   render(<Desktop />);
-  expect(order()).toEqual(['앱 목록', '에이전트 대화', '질문지', '워크플로우', '승인함', '탐색기', '설정', '개발 콘솔', '|', '스케줄', '간트차트', 'CPM', '공정률', '비교판', '조건·규칙', '지연 기록', '자료함']);
+  expect(order()).toEqual(['앱 목록', '에이전트 대화', '질문지', '워크플로우', '승인함', '탐색기', '설정', '개발 콘솔', '|', '스케줄', '간트차트', 'CPM', '공정률', '비교판', '조건·규칙', '지연 기록', '보고서', '자료함']);
   expect(icon('스케줄')).not.toHaveAttribute('title');
 });
 

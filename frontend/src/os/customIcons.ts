@@ -109,6 +109,13 @@ export const ICON_SLOTS: readonly IconSlotSpec[] = [
       'Delay Log & Impact Tracker — precision clock face paired with a subtle alert indicator representing schedule slippage tracking and delay cause analysis.',
   },
   {
+    id: 'reports',
+    label: '보고서',
+    tone: 'emerald',
+    englishDescription:
+      'Monthly & Quarterly Schedule Reports — clean A4 executive progress report sheet with structured tables and S-curve summary charts.',
+  },
+  {
     id: 'library',
     label: '자료함',
     tone: 'cyan',

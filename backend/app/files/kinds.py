@@ -7,7 +7,7 @@ KINDS: dict[str, str] = {
     ".csv": "table", ".tsv": "table",
     ".xlsx": "sheet",
     ".pdf": "pdf",
-    ".docx": "doc", ".hwpx": "doc",
+    ".docx": "doc", ".pptx": "doc", ".hwpx": "doc",
     ".txt": "text", ".md": "text",
 }
 MEDIA_TYPES: dict[str, str] = {
@@ -16,10 +16,11 @@ MEDIA_TYPES: dict[str, str] = {
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".pdf": "application/pdf",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".hwpx": "application/hwp+zip",
     ".txt": "text/plain", ".md": "text/markdown",
 }
-ACCEPTED = "그림(png·jpg·webp)·csv·tsv·xlsx·pdf·docx·hwpx·txt·md"
+ACCEPTED = "그림(png·jpg·webp)·csv·tsv·xlsx·pdf·docx·pptx·hwpx·txt·md"
 
 # 받지 않는 확장자마다 바꿔 올리는 방법(설계 5-1 「안 받음」)
 _REFUSALS: dict[str, str] = {
@@ -28,8 +29,7 @@ _REFUSALS: dict[str, str] = {
     ".mpp": "MS Project(mpp) 파일은 받지 않습니다. PDF 나 xlsx 로 저장해 주세요",
     ".xls": "옛 엑셀(xls) 파일은 받지 않습니다. xlsx 로 저장해 주세요",
     ".doc": "옛 워드(doc) 파일은 받지 않습니다. docx 나 PDF 로 저장해 주세요",
-    ".ppt": "파워포인트 파일은 받지 않습니다. PDF 로 저장해 주세요",
-    ".pptx": "파워포인트 파일은 받지 않습니다. PDF 로 저장해 주세요",
+    ".ppt": "옛 파워포인트(ppt) 파일은 받지 않습니다. pptx 나 PDF 로 저장해 주세요",
     ".zip": "압축 파일은 받지 않습니다. 압축을 풀어 하나씩 올려 주세요",
 }
 _EXECUTABLE_HEADS = (b"MZ", b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"#!")

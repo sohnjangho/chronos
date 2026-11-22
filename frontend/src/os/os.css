@@ -241,6 +241,7 @@ body {
 .os-tone-lime { --tile-from: var(--tile-lime-from); --tile-to: var(--tile-lime-to); }
 .os-tone-brown { --tile-from: var(--tile-brown-from); --tile-to: var(--tile-brown-to); }
 .os-tone-cyan { --tile-from: var(--tile-cyan-from); --tile-to: var(--tile-cyan-to); }
+.os-tone-emerald { --tile-from: var(--tile-emerald-from); --tile-to: var(--tile-emerald-to); }
 .os-tone-graphite { --tile-from: var(--tile-graphite-from); --tile-to: var(--tile-graphite-to); }
 .os-tone-slate { --tile-from: var(--tile-slate-from); --tile-to: var(--tile-slate-to); }
 .os-mark {

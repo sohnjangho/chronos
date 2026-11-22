@@ -22,6 +22,7 @@ export const DEFAULT_TABLET_RAIL: readonly string[] = [
   'delays',
   'workflow',
   'approvals',
+  'reports',
   'library',
 ];
 
@@ -37,6 +38,7 @@ const SHORT_LABELS: Record<string, string> = {
   delays: '지연',
   workflow: '워크플로우',
   approvals: '승인함',
+  reports: '보고서',
   library: '자료함',
   compare: '비교판',
   conditions: '조건·규칙',

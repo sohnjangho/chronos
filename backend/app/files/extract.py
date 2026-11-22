@@ -44,6 +44,7 @@ _SHEET_MEMBER = re.compile(r"xl/worksheets/[^/]+\.xml")
 _CFB = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"  # 옛 오피스·암호 걸린 오피스 파일의 머리
 _ENCRYPTION_INFO = "EncryptionInfo".encode("utf-16-le")
 _SECTION = re.compile(r"Contents/section(\d+)\.xml")
+_SLIDE = re.compile(r"ppt/slides/slide(\d+)\.xml")
 
 
 class ExtractError(Exception):
@@ -193,9 +194,12 @@ def _doc_members(z: zipfile.ZipFile) -> list[str]:
     if "word/document.xml" in names:
         return ["word/document.xml"]
     sections = [(int(m.group(1)), n) for n in names if (m := _SECTION.fullmatch(n))]
-    if not sections:
-        raise ExtractError(BROKEN)
-    return [n for _, n in sorted(sections)]
+    if sections:
+        return [n for _, n in sorted(sections)]
+    slides = [(int(m.group(1)), n) for n in names if (m := _SLIDE.fullmatch(n))]
+    if slides:
+        return [n for _, n in sorted(slides)]
+    raise ExtractError(BROKEN)
 
 
 def _doc(path: Path) -> Extracted:
@@ -204,6 +208,14 @@ def _doc(path: Path) -> Extracted:
         members = _doc_members(z)
         if sum(z.getinfo(n).file_size for n in members) > MAX_XML_BYTES:
             raise ExtractError(TOO_BIG_INSIDE)
+        if all(_SLIDE.fullmatch(n) for n in members):
+            parts = []
+            for n in members:
+                lines = _paragraphs(ElementTree.fromstring(z.read(n)))
+                idx = _SLIDE.fullmatch(n).group(1)  # type: ignore[union-attr]
+                if lines:
+                    parts.append((f"{idx}슬라이드", "\n".join(lines)))
+            return Extracted(parts, len(members), False)
         lines = [line for n in members for line in _paragraphs(ElementTree.fromstring(z.read(n)))]
     return Extracted([("본문", "\n".join(lines))], 1, False)
 
