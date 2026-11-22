@@ -596,3 +596,69 @@ def test_write_reuses_the_checked_computation(client, admin, sid, monkeypatch):
     v = _patch(client, admin, sid, "A", 2, actual_start="2027-03-01", rd=6).json()
     assert (v["finish"], v["plan_finish"]) == ("2027-03-10", "2027-03-09")  # Plan 은 버전 2(A 5일) 때 찍은 것
     assert calls == []
+
+
+def test_create_project_creates_starter_schedule_and_sets_plan(client, user):
+    r = client.post(
+        "/api/schedules",
+        json={"name": "차세대 전해질 R&D", "domain": "rnd", "level": "L3", "start": "2027-04-01", "days_per_week": 5},
+        headers=user,
+    )
+    assert r.status_code == 201
+    created = r.json()
+    assert (created["name"], created["domain"], created["level"], created["version"]) == (
+        "차세대 전해질 R&D", "rnd", "L3", 1,
+    )
+    assert created["finish"] is not None
+    view = client.get(f"/api/schedules/{created['id']}", headers=user).json()
+    assert [a["id"] for a in view["activities"]] == ["MS-START", "A-01", "MS-END"]
+    assert view["plan_finish"] == view["finish"]
+    versions = client.get(f"/api/schedules/{created['id']}/versions", headers=user).json()
+    assert len(versions) == 1 and versions[0]["is_plan"] is True
+
+
+def test_first_save_approval_binds_chat_session_schedule_id(client, admin, session):
+    from app.core.model import Relation
+    from app.harness.checks import CheckReport
+    from app.store import approvals, chats, drafts
+    from tests.schedules import make, task
+
+    chat = chats.create_chat(session, user_id=1, schedule_id=None)
+    draft_id = drafts.create_draft(
+        session,
+        chat_session_id=chat.id,
+        domain="rnd",
+        level="L3",
+        schedule=make([task("A", 3), task("B", 2)], [Relation("A", "B")]),
+        conditions=[],
+        report=CheckReport([], [], []),
+        assumptions=[],
+    )
+    draft = drafts.get_draft(session, draft_id)
+    row = approvals.create(
+        session,
+        kind="first_save",
+        title="R&D 신소재 검증 일정",
+        reasons_json=["first_save"],
+        schedule_id=None,
+        draft_id=draft_id,
+        base_version=0,
+        summary_json={},
+        diff_json=[],
+        snapshot_json=draft.schedule_json,
+        conditions_json=[],
+        changes_json=[],
+        status="pending",
+        request="R&D 일정",
+        chat_session_id=chat.id,
+        requested_by="에이전트",
+        requested_kind="agent",
+    )
+    session.commit()
+
+    res = client.post(f"/api/approvals/{row.id}/decide", json={"decision": "approve", "note": ""}, headers=admin)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["schedule_id"] is not None
+    chat_detail = client.get(f"/api/chat/sessions/{chat.id}", headers=admin).json()
+    assert chat_detail["schedule_id"] == body["schedule_id"]

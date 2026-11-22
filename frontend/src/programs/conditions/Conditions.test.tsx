@@ -76,15 +76,15 @@ describe('지시서 시험', () => {
   test('infeasible preview hides confirm and offers the agent', async () => {
     mockPreviewRoute(mockPreview({ feasible: false, violations: [{ condition_id: 'in.finish_by', message: '준공이 기한보다 20일 늦습니다.' }], edits: { 'in.finish_by': { date: '2027-06-30' } } }));
     await renderC();
-    await userEvent.clear(screen.getByRole('textbox', { name: '준공 기한 날짜' }));
-    await userEvent.type(screen.getByRole('textbox', { name: '준공 기한 날짜' }), '2027-06-30');
+    await userEvent.clear(screen.getByRole('textbox', { name: '완료 기한 날짜' }));
+    await userEvent.type(screen.getByRole('textbox', { name: '완료 기한 날짜' }), '2027-06-30');
     expect(await screen.findByText('준공이 기한보다 20일 늦습니다.')).toBeVisible();
     expect(screen.queryByRole('button', { name: '확정' })).toBeNull();
     expect(screen.getByRole('button', { name: '에이전트에게 맞추게 하기' })).toBeVisible();
     expect(screen.getByRole('button', { name: '에이전트에게 맞추게 하기' })).toHaveClass('ui-btn-primary');
     // fix1 I6: 이름은 종류와 지금(미리 보기) 값으로 만든다
-    expect(within(screen.getByRole('alert')).getByText('준공 기한 2027.06.30: 준공이 기한보다 20일 늦습니다.')).toBeVisible();
-    expect(screen.getByRole('listitem', { name: '준공 기한 2027.06.30' })).toBeVisible();
+    expect(within(screen.getByRole('alert')).getByText('완료 기한 2027.06.30: 준공이 기한보다 20일 늦습니다.')).toBeVisible();
+    expect(screen.getByRole('listitem', { name: '완료 기한 2027.06.30' })).toBeVisible();
     expect(bodies(PREVIEW)[0].changes).toEqual([{ id: 'in.finish_by', params: { date: '2027-06-30' } }]);
   });
 
@@ -406,7 +406,7 @@ describe('Fix round 1', () => {
   test('I6 · date and number conditions are named from kind and value', async () => {
     setup();
     await renderC();
-    expect(item('준공 기한 2027.11.30')).toBeVisible();
+    expect(item('완료 기한 2027.11.30')).toBeVisible();
     expect(within(column('③ 내 규칙')).getByRole('listitem', { name: '액티비티 기간 10일 이하' })).toBeVisible();
     // 기본 규칙(달력 종류지만 값이 없음)은 글 그대로
     expect(within(column('① 기본 규칙')).getByRole('listitem', { name: '달력에 일할 수 있는 날이 있음' })).toBeVisible();
@@ -512,8 +512,8 @@ describe('Task 27 · 조건 출처 링크', () => {
     ];
     setup({ [URL]: makeView(INPUTS.map((c) => (c.id === 'in.finish_by' ? { ...c, evidence: sources } : c))) });
     await renderC();
-    expect(within(item('준공 기한')).getByText('출처 2')).toBeVisible();
-    expect(within(item('준공 기한')).getAllByRole('link').map((a) => a.textContent)).toEqual(sources.map((s) => s.title));
+    expect(within(item('완료 기한')).getByText('출처 2')).toBeVisible();
+    expect(within(item('완료 기한')).getAllByRole('link').map((a) => a.textContent)).toEqual(sources.map((s) => s.title));
     expect(within(item('타워크레인')).queryByText(/^출처/)).toBeNull();
   });
 });

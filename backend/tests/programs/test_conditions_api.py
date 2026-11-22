@@ -369,7 +369,7 @@ def test_ask_agent_creates_a_chat_for_the_caller_with_the_request_text(client, a
     assert client.get(f"/api/chat/sessions/{body['chat_session_id']}", headers=user).status_code == 404
     assert body["text"] == (
         "'시험 일정' 일정의 조건을 아래처럼 바꾸려고 합니다. 이 조건에 맞게 일정을 고쳐 주세요.\n"
-        "- 준공 기한 2027.06.30(in.finish_by): 2027-12-31 → 2027-06-30\n"  # fix1 I6: 값을 바꾸면 글을 다시 만든다
+        "- 완료 기한 2027.06.30(in.finish_by): 2027-12-31 → 2027-06-30\n"  # fix1 I6: 값을 바꾸면 글을 다시 만든다
         "바꾼 조건으로 계산하면 준공 2027-08-13(그대로), 위반 1건입니다.\n"
         "- 준공이 기한보다 32일 늦습니다."
     )
@@ -440,10 +440,10 @@ def test_i3_only_domain_changes_ask_to_fix_the_current_conditions(client, admin,
 def test_i6_a_changed_value_regenerates_the_condition_text(client, admin, sid):
     client.put("/api/settings/approval", json={"mode": "auto"}, headers=admin)
     late = [{"id": "in.finish_by", "params": {"date": "2027-09-30"}}]
-    assert _rows(_post(client, admin, sid, "preview", late).json()["conditions"])["in.finish_by"]["text"] == "준공 기한 2027.09.30"
+    assert _rows(_post(client, admin, sid, "preview", late).json()["conditions"])["in.finish_by"]["text"] == "완료 기한 2027.09.30"
     assert _post(client, admin, sid, "commit", [*late, *CRANE_TWO]).json()["applied"] is True
     rows = _rows(client.get(_url(sid), headers=admin).json())
-    assert (rows["in.finish_by"]["text"], rows["in.crane"]["text"]) == ("준공 기한 2027.09.30", "타워크레인 2대")
+    assert (rows["in.finish_by"]["text"], rows["in.crane"]["text"]) == ("완료 기한 2027.09.30", "타워크레인 2대")
     assert rows["in.safety"]["text"] == "안전 우선으로 여유 있게"  # 값이 없는 조건과 바꾸지 않은 조건은 글 그대로
 
 

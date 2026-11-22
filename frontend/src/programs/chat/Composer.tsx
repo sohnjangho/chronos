@@ -127,7 +127,7 @@ export default function Composer({ params }: { params?: ProgramProps['params'] }
         <FileChips items={items} notice={attachNotice} onRemove={(id) => useAttach.getState().remove(id)} />
         <textarea
           aria-label="에이전트에게 요청"
-          placeholder="무엇을 도와드릴까요? 예: 골조가 3주 밀렸어. 만회 계획 세워 줘"
+          placeholder="무엇을 도와드릴까요? 예: 전고체 배터리 R&D 일정 짜줘 · 인허가 스케줄 만들어 줘"
           value={text}
           rows={2}
           onChange={(e) => setText(e.target.value)}

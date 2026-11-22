@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useApprovals } from './approvals';
 import { reasonText, useAttention } from './attention';
+import { useCurrentSchedule } from './currentSchedule';
 import { useWindows } from './windowStore';
 
 const BADGE = { danger: '위험', warning: '주의' } as const;
@@ -44,7 +45,15 @@ export default function AttentionWidget() {
           const level = i.level as 'danger' | 'warning';
           return (
             <li key={i.id}>
-              <button type="button" className="os-widget-item" style={S.item} onClick={() => open('schedule-table', { id: String(i.id) })}>
+              <button
+                type="button"
+                className="os-widget-item"
+                style={S.item}
+                onClick={() => {
+                  useCurrentSchedule.getState().setCurrent({ id: i.id, name: i.name });
+                  open('schedule-table', { id: String(i.id) });
+                }}
+              >
                 <span style={S.head}>
                   <span className="os-widget-name">{i.name}</span>
                   <span style={{ ...S.badge, ...TONE[level] }}>{BADGE[level]}</span>

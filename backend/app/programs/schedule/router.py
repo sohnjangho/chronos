@@ -10,6 +10,7 @@ from app.programs.schedule.schemas import (
     ActivityPatch,
     PredecessorsIn,
     RestoreIn,
+    ScheduleCreate,
     ScheduleItem,
     SchedulePatch,
     ScheduleView,
@@ -31,6 +32,11 @@ UserDep = Annotated[User, Depends(current_user)]
 @router.get("")
 def list_schedules(session: SessionDep) -> list[ScheduleItem]:
     return service.list_schedules(session)
+
+
+@router.post("", status_code=201)
+def create_schedule_project(body: ScheduleCreate, session: SessionDep, user: UserDep) -> ScheduleItem:
+    return service.create_project(session, body, user)
 
 
 @router.get("/{schedule_id}")

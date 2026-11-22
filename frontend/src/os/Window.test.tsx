@@ -4,7 +4,7 @@ import { lazy, useEffect } from 'react';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
 import { signInAsDemo, stubFetch } from '../test-helpers';
-import { setAgentWindowSync, useAgentView } from './agentView';
+import { setAgentViewPacing, setAgentWindowSync, useAgentView } from './agentView';
 import { useApprovals } from './approvals';
 import Desktop from './Desktop';
 import { register } from './registry';
@@ -238,17 +238,21 @@ test('the program inside a window is not remounted by any motion', async () => {
   expect(mounts).toBe(1);
 });
 
-test('Computer Use stageFocus opens workflow and tool windows with stage motion and focus banner', async () => {
+test('Computer Use shows top-bar badge, slim workflow ribbon, and stage window without auto-opening full workflow window', async () => {
   setAgentWindowSync(true);
   render(<Desktop />);
   act(() => {
     useAgentView.getState().onToolStart({ run_id: 9, n: 1, call_id: 'c1', tool: 'calc.cpm', program: 'cpm', arguments: '{"schedule_id":1}' });
   });
-  const wf = dialog('워크플로우');
+  expect(screen.queryByRole('dialog', { name: '워크플로우' })).toBeNull();
+  const ribbon = screen.getByRole('region', { name: '워크플로우 진행 상황' });
+  expect(ribbon).toHaveTextContent('진행 중');
+  expect(ribbon).toHaveTextContent('1. 주공정(CPM) 계산');
+  expect(screen.getByRole('button', { name: 'Computer-Use 상태' })).toHaveTextContent('Computer-Use');
+
   const cpm = dialog('CPM');
   expect(cpm).toHaveAttribute('data-motion', 'stage');
   expect(cpm).toHaveClass('is-agent-focus');
-  expect(wf).toHaveClass('is-stage-behind');
   expect(within(cpm).getByRole('status', { name: '에이전트 실시간 작업' })).toHaveTextContent('Computer Use1단계 실행 중 · 주공정(CPM) 계산');
 
   act(() => {
@@ -256,4 +260,35 @@ test('Computer Use stageFocus opens workflow and tool windows with stage motion 
     useAgentView.getState().onTurnDone();
   });
   expect(useAgentView.getState().focus.active).toBe(false);
+  expect(screen.getByRole('region', { name: '워크플로우 진행 상황' })).toHaveTextContent('완료');
+
+  useAgentView.getState().setMode('workflow');
+  act(() => {
+    useAgentView.getState().onToolStart({ run_id: 10, n: 1, call_id: 'c2', tool: 'calc.cpm', program: 'cpm', arguments: '{"schedule_id":1}' });
+  });
+  expect(dialog('워크플로우')).toBeVisible();
+});
+
+test('workflow ribbon auto-collapses after 1.8s when pacing is enabled', async () => {
+  vi.useFakeTimers();
+  setAgentWindowSync(true);
+  setAgentViewPacing(true);
+  try {
+    render(<Desktop />);
+    act(() => {
+      useAgentView.getState().onToolStart({ run_id: 12, n: 1, call_id: 'c1', tool: 'calc.cpm', program: 'cpm', arguments: '{"schedule_id":1}' });
+    });
+    expect(screen.getByRole('region', { name: '워크플로우 진행 상황' })).toBeVisible();
+    act(() => {
+      useAgentView.getState().onToolEnd({ run_id: 12, n: 1, call_id: 'c1', tool: 'calc.cpm', ok: true, ms: 20 });
+      useAgentView.getState().onTurnDone();
+    });
+    expect(screen.getByRole('region', { name: '워크플로우 진행 상황' })).toHaveTextContent('완료');
+    await act(() => vi.advanceTimersByTimeAsync(1900));
+    expect(screen.queryByRole('region', { name: '워크플로우 진행 상황' })).toBeNull();
+    expect(screen.getByRole('button', { name: '워크플로우 #12 완료' })).toBeVisible();
+  } finally {
+    setAgentViewPacing(false);
+    vi.useRealTimers();
+  }
 });

@@ -83,7 +83,7 @@ export function SummaryLines({ summary }: { summary: unknown }) {
   const s = asObj(summary);
   const check = asObj(s.check);
   const rows: [string, string | null][] = [
-    ['준공', finishLine(asObj(s.finish))],
+    ['완료', finishLine(asObj(s.finish))],
     ['크리티컬', criticalLine(asObj(s.critical))],
     ['기한까지 여유', floatLine(asObj(s.finish_float))],
     ['바뀐 액티비티', asNum(s.changed_count) === null ? null : `${s.changed_count}개`],

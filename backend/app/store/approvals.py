@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.store import links
 from app.store.drafts import get_draft
 from app.store.schedules import NotFound, create_schedule, from_json, load
-from app.store.tables import Approval, ChangeLog, ChatMessage, Scenario
+from app.store.tables import Approval, ChangeLog, ChatMessage, ChatSession, Scenario
 from app.store.versions import mark_plan, save_new_version
 from app.store.view import plan_changed
 
@@ -131,6 +131,10 @@ def apply(session: Session, row: Approval, *, by_name: str) -> None:
     session.add(ChangeLog(schedule_id=sid, version_n=1, by_kind=by_kind, by_name=by_name, summary=row.title))
     draft.used_at, draft.schedule_id = datetime.now(UTC), sid
     row.schedule_id, row.version = sid, 1
+    if row.chat_session_id is not None:
+        chat = session.get(ChatSession, row.chat_session_id)
+        if chat is not None:
+            chat.schedule_id = sid
     links.after_apply(session, row)
     session.flush()
 

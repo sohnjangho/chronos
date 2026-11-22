@@ -1,4 +1,7 @@
+import { useCurrentSchedule } from '../../../os/currentSchedule';
+import { useWindows } from '../../../os/windowStore';
 import Badge from '../../../shared/ui/Badge';
+import Button from '../../../shared/ui/Button';
 import { dotDate } from '../labels';
 import { asList, asNum, asObj, asText, Card, type CardProps } from './Card';
 import './cards2.css';
@@ -28,13 +31,15 @@ export default function ResultCard({ data }: CardProps) {
   const uncheckable = asNum(data.uncheckable_count) ?? 0;
   const invalid = asNum(data.invalid_count) ?? 0;
   const finish = dotDate(data.finish);
+  const sid = asNum(data.schedule_id);
+  const titleName = asText(data.title) || (sid !== null ? `일정 ${sid}` : '새 일정');
   return (
     <Card title="결과" tone={ok ? undefined : 'warn'} extra={ok ? undefined : <Badge tone="warning">초안에 문제가 남음</Badge>}>
       {asText(data.reason) && <p className="ch-wrap">{asText(data.reason)}</p>}
       <ul className="ch-plain ch-lines">
         {finish && (
           <li>
-            준공 <b>{finish}</b>
+            완료 <b>{finish}</b>
           </li>
         )}
         <li>
@@ -57,6 +62,19 @@ export default function ResultCard({ data }: CardProps) {
             <li key={i} className="ch-wrap">{m}</li>
           ))}
         </ul>
+      )}
+      {sid !== null && (
+        <div className="ch-actions">
+          <Button
+            variant="primary"
+            onClick={() => {
+              useCurrentSchedule.getState().setCurrent({ id: sid, name: titleName });
+              useWindows.getState().open('gantt', { id: String(sid) });
+            }}
+          >
+            간트차트 열기
+          </Button>
+        </div>
       )}
     </Card>
   );

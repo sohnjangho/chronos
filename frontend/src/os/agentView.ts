@@ -1,11 +1,10 @@
-// 에이전트 실시간 작업 화면 연출 (Computer Use 뷰) 상태·안무 큐.
-// 워크플로우 열림 → 노드 실시간 생성 → 각 단계별 도구 프로그램 스테이지 전환·전면 포커스를 조율한다.
+// 에이전트 실시간 작업 화면 연출 (Computer Use 뷰) · 상단 얇은 워크플로우 진행 리본 상태·안무 큐.
 import { create } from 'zustand';
 import { scheduleStore } from '../shared/schedule/scheduleStore';
 import { useCurrentSchedule } from './currentSchedule';
 import { loadPref, savePref } from './prefs';
 import { resolveProgram } from './registry';
-import { useWindows } from './windowStore';
+import { RIBBON_H, SCHEDULE_BOUND_PROGRAMS, useWindows } from './windowStore';
 
 export type AgentViewMode = 'stage' | 'workflow' | 'off';
 
@@ -20,6 +19,24 @@ export interface AgentFocus {
   status: 'workflow' | 'running' | 'done';
 }
 
+export interface RibbonStep {
+  n: number;
+  tool: string;
+  label: string;
+  program: string | null;
+  status: 'running' | 'done' | 'failed' | 'stopped';
+}
+
+export interface WorkflowRibbonState {
+  visible: boolean;
+  collapsed: boolean;
+  runId: number | null;
+  status: 'idle' | 'running' | 'done' | 'stopped' | 'failed';
+  steps: RibbonStep[];
+  genStage: string | null;
+  creatingNewProject: boolean;
+}
+
 const EMPTY_FOCUS: AgentFocus = {
   active: false,
   runId: null,
@@ -31,14 +48,25 @@ const EMPTY_FOCUS: AgentFocus = {
   status: 'workflow',
 };
 
+const EMPTY_RIBBON: WorkflowRibbonState = {
+  visible: false,
+  collapsed: false,
+  runId: null,
+  status: 'idle',
+  steps: [],
+  genStage: null,
+  creatingNewProject: false,
+};
+
 const TOOL_NAMES: Record<string, string> = {
   'schedule.read': '일정 읽기',
   'schedule.find': '액티비티 찾기',
   'schedule.record_actual': '실적 반영',
   'schedule.import': '공정표 가져오기',
+  'schedule.create_project': '새 프로젝트 생성',
   'calc.cpm': '주공정(CPM) 계산',
   'harness.check': '조건 점검',
-  'generate.extract_conditions': '입력 조건 뽑기',
+  'generate.extract_conditions': '조건 뽑기',
   'generate.run': '스케줄·WBS 생성',
   'delay.record': '지연 기록',
   'delay.analyze': '지연 영향 분석',
@@ -46,12 +74,12 @@ const TOOL_NAMES: Record<string, string> = {
   'scenario.create': '대안 시나리오 생성',
   'scenario.submit': '시나리오 승인 상신',
   'rules.propose': '내 규칙 제안',
-  'out.submit_change': '변경 승인 상신',
+  'out.submit_change': '승인 상신',
   'ask.questionnaire': '질문지 생성',
   'ask.fill_answers': '질문지 답 채우기',
   'files.search': '자료함 검색',
   'files.read': '문서 읽기',
-  'evidence.search': '공기·기준 근거 검색',
+  'evidence.search': '기준·근거 검색',
   'evidence.attach': '근거 연결',
   'info.weather': '기상청 근거 조회',
   'visual.make': '보고서 그림 생성',
@@ -63,6 +91,7 @@ const TOOL_PROGRAM_FALLBACK: Record<string, string> = {
   'schedule.find': 'schedule-table',
   'schedule.record_actual': 'schedule-table',
   'schedule.import': 'schedule-table',
+  'schedule.create_project': 'schedule-table',
   'calc.cpm': 'cpm',
   'harness.check': 'conditions',
   'generate.extract_conditions': 'conditions',
@@ -83,9 +112,18 @@ const TOOL_PROGRAM_FALLBACK: Record<string, string> = {
   'visual.make': 'progress',
 };
 
-const STAGE_WORKFLOW_MS = 1100;
-const STAGE_TOOL_MS = 1500;
-const STAGE_DONE_MS = 1200;
+/** 새 프로젝트 생성 중에는 기존 일정의 조건·간트·자료실 창을 자동으로 띄우지 않는다. */
+const NEW_PROJECT_GENERATION_TOOLS = new Set([
+  'generate.extract_conditions',
+  'generate.run',
+  'evidence.search',
+  'evidence.attach',
+]);
+
+const STAGE_WORKFLOW_MS = 900;
+const STAGE_TOOL_MS = 1200;
+const STAGE_DONE_MS = 1000;
+const RIBBON_COLLAPSE_MS = 1800;
 
 let pacingEnabled = import.meta.env.MODE !== 'test';
 let windowSyncEnabled = import.meta.env.MODE !== 'test';
@@ -121,6 +159,7 @@ export function resolveToolTarget(
   tool: string,
   program: string | null,
   argumentsText?: string,
+  creatingNewProject = false,
 ): { programId: string | null; params?: Record<string, string> } {
   const args = parseArgs(argumentsText);
   if (tool === 'ui.open_window' && args && typeof args.program === 'string') {
@@ -132,14 +171,26 @@ export function resolveToolTarget(
     return { programId: resolved.id, params: Object.keys(params).length ? { ...resolved.params, ...params } : resolved.params };
   }
 
-  let mapped: string | null = program ? resolveProgram(program).id : (TOOL_PROGRAM_FALLBACK[tool] ?? null);
-  if (tool === 'ask.questionnaire' && !args?.id && !args?.questionnaire_id) {
-    mapped = null;
+  if (NEW_PROJECT_GENERATION_TOOLS.has(tool) && !args?.schedule_id) {
+    return { programId: null };
   }
+
+  if (tool === 'ask.questionnaire') {
+    const questions = args?.questions;
+    if (Array.isArray(questions) && questions.length <= 2) return { programId: null };
+    if (!args?.id && !args?.questionnaire_id) return { programId: null };
+  }
+
+  let mapped: string | null = program ? resolveProgram(program).id : (TOOL_PROGRAM_FALLBACK[tool] ?? null);
   if (!mapped) return { programId: null };
 
   const params: Record<string, string> = {};
-  const sid = args?.schedule_id ?? useCurrentSchedule.getState().current?.id;
+  const explicitSid = args?.schedule_id;
+  const fallbackSid =
+    creatingNewProject && SCHEDULE_BOUND_PROGRAMS.has(mapped)
+      ? undefined
+      : useCurrentSchedule.getState().current?.id;
+  const sid = explicitSid ?? fallbackSid;
   if (sid !== undefined && sid !== null) params.id = String(sid);
   const act = args?.activity_id ?? args?.id;
   if (typeof act === 'string' && act) params.activity = act;
@@ -161,11 +212,20 @@ let cueQueue: Cue[] = [];
 let cueRunning = false;
 let cueTimer: ReturnType<typeof setTimeout> | null = null;
 let finishTimer: ReturnType<typeof setTimeout> | null = null;
+let ribbonCollapseTimer: ReturnType<typeof setTimeout> | null = null;
 let queueGen = 0;
+
+function clearRibbonTimer() {
+  if (ribbonCollapseTimer !== null) {
+    clearTimeout(ribbonCollapseTimer);
+    ribbonCollapseTimer = null;
+  }
+}
 
 function clearCueTimers() {
   if (cueTimer !== null) clearTimeout(cueTimer);
   if (finishTimer !== null) clearTimeout(finishTimer);
+  clearRibbonTimer();
   cueTimer = null;
   finishTimer = null;
   cueQueue = [];
@@ -173,10 +233,17 @@ function clearCueTimers() {
   queueGen += 1;
 }
 
+function syncTopInset(ribbon: WorkflowRibbonState) {
+  if (!windowSyncEnabled) return;
+  const open = ribbon.visible && !ribbon.collapsed && ribbon.steps.length > 0;
+  useWindows.getState().setInsetTop?.(open ? RIBBON_H : 0);
+}
+
 function applyCue(cue: Cue, set: (fn: (s: AgentViewState) => Partial<AgentViewState>) => void) {
   set(() => ({ focus: { ...cue.focus, active: true } }));
   if (cue.windowProgram && windowSyncEnabled) {
-    useWindows.getState().stageFocus?.(cue.windowProgram, cue.windowParams);
+    const winState = useWindows.getState();
+    (winState.stageLayout ?? winState.stageFocus)?.(cue.windowProgram, cue.windowParams);
   }
   if (cue.clearAfterMs !== undefined) {
     const gen = queueGen;
@@ -213,17 +280,36 @@ interface AgentViewState {
   userId: number | null;
   mode: AgentViewMode;
   focus: AgentFocus;
+  ribbon: WorkflowRibbonState;
   workflowTick: number;
   lastRunId: number | null;
   load(userId: number | null): void;
   setMode(mode: AgentViewMode): void;
   clearFocus(): void;
+  toggleRibbon(): void;
+  collapseRibbon(): void;
+  openFullWorkflow(): void;
   triggerFocus(focus: Omit<AgentFocus, 'active'>, windowProgram?: string | null, windowParams?: Record<string, string>): void;
+  onCardEvent(data: Record<string, unknown>): void;
   onWorkflowEvent(data: Record<string, unknown>): void;
   onToolStart(data: Record<string, unknown>): void;
   onToolEnd(data: Record<string, unknown>): void;
   onTurnDone(): void;
   reset(): void;
+}
+
+function mergeStep(steps: RibbonStep[], nextStep: RibbonStep): RibbonStep[] {
+  const idx = steps.findIndex((s) => s.n === nextStep.n);
+  if (idx === -1) return [...steps, nextStep].sort((a, b) => a.n - b.n);
+  return steps.map((s, i) => (i === idx ? nextStep : s));
+}
+
+function validStepStatus(raw: unknown): RibbonStep['status'] {
+  return raw === 'done' || raw === 'failed' || raw === 'stopped' ? raw : 'running';
+}
+
+function validRibbonStatus(raw: unknown): WorkflowRibbonState['status'] {
+  return raw === 'done' || raw === 'stopped' || raw === 'failed' ? raw : 'running';
 }
 
 export const useAgentView = create<AgentViewState>((set, get) => {
@@ -232,10 +318,22 @@ export const useAgentView = create<AgentViewState>((set, get) => {
     drainQueue(set);
   };
 
+  const scheduleRibbonCollapse = () => {
+    clearRibbonTimer();
+    if (!pacingEnabled) return;
+    ribbonCollapseTimer = setTimeout(() => {
+      ribbonCollapseTimer = null;
+      const next = { ...get().ribbon, collapsed: true };
+      set({ ribbon: next });
+      syncTopInset(next);
+    }, RIBBON_COLLAPSE_MS);
+  };
+
   return {
     userId: null,
     mode: 'stage',
     focus: EMPTY_FOCUS,
+    ribbon: EMPTY_RIBBON,
     workflowTick: 0,
     lastRunId: null,
 
@@ -251,59 +349,162 @@ export const useAgentView = create<AgentViewState>((set, get) => {
 
     clearFocus() {
       clearCueTimers();
-      set({ focus: EMPTY_FOCUS });
+      const nextRibbon = { ...EMPTY_RIBBON };
+      set({ focus: EMPTY_FOCUS, ribbon: nextRibbon });
+      syncTopInset(nextRibbon);
+    },
+
+    toggleRibbon() {
+      clearRibbonTimer();
+      const cur = get().ribbon;
+      if (!cur.visible && cur.steps.length === 0) {
+        if (get().lastRunId !== null) {
+          useWindows.getState().open('workflow', { run: String(get().lastRunId) });
+        }
+        return;
+      }
+      const collapsed = !cur.visible ? false : !cur.collapsed;
+      const next: WorkflowRibbonState = { ...cur, visible: true, collapsed };
+      set({ ribbon: next });
+      syncTopInset(next);
+    },
+
+    collapseRibbon() {
+      clearRibbonTimer();
+      const next: WorkflowRibbonState = { ...get().ribbon, collapsed: true };
+      set({ ribbon: next });
+      syncTopInset(next);
+    },
+
+    openFullWorkflow() {
+      const rid = get().ribbon.runId ?? get().lastRunId;
+      useWindows.getState().open('workflow', rid !== null ? { run: String(rid) } : undefined);
     },
 
     triggerFocus(focus, windowProgram, windowParams) {
       applyCue({ focus, windowProgram: windowProgram ?? focus.programId, windowParams, holdMs: 0 }, set);
     },
 
+    onCardEvent(data) {
+      if (data.kind === 'generation' && typeof data.stage === 'string') {
+        set((s) => ({ ribbon: { ...s.ribbon, genStage: data.stage as string } }));
+      }
+    },
+
     onWorkflowEvent(data) {
       const runId = typeof data.run_id === 'number' ? data.run_id : null;
+      const status = validRibbonStatus(data.status);
+      const rawSteps = Array.isArray(data.steps) ? data.steps : [];
+      const steps: RibbonStep[] = rawSteps
+        .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
+        .map((r) => {
+          const tool = typeof r.tool === 'string' ? r.tool : '';
+          return {
+            n: typeof r.n === 'number' ? r.n : 1,
+            tool,
+            label: TOOL_NAMES[tool] ?? tool,
+            program: typeof r.program === 'string' ? r.program : null,
+            status: validStepStatus(r.status),
+          };
+        });
+
+      const cur = get().ribbon;
+      const nextRunId = runId ?? cur.runId;
+      const resetSteps = cur.runId !== null && nextRunId !== null && cur.runId !== nextRunId;
+      const nextRibbon: WorkflowRibbonState = {
+        ...cur,
+        visible: steps.length > 0 ? true : cur.visible,
+        collapsed: status === 'running' ? false : cur.collapsed,
+        runId: nextRunId,
+        status,
+        steps: steps.length > 0 ? steps : resetSteps ? [] : cur.steps,
+        ...(status !== 'running' ? { genStage: null } : {}),
+      };
+      if (status === 'running') clearRibbonTimer();
       set((s) => ({
         workflowTick: s.workflowTick + 1,
         ...(runId !== null ? { lastRunId: runId } : {}),
+        ribbon: nextRibbon,
       }));
+      syncTopInset(nextRibbon);
+      if (status !== 'running') scheduleRibbonCollapse();
     },
 
     onToolStart(data) {
+      clearRibbonTimer();
       const runId = typeof data.run_id === 'number' ? data.run_id : get().lastRunId;
       const stepN = typeof data.n === 'number' ? data.n : 1;
       const tool = typeof data.tool === 'string' ? data.tool : '';
       const program = typeof data.program === 'string' ? data.program : null;
       const argsText = typeof data.arguments === 'string' ? data.arguments : undefined;
+      const args = parseArgs(argsText);
       const labelName = TOOL_NAMES[tool] ?? tool;
       const totalSteps = Math.max(stepN, get().focus.totalSteps);
+
+      const isGenCreation =
+        (tool === 'generate.extract_conditions' ||
+          tool === 'generate.run' ||
+          tool === 'schedule.create_project' ||
+          (tool === 'ask.questionnaire' && args?.purpose === 'generate')) &&
+        !args?.schedule_id;
+
+      if (isGenCreation && !useCurrentSchedule.getState().creatingNewProject) {
+        useCurrentSchedule.getState().enterNewProjectMode();
+      }
+
+      const prevRibbon = get().ribbon;
+      const isNewRun = prevRibbon.runId !== null && runId !== null && prevRibbon.runId !== runId;
+      const creatingNewProject = isGenCreation || (!isNewRun && (prevRibbon.creatingNewProject || useCurrentSchedule.getState().creatingNewProject));
+      const baseSteps = isNewRun ? [] : prevRibbon.steps;
+      const nextSteps = mergeStep(baseSteps, {
+        n: stepN,
+        tool,
+        label: labelName,
+        program,
+        status: 'running',
+      });
+      const nextRibbon: WorkflowRibbonState = {
+        visible: true,
+        collapsed: false,
+        runId,
+        status: 'running',
+        steps: nextSteps,
+        genStage: isNewRun ? null : prevRibbon.genStage,
+        creatingNewProject,
+      };
 
       set((s) => ({
         workflowTick: s.workflowTick + 1,
         ...(runId !== null ? { lastRunId: runId } : {}),
+        ribbon: nextRibbon,
       }));
+      syncTopInset(nextRibbon);
 
       const mode = get().mode;
       if (mode === 'off') return;
       sawToolInTurn = true;
       if (!windowSyncEnabled) return;
 
-      const wfParams = runId !== null ? { run: String(runId) } : undefined;
-      enqueue({
-        windowProgram: 'workflow',
-        windowParams: wfParams,
-        holdMs: mode === 'stage' ? STAGE_WORKFLOW_MS : 0,
-        focus: {
-          runId,
-          programId: 'workflow',
-          stepN,
-          totalSteps,
-          tool,
-          status: 'workflow',
-          label: `워크플로우${runId ? ` #${runId}` : ''} · ${stepN}단계 [${labelName}] 노드 생성`,
-        },
-      });
+      if (mode === 'workflow') {
+        const wfParams = runId !== null ? { run: String(runId) } : undefined;
+        enqueue({
+          windowProgram: 'workflow',
+          windowParams: wfParams,
+          holdMs: 0,
+          focus: {
+            runId,
+            programId: 'workflow',
+            stepN,
+            totalSteps,
+            tool,
+            status: 'workflow',
+            label: `워크플로우${runId ? ` #${runId}` : ''} · ${stepN}단계 [${labelName}]`,
+          },
+        });
+        return;
+      }
 
-      if (mode === 'workflow') return;
-
-      const target = resolveToolTarget(tool, program, argsText);
+      const target = resolveToolTarget(tool, program, argsText, creatingNewProject);
       if (target.programId && target.programId !== 'workflow') {
         enqueue({
           windowProgram: target.programId,
@@ -312,6 +513,19 @@ export const useAgentView = create<AgentViewState>((set, get) => {
           focus: {
             runId,
             programId: target.programId,
+            stepN,
+            totalSteps,
+            tool,
+            status: 'running',
+            label: `${stepN}단계 실행 중 · ${labelName}`,
+          },
+        });
+      } else {
+        set({
+          focus: {
+            active: true,
+            runId,
+            programId: null,
             stepN,
             totalSteps,
             tool,
@@ -328,35 +542,57 @@ export const useAgentView = create<AgentViewState>((set, get) => {
         const store = scheduleStore(sid);
         if (store.getState().view) void store.getState().load();
       }
+      const stepN = typeof data.n === 'number' ? data.n : null;
+      const ok = data.ok !== false;
       set((s) => ({
         workflowTick: s.workflowTick + 1,
         focus: s.focus.active ? { ...s.focus, status: 'done' } : s.focus,
+        ribbon: {
+          ...s.ribbon,
+          steps: s.ribbon.steps.map((st) =>
+            stepN === null || st.n === stepN ? { ...st, status: ok ? 'done' : 'failed' } : st,
+          ),
+        },
       }));
     },
 
     onTurnDone() {
-      const { mode, lastRunId, focus } = get();
+      const { mode, lastRunId, focus, ribbon } = get();
       const ranTools = sawToolInTurn;
       sawToolInTurn = false;
+      const completedRibbon: WorkflowRibbonState = {
+        ...ribbon,
+        status: ribbon.status === 'stopped' || ribbon.status === 'failed' ? ribbon.status : 'done',
+        genStage: null,
+        steps: ribbon.steps.map((st) => (st.status === 'running' ? { ...st, status: 'done' } : st)),
+      };
+      set({ ribbon: completedRibbon });
+      syncTopInset(completedRibbon);
+      if (completedRibbon.visible && completedRibbon.steps.length > 0) {
+        scheduleRibbonCollapse();
+      }
+
       if (mode === 'off' || lastRunId === null || !ranTools || !windowSyncEnabled) {
         if (focus.active) set({ focus: EMPTY_FOCUS });
         return;
       }
       const total = Math.max(1, focus.totalSteps);
-      enqueue({
-        windowProgram: 'workflow',
-        windowParams: { run: String(lastRunId) },
-        holdMs: STAGE_DONE_MS / 2,
-        focus: {
-          runId: lastRunId,
-          programId: 'workflow',
-          stepN: total,
-          totalSteps: total,
-          tool: null,
-          status: 'done',
-          label: `워크플로우 #${lastRunId} 실행 완료 (${total}단계)`,
-        },
-      });
+      if (mode === 'workflow') {
+        enqueue({
+          windowProgram: 'workflow',
+          windowParams: { run: String(lastRunId) },
+          holdMs: STAGE_DONE_MS / 2,
+          focus: {
+            runId: lastRunId,
+            programId: 'workflow',
+            stepN: total,
+            totalSteps: total,
+            tool: null,
+            status: 'done',
+            label: `워크플로우 #${lastRunId} 실행 완료 (${total}단계)`,
+          },
+        });
+      }
       const hasChat = useWindows.getState().wins.some((w) => w.programId === 'chat');
       enqueue({
         windowProgram: hasChat ? 'chat' : null,
@@ -364,7 +600,7 @@ export const useAgentView = create<AgentViewState>((set, get) => {
         clearAfterMs: STAGE_DONE_MS,
         focus: {
           runId: lastRunId,
-          programId: hasChat ? 'chat' : 'workflow',
+          programId: hasChat ? 'chat' : mode === 'workflow' ? 'workflow' : null,
           stepN: total,
           totalSteps: total,
           tool: null,
@@ -377,7 +613,7 @@ export const useAgentView = create<AgentViewState>((set, get) => {
     reset() {
       clearCueTimers();
       sawToolInTurn = false;
-      set({ userId: null, mode: 'stage', focus: EMPTY_FOCUS, workflowTick: 0, lastRunId: null });
+      set({ userId: null, mode: 'stage', focus: EMPTY_FOCUS, ribbon: EMPTY_RIBBON, workflowTick: 0, lastRunId: null });
     },
   };
 });

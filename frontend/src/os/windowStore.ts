@@ -33,10 +33,20 @@ export type Rect = Box;
 export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 export const MENUBAR_H = 48;
+export const RIBBON_H = 40;
 export const MIN_W = 360;
 export const MIN_H = 240;
 /** 정렬할 때 Dock 몫으로 아래에 남기는 높이(Dock 74 + 아래 12 + 틈 8). 확대한 창은 Dock 이 숨으므로 아래 끝까지 찬다. */
 export const DOCK_RESERVE = 94;
+export const SCHEDULE_BOUND_PROGRAMS = new Set([
+  'gantt',
+  'schedule-table',
+  'cpm',
+  'progress',
+  'conditions',
+  'delays',
+  'compare',
+]);
 const CASCADE = 32;
 const START = { x: 24, y: MENUBAR_H + 20 };
 const FALLBACK_SIZE = { w: 800, h: 600 };
@@ -155,14 +165,22 @@ interface WindowState {
   deactivated: boolean;
   /** 오른쪽에 붙은 패널 폭(px). 창은 그만큼 좁은 화면에 맞춘다. */
   insetRight: number;
+  /** 메뉴바 아래에 열린 상단 리본 높이(px). 스테이지 창 배치 시 위쪽 여유로 쓴다. */
+  insetTop: number;
   /**
    * 이미 열려 있으면 앞으로 가져오고(최소화 풀기) params 를 바꾼다. 창 id 를 돌려준다. from: 연 곳(움직임 원점).
    * 관리자 전용 프로그램을 일반 사용자가 열면 아무것도 열지 않고 빈 id 를 돌려준다.
    * 없어진 프로그램 id(옛 일정판 schedule)는 지금 프로그램으로 연다(registry.resolveProgram).
    */
   open(programId: string, params?: Params, from?: 'dock'): string;
-  /** 에이전트 실시간 작업 연출용: 해당 프로그램 창을 열거나 앞으로 가져오며 스테이지 전환 이펙트를 건다. */
+  /** 에이전트 실시간 작업 연출용: 해당 프로그램 창을 열거나 앞으로 가져오며 비겹침 스테이지 배치·모션을 적용한다. */
   stageFocus(programId: string, params?: Params): string;
+  /** Computer-Use 스테이지 2단 배치(좌 Chat · 우 활성 창) 별칭. */
+  stageLayout(programId: string, params?: Params): string;
+  /** 상단 일정 선택이나 새 프로젝트 전환 시 열려 있는 일정 연동 창을 일괄 동기화한다. */
+  syncSchedule(scheduleId: number | null): void;
+  /** 새 프로젝트 생성 진입 시 기존 일정 연동 창을 최소화해 가린다. */
+  minimizeScheduleWindows(): void;
   close(id: string): void;
   focus(id: string): void;
   move(id: string, x: number, y: number): void;
@@ -186,10 +204,22 @@ interface WindowState {
   /** 맨 뒤의 보이는 창을 앞으로(누를 때마다 모든 창을 차례로 돈다). */
   nextWindow(): void;
   setInsetRight(px: number): void;
+  setInsetTop(px: number): void;
   reset(): void;
 }
 
-const initial = { wins: [] as Win[], topZ: 0, seq: 0, lastOpen: null, deactivated: false, insetRight: 0 };
+const initial = { wins: [] as Win[], topZ: 0, seq: 0, lastOpen: null, deactivated: false, insetRight: 0, insetTop: 0 };
+
+function stripScheduleParams(params?: Params): Params | undefined {
+  if (!params) return undefined;
+  const next = { ...params };
+  delete next.id;
+  delete next.activity;
+  delete next.event;
+  delete next.base;
+  delete next.other;
+  return Object.keys(next).length ? next : undefined;
+}
 
 function nextIdAndZ(s: Pick<WindowState, 'wins' | 'topZ' | 'seq'>): { seq: number; z: number } {
   let maxSeq = s.seq;
@@ -253,6 +283,38 @@ const raiser = (set: SetState) => (id: string, extra: (w: Win) => Partial<Win> =
     wins: s.wins.map((w) => (w.id === id ? { ...w, ...fitRect(w), ...extra(w), z: s.topZ + 1 } : w)),
   }));
 
+function stageRects(wins: Win[], targetId: string, insetRight: number, insetTop: number): Map<string, Partial<Win>> {
+  const s = { w: window.innerWidth - insetRight, h: window.innerHeight };
+  const topY = MENUBAR_H + insetTop + (insetTop > 0 ? 8 : 10);
+  const bottomMargin = s.h >= 720 ? DOCK_RESERVE + 4 : 12;
+  const availH = Math.max(MIN_H, s.h - topY - bottomMargin);
+  const availW = Math.max(MIN_W, s.w - 24);
+  const target = wins.find((w) => w.id === targetId);
+  const out = new Map<string, Partial<Win>>();
+  if (!target) return out;
+  const chat = target.programId !== 'chat' ? wins.find((w) => w.programId === 'chat' && !w.minimized && !isClosing(w)) : undefined;
+  if (chat && s.w >= 1024) {
+    const chatW = clamp(Math.round(availW * 0.34), MIN_W, 480);
+    const stageX = 12 + chatW + 12;
+    const stageW = Math.max(MIN_W, availW - chatW - 12);
+    out.set(chat.id, { x: 12, y: topY, w: chatW, h: availH, maximized: false });
+    out.set(target.id, { x: stageX, y: topY, w: stageW, h: availH, maximized: false });
+    return out;
+  }
+  const w = clamp(target.w, MIN_W, availW);
+  const h = Math.min(target.h, availH);
+  const maxX = Math.max(0, s.w - w);
+  const maxY = Math.max(topY, s.h - bottomMargin - h);
+  out.set(target.id, {
+    x: clamp(target.x, 0, maxX),
+    y: clamp(target.y, topY, maxY),
+    w,
+    h,
+    maximized: false,
+  });
+  return out;
+}
+
 /** 윈도우 메뉴의 정렬·일괄 명령. */
 function bulkActions(set: SetState, get: () => WindowState) {
   const raise = raiser(set);
@@ -277,6 +339,33 @@ function bulkActions(set: SetState, get: () => WindowState) {
       set({ insetRight: px });
       set((s) => ({ wins: s.wins.map((w) => (growing ? narrowed(w) : widened(w))) }));
     },
+    setInsetTop(px: number) {
+      set({ insetTop: Math.max(0, px) });
+    },
+    syncSchedule(scheduleId: number | null) {
+      set((s) => ({
+        wins: s.wins.map((w) => {
+          if (!SCHEDULE_BOUND_PROGRAMS.has(w.programId) || isClosing(w)) return w;
+          if (scheduleId !== null) return { ...w, params: { id: String(scheduleId) } };
+          const cleaned = stripScheduleParams(w.params);
+          if (!cleaned) {
+            const rest = { ...w };
+            delete rest.params;
+            return rest;
+          }
+          return { ...w, params: cleaned };
+        }),
+      }));
+    },
+    minimizeScheduleWindows() {
+      set((s) => ({
+        wins: s.wins.map((w) =>
+          SCHEDULE_BOUND_PROGRAMS.has(w.programId) && !isClosing(w) && !w.minimized
+            ? { ...w, minimized: true, motion: undefined }
+            : w,
+        ),
+      }));
+    },
   };
 }
 
@@ -285,6 +374,43 @@ export const useWindows = create<WindowState>((set, get) => {
   const raise = raiser(set);
   // 닫기·최소화·확대·복귀(+ 모두 최소화·모두 닫기)는 움직임과 함께 windowMotion 이 한다.
   const { restore, ...withMotion } = motionActions(set, get, raise);
+  const focusStageWindow = (requested: string, requestedParams?: Params) => {
+    const { id: programId, params } = resolveProgram(requested, requestedParams);
+    if (getProgram(programId)?.adminOnly && useSession.getState().session?.user.role !== 'admin') return '';
+    const found = get().wins.find((w) => w.programId === programId && !isClosing(w));
+    if (found) {
+      const alreadyTop = activeWindow(get())?.id === found.id && !found.minimized;
+      set((s) => {
+        const nextZ = s.topZ + 1;
+        const prepared = s.wins.map((w) =>
+          w.id === found.id ? { ...w, ...fitRect(w), minimized: false, ...(params ? { params } : {}), z: nextZ } : w,
+        );
+        const layout = stageRects(prepared, found.id, s.insetRight, s.insetTop);
+        return {
+          topZ: nextZ,
+          deactivated: false,
+          wins: prepared.map((w) => (layout.has(w.id) ? { ...w, ...layout.get(w.id)! } : w)),
+        };
+      });
+      if (!alreadyTop) startMotion(set, found.id, 'stage');
+      return found.id;
+    }
+    const s = get();
+    const created = newWindow(s, programId, params);
+    const nextWins = [...s.wins, created];
+    const layout = stageRects(nextWins, created.id, s.insetRight, s.insetTop);
+    const placedWins = nextWins.map((w) => (layout.has(w.id) ? { ...w, ...layout.get(w.id)! } : w));
+    const placed = placedWins.find((w) => w.id === created.id) ?? created;
+    set({
+      seq: Number(created.id.slice(1)),
+      topZ: created.z,
+      lastOpen: { x: placed.x, y: placed.y },
+      wins: placedWins,
+      deactivated: false,
+    });
+    startMotion(set, created.id, 'stage');
+    return created.id;
+  };
   return {
     ...initial,
     ...bulkActions(set, get),
@@ -304,22 +430,8 @@ export const useWindows = create<WindowState>((set, get) => {
       startMotion(set, win.id, 'open', from === 'dock' ? { fromDock: true } : {});
       return win.id;
     },
-    stageFocus(requested, requestedParams) {
-      const { id: programId, params } = resolveProgram(requested, requestedParams);
-      if (getProgram(programId)?.adminOnly && useSession.getState().session?.user.role !== 'admin') return '';
-      const found = get().wins.find((w) => w.programId === programId && !isClosing(w));
-      if (found) {
-        const alreadyTop = activeWindow(get())?.id === found.id && !found.minimized;
-        raise(found.id, () => ({ minimized: false, ...(params ? { params } : {}) }));
-        if (!alreadyTop) startMotion(set, found.id, 'stage');
-        return found.id;
-      }
-      const s = get();
-      const win = newWindow(s, programId, params);
-      set({ seq: Number(win.id.slice(1)), topZ: win.z, lastOpen: { x: win.x, y: win.y }, wins: [...s.wins, win], deactivated: false });
-      startMotion(set, win.id, 'stage');
-      return win.id;
-    },
+    stageFocus: focusStageWindow,
+    stageLayout: focusStageWindow,
     focus: (id) => restore(id),
     move: (id, x, y) => patch(id, (w) => clampPos(Math.round(x), Math.round(y), w.w, w.h)),
     resize: (id, w, h) => patch(id, (win) => sizeWithin(win, w, h)),

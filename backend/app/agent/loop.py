@@ -388,6 +388,10 @@ class _Turn:
         result = self.vision.after_tool(call.name, result)  # 붙이지 않은 그림은 결과에 까닭(image_note)
         if not result.ok:
             self.session.rollback()  # 실패한 도구가 남긴 쓰기는 저장하지 않는다
+        if result.ok and call.name in ("schedule.create_project", "out.submit_change") and isinstance(result.output, dict):
+            created_sid = result.output.get("schedule_id")
+            if isinstance(created_sid, int):
+                self.schedule_id = created_sid
         if call.name == "ask.questionnaire" and result.ok:
             self.asked_questionnaire = True
         stopped = result.ok and turns.stop_requested(self.chat_id)  # 도는 동안 멈춤을 눌렀다

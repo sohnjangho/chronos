@@ -1,4 +1,5 @@
 // 승인 건 하나: 제목·요청·승인이 필요한 이유(전후 값)·숫자·바뀌는 것 표. 결정 상자는 부르는 쪽이 붙인다.
+import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useWindows } from '../../os/windowStore';
 import { domainLabel } from '../../shared/domainLabels';
 import Badge from '../../shared/ui/Badge';
@@ -51,7 +52,7 @@ function Why({ item }: { item: Detail }) {
   );
 }
 
-function Numbers({ item }: { item: Detail }) {
+function Numbers({ item, scheduleName }: { item: Detail; scheduleName: string | null }) {
   const s = asObj(item.summary);
   const count = asNum(s.changed_count);
   const check = checkText(s);
@@ -72,7 +73,14 @@ function Numbers({ item }: { item: Detail }) {
       </div>
       <span className="apv-gap" />
       {item.schedule_id !== null && (
-        <Button onClick={() => useWindows.getState().open('gantt', { id: String(item.schedule_id) })}>간트에서 보기</Button>
+        <Button
+          onClick={() => {
+            useCurrentSchedule.getState().setCurrent({ id: item.schedule_id!, name: scheduleName ?? item.title });
+            useWindows.getState().open('gantt', { id: String(item.schedule_id) });
+          }}
+        >
+          간트에서 보기
+        </Button>
       )}
     </div>
   );
@@ -200,7 +208,7 @@ export default function ApprovalDetail({ item, scheduleName }: Props) {
           <RuleBlock item={item} />
         ) : (
           <>
-            <Numbers item={item} />
+            <Numbers item={item} scheduleName={scheduleName} />
             <DiffTable item={item} />
           </>
         )}

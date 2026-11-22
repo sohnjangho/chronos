@@ -26,7 +26,7 @@ function ScheduleTable({ rows, selected, onSelect }: { rows: TreeSchedule[]; sel
           <th className="ex-c-domain">분야</th>
           <th className="ex-c-level ex-opt">정밀도</th>
           <th className="ex-c-ver">버전</th>
-          <th className="ex-c-date">준공</th>
+          <th className="ex-c-date">완료</th>
           <th className="ex-c-date ex-opt">고친 때</th>
         </tr>
       </thead>
@@ -52,7 +52,7 @@ function ScheduleTable({ rows, selected, onSelect }: { rows: TreeSchedule[]; sel
   );
 }
 
-/** 위 줄: 작업 공간 › 일정 › 고른 것 · 이름으로 찾기. */
+/** 위 줄: 작업 공간 › 일정 › 고른 것 · 새 프로젝트 · 이름으로 찾기. */
 function Bar({ title, query, onQuery }: { title: string; query: string; onQuery(q: string): void }) {
   return (
     <div className="ex-bar">
@@ -61,6 +61,13 @@ function Bar({ title, query, onQuery }: { title: string; query: string; onQuery(
         {title}
       </b>
       <span className="ex-gap" />
+      <button
+        type="button"
+        className="ex-new-btn"
+        onClick={() => useCurrentSchedule.getState().openNewProjectModal('direct')}
+      >
+        + 새 프로젝트
+      </button>
       <input type="search" className="ex-search" aria-label="이름으로 찾기" placeholder="이름으로 찾기" value={query} onChange={(e) => onQuery(e.target.value)} />
     </div>
   );

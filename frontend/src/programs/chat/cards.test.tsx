@@ -75,7 +75,7 @@ describe('R2 · every card kind the backend sends', () => {
     feed([['card', RESULT], ['done', {}]]);
     await send('q');
     const card = screen.getByRole('region', { name: '결과' });
-    expect(card).toHaveTextContent('준공 2027.11.24');
+    expect(card).toHaveTextContent('완료 2027.11.24');
     expect(card).toHaveTextContent('액티비티 62개 · 크리티컬 7개');
     expect(card).toHaveTextContent('콘크리트 양생 7일');
     expect(card).toHaveTextContent('자동 점검 안 됨 1개');

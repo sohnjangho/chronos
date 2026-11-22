@@ -1,6 +1,7 @@
 // 승인함 자료: 세 묶음 목록·고른 건의 상세·결정·자동 적용 되돌리기. 결정 뒤에는 목록·상세·메뉴바 배지를 다시 읽는다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { refreshApprovals, useApprovals } from '../../os/approvals';
+import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useWindows } from '../../os/windowStore';
 import { ApiError } from '../../shared/api';
 import type { Revert } from './ApprovalList';
@@ -118,9 +119,22 @@ export function useApprovalData(paramId: string | undefined) {
 
   async function decide(decision: Decision, note: string) {
     if (!sel.detail) return;
-    const id = sel.detail.id;
+    const currentDetail = sel.detail;
+    const id = currentDetail.id;
     try {
-      setNotice({ tone: 'ok', text: afterDecision(decision, await apvApi.decide(id, decision, note), id) });
+      const out = await apvApi.decide(id, decision, note);
+      setNotice({ tone: 'ok', text: afterDecision(decision, out, id) });
+      if (decision === 'approve' && typeof out.schedule_id === 'number') {
+        const cs = useCurrentSchedule.getState();
+        cs.bumpReload();
+        const name = schedules?.get(out.schedule_id)?.name ?? currentDetail.title;
+        cs.setCurrent({ id: out.schedule_id, name });
+        if (typeof out.chat_session_id === 'number') {
+          const chatId = out.chat_session_id;
+          const sid = out.schedule_id;
+          void import('../chat/chatStore').then(({ useChat }) => useChat.getState().bindSessionSchedule(chatId, sid));
+        }
+      }
     } catch (e) {
       setNotice({ tone: 'error', text: message(e) });
     }

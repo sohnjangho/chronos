@@ -19,6 +19,7 @@ from app.programs.schedule.schemas import (
     ActivityCreate,
     ActivityPatch,
     PredecessorsIn,
+    ScheduleCreate,
     ScheduleItem,
     SchedulePatch,
     ScheduleView,
@@ -27,7 +28,7 @@ from app.programs.schedule.schemas import (
 )
 from app.programs.schedule.view import build_view
 from app.store.messages import SCHEDULE_ERROR_MESSAGES
-from app.store.schedules import NotFound, get_record, get_version, list_records, load
+from app.store.schedules import NotFound, create_empty_project, get_record, get_version, list_records, load
 from app.store.tables import User
 from app.store.versions import VersionConflict, list_versions, restore, save_new_version
 from app.store.view import plan_changed, run
@@ -81,6 +82,37 @@ def list_schedules(session: Session) -> list[ScheduleItem]:
             )
         )
     return items
+
+
+def create_project(session: Session, body: ScheduleCreate, user: User) -> ScheduleItem:
+    """직접 새 프로젝트(스타터 일정)를 만들고 ScheduleItem 을 돌려준다."""
+    name = body.name.strip()
+    if not name:
+        raise ApiError(422, "invalid_name", "프로젝트 이름을 적어 주세요.")
+    domain = body.domain.strip() or "general"
+    try:
+        sid, finish = create_empty_project(
+            session,
+            name=name,
+            domain=domain,
+            level=body.level,
+            start=body.start,
+            days_per_week=body.days_per_week,
+            by_kind="user",
+            by_name=user.name,
+            commit=True,
+        )
+    except ScheduleError as e:
+        raise _invalid(e) from None
+    return ScheduleItem(
+        id=sid,
+        name=name,
+        domain=domain,
+        level=body.level,
+        version=1,
+        finish=finish,
+        updated_at=get_version(session, sid, 1).created_at,
+    )
 
 
 def versions(session: Session, schedule_id: int) -> list[VersionOut]:

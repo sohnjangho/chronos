@@ -1,3 +1,4 @@
+import { useAgentView } from './agentView';
 import { useApprovals } from './approvals';
 import Clock from './Clock';
 import { BellIcon, ChronosMark, InboxIcon, MobileFieldIcon, MoonIcon, PersonIcon, SearchIcon, SunIcon } from './icons';
@@ -99,7 +100,49 @@ function UserMenu() {
   return <MenuGroup menus={[{ key: 'user', label, ariaLabel: name, className: 'os-user', alignRight: true, items: userMenuItems(user, loginId) }]} />;
 }
 
-/** 메뉴바(48px): 왼쪽 로고 · 앱 메뉴들, 오른쪽 현장 선택 · 아이콘 단추 · 사용자 · 시계. */
+function ComputerUseBadge() {
+  const focus = useAgentView((s) => s.focus);
+  const ribbon = useAgentView((s) => s.ribbon);
+  const lastRunId = useAgentView((s) => s.lastRunId);
+  const toggleRibbon = useAgentView((s) => s.toggleRibbon);
+
+  if (focus.active || ribbon.status === 'running') {
+    const total = Math.max(1, focus.stepN, focus.totalSteps, ribbon.steps.length);
+    const step = Math.max(1, focus.stepN || ribbon.steps.length);
+    const summary = focus.label || ribbon.steps[ribbon.steps.length - 1]?.label || '실행 중';
+    return (
+      <button
+        type="button"
+        className="os-menubar-cu is-active"
+        aria-label="Computer-Use 상태"
+        data-tip="워크플로우 진행 리본 열기·접기"
+        onClick={toggleRibbon}
+      >
+        <span className="os-menubar-cu-dot" aria-hidden="true" />
+        <span className="os-menubar-cu-tag">Computer-Use</span>
+        <span className="os-menubar-cu-step">{`${step}/${total} · ${summary}`}</span>
+      </button>
+    );
+  }
+
+  if (ribbon.collapsed && ribbon.steps.length > 0 && lastRunId !== null) {
+    return (
+      <button
+        type="button"
+        className="os-menubar-cu is-done"
+        aria-label={`워크플로우 #${lastRunId} 완료`}
+        data-tip="완료된 워크플로우 다시 펼치기"
+        onClick={toggleRibbon}
+      >
+        <span>{`워크플로우 #${lastRunId} 완료 ▾`}</span>
+      </button>
+    );
+  }
+
+  return null;
+}
+
+/** 메뉴바(48px): 왼쪽 로고 · 앱 메뉴들, 오른쪽 Computer-Use · 현장 선택 · 아이콘 단추 · 사용자 · 시계. */
 export default function MenuBar() {
   return (
     <header className="os-menubar">
@@ -108,6 +151,7 @@ export default function MenuBar() {
         <AppMenus />
       </div>
       <div className="os-mb-right">
+        <ComputerUseBadge />
         <ScheduleSelector />
         <TopButtons />
         <UserMenu />

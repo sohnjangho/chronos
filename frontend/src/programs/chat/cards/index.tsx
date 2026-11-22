@@ -10,6 +10,7 @@ import EvidenceCard from './EvidenceCard';
 import FileSavedCard from './FileSavedCard';
 import GenerationCard from './GenerationCard';
 import MiniQuestionsCard from './MiniQuestionsCard';
+import ProjectCreatedCard from './ProjectCreatedCard';
 import ResultCard from './ResultCard';
 import RuleSavedCard from './RuleSavedCard';
 import ScenarioCard from './ScenarioCard';
@@ -45,6 +46,7 @@ function AnswersFilledCard({ data, ctx }: CardProps) {
 export const CARDS: Record<string, ComponentType<CardProps>> = {
   'card:generation': GenerationCard,
   'card:generation_result': ResultCard,
+  'card:project_created': ProjectCreatedCard,
   'card:auto_applied': AutoAppliedCard,
   'card:answers_filled': AnswersFilledCard,
   'card:mini_questions': MiniQuestionsCard,

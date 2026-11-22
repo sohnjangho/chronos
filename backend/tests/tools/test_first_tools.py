@@ -215,3 +215,24 @@ def test_admin_only_list_matches_the_screen_manifests():
 async def test_open_window_opens_the_library_for_anyone(ctx, events):
     r = await call("ui.open_window", {"program": "library"}, replace(ctx, user=SimpleNamespace(role="user")))
     assert r.ok is True and events[-1] == AgentEvent("open_window", {"program": "library", "params": {}})
+
+
+async def test_create_project_creates_starter_schedule_and_binds_chat(session, ctx, events):
+    from app.store import chats
+    from app.store.schedules import load
+
+    chat = chats.create_chat(session, user_id=1, schedule_id=None)
+    r = await call(
+        "schedule.create_project",
+        {"name": "해외 설비 조달", "domain": "procurement", "level": "L2", "start": "2027-05-03", "days_per_week": 5},
+        replace(ctx, chat_session_id=chat.id),
+    )
+    assert r.ok is True
+    sid = r.output["schedule_id"]
+    assert (r.output["name"], r.output["domain"], r.output["level"], r.output["version"]) == (
+        "해외 설비 조달", "procurement", "L2", 1,
+    )
+    sched, conditions, version = load(session, sid)
+    assert version == 1 and conditions == [] and [a.id for a in sched.activities] == ["MS-START", "A-01", "MS-END"]
+    assert chats.get_chat(session, chat.id).schedule_id == sid
+    assert events[-1].type == "card" and events[-1].data["kind"] == "project_created" and events[-1].data["schedule_id"] == sid

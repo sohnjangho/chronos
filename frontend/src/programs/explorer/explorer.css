@@ -25,6 +25,20 @@
 .ex-gap { flex: 1; }
 
 .ex-bar { flex: none; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); min-width: 0; }
+.ex-new-btn {
+  flex: none;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--bg-panel-alt);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  cursor: pointer;
+}
+.ex-new-btn:hover { background: var(--menu-hover-bg); }
 .ex-crumb { flex: none; color: var(--fg-muted); }
 .ex-search {
   flex: 0 1 200px;

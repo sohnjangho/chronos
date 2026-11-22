@@ -35,7 +35,7 @@ def condition_text(kind: str, params: dict, resources: Sequence[Resource]) -> st
     if kind == "resource_cap":
         r = next((x for x in resources if x.id == p["resource_id"]), None)
         return f"{r.name if r else p['resource_id']} {p['capacity']}{r.unit if r else ''}"
-    dated = {"finish_by": "준공 기한", "start_after": "시작 가능일"}
+    dated = {"finish_by": "완료 기한", "start_after": "시작 가능일"}
     if kind in dated:
         return f"{dated[kind]} {_dot(p['date'])}"
     if kind == "milestone_by":

@@ -4,7 +4,8 @@ import { useSession } from './session';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { register } from './registry';
 import { setWindowMotion } from './windowMotion';
-import { activeWindow, ARRANGE_GAP, DOCK_RESERVE, MENUBAR_H, resizeRect, useWindows, workArea, type Win } from './windowStore';
+import { activeWindow, ARRANGE_GAP, DOCK_RESERVE, MENUBAR_H, RIBBON_H, resizeRect, useWindows, workArea, type Win } from './windowStore';
+import { useCurrentSchedule } from './currentSchedule';
 
 const program = (id: string, w: number, h: number) =>
   register({ id, name: id, icon: null, kind: 'work', defaultSize: { w, h }, component: lazy(() => import('./Placeholder')) });
@@ -472,5 +473,50 @@ describe('Task 25 fix 1 · 관리자 전용 프로그램은 창으로도 열지 
     const id = s().open('adm-only');
     expect(id).not.toBe('');
     expect(s().wins.map((w) => w.programId)).toEqual(['adm-only']);
+  });
+});
+
+describe('프로젝트 격리 · 일정 동기화 · 2단 스테이지 배치', () => {
+  afterEach(() => useCurrentSchedule.setState({ userId: null, current: null, reloadToken: 0, newProjectModal: 'closed', creatingNewProject: false }));
+
+  test('changing currentSchedule synchronizes all open schedule-bound windows and clears stale params', () => {
+    useCurrentSchedule.setState({ userId: 1, current: { id: 1, name: '5층 사무동' } });
+    const ganttId = s().open('gantt', { id: '1' });
+    const tableId = s().open('schedule-table', { id: '1', activity: 'A2020' });
+    const condId = s().open('conditions', { id: '1' });
+    const chatId = s().open('chat', { session: '9' });
+
+    useCurrentSchedule.getState().setCurrent({ id: 5, name: '전해질 R&D' });
+    expect(win(ganttId).params).toEqual({ id: '5' });
+    expect(win(tableId).params).toEqual({ id: '5' });
+    expect(win(condId).params).toEqual({ id: '5' });
+    expect(win(chatId).params).toEqual({ session: '9' });
+  });
+
+  test('enterNewProjectMode minimizes open schedule windows and clears schedule ids', () => {
+    useCurrentSchedule.setState({ userId: 1, current: { id: 1, name: '5층 사무동' } });
+    const ganttId = s().open('gantt', { id: '1' });
+    const chatId = s().open('chat');
+
+    useCurrentSchedule.getState().enterNewProjectMode();
+    expect(useCurrentSchedule.getState().current).toBeNull();
+    expect(useCurrentSchedule.getState().creatingNewProject).toBe(true);
+    expect(win(ganttId).minimized).toBe(true);
+    expect(win(ganttId).params).toBeUndefined();
+    expect(win(chatId).minimized).toBe(false);
+  });
+
+  test('stageLayout with chat open places chat left and target stage right without overlap or Dock collision', () => {
+    s().setInsetTop(RIBBON_H);
+    const chatId = s().open('chat');
+    const qId = s().stageLayout('questionnaire', { id: '3', session: '1' });
+    const c = win(chatId);
+    const q = win(qId);
+
+    expect(c.y).toBeGreaterThanOrEqual(MENUBAR_H + RIBBON_H);
+    expect(q.y).toBeGreaterThanOrEqual(MENUBAR_H + RIBBON_H);
+    expect(c.x + c.w).toBeLessThanOrEqual(q.x);
+    expect(c.y + c.h).toBeLessThanOrEqual(1080 - DOCK_RESERVE);
+    expect(q.y + q.h).toBeLessThanOrEqual(1080 - DOCK_RESERVE);
   });
 });

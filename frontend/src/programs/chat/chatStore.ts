@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import { useAgentView } from '../../os/agentView';
 import { useAiChat } from '../../os/aiChat';
+import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useSession } from '../../os/session';
 import { useWindows } from '../../os/windowStore';
 import { ApiError } from '../../shared/api';
@@ -20,11 +21,14 @@ interface ChatState {
   threads: Record<number, Thread>;
   /** 새 대화에서 고른 모델(첫 보내기 때 세션 생성 직후 PUT). */
   pendingModel: ChatModel | null;
+  /** 새 대화에 고정할 일정 id(null 이면 새 프로젝트 생성 격리, undefined 면 UI 기본 규칙). */
+  pendingScheduleId: number | null | undefined;
   /** 아직 대화가 없을 때(새 대화)의 알림. */
   notice: string | null;
   loadSessions(): Promise<void>;
   openSession(id: number): Promise<void>;
-  newChat(): void;
+  newChat(explicitScheduleId?: number | null): void;
+  bindSessionSchedule(sessionId: number, scheduleId: number): void;
   /** 글을 보낸다. 서버가 받아 첫 사건이 오면 true, 보내기 전에 거절되면 false(글을 입력창에 돌려줄 수 있게). */
   send(text: string, fileIds?: number[], fileNames?: string[]): Promise<boolean>;
   setModel(model: ChatModel): Promise<void>;
@@ -44,11 +48,37 @@ const controllers = new Map<number, AbortController>();
 const handled = new Set<string>();
 let generation = 0;
 
-const initial = { sessions: [], listNotice: null, currentId: null, threads: {}, pendingModel: null, notice: null };
+const initial = {
+  sessions: [],
+  listNotice: null,
+  currentId: null,
+  threads: {},
+  pendingModel: null,
+  pendingScheduleId: undefined as number | null | undefined,
+  notice: null,
+};
 
 /** 그 대화가 아직 있을 때만 고친다(로그아웃 뒤 늦게 온 사건은 버린다). */
 function patch(id: number, change: (t: Thread) => Thread) {
   useChat.setState((s) => (s.threads[id] ? { threads: { ...s.threads, [id]: change(s.threads[id]) } } : {}));
+}
+
+function syncCreatedSchedule(chatId: number, scheduleId: number, explicitName?: string) {
+  const cs = useCurrentSchedule.getState();
+  cs.bumpReload();
+  useChat.getState().bindSessionSchedule(chatId, scheduleId);
+  if (explicitName) {
+    cs.setCurrent({ id: scheduleId, name: explicitName });
+    return;
+  }
+  if (cs.current?.id === scheduleId) return;
+  void chatApi.listSchedules().then(
+    (list) => {
+      const found = list.find((s) => s.id === scheduleId);
+      if (found) useCurrentSchedule.getState().setCurrent({ id: found.id, name: found.name });
+    },
+    () => {},
+  );
 }
 
 function onEvent(id: number, type: string, data: unknown) {
@@ -62,6 +92,14 @@ function onEvent(id: number, type: string, data: unknown) {
   }
   if (type === 'questionnaire' && data.id !== undefined) open('questionnaire', { id: String(data.id), session: String(id) });
   const av = useAgentView.getState();
+  if (type === 'card') {
+    av.onCardEvent(data);
+    if (data.kind === 'project_created' && typeof data.schedule_id === 'number') {
+      syncCreatedSchedule(id, data.schedule_id, typeof data.name === 'string' ? data.name : `일정 ${data.schedule_id}`);
+    } else if (data.kind === 'auto_applied' && typeof data.schedule_id === 'number') {
+      syncCreatedSchedule(id, data.schedule_id);
+    }
+  }
   if (type === 'workflow') av.onWorkflowEvent(data);
   else if (type === 'tool_start') av.onToolStart(data);
   else if (type === 'tool_end') av.onToolEnd(data);
@@ -136,8 +174,15 @@ async function send(text: string, fileIds?: number[], fileNames?: string[]): Pro
   if (id !== null && useChat.getState().threads[id]?.streaming) return false;
   if (id === null) {
     const pending = useChat.getState().pendingModel;
+    const pendingSid = useChat.getState().pendingScheduleId;
+    const initialScheduleId =
+      pendingSid !== undefined
+        ? pendingSid
+        : useCurrentSchedule.getState().creatingNewProject
+          ? null
+          : (currentUi().schedule_id ?? null);
     try {
-      const created = await chatApi.createSession(currentUi().schedule_id ?? null);
+      const created = await chatApi.createSession(initialScheduleId);
       id = created.id;
       let appliedModel: ChatModel | null = null;
       if (pending) {
@@ -152,6 +197,7 @@ async function send(text: string, fileIds?: number[], fileNames?: string[]): Pro
         sessions: [{ ...created, pending_retries: 0 }, ...s.sessions.filter((x) => x.id !== created.id)],
         threads: { ...s.threads, [created.id]: { ...emptyThread(), model: appliedModel, loaded: true } },
         pendingModel: null,
+        pendingScheduleId: undefined,
         ...(s.currentId === null && { currentId: created.id, notice: null }),
       }));
     } catch (err) {
@@ -270,7 +316,17 @@ export const useChat = create<ChatState>((set) => ({
   ...initial,
   loadSessions,
   openSession,
-  newChat: () => set({ currentId: null, pendingModel: null, notice: null }),
+  newChat: (explicitScheduleId) =>
+    set({
+      currentId: null,
+      pendingModel: null,
+      notice: null,
+      pendingScheduleId: explicitScheduleId,
+    }),
+  bindSessionSchedule: (sessionId, scheduleId) =>
+    set((s) => ({
+      sessions: s.sessions.map((item) => (item.id === sessionId ? { ...item, schedule_id: scheduleId } : item)),
+    })),
   send,
   setModel,
   clearModel,

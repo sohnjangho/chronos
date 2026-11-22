@@ -1,0 +1,152 @@
+/* OS 최상단 메뉴바 바로 아래 40px 워크플로우 진행 리본 */
+.os-wf-ribbon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--topbar-h);
+  height: 40px;
+  z-index: 2;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: color-mix(in srgb, var(--bg-topbar) 92%, var(--bg-panel));
+  color: var(--on-topbar-fg);
+  border-bottom: 1px solid var(--on-topbar-line);
+  backdrop-filter: blur(12px);
+  font-size: var(--fs-12);
+}
+
+.os-wf-ribbon-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.os-wf-ribbon-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  color: #dbeafe;
+}
+
+.os-wf-ribbon-badge.is-done {
+  background: color-mix(in srgb, var(--success) 26%, transparent);
+  color: #bbf7d0;
+}
+
+.os-wf-ribbon-dot,
+.os-wf-ribbon-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #38bdf8;
+  display: inline-block;
+  animation: os-agent-pulse 1.2s ease-in-out infinite;
+}
+
+.os-wf-ribbon-title {
+  font-weight: 600;
+  color: var(--on-topbar-fg);
+  white-space: nowrap;
+}
+
+.os-wf-ribbon-steps {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.os-wf-ribbon-steps::-webkit-scrollbar {
+  display: none;
+}
+
+.os-wf-ribbon-node-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.os-wf-ribbon-arrow {
+  color: var(--on-topbar-muted);
+}
+
+.os-wf-ribbon-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--on-topbar-line);
+  background: var(--on-topbar-fill);
+  color: var(--on-topbar-fg);
+  white-space: nowrap;
+}
+
+.os-wf-ribbon-node.is-running {
+  border-color: color-mix(in srgb, #38bdf8 65%, transparent);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  font-weight: 600;
+}
+
+.os-wf-ribbon-node.is-done {
+  border-color: color-mix(in srgb, var(--success) 48%, transparent);
+  color: #dcfce7;
+}
+
+.os-wf-ribbon-node.is-failed {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: #fecaca;
+}
+
+.os-wf-ribbon-step-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  font-weight: 700;
+}
+
+.os-wf-ribbon-sub {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--on-accent) 16%, transparent);
+  font-size: var(--fs-11);
+  color: #e0f2fe;
+}
+
+.os-wf-ribbon-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.os-wf-ribbon-btn.ui-btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--fs-12);
+  color: var(--on-topbar-fg);
+  border-color: var(--on-topbar-line);
+  background: var(--on-topbar-fill);
+}
+
+.os-wf-ribbon-btn.ui-btn:hover {
+  background: var(--on-topbar-hover);
+}

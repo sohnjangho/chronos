@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useWindows } from '../../os/windowStore';
 import Button from '../../shared/ui/Button';
 import Tabs from '../../shared/ui/Tabs';
@@ -41,6 +42,7 @@ function lastFindings(thread: Thread | undefined): { check: string | null; assum
 function ContextTab({ thread }: { thread: Thread | undefined }) {
   const ui = useEffectiveUi();
   const seeing = useSeeing(ui);
+  const creatingNewProject = useCurrentSchedule((s) => s.creatingNewProject);
   const schedule = useScheduleItem(ui.schedule_id, thread?.streaming);
   const found = lastFindings(thread);
   const wf = thread?.workflow;
@@ -49,7 +51,17 @@ function ContextTab({ thread }: { thread: Thread | undefined }) {
     <div className="ch-ctx-body">
       <h3 className="ch-ctx-h">지금 다루는 것</h3>
       <dl className="ch-ctx-dl">
-        <Row label="일정">{schedule ? <b>{schedule.name}</b> : ui.schedule_id === undefined ? '고른 일정 없음' : `일정 ${ui.schedule_id}`}</Row>
+        <Row label="일정">
+          {schedule ? (
+            <b>{schedule.name}</b>
+          ) : creatingNewProject ? (
+            '새 프로젝트 생성 중'
+          ) : ui.schedule_id === undefined ? (
+            '고른 일정 없음'
+          ) : (
+            `일정 ${ui.schedule_id}`
+          )}
+        </Row>
         {schedule && <Row label="분야·정밀도">{`${domainLabel(schedule.domain)} · ${schedule.level} · 버전 ${schedule.version}`}</Row>}
         <Row label="보는 화면">{seeing || '없음'}</Row>
       </dl>

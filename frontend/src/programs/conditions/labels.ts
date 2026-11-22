@@ -65,7 +65,7 @@ export function condLabel(c: Cond, resources: Resources): string {
     case 'resource_cap':
       return resourceOf(c, resources)?.name ?? String(p.resource_id ?? c.id);
     case 'finish_by':
-      return `준공 기한 ${dot(p.date)}`;
+      return `완료 기한 ${dot(p.date)}`;
     case 'start_after':
       return `시작 가능일 ${dot(p.date)}`;
     case 'milestone_by':
@@ -97,7 +97,7 @@ export function paramKey(kind: string): string | null {
 /** 값 칸의 접근 이름(예 「타워크레인 수량」·「준공 기한 날짜」). */
 export function fieldLabel(c: Cond, label: string): string {
   if (c.kind === 'resource_cap') return `${label} 수량`;
-  if (c.kind === 'finish_by') return '준공 기한 날짜';
+  if (c.kind === 'finish_by') return '완료 기한 날짜';
   if (c.kind === 'start_after') return '시작 가능일 날짜';
   if (c.kind === 'milestone_by') return `${String(c.params.activity_id ?? '')} 기한 날짜`;
   if (c.kind === 'calendar') return '근무 요일';

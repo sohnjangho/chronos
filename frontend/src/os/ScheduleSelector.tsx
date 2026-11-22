@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { api } from '../shared/api';
 import { useCurrentSchedule } from './currentSchedule';
 import PickList from './PickList';
+import { useWindows } from './windowStore';
 
 export interface ScheduleItem {
   id: number;
@@ -11,12 +12,8 @@ export interface ScheduleItem {
 
 export const scheduleText = (s: ScheduleItem) => (s.level ? `${s.name} · ${s.level}` : s.name);
 
-/**
- * 메뉴바 현장 선택(높이 32, 최소 폭 220, ▾). 누르면 아래에 찾기 칸이 있는 목록이 열린다.
- * 일정이 하나도 없으면 단추 대신 보조색 글 「일정 없음」.
- */
-/** 일정 목록(펼칠 때마다 다시 읽음). 지금 일정이 목록에서 사라졌으면 비운다. */
-function useScheduleList() {
+/** 일정 목록(펼치거나 reloadToken 이 바뀔 때마다 다시 읽음). 지금 일정이 사라졌으면 비운다. */
+function useScheduleList(reloadToken: number) {
   const [items, setItems] = useState<ScheduleItem[] | null>(null);
   const [failed, setFailed] = useState(false);
   const load = useCallback(() => {
@@ -29,7 +26,7 @@ function useScheduleList() {
       })
       .catch(() => setFailed(true));
   }, []);
-  useEffect(load, [load]);
+  useEffect(load, [load, reloadToken]);
   return { items, failed, load };
 }
 
@@ -48,40 +45,72 @@ interface SitePopupProps {
   failed: boolean;
   currentId: number | undefined;
   onPick(s: ScheduleItem): void;
+  onCreateDirect(): void;
+  onCreateAi(): void;
   onClose(): void;
 }
 
-/** 찾기 칸이 있는 일정 목록(폭 320, 줄 32, 최대 높이 280). */
-function SitePopup({ items, failed, currentId, onPick, onClose }: SitePopupProps) {
+/** 찾기 칸이 있는 일정 목록 + 새 프로젝트 생성 단추. */
+function SitePopup({ items, failed, currentId, onPick, onCreateDirect, onCreateAi, onClose }: SitePopupProps) {
   const [query, setQuery] = useState('');
   const shown = items.filter((s) => scheduleText(s).toLowerCase().includes(query.trim().toLowerCase()));
   return (
-    <PickList
-      className="os-site-pop"
-      label="일정 찾기"
-      placeholder="일정 찾기"
-      query={query}
-      onQuery={setQuery}
-      onClose={onClose}
-      empty={failed ? '일정 목록을 불러오지 못했습니다.' : '찾은 일정이 없습니다.'}
-      groups={[{ items: shown.map((s) => ({ key: String(s.id), label: scheduleText(s), selected: s.id === currentId, run: () => onPick(s) })) }]}
-    />
+    <div className="os-site-pop">
+      <div className="os-site-actions">
+        <button type="button" className="os-site-act-btn" onClick={onCreateDirect}>
+          + 새 프로젝트 직접 만들기
+        </button>
+        <button type="button" className="os-site-act-btn" onClick={onCreateAi}>
+          ✦ AI로 새 프로젝트 일정 생성
+        </button>
+      </div>
+      <PickList
+        label="일정 찾기"
+        placeholder="일정 찾기"
+        query={query}
+        onQuery={setQuery}
+        onClose={onClose}
+        empty={failed ? '일정 목록을 불러오지 못했습니다.' : '찾은 일정이 없습니다.'}
+        groups={[{ items: shown.map((s) => ({ key: String(s.id), label: scheduleText(s), selected: s.id === currentId, run: () => onPick(s) })) }]}
+      />
+    </div>
   );
 }
 
 export default function ScheduleSelector() {
   const current = useCurrentSchedule((s) => s.current);
-  const { items, failed, load } = useScheduleList();
+  const creatingNewProject = useCurrentSchedule((s) => s.creatingNewProject);
+  const reloadToken = useCurrentSchedule((s) => s.reloadToken);
+  const { items, failed, load } = useScheduleList(reloadToken);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dismiss = useCallback(() => setOpen(false), []);
   useOutsideClose(rootRef, open, dismiss);
 
-  if (items?.length === 0 && !current) return <span className="os-site-none">일정 없음</span>;
+  if (items?.length === 0 && !current) {
+    return (
+      <div className="os-site">
+        <span className="os-site-none">{creatingNewProject ? '새 프로젝트 생성 중' : '일정 없음'}</span>
+        <button
+          type="button"
+          className="os-site-new-mini"
+          onClick={() => useCurrentSchedule.getState().openNewProjectModal('direct')}
+        >
+          + 새 프로젝트
+        </button>
+      </div>
+    );
+  }
 
   const known = current ? items?.find((s) => s.id === current.id) : undefined;
-  const label = current ? (known ? scheduleText(known) : current.name) : '일정 고르기';
+  const label = current
+    ? known
+      ? scheduleText(known)
+      : current.name
+    : creatingNewProject
+      ? '새 프로젝트 생성 중'
+      : '일정 고르기';
   const close = () => {
     setOpen(false);
     buttonRef.current?.focus();
@@ -111,6 +140,16 @@ export default function ScheduleSelector() {
           failed={failed}
           currentId={current?.id}
           onClose={close}
+          onCreateDirect={() => {
+            setOpen(false);
+            useCurrentSchedule.getState().openNewProjectModal('direct');
+          }}
+          onCreateAi={() => {
+            setOpen(false);
+            useCurrentSchedule.getState().enterNewProjectMode();
+            void import('../programs/chat/chatStore').then(({ useChat }) => useChat.getState().newChat(null));
+            useWindows.getState().open('chat');
+          }}
           onPick={(s) => {
             useCurrentSchedule.getState().setCurrent({ id: s.id, name: s.name });
             close();

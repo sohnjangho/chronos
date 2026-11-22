@@ -8,6 +8,7 @@ import ShellDialogs from './Dialogs';
 import Dock from './Dock';
 import LockScreen from './LockScreen';
 import MenuBar from './MenuBar';
+import NewProjectModal from './NewProjectModal';
 import QuickStartWidget from './QuickStartWidget';
 import SearchPalette from './SearchPalette';
 import { useSession } from './session';
@@ -17,6 +18,7 @@ import { snapRect, useSnap } from './snap';
 import ToastStack from './ToastStack';
 import Window from './Window';
 import { activeWindow, useWindows } from './windowStore';
+import WorkflowRibbon from './WorkflowRibbon';
 import './userScope';
 
 /**
@@ -49,6 +51,7 @@ export default function Desktop() {
         onPointerDown={(e) => e.target === e.currentTarget && useWindows.getState().clearActive()}
       >
         <MenuBar />
+        <WorkflowRibbon />
         <ApprovalWidget />
         <AttentionWidget />
         <QuickStartWidget />
@@ -67,6 +70,7 @@ export default function Desktop() {
         <Dock />
         <ToastStack />
         <ShellDialogs />
+        <NewProjectModal />
         <ContextPanel />
         <AppDrawer />
         <SearchPalette />

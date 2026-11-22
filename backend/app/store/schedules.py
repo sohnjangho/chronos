@@ -23,7 +23,7 @@ from app.core.model import (
 )
 from app.core.resources import level as level_schedule
 from app.harness.assemble import prepare_stored
-from app.store.tables import ScheduleRecord, ScheduleVersion
+from app.store.tables import ChangeLog, ScheduleRecord, ScheduleVersion
 
 
 class NotFound(LookupError):
@@ -179,6 +179,7 @@ def create_schedule(
     by_kind: str,
     by_name: str,
     note: str,
+    is_plan: bool = False,
     commit: bool = True,
 ) -> int:
     """일정과 버전 1을 만들고 일정 id 를 준다. 변경 이력은 남기지 않는다.
@@ -201,11 +202,75 @@ def create_schedule(
             note=note,
             by_kind=by_kind,
             by_name=by_name,
+            is_plan=is_plan,
             plan_json=plan_snapshot(cpm, 1),
         )
     )
     end_write(session, commit)
     return record.id
+
+
+def starter_schedule(name: str, *, start: date | None = None, days_per_week: int = 5) -> Schedule:
+    """새 프로젝트를 위한 최소 유효 스타터 일정(CPM 이 빈 일정을 받지 않으므로 착수·작업·완료 3행)."""
+    start_date = start or date.today()
+    return Schedule(
+        start=start_date,
+        calendar=CalendarSpec(days_per_week=days_per_week, holidays=(), blocked=()),
+        wbs=(WbsNode(code="1", name=name, parent=None),),
+        activities=(
+            Activity(id="MS-START", name="프로젝트 착수", kind="start_ms", wbs="1", od=0),
+            Activity(id="A-01", name="초기 작업 1", kind="task", wbs="1", od=5),
+            Activity(id="MS-END", name="프로젝트 완료", kind="finish_ms", wbs="1", od=0),
+        ),
+        relations=(
+            Relation("MS-START", "A-01", "FS", 0),
+            Relation("A-01", "MS-END", "FS", 0),
+        ),
+        resources=(),
+    )
+
+
+def create_empty_project(
+    session: Session,
+    *,
+    name: str,
+    domain: str = "general",
+    level: str = "L3",
+    start: date | None = None,
+    days_per_week: int = 5,
+    by_kind: str = "user",
+    by_name: str = "사용자",
+    commit: bool = False,
+) -> tuple[int, date]:
+    """스타터 일정(버전 1 + 처음 계획 + 변경 이력 1줄)으로 새 프로젝트를 만들고 (id, finish) 를 돌려준다."""
+    clean_name = name.strip()
+    clean_domain = domain.strip() or "general"
+    schedule = starter_schedule(clean_name, start=start, days_per_week=days_per_week)
+    cpm = run(schedule, [])
+    sid = create_schedule(
+        session,
+        name=clean_name,
+        domain=clean_domain,
+        level=level,
+        schedule=schedule,
+        conditions=[],
+        by_kind=by_kind,
+        by_name=by_name,
+        note="새 프로젝트 생성",
+        is_plan=True,
+        commit=False,
+    )
+    session.add(
+        ChangeLog(
+            schedule_id=sid,
+            version_n=1,
+            by_kind=by_kind,
+            by_name=by_name,
+            summary="새 프로젝트 생성",
+        )
+    )
+    end_write(session, commit)
+    return sid, cpm.finish
 
 
 def get_record(session: Session, schedule_id: int) -> ScheduleRecord:

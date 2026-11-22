@@ -93,6 +93,16 @@ class WeightModeIO(Strict):
     mode: WeightMode
 
 
+class ScheduleCreate(Strict):
+    """새 빈(스타터) 프로젝트 일정 생성 요청."""
+
+    name: Annotated[str, Field(min_length=1, max_length=120)]
+    domain: Annotated[str, Field(min_length=1, max_length=40)] = "general"
+    level: Literal["L1", "L2", "L3", "L4", "L5"] = "L3"
+    start: DataDate | None = None
+    days_per_week: Literal[5, 6, 7] = 5
+
+
 class WbsOut(BaseModel):
     code: str
     name: str
