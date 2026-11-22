@@ -102,7 +102,7 @@ export default function NewProjectModal() {
     e.preventDefault();
     const topic = aiTopic.trim();
     useCurrentSchedule.getState().enterNewProjectMode();
-    useWindows.getState().open('chat');
+    useWindows.getState().stageLayout('chat');
     setAiTopic('');
     void import('../programs/chat/chatStore').then(({ useChat }) => {
       useChat.getState().newChat(null);

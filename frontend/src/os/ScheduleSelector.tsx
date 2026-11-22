@@ -148,7 +148,7 @@ export default function ScheduleSelector() {
             setOpen(false);
             useCurrentSchedule.getState().enterNewProjectMode();
             void import('../programs/chat/chatStore').then(({ useChat }) => useChat.getState().newChat(null));
-            useWindows.getState().open('chat');
+            useWindows.getState().stageLayout('chat');
           }}
           onPick={(s) => {
             useCurrentSchedule.getState().setCurrent({ id: s.id, name: s.name });

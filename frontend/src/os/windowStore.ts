@@ -306,7 +306,7 @@ function stageRects(wins: Win[], targetId: string, insetRight: number, insetTop:
   const maxX = Math.max(0, s.w - w);
   const maxY = Math.max(topY, s.h - bottomMargin - h);
   out.set(target.id, {
-    x: clamp(target.x, 0, maxX),
+    x: target.programId === 'chat' ? 12 : clamp(target.x, 0, maxX),
     y: clamp(target.y, topY, maxY),
     w,
     h,

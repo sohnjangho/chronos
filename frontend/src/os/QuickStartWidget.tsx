@@ -8,7 +8,7 @@ export default function QuickStartWidget() {
   const startAiProject = () => {
     useCurrentSchedule.getState().enterNewProjectMode();
     void import('../programs/chat/chatStore').then(({ useChat }) => useChat.getState().newChat(null));
-    open('chat');
+    useWindows.getState().stageLayout('chat');
   };
 
   return (
