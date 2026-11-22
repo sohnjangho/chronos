@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { useCurrentSchedule } from '../../os/currentSchedule';
@@ -15,6 +15,7 @@ vi.mock('../../shared/gantt/exportImage', () => ({ downloadSvgImage }));
 let openSpy: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  localStorage.clear();
   setup();
   stubProgressApi();
   openSpy = vi.fn();
@@ -23,6 +24,7 @@ beforeEach(() => {
 afterEach(() => {
   forgetSchedules();
   useCurrentSchedule.setState({ current: null });
+  localStorage.clear();
   vi.unstubAllGlobals();
   downloadSvgImage.mockClear();
 });
@@ -220,4 +222,99 @@ test('toggles into 현장 모바일 점검 and switches among the 4 field collab
   expect(screen.queryByLabelText('예상 잔여일 (RD)')).toBeNull();
   await userEvent.click(screen.getByRole('button', { name: '⚠ 지연 우려' }));
   expect(screen.getByLabelText('예상 잔여일 (RD)')).toBeVisible();
+});
+
+const widgetLayout = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll<HTMLElement>('[data-widget-id]')).map((el) => [
+    el.dataset.widgetId,
+    el.dataset.span,
+  ]);
+
+test('default widget order and spans match the dashboard layout', async () => {
+  const { container } = show();
+  await screen.findByText('20.0%');
+  expect(widgetLayout(container)).toEqual([
+    ['kpi', '12'],
+    ['scurve', '8'],
+    ['milestone', '4'],
+    ['wbs', '3'],
+    ['spi', '3'],
+    ['delay', '3'],
+    ['lookahead', '3'],
+  ]);
+});
+
+test('edit mode reorders widgets by buttons and drag-and-drop', async () => {
+  const { container } = show();
+  await screen.findByText('20.0%');
+
+  await userEvent.click(screen.getByRole('button', { name: '배치 편집' }));
+  expect(screen.getByRole('region', { name: '위젯 배치 도구' })).toBeVisible();
+
+  // S-커브를 한 칸 앞으로 이동 (kpi 와 자리 바꿈)
+  await userEvent.click(screen.getByRole('button', { name: 'S-커브 앞으로 이동' }));
+  expect(widgetLayout(container).slice(0, 3)).toEqual([
+    ['scurve', '8'],
+    ['kpi', '12'],
+    ['milestone', '4'],
+  ]);
+
+  // WBS 카드를 S-커브 위치로 드래그해 맨 앞으로 이동
+  const wbs = container.querySelector<HTMLElement>('[data-widget-id="wbs"]')!;
+  const scurve = container.querySelector<HTMLElement>('[data-widget-id="scurve"]')!;
+  fireEvent.dragStart(wbs);
+  fireEvent.dragOver(scurve);
+  fireEvent.drop(scurve);
+  expect(widgetLayout(container)[0]).toEqual(['wbs', '3']);
+});
+
+test('widget width, visibility toggle and order persist across remount', async () => {
+  const first = show();
+  await screen.findByText('20.0%');
+
+  await userEvent.click(screen.getByRole('button', { name: '배치 편집' }));
+  await userEvent.click(within(screen.getByRole('group', { name: '마일스톤 너비' })).getByRole('button', { name: '1/2' }));
+  expect(first.container.querySelector('[data-widget-id="milestone"]')).toHaveAttribute('data-span', '6');
+
+  await userEvent.click(screen.getByRole('button', { name: '마일스톤 숨기기' }));
+  expect(first.container.querySelector('[data-widget-id="milestone"]')).toBeNull();
+
+  await userEvent.click(screen.getByRole('button', { name: 'S-커브 앞으로 이동' }));
+  await userEvent.click(screen.getByRole('button', { name: '편집 완료' }));
+  expect(screen.getByRole('button', { name: '배치 편집 (숨김 1)' })).toBeVisible();
+  first.unmount();
+
+  // 다시 열어도 숨김 · 너비 · 순서가 유지된다.
+  const second = show();
+  await screen.findByText('20.0%');
+  expect(second.container.querySelector('[data-widget-id="milestone"]')).toBeNull();
+  expect(screen.getByRole('button', { name: '배치 편집 (숨김 1)' })).toBeVisible();
+  expect(widgetLayout(second.container)[0]).toEqual(['scurve', '8']);
+
+  // 숨긴 위젯을 배치 도구에서 다시 켠다(바뀐 너비 1/2=6 유지).
+  await userEvent.click(screen.getByRole('button', { name: '배치 편집 (숨김 1)' }));
+  await userEvent.click(screen.getByRole('button', { name: /\+ 마일스톤/ }));
+  expect(second.container.querySelector('[data-widget-id="milestone"]')).toHaveAttribute('data-span', '6');
+});
+
+test('reset restores default order, spans and visibility even when all widgets were hidden', async () => {
+  const { container } = show();
+  await screen.findByText('20.0%');
+
+  await userEvent.click(screen.getByRole('button', { name: '배치 편집' }));
+  for (const label of ['요약 KPI', 'S-커브', '마일스톤', 'WBS', 'SPI 추이', '지연 상위', '앞으로 3주']) {
+    await userEvent.click(screen.getByRole('button', { name: `${label} 숨기기` }));
+  }
+  expect(screen.getByText('표시된 위젯이 없습니다.')).toBeVisible();
+
+  await userEvent.click(screen.getAllByRole('button', { name: '기본 배치 복원' })[0]);
+  expect(widgetLayout(container)).toEqual([
+    ['kpi', '12'],
+    ['scurve', '8'],
+    ['milestone', '4'],
+    ['wbs', '3'],
+    ['spi', '3'],
+    ['delay', '3'],
+    ['lookahead', '3'],
+  ]);
 });
