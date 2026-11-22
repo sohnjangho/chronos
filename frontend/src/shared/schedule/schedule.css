@@ -17,29 +17,74 @@
 .sch-toolbar {
   flex: none;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: stretch;
-  gap: 5px;
-  padding: 4px 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  gap: 6px;
+  padding: 6px 10px;
+  overflow-x: visible;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel-alt);
 }
-.sch-toolbar::-webkit-scrollbar { display: none; }
 .sch-rib-group {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   display: inline-flex;
   flex-direction: column;
   justify-content: space-between;
   align-items: stretch;
-  gap: 2px;
-  padding: 3px 6px 2px;
+  gap: 4px;
+  padding: 5px 8px 3px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-3);
 }
 .sch-rib-items { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 4px; }
+.sch-rib-stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+.sch-rib-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.sch-rib-row > .ui-btn,
+.sch-rib-row > .gt-chip,
+.sch-rib-row > .sch-pop-root > .ui-btn,
+.sch-rib-stack.is-stretch > .ui-btn,
+.sch-rib-stack.is-stretch > .sch-pop-root > .ui-btn {
+  height: 26px;
+  padding: 0 8px;
+  font-size: var(--fs-12);
+  white-space: nowrap;
+}
+.sch-rib-stack.is-stretch > .ui-badge {
+  min-height: 26px;
+  box-sizing: border-box;
+  justify-content: center;
+  white-space: nowrap;
+}
+.sch-rib-row.is-even > *,
+.sch-rib-stack.is-stretch > .ui-btn,
+.sch-rib-stack.is-stretch > .sch-pop-root {
+  flex: 1 1 auto;
+}
+.sch-rib-row.is-even > .sch-pop-root > .ui-btn,
+.sch-rib-stack.is-stretch > .sch-pop-root > .ui-btn {
+  width: 100%;
+  justify-content: center;
+}
+.sch-rib-row.is-even > .ui-btn,
+.sch-rib-row.is-even > .gt-chip,
+.sch-rib-stack.is-stretch > .ui-btn {
+  justify-content: center;
+}
 .sch-rib-label {
   text-align: center;
   font-size: 10px;

@@ -22,19 +22,19 @@ interface ToolbarProps {
   onExport(): void;
 }
 
-/** 위 도구줄: 엑셀/PPT 스타일 리본 구역(편집 · 보기·설정 · 이력 · 진척·내보내기). */
+/** 위 도구줄: 엑셀/PPT 스타일 2줄 리본 구역(편집 · 보기·설정 · 이력 · 진척·내보내기). */
 export default function Toolbar(p: ToolbarProps) {
   return (
     <div role="toolbar" aria-label="스케줄표 도구" className="sch-toolbar">
       <div className="sch-rib-group">
-        <div className="sch-rib-items">
+        <div className="sch-rib-stack is-stretch">
           <Button variant="primary" disabled={!p.canAdd} onClick={p.onAdd}>+ 행 추가</Button>
           <Button variant="danger" data-act="delete" disabled={!p.canDelete} onClick={p.onDelete}>삭제</Button>
         </div>
         <span className="sch-rib-label">편집</span>
       </div>
       <div className="sch-rib-group">
-        <div className="sch-rib-items">
+        <div className="sch-rib-stack is-stretch">
           <Popover button="열" label="열">
             {() => <ColumnPanel visible={p.visible} onVisible={p.onVisible} />}
           </Popover>
@@ -49,14 +49,13 @@ export default function Toolbar(p: ToolbarProps) {
         <span className="sch-rib-label">보기·설정</span>
       </div>
       <div className="sch-rib-group">
-        <div className="sch-rib-items">
+        <div className="sch-rib-stack is-stretch">
           <History />
         </div>
         <span className="sch-rib-label">이력</span>
       </div>
-      <span className="sch-gap" />
       <div className="sch-rib-group">
-        <div className="sch-rib-items">
+        <div className="sch-rib-stack is-stretch">
           {p.progress !== null && <Badge tone="info">{`전체 가중 진척도 ${percent(p.progress)}%`}</Badge>}
           <Button onClick={p.onExport}>CSV 내보내기</Button>
         </div>

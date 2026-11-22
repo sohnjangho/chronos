@@ -36,33 +36,29 @@ export interface ToolbarProps {
   deadlineLabel: string;
 }
 
-const LAYERS: { key: keyof Layers; label: string; swatch: string }[] = [
-  { key: 'plan', label: 'Plan', swatch: 'is-plan' },
-  { key: 'actual', label: 'Actual·예측', swatch: 'is-actual' },
-  { key: 'cpm', label: 'CPM', swatch: 'is-cpm' },
-];
+type LayerSpec = { key: keyof Layers; label: string; swatch: string };
 
-function LayerChips({ layers, onLayer }: Pick<ToolbarProps, 'layers' | 'onLayer'>) {
+const LAYER_MAP: Record<keyof Layers, LayerSpec> = {
+  plan: { key: 'plan', label: 'Plan', swatch: 'is-plan' },
+  actual: { key: 'actual', label: 'Actual·예측', swatch: 'is-actual' },
+  cpm: { key: 'cpm', label: 'CPM', swatch: 'is-cpm' },
+};
+
+function LayerChip({ layerKey, layers, onLayer }: { layerKey: keyof Layers } & Pick<ToolbarProps, 'layers' | 'onLayer'>) {
+  const item = LAYER_MAP[layerKey];
+  const off = item.key === 'cpm' && !layers.actual;
   return (
-    <>
-      {LAYERS.map((l) => {
-        const off = l.key === 'cpm' && !layers.actual;
-        return (
-          <button
-            key={l.key}
-            type="button"
-            className="gt-chip"
-            aria-pressed={off ? false : layers[l.key]}
-            disabled={off}
-            title={off ? 'CPM 층은 Actual·예측 막대 위에 그립니다. Actual·예측을 켜세요.' : undefined}
-            onClick={() => onLayer(l.key)}
-          >
-            <span className={`gt-swatch ${l.swatch}`} aria-hidden="true" />
-            {l.label}
-          </button>
-        );
-      })}
-    </>
+    <button
+      type="button"
+      className="gt-chip"
+      aria-pressed={off ? false : layers[item.key]}
+      disabled={off}
+      title={off ? 'CPM 층은 Actual·예측 막대 위에 그립니다. Actual·예측을 켜세요.' : undefined}
+      onClick={() => onLayer(item.key)}
+    >
+      <span className={`gt-swatch ${item.swatch}`} aria-hidden="true" />
+      {item.label}
+    </button>
   );
 }
 
@@ -155,57 +151,79 @@ export default function GanttToolbar(p: ToolbarProps) {
   return (
     <div role="toolbar" aria-label="간트 도구" className="sch-toolbar gt-toolbar">
       <div className="sch-rib-group">
-        <div className="sch-rib-items">
-          <LayerChips layers={p.layers} onLayer={p.onLayer} />
-          <Popover button="색상" label="색상">
-            {() => <ColorPanel colors={p.colors} onColor={p.onColor} onLinkOpacity={p.onLinkOpacity} onReset={p.onResetColors} />}
-          </Popover>
+        <div className="sch-rib-stack">
+          <div className="sch-rib-row is-even">
+            <LayerChip layerKey="plan" layers={p.layers} onLayer={p.onLayer} />
+            <LayerChip layerKey="actual" layers={p.layers} onLayer={p.onLayer} />
+          </div>
+          <div className="sch-rib-row is-even">
+            <LayerChip layerKey="cpm" layers={p.layers} onLayer={p.onLayer} />
+            <Popover button="색상" label="색상">
+              {() => <ColorPanel colors={p.colors} onColor={p.onColor} onLinkOpacity={p.onLinkOpacity} onReset={p.onResetColors} />}
+            </Popover>
+          </div>
         </div>
         <span className="sch-rib-label">층·색상</span>
       </div>
       <div className="sch-rib-group">
-        <div className="sch-rib-items">
-          <Button aria-label="축소" onClick={() => p.onZoom(1 / 1.25)}>−</Button>
-          <Button aria-label="확대" onClick={() => p.onZoom(1.25)}>+</Button>
-          <Button onClick={p.onFit}>맞춤</Button>
-          <Button disabled={!p.hasSelection} title={p.hasSelection ? undefined : '액티비티를 먼저 고르세요'} onClick={p.onFitSelected}>
-            선택 맞춤
-          </Button>
-          <Button disabled={!p.hasDataDate} title={p.hasDataDate ? undefined : '이 일정에는 Data Date 가 없습니다'} onClick={p.onDataDate}>
-            Data Date
-          </Button>
-          <Button onClick={p.onToday}>오늘</Button>
-          <Button aria-label="이전 기간" onClick={() => p.onPage(-1)}>‹</Button>
-          <Button aria-label="다음 기간" onClick={() => p.onPage(1)}>›</Button>
+        <div className="sch-rib-stack">
+          <div className="sch-rib-row is-even">
+            <Button aria-label="축소" onClick={() => p.onZoom(1 / 1.25)}>−</Button>
+            <Button aria-label="확대" onClick={() => p.onZoom(1.25)}>+</Button>
+            <Button onClick={p.onFit}>맞춤</Button>
+            <Button disabled={!p.hasSelection} title={p.hasSelection ? undefined : '액티비티를 먼저 고르세요'} onClick={p.onFitSelected}>
+              선택 맞춤
+            </Button>
+          </div>
+          <div className="sch-rib-row is-even">
+            <Button disabled={!p.hasDataDate} title={p.hasDataDate ? undefined : '이 일정에는 Data Date 가 없습니다'} onClick={p.onDataDate}>
+              Data Date
+            </Button>
+            <Button onClick={p.onToday}>오늘</Button>
+            <Button aria-label="이전 기간" onClick={() => p.onPage(-1)}>‹</Button>
+            <Button aria-label="다음 기간" onClick={() => p.onPage(1)}>›</Button>
+          </div>
         </div>
         <span className="sch-rib-label">화면·이동</span>
       </div>
       <div className="sch-rib-group">
-        <div className="sch-rib-items">
-          {(['wbs', 'resource'] as const).map((by) => (
-            <button key={by} type="button" className="gt-chip" aria-pressed={p.groupBy === by} onClick={() => p.onGroupBy(by)}>
-              {by === 'wbs' ? 'WBS' : '자원'}
-            </button>
-          ))}
-          <Button onClick={p.onExpandAll}>모두 펼치기</Button>
-          <Button onClick={p.onCollapseAll}>모두 접기</Button>
+        <div className="sch-rib-stack">
+          <div className="sch-rib-row is-even">
+            {(['wbs', 'resource'] as const).map((by) => (
+              <button key={by} type="button" className="gt-chip" aria-pressed={p.groupBy === by} onClick={() => p.onGroupBy(by)}>
+                {by === 'wbs' ? 'WBS' : '자원'}
+              </button>
+            ))}
+          </div>
+          <div className="sch-rib-row is-even">
+            <Button onClick={p.onExpandAll}>모두 펼치기</Button>
+            <Button onClick={p.onCollapseAll}>모두 접기</Button>
+          </div>
         </div>
         <span className="sch-rib-label">묶는 기준</span>
       </div>
-      <span className="sch-gap" />
       <div className="sch-rib-group">
-        <div className="sch-rib-items">
-          <Popover button="열" label="열" align="right">
-            {() => <ColumnPanel visible={p.visible} onVisible={p.onVisible} />}
-          </Popover>
-          <Popover button="범례" label="범례" align="right">
-            {() => <Legend deadline={p.deadlineLabel} />}
-          </Popover>
-          <History />
+        <div className="sch-rib-stack">
+          <div className="sch-rib-row is-even">
+            <Popover button="열" label="열" align="right">
+              {() => <ColumnPanel visible={p.visible} onVisible={p.onVisible} />}
+            </Popover>
+            <Popover button="범례" label="범례" align="right">
+              {() => <Legend deadline={p.deadlineLabel} />}
+            </Popover>
+          </div>
+          <div className="sch-rib-row is-even">
+            <History />
+          </div>
+        </div>
+        <span className="sch-rib-label">보기·이력</span>
+      </div>
+      <div className="sch-rib-group">
+        <div className="sch-rib-stack is-stretch">
           <Button onClick={p.onCsv}>CSV 내보내기</Button>
           <Button onClick={p.onImage}>그림 내보내기</Button>
         </div>
-        <span className="sch-rib-label">보기·이력·내보내기</span>
+        <span className="sch-rib-label">내보내기</span>
       </div>
     </div>
   );
