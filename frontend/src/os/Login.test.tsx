@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
@@ -62,4 +62,48 @@ test('tablet viewport logs directly into TabletShell when mode is 자동', async
   await userEvent.type(screen.getByLabelText('비밀번호'), 'pw');
   await userEvent.click(screen.getByRole('button', { name: '들어가기' }));
   expect(await screen.findByTestId('tablet-shell')).toBeVisible();
+});
+
+test('opens signup modal, checks password confirmation, and submits pending account request', async () => {
+  let sentBody: unknown = null;
+  stubFetch({
+    'POST /api/auth/signup': (init?: RequestInit) => {
+      sentBody = JSON.parse(String(init?.body));
+      return json(201, {
+        id: 10,
+        login_id: 'hong1',
+        name: '홍길동',
+        role: 'field',
+        status: 'pending',
+        message: '회원가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다.',
+      });
+    },
+  });
+  render(<Login />);
+  await userEvent.click(screen.getByRole('button', { name: '회원가입' }));
+  const dlg = screen.getByRole('dialog', { name: '회원가입' });
+  expect(dlg).toBeVisible();
+
+  await userEvent.type(within(dlg).getByLabelText('아이디 *'), 'hong1');
+  await userEvent.type(within(dlg).getByLabelText('이름 *'), '홍길동');
+  await userEvent.type(within(dlg).getByLabelText('이메일 *'), 'hong1@example.com');
+  await userEvent.type(within(dlg).getByLabelText('비밀번호 *'), 'pass1234');
+  await userEvent.type(within(dlg).getByLabelText('비밀번호 확인 *'), 'mismatch');
+  await userEvent.click(within(dlg).getByRole('button', { name: '가입 신청하기' }));
+  expect(within(dlg).getByText('비밀번호와 비밀번호 확인이 일치하지 않습니다.')).toBeVisible();
+
+  const confirm = within(dlg).getByLabelText('비밀번호 확인 *');
+  await userEvent.clear(confirm);
+  await userEvent.type(confirm, 'pass1234');
+  await userEvent.click(within(dlg).getByRole('button', { name: /현장 관리자/ }));
+  await userEvent.click(within(dlg).getByRole('button', { name: '가입 신청하기' }));
+
+  expect(await within(dlg).findByText('회원가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다.')).toBeVisible();
+  expect(sentBody).toEqual({
+    login_id: 'hong1',
+    password: 'pass1234',
+    name: '홍길동',
+    role: 'field',
+    email: 'hong1@example.com',
+  });
 });

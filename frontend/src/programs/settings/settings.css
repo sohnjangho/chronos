@@ -412,5 +412,45 @@
 .st-radio:has(input:checked) { border-color: var(--accent); background: var(--bg-selected); }
 .st-radio-text { display: flex; flex-direction: column; gap: 2px; }
 
-/* ── 계정 표: 긴 아이디가 창을 밀지 않게 ── */
+/* ── 계정 표·승인 대기열: 긴 아이디가 창을 밀지 않게 ── */
 .st-pane .ui-table { table-layout: fixed; }
+.st-pending-box {
+  border-color: var(--warning);
+  background: var(--tone-warning-bg);
+}
+.st-pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.st-pending-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-3);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.st-pending-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+.st-pending-note {
+  font-size: var(--fs-12);
+  color: var(--fg);
+}
+.st-pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}

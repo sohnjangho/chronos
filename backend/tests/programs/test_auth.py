@@ -162,3 +162,56 @@ def test_admin_creates_field_user_and_last_admin_cannot_demote_to_field(client, 
     assert login(client, "site1", "field-pass").json()["user"]["role"] == "field"
     demote = client.patch("/api/auth/users/1", headers=admin, json={"role": "field"})
     assert demote.status_code == 422 and demote.json()["code"] == "last_admin"
+
+
+def test_public_signup_requires_admin_approval_before_login(client, admin):
+    bad_role = client.post(
+        "/api/auth/signup",
+        json={
+            "login_id": "newadmin",
+            "password": "pw-1234",
+            "name": "시도",
+            "role": "admin",
+            "email": "newadmin@example.com",
+        },
+    )
+    assert bad_role.status_code == 422
+
+    r = client.post(
+        "/api/auth/signup",
+        json={
+            "login_id": "hong_gildong",
+            "password": "pw-1234",
+            "name": "홍길동",
+            "role": "field",
+            "email": "hong@example.com",
+            "phone": "010-1234-5678",
+            "organization": "크로노스건설",
+            "department": "안전·골조반",
+            "note": "현장 일일점검 담당",
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["status"] == "pending" and body["role"] == "field"
+    uid = body["id"]
+
+    blocked = login(client, "hong_gildong", "pw-1234")
+    assert blocked.status_code == 403 and blocked.json()["code"] == "account_pending"
+
+    approved = client.patch(f"/api/auth/users/{uid}", headers=admin, json={"status": "active"})
+    assert approved.status_code == 200 and approved.json()["status"] == "active"
+
+    ok = login(client, "hong_gildong", "pw-1234")
+    assert ok.status_code == 200 and ok.json()["user"]["role"] == "field"
+    tok = ok.json()["token"]
+    assert client.get("/api/auth/me", headers=auth(tok)).status_code == 200
+
+    disabled = client.patch(f"/api/auth/users/{uid}", headers=admin, json={"status": "disabled"})
+    assert disabled.status_code == 200
+    assert login(client, "hong_gildong", "pw-1234").status_code == 403
+    assert client.get("/api/auth/me", headers=auth(tok)).status_code == 401
+
+    assert client.delete("/api/auth/users/1", headers=admin).status_code == 422
+    assert client.delete(f"/api/auth/users/{uid}", headers=admin).status_code == 204
+    assert all(u["id"] != uid for u in client.get("/api/auth/users", headers=admin).json())

@@ -10,6 +10,8 @@ from app.programs.auth.schemas import (
     LoginIn,
     LoginOut,
     MeUpdate,
+    SignupIn,
+    SignupOut,
     UserCreate,
     UserOut,
     UserUpdate,
@@ -28,6 +30,19 @@ AdminOnly = Depends(require_admin)
 def login(body: LoginIn, session: SessionDep) -> LoginOut:
     user = service.authenticate(session, body.login_id, body.password)
     return LoginOut(token=issue_token(user.id), user=UserOut.model_validate(user))
+
+
+@router.post("/signup", status_code=201)
+def signup(body: SignupIn, session: SessionDep) -> SignupOut:
+    user = service.signup_user(session, body)
+    return SignupOut(
+        id=user.id,
+        login_id=user.login_id,
+        name=user.name,
+        role=user.role,
+        status=user.status,
+        message="회원가입 신청이 접수되었습니다. 관리자 승인 후 로그인할 수 있습니다.",
+    )
 
 
 @router.get("/me")
@@ -53,3 +68,8 @@ def create_user(body: UserCreate, session: SessionDep) -> AccountOut:
 @router.patch("/users/{user_id}", dependencies=[AdminOnly])
 def update_user(user_id: int, body: UserUpdate, session: SessionDep) -> AccountOut:
     return AccountOut.model_validate(service.update_user(session, user_id, body))
+
+
+@router.delete("/users/{user_id}", status_code=204)
+def delete_user(user_id: int, session: SessionDep, actor: Annotated[User, AdminOnly]) -> None:
+    service.delete_user(session, user_id, actor)

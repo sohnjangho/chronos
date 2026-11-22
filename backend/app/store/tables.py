@@ -16,7 +16,13 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     login_id: Mapped[str] = mapped_column(String(50), unique=True)
     name: Mapped[str] = mapped_column(String(100))
-    role: Mapped[str] = mapped_column(String(10))  # 'admin' | 'user'
+    role: Mapped[str] = mapped_column(String(10))  # 'admin' | 'user' | 'field'
+    status: Mapped[str] = mapped_column(String(20), default="active")  # 'pending' | 'active' | 'rejected' | 'disabled'
+    email: Mapped[str | None] = mapped_column(String(120), nullable=True, default=None)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True, default=None)
+    organization: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    department: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True, default=None)
     password_hash: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import Button from '../shared/ui/Button';
 import Field from '../shared/ui/Field';
 import { useSignIn } from './auth';
+import SignupModal from './SignupModal';
 import { useDetectedDevice, useDeviceMode, type DeviceMode, type ResolvedDevice } from './useIsMobile';
 
 const DETECTED_LABEL: Record<ResolvedDevice, string> = {
@@ -21,6 +22,7 @@ const LOGIN_DEVICES: { id: DeviceMode; label: string }[] = [
 export default function Login() {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
+  const [signupOpen, setSignupOpen] = useState(false);
   const { busy, error, submit } = useSignIn();
   const deviceMode = useDeviceMode((s) => s.mode);
   const setDeviceMode = useDeviceMode((s) => s.setMode);
@@ -96,11 +98,18 @@ export default function Login() {
           <Button type="submit" variant="primary" className="os-card-submit" disabled={busy}>
             들어가기
           </Button>
+          <div className="os-login-links">
+            <Button type="button" className="os-card-signup-btn" onClick={() => setSignupOpen(true)}>
+              회원가입
+            </Button>
+          </div>
           <p className="os-card-note">계정은 관리자가 만듭니다. 등급은 관리자와 사용자 두 가지입니다.</p>
         </form>
 
         <div className="os-login-foot">2026 .EXE-THON 출품작 · Liner API로 동작합니다</div>
       </div>
+
+      <SignupModal open={signupOpen} onClose={() => setSignupOpen(false)} />
 
       <div className="os-login-stage" aria-hidden="true">
         <video

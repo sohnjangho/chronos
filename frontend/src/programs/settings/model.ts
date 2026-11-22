@@ -82,11 +82,20 @@ export interface ReindexState {
   job: ReindexJob | null;
 }
 
+export type AccountStatus = 'pending' | 'active' | 'rejected' | 'disabled';
+
 export interface Account {
   id: number;
   name: string;
   role: Role;
   login_id: string;
+  status?: AccountStatus;
+  email?: string | null;
+  phone?: string | null;
+  organization?: string | null;
+  department?: string | null;
+  note?: string | null;
+  created_at?: string | null;
 }
 
 export const PROVIDERS: { value: Provider; label: string; defaultBaseUrl: string | null }[] = [

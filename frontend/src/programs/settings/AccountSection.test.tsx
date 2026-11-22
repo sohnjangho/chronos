@@ -6,7 +6,17 @@ import { renderAs, resetAll, sent } from './testKit';
 
 const ACCOUNT = { section: 'account' };
 const PASSWORD = 'fake-pass-1234';
-type Account = { id: number; name: string; role: string; login_id: string };
+type Account = {
+  id: number;
+  name: string;
+  role: string;
+  login_id: string;
+  status?: string;
+  email?: string;
+  organization?: string;
+  department?: string;
+  note?: string;
+};
 
 afterEach(resetAll);
 
@@ -81,4 +91,48 @@ test('admin can select field role (현장 관리자) when creating an account', 
   expect(sent(fetchMock, 'POST /api/auth/users')).toEqual([
     { login_id: 'site1', name: '박현장', role: 'field', password: PASSWORD },
   ]);
+});
+
+test('admin approves a pending signup applicant and can delete a non-self user account', async () => {
+  let users: Account[] = [
+    { id: 1, name: '손장호', role: 'admin', login_id: 'jhsohn', status: 'active' },
+    {
+      id: 9,
+      name: '이가입',
+      role: 'user',
+      login_id: 'lee_new',
+      status: 'pending',
+      email: 'lee@example.com',
+      organization: '크로노스',
+      department: '공정팀',
+      note: '일정 수립 담당',
+    },
+  ];
+  const { fetchMock } = renderAs('admin', ACCOUNT, {
+    '/api/auth/users': () => json(200, users),
+    'PATCH /api/auth/users/9': (init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      users = users.map((u) => (u.id === 9 ? { ...u, ...body } : u));
+      return json(200, users[1]);
+    },
+    'DELETE /api/auth/users/9': () => {
+      users = users.filter((u) => u.id !== 9);
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  const queue = await screen.findByRole('region', { name: '가입 승인 대기' });
+  expect(within(queue).getByText('이가입 (lee_new)')).toBeVisible();
+  expect(within(queue).getByText(/일정 수립 담당/)).toBeVisible();
+  await userEvent.selectOptions(within(queue).getByLabelText('이가입 승인 등급'), 'field');
+  await userEvent.click(within(queue).getByRole('button', { name: '승인' }));
+
+  expect(sent(fetchMock, 'PATCH /api/auth/users/9')).toEqual([{ status: 'active', role: 'field' }]);
+  expect(await within(screen.getByRole('table', { name: '계정' })).findByText('현장 관리자')).toBeVisible();
+  expect(screen.queryByRole('region', { name: '가입 승인 대기' })).toBeNull();
+
+  await userEvent.click(screen.getByText('lee_new'));
+  const edit = screen.getByRole('region', { name: '계정 고치기' });
+  await userEvent.click(within(edit).getByRole('button', { name: '계정 삭제' }));
+  expect(sent(fetchMock, 'DELETE /api/auth/users/9')).toHaveLength(1);
 });

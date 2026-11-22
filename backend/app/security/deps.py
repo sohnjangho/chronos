@@ -20,7 +20,7 @@ def current_user(
 ) -> User:
     user_id = read_token(credentials.credentials) if credentials else None
     user = session.get(User, user_id) if user_id is not None else None
-    if user is None:
+    if user is None or user.status != "active":
         raise ApiError(401, "unauthorized", "다시 로그인해 주세요.")
     return user
 
