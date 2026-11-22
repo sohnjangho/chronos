@@ -213,3 +213,27 @@ test('tablet rail customization adds, removes, reorders via buttons and drag, pe
   expect(editIds()).not.toContain('compare');
   expect(localStorage.getItem('chronos.tabletRail.1')).toBeNull();
 });
+
+test('tablet opens primary Chat in PC-style 3-pane wide layout with collapsible side panels', async () => {
+  vi.stubGlobal('innerWidth', 1024);
+  vi.stubGlobal('innerHeight', 1366);
+  signInAsDemo('admin', '관리자', 'admin', 1);
+  const { container } = render(<App />);
+
+  const rail = screen.getByRole('navigation', { name: '태블릿 탐색' });
+  await userEvent.click(within(rail).getByRole('button', { name: '대화' }));
+
+  const threadsToggle = await screen.findByRole('button', { name: '대화 목록' });
+  expect(threadsToggle).toBeVisible();
+  expect(container.querySelector('.tab-primary .ch-root.is-wide')).not.toBeNull();
+  expect(container.querySelector('.tab-primary .ch-side')).not.toBeNull();
+  expect(container.querySelector('.tab-primary .ch-main')).not.toBeNull();
+  expect(container.querySelector('.tab-primary .ch-ctx')).not.toBeNull();
+  expect(container.querySelector('.tab-side')).toBeNull();
+
+  await userEvent.click(threadsToggle);
+  expect(container.querySelector('.tab-primary .ch-side')).toBeNull();
+
+  await userEvent.click(screen.getByRole('button', { name: '컨텍스트' }));
+  expect(container.querySelector('.tab-primary .ch-ctx')).toBeNull();
+});

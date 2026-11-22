@@ -18,6 +18,7 @@ function useWide(windowId: string): boolean {
   const win = useWindows((s) => s.wins.find((w) => w.id === windowId));
   useWindows((s) => s.insetRight);
   const zoom = useZoom((s) => zoomOf(s.levels, 'chat'));
+  if (windowId === 'tablet-main') return true;
   if (!win) return false;
   const outer = win.maximized ? workArea().w : win.w;
   return (outer * 100) / zoom >= WIDE_MIN;
@@ -98,33 +99,80 @@ function SessionBar() {
   );
 }
 
-function ConvHeader() {
+interface ConvHeaderProps {
+  isTabletMain?: boolean;
+  showThreads?: boolean;
+  onToggleThreads?: () => void;
+  showContext?: boolean;
+  onToggleContext?: () => void;
+}
+
+function ConvHeader({
+  isTabletMain,
+  showThreads,
+  onToggleThreads,
+  showContext,
+  onToggleContext,
+}: ConvHeaderProps) {
   const title = useChat((s) => sessionTitle(s.sessions, s.currentId));
   return (
     <div className="ch-head">
+      {isTabletMain && (
+        <button
+          type="button"
+          className="ch-pill"
+          aria-pressed={showThreads}
+          onClick={onToggleThreads}
+        >
+          대화 목록
+        </button>
+      )}
       <h2 className="ch-title ch-ellipsis">{title || '무엇을 도와드릴까요?'}</h2>
       <span className="ch-gap" />
+      {isTabletMain && (
+        <button
+          type="button"
+          className="ch-pill"
+          aria-pressed={showContext}
+          onClick={onToggleContext}
+        >
+          컨텍스트
+        </button>
+      )}
       <ModelPicker />
     </div>
   );
 }
 
-/** 에이전트 대화 프로그램. 창 너비 1100 이상이면 큰 화면, 미만이면 작은 화면. */
+/** 에이전트 대화 프로그램. 창 너비 1100 이상(또는 태블릿 메인)이면 큰 화면, 미만이면 작은 화면. */
 export default function Chat({ windowId, params }: ProgramProps) {
   const wide = useWide(windowId);
+  const isTabletMain = windowId === 'tablet-main';
+  const [showThreads, setShowThreads] = useState(true);
+  const [showContext, setShowContext] = useState(true);
   useFollowParams(params);
   useEffect(() => {
     void useChat.getState().loadSessions();
   }, []);
   return (
     <div className={`ch-root ${wide ? 'is-wide' : 'is-narrow'}`}>
-      {wide && <ThreadList />}
+      {wide && (!isTabletMain || showThreads) && <ThreadList />}
       <div className="ch-main">
-        {wide ? <ConvHeader /> : <SessionBar />}
+        {wide ? (
+          <ConvHeader
+            isTabletMain={isTabletMain}
+            showThreads={showThreads}
+            onToggleThreads={() => setShowThreads((v) => !v)}
+            showContext={showContext}
+            onToggleContext={() => setShowContext((v) => !v)}
+          />
+        ) : (
+          <SessionBar />
+        )}
         <Conversation />
         <Composer params={params} />
       </div>
-      {wide && <ContextPanel />}
+      {wide && (!isTabletMain || showContext) && <ContextPanel />}
     </div>
   );
 }

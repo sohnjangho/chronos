@@ -579,3 +579,48 @@ describe('Task 25 · params.ask', () => {
     expect(await screen.findByText('앞의 요청이 끝난 뒤 다시 보내 주세요.')).toBeVisible();
   });
 });
+
+describe('tablet 3-pane layout', () => {
+  test('tablet-main opens in wide 3-pane mode with collapsible panels, while tablet-side and PC < 1100 stay narrow', async () => {
+    routes['/api/chat/sessions'] = [{ ...SESSION, title: '태블릿 대화', created_at: new Date().toISOString(), pending_retries: 0 }];
+    routes[`/api/chat/sessions/${SID}`] = { ...SESSION, running: false, pending_retries: [], messages: [] };
+
+    const tabletMain = render(<Chat windowId="tablet-main" params={{}} />);
+    expect(await tabletMain.container.querySelector('.ch-root.is-wide')).not.toBeNull();
+    expect(tabletMain.container.querySelector('.ch-side')).not.toBeNull();
+    expect(tabletMain.container.querySelector('.ch-ctx')).not.toBeNull();
+
+    const threadsToggle = screen.getByRole('button', { name: '대화 목록' });
+    const contextToggle = screen.getByRole('button', { name: '컨텍스트' });
+    expect(threadsToggle).toHaveAttribute('aria-pressed', 'true');
+    expect(contextToggle).toHaveAttribute('aria-pressed', 'true');
+
+    await userEvent.click(threadsToggle);
+    expect(tabletMain.container.querySelector('.ch-side')).toBeNull();
+    expect(threadsToggle).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.click(contextToggle);
+    expect(tabletMain.container.querySelector('.ch-ctx')).toBeNull();
+    expect(contextToggle).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.click(threadsToggle);
+    await userEvent.click(contextToggle);
+    expect(tabletMain.container.querySelector('.ch-side')).not.toBeNull();
+    expect(tabletMain.container.querySelector('.ch-ctx')).not.toBeNull();
+    tabletMain.unmount();
+
+    const tabletSide = render(<Chat windowId="tablet-side" params={{}} />);
+    expect(tabletSide.container.querySelector('.ch-root.is-narrow')).not.toBeNull();
+    expect(tabletSide.container.querySelector('.ch-side')).toBeNull();
+    expect(tabletSide.container.querySelector('.ch-ctx')).toBeNull();
+    expect(screen.queryByRole('button', { name: '대화 목록' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '컨텍스트' })).toBeNull();
+    tabletSide.unmount();
+
+    placeWindow(1560);
+    const pcWide = render(<Chat windowId="w1" params={{}} />);
+    expect(pcWide.container.querySelector('.ch-root.is-wide')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '대화 목록' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '컨텍스트' })).toBeNull();
+  });
+});

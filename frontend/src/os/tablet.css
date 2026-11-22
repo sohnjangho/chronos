@@ -507,3 +507,45 @@
     flex: 0 0 46%;
   }
 }
+
+/* 태블릿 대화 프로그램: PC와 같은 3단 패널 구성을 태블릿 화면 폭에 맞게 다듬는다 */
+.tab-root .ch-root.is-wide .ch-side {
+  width: 236px;
+}
+
+.tab-root .ch-root.is-wide .ch-main {
+  min-width: 0;
+}
+
+.tab-root .ch-root.is-wide .ch-ctx {
+  width: 280px;
+}
+
+.tab-root .ch-head .ch-pill[aria-pressed='true'] {
+  background: var(--bg-selected);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+@media (max-width: 1100px) {
+  .tab-root .ch-root.is-wide .ch-side {
+    width: 204px;
+  }
+
+  .tab-root .ch-root.is-wide .ch-ctx {
+    width: 248px;
+  }
+
+  .tab-root .ch-root.is-wide .ch-head {
+    padding: 10px 14px;
+    gap: 6px;
+  }
+
+  .tab-root .ch-root.is-wide .ch-thread {
+    padding: 14px;
+  }
+
+  .tab-root .ch-root.is-wide .ch-compose-wrap {
+    padding: 8px 14px 12px;
+  }
+}
