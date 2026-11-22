@@ -1,12 +1,13 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeAll, expect, test, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
 import { json, stubFetch } from '../test-helpers';
 import App from './App';
 import Login from './Login';
 import { useSession } from './session';
 import { resetShellState } from './shellReset';
+import { useDeviceMode } from './useIsMobile';
 
 const mockLogin = (status: number, body: object) =>
   stubFetch({
@@ -18,7 +19,10 @@ const mockLogin = (status: number, body: object) =>
 
 beforeAll(() => registerPrograms());
 
+beforeEach(() => localStorage.clear());
+
 afterEach(() => {
+  localStorage.clear();
   resetShellState();
   vi.unstubAllGlobals();
   useSession.getState().logout();
@@ -106,4 +110,22 @@ test('opens signup modal, checks password confirmation, and submits pending acco
     role: 'field',
     email: 'hong1@example.com',
   });
+});
+
+test('selected screen mode persists in localStorage and survives reload on a tablet viewport', async () => {
+  vi.stubGlobal('innerWidth', 820);
+  vi.stubGlobal('innerHeight', 1180);
+  mockLogin(200, { token: 't', user: { id: 2, name: '김현장', role: 'user' } });
+  const first = render(<App />);
+  await userEvent.click(screen.getByRole('button', { name: '데스크톱' }));
+  await userEvent.type(screen.getByLabelText('아이디'), 'kim');
+  await userEvent.type(screen.getByLabelText('비밀번호'), 'pw');
+  await userEvent.click(screen.getByRole('button', { name: '들어가기' }));
+  expect(await screen.findByTestId('desktop-surface')).toBeVisible();
+  first.unmount();
+
+  useDeviceMode.getState().reset();
+  useDeviceMode.getState().load(2);
+  render(<App />);
+  expect(screen.getByTestId('desktop-surface')).toBeVisible();
 });

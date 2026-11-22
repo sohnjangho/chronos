@@ -8,13 +8,14 @@ import { useTheme } from './theme';
 import { useDeviceMode } from './useIsMobile';
 import { useZoom } from './zoom';
 
-/** 그 사람의 저장된 테마·배율·Dock·현장·에이전트 뷰 설정을 읽는다(null 이면 기본값). */
+/** 그 사람의 저장된 테마·배율·Dock·현장·에이전트 뷰·화면 형태 설정을 읽는다(null 이면 기본값). */
 function applyUser(userId: number | null) {
   useTheme.getState().load(userId);
   useZoom.getState().load(userId);
   useDock.getState().load(userId);
   useCurrentSchedule.getState().load(userId);
   useAgentView.getState().load(userId);
+  useDeviceMode.getState().load(userId);
 }
 
 let prevUserId: number | null = useSession.getState().session?.user.id ?? null;
@@ -27,10 +28,10 @@ onUserChange((next) => {
   const loginDeviceChoice = signingIn ? useDeviceMode.getState().mode : 'auto';
   prevUserId = nextId;
   resetShellState();
+  applyUser(nextId);
   if (signingIn && loginDeviceChoice !== 'auto') {
     useDeviceMode.getState().setMode(loginDeviceChoice);
   }
-  applyUser(nextId);
 });
 
 // 처음 열 때 저장된 세션이 있으면 그 사람 것을 읽는다.

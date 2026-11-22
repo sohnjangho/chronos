@@ -1,6 +1,8 @@
 // 접속 기기(스마트폰·태블릿·데스크톱) 자동 판별 및 수동 화면 형태 전환(auto | phone | tablet | desktop).
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
+import { loadPref, savePref } from './prefs';
+import { loadJson, saveJson } from './storage';
 
 export const MOBILE_MAX_W = 768;
 export const TABLET_MIN_W = 600;
@@ -9,14 +11,35 @@ export const TABLET_MAX_W = 960;
 export type DeviceMode = 'auto' | 'phone' | 'tablet' | 'desktop';
 export type ResolvedDevice = 'phone' | 'tablet' | 'desktop';
 
-interface DeviceModeState {
-  mode: DeviceMode;
-  setMode(mode: DeviceMode): void;
+const DEVICE_KEY = 'chronos.deviceMode';
+
+function validDeviceMode(raw: unknown): DeviceMode | null {
+  return raw === 'auto' || raw === 'phone' || raw === 'tablet' || raw === 'desktop' ? raw : null;
 }
 
-export const useDeviceMode = create<DeviceModeState>((set) => ({
-  mode: 'auto',
-  setMode: (mode) => set({ mode }),
+interface DeviceModeState {
+  userId: number | null;
+  mode: DeviceMode;
+  load(userId: number | null): void;
+  setMode(mode: DeviceMode): void;
+  reset(): void;
+}
+
+export const useDeviceMode = create<DeviceModeState>((set, get) => ({
+  userId: null,
+  mode: validDeviceMode(loadJson(DEVICE_KEY)) ?? 'auto',
+  load(userId) {
+    const mode = validDeviceMode(loadPref('deviceMode', userId)) ?? validDeviceMode(loadJson(DEVICE_KEY)) ?? 'auto';
+    set({ userId, mode });
+  },
+  setMode(mode) {
+    savePref('deviceMode', get().userId, mode);
+    saveJson(DEVICE_KEY, mode);
+    set({ mode });
+  },
+  reset() {
+    set({ userId: null, mode: 'auto' });
+  },
 }));
 
 /**

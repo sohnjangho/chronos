@@ -22,7 +22,7 @@ export function resetShellState(): void {
   useUiContext.getState().reset();
   useSchedulePreview.getState().reset();
   useShell.setState({ dialog: null, drawer: 'closed', palette: false, dockRevealed: false, announcement: '' });
-  useDeviceMode.setState({ mode: 'auto' });
+  useDeviceMode.getState().reset();
   useWindows.getState().reset();
   useApprovals.setState({ pending: 0 });
   useCurrentSchedule.setState({ userId: null, current: null, reloadToken: 0, newProjectModal: 'closed', creatingNewProject: false });
