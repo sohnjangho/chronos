@@ -519,4 +519,11 @@ describe('프로젝트 격리 · 일정 동기화 · 2단 스테이지 배치', 
     expect(c.y + c.h).toBeLessThanOrEqual(1080 - DOCK_RESERVE);
     expect(q.y + q.h).toBeLessThanOrEqual(1080 - DOCK_RESERVE);
   });
+
+  test('chat opened normally at 1440x900 fits strictly above the Dock', () => {
+    screenIs(1440, 900);
+    const chatId = s().open('chat');
+    const c = win(chatId);
+    expect(c.y + c.h).toBeLessThanOrEqual(900 - DOCK_RESERVE);
+  });
 });
