@@ -140,6 +140,10 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* 맨 아래 아이콘이 구분선에 딱 잘려 보이지 않게: 끝 여백 + 아래쪽 옅어짐(B5) */
+  padding-bottom: 16px;
+  -webkit-mask-image: linear-gradient(to bottom, var(--fg) calc(100% - 10px), transparent);
+  mask-image: linear-gradient(to bottom, var(--fg) calc(100% - 10px), transparent);
 }
 .tab-rail-foot {
   flex: none;
@@ -155,7 +159,7 @@
   background: transparent;
   color: var(--fg-muted);
   border-radius: var(--radius-3);
-  padding: 7px 4px;
+  padding: 5px 4px;
   display: flex;
   flex-direction: column;
   align-items: center;
