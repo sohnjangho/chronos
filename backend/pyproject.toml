@@ -21,6 +21,7 @@ dev = [
     "pytest-asyncio==1.5.0",
     "ruff==0.17.5",
 ]
+voice = ["koreaaitel[agent,gemini]==0.78.0"]  # AI 전화(음성 SDK, import 이름은 clawops) — 없어도 앱은 뜬다. 설치는 PM 이 한다
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
