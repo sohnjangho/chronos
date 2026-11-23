@@ -43,7 +43,7 @@ from sqlalchemy.orm import Session
 
 from app.core.model import Schedule
 from app.outreach import redact
-from app.outreach.harness import events
+from app.outreach.harness import events, facts
 from app.outreach.harness.review_dates import (
     _DATED,
     _LONE,
@@ -59,10 +59,8 @@ from app.outreach.harness.types import (
     Scope,
 )
 from app.store import outreach, schedules
-from app.store.tables import FieldItem, ScheduleRecord
+from app.store.tables import ScheduleRecord
 from app.store.tables_outreach import (
-    Contact,
-    ContactCompany,
     ContactReport,
     OutreachCall,
     OutreachMessage,
@@ -78,8 +76,7 @@ MAX_QUOTE_CHARS = 300  # 근거 말. 넘으면 못 들은 것
 MAX_ANSWERS = MAX_REPORTS = 200  # 답·보고. 넘는 것은 못 들은 것
 MAX_TOOL_VALUES, MAX_TOOL_DEPTH = 5000, 6  # 도구 결과에서 읽는 값의 수·겹. 넘는 것은 근거가 아니다
 MAX_SCHEDULES, MAX_NAMES = 200, 20_000  # 이름을 읽는 일정·작업 수. 넘으면 이름 깃발
-MAX_LINKED_ROWS = 5000  # 연결된 작업을 찾는 메시지·통화 줄(새것부터). 넘으면 옛 연결은 허용이 아니다
-MAX_SPANS = 1000  # 이름이 나온 자리를 세는 수
+MAX_SPANS = 1000  # 이름이 나온 자리를 세는 수. 넘으면 이름 깃발(다 견주지 못함)
 MIN_NAME = 4
 HEARD_RATIO = 0.85
 TAIL_WORDS = 4  # 맞은 말 뒤로 뒤집는 말을 찾는 낱말 수
@@ -135,6 +132,10 @@ _TURN = re.compile(r"않|없|못|불가|어렵|어려|힘들|힘듭|힘든|힘�
                    r"|글쎄|봐야|냐|^안$|^안(?:되|돼|됩|될|됨|됐|하|합|해|했|할|가|갑|갔|와|옵|왔|오)"
                    r"|(?:면|지|지는|지도|지만)$")  # 뒤집는 말 · 모른다는 말 · 조건과 바람(「가능하면」「가능할지」「가능하지만」)
 _SOFT = frozenset("은는이을를에의도로요다니습합함입임네죠해하됩돼되음")  # 비슷한 줄에서 달라도 되는 글자(조사·끝)
+_HEDGE = re.compile(  # 이 말이 든 상대 줄은 근거가 아니다(흐린 말·전해 들은 말·우리 말 되받기·지난 일·뒤집음)
+    r"수도\s*있|수도\s*없|지도\s*몰|지도\s*모르|아마|혹시|듯|것\s*같|거\s*같|아닐|아니면|무리|거짓"
+    r"|(?:다|라|냐)고|대요|(?<!그)래요|다더|라더|다던|라던|던데|더라|답니다|(?<!바)랍니다|다네|라네|다며|라며"
+    r"|었었|았었|였었|했었|확인해\s*보|알아보|여쭤보|물어보")
 
 
 @dataclass(frozen=True)
@@ -150,9 +151,10 @@ class _Line:
 
 
 def _line(raw: str) -> _Line | None:
+    """상대 말 한 줄. 낱말이 없거나 흐린 말(_HEDGE)이 든 줄은 None — 근거가 아니다."""
     text = _norm(redact.hide_phones(raw))
     found = list(_WORD.finditer(text))
-    if not found:
+    if not found or _HEDGE.search(text):
         return None
     words = tuple(m.group() for m in found)
     gaps = tuple(text[m.end(): after.start()] for m, after in pairwise(found)) + (text[found[-1].end():],)
@@ -319,11 +321,6 @@ def _money(text: str) -> int:
 
 # ── 작업 이름 ────────────────────────────────────────────────────────
 
-_TRADE_SPLIT = re.compile(r"[\s,，/·・ㆍ‧|;()]+")
-_MILESTONES = ("start_ms", "finish_ms")
-_MIN_TRADE_WORD = 2
-
-
 def _plain(text: str) -> str:
     return "".join(unicodedata.normalize("NFC", text).casefold().split())
 
@@ -333,57 +330,14 @@ def _long(name: str) -> bool:
     return len(_plain(name)) >= MIN_NAME
 
 
-def _linked(session: Session, schedule_id: int, contact_ids: Collection[int]) -> set[str]:
-    """그 일정의 그 연락처들과 주고받은 메시지·통화, 거기 달린 현장 항목에 연결된 작업 id."""
-    people = list(session.scalars(select(Contact.id).where(Contact.schedule_id == schedule_id, Contact.id.in_(contact_ids))))
-    if not people:
-        return set()
-    found: set[str] = set()
-    items: set[int] = set()
-    for model in (OutreachMessage, OutreachCall):
-        rows = session.execute(select(model.activity_id, model.field_item_id).where(
-            model.schedule_id == schedule_id, model.contact_id.in_(people)).order_by(model.id.desc()).limit(MAX_LINKED_ROWS))
-        for activity_id, field_item_id in rows:
-            found.update([activity_id] if activity_id else [])
-            items.update([field_item_id] if field_item_id is not None else [])
-    if items:
-        found.update(session.scalars(select(FieldItem.activity_id).where(
-            FieldItem.schedule_id == schedule_id, FieldItem.id.in_(items))))
-    return found
-
-
-def _allowed_ids(session: Session, schedule_id: int, schedule: Schedule, company_ids: Collection[int],
-                 contact_ids: Collection[int]) -> set[str]:
-    """그 일정에서 그 협력사·그 사람에게 말해도 되는 작업 id — **도구의 facts.allowed_for 와 같은 규칙을 옮겨 적은 것**
-    (그 모듈은 Task 67 이 쓰는 중이라 불러오지 않았다. 시험 test_allowed_names_mean_the_same_as_in_the_tools 가 둘을 견준다):
-    그 사람의 메시지·통화·현장 항목에 연결된 작업 + 이름이나 WBS 이름(윗 WBS 포함)에 협력사 공종 말이 든 작업 + 마일스톤.
-    그 일정의 협력사가 없으면 빈 집합."""
-    trades = list(session.scalars(select(ContactCompany.trade).where(
-        ContactCompany.schedule_id == schedule_id, ContactCompany.id.in_(company_ids))))
-    if not trades:
-        return set()
-    words = [word for word in {_plain(part) for trade in trades for part in _TRADE_SPLIT.split(trade)}
-             if len(word) >= _MIN_TRADE_WORD]
-    nodes = {node.code: node for node in schedule.wbs}
-    out = _linked(session, schedule_id, contact_ids) & {activity.id for activity in schedule.activities}
-    for activity in schedule.activities:
-        names, code = [activity.name], activity.wbs
-        while code in nodes and len(names) <= len(nodes) + 1:
-            names.append(nodes[code].name)
-            code = nodes[code].parent
-        text = _plain(" ".join(names))
-        if activity.kind in _MILESTONES or any(word in text for word in words):
-            out.add(activity.id)
-    return out
-
-
-def _allowed(session: Session, schedule_id: int, schedule: Schedule, scope: Scope) -> set[str] | None:
-    """그 일정에서 이 범위에 허용된 작업 id(None 은 전부). 범위 밖 일정·사실 수준 none(현장을 고르기 전 포함)은 없음."""
+def _allowed(session: Session, schedule_id: int, scope: Scope) -> set[str] | None:
+    """그 일정에서 이 범위에 허용된 작업 id(None 은 전부). 범위 밖 일정·사실 수준 none(현장을 고르기 전 포함)은 없음.
+    "trade" 의 규칙은 도구와 하나다 — facts.allowed_for 를 그대로 부른다."""
     if schedule_id not in scope.schedule_ids or scope.facts == "none":
         return set()
     if scope.facts == "all":
         return None
-    return _allowed_ids(session, schedule_id, schedule, scope.company_ids, scope.contact_ids)
+    return facts.allowed_for(session, schedule_id, scope.company_ids, scope.contact_ids)
 
 
 class _Book:
@@ -418,7 +372,7 @@ def _scope_names(session: Session, scope: Scope, row_schedule: int | None) -> tu
     for schedule_id in ids[:MAX_SCHEDULES]:
         if (schedule := book.schedule(schedule_id)) is None:
             continue
-        ok = _allowed(session, schedule_id, schedule, scope)
+        ok = _allowed(session, schedule_id, scope)
         for activity_id, name in book.names(schedule):
             (allowed if ok is None or activity_id in ok else barred).add(name)
     return allowed, barred - allowed, book.full and len(ids) <= MAX_SCHEDULES
@@ -437,26 +391,30 @@ def _every_name(session: Session) -> tuple[set[str], bool]:
     return names, book.full and len(rows) <= MAX_SCHEDULES
 
 
-def _spans(text: str, names: Collection[str]) -> list[tuple[int, int]]:
-    """그 이름들이 나온 자리(MAX_SPANS 개까지)."""
+def _spans(text: str, names: Collection[str]) -> tuple[list[tuple[int, int]], bool]:
+    """(그 이름들이 나온 자리 — MAX_SPANS 개까지, 다 찾았는가)."""
     out: list[tuple[int, int]] = []
     for name in names:
         at = text.find(name)
-        while at != -1 and len(out) < MAX_SPANS:
+        while at != -1:
+            if len(out) >= MAX_SPANS:
+                return out, False
             out.append((at, at + len(name)))
             at = text.find(name, at + 1)
-    return out
+    return out, True
 
 
-def _named(text: str, barred: Collection[str], allowed: Collection[str] = ()) -> int:
-    """범위 밖 이름이 나온 수. 허용된 이름 **안**에 든 것(「가람동 전기 배선 철근 관통부」 속의 「전기 배선」)은 세지 않고,
-    허용된 이름을 품은 더 긴 범위 밖 이름은 센다. 서로 품은 자리는 긴 것 하나로 센다."""
-    hits = _spans(text, barred)
+def _named(text: str, barred: Collection[str], allowed: Collection[str] = ()) -> tuple[int, bool]:
+    """(범위 밖 이름이 나온 수, 다 견주었는가). 허용된 이름 **안**에 든 것(「가람동 전기 배선 철근 관통부」 속의 「전기 배선」)은
+    세지 않고, 허용된 이름을 품은 더 긴 범위 밖 이름은 센다. 서로 품은 자리는 긴 것 하나로 센다. 자리가 MAX_SPANS 를
+    넘으면(허용된 이름 쪽이어도) 다 견주지 못한 것이다."""
+    hits, whole = _spans(text, barred)
     if hits and allowed:
-        free = _spans(text, allowed)
+        free, full = _spans(text, allowed)
+        whole = whole and full
         hits = [hit for hit in hits if not any(a <= hit[0] and hit[1] <= b for a, b in free)]
     unique = set(hits)
-    return sum(1 for hit in unique if not any(o != hit and o[0] <= hit[0] and hit[1] <= o[1] for o in unique))
+    return sum(1 for hit in unique if not any(o != hit and o[0] <= hit[0] and hit[1] <= o[1] for o in unique)), whole
 
 
 # ── check ────────────────────────────────────────────────────────────
@@ -466,9 +424,10 @@ def _said_text(said: object) -> tuple[str, bool]:
     """(견줄 글 — 줄을 줄바꿈으로 이어 _norm, 다 담았는가). 글이 아닌 줄·상한을 넘는 줄 수·글자 수가 있으면 거짓."""
     lines = _listed(said)
     kept = [line[:MAX_LINE_CHARS] for line in lines[:MAX_SAID_LINES] if isinstance(line, str)]
+    joined = "\n".join(kept)  # 견주는 것은 이어 붙인 글이므로 상한도 이어 붙인 길이로 본다(줄바꿈 포함)
     whole = (isinstance(said, str | list | tuple) and len(kept) == len(lines)
-             and all(len(line) <= MAX_LINE_CHARS for line in lines) and sum(map(len, kept)) <= MAX_TEXT_CHARS)
-    return _norm("\n".join(kept)[:MAX_TEXT_CHARS]), whole
+             and all(len(line) <= MAX_LINE_CHARS for line in lines) and len(joined) <= MAX_TEXT_CHARS)
+    return _norm(joined[:MAX_TEXT_CHARS]), whole
 
 
 def _mark_answers(row: OutreachMessage | OutreachCall, peers: list[_Line]) -> int:
@@ -534,11 +493,13 @@ def check(session: Session, ref: Ref, *, said: list[str], peer_lines: list[str],
     counts = {"unsupported_date": _unsupported_dates(text, tool_results, today), "money_said": _money(text)}
     read = {}
     if flat or not whole:
-        allowed, barred, read["out_of_scope_said"] = _scope_names(session, scope, row.schedule_id)
-        counts["out_of_scope_said"] = _named(flat, barred, allowed)
+        allowed, barred, full = _scope_names(session, scope, row.schedule_id)
+        counts["out_of_scope_said"], seen = _named(flat, barred, allowed)
+        read["out_of_scope_said"] = full and seen
         if _strict(scope, caller_class):
-            names, read["disclosed_to_unknown"] = _every_name(session)
-            counts["disclosed_to_unknown"] = _named(flat, names)
+            names, full = _every_name(session)
+            counts["disclosed_to_unknown"], seen = _named(flat, names)
+            read["disclosed_to_unknown"] = full and seen
     for flag, count in counts.items():
         if not whole or not read.get(flag, True):
             notes[flag] = UNCHECKED

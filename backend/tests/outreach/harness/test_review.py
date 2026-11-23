@@ -4,7 +4,6 @@
 읽을 수 없는 날짜 꼴). 번호·이름·회사는 모두 가상이다(이름표의 SENTINEL_PHONE).
 """
 
-import importlib
 import time
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -15,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import db
 from app.core.model import Activity, CalendarSpec, Relation, Schedule, WbsNode
-from app.outreach.harness import events, review
+from app.outreach.harness import events, facts, review
 from app.outreach.harness.review import Verdict, check, heard
 from app.outreach.harness.types import REVIEW_FLAGS, Candidate, Ref, Scope
 from app.store import outreach as store
@@ -125,7 +124,7 @@ def test_heard_exact_and_loose():
     ("일요일은 안 됩니다", "아뇨 일요일은 안 됩니다"),  # 안 된다는 말을 그대로 든 근거
     ("토요일", "토요일까지 갑니다"),  # 조사로 끝난 말은 뒤집는 말이 아니다
     ("번호는 [번호]", "제 번호는 010-0000-0199 입니다"),  # 저장할 때 가린 근거 말과 가리지 않은 상대 글
-    ("내일 오전에 자재가 들어온다고 합니다", "내일 오전에 자재가 들어온다고 함니다"),  # 받아쓰기의 끝 한 글자
+    ("내일 오전 자재 반입입니다", "내일 오전 자재 반입임니다"),  # 받아쓰기의 끝 한 글자
 ])
 def test_heard_survives_spacing_punctuation_and_particles(quote, line):
     assert heard(quote, ["여보세요", line, "네 들어가세요"])
@@ -161,6 +160,24 @@ def test_heard_survives_spacing_punctuation_and_particles(quote, line):
     ("…?!", "네 토요일은 6명 가능합니다"),
 ])
 def test_heard_refuses_what_the_other_party_did_not_say(quote, line):
+    assert not heard(quote, [line])
+
+
+@pytest.mark.parametrize(("quote", "line"), [
+    ("가능", "가능할 수도 있고 아닐 수도 있어요"),  # 흐린 말
+    ("토요일 6명 가능", "토요일 6명 가능하다고 들었는데 확인해 볼게요"),  # 남에게 들은 말
+    ("6명 가능", "6명 가능했었는데 이제는 무리예요"),  # 지난 일·뒤집힘
+    ("토요일 6명", "토요일 6명이라고 하셨죠"),  # 우리 말을 되받음
+    ("가능합니다", "가능합니다 라고 하면 거짓말이고요"),
+    ("내일 오전에 자재가 들어온다고 합니다", "내일 오전에 자재가 들어온다고 합니다"),  # 전해 들은 말은 근거 말이 같아도
+    ("6명 가능합니다", "아마 6명 가능합니다"),
+    ("6명 가능합니다", "6명 가능할 것 같습니다"),
+    ("6명 가능", "6명 가능할 것 같아요"),
+    ("6명 가능", "6명 가능했었어요"),
+    ("6명 가능", "6명 가능하대요"),
+    ("6명 가능", "6명 가능하던데요"),
+])
+def test_hedged_or_second_hand_speech_is_not_support(quote, line):
     assert not heard(quote, [line])
 
 
@@ -289,7 +306,7 @@ def test_dates_from_nowhere_are_flagged_in_any_form(session, said):
 
 
 @pytest.mark.parametrize("said", [
-    "11월 28", "11월28에", "11-28", "20261128", "28/11", "11/28~12/1", "12월 초", "12.1", "11월 하순",
+    "11월 28", "11월28에", "11-28", "20261128", "28/11", "11/28~12/1", "12월 초", "12.1", "11월 하순", "11. 28", "11 . 28", "11 .28",
 ])
 def test_more_date_forms_the_tools_gave_are_supported(session, said):
     assert run(session, row(session), [f"시작은 {said} 입니다"], tools=FACT) == Verdict(True, [])
@@ -298,11 +315,18 @@ def test_more_date_forms_the_tools_gave_are_supported(session, said):
 @pytest.mark.parametrize("said", [
     "11월 30", "11월30에", "11-30", "20261130", "30/11", "29/11", "11/28~30", "11월 28~30", "12.1~3", "11월 초", "11월 중순",
     "이번 달 초", "이번 달 30", "12월 하순", "낼", "담주 금요일", "낼모레", "당일", "이튿날", "다음날", "전날", "D-3", "디데이", "어린이날", "공휴일",
-    "12월 첫째 주", "11월 마지막 주",
+    "12월 첫째 주", "11월 마지막 주", "11. 29", "11 . 29", "11 .29", "11. 29 타설",
 ])
 def test_date_like_text_the_reader_used_to_skip_is_not_clean(session, said):
     """읽지 못하던 날짜 꼴(「일」 없는 날·줄표·붙여 쓴 날·날/달 차례·뒤 범위·입말·다른 날에 기댄 말)도 깨끗함이 아니다."""
     assert run(session, row(session), [f"시작은 {said} 입니다"], tools=FACT) == Verdict(False, ["unsupported_date"])
+
+
+def test_dot_and_space_date_is_read_not_only_its_weekday(session):
+    tools = [*FACT, {"when": "11월 23일"}]  # 11월 23일은 월요일
+
+    assert run(session, row(session), ["11. 30(월) 타설"], tools=tools) == Verdict(False, ["unsupported_date"])
+    assert run(session, row(session), ["11. 23(월) 타설"], tools=tools) == Verdict(True, [])
 
 
 def test_colloquial_relative_words_are_read_as_their_day(session):
@@ -494,21 +518,21 @@ def test_closed_scope_still_checks_the_rows_schedule(session):
     assert got == Verdict(False, ["out_of_scope_said", "disclosed_to_unknown"])
 
 
-def test_allowed_names_mean_the_same_as_in_the_tools(session):
-    """도구(Task 67 facts.allowed_for)와 같은 집합이어야 한다. 그 모듈이 없거나 이름이 바뀌었으면 건너뛴다."""
-    try:
-        allowed_for = importlib.import_module("app.outreach.harness.facts").allowed_for
-    except Exception:  # noqa: BLE001 — 다른 작업이 쓰는 중인 파일
-        pytest.skip("facts.allowed_for 를 불러올 수 없음")
+def test_allowed_names_come_from_the_tools_rule(session, monkeypatch):
+    """허용 규칙은 도구의 facts.allowed_for 하나뿐이다 — 그것이 주는 집합이 그대로 허용이다."""
     w = world(session)
-    row(session, to=w.park, activity_id="W")
-    schedule = review.schedules.load(session, w.a)[0]
+    asked = []
 
-    mine = review._allowed_ids(session, w.a, schedule, w.scope.company_ids, w.scope.contact_ids)
+    def fake(session, schedule_id, company_ids, contact_ids):
+        asked.append((schedule_id, tuple(company_ids), tuple(contact_ids)))
+        return {"E"}
 
-    assert mine == allowed_for(session, w.a, w.scope.company_ids, w.scope.contact_ids) == {"R", "P", "W", "Z"}
-    assert review._allowed_ids(session, w.b, review.schedules.load(session, w.b)[0], w.scope.company_ids,
-                               w.scope.contact_ids) == allowed_for(session, w.b, w.scope.company_ids, w.scope.contact_ids) == set()
+    monkeypatch.setattr(facts, "allowed_for", fake)
+
+    assert run(session, row(session, to=w.park), ["가람동 전기 배선은 진행 중입니다"], scope=w.scope) == Verdict(True, [])
+    assert run(session, row(session, to=w.park), ["가람동 철근 배근은 진행 중입니다"], scope=w.scope) == Verdict(
+        False, ["out_of_scope_said"])
+    assert asked[0] == (w.a, w.scope.company_ids, w.scope.contact_ids)
 
 
 @pytest.mark.parametrize("said", [
@@ -582,6 +606,25 @@ def test_class_is_checked_and_the_stricter_of_the_two_wins(session):
         run(session, row(session), said, scope=w.scope, caller_class="관리자")
     with pytest.raises(TypeError):
         check(session, row(session), said=said, peer_lines=PEER, tool_results=[], scope=None, now=NOW)
+
+
+def test_name_places_beyond_the_cap_are_not_clean(session):
+    """허용된 이름이 자리 상한(MAX_SPANS)을 먼저 다 써도, 그 뒤의 범위 밖 이름을 놓치고 깨끗하다고 하지 않는다."""
+    w = world(session)
+    said = ["가람동전기배선철근관통부" * 100] * (review.MAX_SPANS // 100) + ["전기배선"]
+    ref = row(session, to=w.park)
+
+    assert run(session, ref, said, scope=w.scope) == Verdict(False, ["out_of_scope_said"])
+    assert [event["detail"] for event in events.of(session, ref)] == ["범위 밖 작업 이름을 말함 · 상한을 넘어 다 견주지 못함"]
+
+
+def test_name_places_beyond_the_cap_to_unknown_are_marked_unchecked(session):
+    world(session)
+    ref = row(session)
+
+    assert run(session, ref, ["가람현장" * 400] * 3) == Verdict(False, ["disclosed_to_unknown"])
+    assert [event["detail"] for event in events.of(session, ref)] == [
+        "모르는 상대에게 일정·작업 이름을 말함 · 상한을 넘어 다 견주지 못함"]
 
 
 def test_too_many_names_to_compare_is_not_clean(session, monkeypatch):
@@ -681,6 +724,17 @@ def test_missing_row_is_an_error_not_a_clean_verdict(session):
 
 
 # ── 상한 ─────────────────────────────────────────────────────────────
+
+
+def test_said_cut_by_the_joined_length_is_not_clean(session):
+    """줄 글자 수의 합은 상한 안이어도 줄바꿈을 더해 잘리면 끝 줄은 견주지 못한 것이다."""
+    w = world(session)
+    said = ["네" * 100] * (review.MAX_SAID_LINES - 1) + ["가람동 전기 배선 11월 29일 5만원"]
+    assert sum(map(len, said)) <= review.MAX_TEXT_CHARS < len("\n".join(said))
+
+    got = run(session, row(session, to=w.park), said, scope=w.scope)
+
+    assert got == Verdict(False, ["unsupported_date", "out_of_scope_said", "money_said"])
 
 
 def test_said_beyond_the_caps_is_not_clean(session):

@@ -183,7 +183,7 @@ _READERS: tuple[tuple[re.Pattern, Callable[[re.Match, date], _Found]], ...] = (
                 rf"(?:(?<![\d.])(?P<m>{_D})\s*|{_LONE}(?P<km>십일|십이|일|이|삼|사|오|유|육|칠|팔|구|시|십))월(?!요일)"
                 rf"(?:\s*{_DAYS}|\s*{_NDAYS}|{_PART})?"), _korean),
     (re.compile(rf"{_BARE}(?P<m>{_D})\s*/\s*(?P<d>{_D}){_TAIL}(?![\d/])"), partial(_month_day, swap=True)),
-    (re.compile(rf"{_BARE}(?P<m>{_D})\.(?P<d>{_D}){_TAIL}(?!\d)(?!\.\d)(?!\.?\s*(?:{_UNIT}))"), _month_day),
+    (re.compile(rf"{_BARE}(?P<m>{_D})\s*\.\s*(?P<d>{_D}){_TAIL}(?!\d)(?!\.\d)(?!\.?\s*(?:{_UNIT}))"), _month_day),
     (re.compile(rf"{_BARE}(?P<m>{_D})\.\s+(?P<d>{_D})\.(?!\d)"), _month_day),
     # 여기부터는 said 만 — 도구 결과에서는 읽지 않는다(_DATED)
     (re.compile(rf"{_BARE}(?P<m>{_D})[\-–](?P<d>{_D}){_TAIL}(?![\d\-–])(?!\s*(?:{_UNIT}|일))"), partial(_month_day, swap=True)),
