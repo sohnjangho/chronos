@@ -70,7 +70,7 @@ test('renders MobileShell on <=768px and switches tabs, schedule sub-tabs, and m
   expect(within(nav).getByRole('button', { name: /자료함/ })).toHaveAttribute('aria-current', 'page');
 
   // 화면 형태 전환(스마트폰 → 태블릿 전용 셸 → PC 창)
-  await userEvent.click(screen.getByRole('button', { name: '태블릿' }));
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: '화면 형태' }), 'tablet');
   const tablet = screen.getByTestId('tablet-shell');
   expect(tablet).toBeVisible();
   expect(tablet).toHaveAttribute('data-device', 'tablet');
@@ -89,6 +89,17 @@ test('renders MobileShell on <=768px and switches tabs, schedule sub-tabs, and m
 
   await userEvent.click(screen.getByRole('button', { name: 'PC 창' }));
   expect(screen.getByTestId('desktop-surface')).toBeVisible();
+});
+
+test('phone header condenses the device switch into one 화면 형태 menu so 나가기 fits (B1)', async () => {
+  useDeviceMode.getState().setMode('auto');
+  render(<App />);
+  const head = screen.getByTestId('mobile-shell').querySelector('header') as HTMLElement;
+  expect(within(head).queryByRole('button', { name: '태블릿' })).toBeNull();
+  expect(within(head).getByRole('button', { name: '나가기' })).toBeVisible();
+  const pick = within(head).getByRole('combobox', { name: '화면 형태' });
+  await userEvent.selectOptions(pick, 'tablet');
+  expect(screen.getByTestId('tablet-shell')).toBeVisible();
 });
 
 test('auto device detection classifies phone, tablet, and desktop by User-Agent, touch, and viewport', () => {

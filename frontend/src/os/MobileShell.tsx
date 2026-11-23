@@ -57,6 +57,23 @@ function MoreGrid({ list, onPick }: { list: ProgramManifest[]; onPick(id: string
 function DeviceSwitch({ device }: { device: 'phone' | 'tablet' }) {
   const mode = useDeviceMode((s) => s.mode);
   const setMode = useDeviceMode((s) => s.setMode);
+  if (device === 'phone') {
+    // 폰 폭에서는 4칸 버튼 대신 한 칸 메뉴로 줄여 「나가기」가 잘리지 않게 한다(B1).
+    return (
+      <select
+        className="mob-dev-select"
+        aria-label="화면 형태"
+        value={mode}
+        title="현재 자동 감지: 스마트폰"
+        onChange={(e) => setMode(e.target.value as typeof mode)}
+      >
+        <option value="auto">자동</option>
+        <option value="phone">폰</option>
+        <option value="tablet">태블릿</option>
+        <option value="desktop">PC 창</option>
+      </select>
+    );
+  }
   return (
     <div className="mob-dev-switch" role="group" aria-label="화면 형태">
       <button

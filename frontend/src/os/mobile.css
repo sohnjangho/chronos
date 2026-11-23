@@ -86,8 +86,21 @@
   color: var(--on-accent);
   font-weight: 700;
 }
+.mob-dev-select {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 6px;
+  border-radius: var(--radius-2);
+  border: 1px solid var(--on-topbar-line);
+  background: var(--on-topbar-fill);
+  color: var(--on-topbar-fg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-12);
+  cursor: pointer;
+}
 @media (max-width: 440px) {
-  .mob-dev-switch { display: none; }
+  .mob-dev-switch,
+  .mob-dev-select { display: none; }
 }
 
 .mob-subbar {
@@ -299,11 +312,13 @@
   gap: 8px;
 }
 .mob-root[data-device="phone"] .mob-head-right {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   gap: 4px;
 }
 .mob-root[data-device="phone"] .mob-title {
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: var(--fs-16);
 }
 .mob-root[data-device="phone"] .mob-icon-btn {
@@ -321,7 +336,8 @@
   flex: none;
 }
 .mob-root[data-device="phone"] .os-site-btn {
-  max-width: 132px;
+  min-width: 0;
+  max-width: 112px;
   min-height: 40px;
   padding: 6px 10px;
   font-size: var(--fs-13);
