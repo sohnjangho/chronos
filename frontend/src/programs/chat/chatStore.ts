@@ -341,6 +341,11 @@ useAiChat.subscribe((s, prev) => {
   if (prev.busy && !s.busy && s.sessionId !== null && s.sessionId === currentId && !threads[currentId]?.streaming) void openSession(currentId);
 });
 
+// 다른 곳(승인함 등)에서 프로젝트가 승인되면 서버가 묶은 대화의 일정을 목록에 다시 읽어 온다.
+useCurrentSchedule.subscribe((s, prev) => {
+  if (s.reloadToken !== prev.reloadToken && useChat.getState().sessions.length > 0) void loadSessions();
+});
+
 // 사용자가 바뀌면(로그아웃 포함) 앞 사람의 대화·도는 답을 지운다.
 useSession.subscribe((s, prev) => {
   if (s.session?.user.id !== prev.session?.user.id) useChat.getState().reset();

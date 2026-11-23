@@ -44,7 +44,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 18px;
+  font-size: var(--fs-16);
   cursor: pointer;
 }
 

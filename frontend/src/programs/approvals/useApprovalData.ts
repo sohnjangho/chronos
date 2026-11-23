@@ -126,14 +126,9 @@ export function useApprovalData(paramId: string | undefined) {
       setNotice({ tone: 'ok', text: afterDecision(decision, out, id) });
       if (decision === 'approve' && typeof out.schedule_id === 'number') {
         const cs = useCurrentSchedule.getState();
-        cs.bumpReload();
+        cs.bumpReload(); // 대화 목록도 이 신호로 서버가 묶은 일정을 다시 읽는다(다른 프로그램은 import 하지 않는다).
         const name = schedules?.get(out.schedule_id)?.name ?? currentDetail.title;
         cs.setCurrent({ id: out.schedule_id, name });
-        if (typeof out.chat_session_id === 'number') {
-          const chatId = out.chat_session_id;
-          const sid = out.schedule_id;
-          void import('../chat/chatStore').then(({ useChat }) => useChat.getState().bindSessionSchedule(chatId, sid));
-        }
       }
       if (decision === 'approve' || decision === 'reject') {
         void import('../../os/agentView').then(({ useAgentView }) =>

@@ -6,5 +6,6 @@ test('첫 화면에 ChronOS 를 그린다', async () => {
   await act(async () => {
     await import('./main');
   });
-  expect(screen.getByText('ChronOS')).toBeInTheDocument();
+  // 로그인 화면의 브랜드는 로고 동영상이라 글자 대신 이름표로 그린다.
+  expect(screen.getByLabelText(/^ChronOS/)).toBeInTheDocument();
 });

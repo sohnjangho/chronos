@@ -27,7 +27,8 @@ const rule = (sel: string) => {
 };
 
 test('the Plan bar outline reaches 3:1 against every row background in both themes', () => {
-  const stroke = /stroke:\s*var\((--[\w-]+)\)/.exec(rule('.gantt-bar'))?.[1];
+  // 간트 탭은 사용자가 고른 층 색(--gt-plan)을 덮어쓴다. 그 밖(내보내기 등)에서는 뒤의 토큰이 테두리다.
+  const stroke = /stroke:\s*(?:var\(--gt-plan,\s*)?var\((--[\w-]+)\)/.exec(rule('.gantt-bar'))?.[1];
   expect(stroke).toBeTruthy();
   const light = block(':root');
   const dark = block(':root[data-theme="dark"]');

@@ -388,6 +388,14 @@ test('the thread list lists sessions by day, searches, and starts a new chat wit
   expect(callsTo('/api/chat/sessions', 'POST')).toHaveLength(0);
 });
 
+test('a project approved elsewhere re-reads the session list so the chat shows its bound schedule', async () => {
+  routes['/api/chat/sessions'] = [{ id: 4, title: '5층 사무동 공정표 만들기', schedule_id: null, created_at: new Date().toISOString(), pending_retries: 0 }];
+  await act(() => useChat.getState().loadSessions());
+  routes['/api/chat/sessions'] = [{ id: 4, title: '5층 사무동 공정표 만들기', schedule_id: 9, created_at: new Date().toISOString(), pending_retries: 0 }];
+  act(() => useCurrentSchedule.getState().bumpReload());
+  await waitFor(() => expect(useChat.getState().sessions[0].schedule_id).toBe(9));
+});
+
 test('a small window picks a conversation from the top button', async () => {
   routes['/api/chat/sessions'] = [{ id: 4, title: '5층 사무동 공정표 만들기', schedule_id: 1, created_at: new Date().toISOString(), pending_retries: 0 }];
   routes['/api/chat/sessions/4'] = { ...SESSION, id: 4, running: false, pending_retries: [], messages: [{ id: 1, role: 'user', content: { kind: 'text', text: '공정표 만들어 줘' }, created_at: 'x' }] };

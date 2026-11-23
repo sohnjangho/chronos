@@ -30,7 +30,9 @@ test('Noto Sans KR is loaded from Google Fonts and is the font token', () => {
 
 test('shell styles take colors, font sizes and fonts only from tokens', () => {
   const files = Object.entries(shellCss).filter(([f]) => !f.endsWith('tokens.css'));
-  expect(files.map(([f]) => f).sort()).toEqual(['./dock.css', './menubar.css', './mobile.css', './os.css', './overlays.css', './tablet.css']);
+  expect(files.map(([f]) => f).sort()).toEqual([
+    './dock.css', './menubar.css', './mobile.css', './newProjectModal.css', './os.css', './overlays.css', './tablet.css', './workflowRibbon.css',
+  ]);
   for (const [file, css] of [...files, ['ui.css', uiCss] as const]) {
     expect(css.length, file).toBeGreaterThan(0);
     expect(css, file).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
