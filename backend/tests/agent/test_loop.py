@@ -1147,6 +1147,30 @@ async def test_repeated_role_refusals_say_the_account_cannot_do_it(run, session,
     assert err["message"] == f"「stubborn」 — 이 계정으로는 할 수 없는 요청이라 거듭 거절되어 멈췄습니다. 까닭: {FIELD_READ_ONLY_MESSAGE}"
 
 
+async def test_a_successful_write_lets_the_failed_call_run_again(run, session):
+    """I1(리뷰): X 실패 · X 실패 · Y(쓰기, 원인을 고침) 성공 · X — 세 번째 X 는 실행해 성공한다(되풀이 실패로 끊지 않는다).
+    예: 일정이 없어 읽기가 두 번 실패 → 프로젝트를 만든 뒤 다시 읽기."""
+    state = {"ready": False, "reads": 0}
+
+    def needs(args: Empty, ctx) -> Empty:
+        state["reads"] += 1
+        if not state["ready"]:
+            raise ToolError("대상 일정이 없습니다.")
+        return Empty()
+
+    def fixer(args: Empty, ctx) -> Empty:
+        state["ready"] = True
+        return Empty()
+
+    with registered("needs", needs), registered("fixer", fixer, mutates=True):
+        llm = ScriptedLlm([calls("needs", {}), calls("needs", {}, call_id="c2"), calls("fixer", {}, call_id="c3"),
+                           calls("needs", {}, call_id="c4"), reply("읽었습니다.")])
+        ev = await run(llm, "읽어 줘")
+    assert state["reads"] == 3
+    assert _tool_ends(ev) == [("needs", False), ("needs", False), ("fixer", True), ("needs", True)]
+    assert not any(e.type == "error" for e in ev)
+
+
 async def test_a_call_with_changed_arguments_still_runs(run, session, failing_tool):
     llm = ScriptedLlm([
         calls("stubborn", {"n": 0}),

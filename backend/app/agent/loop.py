@@ -187,6 +187,7 @@ class _Turn:
         self.outcome = DONE
         self.messages: list[dict] = []
         self.programs = {s.name: s.program for s in registry.list_tools(enabled_only=False)}
+        self.mutating = {s.name for s in registry.list_tools(enabled_only=False) if s.mutates}  # 쓰기 도구
         self.schedule_id: int | None = None
         self.log: WorkflowLog | None = None
         self.calls_before: int | None = None  # 턴을 시작할 때의 마지막 llm_calls.id
@@ -521,10 +522,14 @@ class _Turn:
         return call.name, json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)
 
     def note_failure(self, call: _Call, result: registry.ToolResult) -> None:
-        """실행한 호출의 결과를 센다: 같은 (도구, 인자)가 같은 오류로 연달아 실패한 수. 성공하면 지운다."""
+        """실행한 호출의 결과를 센다: 같은 (도구, 인자)가 같은 오류로 연달아 실패한 수. 성공하면 지운다.
+        쓰기 도구가 성공하면 실패 원인이 바뀌었을 수 있어(예: 일정을 만든 뒤 다시 읽기) 센 것과 거절한 것을 모두 지운다."""
         key = self._call_key(call)
         if result.ok:
             self.failures.pop(key, None)
+            if call.name in self.mutating:
+                self.failures.clear()
+                self.guard_refused.clear()
             return
         error = json_safe(result.error) or ""
         last, n = self.failures.get(key, ("", 0))
