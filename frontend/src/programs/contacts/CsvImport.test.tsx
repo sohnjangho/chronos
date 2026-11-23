@@ -298,6 +298,48 @@ describe('CSV import — preview before anything is written', () => {
     expect(tableRow(5)).toBeVisible();
   });
 
+  test('in 오류만 보기 a removed error row stays as 뺌 with 되돌리기', async () => {
+    previewRows = [...MOCKUP, row({ n: 6, name: null, result: 'bad_row', code: 'missing_value', column: '이름', reason: '협력사와 이름은 비울 수 없습니다.' })];
+    await openImport();
+    const d = await pick();
+    await within(d).findByRole('table', { name: '미리 보기' });
+    await userEvent.click(within(d).getByRole('checkbox', { name: '오류만 보기 (2행)' }));
+    await userEvent.click(within(tableRow(5)).getByRole('button', { name: '5행 빼기' }));
+    await within(d).findByText(/1행 뺌/);
+    expect(within(d).getByRole('checkbox', { name: '오류만 보기 (1행)' })).toBeChecked();
+    expect(within(tableRow(5)).getByText('뺌')).toBeVisible();
+    expect(within(tableRow(5)).getByRole('button', { name: '5행 되돌리기' })).toBeEnabled();
+    expect(within(table()).getAllByRole('row')).toHaveLength(3);
+  });
+
+  test('removing the last error row in 오류만 보기 turns the filter off and shows every row', async () => {
+    await openImport();
+    const d = await pick();
+    await within(d).findByRole('table', { name: '미리 보기' });
+    await userEvent.click(within(d).getByRole('checkbox', { name: '오류만 보기 (1행)' }));
+    await userEvent.click(within(tableRow(5)).getByRole('button', { name: '5행 빼기' }));
+    await within(d).findByText(/1행 뺌/);
+    expect(within(d).getByRole('checkbox', { name: '오류만 보기 (0행)' })).not.toBeChecked();
+    expect(within(table()).getAllByRole('row')).toHaveLength(5);
+    // 되돌리면 오류가 다시 생겨도 거르개는 저절로 켜지지 않는다.
+    await userEvent.click(within(tableRow(5)).getByRole('button', { name: '5행 되돌리기' }));
+    await within(d).findByText('4행 중 2행 넣음 · 1행 건너뜀 · 1행 오류');
+    expect(within(d).getByRole('checkbox', { name: '오류만 보기 (1행)' })).not.toBeChecked();
+    expect(within(table()).getAllByRole('row')).toHaveLength(5);
+  });
+
+  test('choosing another file turns 오류만 보기 off', async () => {
+    await openImport();
+    const d = await pick();
+    await within(d).findByRole('table', { name: '미리 보기' });
+    await userEvent.click(within(d).getByRole('checkbox', { name: '오류만 보기 (1행)' }));
+    previewRows = [row({}), row({ n: 3, name: '나무심기', phone_shown: '010-****-0006' })];
+    await pick(csvFile('협력사,이름\n가상,가상\n', '다른.csv'));
+    await within(d).findByText('2행 중 2행 넣음 · 0행 건너뜀 · 0행 오류');
+    expect(within(d).getByRole('checkbox', { name: '오류만 보기 (0행)' })).not.toBeChecked();
+    expect(within(table()).getAllByRole('row')).toHaveLength(3);
+  });
+
   test('a project switch closes the dialog and drops the file', async () => {
     await openImport();
     const d = await pick();

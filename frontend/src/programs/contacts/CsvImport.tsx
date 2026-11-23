@@ -148,8 +148,15 @@ function useImport(scheduleId: number, onDone: () => void) {
 export default function CsvImport({ scheduleId, onClose, onDone }: { scheduleId: number; onClose: () => void; onDone: () => void }) {
   const im = useImport(scheduleId, onDone);
   const [errorsOnly, setErrorsOnly] = useState(false);
+  const bad = im.preview?.summary.bad ?? 0;
+  // 오류가 없어지면(마지막 오류 행을 뺌) 거르개를 끈다 — 켜진 채 꺼진 칸·빈 표에 갇히지 않게. 되돌려도 저절로 켜지지 않는다.
+  useEffect(() => {
+    if (bad === 0) setErrorsOnly(false);
+  }, [bad]);
   const shown = im.result ?? im.preview;
-  const rows = shown && errorsOnly && !im.result ? shown.rows.filter((r) => isBad(r) && !r.skipped) : (shown?.rows ?? []);
+  const filtering = errorsOnly && bad > 0 && !im.result;
+  // 뺀 오류 행도 그대로 둔다(판정은 그대로 오고 「뺌」·[되돌리기]가 보여야 한다).
+  const rows = shown && filtering ? shown.rows.filter(isBad) : (shown?.rows ?? []);
   const n = im.preview ? adds(im.preview) : 0;
   const foot = (
     <>
@@ -182,7 +189,9 @@ export default function CsvImport({ scheduleId, onClose, onDone }: { scheduleId:
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 e.target.value = '';
-                if (f) im.choose(f);
+                if (!f) return;
+                setErrorsOnly(false);
+                im.choose(f);
               }}
             />
             {im.file ? '다른 파일 고르기' : 'CSV 파일 고르기'}
@@ -195,7 +204,7 @@ export default function CsvImport({ scheduleId, onClose, onDone }: { scheduleId:
         {im.result && adds(im.result) !== n && <p className="ct-hint is-warn">미리 본 뒤 주소록이 바뀌어 결과가 미리 보기와 다릅니다.</p>}
         {im.preview && !im.result && (
           <label className="ct-check ct-xfer-filter">
-            <input type="checkbox" checked={errorsOnly} disabled={im.preview.summary.bad === 0} onChange={(e) => setErrorsOnly(e.target.checked)} />
+            <input type="checkbox" checked={filtering} disabled={bad === 0} onChange={(e) => setErrorsOnly(e.target.checked)} />
             {`오류만 보기 (${im.preview.summary.bad}행)`}
           </label>
         )}
