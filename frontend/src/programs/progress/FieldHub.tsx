@@ -54,12 +54,14 @@ function CheckinCard({
 }: {
   item: FieldItem;
   busy: boolean;
-  onSave(choice: string, progress: number, rd: number, note: string): Promise<void>;
-  onSubmitReport(choice: string, progress: number, rd: number, note: string): Promise<void>;
+  onSave(choice: string, progress: number | null, rd: number | null, note: string): Promise<void>;
+  onSubmitReport(choice: string, progress: number | null, rd: number | null, note: string): Promise<void>;
 }) {
-  const [choice, setChoice] = useState(item.response_choice ?? 'on_track');
-  const [progress, setProgress] = useState(item.reported_progress ?? 50);
-  const [rd, setRd] = useState(item.reported_rd ?? 3);
+  // 회신 전 카드는 값을 비워 둔다 — 고르지 않은 「정상 진행」·진도가 눌린 채 그대로 제출되지 않게(F7).
+  const waiting = item.status === 'pending';
+  const [choice, setChoice] = useState<string | null>(waiting ? null : (item.response_choice ?? 'on_track'));
+  const [progress, setProgress] = useState<number | null>(waiting ? null : (item.reported_progress ?? 50));
+  const [rd, setRd] = useState<number | null>(waiting ? null : (item.reported_rd ?? 3));
   const [note, setNote] = useState(item.response_note);
 
   return (
@@ -122,12 +124,27 @@ function CheckinCard({
       <div className={choice === 'delayed' ? 'pg-finputs' : 'pg-finputs is-single'}>
         <label className="pg-flabel">
           <span>진도율 (%)</span>
-          <input type="number" min={0} max={100} value={progress} disabled={busy} onChange={(e) => setProgress(Number(e.target.value))} />
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={progress ?? ''}
+            placeholder={item.reported_progress !== null ? `지금 ${item.reported_progress}%` : undefined}
+            disabled={busy}
+            onChange={(e) => setProgress(e.target.value === '' ? null : Number(e.target.value))}
+          />
         </label>
         {choice === 'delayed' && (
           <label className="pg-flabel">
             <span>예상 잔여일 (RD)</span>
-            <input type="number" min={0} max={365} value={rd} disabled={busy} onChange={(e) => setRd(Number(e.target.value))} />
+            <input
+              type="number"
+              min={0}
+              max={365}
+              value={rd ?? ''}
+              disabled={busy}
+              onChange={(e) => setRd(e.target.value === '' ? null : Number(e.target.value))}
+            />
           </label>
         )}
       </div>
@@ -144,12 +161,12 @@ function CheckinCard({
         <Button
           variant="primary"
           className="pg-submit-one"
-          disabled={busy || item.approval_id !== null}
-          onClick={() => void onSubmitReport(choice, progress, rd, note)}
+          disabled={busy || item.approval_id !== null || choice === null}
+          onClick={() => choice !== null && void onSubmitReport(choice, progress, rd, note)}
         >
           {item.approval_id !== null ? `보고·상신 완료 (#${item.approval_id})` : '현장 보고 제출 (저장·승인 반영)'}
         </Button>
-        <Button disabled={busy} onClick={() => void onSave(choice, progress, rd, note)}>
+        <Button disabled={busy || choice === null} onClick={() => choice !== null && void onSave(choice, progress, rd, note)}>
           임시 저장
         </Button>
       </div>
@@ -301,7 +318,7 @@ function PollCard({
   busy: boolean;
   onSubmitPoll(choice: string, note: string): Promise<void>;
 }) {
-  const [choice, setChoice] = useState(item.response_choice ?? 'feasible');
+  const [choice, setChoice] = useState<string | null>(item.status === 'pending' ? null : (item.response_choice ?? 'feasible'));
   const [note, setNote] = useState(item.response_note);
   return (
     <article className="pg-fcard" aria-label={item.title}>
@@ -334,7 +351,12 @@ function PollCard({
         onChange={(e) => setNote(e.target.value)}
       />
       <div className="pg-fcard-foot">
-        <Button variant="primary" className="pg-submit-one" disabled={busy} onClick={() => void onSubmitPoll(choice, note)}>
+        <Button
+          variant="primary"
+          className="pg-submit-one"
+          disabled={busy || choice === null}
+          onClick={() => choice !== null && void onSubmitPoll(choice, note)}
+        >
           {item.approval_id !== null ? `회신·상신 완료 (#${item.approval_id})` : '의견 회신 완료'}
         </Button>
       </div>
@@ -428,10 +450,12 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
   const [tab, setTab] = useState<FieldKind>('checkin');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [pollOpen, setPollOpen] = useState(false);
   const [pollAct, setPollAct] = useState('');
-  const [pollTitle, setPollTitle] = useState('공종 주말·병행 단축 2일안');
-  const [pollPrompt, setPollPrompt] = useState('일정 만회를 위해 선행 공종 완료 즉시 야간/주말 병행 투입이 가능한지 의견을 주세요.');
+  // 의견 조회 작성 칸은 비워 두고 예시는 자리표시로만 — 기본 문구가 그대로 발송되지 않게(F7).
+  const [pollTitle, setPollTitle] = useState('');
+  const [pollPrompt, setPollPrompt] = useState('');
 
   useEffect(() => {
     let live = true;
@@ -449,12 +473,15 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
     };
   }, [scheduleId]);
 
-  async function run(task: () => Promise<FieldData>) {
+  /** done: 성공하면 보일 한 줄(예: 저장했습니다.). */
+  async function run(task: () => Promise<FieldData>, done?: string) {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const next = await task();
       setData(next);
+      if (done) setNotice(done);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '요청을 처리하지 못했습니다.');
     } finally {
@@ -519,6 +546,7 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
       </div>
 
       {error && <p className="pg-risk-line" role="alert">{error}</p>}
+      {notice && <p className="pg-muted" role="status">{notice}</p>}
 
       {tab === 'photo' && (
         <PhotoUploader activities={data.activities} busy={busy} onUpload={(body) => run(() => fieldApi.uploadPhoto(scheduleId, body))} />
@@ -537,12 +565,16 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
             </label>
             <label className="pg-flabel">
               <span>검토 중인 만회안 제목</span>
-              <input value={pollTitle} onChange={(e) => setPollTitle(e.target.value)} />
+              <input value={pollTitle} placeholder="예: 공종 주말·병행 단축 2일안" onChange={(e) => setPollTitle(e.target.value)} />
             </label>
           </div>
           <label className="pg-flabel">
             <span>담당자에게 보낼 질문</span>
-            <input value={pollPrompt} onChange={(e) => setPollPrompt(e.target.value)} />
+            <input
+              value={pollPrompt}
+              placeholder="예: 일정 만회를 위해 선행 공종 완료 즉시 야간/주말 병행 투입이 가능한지 의견을 주세요."
+              onChange={(e) => setPollPrompt(e.target.value)}
+            />
           </label>
           <div className="pg-fcard-foot">
             <Button
@@ -575,14 +607,23 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
                 item={item}
                 busy={busy}
                 onSave={(choice, prog, rd, note) =>
-                  run(() => fieldApi.respond(scheduleId, item.id, { response_choice: choice, reported_progress: prog, reported_rd: rd, response_note: note }))
+                  run(
+                    () =>
+                      fieldApi.respond(scheduleId, item.id, {
+                        response_choice: choice,
+                        reported_progress: prog ?? undefined,
+                        reported_rd: rd ?? undefined,
+                        response_note: note,
+                      }),
+                    '저장했습니다.',
+                  )
                 }
                 onSubmitReport={(choice, prog, rd, note) =>
                   run(async () => {
                     const saved = await fieldApi.respond(scheduleId, item.id, {
                       response_choice: choice,
-                      reported_progress: prog,
-                      reported_rd: rd,
+                      reported_progress: prog ?? undefined,
+                      reported_rd: rd ?? undefined,
                       response_note: note,
                     });
                     if (saved.items.find((x) => x.id === item.id)?.approval_id !== null) return saved;
@@ -612,7 +653,9 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
               />
             );
           }
-          return <HandoffCard key={item.id} item={item} busy={busy} onSave={(body) => run(() => fieldApi.updateHandoff(scheduleId, item.id, body))} />;
+          return (
+            <HandoffCard key={item.id} item={item} busy={busy} onSave={(body) => run(() => fieldApi.updateHandoff(scheduleId, item.id, body), '저장했습니다.')} />
+          );
         })}
       </div>
     </div>

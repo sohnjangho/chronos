@@ -1,4 +1,4 @@
-// 현장 허브(FieldHub) 카드 시험: 사진 판독 결과(F1).
+// 현장 허브(FieldHub) 카드 시험: 사진 판독 결과(F1), 회신 전 카드·저장 알림·의견 조회 작성 칸(F7).
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
@@ -54,4 +54,72 @@ test('a photo read by the vision model shows its percentage and one-sentence rea
   expect(within(card).getByText('40%')).toBeVisible();
   expect(within(card).getByText('판독 근거: 철근 배근은 끝났고 거푸집은 절반쯤 섰다.')).toBeVisible();
   expect(within(card).getByRole('button', { name: '승인함 상신 · 증빙 확정' })).toBeEnabled();
+});
+
+const checkin = item({
+  id: 5, kind: 'checkin', activity_id: 'A1020', activity_name: '현장 사무실 설치', trade: '시공팀 박과장', status: 'pending',
+  title: '[체크인 요청] A1020 현장 사무실 설치', prompt_text: '착수/진행 여부를 회신해 주세요.', response_choice: null,
+  reported_progress: 100, reported_rd: 3,
+});
+
+test('a check-in card waiting for a reply shows no pre-pressed choice or progress (F7)', async () => {
+  stubFetch({ '/api/schedules/1/field': data([checkin]) });
+  render(<FieldHub scheduleId={1} />);
+  const card = await screen.findByRole('article', { name: checkin.title });
+  expect(within(card).queryAllByRole('button', { pressed: true })).toHaveLength(0);
+  expect(within(card).getByLabelText('진도율 (%)')).toHaveValue(null);
+  const submit = within(card).getByRole('button', { name: '현장 보고 제출 (저장·승인 반영)' });
+  expect(submit).toBeDisabled();
+  expect(within(card).getByRole('button', { name: '임시 저장' })).toBeDisabled();
+  await userEvent.click(within(card).getByRole('button', { name: '✓ 정상 진행' }));
+  expect(submit).toBeEnabled();
+});
+
+test('임시 저장 says 저장했습니다 once the reply is saved (F7)', async () => {
+  const saved = { ...checkin, status: 'responded' as const, response_choice: 'on_track' };
+  const fetchFn = stubFetch({ '/api/schedules/1/field': data([checkin]), 'POST /api/schedules/1/field/5/respond': data([saved]) });
+  render(<FieldHub scheduleId={1} />);
+  const card = await screen.findByRole('article', { name: checkin.title });
+  await userEvent.click(within(card).getByRole('button', { name: '✓ 정상 진행' }));
+  await userEvent.click(within(card).getByRole('button', { name: '임시 저장' }));
+  expect(await screen.findByText('저장했습니다.')).toBeVisible();
+  const [, init] = fetchFn.mock.calls.find(([url, i]) => String(url).endsWith('/respond') && i?.method === 'POST')!;
+  expect(JSON.parse(String(init?.body))).toEqual({ response_choice: 'on_track', response_note: '' });
+});
+
+test('점검 저장 on a hand-off card also says 저장했습니다 (F7)', async () => {
+  const handoff = item({ id: 9, kind: 'handoff', title: '[D-3 핸드오프] A1000 → A1010', status: 'pending', response_choice: 'hold',
+    payload_json: { pred_id: 'A1000', days_left: 3, pred_handover_ok: true, checklist: { material: true, equipment: false, workforce: true } } });
+  stubFetch({ '/api/schedules/1/field': data([handoff]), 'POST /api/schedules/1/field/9/handoff': data([{ ...handoff, status: 'responded' }]) });
+  render(<FieldHub scheduleId={1} />);
+  await userEvent.click(await screen.findByRole('tab', { name: 'D-3 핸드오프 점검' }));
+  await userEvent.click(screen.getByRole('button', { name: '점검 저장' }));
+  expect(await screen.findByText('저장했습니다.')).toBeVisible();
+});
+
+test('the poll compose fields start empty with the example as a placeholder, so nothing goes out unfilled (F7)', async () => {
+  stubFetch({ '/api/schedules/1/field': data([]) });
+  render(<FieldHub scheduleId={1} />);
+  await userEvent.click(await screen.findByRole('tab', { name: '만회안 의견 조회' }));
+  await userEvent.click(screen.getByRole('button', { name: '+ 공종 담당자 의견 조회 발송' }));
+  const title = screen.getByLabelText('검토 중인 만회안 제목');
+  const ask = screen.getByLabelText('담당자에게 보낼 질문');
+  expect(title).toHaveValue('');
+  expect(title).toHaveAttribute('placeholder', '예: 공종 주말·병행 단축 2일안');
+  expect(ask).toHaveValue('');
+  expect(ask.getAttribute('placeholder')).toMatch(/^예: /);
+  expect(screen.getByRole('button', { name: '공종 담당자에게 의견 조회 발송' })).toBeDisabled();
+});
+
+test('a poll card waiting for a reply has no pre-pressed choice either (F7)', async () => {
+  const poll = item({ id: 7, kind: 'poll', status: 'pending', response_choice: null, title: '[만회안 의견] A1025 선행 공종 병행 착수(SS+2d)' });
+  stubFetch({ '/api/schedules/1/field': data([poll]) });
+  render(<FieldHub scheduleId={1} />);
+  await userEvent.click(await screen.findByRole('tab', { name: '만회안 의견 조회' }));
+  const card = screen.getByRole('article', { name: poll.title });
+  expect(within(card).queryAllByRole('button', { pressed: true })).toHaveLength(0);
+  const send = within(card).getByRole('button', { name: '의견 회신 완료' });
+  expect(send).toBeDisabled();
+  await userEvent.click(within(card).getByRole('button', { name: '조건부 가능' }));
+  expect(send).toBeEnabled();
 });

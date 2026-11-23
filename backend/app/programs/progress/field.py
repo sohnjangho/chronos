@@ -541,7 +541,7 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
             status="pending",
             request=item.title,
             chat_session_id=None,
-            requested_by=f"{item.trade} ({user.name})",
+            requested_by=user.name,
             requested_kind="user",
             link_kind="rule",
             rule_json=rule,
@@ -585,7 +585,7 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
                 requested_kind="user",
             ),
             chat_session_id=None,
-            requested_by=f"{item.trade} ({user.name})",
+            requested_by=user.name,
             force_auto=False,
         )
         approval_row = res.row
@@ -610,7 +610,7 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
             status="pending",
             request=item.title,
             chat_session_id=None,
-            requested_by=f"{item.trade} ({user.name})",
+            requested_by=user.name,
             requested_kind="user",
             link_kind="rule",
             rule_json=rule,

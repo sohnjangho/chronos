@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.llm.client import LlmClient
 from app.programs.progress import field
-from app.store.tables import Approval, DelayEvent, LlmCall
+from app.store.tables import Approval, DelayEvent, LlmCall, User
 from tests.llm_doubles import FakeLiner, add_connection, chat_body
 
 PHOTO = "data:image/png;base64,iVBORw0KGgo="
@@ -127,3 +127,19 @@ def test_seeded_example_photo_has_no_made_up_reading(client, admin, sid):
     item = _newest_photo(r)
     assert item["reported_progress"] is None and item["payload_json"]["ai_progress"] is None
     assert item["payload_json"]["unread_reason"] and "confidence" not in item["payload_json"]
+
+
+def test_approval_requester_is_the_signed_in_person(client, admin, session, sid):
+    """F7: 현장 반영 승인 건의 요청자는 로그인한 사람 이름 하나다(가상 공종 담당자 이름과 섞지 않는다)."""
+    item = _pending_checkin(client, admin, sid)
+    client.post(
+        f"/api/schedules/{sid}/field/{item['id']}/respond",
+        json={"response_choice": "on_track", "reported_progress": 50, "response_note": ""},
+        headers=admin,
+    )
+    r = client.post(f"/api/schedules/{sid}/field/{item['id']}/apply", headers=admin)
+
+    approval_id = next(i for i in r.json()["items"] if i["id"] == item["id"])["approval_id"]
+    session.expire_all()
+    me = session.scalars(select(User).where(User.login_id == "admin")).one()
+    assert session.get(Approval, approval_id).requested_by == me.name
