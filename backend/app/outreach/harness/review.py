@@ -38,7 +38,7 @@ from difflib import SequenceMatcher
 from itertools import pairwise
 from typing import Any, get_args
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.model import Schedule
@@ -77,6 +77,7 @@ MAX_ANSWERS = MAX_REPORTS = 200  # 답·보고. 넘는 것은 못 들은 것
 MAX_TOOL_VALUES, MAX_TOOL_DEPTH = 5000, 6  # 도구 결과에서 읽는 값의 수·겹. 넘는 것은 근거가 아니다
 MAX_SCHEDULES, MAX_NAMES = 200, 20_000  # 이름을 읽는 일정·작업 수. 넘으면 이름 깃발
 MAX_SPANS = 1000  # 이름이 나온 자리를 세는 수. 넘으면 이름 깃발(다 견주지 못함)
+MAX_LINKED_ROWS = 5000  # 허용을 묻기 전에 세는 그 사람의 메시지·통화 줄. 넘으면 facts 를 부르지 않고 이름 깃발(다 견주지 못함)
 MIN_NAME = 4
 HEARD_RATIO = 0.85
 TAIL_WORDS = 4  # 맞은 말 뒤로 뒤집는 말을 찾는 낱말 수
@@ -132,10 +133,19 @@ _TURN = re.compile(r"않|없|못|불가|어렵|어려|힘들|힘듭|힘든|힘�
                    r"|글쎄|봐야|냐|^안$|^안(?:되|돼|됩|될|됨|됐|하|합|해|했|할|가|갑|갔|와|옵|왔|오)"
                    r"|(?:면|지|지는|지도|지만)$")  # 뒤집는 말 · 모른다는 말 · 조건과 바람(「가능하면」「가능할지」「가능하지만」)
 _SOFT = frozenset("은는이을를에의도로요다니습합함입임네죠해하됩돼되음")  # 비슷한 줄에서 달라도 되는 글자(조사·끝)
+_FINAL_L = "".join(chr(0xAC00 + 28 * i + 8) for i in range(399))  # 받침이 ㄹ 인 글자(할·될·갈 …)
+_FINAL_SS = "".join(chr(0xAC00 + 28 * i + 20) for i in range(399))  # 받침이 ㅆ 인 글자(했·었·았·였 …)
 _HEDGE = re.compile(  # 이 말이 든 상대 줄은 근거가 아니다(흐린 말·전해 들은 말·우리 말 되받기·지난 일·뒤집음)
     r"수도\s*있|수도\s*없|지도\s*몰|지도\s*모르|아마|혹시|듯|것\s*같|거\s*같|아닐|아니면|무리|거짓"
     r"|(?:다|라|냐)고|대요|(?<!그)래요|다더|라더|다던|라던|던데|더라|답니다|(?<!바)랍니다|다네|라네|다며|라며"
-    r"|었었|았었|였었|했었|확인해\s*보|알아보|여쭤보|물어보")
+    r"|었었|았었|였었|했었|확인해\s*보|알아보|여쭤보|물어보"
+    # 고침 2 — 「고」 없이 전한 말(가능하다 했어요·하셨어요·들었어요, 가능하대 — 「2대」「최대」「교대」는 뺌, 답디다·더군)
+    r"|다\s*(?:했|하셨|하네|하더|하던|들었|그러)|(?<![\d\s최교절상])대(?:$|[^\w])|답디다|더군"
+    # 짐작(하겠죠·텐데·하려나·해 보여요·걸로 압니다·할걸요·가능할/될/일 수 있) — 「할 거예요·겁니다」(약속)는 넣지 않는다
+    rf"|겠죠|겠지|텐데|려나|(?:해|하게|같아)\s*보(?:여|입|이네)|걸로\s*(?:압|알)|[{_FINAL_L}]\s?걸(?:요|$|[^\w])"
+    r"|(?:가능할|될|일)\s*수\s*있"
+    # 지난 일·바뀜(했는데·었는데·이었는데·원래)
+    rf"|[{_FINAL_SS}]는데|원래")
 
 
 @dataclass(frozen=True)
@@ -330,14 +340,24 @@ def _long(name: str) -> bool:
     return len(_plain(name)) >= MIN_NAME
 
 
-def _allowed(session: Session, schedule_id: int, scope: Scope) -> set[str] | None:
-    """그 일정에서 이 범위에 허용된 작업 id(None 은 전부). 범위 밖 일정·사실 수준 none(현장을 고르기 전 포함)은 없음.
-    "trade" 의 규칙은 도구와 하나다 — facts.allowed_for 를 그대로 부른다."""
+def _linked_rows(session: Session, schedule_id: int, contact_ids: Collection[int]) -> int:
+    """그 일정에서 그 연락처들과 주고받은 메시지·통화 줄의 수(한 번의 질의). facts.linked 는 상한 없이 다 읽으므로 먼저 센다."""
+    counts = [select(func.count()).select_from(model).where(model.schedule_id == schedule_id, model.contact_id.in_(contact_ids))
+              .scalar_subquery() for model in (OutreachMessage, OutreachCall)]
+    return session.scalar(select(counts[0] + counts[1])) or 0
+
+
+def _allowed(session: Session, schedule_id: int, scope: Scope) -> tuple[set[str] | None, bool]:
+    """(그 일정에서 이 범위에 허용된 작업 id — None 은 전부, 다 읽었는가). 범위 밖 일정·사실 수준 none(현장을 고르기 전
+    포함)은 없음. "trade" 의 규칙은 도구와 하나다 — facts.allowed_for 를 그대로 부른다. 다만 연결 줄이 MAX_LINKED_ROWS 를
+    넘으면 부르지 않고 「다 읽지 못함」(허용 없음)."""
     if schedule_id not in scope.schedule_ids or scope.facts == "none":
-        return set()
+        return set(), True
     if scope.facts == "all":
-        return None
-    return facts.allowed_for(session, schedule_id, scope.company_ids, scope.contact_ids)
+        return None, True
+    if _linked_rows(session, schedule_id, scope.contact_ids) > MAX_LINKED_ROWS:
+        return set(), False
+    return facts.allowed_for(session, schedule_id, scope.company_ids, scope.contact_ids), True
 
 
 class _Book:
@@ -368,14 +388,15 @@ class _Book:
 def _scope_names(session: Session, scope: Scope, row_schedule: int | None) -> tuple[set[str], set[str], bool]:
     """(허용된 이름, 범위 밖 이름, 다 읽었는가) — 범위의 일정과 그 줄의 일정에서. 허용된 작업과 이름이 같으면 허용이다."""
     ids = list(dict.fromkeys([*scope.schedule_ids, *([] if row_schedule is None else [row_schedule])]))
-    book, allowed, barred = _Book(session), set(), set()
+    book, allowed, barred, whole = _Book(session), set(), set(), True
     for schedule_id in ids[:MAX_SCHEDULES]:
         if (schedule := book.schedule(schedule_id)) is None:
             continue
-        ok = _allowed(session, schedule_id, scope)
+        ok, read = _allowed(session, schedule_id, scope)
+        whole = whole and read
         for activity_id, name in book.names(schedule):
             (allowed if ok is None or activity_id in ok else barred).add(name)
-    return allowed, barred - allowed, book.full and len(ids) <= MAX_SCHEDULES
+    return allowed, barred - allowed, whole and book.full and len(ids) <= MAX_SCHEDULES
 
 
 def _every_name(session: Session) -> tuple[set[str], bool]:

@@ -174,6 +174,26 @@ def test_heard_refuses_what_the_other_party_did_not_say(quote, line):
     ("6명 가능합니다", "6명 가능할 것 같습니다"),
     ("6명 가능", "6명 가능할 것 같아요"),
     ("6명 가능", "6명 가능했었어요"),
+    # 「고」 없이 전한 말(고침 2)
+    ("6명 가능", "6명 가능하다 했어요"),
+    ("6명 가능", "반장님이 6명 가능하다 하셨어요"),
+    ("6명 가능", "6명 가능하다 하네요"),
+    ("6명 가능", "6명 가능하다 하더군요"),
+    ("6명 가능", "6명 가능하다 들었어요"),
+    ("6명 가능", "들었어요 6명 가능하대"),
+    ("6명 가능", "6명 가능하답디다"),
+    # 짐작(고침 2)
+    ("6명 가능", "6명 가능하겠죠"),
+    ("6명 가능", "6명 가능할 텐데요"),
+    ("6명 가능", "6명 가능하려나"),
+    ("6명 가능", "6명 가능해 보여요"),
+    ("6명 가능", "6명 가능한 걸로 압니다"),
+    ("6명 가능", "6명 가능할걸요"),
+    ("6명 가능", "6명 가능할 수 있어요"),
+    # 지난 일·바뀜(고침 2)
+    ("6명 가능", "6명 가능이었는데 지금은 3명"),
+    ("6명 가능", "원래 6명 가능했어요"),
+    ("6명 가능", "6명 가능했는데 지금은 3명"),
     ("6명 가능", "6명 가능하대요"),
     ("6명 가능", "6명 가능하던데요"),
 ])
@@ -606,6 +626,24 @@ def test_class_is_checked_and_the_stricter_of_the_two_wins(session):
         run(session, row(session), said, scope=w.scope, caller_class="관리자")
     with pytest.raises(TypeError):
         check(session, row(session), said=said, peer_lines=PEER, tool_results=[], scope=None, now=NOW)
+
+
+def test_too_many_linked_rows_is_not_clean_and_does_not_ask_the_tools_rule(session, monkeypatch):
+    """연결 줄을 세어 상한(MAX_LINKED_ROWS)을 넘으면 facts.allowed_for 를 부르지 않고 「다 견주지 못함」이다."""
+    w = world(session)
+    first = row(session, to=w.park)
+    assert run(session, first, ["네 알겠습니다"], scope=w.scope) == Verdict(True, [])
+    row(session, "message", to=w.park)
+    monkeypatch.setattr(review, "MAX_LINKED_ROWS", 1)
+
+    def never(*args):
+        raise AssertionError("상한을 넘으면 부르지 않는다")
+
+    monkeypatch.setattr(facts, "allowed_for", never)
+    ref = row(session, to=w.park)
+
+    assert run(session, ref, ["네 알겠습니다"], scope=w.scope) == Verdict(False, ["out_of_scope_said"])
+    assert [event["detail"] for event in events.of(session, ref)] == ["범위 밖 작업 이름을 말함 · 상한을 넘어 다 견주지 못함"]
 
 
 def test_name_places_beyond_the_cap_are_not_clean(session):
