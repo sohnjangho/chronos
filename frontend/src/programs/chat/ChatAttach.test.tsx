@@ -143,6 +143,40 @@ test('model picker sends PUT /api/chat/sessions/{id}/model for active session', 
   });
 });
 
+test('a narrow chat window opens 이 대화의 파일 from a 파일 (N) toggle and closes it with Escape or an outside click (B2)', async () => {
+  stubApi({
+    'GET /api/chat/sessions': () =>
+      json(200, [{ id: 9, title: '기존 대화', schedule_id: null, created_at: '2026-11-20T00:00:00Z', pending_retries: 0 }]),
+    'GET /api/chat/sessions/9': () =>
+      json(200, {
+        id: 9, title: '기존 대화', schedule_id: null, created_at: '2026-11-20T00:00:00Z',
+        running: false, model: null,
+        files: [
+          { file_id: 1, name: '현장.jpg', kind: 'image', status: 'classified', deleted: false },
+          { file_id: 2, name: '옛자료.pdf', kind: 'pdf', status: 'classified', deleted: true },
+        ],
+        messages: [], pending_retries: [],
+      }),
+  });
+
+  render(<Chat windowId="w-chat" params={{ session: '9' }} />);
+  expect(screen.queryByRole('complementary', { name: '대화 정보' })).toBeNull();
+  const toggle = await screen.findByRole('button', { name: '파일 (1)' });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+  await userEvent.click(toggle);
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  const panel = screen.getByRole('complementary', { name: '대화 정보' });
+  expect(within(within(panel).getByRole('list', { name: '이 대화의 파일' })).getByText('현장.jpg')).toBeVisible();
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('complementary', { name: '대화 정보' })).toBeNull();
+
+  await userEvent.click(toggle);
+  expect(screen.getByRole('complementary', { name: '대화 정보' })).toBeVisible();
+  await userEvent.click(document.body);
+  expect(screen.queryByRole('complementary', { name: '대화 정보' })).toBeNull();
+});
+
 test('renders file_saved and schedule_file cards and triggers import prompt', async () => {
   const sendSpy = vi.spyOn(useChat.getState(), 'send').mockResolvedValue(true);
   const ctx = { sessionId: 1, sendText: async () => true, failedQuestionnaire: null, retryResume: () => {} };

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ProgramProps } from '../../os/registry';
 import { useWindows, workArea } from '../../os/windowStore';
 import { useZoom, zoomOf } from '../../os/zoom';
@@ -69,18 +69,40 @@ function useFollowParams(params: ProgramProps['params']) {
   }, [params]);
 }
 
-/** 작은 화면 위쪽: 대화 고르기(펼치면 대화 목록) · 새 대화. */
+/** 작은 화면 위쪽: 대화 고르기(펼치면 대화 목록) · 새 대화 · 파일(펼치면 오른쪽 위에 대화 정보 패널, B2). */
 function SessionBar() {
   const [open, setOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const barRef = useRef<HTMLDivElement>(null);
   const title = useChat((s) => sessionTitle(s.sessions, s.currentId));
+  const fileCount = useChat((s) => (s.currentId === null ? 0 : (s.threads[s.currentId]?.files ?? []).filter((f) => !f.deleted).length));
+  useEffect(() => {
+    if (!filesOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!barRef.current?.contains(e.target as Node)) setFilesOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [filesOpen]);
   return (
-    <div className="ch-bar" onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
+    <div
+      ref={barRef}
+      className="ch-bar"
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape') return;
+        setOpen(false);
+        setFilesOpen(false);
+      }}
+    >
       <button
         type="button"
         className="ch-pill ch-picker"
         aria-expanded={open}
         aria-label={title ? `대화 고르기: ${title}` : '대화 고르기'}
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          setOpen(!open);
+          setFilesOpen(false);
+        }}
       >
         <span className="ch-ellipsis">{title || '대화 고르기'}</span>
         <span aria-hidden="true">▾</span>
@@ -90,9 +112,25 @@ function SessionBar() {
       <button type="button" className="ch-pill" onClick={() => useChat.getState().newChat()}>
         <span aria-hidden="true">+</span> 새 대화
       </button>
+      <button
+        type="button"
+        className="ch-pill"
+        aria-expanded={filesOpen}
+        onClick={() => {
+          setFilesOpen(!filesOpen);
+          setOpen(false);
+        }}
+      >
+        {fileCount > 0 ? `파일 (${fileCount})` : '파일'}
+      </button>
       {open && (
         <div className="ch-pop">
           <ThreadList popover onPicked={() => setOpen(false)} />
+        </div>
+      )}
+      {filesOpen && (
+        <div className="ch-ctx-pop">
+          <ContextPanel />
         </div>
       )}
     </div>
