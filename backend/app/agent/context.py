@@ -28,6 +28,7 @@ from app.domains.loader import (
     resolve_pack,
 )
 from app.harness.conditions import read_conditions
+from app.outreach import policy
 from app.store import files as file_store
 from app.store import my_rules
 from app.store.chats import recent_messages
@@ -156,6 +157,7 @@ _GUIDE_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("files", ("파일", "자료", "시방서", "사진", "도면", "첨부", "문서"), ("library",)),
     ("import", ("가져오", "엑셀", "xlsx", "csv", "초안", "공정표"), ("library",)),
     ("visual", ("그림", "차트", "보고서", "시각화", "그래프"), ("progress", "compare", "delays")),
+    ("notify", ("문자", "카카오", "알림톡", "전화", "통화", "연락", "담당자에게"), ("contacts",)),
 )
 
 _CREATION_CUES = ("만들", "짜", "생성", "새 일정", "새 스케줄", "새 스케쥴", "새로운 스케줄", "새로운 스케쥴", "계획 수립")
@@ -286,6 +288,9 @@ def situation(session: Session, user: User, ui: UiContext, *, chat_session_id: i
     lines = ["## 지금 상황", f"- 사용자: {user.name} ({role})", f"- 열린 프로그램: {ui.program or '없음'}"]
     if user.role == "field":
         lines.append(FIELD_ROLE_LINE)
+    else:  # 현장 관리자는 연락처 도구를 쓸 수 없다
+        notify = policy.line(session)
+        lines += [notify] if notify else []
     approvals = _approvals_line(session, chat_session_id) if chat_session_id is not None else None
     return "\n".join(lines + _schedule_lines(session, ui) + ([approvals] if approvals else []))
 

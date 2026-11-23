@@ -38,6 +38,12 @@ export const TOOL_LABELS: Record<string, string> = {
   'report.generate': '보고서 생성',
   'report.list_templates': '보고서 양식 조회',
   'report.revise': '보고서 항목 수정',
+  'contacts.list': '연락처 조회',
+  'notify.draft_message': '문자 초안',
+  'notify.draft_call': '전화 초안',
+  'notify.status': '연락 상태 조회',
+  'notify.send_message': '문자 보내기(위임)',
+  'notify.place_call': '전화 걸기(위임)',
 };
 
 export const toolLabel = (tool: string) => TOOL_LABELS[tool] ?? tool;
