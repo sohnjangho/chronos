@@ -223,6 +223,7 @@ describe('역할', () => {
     await renderSchedule();
     expect(within(toolbar()).queryByRole('button', { name: '+ 행 추가' })).toBeNull();
     expect(within(toolbar()).queryByRole('button', { name: '삭제' })).toBeNull();
+    expect(within(toolbar()).getByRole('combobox', { name: '가중치' })).toBeDisabled(); // 가중치 방식도 서버가 403(I-1)
   });
 
   test('사용자(user)에게는 편집 단추가 그대로 있다', async () => {

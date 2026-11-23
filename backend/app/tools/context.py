@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.events import AgentEvent
 from app.core.cpm import ScheduleError
-from app.store.messages import schedule_error_message
+from app.store.messages import FIELD_READ_ONLY_MESSAGE, schedule_error_message
 from app.store.schedules import NotFound
 from app.store.tables import User
 
@@ -61,3 +61,8 @@ class ToolContext:
         if self.schedule_id is None:
             raise ToolError(NO_SCHEDULE_MESSAGE)
         return self.schedule_id
+
+    def require_editor(self) -> None:
+        """일정을 고치거나 승인함에 내는 도구 앞에서. 현장 관리자(field)면 REST 와 같은 글의 ToolError(F4)."""
+        if self.user is not None and self.user.role == "field":
+            raise ToolError(FIELD_READ_ONLY_MESSAGE)

@@ -12,7 +12,7 @@ from app.programs.conditions.schemas import (
     ConditionsOut,
     PreviewOut,
 )
-from app.security.deps import current_user
+from app.security.deps import current_user, require_editor
 from app.store.tables import User
 
 # 로그인한 누구나 보고 바꿔 본다. 분야 규칙 켜고 끄기만 관리자(service 가 403).
@@ -33,7 +33,9 @@ def preview(schedule_id: int, body: ChangesIn, session: SessionDep, user: UserDe
 
 
 @router.post("/{schedule_id}/conditions/commit")
-def commit(schedule_id: int, body: ChangesIn, session: SessionDep, user: UserDep) -> CommitOut:
+def commit(
+    schedule_id: int, body: ChangesIn, session: SessionDep, user: Annotated[User, Depends(require_editor)]
+) -> CommitOut:
     return service.commit(session, schedule_id, body, user)
 
 

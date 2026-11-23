@@ -50,7 +50,7 @@ def patch_schedule(schedule_id: int, body: SchedulePatch, session: SessionDep, u
 
 
 @router.put("/{schedule_id}/weight-mode")
-def set_weight_mode(schedule_id: int, body: WeightModeIO, session: SessionDep) -> WeightModeIO:
+def set_weight_mode(schedule_id: int, body: WeightModeIO, session: SessionDep, _: EditorDep) -> WeightModeIO:
     return service.set_weight_mode(session, schedule_id, body)
 
 

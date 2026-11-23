@@ -100,6 +100,7 @@ def _out(row: Approval, applied: bool) -> SubmitOut:
     mutates=True,
 )
 def submit_change(args: SubmitIn, ctx: ToolContext) -> SubmitOut:
+    ctx.require_editor()
     p = _from_draft(ctx, args) if args.draft_id is not None else _from_changes(ctx, args)
     try:
         result = propose(ctx.session, p, chat_session_id=ctx.chat_session_id,

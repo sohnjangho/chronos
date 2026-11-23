@@ -29,6 +29,7 @@ class SubmitScenarioIn(Strict):
     mutates=True,
 )
 def submit_scenario_tool(args: SubmitScenarioIn, ctx: ToolContext) -> SubmitOut:
+    ctx.require_editor()
     try:
         row = scenarios.get(ctx.session, args.scenario_id)
     except scenarios.NotFound:

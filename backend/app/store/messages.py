@@ -2,6 +2,9 @@
 
 from app.core.cpm import ScheduleError
 
+# 현장 관리자(field)가 일정 쓰기·승인 결정·상신을 하려 할 때(security.deps.require_editor 와 도구가 같이 쓴다, F4)
+FIELD_READ_ONLY_MESSAGE = "현장 관리자는 일정을 고치거나 승인·거부할 수 없습니다."
+
 SCHEDULE_ERROR_MESSAGES = {
     "cycle": "선후 관계가 고리를 이룹니다.",
     "dangling_ref": "없는 액티비티를 가리키는 관계가 있습니다.",

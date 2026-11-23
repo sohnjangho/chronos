@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.errors import ApiError
 from app.security.tokens import read_token
+from app.store.messages import FIELD_READ_ONLY_MESSAGE
 from app.store.tables import User
 
 _bearer = HTTPBearer(auto_error=False)
@@ -32,7 +33,7 @@ def require_admin(user: Annotated[User, Depends(current_user)]) -> User:
 
 
 def require_editor(user: Annotated[User, Depends(current_user)]) -> User:
-    """일정 쓰기·승인 결정. 현장 관리자(field)는 읽고 현장 회신만 남긴다(F4). 사용자·관리자는 그대로."""
+    """일정 쓰기·승인 결정·상신. 현장 관리자(field)는 읽고 현장 회신·지연 기록만 남긴다(F4). 사용자·관리자는 그대로."""
     if user.role == "field":
-        raise ApiError(403, "field_read_only", "현장 관리자는 일정을 고치거나 승인·거부할 수 없습니다.")
+        raise ApiError(403, "field_read_only", FIELD_READ_ONLY_MESSAGE)
     return user

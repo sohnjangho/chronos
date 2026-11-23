@@ -45,7 +45,7 @@ export default function Toolbar(p: ToolbarProps) {
           </Popover>
           <label className="sch-weight">
             가중치
-            <select aria-label="가중치" value={p.weightMode} onChange={(e) => p.onWeightMode(e.target.value as WeightMode)}>
+            <select aria-label="가중치" value={p.weightMode} disabled={!canEdit} onChange={(e) => p.onWeightMode(e.target.value as WeightMode)}>
               <option value="duration">기간 비례</option>
               <option value="manual">직접 입력</option>
             </select>

@@ -15,7 +15,7 @@ from app.programs.scenarios.schemas import (
     SubmitIn,
     SubmitOut,
 )
-from app.security.deps import current_user
+from app.security.deps import current_user, require_editor
 from app.store.tables import User
 
 # 만약에 복사본: 로그인한 누구나 보고, 버리고, 승인함으로 낸다(반영은 승인함의 결정).
@@ -41,7 +41,9 @@ def discard_scenario(schedule_id: int, scenario_id: int, session: SessionDep) ->
 
 
 @router.post("/{schedule_id}/scenarios/{scenario_id}/submit")
-def submit_scenario(schedule_id: int, scenario_id: int, body: SubmitIn, session: SessionDep, user: UserDep) -> SubmitOut:
+def submit_scenario(
+    schedule_id: int, scenario_id: int, body: SubmitIn, session: SessionDep, user: Annotated[User, Depends(require_editor)]
+) -> SubmitOut:
     return service.submit(session, schedule_id, scenario_id, body, user)
 
 

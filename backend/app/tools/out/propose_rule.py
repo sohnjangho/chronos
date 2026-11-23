@@ -128,6 +128,7 @@ def _schedule_rule(ctx: ToolContext, rule: dict, summary: dict, requested_by: st
     mutates=True,
 )
 def propose_rule(args: ProposeRuleIn, ctx: ToolContext) -> ProposeRuleOut:
+    ctx.require_editor()
     condition = _condition(args.condition)
     domain = _domain(args, ctx)
     schedule_id = ctx.schedule_id if args.scope == "schedule" else None

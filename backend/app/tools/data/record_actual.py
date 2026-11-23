@@ -177,6 +177,7 @@ def _save(ctx: ToolContext, schedule_id: int, before: Schedule, after: Schedule,
     mutates=True,
 )
 def record_actual(args: RecordActualIn, ctx: ToolContext) -> RecordActualOut:
+    ctx.require_editor()
     schedule_id = ctx.require_schedule_id()
     with explained_schedule_errors():
         before_view = view_data(ctx.session, schedule_id)

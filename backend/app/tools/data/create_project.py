@@ -45,6 +45,7 @@ class CreateProjectOut(BaseModel):
     mutates=True,
 )
 def create_project(args: CreateProjectIn, ctx: ToolContext) -> CreateProjectOut:
+    ctx.require_editor()
     name = args.name.strip()
     if not name:
         raise ToolError("프로젝트 이름을 적어 주세요.")
