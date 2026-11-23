@@ -77,10 +77,10 @@ const SAMPLE_REPORT = {
   style: SAMPLE_TPL_CURRENT.style,
 };
 
-function stubReportsFetch() {
+function stubReportsFetch(report: typeof SAMPLE_REPORT = SAMPLE_REPORT) {
   let current = [SAMPLE_TPL_CURRENT];
-  let reports = [{ ...SAMPLE_REPORT }];
-  let detail = { ...SAMPLE_REPORT };
+  let reports = [{ ...report }];
+  let detail = { ...report };
   const baseFetch = globalThis.fetch;
 
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -138,6 +138,10 @@ function stubReportsFetch() {
       reports = [created, ...reports];
       detail = created;
       return json(200, created);
+    }
+    if (url === '/api/schedules/1/reports/101/regenerate' && method === 'POST') {
+      detail = { ...report, blocks: report.blocks.map((blk) => ({ ...blk, auto_text: false, text: 'AI 가 다시 쓴 문단입니다.' })) };
+      return json(200, detail);
     }
     if (url.startsWith('/api/schedules/1/reports/') && method === 'GET') {
       return json(200, detail);
@@ -211,4 +215,43 @@ test('uploads template file, learns sections, saves for project, and generates q
   await userEvent.click(within(creator).getByRole('button', { name: '작성 시작' }));
 
   expect(await screen.findByDisplayValue('분기별 공정 보고서 — 5층 사무동 신축')).toBeVisible();
+});
+
+test('auto-made prose shows a notice with 다시 만들기, plain AI prose does not (R4)', async () => {
+  const auto = {
+    ...SAMPLE_REPORT,
+    blocks: SAMPLE_REPORT.blocks.map((blk) => (blk.block_kind === 'prose' ? { ...blk, auto_text: true } : blk)),
+  };
+  const fetchMock = stubReportsFetch(auto);
+  render(<Reports windowId="w1" params={{ id: '1' }} />);
+
+  const note = await screen.findByRole('note', { name: '1. 요약 자동 문안 안내' });
+  expect(note).toHaveTextContent('AI 서술을 받지 못해 자동 문안으로 채웠습니다');
+  await userEvent.click(within(note).getByRole('button', { name: '다시 만들기' }));
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(([u, init]) => String(u) === '/api/schedules/1/reports/101/regenerate' && init?.method === 'POST'),
+    ).toBe(true),
+  );
+  expect(await screen.findByText('AI 가 다시 쓴 문단입니다.')).toBeVisible();
+  expect(screen.queryByRole('note', { name: '1. 요약 자동 문안 안내' })).toBeNull();
+});
+
+test('editing auto-made prose by hand drops the notice (R4)', async () => {
+  const auto = {
+    ...SAMPLE_REPORT,
+    blocks: SAMPLE_REPORT.blocks.map((blk) => (blk.block_kind === 'prose' ? { ...blk, auto_text: true } : blk)),
+  };
+  stubReportsFetch(auto);
+  render(<Reports windowId="w1" params={{ id: '1' }} />);
+  await screen.findByRole('note', { name: '1. 요약 자동 문안 안내' });
+  await userEvent.type(screen.getByLabelText('1. 요약 본문'), ' 보탬');
+  expect(screen.queryByRole('note', { name: '1. 요약 자동 문안 안내' })).toBeNull();
+});
+
+test('AI-written prose has no auto-text notice (R4)', async () => {
+  stubReportsFetch();
+  render(<Reports windowId="w1" params={{ id: '1' }} />);
+  await screen.findByText('실적 공정률 28.1%, SPI 0.92입니다.');
+  expect(screen.queryByRole('note', { name: /자동 문안 안내/ })).toBeNull();
 });

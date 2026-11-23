@@ -774,6 +774,19 @@ export default function ReportsTab() {
 
                   {(blk.block_kind === 'prose' || blk.block_kind === 'manual') && (
                     <div className="rp-prose-box">
+                      {blk.auto_text && (
+                        <div className="rp-auto-note" role="note" aria-label={`${blk.heading} 자동 문안 안내`}>
+                          <span>AI 서술을 받지 못해 자동 문안으로 채웠습니다 —</span>
+                          <button
+                            type="button"
+                            className="rp-mini-link"
+                            onClick={() => void handleRegenerate()}
+                            disabled={busy !== null}
+                          >
+                            다시 만들기
+                          </button>
+                        </div>
+                      )}
                       <textarea
                         className="rp-textarea"
                         rows={blk.block_kind === 'prose' ? 4 : 3}
@@ -782,7 +795,7 @@ export default function ReportsTab() {
                         placeholder={blk.block_kind === 'manual' ? '직접 입력할 내용을 적어 주세요.' : ''}
                         onChange={(e) => {
                           const text = e.target.value;
-                          setDraftBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text } : b)));
+                          setDraftBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, text, auto_text: false } : b)));
                         }}
                       />
                       <div className="rp-prose-foot">

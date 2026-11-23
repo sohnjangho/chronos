@@ -410,6 +410,17 @@
   display: flex;
   justify-content: flex-end;
 }
+.rp-auto-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: var(--radius-2);
+  background: var(--tone-warning-bg);
+  color: var(--warning-text);
+  font-size: var(--fs-12);
+}
 .rp-mini-link {
   border: 0;
   background: none;
@@ -515,6 +526,8 @@
   min-height: 0;
   overflow-y: auto;
   padding: 12px;
+  /* 맨 아래 「이 프로젝트에 양식 기억」 단추가 Dock(windowStore DOCK_RESERVE 94px)에 가리지 않게 */
+  padding-bottom: 94px;
   display: flex;
   flex-direction: column;
   gap: 12px;

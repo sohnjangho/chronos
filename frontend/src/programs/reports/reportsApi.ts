@@ -86,6 +86,8 @@ export interface ReportBlock {
   block_kind: BlockKind;
   data_binding: DataBinding;
   text: string;
+  /** 서술을 AI 에게 받지 못해 코드가 만든 문안으로 채웠다(화면에만 알린다). */
+  auto_text?: boolean;
   metrics: { label: string; value: string; sub?: string }[];
   table: { columns: string[]; rows: (string | number | null)[][] } | null;
   chart: {
