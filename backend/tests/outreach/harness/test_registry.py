@@ -278,37 +278,98 @@ def test_pinning_is_refused_outside_tests_and_sandbox():
     assert _pin_in_fresh_process({registry.SANDBOX_ENV: "1"}) == "ALLOWED"  # 격자 칸을 돌리는 자식 프로세스
 
 
-def _pins(source: str) -> list[str]:
-    """registry.pinned(…)·faked_channels(…) 부름과 registry 에서 pinned 를 꺼내 오는 import. Scope.pinned 는 아니다."""
-    found = []
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("harness.registry"):
-            found += [f"import {a.name}" for a in node.names if a.name == "pinned"]
-        if isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name) and func.id == "faked_channels":
-                found.append("faked_channels()")
-            if isinstance(func, ast.Attribute) and func.attr == "faked_channels":
-                found.append("faked_channels()")
-            if isinstance(func, ast.Attribute) and func.attr == "pinned":
-                owner = func.value
-                name = owner.id if isinstance(owner, ast.Name) else getattr(owner, "attr", "")
-                if name == "registry":
-                    found.append("registry.pinned()")
+REGISTRY = "app.outreach.harness.registry"
+_BANNED = ("pinned", "faked_channels")
+
+
+def _from_base(node: ast.ImportFrom, module: str) -> str:
+    """`from … import` 의 바탕 모듈(상대 import 는 module 의 꾸러미에서 푼다)."""
+    if not node.level:
+        return node.module or ""
+    package = module.split(".")[:-1]
+    base = package[: len(package) - node.level + 1]
+    return ".".join([*base, node.module] if node.module else base)
+
+
+def _dotted(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        inner = _dotted(node.value)
+        return f"{inner}.{node.attr}" if inner else None
+    return None
+
+
+def _pins(source: str, module: str) -> list[str]:
+    """registry 모듈의 pinned·faked_channels 에 닿는 자리 전부(부르든 꺼내 두든). registry 의 별칭(절대·상대 import,
+    꾸러미 별칭 + .registry)을 따라가고, getattr(별칭, "pinned") 와 import 해 온 이름도 잡는다. Scope.pinned 는 아니다."""
+    tree = ast.parse(source)
+    aliases, imported, found = {REGISTRY}, set(), []
+
+    def bind(local: str, full: str) -> None:
+        if full == REGISTRY:
+            aliases.add(local)
+        elif REGISTRY.startswith(full + "."):
+            aliases.add(local + REGISTRY[len(full):])
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    bind(alias.asname, alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            base = _from_base(node, module)
+            for alias in node.names:
+                bind(alias.asname or alias.name, f"{base}.{alias.name}")
+                if alias.name == "faked_channels" or (base == REGISTRY and alias.name == "pinned"):
+                    found.append(f"import {alias.name}")
+                    imported.add(alias.asname or alias.name)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in _BANNED:
+            owner = _dotted(node.value)
+            if node.attr == "faked_channels" or owner in aliases:
+                found.append(f"{owner}.{node.attr}")
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr":
+            owner, name = (_dotted(node.args[0]), node.args[1]) if len(node.args) >= 2 else (None, None)
+            if isinstance(name, ast.Constant) and name.value in _BANNED and \
+                    (name.value == "faked_channels" or owner in aliases):
+                found.append(f"getattr({owner}, {name.value!r})")
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in imported:
+            found.append(node.id)
     return found
 
 
+CAUGHT_FORMS = {
+    "alias": "from app.outreach.harness import registry as reg\nreg.pinned({})\n",
+    "module_alias": "import app.outreach.harness.registry as r2\nwith r2.pinned({}):\n    pass\n",
+    "relative_name": "from .registry import pinned\nwith pinned({}):\n    pass\n",
+    "relative_module": "from . import registry\nregistry.pinned({})\n",
+    "renamed_name": "from app.outreach.harness.registry import pinned as keep\nwith keep({}):\n    pass\n",
+    "getattr": "from app.outreach.harness import registry\nopen_ = getattr(registry, 'pinned')\n",
+    "kept_not_called": "from app.outreach.harness import registry\np = registry.pinned\n",
+    "full_path": "import app.outreach.harness.registry\napp.outreach.harness.registry.pinned({})\n",
+    "package_alias": "import app.outreach.harness as h\nh.registry.pinned({})\n",
+    "faked_import": "from tests.harness_doubles import faked_channels\n",
+    "faked_attr": "import tests.harness_doubles as d\nd.faked_channels()\n",
+    "faked_getattr": "import tests.harness_doubles as d\ngetattr(d, 'faked_channels')\n",
+}
+NOT_CAUGHT = (
+    "scope.pinned(3)\np = scope.pinned\ngetattr(scope, 'pinned')\n"
+    "from app.outreach.harness import types\ntypes.Scope.pinned\n"
+)
+
+
+def test_pin_scanner_catches_every_form(tmp_path):
+    for form, source in CAUGHT_FORMS.items():
+        planted = tmp_path / f"planted_{form}.py"  # 임시 모듈에 심고 그 파일을 훑는다
+        planted.write_text(source, encoding="utf-8")
+        assert _pins(planted.read_text(encoding="utf-8"), "app.outreach.harness.planted"), form
+    clean = tmp_path / "planted_scope.py"
+    clean.write_text(NOT_CAUGHT, encoding="utf-8")
+    assert _pins(clean.read_text(encoding="utf-8"), "app.outreach.harness.planted") == []  # Scope.pinned 은 범위 메서드
+
+
 def test_no_app_module_pins_channels():
-    planted = textwrap.dedent("""
-        from app.outreach.harness import registry
-        from app.outreach.harness.registry import pinned
-        from tests.harness_doubles import faked_channels
-        with registry.pinned({}): pass
-        with app.outreach.harness.registry.pinned({}): pass
-        with faked_channels(): pass
-        scope.pinned(3)
-    """)
-    assert sorted(_pins(planted)) == ["faked_channels()", "import pinned", "registry.pinned()", "registry.pinned()"]
     assert registry.SANDBOX_MODULES == frozenset()  # 뒤 작업이 모래상자 실행 모듈 이름을 여기에 더한다
     app_dir = BACKEND / "app"
     offenders = {}
@@ -316,7 +377,7 @@ def test_no_app_module_pins_channels():
         module = ".".join(path.relative_to(BACKEND).with_suffix("").parts)
         if module in registry.SANDBOX_MODULES or path == HARNESS / "registry.py":
             continue
-        hits = _pins(path.read_text(encoding="utf-8"))
+        hits = _pins(path.read_text(encoding="utf-8"), module)
         if hits:
             offenders[module] = hits
     assert offenders == {}

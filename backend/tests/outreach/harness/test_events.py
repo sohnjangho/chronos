@@ -309,3 +309,10 @@ def test_text_trouble_never_drops_the_event(session, monkeypatch):
     assert [(e["rule"], e["verdict"]) for e in got] == [("delivery", "noted"), ("test_mode", "blocked")]  # 이름·판정은 남는다
     assert got[0]["detail"] == got[0]["evidence"] == events.HIDDEN_TEXT
     assert got[1]["detail"] == got[1]["evidence"] == events.HIDDEN_TEXT
+
+
+def test_every_known_rule_has_exactly_one_group():
+    from app.outreach.harness.types import EVENT_GROUPS
+
+    assert set(EVENT_GROUPS) == events.KNOWN_RULES  # 콘솔이 묶음을 지어내지 않게 — 빠진 이름도 남는 이름도 없다
+    assert len(EVENT_GROUPS) == len(events.KNOWN_RULES)

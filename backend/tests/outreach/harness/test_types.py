@@ -14,6 +14,8 @@ from app.outreach.harness.types import (
     CHANNELS,
     DELIVERY_UPDATES,
     DELIVERY_VERDICT,
+    EVENT_GROUP_KEYS,
+    EVENT_GROUPS,
     EVENT_RULES,
     FIXED_DETAILS,
     GATE_NOTES,
@@ -320,3 +322,44 @@ def test_tool_parameters_are_read_only():
     schema["required"].append("x")
     assert tool.json_schema()["required"] == ["query"]
     assert json.loads(json.dumps(schema))["type"] == "object"
+
+
+# ── 범위의 모양: 공유 번호·같은 일정 두 사람·빈 범위 ─────────────────────
+
+
+def test_shared_number_across_two_companies_gets_nothing():
+    two_companies = (Candidate(A, 11, 21), Candidate(A, 13, 23))  # 한 일정에서 한 번호를 두 협력사 사람이 씀
+    with pytest.raises(ValueError):
+        Scope("shared", (A,), two_companies, False, "trade")  # 어느 협력사의 공종도 들을 수 없다
+    nothing = Scope("shared", (A,), two_companies, False, "none")
+    assert nothing.company_ids == () and nothing.facts == "none"
+    one_company = Scope("shared", (A,), (Candidate(A, 11, 21), Candidate(A, 13, 21)), False, "trade")
+    assert one_company.company_ids == (21,) and one_company.facts == "trade"
+    across_sites = Scope("shared", (A, B), (Candidate(A, 11, 21), Candidate(A, 13, 21), Candidate(B, 12, 22)),
+                         False, "trade")  # 협력사 id 는 일정마다 따로 — 일정마다 한 협력사면 된다
+    assert across_sites.pinned(B).company_ids == (22,)
+
+
+@pytest.mark.parametrize("cls", ["contact", "contact_multi", "outbound"])
+def test_one_person_classes_have_one_pair_per_schedule(cls):
+    with pytest.raises(ValueError):
+        Scope(cls, (A,), (Candidate(A, 11, 21), Candidate(A, 13, 21)), True, "trade")  # 같은 일정에 둘이면 shared
+
+
+@pytest.mark.parametrize("cls", ALL_CLASSES)
+def test_empty_scope_only_for_classes_that_see_nothing(cls):
+    if GRANT_CEILING[cls] == "none":
+        empty = Scope(cls, (), (), False, "none")
+        assert empty.facts == "none" and empty.contact_ids == () and empty.company_ids == ()
+    else:
+        with pytest.raises(ValueError):  # 빈 범위는 「아무것도 안 보임」이지 「거르지 않음」이 아니다
+            Scope(cls, (), (), False, "none")
+
+
+def test_event_groups_are_read_only_and_known():
+    with pytest.raises(TypeError):
+        EVENT_GROUPS["x"] = "tool"
+    assert set(EVENT_GROUPS.values()) <= set(EVENT_GROUP_KEYS)
+    assert EVENT_GROUPS["test_mode"] == "gate_decision" and EVENT_GROUPS["tool:find_contact"] == "tool"
+    assert EVENT_GROUPS["kakao_not_ready"] == "gate_note" and EVENT_GROUPS["scope_denied"] == "tool"
+    assert EVENT_GROUPS["delivery_update"] == "channel_result" and EVENT_GROUPS["server_restart"] == "recovery"

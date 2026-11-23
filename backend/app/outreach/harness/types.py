@@ -14,6 +14,13 @@
 - **도구 한 번(Toolbox.call)**: 사건 **꼭 하나** — 허용되면 `tool:<이름>`(allowed, detail 은 인자), 거절되면 TOOL_REFUSALS 의
   그 까닭 이름(blocked, detail 은 events.tool_detail(이름, …) 꼴 `tool=<이름> …`). 둘 다 남기지 않는다.
 - FIXED_DETAILS 의 이름은 detail 이 정해 둔 코드 하나여야 한다(그 밖의 이름은 자유 글 — 저장할 때 비밀·번호를 지운다).
+- 「판정 사건 꼭 하나」는 **dispatch 한 번마다**다(줄마다가 아니다): 예약됐다가 나중에 다시 dispatch 된 줄은 시도마다 판정
+  사건이 하나씩, 시도한 차례대로 쌓인다.
+- 도구가 **돌았지만** 바람을 이루지 못한 것(다시 연락할 근무시간을 찾지 못함, 제안한 연락처의 번호가 틀림 …)은 거절이 아니다 —
+  `tool:<이름>` allowed 에 그 결과를 detail 로. TOOL_REFUSALS 는 하네스가 도구를 **돌리지 않은** 호출만.
+- 통화 중 전환·회신을 나가는 문이 막으면 사건이 **두 가지** 남는다: 문의 판정(막은 차례 이름, 예 `test_mode` blocked)과 도구
+  호출(`tool:handoff_to_human` allowed, 결과는 detail).
+- 빈 범위(일정 0개)는 「아무것도 보이지 않음」이지 「거르지 않음」이 아니다 — 끝이 none 인 등급만 만들 수 있다.
 """
 
 from collections.abc import Iterable, Mapping
@@ -37,6 +44,7 @@ GRANT_CEILING: Mapping[str, str] = MappingProxyType({
     "do_not_contact": "none", "unknown": "none", "withheld": "none", "blocked": "none", "outside_test": "none",
 })
 PERSONAL_CLASSES: frozenset[str] = frozenset({"contact", "contact_multi", "outbound"})  # 「본인에게 온 요청」을 말해도 되는 등급
+ONE_PERSON_CLASSES: frozenset[str] = frozenset({"contact", "contact_multi", "outbound"})  # 일정마다 짝이 꼭 하나(둘이면 shared)
 OutcomeCode = Literal[  # 이름표의 판정 코드
     "accepted", "queued", "scheduled", "blocked_test", "blocked_hours", "blocked_number", "do_not_contact", "limit_daily",
     "limit_person", "needs_approval", "duplicate", "held_for_review", "not_ready", "not_sendable",
@@ -106,6 +114,33 @@ FIXED_DETAILS: Mapping[str, frozenset[str]] = MappingProxyType({
     "channel_choice": frozenset(CHANNELS), "admission": ADMIT_REASONS, "call_result": CALL_RESULTS,
     "delivery_update": DELIVERY_UPDATES,
 })
+
+# 사건 이름마다 보여 줄 묶음 하나(개발 콘솔이 묶음을 지어내지 않게). 한글 이름표는 콘솔의 몫이다.
+EVENT_GROUP_KEYS = ("gate_decision", "gate_note", "admission", "tool", "post_check", "channel_result", "call", "text_reply",
+                    "recovery")
+
+
+def _grouped(*groups: tuple[str, Iterable[str]]) -> Mapping[str, str]:
+    out: dict[str, str] = {}
+    for group, names in groups:
+        for name in names:
+            if name in out:
+                raise ValueError(f"사건 이름이 두 묶음에 있습니다: {name}")
+            out[name] = group
+    return MappingProxyType(out)
+
+
+EVENT_GROUPS: Mapping[str, str] = _grouped(
+    ("gate_decision", GATE_RULES.values()),  # 나가는 문의 판정
+    ("gate_note", GATE_NOTES),  # 판정을 설명하는 메모
+    ("admission", {"admission"}),  # 들어오는 문의 받기 판정
+    ("tool", {f"tool:{name}" for name in SHARED_TOOLS + VOICE_ONLY_TOOLS} | TOOL_REFUSALS | {"site_pinned"}),
+    ("post_check", REVIEW_FLAGS | {"held_for_review"}),  # 뒤 확인과 그 결과
+    ("channel_result", {"delivery", "delivery_update"}),  # 통로 결과·뒤에 바뀐 상태
+    ("call", {"recheck_before_dial", "silence", "time_limit", "call_result", "hangup_by_person", "no_answer_retry"}),
+    ("text_reply", {"reply_failed"}),  # 들어온 문자의 답 만들기
+    ("recovery", {"server_restart"}),  # 서버가 다시 떠서 닫은 줄
+)
 
 
 class NotReady(Exception):
@@ -193,7 +228,9 @@ class Scope:
     candidates — 일정마다 그 상대의 짝(일정·연락처·협력사). 연락처·협력사 범위는 이 짝에서만 나온다(contact_ids·company_ids).
       internal 은 짝이 없다.
     grant_personal · grant_facts — 현장이 하나로 정해졌을 때 줄 것(「본인에게 온 요청」·사실 수준). 등급의 끝
-      (PERSONAL_CLASSES·GRANT_CEILING)보다 넓으면 ValueError — dataclasses.replace 로 넓혀도 같다.
+      (PERSONAL_CLASSES·GRANT_CEILING)보다 넓으면 ValueError — dataclasses.replace 로 넓혀도 같다. 한 일정에서 짝들이
+      두 협력사 이상에 걸치면(대표번호를 두 협력사 사람이 씀) 끝은 none 이고 company_ids 는 비어 있다.
+    ONE_PERSON_CLASSES 는 일정마다 짝이 꼭 하나다(같은 일정에 둘이면 shared). 일정이 0개인 범위는 끝이 none 인 등급만.
     site_required — 인자가 아니라 **계산**한다: 일정이 둘 이상이면 참. 그동안 facts 는 "none", personal 은 False 이고,
       pinned(일정) 이 한 현장으로 좁혀야 열린다.
     """
@@ -216,8 +253,16 @@ class Scope:
             _check(not candidates, "internal 범위에는 연락처 짝이 없습니다")
         else:
             _check(set(schedule_ids) == {c.schedule_id for c in candidates}, "Scope 의 일정이 짝의 일정과 다릅니다")
+        per_schedule: dict[int, list[Candidate]] = {}
+        for pair in candidates:
+            per_schedule.setdefault(pair.schedule_id, []).append(pair)
+        if cls in ONE_PERSON_CLASSES:
+            _check(all(len(pairs) == 1 for pairs in per_schedule.values()), "한 사람 등급은 일정마다 짝이 하나입니다")
+        _check(bool(schedule_ids) or GRANT_CEILING[cls] == "none", "빈 범위는 아무것도 보이지 않는 등급만 만들 수 있습니다")
+        mixed = any(len({pair.company_id for pair in pairs}) > 1 for pairs in per_schedule.values())
+        ceiling = "none" if mixed else GRANT_CEILING[cls]
         order = get_args(FactLevel)
-        _check(order.index(self.grant_facts) <= order.index(GRANT_CEILING[cls]), "그 등급에 줄 수 없는 사실 수준입니다")
+        _check(order.index(self.grant_facts) <= order.index(ceiling), "그 등급에 줄 수 없는 사실 수준입니다")
         _check(not self.grant_personal or cls in PERSONAL_CLASSES, "그 등급에는 본인 요청을 말할 수 없습니다")
         object.__setattr__(self, "schedule_ids", schedule_ids)
         object.__setattr__(self, "candidates", candidates)
@@ -243,6 +288,12 @@ class Scope:
 
     @property
     def company_ids(self) -> tuple[int, ...]:
+        """짝의 협력사들 — 한 일정에서 두 협력사 이상에 걸치면(공유 번호) 비어 있다."""
+        per_schedule: dict[int, set[int]] = {}
+        for pair in self.candidates:
+            per_schedule.setdefault(pair.schedule_id, set()).add(pair.company_id)
+        if any(len(companies) > 1 for companies in per_schedule.values()):
+            return ()
         return _unique(c.company_id for c in self.candidates)
 
     def pinned(self, schedule_id: int) -> "Scope":
