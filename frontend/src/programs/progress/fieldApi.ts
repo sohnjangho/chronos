@@ -47,6 +47,8 @@ export interface FieldData {
   activities: FieldActivityOption[];
   summary: FieldSummary;
   items: FieldItem[];
+  /** 이번 요청의 알림(체크인 일괄 발송에서 건너뛴 것 등). */
+  notice?: string | null;
 }
 
 const json = (method: string, body?: unknown): RequestInit => ({

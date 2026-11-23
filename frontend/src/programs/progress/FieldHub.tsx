@@ -503,7 +503,7 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
     try {
       const next = await task();
       setData(next);
-      if (done) setNotice(done);
+      if (done ?? next.notice) setNotice(done ?? next.notice ?? null); // 서버 알림(일괄 발송에서 건너뛴 것 등)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '요청을 처리하지 못했습니다.');
     } finally {

@@ -416,3 +416,21 @@ def test_a_field_report_that_would_start_before_the_project_start_is_refused(cli
     assert r.status_code == 422 and r.json()["code"] == "actual_dates"
     assert r.json()["message"] == ACTUALS.format("2026-11-23", "A 실제 시작 2026-11-23 — 착공일 2027-03-01 앞")
     assert _count(session, Approval) == before
+
+
+# ── 재확인 2: 체크인 일괄 발송은 이미 회신을 기다리거나 승인함에서 기다리는 작업에는 또 보내지 않는다 ──────────
+def test_bulk_check_in_skips_work_that_already_waits_and_says_so(client, admin, session, sid):
+    first = client.post(f"/api/schedules/{sid}/field/checkins/dispatch", json={"activity_ids": ["A"]}, headers=admin)
+    assert first.status_code == 200 and first.json()["notice"] is None  # A: 회신 대기 카드 하나
+    b = next(i for i in first.json()["items"] if i["activity_id"] == "B" and i["status"] == "pending")  # 예시 카드
+    client.post(f"/api/schedules/{sid}/field/{b['id']}/respond",
+                json={"response_choice": "on_track", "reported_progress": 50, "response_note": ""}, headers=admin)
+    client.post(f"/api/schedules/{sid}/field/{b['id']}/apply", headers=admin)  # B: 승인함에서 기다림
+    before = _count(session, FieldItem)
+
+    again = client.post(f"/api/schedules/{sid}/field/checkins/dispatch", json={"activity_ids": ["A", "B"]}, headers=admin)
+
+    assert again.status_code == 200 and _count(session, FieldItem) == before  # A(회신 대기)·B(승인 대기) 둘 다 건너뜀
+    assert again.json()["notice"] == (
+        "체크인 0건을 보냈습니다. 2건은 건너뛰었습니다 — 회신을 기다리는 체크인이나 승인함에서 기다리는 보고가 "
+        "이미 있습니다(A, B).")

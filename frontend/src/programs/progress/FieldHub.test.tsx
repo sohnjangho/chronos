@@ -195,3 +195,12 @@ test('other roles are not told it waits (their report may apply at once)', async
   await submitReport();
   expect(screen.queryByText(WAITS)).toBeNull();
 });
+
+// 재확인 2: 체크인 일괄 발송이 이미 기다리는 작업을 건너뛰면 서버가 notice 로 알린다 — 그대로 보인다.
+test('the bulk check-in says how many were skipped and why', async () => {
+  const skipped = '체크인 1건을 보냈습니다. 2건은 건너뛰었습니다 — 회신을 기다리는 체크인이나 승인함에서 기다리는 보고가 이미 있습니다(A1110, A1100).';
+  stubFetch({ '/api/schedules/1/field': data([checkin]), 'POST /api/schedules/1/field/checkins/dispatch': { ...data([checkin]), notice: skipped } });
+  render(<FieldHub scheduleId={1} />);
+  await userEvent.click(await screen.findByRole('button', { name: '관리자 에이전트: 오늘의 체크인 일괄 발송' }));
+  expect(await screen.findByText(skipped)).toBeVisible();
+});

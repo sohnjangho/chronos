@@ -32,7 +32,7 @@ from app.llm.client import LlmClient, LlmFailed, LlmNotReady
 from app.store import approvals
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound, get_record, load, run
-from app.store.tables import FieldItem, User
+from app.store.tables import Approval, FieldItem, User
 from app.store.timeutil import as_utc
 from app.store.view import view_data
 
@@ -44,6 +44,8 @@ FieldKind = Literal["checkin", "photo", "poll", "handoff"]
 UNREAD = "unread"
 NO_PHOTO = "사진이 없어 판독하지 않았습니다."
 BAD_ANSWER = "모델 답을 읽지 못해 판독하지 않았습니다."
+SKIPPED_CHECKINS = ("체크인 {}건을 보냈습니다. {}건은 건너뛰었습니다 — 회신을 기다리는 체크인이나 승인함에서 기다리는 보고가 "
+                    "이미 있습니다({}).")
 LEGACY_PHOTO = "이전 방식으로 만든 항목입니다. 사진을 다시 올려 주세요"  # F1 이전 항목(숫자를 지어냈다, 리뷰 I-3)
 VISION_PROMPT = (
     "너는 건설·제조 현장 사진을 보고 한 작업의 진도를 판독한다. 사진에 보이는 것만 근거로 삼고, 보이지 않는 것은 짐작하지 않는다. "
@@ -152,6 +154,7 @@ class FieldListOut(BaseModel):
     activities: list[dict[str, Any]]
     summary: FieldSummary
     items: list[FieldItemOut]
+    notice: str | None = None  # 이번 요청의 알림(체크인 일괄 발송에서 건너뛴 것 등)
 
 
 def client_for(session: Session) -> LlmClient:
@@ -379,6 +382,9 @@ def dispatch_checkins(session: Session, schedule_id: int, body: DispatchCheckinI
     else:
         open_tasks = [a for a in tasks if a.get("status") != "done"] or tasks
         targets = open_tasks[:3]
+    waiting = _waiting_activities(session, schedule_id)  # 같은 작업에 또 보내지 않는다(재확인 2)
+    skipped = [a["id"] for a in targets if a["id"] in waiting]
+    targets = [a for a in targets if a["id"] not in waiting]
     for i, a in enumerate(targets):
         session.add(
             FieldItem(
@@ -399,7 +405,18 @@ def dispatch_checkins(session: Session, schedule_id: int, body: DispatchCheckinI
             )
         )
     session.commit()
-    return _list_out(session, schedule_id, view)
+    out = _list_out(session, schedule_id, view)
+    if skipped:
+        out.notice = SKIPPED_CHECKINS.format(len(targets), len(skipped), ", ".join(skipped))
+    return out
+
+
+def _waiting_activities(session: Session, schedule_id: int) -> set[str]:
+    """회신을 기다리는 체크인이 있거나, 현장 항목이 낸 승인 건이 승인함에서 기다리는 작업."""
+    rows = session.scalars(select(FieldItem).where(FieldItem.schedule_id == schedule_id))
+    pending = {a.id for a in session.scalars(select(Approval).where(Approval.status == "pending"))}
+    return {r.activity_id for r in rows
+            if (r.kind == "checkin" and r.status == "pending") or (r.approval_id is not None and r.approval_id in pending)}
 
 
 async def _read_photo(
