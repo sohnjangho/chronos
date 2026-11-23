@@ -29,7 +29,7 @@ export interface ProgramMenu {
 }
 
 /** 아이콘 타일 색(tokens.css 의 --tile-<tone>-from/to). */
-export type IconTone = 'blue' | 'violet' | 'teal' | 'indigo' | 'amber' | 'sky' | 'green' | 'rose' | 'orange' | 'fuchsia' | 'lime' | 'brown' | 'cyan' | 'emerald' | 'graphite' | 'slate';
+export type IconTone = 'blue' | 'violet' | 'teal' | 'indigo' | 'amber' | 'sky' | 'green' | 'rose' | 'orange' | 'fuchsia' | 'lime' | 'brown' | 'cyan' | 'emerald' | 'graphite' | 'slate' | 'red';
 
 export interface ProgramManifest {
   id: string;
@@ -40,6 +40,8 @@ export interface ProgramManifest {
   tone?: IconTone;
   kind: 'work' | 'system';
   adminOnly?: boolean;
+  /** 현장 관리자(field)에게는 없다(Dock·전체 목록·찾기 — 예: 연락처). */
+  noField?: boolean;
   defaultSize: { w: number; h: number };
   menus?: ProgramMenu[];
   component: LazyExoticComponent<ComponentType<ProgramProps>>;
@@ -53,9 +55,9 @@ export function register(m: ProgramManifest): void {
   entries.set(m.id, m);
 }
 
-/** 등록한 차례대로. 관리자 전용은 관리자에게만. */
+/** 등록한 차례대로. 관리자 전용은 관리자에게만, noField 는 현장 관리자에게서 뺀다. */
 export function programs(role: Role): ProgramManifest[] {
-  return [...entries.values()].filter((p) => role === 'admin' || !p.adminOnly);
+  return [...entries.values()].filter((p) => (role === 'admin' || !p.adminOnly) && !(role === 'field' && p.noField));
 }
 
 export function getProgram(id: string): ProgramManifest | undefined {

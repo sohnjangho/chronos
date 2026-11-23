@@ -63,7 +63,7 @@ async def test_open_window_rejects_a_misspelled_field(ctx, events):
 # Task 16b: 일정판(schedule)은 스케줄·간트차트·CPM·공정률 프로그램으로 나뉘었다. 도구는 화면에 있는 프로그램만 연다.
 OPENABLE = [
     "chat", "questionnaire", "workflow", "approvals", "explorer", "settings", "devconsole",
-    "schedule-table", "gantt", "cpm", "progress", "compare", "conditions", "delays", "reports", "library",
+    "schedule-table", "gantt", "cpm", "progress", "compare", "conditions", "delays", "reports", "contacts", "library",
 ]
 
 
@@ -71,7 +71,7 @@ def test_open_window_offers_the_screen_programs_by_id_and_name():
     spec = {t.name: t for t in list_tools()}["ui.open_window"]
     schema = spec.input_model.model_json_schema()
     assert schema["properties"]["program"]["enum"] == OPENABLE
-    for text in ("schedule-table(스케줄", "gantt(간트차트", "cpm(CPM", "progress(공정률", "compare(비교판", "delays(지연 기록", "reports(보고서", "library(자료함", "devconsole(개발 콘솔"):
+    for text in ("schedule-table(스케줄", "gantt(간트차트", "cpm(CPM", "progress(공정률", "compare(비교판", "delays(지연 기록", "reports(보고서", "library(자료함", "devconsole(개발 콘솔", "contacts(연락처"):
         assert text in spec.description
     assert "일정판" not in spec.description
 
@@ -236,3 +236,24 @@ async def test_create_project_creates_starter_schedule_and_binds_chat(session, c
     assert version == 1 and conditions == [] and [a.id for a in sched.activities] == ["MS-START", "A-01", "MS-END"]
     assert chats.get_chat(session, chat.id).schedule_id == sid
     assert events[-1].type == "card" and events[-1].data["kind"] == "project_created" and events[-1].data["schedule_id"] == sid
+
+
+# Task 75: 연락처는 현장 관리자에게 없다(화면 매니페스트의 noField 와 같게 — 맞춤 시험이 있다).
+async def test_open_window_refuses_contacts_for_a_field_manager(ctx, events):
+    r = await call("ui.open_window", {"program": "contacts", "params": {"contact": "3"}}, replace(ctx, user=SimpleNamespace(role="field")))
+    assert r.ok is False and r.error == "현장 관리자는 열 수 없는 프로그램입니다: 연락처" and events == []
+    r = await call("ui.open_window", {"program": "contacts", "params": {"contact": "3"}}, replace(ctx, user=SimpleNamespace(role="user")))
+    assert r.ok is True and events[-1] == AgentEvent("open_window", {"program": "contacts", "params": {"contact": "3"}})
+
+
+@pytest.mark.skipif(not FRONTEND_PROGRAMS.is_dir(), reason="frontend 폴더가 없다(Docker backend 컨테이너)")
+def test_no_field_list_matches_the_screen_manifests():
+    from app.tools.ui.open_window import NO_FIELD
+
+    folders = re.findall(r"^import \w+ from '\./([\w-]+)';", (FRONTEND_PROGRAMS / "index.ts").read_text(encoding="utf-8"), re.MULTILINE)
+    no_field = {
+        re.search(r"^\s+id: '([^']+)'", t, re.MULTILINE)[1]
+        for t in ((FRONTEND_PROGRAMS / f / "index.ts").read_text(encoding="utf-8") for f in folders)
+        if re.search(r"^\s+noField: true", t, re.MULTILINE)
+    }
+    assert set(NO_FIELD) == no_field == {"contacts"}

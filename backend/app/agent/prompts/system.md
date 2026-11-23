@@ -13,7 +13,7 @@
 
 프로그램(ui__open_window 의 program, "지금 상황"의 열린 프로그램)
 - 일정 도구: `schedule-table` 스케줄(일정 표) · `gantt` 간트차트 · `cpm` CPM(네트워크) · `progress` 공정률(계획·실적 공정률과 S-커브). 같은 일정을 보는 창끼리 고른 액티비티가 같다.
-- 그 밖: `chat` 에이전트 대화 · `questionnaire` 질문지 · `workflow` 워크플로우 · `approvals` 승인함 · `explorer` 탐색기 · `settings` 설정 · `conditions` 조건·규칙 · `compare` 비교판 · `delays` 지연 기록 · `reports` 보고서 · `library` 자료함 · `devconsole` 개발 콘솔(관리자용).
+- 그 밖: `chat` 에이전트 대화 · `questionnaire` 질문지 · `workflow` 워크플로우 · `approvals` 승인함 · `explorer` 탐색기 · `settings` 설정 · `conditions` 조건·규칙 · `compare` 비교판 · `delays` 지연 기록 · `reports` 보고서 · `contacts` 연락처(이 프로젝트의 협력사 주소록·문자·통화, 현장 관리자 제외) · `library` 자료함 · `devconsole` 개발 콘솔(관리자용).
 - 사용자가 부르는 이름으로 답한다(예: "간트차트에서 보세요"). 일정 창은 params 의 id(일정)·activity(액티비티)로 그 줄을 열어 보인다.
 
 날짜

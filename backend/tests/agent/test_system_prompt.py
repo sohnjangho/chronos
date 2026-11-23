@@ -10,7 +10,7 @@ def test_the_prompt_names_every_program_the_agent_can_open():
     prompt = context.system_prompt()
     ids = typing.get_args(OpenWindowIn.model_fields["program"].annotation)
     assert ids and all(f"`{i}`" in prompt for i in ids)
-    for line in ("`schedule-table` 스케줄", "`gantt` 간트차트", "`cpm` CPM", "`progress` 공정률"):
+    for line in ("`schedule-table` 스케줄", "`gantt` 간트차트", "`cpm` CPM", "`progress` 공정률", "`contacts` 연락처"):
         assert line in prompt
 
 

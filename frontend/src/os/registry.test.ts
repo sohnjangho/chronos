@@ -27,3 +27,10 @@ test('registering the same id again replaces the entry and keeps order', () => {
   expect(getProgram('one')?.name).toBe('하나');
   expect(getProgram('none')).toBeUndefined();
 });
+
+test('programs marked noField are hidden from field managers only', () => {
+  register(m('book', { noField: true }));
+  expect(programs('field').map((p) => p.id)).not.toContain('book');
+  expect(programs('user').map((p) => p.id)).toContain('book');
+  expect(programs('admin').map((p) => p.id)).toContain('book');
+});

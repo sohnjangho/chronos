@@ -91,6 +91,8 @@
   --tile-graphite-to: #20242c;
   --tile-slate-from: #8c98ae;
   --tile-slate-to: #4a5670;
+  --tile-red-from: #f0675f;
+  --tile-red-to: #a8231d;
 
   --radius-2: 6px;
   --radius-3: 8px;
@@ -189,6 +191,8 @@
   --tile-graphite-to: #181b21;
   --tile-slate-from: #7f8ba2;
   --tile-slate-to: #3c475e;
+  --tile-red-from: #de5a52;
+  --tile-red-to: #8f1d18;
 }
 
 /* 스마트폰(data-device="phone") 전용 가독성·터치 스케일 (Apple HIG · Material Design 3 · 국내 모바일 앱 기준) */

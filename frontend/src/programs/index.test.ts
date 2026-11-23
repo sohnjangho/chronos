@@ -22,6 +22,7 @@ test('every program is registered with its id, name, kind and size', () => {
     ['conditions', '조건·규칙', 'work', 1400, 860],
     ['delays', '지연 기록', 'work', 1400, 860],
     ['reports', '보고서', 'work', 1400, 860],
+    ['contacts', '연락처', 'work', 1280, 820],
     ['library', '자료함', 'work', 1400, 860],
   ]);
   expect(programs('user').filter((p) => p.badge === 'approvals').map((p) => p.id)).toEqual(['approvals']);
@@ -43,7 +44,7 @@ test('devconsole is registered after settings and shows for admins only', () => 
   const ids = (role: 'admin' | 'user') => programs(role).map((p) => p.id);
   expect(ids('admin')).toEqual([
     'chat', 'questionnaire', 'workflow', 'approvals', 'explorer', 'settings', 'devconsole',
-    'schedule-table', 'gantt', 'cpm', 'progress', 'compare', 'conditions', 'delays', 'reports', 'library',
+    'schedule-table', 'gantt', 'cpm', 'progress', 'compare', 'conditions', 'delays', 'reports', 'contacts', 'library',
   ]);
   expect(ids('user')).not.toContain('devconsole');
   const dev = getProgram('devconsole')!;
@@ -54,4 +55,10 @@ test('every program has its own tile tone', () => {
   registerPrograms();
   const tones = programs('admin').map((p) => p.tone);
   expect(new Set(tones).size).toBe(tones.length);
+});
+
+test('contacts is hidden from field managers', () => {
+  registerPrograms();
+  expect(programs('field').map((p) => p.id)).not.toContain('contacts');
+  expect(programs('user').map((p) => p.id)).toContain('contacts');
 });

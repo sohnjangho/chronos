@@ -71,10 +71,10 @@ test('results are grouped by kind with counts and filtered by the query', async 
   render(<Desktop />);
   act(() => useShell.getState().setPalette(true));
   expect(within(await within(palette()).findByRole('group', { name: '액티비티' })).getAllByRole('option')).toHaveLength(2);
-  expect(within(group('프로그램')).getAllByRole('option')).toHaveLength(16);
+  expect(within(group('프로그램')).getAllByRole('option')).toHaveLength(17);
   expect(within(group('일정')).getAllByRole('option')).toHaveLength(2);
   expect(within(group('승인 대기')).getAllByRole('option')).toHaveLength(2);
-  expect(within(palette()).getByText('16')).toBeInTheDocument();
+  expect(within(palette()).getByText('17')).toBeInTheDocument();
   await userEvent.type(box(), '터파기');
   expect(within(palette()).getAllByRole('group').map((g) => g.getAttribute('aria-label'))).toEqual(['액티비티']);
 });

@@ -244,6 +244,7 @@ body {
 .os-tone-emerald { --tile-from: var(--tile-emerald-from); --tile-to: var(--tile-emerald-to); }
 .os-tone-graphite { --tile-from: var(--tile-graphite-from); --tile-to: var(--tile-graphite-to); }
 .os-tone-slate { --tile-from: var(--tile-slate-from); --tile-to: var(--tile-slate-to); }
+.os-tone-red { --tile-from: var(--tile-red-from); --tile-to: var(--tile-red-to); }
 .os-mark {
   display: inline-flex;
   align-items: center;
