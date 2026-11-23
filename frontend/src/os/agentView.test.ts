@@ -15,4 +15,9 @@ describe('새 에이전트 도구의 화면 이름(A6)', () => {
   it('field.list 는 「현장 데이터 조회」다', () => {
     expect(labelOf('field.list', 'progress')).toBe('현장 데이터 조회');
   });
+
+  it('info.list 는 「정보 API 목록」, info.call 은 「정보 API 조회」다', () => {
+    expect(labelOf('info.list', null)).toBe('정보 API 목록');
+    expect(labelOf('info.call', null)).toBe('정보 API 조회');
+  });
 });

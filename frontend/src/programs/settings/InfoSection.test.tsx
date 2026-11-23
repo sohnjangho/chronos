@@ -11,7 +11,21 @@ const KEY_HINT = '공공데이터포털 마이페이지의 일반 인증키(인�
 const LIST = '/api/info/connections';
 
 function kma(over: Partial<InfoConnection> = {}): InfoConnection {
-  return { id: 7, name: '기상청 날씨', preset: 'kma', base_url: KMA_URL, secret_last4: 'a91c', status: 'unknown', checked_at: null, ...over };
+  return {
+    id: 7,
+    name: '기상청 날씨',
+    preset: 'kma',
+    base_url: KMA_URL,
+    secret_last4: 'a91c',
+    status: 'unknown',
+    checked_at: null,
+    description: '',
+    usage: '',
+    key_in: 'query',
+    key_name: 'serviceKey',
+    test_path: '',
+    ...over,
+  };
 }
 
 const TESTED = {
@@ -62,8 +76,7 @@ test('add sends name, preset and key, then clears the key field', async () => {
   });
   await userEvent.click(await screen.findByRole('button', { name: '+ 연결 추가' }));
   const form = screen.getByRole('group', { name: '정보 API 연결 추가' });
-  const preset = within(form).getByLabelText('종류');
-  expect(within(preset).getAllByRole('option').map((o) => o.textContent)).toEqual(['기상청(공공데이터포털)']);
+  expect(within(form).getByRole('radio', { name: '기상청(전용)' })).toBeChecked();
   const key = within(form).getByLabelText(/^서비스 키/);
   expect(key).toHaveAttribute('type', 'password');
   expect(within(form).getByText(KEY_HINT)).toBeVisible();

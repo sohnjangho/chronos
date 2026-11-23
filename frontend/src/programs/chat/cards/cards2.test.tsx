@@ -52,6 +52,11 @@ describe('evidence', () => {
     renderCard('card', { kind: 'evidence', query: '서울 12월 평균기온', mode: 'weather', results: [] });
     expect(screen.getByText('날씨')).toBeVisible();
   });
+
+  test('generic info-API evidence shows the 정보 API badge', () => {
+    renderCard('card', { kind: 'evidence', query: '2026년 12월 공휴일', mode: 'info', results: [] });
+    expect(screen.getByText('정보 API')).toBeVisible();
+  });
 });
 
 describe('actual recorded', () => {

@@ -3,7 +3,7 @@ import { dotDate } from '../labels';
 import { asList, asNum, asObj, asText, Card, type CardProps } from './Card';
 import './cards2.css';
 
-const MODES: Record<string, string> = { web: '웹', scholar: '학술', legal: '법령', business: '기업', weather: '날씨' };
+const MODES: Record<string, string> = { web: '웹', scholar: '학술', legal: '법령', business: '기업', weather: '날씨', info: '정보 API' };
 const linkable = (url: string) => /^https?:\/\//i.test(url);
 
 /**

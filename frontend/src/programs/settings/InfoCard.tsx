@@ -9,15 +9,15 @@ import { ErrorLine, SecretField, toProblem } from './parts';
 /** 서비스 키 칸 아래 안내(추가·고치기 공통). */
 export const KEY_HINT = '공공데이터포털 마이페이지의 일반 인증키(인코딩·디코딩 아무거나)';
 
-type Mode = 'idle' | 'edit' | 'delete';
+export type Mode = 'idle' | 'edit' | 'delete';
 
-interface Outcome {
+export interface Outcome {
   note?: string;
   test?: InfoTest;
   error?: LlmError | null;
 }
 
-const STATUS: Record<InfoConnection['status'], { tone: Tone; text: string }> = {
+export const STATUS: Record<InfoConnection['status'], { tone: Tone; text: string }> = {
   ok: { tone: 'success', text: '연결됨' },
   failed: { tone: 'danger', text: '연결 실패' },
   unknown: { tone: 'neutral', text: '미확인' },
@@ -105,10 +105,20 @@ function EditForm({ conn, onSaved, onCancel }: { conn: InfoConnection; onSaved()
   );
 }
 
-function DeletePanel({ name, onConfirm, onCancel }: { name: string; onConfirm(): void; onCancel(): void }) {
+export function DeletePanel({
+  name,
+  note = '날씨 근거 도구가 이 키를 더 쓰지 못합니다.',
+  onConfirm,
+  onCancel,
+}: {
+  name: string;
+  note?: string;
+  onConfirm(): void;
+  onCancel(): void;
+}) {
   return (
     <div className="st-confirm" role="group" aria-label="연결 지우기 확인">
-      <p className="st-wrap">{`「${name}」 연결을 지울까요? 날씨 근거 도구가 이 키를 더 쓰지 못합니다.`}</p>
+      <p className="st-wrap">{`「${name}」 연결을 지울까요? ${note}`}</p>
       <div className="st-actions">
         <span className="st-gap" />
         <Button onClick={onCancel}>취소</Button>

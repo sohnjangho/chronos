@@ -85,6 +85,8 @@ const TOOL_NAMES: Record<string, string> = {
   'evidence.search': '기준·근거 검색',
   'evidence.attach': '근거 연결',
   'info.weather': '기상청 근거 조회',
+  'info.list': '정보 API 목록',
+  'info.call': '정보 API 조회',
   'visual.make': '보고서 그림 생성',
   'ui.open_window': '프로그램 창 열기',
   'progress.read': '공정률 조회',
