@@ -12,7 +12,8 @@ export default function ScheduleFileCard({ data }: CardProps) {
 
   function importDraft() {
     if (fileId === null) return;
-    void useChat.getState().send(`이 파일로 일정 초안을 만들어 줘(#${fileId})`);
+    // 서버(agent/loop.py IMPORT_BUTTON)가 이 글을 알아보고 가져오기로 부른다 — 바꾸면 둘 다 바꾼다.
+    void useChat.getState().send(`네, 확인했으니 이 파일(#${fileId})을 일정 초안으로 가져와 줘.`);
   }
 
   return (

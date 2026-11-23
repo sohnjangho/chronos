@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 import time
 import traceback
 from collections.abc import AsyncIterator, Coroutine, Sequence
@@ -55,6 +56,14 @@ _TITLES = {"questionnaire_submitted": QUESTIONNAIRE_TITLE, "approval_rejected": 
 PING = AgentEvent("ping", {})
 CUT_NOTE = " (답이 길어 잘렸습니다)"  # max_tokens 에 걸려 잘린 글 답 끝에 붙인다
 _MAX_SQL_INT = 2**63 - 1
+# 공정표 카드의 [일정 초안으로 가져오기]가 보내는 글(frontend ScheduleFileCard.tsx). 이 턴의 그 파일 schedule.import 는
+# 모델이 confirmed 를 빼도 가져오기로 부른다(I1). 한 턴에 같은 파일은 한 번만 가져오고, 같은 확인은 한 번만 한다(I1·I2).
+IMPORT_BUTTON = re.compile(r"네, 확인했으니 이 파일\(#(\d+)\)을 일정 초안으로 가져와 줘\.?")
+IMPORT_AGAIN = "이번 턴에 이 파일(#{})은 이미 가져왔습니다. 다시 부르지 말고 받은 결과를 사용자에게 알리세요."
+CHECK_AGAIN = (
+    "이번 턴에 이 파일(#{})은 이미 확인해 결과를 받았습니다(공정표면 요약 카드도 떴습니다). 다시 부르지 말고 그 결과를 "
+    "사용자에게 말한 뒤 턴을 끝내세요 — 가져오기는 사용자가 [일정 초안으로 가져오기]를 누르거나 가져오라고 한 뒤입니다."
+)
 
 
 @dataclass(frozen=True)
@@ -176,6 +185,9 @@ class _Turn:
         self.enable_self_reflection = True
         self.asked_questionnaire = False
         self.waiting_for_user = False
+        self.import_file: str | None = None  # 이 턴이 가져오기 단추로 온 파일 id(IMPORT_BUTTON)
+        self.import_seen: set[tuple] = set()  # 이 턴에 성공한 schedule.import: ("checked", 파일, 시트) | ("imported", 파일)
+        self.refused: str | None = None  # 지금 도구를 실행하지 않은 까닭(같은 가져오기·확인 되풀이)
 
     # ── 시작·끝 ──
 
@@ -189,6 +201,8 @@ class _Turn:
         self.enable_skill_match = bool(cfg["enable_skill_match"])
         self.enable_self_reflection = bool(cfg["enable_self_reflection"])
         self.calls_before = last_call_id(self.session)
+        button = IMPORT_BUTTON.fullmatch((text or "").strip())
+        self.import_file = button.group(1) if button else None
         chat = chats.get_chat(self.session, self.chat_id)
         picked = image_turn.picked(self.session, file_ids)
         content = _user_content(self.session, text, questionnaire_id, approval_id) | image_turn.refs(picked)
@@ -297,8 +311,11 @@ class _Turn:
                         return
                     for event in self.start_tool(call, reply, text):
                         yield event
+                    self.refused = self._import_again(call)
                     if call.name == "ask.questionnaire" and self.asked_questionnaire:
                         self.start(self._reject_duplicate_questionnaire())
+                    elif self.refused is not None:
+                        self.start(self._refuse(self.refused))
                     else:
                         self.start(registry.call(call.name, call.arguments, self.tool_context()))
                     while (event := await self.waiting()) is not None:
@@ -363,9 +380,11 @@ class _Turn:
         calls = []
         for c in reply.tool_calls:
             self.calls_seen += 1
-            text_args = arguments_text(c.arguments, c.raw_arguments)
-            calls.append(_Call(json_safe(c.id) or f"call_{self.calls_seen}", json_safe(c.name),
-                               json_safe(c.arguments), json_safe(text_args)))
+            arguments, text_args = json_safe(c.arguments), json_safe(arguments_text(c.arguments, c.raw_arguments))
+            if self._button_import(json_safe(c.name), arguments):  # 단추로 온 가져오기(I1): 기록에도 실제로 부를 인자
+                arguments = {**arguments, "confirmed": True}
+                text_args = json.dumps(arguments, ensure_ascii=False)
+            calls.append(_Call(json_safe(c.id) or f"call_{self.calls_seen}", json_safe(c.name), arguments, text_args))
         tool_calls = [{"id": c.id, "name": c.name, "arguments": c.arguments_text} for c in calls]
         self.save("assistant", {"kind": "tool_calls", "text": text, "tool_calls": tool_calls})
         self.session.commit()
@@ -405,6 +424,10 @@ class _Turn:
                 self.waiting_for_user = False
         elif call.name in ("generate.run", "generate.extract_conditions", "schedule.create_project") and result.ok:
             self.waiting_for_user = False
+        if call.name == "schedule.import" and result.ok and isinstance(call.arguments, dict) and isinstance(result.output, dict):
+            fid = str(call.arguments.get("file_id"))
+            checked = result.output.get("step") == "checked"
+            self.import_seen.add(("checked", fid, call.arguments.get("sheet")) if checked else ("imported", fid))
         stopped = result.ok and turns.stop_requested(self.chat_id)  # 도는 동안 멈춤을 눌렀다
         self.log.step_finished(self.step_n, result, stopped)
         for event in self.collected:
@@ -415,7 +438,7 @@ class _Turn:
             reflection = (
                 "이번 턴에 이미 질문(카드 또는 질문지)을 보냈습니다. 도구를 더 호출하지 말고 사용자에게 답을 요청하며 턴을 마치세요."
                 if call.name == "ask.questionnaire" and self.asked_questionnaire
-                else f"도구 `{call.name}` 실패 — 오류 원인을 확인해 인자를 고치거나 대안 도구를 사용하세요."
+                else self.refused or f"도구 `{call.name}` 실패 — 오류 원인을 확인해 인자를 고치거나 대안 도구를 사용하세요."
             )
             tool_content = json.dumps(
                 {"error": json_safe(result.error) or "도구 실행에 실패했습니다.", "reflection": reflection},
@@ -435,6 +458,25 @@ class _Turn:
             error="이번 턴에 이미 질문(카드 또는 질문지)을 보냈습니다. 사용자의 답을 기다린 뒤 다음 턴에 진행하세요.",
             ms=0,
         )
+
+    def _button_import(self, name: str, arguments: object) -> bool:
+        """가져오기 단추로 온 턴의 그 파일 schedule.import 인데 confirmed 가 true 가 아니다(I1)."""
+        return (self.import_file is not None and name == "schedule.import" and isinstance(arguments, dict)
+                and str(arguments.get("file_id")) == self.import_file and arguments.get("confirmed") is not True)
+
+    def _import_again(self, call: _Call) -> str | None:
+        """이 턴에 이미 가져온 파일을 다시 가져오거나 같은 확인을 다시 하면 실행하지 않을 까닭(I1·I2). 아니면 None."""
+        if call.name != "schedule.import" or not isinstance(call.arguments, dict):
+            return None
+        fid = str(call.arguments.get("file_id"))
+        if ("imported", fid) in self.import_seen:
+            return IMPORT_AGAIN.format(fid)
+        if call.arguments.get("confirmed") is not True and ("checked", fid, call.arguments.get("sheet")) in self.import_seen:
+            return CHECK_AGAIN.format(fid)
+        return None
+
+    async def _refuse(self, why: str) -> registry.ToolResult:
+        return registry.ToolResult(ok=False, output=None, error=why, ms=0)
 
     def cancel_task(self) -> None:
         if self.task is not None and not self.task.done():

@@ -38,6 +38,10 @@ from app.tools.registry import call, tool
 
 NEED_LEVEL = "가져오려면 분야(domain)와 정밀도(level)를 정해 주세요. 정밀도는 액티비티 수(rows)에 맞게 고릅니다."
 ASK_TITLE = "공정표 가져오기 — 빈 칸 확인"
+NEXT_AFTER_CHECK = (  # 확인 결과에 붙는 다음 할 일(I1: 모델이 확인만 되풀이하지 않게)
+    "요약 카드를 띄웠다. 카드 내용을 한두 문장으로 말하고 턴을 끝낸다 — 같은 인자로 다시 부르지 않는다. "
+    "사용자가 [일정 초안으로 가져오기]를 누르거나 가져오라고 하면 그때 confirmed=true 와 domain·level, 위 columns 그대로 다시 부른다."
+)
 PREVIEW_ROWS = 20  # 판단에 보여 줄 앞 행 수(숫자는 코드가 센 통계로 따로 준다)
 JUDGE_MAX_TOKENS = 12000  # 판단 답의 한도. normal 기본(4000)이면 열 대응 답이 잘려 「표를 판단하지 못했습니다」가 잦다
 ESTIMATE_RULES = (
@@ -126,6 +130,7 @@ class ImportOut(BaseModel):
     columns_found: list[str]
     missing: list[str]
     columns: dict | None = None  # 열 대응·날짜 판단(카드와 같다) — 가져올 때 그대로 넘긴다
+    next: str | None = None  # checked(공정표): 다음에 할 일(같은 인자로 다시 부르지 않는다)
     questionnaire: dict | None = None  # asked: ask.questionnaire 의 결과
     draft: RunOut | None = None  # drafted: generate.run 과 같은 모양(가정의 source "추정" = 추정한 칸)
     approval: dict | None = None  # drafted: out.submit_change 의 결과(applied=false 면 승인 대기)
@@ -212,7 +217,7 @@ async def _check(ctx: ToolContext, llm: LlmClient, table: Table) -> ImportOut:
     if card["blank_rows"] > imports.BLANK_LIMIT:  # 추정을 부르기 전에 멈춘다(빈 칸 수는 열 대응에 달려 있다)
         raise ImportProblem(imports.TOO_MANY_BLANKS.format(card["blank_rows"]))
     ctx.emit(AgentEvent("card", {"kind": "schedule_file", **card}))
-    return _out("checked", table, True, found.reason, card)
+    return _out("checked", table, True, found.reason, card, next=NEXT_AFTER_CHECK)
 
 
 async def _ask(ctx: ToolContext, args: ImportIn, plan: Plan, rows: ImportedRows) -> dict:

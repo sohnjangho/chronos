@@ -179,6 +179,20 @@ async def test_column_judgment_longer_than_the_normal_limit_is_read(ctx, llm, se
     assert llm.bodies[0]["max_tokens"] == JUDGE_MAX_TOKENS > MAX_TOKENS["normal"]
 
 
+async def test_check_result_says_what_to_do_next_and_the_import_result_does_not(ctx, llm, session):
+    """I1: 확인 결과(checked)에 다음 할 일 — 같은 인자로 다시 부르지 않고, 사용자가 고르면 confirmed=true·domain·level·columns.
+    가져온 결과(drafted)에는 없다."""
+    fid = put(session, COMPLETE_CSV.encode(), "기초_공정_완성.csv", "table")
+    llm.push(reply({"is_schedule": True, "reason": "공정표"}), csv_plan())
+    checked = await call("schedule.import", {"file_id": fid}, ctx)
+    assert checked.ok, checked.error
+    nxt = checked.output["next"]
+    assert "다시 부르지 않는다" in nxt and "confirmed=true" in nxt and "domain" in nxt and "columns" in nxt
+    drafted = await call("schedule.import", importing(fid, columns=CSV_COLUMNS), ctx)
+    assert drafted.ok, drafted.error
+    assert drafted.output["step"] == "drafted" and drafted.output["next"] is None
+
+
 async def test_non_schedule_table_gets_no_card(ctx, events, llm, session):
     fid = put(session, MATERIALS_CSV.encode(), "자재_목록.csv", "table")
     llm.push(reply({"is_schedule": False, "reason": "자재 수량·단가 표입니다."}))

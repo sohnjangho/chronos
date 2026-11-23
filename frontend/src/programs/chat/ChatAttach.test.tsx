@@ -202,7 +202,8 @@ test('renders file_saved and schedule_file cards and triggers import prompt', as
   expect(screen.getByText(/비어 있는 열: 기간/)).toBeVisible();
 
   await userEvent.click(screen.getByRole('button', { name: '일정 초안으로 가져오기' }));
-  expect(sendSpy).toHaveBeenCalledWith('이 파일로 일정 초안을 만들어 줘(#7)');
+  // I1: 서버(agent/loop.py IMPORT_BUTTON)가 알아보는 글 그대로 — 모델이 confirmed 를 빼도 가져온다
+  expect(sendSpy).toHaveBeenCalledWith('네, 확인했으니 이 파일(#7)을 일정 초안으로 가져와 줘.');
 });
 
 test('notice event appends a notice part and small images skip resize', async () => {

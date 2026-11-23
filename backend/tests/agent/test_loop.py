@@ -1,9 +1,12 @@
 """에이전트 루프: 도구 호출 왕복·사건 차례·워크플로우 기록·멈춤·대화 기록 창·사용량."""
 
 import asyncio
+import hashlib
 import json
+import re
 import sqlite3
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
@@ -19,9 +22,11 @@ from app.agent.workflow_log import WorkflowLog
 from app.llm.client import LlmClient
 from app.store import chats
 from app.store import questionnaires as qstore
+from app.store.files import raw_path
 from app.store.questionnaires import Question
 from app.store.tables import (
     ChatMessage,
+    FileRow,
     LlmCall,
     QuestionnaireRecord,
     ScheduleDraft,
@@ -39,7 +44,7 @@ from tests.gen_doubles import (
     WBS_OK,
     script,
 )
-from tests.llm_doubles import FakeLiner, add_connection
+from tests.llm_doubles import FakeLiner, add_connection, chat_body
 from tests.loop_doubles import FAIL, ScriptedLlm, calls, raw_call, reply
 from tests.tool_doubles import Empty, registered
 
@@ -902,3 +907,117 @@ async def test_waiting_workflow_resumes_across_questionnaire_turns(run, session,
         (2, "ask.questionnaire"),
         (3, "schedule.read"),
     ]
+
+
+# ══ 11-23 시나리오 재검증: 공정표 가져오기 단추(I1)·카드 중복(I2) ═══════════════
+
+# 빈 칸 없는 가상 공정표 — 열 대응(columns)을 넘기면 가져오기에 LLM 이 들지 않는다.
+IMPORT_CSV = (
+    "ID,작업,기간,선행,시작,종료\n"
+    "S,착공,0,,2027-03-02,\n"
+    "A,가설 울타리,5,S,2027-03-02,2027-03-06\n"
+    "B,터파기,4,A,,\n"
+    "F,준공,0,B,,\n"
+)
+IMPORT_COLUMNS = {
+    "id_col": "ID", "name_col": "작업", "wbs_col": None, "duration_col": "기간", "pred_col": "선행",
+    "start_col": "시작", "finish_col": "종료", "resource_col": None, "start_constraint": False,
+    "finish_constraint": False,
+}
+
+
+def _put_csv(session, text: str) -> int:
+    """표 파일 한 줄과 원본을 바로 넣는다(파일 작업 없이)."""
+    data = text.encode()
+    sha = hashlib.sha256(data).hexdigest()
+    raw_path(sha).parent.mkdir(parents=True, exist_ok=True)
+    raw_path(sha).write_bytes(data)
+    admin = session.scalars(select(User).where(User.login_id == "admin")).one()
+    row = FileRow(sha256=sha, name="가상_공정표.csv", ext="csv", kind="table", size=len(data), status="extracted",
+                  uploaded_by=admin.id)
+    session.add(row)
+    session.commit()
+    return row.id
+
+
+def _button_text(fid: int) -> str:
+    """대화 카드 [일정 초안으로 가져오기]가 보내는 글(frontend ScheduleFileCard.tsx)."""
+    return f"네, 확인했으니 이 파일(#{fid})을 일정 초안으로 가져와 줘."
+
+
+def _tool_ends(ev: list[AgentEvent]) -> list[tuple[str, bool]]:
+    return [(e.data["tool"], e.data["ok"]) for e in ev if e.type == "tool_end"]
+
+
+async def test_import_button_imports_even_when_the_model_drops_confirmed(run, session, monkeypatch):
+    """I1: 단추가 보낸 글이면 모델이 confirmed 를 빼도 루프가 가져오기로 부른다. 분야·정밀도가 없으면 도구가
+    되묻고(실패), 고쳐 부르면 가져온다 — 초안·승인 건은 하나."""
+    gen = FakeLiner()
+    _gen_client(monkeypatch, gen)
+    fid = _put_csv(session, IMPORT_CSV)
+    importing = {"file_id": fid, "sheet": None, "domain": "construction", "level": "L2", "columns": IMPORT_COLUMNS}
+    llm = ScriptedLlm([
+        calls("schedule.import", {"file_id": fid, "sheet": None}),  # confirmed 를 뺐다(run 24 의 인자)
+        calls("schedule.import", importing, call_id="call_2"),  # 분야·정밀도를 넣었지만 confirmed 는 여전히 없다
+        reply("승인함에서 승인을 기다립니다."),
+    ])
+    ev = await run(llm, _button_text(fid))
+    assert _tool_ends(ev) == [("schedule.import", False), ("schedule.import", True)]
+    assert "분야(domain)" in next(e.data["error"] for e in ev if e.type == "tool_end")
+    assert len(session.scalars(select(ScheduleDraft)).all()) == 1 and gen.requests == []
+    cards = [e.data["kind"] for e in ev if e.type == "card"]
+    assert "schedule_file" not in cards and cards.count("generation_result") == 1
+    assert [e.type for e in ev].count("approval") == 1
+    steps = session.scalars(select(WorkflowStep).order_by(WorkflowStep.n)).all()
+    assert all(json.loads(s.input_json)["confirmed"] is True for s in steps)  # 기록에도 실제로 부른 인자
+
+
+async def test_import_button_runs_the_import_only_once_per_turn(run, session, monkeypatch):
+    """I1: 한 턴에 같은 파일을 다시 가져오려 하면 실행하지 않고 실패 결과(초안·승인 건이 하나 더 생기지 않는다)."""
+    _gen_client(monkeypatch, FakeLiner())
+    fid = _put_csv(session, IMPORT_CSV)
+    importing = {"file_id": fid, "domain": "construction", "level": "L2", "columns": IMPORT_COLUMNS}
+    llm = ScriptedLlm([
+        calls("schedule.import", importing),
+        calls("schedule.import", importing, call_id="call_2"),
+        calls("schedule.import", {**importing, "confirmed": True, "level": "L3"}, call_id="call_3"),
+        reply("승인함에서 승인을 기다립니다."),
+    ])
+    ev = await run(llm, _button_text(fid))
+    assert _tool_ends(ev) == [("schedule.import", True), ("schedule.import", False), ("schedule.import", False)]
+    assert len(session.scalars(select(ScheduleDraft)).all()) == 1
+    assert [e.type for e in ev].count("approval") == 1
+    last_tool = json.loads(llm.last_body["messages"][-1]["content"])
+    assert "이미 가져왔습니다" in last_tool["reflection"] and "인자를 고치" not in last_tool["reflection"]
+
+
+async def test_repeated_check_in_a_turn_shows_one_card_and_never_imports(run, session, monkeypatch):
+    """I2: 단추 글이 아닌 턴에서 확인을 되풀이하면 두 번째부터는 실행하지 않는다 — 카드 하나, 판단 LLM 두 번(첫 확인)뿐,
+    가져오지 않는다(confirmed 를 채우지 않는다). 되돌려 주는 글은 「다시 부르지 말라」이고 「인자를 고치라」가 아니다."""
+    gen = FakeLiner()
+    gen.push(chat_body(json.dumps({"is_schedule": True, "reason": "공정표"})),
+             chat_body(json.dumps({**IMPORT_COLUMNS, "blanks": "estimate", "questions": [], "reason": "빈 칸 없음"})))
+    _gen_client(monkeypatch, gen)
+    fid = _put_csv(session, IMPORT_CSV)
+    llm = ScriptedLlm([
+        calls("schedule.import", {"file_id": fid}),
+        calls("schedule.import", {"file_id": fid}, call_id="call_2"),
+        reply("액티비티 4개인 공정표입니다. [일정 초안으로 가져오기]를 누르거나 가져오라고 하시면 가져옵니다."),
+    ])
+    ev = await run(llm, "첨부한 공정표를 새 일정 초안으로 가져와 줘")
+    assert _tool_ends(ev) == [("schedule.import", True), ("schedule.import", False)]
+    assert [e.data["kind"] for e in ev if e.type == "card"] == ["schedule_file"]
+    assert len(gen.requests) == 2 and session.scalars(select(ScheduleDraft)).all() == []
+    last_tool = json.loads(llm.last_body["messages"][-1]["content"])
+    assert "이미 확인" in last_tool["reflection"] and "인자를 고치" not in last_tool["reflection"]
+
+
+CARD_TSX = Path(__file__).resolve().parents[3] / "frontend/src/programs/chat/cards/ScheduleFileCard.tsx"
+
+
+@pytest.mark.skipif(not CARD_TSX.exists(), reason="frontend 폴더가 없는 환경")
+def test_the_card_button_sends_the_text_the_loop_recognizes():
+    """I1: 카드 단추가 보내는 글(ScheduleFileCard.tsx)과 루프가 알아보는 글(IMPORT_BUTTON)이 같다."""
+    sent = re.search(r"send\(`([^`]+)`\)", CARD_TSX.read_text(encoding="utf-8")).group(1)
+    assert loop.IMPORT_BUTTON.fullmatch(sent.replace("${fileId}", "7")).group(1) == "7"
+    assert loop.IMPORT_BUTTON.fullmatch("이 파일로 일정 초안을 만들어 줘(#7)") is None
