@@ -20,7 +20,7 @@ from app.outreach import redact
 from app.outreach.harness import gate, tools
 from app.outreach.harness.toolsets import ALL
 from app.outreach.harness.types import CALL_RESULTS, TOOL_REFUSALS, Actor, Delivered
-from app.outreach.voice import call_run, instructions, runner
+from app.outreach.voice import call_run, instructions, numbers, runner
 from app.outreach.voice import session as voice_session
 from app.outreach.voice.simulated import (
     Busy,
@@ -214,7 +214,7 @@ async def test_opening_that_does_not_disclose_is_said_again_once(session, world)
     assert reread(session, row).status == "completed"
 
 
-async def test_opening_that_denies_being_an_ai_ends_the_call(session, world):
+async def test_opening_that_denies_being_an_ai_ends_the_call(session, world, monkeypatch):
     """discloses 는 낱말만 본다 — 「AI 가 아니고 기록되지 않습니다」 같은 부정은 밝힌 것이 아니다. 다시 말하게 해도 같으면 끊는다."""
     row = queued(session, world.who)
     denial = "저는 AI 가 아니고 이 통화는 기록되지 않습니다"
@@ -233,11 +233,16 @@ async def test_opening_that_denies_being_an_ai_ends_the_call(session, world):
         await original(spec, Wrap())
 
     sim.place = place_once
+    finished = []
+    monkeypatch.setattr(call_run, "after_call", lambda call_id: finished.append(call_id) or asyncio.sleep(0))
     with voice_session.pinned(sim):
         await runner.run_one(row.id, now=WORK)
 
     back = reread(session, row)
-    assert sim.ended == [("agent", 0)] and back.status == "completed" and back.fail_reason == call_run.NOT_DISCLOSED
+    # 밝히지 않은 통화는 「통화됨」이 아니다 — failed, 사용량·통화 뒤 일 없음
+    assert sim.ended == [("agent", 0)] and (back.status, back.fail_reason) == ("failed", call_run.NOT_DISCLOSED)
+    assert ("call_result", "blocked", "failed") in rules(session, row) and finished == []
+    assert session.scalars(select(OutreachUsage).where(OutreachUsage.ref_id == row.id)).all() == []
 
 
 # ── 상태 ────────────────────────────────────────────────────────────
@@ -500,14 +505,24 @@ async def test_empty_agent_number_falls_back_to_the_sender_number_and_model_is_n
 
     assert sim.calls[0].spec.from_number == world.conn.sender_number
     usage = session.scalars(select(OutreachUsage).where(OutreachUsage.ref_id == row.id)).one()
-    assert usage.model == runner.DEFAULT_VOICE_MODEL and usage.model
+    assert usage.model == numbers.DEFAULT_LIVE_MODEL == "gemini-3.8-live"
 
 
-async def test_answered_then_dropped_is_never_completed(session, world):
+async def test_empty_model_of_another_provider_is_not_given_the_google_default(session, world):
+    settings = session.get(VoiceSettings, world.conn.id)
+    settings.provider, settings.model = "openai", ""
+    session.commit()
+    row = queued(session, world.who)
+    await place(row, plain_call())
+    assert session.scalars(select(OutreachUsage).where(OutreachUsage.ref_id == row.id)).one().model is None
+
+
+async def test_answered_then_dropped_is_never_completed(session, world, monkeypatch):
     """받은 뒤 세션이 실패해 연결이 끊김(END_LOST) — 통화됨이 아니라 「확인 필요」 failed."""
     from app.outreach.voice.simulated import Lost
 
     finished = []
+    monkeypatch.setattr(call_run, "after_call", lambda call_id: finished.append(call_id) or asyncio.sleep(0))
     row = queued(session, world.who)
     sim = await place(row, [Lost()])
     back = reread(session, row)
@@ -699,7 +714,7 @@ async def test_call_events_use_the_fixed_vocabulary(session, world):
             seen.add(rule)
             if rule == "call_result":
                 assert detail in CALL_RESULTS
-    assert seen <= RUNNER_RULES
+    assert seen <= RUNNER_RULES | {"delivery"}  # delivery 는 결과 모름을 문에 알리는 문의 낱말(고침 1)
     assert {"silence", "time_limit", "call_result", "recheck_before_dial"} <= seen
 
 
@@ -785,3 +800,112 @@ def test_status_has_the_console_fields_and_no_number(world):
     assert set(state) >= {"running", "live", "backend", "listening", "last_call_at", "last_error_kind"}
     assert state["backend"] in ("ok", "not_ready", "sdk_missing") and state["listening"] is False
     assert SENTINEL_DIGITS not in str(state)
+
+
+# ── 고침 1 ──────────────────────────────────────────────────────────
+
+
+def _no_hangup(sim):
+    """끊기를 받아도 끝 사건을 주지 않는 백엔드(PM 실제 시험의 404 — 세션이 실패해 call_end 가 오지 않음)."""
+    original = sim.place
+
+    async def place(spec, handlers):
+        class Deaf:
+            def __init__(self, control):
+                self._control = control
+
+            def __getattr__(self, name):
+                return getattr(self._control, name)
+
+            async def hangup(self):
+                return None
+
+        class Wrap:
+            def __getattr__(self, name):
+                return getattr(handlers, name)
+
+            async def on_start(self, control):
+                await handlers.on_start(Deaf(control))
+
+        await original(spec, Wrap())
+
+    sim.place = place
+    return sim
+
+
+@pytest.mark.parametrize("how", ["crash_before_answer", "crash_during_call", "restart", "no_end_after_hangup"])
+async def test_unknown_outcome_blocks_an_immediate_redial(session, world, fake_channel, monkeypatch, how):
+    """결과를 모르는 통화(걸렸을 수 있음)는 문이 아는 꼴(delivery · unsure)로 닫는다 — 곧바로 같은 번호로 다시 걸지 못한다."""
+    monkeypatch.setattr(call_run, "HANGUP_WAIT_S", 0.2)
+    row = queued(session, world.who)
+    if how == "restart":
+        session.get(OutreachCall, row.id).status = "dialing"
+        session.commit()
+        runner.recover(now=WORK + timedelta(seconds=10))
+    elif how == "no_end_after_hangup":
+        sim = _no_hangup(SimulatedVoice([Say("peer", "네", t=1), Hold(), Hangup("peer")]))
+        with voice_session.pinned(sim):
+            task = asyncio.create_task(runner.run_one(row.id, now=WORK))
+            await sim.wait_held()
+            assert runner.hangup(row.id) is True
+            await asyncio.wait_for(task, 5)
+    else:
+        script = [Crash()] if how == "crash_before_answer" else [Say("peer", "네", t=1), Crash()]
+        await place(row, script)
+
+    assert reread(session, row).status == "failed"
+    assert ("delivery", "noted") in [(r, v) for r, v, _ in rules(session, row)]
+    again = call(session, world.who)
+    session.commit()
+    out = await gate.dispatch("call", again.id, USER, now=WORK + timedelta(seconds=30))
+    assert out.code == "duplicate" and "확인" in out.message and fake_channel.delivered == []
+
+
+async def test_runner_hangup_waits_for_the_end_only_briefly(session, world, monkeypatch):
+    """일꾼이 끊은 뒤에는 끝 사건을 HANGUP_WAIT_S 만 기다린다(max_call_seconds + 60초가 아니다)."""
+    monkeypatch.setattr(call_run, "HANGUP_WAIT_S", 0.2)
+    row = queued(session, world.who)
+    sim = _no_hangup(SimulatedVoice([Say("peer", "네", t=1), Hold(), Hangup("peer")]))
+    began = time.monotonic()
+    with voice_session.pinned(sim):
+        task = asyncio.create_task(runner.run_one(row.id, now=WORK))
+        await sim.wait_held()
+        runner.hangup(row.id)
+        assert await asyncio.wait_for(task, 5) == "failed"
+    assert time.monotonic() - began < 3 and runner.live() == 0
+    assert reread(session, row).fail_reason == call_run.BROKE_DURING_CALL
+
+
+@pytest.mark.parametrize("where", ["before_claim", "after_claim"])
+async def test_exception_while_preparing_closes_the_row(session, world, monkeypatch, caplog, where):
+    """다시 보기·명세·도구 상자를 만드는 중의 뜻밖의 예외 — 줄을 queued/dialing 에 두지 않고 failed(건 것 없음)로 닫는다."""
+    caplog.set_level(logging.DEBUG)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError(f"boom {SENTINEL_PHONE} {SENTINEL_KEY}")
+
+    if where == "before_claim":
+        monkeypatch.setattr(runner.voices, "pick", boom)
+    else:
+        monkeypatch.setattr(runner, "Toolbox", boom)
+    row = queued(session, world.who)
+
+    sim = await place(row, plain_call())
+
+    back = reread(session, row)
+    assert sim.dialed == [] and (back.status, back.fail_reason) == ("failed", runner.PREP_FAILED)
+    assert ("delivery", "noted") not in [(r, v) for r, v, _ in rules(session, row)]  # 건 것이 없으니 문을 막지 않는다
+    assert runner.live() == 0 and runner.holds_line() is False
+    assert_clean(caplog)
+
+
+async def test_calls_that_never_went_out_do_not_count_toward_the_daily_limit(session, world):
+    world.conn.test_mode = True
+    session.commit()
+    rows = [queued(session, world.who) for _ in range(3)]
+    for row in rows:
+        await place(row, plain_call())
+    day = WORK.astimezone(outreach.KST).date()
+    assert [reread(session, r).status for r in rows] == ["blocked_test"] * 3
+    assert all(reread(session, r).claimed_at is None for r in rows)
+    assert outreach.sent_count(session, "call", day, number=PHONE) == 0

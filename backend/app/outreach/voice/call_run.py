@@ -24,7 +24,7 @@ from app.db import get_session
 from app.outreach import redact
 from app.outreach.harness import events, gate
 from app.outreach.harness.tools import Toolbox
-from app.outreach.harness.types import Ref
+from app.outreach.harness.types import DELIVERY_VERDICT, Ref
 from app.outreach.voice import greeting
 from app.outreach.voice import session as voice_session
 from app.outreach.voice.session import CallSpec
@@ -79,6 +79,7 @@ class CallRun:
         self.elapsed = 0.0
         self.lines: list[dict] = []  # 받아쓰기(가린 글) — 끝에 한꺼번에 다시 적는다
         self.started = self.ended = self.closing = self.by_person = self.wrapped = self.resaid = False
+        self.hung = asyncio.Event()  # 일꾼이 끊기를 건넸다 — 그 뒤로는 끝 사건을 HANGUP_WAIT_S 만 기다린다(runner)
         self.opening_pending = True
         self.silence_checks, self.last_check, self.turns, self.tool_calls = 0, None, 0, 0
         self.note: str | None = None  # 끝난 줄의 fail_reason 에 남길 말
@@ -150,6 +151,11 @@ class CallRun:
             self.outcome = "failed"
             await asyncio.to_thread(_tries, _broken, self.call_id, LOST, list(self.lines), int(seconds), self.at())
             return
+        if self.note == NOT_DISCLOSED:  # 밝히지 않아 끊은 통화는 「통화됨」이 아니다(사용량·통화 뒤 일 없음)
+            self.outcome = "failed"
+            await asyncio.to_thread(_tries, _broken, self.call_id, NOT_DISCLOSED, list(self.lines), int(seconds), self.at(),
+                                    "failed")
+            return
         self.outcome = "completed"
         await asyncio.to_thread(_tries, _finish, self.call_id, list(self.lines), int(seconds), self.note, self.by_person,
                                 self.model, self.at())
@@ -178,7 +184,7 @@ class CallRun:
         self.outcome = "failed"
         why = BROKE_DURING_CALL if self.started else UNKNOWN_IF_PLACED
         await asyncio.to_thread(_tries, _broken, self.call_id, why, list(self.lines),
-                                int(self.elapsed) if self.started else None, self.at())
+                                int(self.elapsed) if self.started else None, self.at(), "backend_error", True)
 
     def stopped(self) -> None:
         """일꾼이 멈추며 통화가 끊겼다(취소) — 기다리지 않고 곧바로 닫는다(서버가 다시 뜬 것과 같은 끝)."""
@@ -210,6 +216,7 @@ class CallRun:
         if self.closing or self.control is None:
             return
         self.closing = True
+        self.hung.set()
         await self.control.hangup()
 
     async def _event(self, rule: str, detail: str) -> None:
@@ -290,14 +297,24 @@ def _unanswered(call_id: int, code: str, at: datetime) -> None:
         session.commit()
 
 
-def _broken(call_id: int, why: str, lines: list[dict], seconds: int | None, at: datetime) -> None:
+def _unsure(session, call_id: int, at: datetime) -> None:
+    """결과를 모르는 통화(걸렸을 수 있음)를 나가는 문이 아는 꼴로 — delivery · unsure. 문은 이것으로 그 번호의 다음 전화를
+    DUPLICATE_WINDOW_S 동안 막는다(gate._closed_unsure)."""
+    events.record(session, Ref("call", call_id), "delivery", DELIVERY_VERDICT["unsure"], gate.UNSURE, now=at)
+
+
+def _broken(call_id: int, why: str, lines: list[dict], seconds: int | None, at: datetime, detail: str = "backend_error",
+            unsure: bool = False) -> None:
+    """받지 못했거나 끝을 모르는 통화를 failed 로(call_result blocked detail). unsure 면 문이 다시 걸기를 막게 delivery · unsure."""
     with _db() as session:
         done = session.execute(
             update(OutreachCall).where(OutreachCall.id == call_id, OutreachCall.status.in_(_LIVE))
             .values(status="failed", fail_reason=why, ended_at=at, duration_s=seconds, transcript_json=lines)
             .execution_options(synchronize_session=False))
         if done.rowcount == 1:
-            events.record(session, Ref("call", call_id), "call_result", "blocked", "backend_error", now=at)
+            events.record(session, Ref("call", call_id), "call_result", "blocked", detail, now=at)
+            if unsure:
+                _unsure(session, call_id, at)
         session.commit()
 
 
@@ -307,10 +324,12 @@ def _close(call_id: int, states: tuple[str, ...], status: str, why: str, at: dat
         closing = update(OutreachCall).where(OutreachCall.id == call_id, OutreachCall.status.in_(states))
         if status == "failed":
             closing = closing.values(status=status, fail_reason=why, ended_at=at)
-        else:
-            closing = closing.values(status=status, fail_reason=why)
+        else:  # 줄에서 기다리던 것 — 건 적이 없으니 그날 셈에서 뺀다
+            closing = closing.values(status=status, fail_reason=why, claimed_at=None)
         if session.execute(closing.execution_options(synchronize_session=False)).rowcount != 1:
             return 0
         events.record(session, Ref("call", call_id), "server_restart", "noted", why, now=at)
+        if status == "failed":  # 걸던 중·통화 중에 끊김 — 아직 울리고 있을 수 있다
+            _unsure(session, call_id, at)
         session.commit()
         return 1

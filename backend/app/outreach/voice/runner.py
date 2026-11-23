@@ -57,7 +57,7 @@ from app.outreach.harness.types import (
     Ref,
     Scope,
 )
-from app.outreach.voice import greeting, instructions, voices
+from app.outreach.voice import call_run, greeting, instructions, numbers, voices
 from app.outreach.voice import session as voice_session
 from app.outreach.voice.call_run import _LIVE, RESTARTED, CallRun, _close
 from app.outreach.voice.session import CallSpec, VoiceBackend
@@ -92,7 +92,6 @@ _DIAGNOSIS_MODULE = "app.programs.notify_settings.voice"  # 음성 진단 표시
 WAITING = "waiting"  # run_one: 줄을 다른 통화나 음성 진단이 쥐고 있어 기다린다(줄은 그대로)
 NOT_PLACED = ("draft", "blocked_test", "blocked_hours")  # 다시 보고 걸지 않은 끝
 REQUEUED = "서버가 다시 시작돼 걸지 않았습니다. 다시 걸어 주세요"
-DEFAULT_VOICE_MODEL = "gemini-3.8-live"  # TODO: switch to outreach.voice.numbers 의 기본 모델 상수(빈 모델이 SDK 기본값으로 가지 않게)
 SPEC_REFUSED = "통화 목적·질문·이름에 전화번호처럼 보이는 글이 있거나 첫마디를 지을 수 없어 걸지 않았습니다"
 NO_CONTACT = "이 일정의 연락처가 없어 걸지 않았습니다"
 BAD_NUMBER = "받는 번호가 없거나 맞지 않아 걸지 않았습니다"
@@ -107,6 +106,7 @@ LOGS_NOT_COVERED = "음성 SDK 로그 가리개가 준비되지 않아 걸지 �
 BACKEND_DOWN = "음성 통화 백엔드를 쓸 수 없어 걸지 않았습니다"
 KEY_UNREADABLE = "저장된 음성 모델 키를 읽을 수 없어 걸지 않았습니다. 설정에서 키를 다시 넣어 주세요"
 NO_AGENT_NUMBER = "AI 전화 번호가 설정되지 않아 걸지 않았습니다"
+PREP_FAILED = "걸 준비를 하다 오류가 나 걸지 않았습니다. 다시 걸어 주세요"
 SYSTEM = Actor("system", None, "통화 일꾼", None)
 _NAMES = toolsets.for_class("outbound", "call")
 _PRECHECK, _TEST_MODE, _WORKING_HOURS = GATE_RULES[0], GATE_RULES[1], GATE_RULES[3]
@@ -235,12 +235,17 @@ async def run_one(call_id: int, *, now: datetime | None = None) -> str | None:
     if state.holding is not None or len(state.live) >= MAX_LIVE or _diagnosing():
         return WAITING
     state.holding = call_id  # 기다림 없이 쥔다 — 진단의 표시 확인·더하기와 엇갈리지 않는다
+    base = _now() if now is None else as_utc(now)
     try:
-        return await _call(call_id, _now() if now is None else as_utc(now))
-    except Exception as exc:  # noqa: BLE001 — 통화 하나의 일이 어떻게 깨져도 일꾼은 이어 간다
+        return await _call(call_id, base)
+    except Exception as exc:  # noqa: BLE001 — 걸기 전(다시 보기·명세·도구 상자)의 뜻밖의 예외: 그 줄만 닫고 일꾼은 이어 간다
         state.last_error_kind = _kind(exc)
         logger.warning("통화 일꾼: 통화를 준비하지 못했습니다 (%s)", _kind(exc))
-        return None
+        try:
+            return await asyncio.to_thread(_prep_failed, call_id, base)
+        except Exception as again:  # noqa: BLE001 — 못 닫으면 다음에 뜰 때 recover 가 닫는다
+            logger.warning("통화 일꾼: 준비하지 못한 통화를 닫지 못했습니다 (%s)", _kind(again))
+            return None
     finally:
         state.holding = None
         state.live.pop(call_id, None)
@@ -259,7 +264,7 @@ async def _call(call_id: int, base: datetime) -> str | None:
     state.live[call_id] = run
     state.last_call_at = base
     try:
-        await asyncio.wait_for(backend.place(plan.spec, run), plan.spec.max_seconds + PLACE_GRACE_S)
+        await _place(backend, plan.spec, run)
     except asyncio.CancelledError:
         run.stopped()
         raise
@@ -274,6 +279,41 @@ async def _call(call_id: int, base: datetime) -> str | None:
             state.last_error_kind = "no_end"
             await run.broke()
     return run.outcome
+
+
+async def _place(backend: VoiceBackend, spec: CallSpec, run: CallRun) -> None:
+    """건다 — 실제 시간 상한 둘: 통화 전체 max_seconds + PLACE_GRACE_S, 그리고 일꾼이 끊기를 건넨 뒤에는 끝 사건을
+    call_run.HANGUP_WAIT_S 만 기다린다(세션이 실패해 끝 사건이 오지 않는 백엔드). 넘으면 TimeoutError."""
+    task = asyncio.ensure_future(backend.place(spec, run))
+    hung = asyncio.ensure_future(run.hung.wait())
+    try:
+        done, _ = await asyncio.wait({task, hung}, timeout=spec.max_seconds + PLACE_GRACE_S,
+                                     return_when=asyncio.FIRST_COMPLETED)
+        if task not in done and hung in done:
+            done, _ = await asyncio.wait({task}, timeout=call_run.HANGUP_WAIT_S)
+        if task not in done:
+            raise TimeoutError
+        task.result()
+    finally:
+        hung.cancel()
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+
+
+def _prep_failed(call_id: int, at: datetime) -> str | None:
+    """걸기 전의 뜻밖의 예외: 아직 queued·dialing(차지만 하고 걸지 않음)이면 failed 로 닫는다 — 건 것이 없으니 그날 셈에서 빼고
+    문을 막지 않는다. 바꾼 상태(또는 None)."""
+    with _db() as session:
+        closing = update(OutreachCall).where(OutreachCall.id == call_id, OutreachCall.status.in_(("queued", "dialing")))
+        moved = session.execute(closing.values(status="failed", fail_reason=PREP_FAILED, claimed_at=None)
+                                .execution_options(synchronize_session=False))
+        if moved.rowcount != 1:
+            return None
+        events.record(session, Ref("call", call_id), "recheck_before_dial", "blocked", "local_error", now=at)
+        session.commit()
+        return "failed"
 
 
 def _backend_for() -> tuple[VoiceBackend | None, str | None]:
@@ -327,7 +367,7 @@ def _prepare(call_id: int, at: datetime, problem: str | None) -> "_Plan | str | 
             return _stop(session, call_id, "draft", problem, _NOT_READY, at)
         conn = outreach.connection(session)
         settings = session.get(VoiceSettings, conn.id)
-        agent_number = _agent_number(conn, settings)
+        agent_number = phone.normalize(numbers.effective_agent_number(conn, settings))  # 비었으면 알림 연결의 발신번호
         if agent_number is None:
             return _stop(session, call_id, "draft", NO_AGENT_NUMBER, _NOT_READY, at)
         try:
@@ -335,20 +375,13 @@ def _prepare(call_id: int, at: datetime, problem: str | None) -> "_Plan | str | 
             scope = door.outbound_scope(session, row.schedule_id, contact.id)
         except (ValueError, contacts.NotFound):
             return _stop(session, call_id, "draft", SPEC_REFUSED, _PRECHECK, at)
-        model = (settings.model if settings is not None else "") or DEFAULT_VOICE_MODEL
+        model = numbers.effective_model(settings.provider, settings.model) if settings is not None else None
         if not outreach.claim(session, "call", call_id, ("queued",), "dialing", now=at):
             session.rollback()
             return None
         events.record(session, Ref("call", call_id), "recheck_before_dial", "allowed", "ok", now=at)
         session.commit()
         return _Plan(spec, scope, model)
-
-
-def _agent_number(conn: NotifyConnection, settings: VoiceSettings | None) -> str | None:
-    """AI 전화 번호: voice_settings.agent_number, 비었으면 알림 연결의 발신번호(PM 11-24 실제 시험의 규칙). 정리된 꼴만."""
-    # TODO: switch to outreach.voice.numbers.effective_agent_number
-    stored = (settings.agent_number if settings is not None else None) or conn.sender_number
-    return phone.normalize(stored) if stored else None
 
 
 def _working(session: Session, contact: Contact, schedule_id: int | None, at: datetime) -> bool:
@@ -377,7 +410,8 @@ def _spec(session: Session, row: OutreachCall, contact: Contact, number: str, ag
 def _stop(session: Session, call_id: int, status: str, why: str, rule: str, at: datetime) -> str | None:
     """다시 본 것에 걸렸다: queued 일 때만 그 상태로(까닭은 fail_reason) 옮기고 recheck_before_dial blocked."""
     moved = session.execute(update(OutreachCall).where(OutreachCall.id == call_id, OutreachCall.status == "queued")
-                            .values(status=status, fail_reason=why).execution_options(synchronize_session=False))
+                            .values(status=status, fail_reason=why, claimed_at=None)  # 건 적 없음 — 그날 셈에서 뺀다
+                            .execution_options(synchronize_session=False))
     if moved.rowcount != 1:
         session.rollback()
         return None
