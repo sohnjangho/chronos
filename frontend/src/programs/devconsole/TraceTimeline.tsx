@@ -25,7 +25,8 @@ const UNKNOWN_NOTE = '모양이 틀렸거나 하네스 낱말에 없는 사건�
 /** 시간이 없는(끝 기록이 없는) 호출은 턴이 실행 중일 때만 「진행 중」, 아니면 「끝나지 않음」.
  * 규칙이 막은 도구(역할 규칙·가져오기 되풀이)는 「거절: 까닭」. */
 function result(t: TraceItem, running: boolean): { text: string; danger: boolean } {
-  if (t.harness) return { text: t.harness.verdict_label, danger: t.harness.verdict === 'blocked' };
+  // 서버가 ok 를 정한다: 막음은 ok false, 끝을 모르는 통화의 통화 결과는 막힘이 아니라 「확인 필요」(ok true).
+  if (t.harness) return { text: t.harness.verdict_label, danger: !t.ok };
   if (t.ok && t.ms === null && (t.kind === 'llm' || t.kind === 'tool')) return { text: running ? '진행 중' : '끝나지 않음', danger: false };
   if (t.ok) return { text: '성공', danger: false };
   if (t.error === 'stopped') return { text: '멈춤', danger: false };

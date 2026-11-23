@@ -42,6 +42,9 @@ export const statusOf = (s: string): { label: string; tone: Tone } => {
   const [label, tone] = STATUS[s] ?? [s, 'neutral'];
   return { label, tone };
 };
+/** 줄의 상태 배지: 결과를 모르는 통화(서버의 needs_check)는 「실패」가 아니라 「걸렸는지 확인 필요」. */
+export const rowStatusOf = (r: Pick<OutreachRow, 'kind' | 'status' | 'needs_check'>) =>
+  r.kind === 'call' && r.needs_check ? { label: '걸렸는지 확인 필요', tone: 'warning' as Tone } : statusOf(r.status);
 export const channelOf = (r: Pick<OutreachRow, 'channel' | 'direction'>) =>
   `${CHANNEL[r.channel] ?? r.channel} ${r.direction === 'in' ? '받음' : '보냄'}`;
 export const modeOf = (m: string | null) => (m ? (MODE[m] ?? m) : '—');

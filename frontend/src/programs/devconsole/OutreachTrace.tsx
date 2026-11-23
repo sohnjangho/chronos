@@ -1,13 +1,14 @@
 // 실행 추적의 「연락」(Task 108): 연락 기록 하나의 머리 줄(누구와 · 누가 시작 · 권한 방식 · 등급 · 상태)과 하네스 사건 시간표.
 // 사건은 서버가 harness.types 의 묶음으로 나눠 준다 — 묶음(수와 함께)으로 거르고 이름·코드로 찾는다. 읽기만 한다.
 // Task 109: 위에 다섯 마디 흐름도(OutreachFlow), 도구 사건 줄은 공용 한글 도구 이름(outreach.<이름>).
+// Task 110: 통화는 머리 줄에 통화 시간, 받아쓰기는 줄 수만(글은 연락처 프로그램에서), 결과 모름은 「확인 필요」.
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../shared/api';
 import { TOOL_LABELS } from '../../shared/toolLabels';
 import Badge from '../../shared/ui/Badge';
 import { devApi, type OutreachDetail, type OutreachRow, type TraceItem } from './devApi';
 import { hourMinute } from './format';
-import { channelOf, classOf, modeOf, starterOf, statusOf, whoOf } from './outreachText';
+import { channelOf, classOf, modeOf, rowStatusOf, starterOf, whoOf } from './outreachText';
 import TraceTimeline from './TraceTimeline';
 import { OutreachFlow } from './TurnFlowDiagram';
 
@@ -18,12 +19,15 @@ function named(t: TraceItem): TraceItem {
   return label && t.label.endsWith(` ${code}`) ? { ...t, label: `${t.label.slice(0, -code!.length - 1)} · ${label}` } : t;
 }
 
+/** 통화 시간: 초가 없으면 「—」(받지 않음·걸지 않음). */
+const talkTime = (s: number | null | undefined) => (typeof s === 'number' ? `${Math.floor(s / 60)}분 ${s % 60}초` : '—');
+
 const ALL = 'all';
 const NONE_NOTE = '이 연락에는 남은 하네스 사건이 없습니다.';
 
 function Head({ d }: { d: OutreachDetail }) {
   const h = d.head;
-  const s = statusOf(h.status);
+  const s = rowStatusOf(h);
   return (
     <div className="dc-stats dc-o-head" role="group" aria-label="이 연락">
       <Badge tone={s.tone}>{s.label}</Badge>
@@ -39,6 +43,11 @@ function Head({ d }: { d: OutreachDetail }) {
       <span>
         등급 <b>{classOf(h.caller_class)}</b>
       </span>
+      {h.kind === 'call' && (
+        <span>
+          통화 <b>{talkTime(h.duration_s)}</b>
+        </span>
+      )}
       {h.schedule_name && <span className="dc-ellipsis" title={h.schedule_name}>{h.schedule_name}</span>}
       <span className="dc-muted">{hourMinute(h.at)}</span>
     </div>
@@ -46,11 +55,14 @@ function Head({ d }: { d: OutreachDetail }) {
 }
 
 function Notes({ d }: { d: OutreachDetail }) {
+  const lines = d.head.transcript_lines;
+  const what = d.head.kind === 'call' ? '걸렸는지(끝났는지)' : '보냈는지';
   return (
     <>
       {d.needs_check > 0 && (
-        <p className="dc-note">{`확인 필요 ${d.needs_check}건 — 보냈는지 알 수 없는 결과입니다. 실패가 아니며 자동으로 다시 보내지 않습니다.`}</p>
+        <p className="dc-note">{`확인 필요 ${d.needs_check}건 — ${what} 알 수 없는 결과입니다. 실패가 아니며 자동으로 다시 보내지 않습니다.`}</p>
       )}
+      {d.head.kind === 'call' && typeof lines === 'number' && <p className="dc-muted">{`받아쓰기 ${lines}줄 — 연락처 프로그램에서 봅니다`}</p>}
       {d.head.fail_reason && <p className="dc-muted">{`남은 까닭: ${d.head.fail_reason}`}</p>}
       {d.omitted > 0 && <p className="dc-muted">{`앞선 사건 ${d.omitted}개는 줄의 기록 상한(최근 것만 남김)으로 보이지 않습니다.`}</p>}
     </>
@@ -108,7 +120,7 @@ export default function OutreachTrace({ row }: { row: Pick<OutreachRow, 'kind' |
     <div className="dc-o-trace">
       <Head d={data} />
       <Notes d={data} />
-      {data.flow && data.flow.length > 0 && <OutreachFlow flow={data.flow} lit={data.branches_lit ?? []} />}
+      {data.flow && data.flow.length > 0 && <OutreachFlow flow={data.flow} lit={data.branches_lit ?? []} kind={data.head.kind} />}
       {data.timeline.length > 0 && <Filters d={data} group={group} onGroup={setGroup} query={query} onQuery={setQuery} />}
       <TraceTimeline items={shown} running={false} empty={data.timeline.length ? '찾는 사건이 없습니다.' : NONE_NOTE} />
     </div>

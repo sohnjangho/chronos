@@ -27,6 +27,8 @@ export const STEP_SIGNALS: Record<string, SignalInfo> = {
   outreach_unsure: { label: '위임 발송 — 결과 확인 필요', short: '결과 확인 필요', place: 'outreach', warn: true },
   outreach_failed: { label: '위임 발송 — 통로가 보내지 못함', short: '보내지 못함', place: 'outreach', warn: true },
   outreach_blocked: { label: '위임 발송 — 문이 막음', short: '문이 막음', place: 'outreach', warn: true },
+  // 통화(Task 110): 통화 줄이 걸기 직전 다시 보기를 지나 dialing 으로 차지됐을 때만(줄에 넣고 막힌 것은 「문이 막음」).
+  call_placed: { label: 'AI 전화 — 걸기 직전 재확인을 지나 걺', short: '전화 걺', place: 'outreach' },
 };
 
 /** 연락 가지를 켜는 신호(그림의 「연락」 곁 칸). */

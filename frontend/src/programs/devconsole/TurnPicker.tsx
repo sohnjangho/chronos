@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '../../shared/ui/Badge';
 import { devApi, type OutreachList, type OutreachRow, type Turn } from './devApi';
 import { dayGroup, hourMinute, status, tokens } from './format';
-import { channelOf, starterOf, statusOf, whoOf } from './outreachText';
+import { channelOf, rowStatusOf, starterOf, whoOf } from './outreachText';
 
 interface Props {
   turns: Turn[] | null;
@@ -27,10 +27,10 @@ function groupByDay<T>(items: T[], at: (x: T) => string): [string, T[]][] {
 }
 
 const outreachText = (r: OutreachRow) =>
-  `${whoOf(r)} ${statusOf(r.status).label} ${channelOf(r)} ${starterOf(r)} ${r.schedule_name ?? ''}`.toLowerCase();
+  `${whoOf(r)} ${rowStatusOf(r).label} ${channelOf(r)} ${starterOf(r)} ${r.schedule_name ?? ''}`.toLowerCase();
 
 function ContactChoice({ r, current, onPick }: { r: OutreachRow; current: boolean; onPick(): void }) {
-  const s = statusOf(r.status);
+  const s = rowStatusOf(r);
   return (
     <li>
       <button type="button" className="dc-pick-item" aria-current={current || undefined} onClick={onPick}>

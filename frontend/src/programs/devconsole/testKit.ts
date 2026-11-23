@@ -15,6 +15,7 @@ import type {
   Turn,
   TurnDetail,
   UsageOut,
+  VoiceHealth,
 } from './devApi';
 
 const MODEL = 'claude-sonnet-5.5';
@@ -197,6 +198,48 @@ export function outreachDetail(over: Partial<OutreachDetail> = {}): OutreachDeta
       { key: 'channel', label: '통로', count: 1, verdicts: [{ verdict: 'noted', label: '확인 필요', count: 1 }] },
     ],
     branches_lit: [],
+    ...over,
+  };
+}
+
+/** 통화 하나(Task 110): 문 판정 → 걸기 직전 재확인 → 도구 → 침묵 → 뒤 확인 깃발 → 끝을 모르는 통화 결과(확인 필요). */
+export function callDetail(over: Partial<OutreachDetail> = {}): OutreachDetail {
+  const base = outreachDetail();
+  const item = (seq: number, label: string, m: HarnessMark, ok = m.verdict !== 'blocked'): TraceItem => ({
+    ...base.timeline[0], seq, label, ok, error: m.verdict === 'blocked' ? m.verdict_label : null, harness: m,
+  });
+  const call = (rule: string, label: string, verdict: HarnessMark['verdict'], verdictLabel: string) =>
+    mark({ group: 'call', group_label: '통화', rule, verdict, verdict_label: verdictLabel });
+  return outreachDetail({
+    head: { ...outreachRow({ kind: 'call', id: 77, channel: 'call', caller_class: 'outbound', status: 'failed', needs_check: true }), approved_by: null, fail_reason: '걸렸는지 확인 필요', reply_to_id: null, duration_s: 95, transcript_lines: 12 },
+    timeline: [
+      item(1, '통로 고르기 — 전화', mark({ rule: 'channel_choice', attempt: 1, order: 7, code: 'call' })),
+      item(2, '걸기 직전 재확인', call('recheck_before_dial', '걸기 직전 재확인', 'allowed', '지나감')),
+      item(3, '도구 find_contact', mark({ group: 'tool', group_label: '도구', rule: 'tool:find_contact', code: 'find_contact' })),
+      item(4, '침묵 확인', call('silence', '침묵 확인', 'noted', '메모')),
+      item(5, '도구 결과에 없는 날짜', mark({ group: 'post_check', group_label: '뒤 확인', rule: 'unsupported_date', verdict: 'noted', verdict_label: '메모' })),
+      item(6, '통화 결과 — 음성 서버 오류', call('call_result', '통화 결과', 'blocked', '확인 필요'), true),
+      item(7, '통로 결과 — 보냈는지 확인 필요', mark({ group: 'channel_result', group_label: '통로 결과', rule: 'delivery', verdict: 'noted', verdict_label: '확인 필요', needs_check: true })),
+    ],
+    attempts: 1,
+    needs_check: 1,
+    branches_lit: ['call_placed'],
+    ...over,
+  });
+}
+
+/** 시스템 진단의 AI 전화(가상) — 키·번호 없음. 마지막 음성 진단: 정상 · 확인 필요 · 실패(key_refused) · 건너뜀. */
+export function voiceHealth(over: Partial<VoiceHealth> = {}): VoiceHealth {
+  const step = (id: string, outcome: NotifyStep['outcome'], detail: string, code: string): NotifyStep => ({
+    id, label: `${id} 걸음`, ok: outcome === 'ok', skipped: outcome === 'skipped', detail, code, maybe_sent: outcome === 'check', pending: false, outcome,
+  });
+  return {
+    provider: 'google', model: 'gemini-3.8-live', status: 'ok', checked_at: '2026-11-24T00:50:00+00:00', sdk_installed: true,
+    last_diagnosis: { ran_at: '2026-11-24T00:50:00+00:00', state: 'done', steps: [
+      step('P5', 'ok', '음성 플랫폼 연결됨', 'ok'), step('P6', 'check', '끊김을 확인하지 못했습니다', 'cut_unconfirmed'),
+      step('P11', 'failed', '구글이 이 키로 Gemini API 를 쓰지 못하게 합니다', 'key_refused'), step('P12', 'skipped', '', 'skipped'),
+    ] },
+    worker: { running: true, live: 1, backend: 'ok', listening: false, last_call_at: '2026-11-24T01:10:00+00:00', last_error_kind: 'TimeoutError', off_reason: null },
     ...over,
   };
 }

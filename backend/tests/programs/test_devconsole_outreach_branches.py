@@ -242,4 +242,4 @@ def test_usage_shows_auto_replies_and_text_model_usage(client, admin, session):
                                   "cost": 0.002}  # 요금은 모델이 알려 준 것만
     assert rows["draft"] == {"kind": "draft", "count": 0, "input_tokens": 0, "output_tokens": 0, "cost": None}
     assert rows["translation"]["cost"] is None and rows["translation"]["count"] == 1
-    assert "voice_model" not in json.dumps(body)
+    assert "voice_model" not in json.dumps(body["text_models"])  # 음성 쪽은 calls 칸(Task 110)

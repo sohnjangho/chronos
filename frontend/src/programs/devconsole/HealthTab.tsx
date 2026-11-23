@@ -1,12 +1,14 @@
 // 시스템 진단(Health) 탭: LLM 연결 · Qdrant 벡터 DB · 근거 검색/MCP · SQLite DB 현황 · 실행 중 턴 제어,
 // 11-23: 정보 API 연결 · 근거 다시 쓰기 · 공휴일 표 · 그림 읽기 배정(HealthTodayCards).
 // Task 108: 알림 연결 묶음(NotifyHealthCard — 저장된 마지막 연결 진단을 보일 뿐, 다시 돌리지 않는다).
+// Task 110: 그 아래 AI 전화 묶음(VoiceHealthCard — 음성 설정이 있을 때만, 마지막 음성 진단·통화 일꾼 상태).
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '../../shared/api';
 import Badge from '../../shared/ui/Badge';
 import { devApi, type HealthOut } from './devApi';
 import HealthTodayCards from './HealthTodayCards';
 import NotifyHealthCard from './NotifyHealthCard';
+import VoiceHealthCard from './VoiceHealthCard';
 
 function bytesText(bytes: number): string {
   if (bytes <= 0) return '0 B';
@@ -206,6 +208,7 @@ export default function HealthTab() {
             <CoreCards data={data} />
             <HealthTodayCards data={data} badge={(st) => statusBadge(st as Parameters<typeof statusBadge>[0])} />
             {data.notify && <NotifyHealthCard n={data.notify} />}
+            {data.notify?.voice && <VoiceHealthCard v={data.notify.voice} />}
           </div>
           <ActiveTurns turns={data.active_turns} stoppingId={stoppingId} onStop={(id) => void stopTurn(id)} />
         </>

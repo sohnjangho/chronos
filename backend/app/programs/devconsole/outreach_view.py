@@ -18,6 +18,8 @@
 import re
 from datetime import datetime
 from importlib import import_module
+from importlib.util import find_spec
+from itertools import pairwise
 from typing import Any
 
 from sqlalchemy import func, select
@@ -27,6 +29,7 @@ from app.errors import ApiError
 from app.outreach import phone, redact
 from app.outreach.harness import events
 from app.outreach.harness.types import (
+    CALL_RESULTS,
     CHANNELS,
     DELIVERY_UPDATES,
     DELIVERY_VERDICT,
@@ -35,8 +38,10 @@ from app.outreach.harness.types import (
     FIXED_DETAILS,
     GATE_NOTES,
     GATE_RULES,
+    REVIEW_FLAGS,
     TOOL_REFUSALS,
 )
+from app.outreach.voice import numbers
 from app.programs.devconsole import outreach_branches
 from app.programs.devconsole.schemas import (
     EventGroupCount,
@@ -50,6 +55,7 @@ from app.programs.devconsole.schemas import (
     OutreachListOut,
     OutreachRowOut,
     OutreachUsageOut,
+    VoiceHealthOut,
 )
 from app.security.crypto import SecretUnreadable, decrypt
 from app.store import outreach as outreach_store
@@ -60,6 +66,7 @@ from app.store.tables_outreach import (
     ContactCompany,
     OutreachCall,
     OutreachMessage,
+    VoiceSettings,
 )
 from app.store.timeutil import as_utc
 
@@ -91,7 +98,19 @@ CODE_TEXT = {  # FIXED_DETAILS 의 코드(통로·받기 까닭·통화 결과·
     "known_caller": "아는 상대 — 응대",
     "no_answer": "받지 않음", "busy": "통화 중", "failed": "실패", "backend_error": "음성 서버 오류",
     "delivered": "도착", "gave_up": "결과 확인을 그만둠",
+    "not_ready": "음성 통화 준비 전", "local_error": "걸 준비 중 오류",  # 걸기 직전 다시 보기의 detail(그 밖은 문의 차례 이름)
 }
+# 통화 묶음·뒤 확인 깃발의 사건마다 이름 — 이름 차례(sorted)로 짝짓는다(글자를 적지 않는다, 시험이 이름으로 못 박는다)
+RULE_LABELS: dict[str, str] = {
+    **dict(zip(outreach_branches.CALL_RULES, (
+        "통화 결과", "사람이 끊음", "받지 않아 다시 걸기 예약", "걸기 직전 재확인", "침묵 확인", "최대 시간"), strict=True)),
+    **dict(zip(sorted(REVIEW_FLAGS), (
+        "모르는 사람에게 현장 이름을 말함", "금액·계약을 말함", "범위 밖 작업을 말함", "답의 근거가 상대 말에 없음",
+        "도구 결과에 없는 날짜"), strict=True)),
+}
+RECHECK_CODES = frozenset({*GATE_RULES.values(), "not_ready", "local_error"})
+CALL_RESULT_RULE = next(rule for rule, codes in FIXED_DETAILS.items() if codes is CALL_RESULTS)
+CHECK_LABEL = "확인 필요"
 
 # 묶음·이름을 상수에서 꺼낸다(글자를 적지 않는다)
 GATE_GROUP = EVENT_GROUPS[GATE_RULES[0]]
@@ -149,10 +168,12 @@ def _mark(event: dict) -> tuple[HarnessMark, str]:
     rule, verdict, detail = event["rule"], event["verdict"], event.get("detail")
     group = EVENT_GROUPS[rule]
     code = detail if rule in FIXED_DETAILS and isinstance(detail, str) and detail in FIXED_DETAILS[rule] else None
+    if rule == outreach_branches.RECHECK_RULE and isinstance(detail, str) and detail in RECHECK_CODES:
+        code = detail
     order = _RULE_ORDER.get(rule)
     needs_check = rule == DELIVERY_RULE and _DELIVERY_STATE.get(verdict) == "unsure"
     verdict_label = VERDICT_LABELS[verdict]
-    label = GROUP_LABELS[group]
+    label = RULE_LABELS.get(rule, GROUP_LABELS[group])
     if order is not None:
         label = ORDER_LABELS[order]
     if group == TOOL_GROUP:
@@ -162,9 +183,10 @@ def _mark(event: dict) -> tuple[HarnessMark, str]:
         verdict_label = DELIVERY_TEXT[_DELIVERY_STATE[verdict]]
         label = f"{label} — {verdict_label}"
     elif code is not None:
-        label = f"{label} — {CODE_TEXT.get(code, code)}"
+        text = ORDER_LABELS[_RULE_ORDER[code]] if code in _RULE_ORDER else CODE_TEXT.get(code, code)
+        label = f"{label} — {text}"
     mark = HarnessMark(group=group, group_label=GROUP_LABELS[group], rule=rule, verdict=verdict,
-                       verdict_label="확인 필요" if needs_check else verdict_label, attempt=None, order=order,
+                       verdict_label=CHECK_LABEL if needs_check else verdict_label, attempt=None, order=order,
                        code=code, needs_check=needs_check, unknown=False)
     return mark, label
 
@@ -235,11 +257,15 @@ def timeline(value: object, fallback: datetime) -> tuple[list[HarnessItem], int,
     shown, omitted = _stored_events(value)
     lines = [_line(e, fallback) for e in shown]
     attempts = _attempts([mark for mark, _label, _at in lines])
+    for (mark, _l, _a), (after, _l2, _a2) in pairwise(lines):  # 끝을 모르는 통화(통화 결과 → 통로 결과 모름)
+        if mark.rule == CALL_RESULT_RULE and mark.verdict == "blocked" and after.needs_check:
+            mark.verdict_label = CHECK_LABEL  # 막음·실패가 아니라 「확인 필요」(시간줄의 확인 필요 수에는 통로 결과 하나만 센다)
     items = []
     for seq, (mark, label, at) in enumerate(lines, 1):
         items.append(HarnessItem(
             seq=seq, kind="harness", label=label, started_at=at, ms=None, model=None, input_tokens=0, output_tokens=0,
-            cost=None, ok=mark.verdict != "blocked", error=mark.verdict_label if mark.verdict == "blocked" else None,
+            cost=None, ok=mark.verdict != "blocked" or mark.verdict_label == CHECK_LABEL,
+            error=mark.verdict_label if mark.verdict == "blocked" else None,
             input_text="", output_text="", parallel_group=None, harness=mark,
         ))
     return items, attempts, omitted
@@ -278,8 +304,16 @@ def _row_fields(kind: str, row, names: tuple[dict, dict, dict]) -> dict[str, Any
         "contact_name": _clean(contact.name) if contact is not None else None,
         "company_name": _clean(companies.get(contact.company_id)) if contact is not None else None,
         "number_masked": phone.mask(number), "schedule_name": schedules.get(row.schedule_id),
-        "events": _event_count(row.harness_json), "needs_check": row.status == UNCONFIRMED,
+        "events": _event_count(row.harness_json), "needs_check": row.status == UNCONFIRMED or (
+            kind == CALL_KIND and row.status == "failed" and _unsure(row.harness_json)),
     }
+
+
+def _unsure(value: object) -> bool:
+    """통화 줄이 「결과 모름」(통로 결과 unsure)으로 닫혔는가 — 실패가 아니라 확인 필요."""
+    unsure = DELIVERY_VERDICT["unsure"]
+    return isinstance(value, list) and any(
+        isinstance(e, dict) and e.get("rule") == DELIVERY_RULE and e.get("verdict") == unsure for e in value)
 
 
 def list_rows(session: Session, kind: str | None, limit: int) -> OutreachListOut:
@@ -310,7 +344,9 @@ def detail(session: Session, kind: str, row_id: int) -> OutreachDetailOut:
         raise ApiError(404, "not_found", NOT_FOUND_MESSAGE)
     fields = _row_fields(kind, row, _names(session, [row]))
     head = OutreachHeadOut(**fields, approved_by=_clean(row.approved_by), fail_reason=_clean(row.fail_reason),
-                           reply_to_id=getattr(row, "reply_to_id", None))
+                           reply_to_id=getattr(row, "reply_to_id", None), duration_s=getattr(row, "duration_s", None),
+                           transcript_lines=len(row.transcript_json) if kind == CALL_KIND and isinstance(
+                               row.transcript_json, list) else None)
     items, attempts, omitted = timeline(row.harness_json, fields["at"])
     return OutreachDetailOut(head=head, timeline=items, groups=_groups(items), attempts=attempts,
                              needs_check=sum(i.harness.needs_check for i in items), omitted=omitted,
@@ -353,18 +389,19 @@ def _step(raw: object, secrets: list[str]) -> NotifyStepOut | None:
                          code=text("code"), maybe_sent=maybe_sent, pending=pending, outcome=outcome)
 
 
-def _diagnosis(conn) -> NotifyDiagnosisOut | None:
-    """저장된 마지막 연결 진단(다시 돌리지 않는다). 걸음 글은 연결의 키·Account ID·번호를 한 번 더 지운다."""
-    stored = conn.last_diagnosis_json
+def _diagnosis(conn, stored: object = None, extra: tuple[str, ...] = ()) -> NotifyDiagnosisOut | None:
+    """저장된 마지막 연결 진단(다시 돌리지 않는다). 걸음 글은 연결의 키·Account ID·번호를 한 번 더 지운다. 음성 진단은
+    stored·extra(음성 키)를 주고 부른다 — 「거는 중」(calling)은 「보내는 중」과 같이 끝나지 않은 진단으로 보인다."""
+    stored = conn.last_diagnosis_json if stored is None else stored
     if not isinstance(stored, dict):
         return None
     ran_at = _when(stored.get("ran_at"), None)
     if ran_at is None:
         return None
-    secrets = [*redact.secrets(), *_conn_secrets(conn)]
+    secrets = [*redact.secrets(), *_conn_secrets(conn), *extra]
     raw_steps = stored.get("steps") if isinstance(stored.get("steps"), list) else []
     steps = [s for s in (_step(r, secrets) for r in raw_steps) if s is not None]
-    state = stored.get("state") if stored.get("state") in ("done", "sending") else "done"
+    state = "sending" if stored.get("state") in ("sending", "calling") else "done"
     return NotifyDiagnosisOut(ran_at=ran_at, state=state, steps=steps)
 
 
@@ -379,11 +416,35 @@ def notify_health(session: Session) -> NotifyHealthOut:
         test_mode=conn.test_mode, allow_count=len(allow),
         sender_masked=phone.mask(conn.sender_number) if conn.sender_number else None, inbound_mode=conn.inbound_mode,
         agent=dict(zip(CHANNELS, (conn.agent_sms, conn.agent_kakao, conn.agent_call), strict=True)),
-        worker=_worker_status(), needs_check=unsure, last_diagnosis=_diagnosis(conn),
+        worker=_worker_status(), needs_check=unsure, last_diagnosis=_diagnosis(conn), voice=_voice(session, conn),
     )
+
+
+def _voice(session: Session, conn) -> VoiceHealthOut | None:
+    """AI 전화 칸(Task 110): 음성 설정·저장된 마지막 음성 진단·통화 일꾼의 메모리 상태. 키는 지울 비밀로만 쓴다."""
+    settings = session.get(VoiceSettings, conn.id)
+    if settings is None:
+        return None
+    try:
+        key = (decrypt(settings.secret_ciphertext),) if settings.secret_ciphertext else ()
+    except SecretUnreadable:
+        key = ()
+    try:
+        runner = import_module("app.outreach.voice.runner").status()
+    except ImportError:
+        runner = None
+    try:
+        sdk = find_spec("clawops") is not None  # 불러오지 않고 이름만 찾는다(notify_settings.voice.sdk_installed 와 같은 방식)
+    except (ImportError, ValueError):
+        sdk = False
+    return VoiceHealthOut(
+        provider=settings.provider, model=numbers.effective_model(settings.provider, settings.model),
+        status=settings.status, checked_at=as_utc(settings.checked_at) if settings.checked_at else None,
+        sdk_installed=sdk, last_diagnosis=_diagnosis(conn, settings.last_diagnosis_json or {}, key), worker=runner)
 
 
 def usage(session: Session, days: int) -> OutreachUsageOut:
     s = outreach_usage.summary(session, days=days)
     return OutreachUsageOut(sms=s.sms, long=s.long, kakao=s.kakao, auto_replies=s.auto_replies,
-                            provider_cost=s.provider_cost, text_models=outreach_branches.text_models(s))
+                            provider_cost=s.provider_cost, text_models=outreach_branches.text_models(s),
+                            calls=outreach_branches.call_usage(s))

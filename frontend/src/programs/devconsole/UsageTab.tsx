@@ -1,11 +1,12 @@
 // 사용량·비용: 기간(7/14/30일)과 묶는 기준(모델·사용자·날짜·작업 종류)으로 표 + 토큰 가로 막대, 합계 줄, 근거 검색 수,
 // 11-23: 따로 센 호출(정보 API · Liner 검색 대 다시 쓰기 · 그림 읽기 · 임베딩, UsageCounters).
 // Task 108: 연락 사용량(문자·장문·카카오톡·자동 답, 제공사 요금 — 알려 주지 않으면 그렇게 적는다).
+// Task 110: 통화 사용량(통화 시간 · 건 통화 수 · 음성 모델 · 받아쓰기(기록이 있을 때만) · 통화 요약 — 알려 준 값만).
 // 비용은 Liner 가 보낸 값만(cost_known 이 거짓이면 "—" 와 안내).
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../shared/api';
 import Field from '../../shared/ui/Field';
-import { devApi, type OutreachUsage, type UsageGroup, type UsageOut, type UsageRow, type UsageTotals } from './devApi';
+import { devApi, type CallUsage, type OutreachUsage, type UsageGroup, type UsageOut, type UsageRow, type UsageTotals } from './devApi';
 import { cost, count } from './format';
 import UsageCounters from './UsageCounters';
 
@@ -168,6 +169,45 @@ function OutreachUsageTable({ o }: { o: OutreachUsage }) {
   );
 }
 
+const UNREPORTED = '알려 주지 않음';
+/** 통화 쪽 모델 사용 종류(outreach_usage.kind, Task 110). 모르는 종류는 받은 그대로. */
+const CALL_KIND: Record<string, string> = { voice_model: '음성 모델', transcription: '받아쓰기', summary: '통화 요약' };
+
+/** 통화 사용량: 통화 시간 · 건 통화 수, 통화 쪽 모델의 횟수·초·토큰·요금 — 백엔드가 알려 준 값만(토큰 0 = 알려 주지 않음). */
+function CallUsageTable({ c }: { c: CallUsage }) {
+  const minutes = `${Math.floor(c.call_seconds / 60)}분 ${c.call_seconds % 60}초`;
+  return (
+    <div className="dc-u-wrap">
+      <p className="dc-u-search">{`통화 시간 ${minutes} (건 통화·받은 통화) · 건 통화 ${count(c.calls_placed)}통 (걸려고 줄에 넣은 것 — 결과를 모르는 통화 포함)`}</p>
+      <table className="dc-u" aria-label="통화 사용량">
+        <thead>
+          <tr>
+            <th scope="col">통화 쪽 모델</th>
+            <th scope="col">횟수</th>
+            <th scope="col">초</th>
+            <th scope="col">토큰(입력·출력)</th>
+            <th scope="col" title="여러 번 가운데 일부만 알려 주었으면 알려 준 것만 더한 값입니다.">요금(알려 준 것)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {c.models.map((m) => {
+            const tokens = m.input_tokens + m.output_tokens > 0;
+            return (
+              <tr key={m.kind}>
+                <th scope="row">{CALL_KIND[m.kind] ?? m.kind}</th>
+                <td>{count(m.count)}</td>
+                <td>{m.seconds > 0 ? count(m.seconds) : '—'}</td>
+                <td className={tokens ? undefined : 'dc-muted'}>{tokens ? `${count(m.input_tokens)} · ${count(m.output_tokens)}` : UNREPORTED}</td>
+                <td className={m.cost === null ? 'dc-muted' : undefined}>{m.cost === null ? UNREPORTED : cost(m.cost)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function UsageTab() {
   const [days, setDays] = useState(14);
   const [group, setGroup] = useState<UsageGroup>('model');
@@ -222,6 +262,7 @@ export default function UsageTab() {
       {body?.counters && <UsageCounters counters={body.counters} />}
       {body?.outreach && <OutreachUsageTable o={body.outreach} />}
       {body?.outreach?.text_models && body.outreach.text_models.length > 0 && <TextModelTable rows={body.outreach.text_models} />}
+      {body?.outreach?.calls && <CallUsageTable c={body.outreach.calls} />}
     </div>
   );
 }

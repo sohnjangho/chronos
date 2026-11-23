@@ -145,6 +145,9 @@ export interface OutreachHead extends OutreachRow {
   approved_by: string | null;
   fail_reason: string | null;
   reply_to_id: number | null;
+  /** 통화만(Task 110): 통화 시간(초) · 받아쓰기 줄 수(글은 오지 않는다). 문자는 null. */
+  duration_s?: number | null;
+  transcript_lines?: number | null;
 }
 
 /** 연락 흐름도 마디 하나(Task 109): inbound · tool · post_check · gate · channel. 판정 글은 서버의 것. */
@@ -209,6 +212,8 @@ export interface OutreachUsage {
   provider_cost: number | null;
   /** 글 쪽 모델 사용(text_reply · draft · translation). cost 는 모델이 알려 준 것만. 예전 서버는 없다. */
   text_models?: { kind: string; count: number; input_tokens: number; output_tokens: number; cost: number | null }[];
+  /** 통화 사용량(Task 110). models: voice_model · transcription(기록이 있을 때만) · summary — 알려 준 값만. */
+  calls?: CallUsage | null;
 }
 
 export interface UsageCounters {
@@ -381,6 +386,38 @@ export interface HealthOut {
 }
 
 /** 저장된 마지막 연결 진단의 걸음. outcome check = 결과를 모름(실패 아님). */
+export interface CallModelUsage {
+  kind: string;
+  count: number;
+  seconds: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost: number | null;
+}
+
+export interface CallUsage {
+  call_seconds: number;
+  calls_placed: number;
+  models: CallModelUsage[];
+}
+
+/** 시스템 진단의 AI 전화(Task 110). 키·끝 4자리·번호는 없다. worker = 통화 일꾼 runner.status(). */
+export interface VoiceHealth {
+  provider: string;
+  model: string | null;
+  status: string;
+  checked_at: string | null;
+  sdk_installed: boolean;
+  last_diagnosis: NotifyDiagnosis | null;
+  worker: Record<string, unknown> | null;
+}
+
+export interface NotifyDiagnosis {
+  ran_at: string;
+  state: string;
+  steps: NotifyStep[];
+}
+
 export interface NotifyStep {
   id: string;
   label: string;
@@ -406,9 +443,9 @@ export interface NotifyHealth {
   /** 연락 일꾼 메모리 상태(시각은 ISO). */
   worker: Record<string, unknown> | null;
   needs_check: number;
-  last_diagnosis: { ran_at: string; state: string; steps: NotifyStep[] } | null;
+  last_diagnosis: NotifyDiagnosis | null;
   kakao: null;
-  voice: null;
+  voice?: VoiceHealth | null;
 }
 
 /** 정보 API 연결(주소·키 없음). */

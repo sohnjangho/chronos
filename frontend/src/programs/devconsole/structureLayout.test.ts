@@ -92,7 +92,7 @@ describe('edgesFor', () => {
   test('the contact branch lights only from a recorded outreach flag', () => {
     const visited = states({ request: 'past', context: 'past', plan: 'past', judge: 'past', tool: 'past', check: 'past', approval: 'past', respond: 'past' });
     expect(find(edgesFor(visited, ['info_used', 'check_repair']), 'tool', 'outreach')?.state).toBe('todo');
-    for (const flag of ['contact_lookup', 'outreach_draft', 'outreach_delegated', 'outreach_blocked']) {
+    for (const flag of ['contact_lookup', 'outreach_draft', 'outreach_delegated', 'outreach_blocked', 'call_placed']) {
       expect(find(edgesFor(visited, [flag]), 'tool', 'outreach')?.state, flag).toBe('past');
     }
   });

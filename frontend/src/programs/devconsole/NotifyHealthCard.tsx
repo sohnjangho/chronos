@@ -2,7 +2,7 @@
 // 확인 필요 수 · 조회 일꾼의 마지막 시각 · 저장된 마지막 연결 진단(콘솔은 진단을 다시 돌리지 않는다). 키·Account ID 는 없다.
 // 결과를 모르는 걸음은 「확인 필요」이지 실패가 아니다. 코드는 접힌 기계 출력으로.
 import Badge, { type Tone } from '../../shared/ui/Badge';
-import type { NotifyHealth, NotifyStep } from './devApi';
+import type { NotifyDiagnosis, NotifyHealth, NotifyStep } from './devApi';
 import RawBlock from './RawBlock';
 
 const STATUS: Record<string, [string, Tone]> = { ok: ['정상', 'success'], failed: ['오류', 'danger'], unknown: ['모름', 'neutral'] };
@@ -22,13 +22,13 @@ const WORKER_TIMES: [string, string][] = [
 ];
 const NOT_YET = '아직 없음';
 
-function when(v: unknown): string {
+export function when(v: unknown): string {
   if (typeof v !== 'string') return NOT_YET;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-const Row = ({ k, v }: { k: string; v: string }) => (
+export const Row = ({ k, v }: { k: string; v: string }) => (
   <div>
     <dt>{k}</dt>
     <dd>{v}</dd>
@@ -47,11 +47,12 @@ function Worker({ w }: { w: Record<string, unknown> | null }) {
   );
 }
 
-function Diagnosis({ diag }: { diag: NonNullable<NotifyHealth['last_diagnosis']> }) {
+/** 저장된 마지막 진단의 걸음 줄(연결 진단 · 음성 진단이 같이 쓴다 — Task 110). */
+export function Diagnosis({ diag, title = '마지막 연결 진단' }: { diag: NotifyDiagnosis; title?: string }) {
   return (
     <section className="dc-o-diag">
-      <h4>{`마지막 연결 진단 · ${when(diag.ran_at)}${diag.state === 'sending' ? ' · 도는 중이거나 끝나지 않음(확인 필요)' : ''}`}</h4>
-      <ul className="dc-health-list" aria-label="마지막 연결 진단">
+      <h4>{`${title} · ${when(diag.ran_at)}${diag.state === 'sending' ? ' · 도는 중이거나 끝나지 않음(확인 필요)' : ''}`}</h4>
+      <ul className="dc-health-list" aria-label={title}>
         {diag.steps.map((s) => {
           const [label, tone] = OUTCOME[s.outcome];
           return (
@@ -102,7 +103,7 @@ export default function NotifyHealthCard({ n }: { n: NotifyHealth }) {
           <Row k="받는 범위" v={INBOUND[n.inbound_mode ?? ''] ?? n.inbound_mode ?? '—'} />
           <Row k="에이전트 권한" v={`문자 ${AGENT[agent.sms] ?? '—'} · 카카오톡 ${AGENT[agent.kakao] ?? '—'} · 전화 ${AGENT[agent.call] ?? '—'}`} />
           <Row k="카카오톡" v={NOT_YET} />
-          <Row k="AI 전화" v={NOT_YET} />
+          <Row k="AI 전화" v={n.voice ? '설정됨 — 아래 「AI 전화」 칸' : NOT_YET} />
         </dl>
         <Worker w={n.worker} />
       </div>

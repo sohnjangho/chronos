@@ -167,6 +167,8 @@ class OutreachHeadOut(OutreachRowOut):
     approved_by: str | None
     fail_reason: str | None  # 번호·비밀을 지운 글
     reply_to_id: int | None
+    duration_s: int | None = None  # 통화 시간(초) — 문자는 null (Task 110)
+    transcript_lines: int | None = None  # 받아쓰기 줄 수만(글은 싣지 않는다) — 문자는 null
 
 
 class EventGroupCount(BaseModel):
@@ -235,6 +237,24 @@ class TextModelUsageOut(BaseModel):
     cost: float | None  # 모델이 알려 준 요금의 합, 없으면 None
 
 
+class CallModelUsageOut(BaseModel):
+    kind: str  # voice_model | transcription | summary
+    count: int
+    seconds: int  # 알려 준 초의 합
+    input_tokens: int  # 0 이면 알려 주지 않음(음성 백엔드는 지금 토큰을 주지 않는다)
+    output_tokens: int
+    cost: float | None  # 알려 준 요금의 합, 없으면 None(어림하지 않는다)
+
+
+class CallUsageOut(BaseModel):
+    """통화 사용량(Task 110). call_seconds 는 건 통화·받은 통화의 duration_s 합, calls_placed 는 차지한(걸려고 줄에 넣은)
+    거는 통화 수 — 결과를 모르는 통화도 여기 들고 실패 셈은 따로 없다. models: voice_model · transcription(기록이 있을 때만) · summary."""
+
+    call_seconds: int
+    calls_placed: int
+    models: list[CallModelUsageOut]
+
+
 class OutreachUsageOut(BaseModel):
     """연락 사용량(store.outreach_usage.summary 의 다섯 칸). long 은 sms 의 부분 집합. provider_cost 가 None 이면 제공사가
     요금을 알려 주지 않았다."""
@@ -245,6 +265,7 @@ class OutreachUsageOut(BaseModel):
     auto_replies: int
     provider_cost: float | None
     text_models: list[TextModelUsageOut] = Field(default_factory=list)  # 글 쪽 모델 사용(Task 109)
+    calls: CallUsageOut | None = None  # 통화 사용량(Task 110)
 
 
 class DevUsageOut(UsageOut):
@@ -373,6 +394,18 @@ class NotifyDiagnosisOut(BaseModel):
     steps: list[NotifyStepOut]
 
 
+class VoiceHealthOut(BaseModel):
+    """AI 전화(음성 설정 · 통화 일꾼). 키·끝 4자리·AI 전화 번호는 없다. 마지막 음성 진단은 저장된 것 그대로(다시 돌리지 않음)."""
+
+    provider: str
+    model: str | None  # 실제로 쓰는 모델(numbers.effective_model) — 없으면 SDK 기본
+    status: str  # ok | failed | unknown — 마지막 음성 진단의 판정
+    checked_at: datetime | None
+    sdk_installed: bool
+    last_diagnosis: NotifyDiagnosisOut | None
+    worker: dict[str, Any] | None  # app.outreach.voice.runner.status()
+
+
 class NotifyHealthOut(BaseModel):
     """기본 알림 연결(키·Account ID 없음, 발신번호는 가린 꼴). 연결이 없으면 connected false 뿐."""
 
@@ -388,7 +421,7 @@ class NotifyHealthOut(BaseModel):
     needs_check: int = 0  # 보냈는지 확인 필요(unconfirmed) 메시지 수
     last_diagnosis: NotifyDiagnosisOut | None = None  # 저장된 것 그대로(다시 돌리지 않음)
     kakao: None = None  # Task 111
-    voice: None = None  # Task 110
+    voice: VoiceHealthOut | None = None  # Task 110 — 음성 설정이 없으면 null
 
 
 class HealthOut(BaseModel):

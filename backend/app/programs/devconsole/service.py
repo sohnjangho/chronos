@@ -160,6 +160,7 @@ def get_turn(session: Session, turn_id: int) -> TurnDetail:
         max_steps=cfg["max_steps"], check_retries=cfg["max_check_retries"], inner=inner,
     )
     timeline = _timeline(events, steps, inner, row.started_at, _request(row))
+    outreach_branches.light_calls(session, steps, structure, timeline)  # 위임 통화의 그 뒤(Task 110 — call_placed)
     return TurnDetail(turn=turn, structure=structure, timeline=timeline)
 
 

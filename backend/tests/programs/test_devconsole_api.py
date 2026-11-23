@@ -502,7 +502,10 @@ def test_usage_when_nothing_happened(client, admin):
                               "vision": zero, "embedding": zero},
                  "outreach": {"sms": 0, "long": 0, "kakao": 0, "auto_replies": 0, "provider_cost": None,
                               "text_models": [{"kind": k, "count": 0, "input_tokens": 0, "output_tokens": 0, "cost": None}
-                                              for k in ("text_reply", "draft", "translation")]}}
+                                              for k in ("text_reply", "draft", "translation")],
+                              "calls": {"call_seconds": 0, "calls_placed": 0, "models": [
+                                  {"kind": k, "count": 0, "seconds": 0, "input_tokens": 0, "output_tokens": 0, "cost": None}
+                                  for k in ("voice_model", "summary")]}}}
 
 
 def test_catalog_and_harness_block_simulation(client, admin):
