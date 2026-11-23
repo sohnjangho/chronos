@@ -1,0 +1,63 @@
+/* 대화 칸 아래 입력창(Task 79, 시안 ①). 색·글꼴은 tokens.css 변수만(두 테마). 모든 줄은 좁으면 다음 줄로 넘어간다(가로로 밀지 않는다).
+   「연결할 작업」 목록은 띄우지 않고 입력창 안에서 펼친다 — 창 가장자리에 잘리지 않고, 펼친 만큼 위 대화가 줄어든다. */
+.cmp { min-width: 0; }
+.cmp-band { border-top: 0; border-bottom: 1px solid var(--border); font-weight: 600; }
+.cmp-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 16px 10px; }
+.cmp-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.cmp-line > .cmp-send { margin-left: auto; min-width: 84px; }
+
+/* 문자 | 카카오톡 */
+.cmp-seg { flex: none; display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-2); overflow: hidden; background: var(--bg-panel); }
+.cmp-seg-item {
+  font: inherit; font-size: var(--fs-12); color: var(--fg-muted); background: transparent; border: 0; padding: 3px 12px; cursor: pointer;
+}
+.cmp-seg-item + .cmp-seg-item { border-left: 1px solid var(--border-strong); }
+.cmp-seg-item[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+.cmp-seg-item:disabled { cursor: not-allowed; text-decoration: line-through; text-decoration-color: var(--fg-muted); }
+.cmp-seg-item:focus-visible { outline-offset: -2px; }
+
+/* 연결할 작업: 단추는 30em(좁으면 줄 폭)에서 줄임표로 자르고(title·펼친 목록에 전체), 펼친 판은 줄 전체 폭으로 맨 아래에 놓인다. */
+.cmp-pick { display: contents; }
+.cmp-pick-btn {
+  flex: 0 1 auto; min-width: 0; max-width: min(30em, 100%); display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: var(--fs-12);
+  color: var(--fg); background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-2); padding: 3px 8px; cursor: pointer;
+}
+.cmp-pick-btn:hover:not(:disabled) { border-color: var(--border-strong); }
+.cmp-pick-btn:disabled { color: var(--fg-muted); cursor: default; opacity: 0.6; }
+.cmp-pick-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-pick-caret { flex: none; color: var(--fg-muted); }
+.cmp-pick-note { flex: 1 1 100%; order: 9; min-width: 0; color: var(--warning-text); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.cmp-pick-panel {
+  flex: 1 1 100%; order: 10; min-width: 0; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 8px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-3); background: var(--bg-panel);
+}
+.cmp-pick-list { max-height: 220px; overflow-y: auto; overflow-x: hidden; min-width: 0; }
+.cmp-pick-head {
+  position: sticky; top: 0; z-index: 1; padding: 4px 6px; background: var(--bg-panel-alt); color: var(--fg-muted); font-size: var(--fs-11);
+  font-weight: 700; overflow-wrap: anywhere;
+}
+.cmp-opt {
+  display: flex; gap: 8px; align-items: baseline; min-width: 0; padding: 4px 6px; border-radius: var(--radius-2); cursor: pointer;
+  font-size: var(--fs-13); overflow-wrap: anywhere;
+}
+.cmp-opt:hover { background: var(--bg-panel-alt); }
+.cmp-opt.is-on { background: var(--bg-selected); font-weight: 600; }
+.cmp-opt:focus-visible { outline-offset: -2px; }
+.cmp-opt-id { flex: none; color: var(--fg-muted); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+.cmp-opt-name { min-width: 0; }
+.cmp-pick-msg { margin: 4px 6px; font-size: var(--fs-12); }
+
+.cmp-count { margin-left: auto; flex: none; color: var(--fg-muted); font-size: var(--fs-12); font-variant-numeric: tabular-nums; cursor: help; }
+
+/* 잠긴 까닭 · 글 · 결과 줄 */
+.cmp-reason, .cmp-lock { margin: 0; min-width: 0; font-size: var(--fs-12); color: var(--fg-muted); overflow-wrap: anywhere; }
+.cmp-lock { color: var(--warning-text); font-weight: 600; }
+.cmp-text { min-height: 60px; max-height: 40vh; }
+.cmp-text:disabled { background: var(--bg-panel-alt); color: var(--fg-muted); cursor: not-allowed; }
+.cmp-text[readonly] { color: var(--fg-muted); }
+.cmp-result:empty { display: none; }
+
+@container (max-width: 480px) {
+  .cmp-body { padding: 8px 12px 10px; }
+  .cmp-count { margin-left: 0; flex-basis: 100%; order: 11; }
+}

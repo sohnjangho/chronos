@@ -3,6 +3,7 @@
 // 「통화」 탭: CallsSlot(Task 92 가 채운다). 탭 줄은 위 PersonHead 에 있다. 대화는 문자 탭이 열려 있을 때만 읽는다.
 import { useRef, type ComponentType } from 'react';
 import type { ThreadSlotProps } from './Contacts';
+import Composer from './Composer';
 import type { PersonBrief } from './contactsApi';
 import MessageThread from './MessageThread';
 import ThreadHeader from './ThreadHeader';
@@ -33,15 +34,12 @@ export interface CallsSlotProps {
   onChanged: () => void;
 }
 
-function ComposerPlaceholder() {
-  return <p className="ct-muted th-soon">메시지 입력창은 준비 중입니다.</p>;
-}
 function CallsPlaceholder({ person }: CallsSlotProps) {
   return <p className="ct-muted ct-pad">{`${person.name} 님과의 통화 기록이 여기에 보입니다.`}</p>;
 }
 
-/** 입력창 자리. Task 79 가 이 한 줄을 Composer 로 바꾼다. */
-const ComposerSlot: ComponentType<ComposerSlotProps> = ComposerPlaceholder;
+/** 입력창 자리(Task 79 Composer). */
+const ComposerSlot: ComponentType<ComposerSlotProps> = Composer;
 /** 통화 탭 자리. Task 92 가 이 한 줄을 통화 목록으로 바꾼다. */
 const CallsSlot: ComponentType<CallsSlotProps> = CallsPlaceholder;
 
