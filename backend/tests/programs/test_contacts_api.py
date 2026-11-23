@@ -3,6 +3,7 @@
 
 import json
 import logging
+import unicodedata
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,7 +15,7 @@ from app.outreach.hours import KST
 from app.programs.contacts import service
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
-from app.store import outreach
+from app.store import contacts, outreach
 from app.store.tables import User
 from app.store.tables_outreach import (
     Contact,
@@ -41,6 +42,7 @@ TOO_MANY_REVEALS = ("too_many_reveals", "번호 보기는 10분에 30번까지�
 LINE_TEXT = ("invalid_text", "이름·담당·공종에는 줄 바꿈이나 보이지 않는 제어 글자를 쓸 수 없습니다.")
 FREE_TEXT = ("invalid_text", "메모·까닭에는 보이지 않는 제어 글자나 글 방향을 바꾸는 글자를 쓸 수 없습니다.")
 NO_VOICE = ("invalid_voice", "음성을 직접 지정하려면 음성을 골라 주세요.")
+VOICE_SHAPE = ("invalid_voice", "음성 id 는 영문·숫자와 . _ : - 로 64자까지입니다.")
 NEW_NUMBER = "010-0000-0198"
 NO_CALL = ("channel_not_possible", "이 번호로는 전화를 걸 수 없습니다.")
 ADMIN_CLEARS = ("admin_only", "수신 거부는 관리자만 풀 수 있습니다(이 번호가 있는 모든 프로젝트에서 풀립니다).")
@@ -760,16 +762,17 @@ def test_reveal_is_recorded_in_the_database_without_the_number(client, user, ses
 
     session.expire_all()
     rows = session.scalars(select(ContactReveal)).all()
-    assert [(r.schedule_id, r.contact_id, r.user_id) for r in rows] == [(sid, pid, _uid(session))]
+    assert [(r.schedule_id, r.contact_id, r.user_id, r.login_id) for r in rows] == [(sid, pid, _uid(session), "user1")]
     assert rows[0].at is not None
-    assert {c.name for c in ContactReveal.__table__.columns} == {"id", "schedule_id", "contact_id", "user_id", "at"}
+    assert {c.name for c in ContactReveal.__table__.columns} == {
+        "id", "schedule_id", "contact_id", "user_id", "login_id", "at"}  # login_id: 사용자를 지워 id 가 다시 쓰여도 누군지
 
 
 def test_31st_reveal_in_ten_minutes_is_refused_and_not_recorded(client, user, admin, session, sid):
     pid = _person(client, user, sid, _company(client, user, sid))["id"]
     uid, now = _uid(session), datetime.now(UTC)
     for minutes in [5] * 29 + [11] * 5:  # 10분 안 29번 · 그 밖 5번(세지 않음)
-        outreach.record_reveal(session, schedule_id=sid, contact_id=pid, user_id=uid, at=now - timedelta(minutes=minutes))
+        session.add(ContactReveal(schedule_id=sid, contact_id=pid, user_id=uid, at=now - timedelta(minutes=minutes)))
     session.commit()
 
     thirtieth = client.post(_url(sid, f"/people/{pid}/reveal"), headers=user)
@@ -917,7 +920,9 @@ def test_names_reject_control_characters_without_echo(client, user, sid, bad):
         assert "현장" not in r.text and "장현" not in r.text
 
 
-FREE_BAD = ["첫 줄\x00", "색\x1b[31m", "윈도\r줄", "\N{RIGHT-TO-LEFT OVERRIDE}거꾸로", "\N{RIGHT-TO-LEFT ISOLATE}격리", "종\x07소리"]
+FREE_BAD = ["첫 줄\x00", "색\x1b[31m", "윈도\r줄", "\N{RIGHT-TO-LEFT OVERRIDE}거꾸로", "\N{RIGHT-TO-LEFT ISOLATE}격리", "종\x07소리",
+            "\N{LEFT-TO-RIGHT MARK}표시", "\N{RIGHT-TO-LEFT MARK}표시", "\N{ARABIC LETTER MARK}표시", "줄\N{LINE SEPARATOR}나눔",
+            "문단\N{PARAGRAPH SEPARATOR}나눔", "보이지\N{ZERO WIDTH SPACE}않음"]
 
 
 @pytest.mark.parametrize("bad", FREE_BAD, ids=[repr(b)[:12] for b in FREE_BAD])
@@ -970,3 +975,44 @@ def test_manual_voice_needs_a_voice_id(client, user, session, sid):
     session.get(Contact, chosen).voice_id = None  # 예전에 저장된 꼴 — 다른 칸 고치기는 막지 않는다
     session.commit()
     assert client.patch(_url(sid, f"/people/{chosen}"), json={"note": "메모"}, headers=user).status_code == 200
+
+
+# ── 마지막 고침: 글은 NFC · 음성 id 꼴 ─────────────────────────────────────────────
+
+def _nfd(text: str) -> str:
+    return unicodedata.normalize("NFD", text)
+
+
+def test_text_fields_are_stored_as_nfc(client, user, session, sid):
+    """macOS(NFD)와 Windows(NFC)에서 친 같은 이름이 한 이름이 된다 — 찾기·신원 규칙(by_name)."""
+    company = client.post(_url(sid, "/companies"), json={"name": _nfd("가람건설"), "trade": _nfd("골조"),
+                                                         "note": _nfd("본사\n현장")}, headers=user).json()
+    created = _person(client, user, sid, company["id"], name=_nfd("김공정"), role_title=_nfd("공무"),
+                      note=_nfd("오전 통화"), dnc_reason=_nfd("본인 요청"), do_not_contact=True)
+    viet = _person(client, user, sid, company["id"], name=_nfd("Nguyễn Văn An"), phone=None)
+    long_name = _person(client, user, sid, company["id"], name=_nfd("가" * 100), phone=None)  # NFD 200자 · NFC 100자
+
+    assert (company["name"], company["trade"], company["note"]) == ("가람건설", "골조", "본사\n현장")
+    assert (created["name"], created["role_title"], created["note"], created["dnc_reason"]) == (
+        "김공정", "공무", "오전 통화", "본인 요청")
+    assert (viet["name"], long_name["name"]) == ("Nguyễn Văn An", "가" * 100)
+    patched = client.patch(_url(sid, f"/people/{viet['id']}"), json={"role_title": _nfd("현장 대리")}, headers=user)
+    assert patched.json()["role_title"] == "현장 대리"
+    session.expire_all()
+    assert session.get(Contact, created["id"]).name == "김공정"
+    assert [c.id for c in contacts.by_name(session, "김공정")] == [created["id"]]
+    assert [c.id for c in contacts.by_name(session, _nfd("Nguyễn Văn An"))] == [viet["id"]]
+
+
+@pytest.mark.parametrize("voice_id", ["voice a", "목소리A", "v" * 65, "a/b", "<b>", "ko-KR\nA"])
+def test_voice_id_shape_is_checked(client, user, sid, voice_id):
+    company = _company(client, user, sid)
+    pid = _person(client, user, sid, company, voice_mode="manual", voice_id="ko-KR.Wavenet:A_1")["id"]
+
+    created = client.post(_url(sid, "/people"), json={"name": "음성", "company_id": company, "voice_mode": "manual",
+                                                      "voice_id": voice_id}, headers=user)
+    patched = client.patch(_url(sid, f"/people/{pid}"), json={"voice_id": voice_id}, headers=user)
+
+    for r in (created, patched):
+        assert (r.status_code, r.json()["code"], r.json()["message"]) == (422, *VOICE_SHAPE)
+        assert voice_id not in r.text

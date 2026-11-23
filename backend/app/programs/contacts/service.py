@@ -1,23 +1,15 @@
-"""주소록(일정 = 프로젝트마다 따로): 목록·협력사·사람 쓰기·상세·번호 보기·읽음.
+"""주소록(일정 = 프로젝트마다 따로): 목록·협력사·사람 쓰기·상세·번호 보기·읽음. 자세한 규칙은 계획 4 task-72-report.md.
 
-- 격리: 모든 함수가 일정 id 를 받는다. 다른 일정의 협력사·사람 id(본문의 company_id 도)는 없는 id 와 같은 404·같은 글이다.
-- 번호: 응답은 가린 꼴(phone.mask)만. 전체 번호는 reveal 한 곳 — 부를 때마다 DB 에 한 줄(store.outreach.record_reveal:
-  일정·연락처·사용자·시각, 번호 없음)과 로그 한 줄. 사용자마다 10분에 30번까지(넘으면 429 too_many_reveals, 기록하지 않음).
-- 번호 입력: 번호인지는 phone.normalize, 주소록에 둘 수 있는지는 phone.storable 이 정한다(여기에 번호 규칙을 두지 않는다 —
-  그 모듈의 규칙이 바뀌면 이 API 도 따라간다). 아니면 422 invalid_phone, 오류 글에 값을 싣지 않는다. 비우면(null·빈 글) 번호 없음.
-  번호가 바뀌면 「번호 오류」 표시(phone_invalid)를 내린다 — 새 번호는 아직 틀린 번호로 확인되지 않았다.
-- 채널(check_channels): 문자·카카오톡은 phone.can_sms, 전화는 phone.can_call 이 정한다. 만들 때·번호가 바뀔 때 보내지 않은 칸은
-  그 함수의 값, 참으로 보냈는데 그 번호로 안 되면 422 channel_not_possible.
-- 수신 거부는 번호 기록으로(store.outreach, _settle_do_not_contact): 보이는 값은 이 연락처의 표시 또는 그 번호의 수신 거부.
-  번호가 걸리면 늘 번호 기록이 있다 — 켜면 그 번호에 mark, 표시가 있는 줄에 번호가 들어오면 mark, 보이던 수신 거부의 번호를
-  바꾸거나 빼면 옛 번호에 mark 하고 이 줄 표시는(이번에 켜지 않았으면) 내린다(새 번호로 따라가지 않는다). 번호 기록을 지우는
-  것은 끄기(clear_do_not_contact — 그 번호가 있는 모든 일정에서 풀림)뿐이고 관리자만(403 admin_only).
-- 글자(check_texts): 이름·담당·공종에는 제어·형식·줄·문단 구분 글자(Cc·Cf·Zl·Zp)를, 메모·까닭에는 줄 바꿈·탭 밖의 제어 글자와
-  글 방향 바꾸기(U+202A~202E·U+2066~2069)를 받지 않는다(422 invalid_text, 값 없이). 앞뒤 빈칸은 지운다.
-- 음성: 직접 지정(manual)이면 voice_id 가 있어야 한다(422 invalid_voice) — 음성 칸을 보낸 요청만 본다.
-- 근무시간 입력(check_hours 한 곳): 요일 0~6 하나 이상 겹치지 않게, 시각 HH:MM(00:00~23:59), 시작 ≠ 끝. 끝이 시작보다 이르면 자정을 넘는
-  근무(app.outreach.hours). **시작 == 끝은 받지 않는다**: hours 모듈은 그것을 꼭 하루(24시간) 근무로 읽는데, 같은 시각을 잘못
-  넣으면 한밤 전화가 열린다(근무시간 밖 전화는 실패로 본다). 24시간 근무를 받기로 하면 check_hours 의 그 줄만 지운다.
+- 격리: 다른 일정의 협력사·사람 id(본문의 company_id 도)는 없는 id 와 같은 404·같은 글.
+- 번호: 응답은 가린 꼴만. 전체 번호는 reveal 한 곳 — DB 기록(store.contact_reveals, 번호 없음, 사용자마다 10분 30번 —
+  세기와 넣기가 한 문장)과 로그 한 줄. 번호 규칙은 phone 모듈만(normalize·storable·can_sms·can_call), 오류 글에 값 없음.
+- 채널(check_channels): 문자·카카오톡은 phone.can_sms, 전화는 phone.can_call. 만들 때·번호가 바뀔 때 보내지 않은 칸은 그 값.
+- 수신 거부(_settle_do_not_contact): 번호가 걸리면 늘 번호 기록이 있다. 번호를 바꾸거나 빼면 옛 번호에 남고 새 번호로
+  따라가지 않는다. 번호 기록을 지우는 것은 관리자의 끄기(clear_do_not_contact)뿐.
+- 글자(check_texts): 글은 NFC 로 바꾼 뒤(schemas.Nfc) 본다. 이름·담당·공종에 Cc·Cf·Zl·Zp, 메모·까닭에 줄 바꿈·탭 밖의 Cc·
+  글 방향 글자·줄/문단 구분·폭 없는 빈칸이면 422 invalid_text. 음성: manual 이면 voice_id 필요, 꼴은 영문·숫자·._:- 64자.
+- 근무시간(check_hours): 요일 0~6 겹치지 않게, HH:MM, 시작 ≠ 끝(hours 모듈은 같으면 24시간으로 읽지만 잘못 넣으면 한밤
+  전화가 열려 받지 않는다 — 받으려면 그 줄만 지운다). 끝 < 시작은 자정을 넘는 근무.
 - 입력 검사는 모두 줄을 고치기 전에 끝낸다(검사에 걸리면 아무것도 바뀌지 않는다).
 """
 
@@ -48,7 +40,7 @@ from app.programs.contacts.schemas import (
     ReadOut,
     RevealOut,
 )
-from app.store import contacts, outreach
+from app.store import contact_reveals, contacts, outreach
 from app.store.schedules import NotFound, get_record, load
 from app.store.tables import User
 from app.store.tables_outreach import (
@@ -80,8 +72,12 @@ FREE_FIELDS = ("note", "dnc_reason")
 LINE_TEXT = "이름·담당·공종에는 줄 바꿈이나 보이지 않는 제어 글자를 쓸 수 없습니다."
 FREE_TEXT = "메모·까닭에는 보이지 않는 제어 글자나 글 방향을 바꾸는 글자를 쓸 수 없습니다."
 NO_VOICE = "음성을 직접 지정하려면 음성을 골라 주세요."
+VOICE_SHAPE = "음성 id 는 영문·숫자와 . _ : - 로 64자까지입니다."
+_VOICE_ID = re.compile(r"[A-Za-z0-9._:-]{1,64}")
 _LINE_BAD = frozenset({"Cc", "Cf", "Zl", "Zp"})
-_BIDI = frozenset(range(0x202A, 0x202F)) | frozenset(range(0x2066, 0x206A))
+# 메모에서 막는 보이지 않는 글자: 글 방향 바꾸기·표시(Bidi_Control 전부), 줄·문단 구분, 폭 없는 빈칸
+_FREE_HIDDEN = (frozenset(range(0x202A, 0x202F)) | frozenset(range(0x2066, 0x206A))
+                | {0x200E, 0x200F, 0x061C, 0x2028, 0x2029, 0x200B})
 BAD_DAYS = "근무 요일을 하나 이상 골라 주세요."
 BAD_TIME = "시각은 HH:MM 으로 넣어 주세요."
 SAME_TIME = "시작과 끝 시각이 같습니다. 끝나는 시각을 다르게 넣어 주세요."
@@ -161,7 +157,7 @@ def check_hours(given: HoursIn | None) -> dict | None:
 
 
 def _free_bad(char: str) -> bool:
-    return ord(char) in _BIDI or (unicodedata.category(char) == "Cc" and char not in "\n\t")
+    return ord(char) in _FREE_HIDDEN or (unicodedata.category(char) == "Cc" and char not in "\n\t")
 
 
 def check_texts(values: dict) -> None:
@@ -178,6 +174,8 @@ def check_texts(values: dict) -> None:
 def check_voice(voice_mode: str, voice_id: str | None) -> None:
     if voice_mode == "manual" and not voice_id:
         raise ApiError(422, "invalid_voice", NO_VOICE)
+    if voice_id is not None and not _VOICE_ID.fullmatch(voice_id):
+        raise ApiError(422, "invalid_voice", VOICE_SHAPE)
 
 
 # ── 응답 만들기 ─────────────────────────────────────────────────────────────────
@@ -379,10 +377,10 @@ def reveal(session: Session, schedule_id: int, contact_id: int, user: User) -> R
     """전체 번호를 보이는 단 한 곳. 사용자마다 10분에 30번까지(넘으면 429, 기록하지 않음). 볼 때마다 DB 에 한 줄
     (record_reveal — 번호 없이)과 로그 한 줄."""
     row = _person(session, schedule_id, contact_id)
-    now = _now()
-    if outreach.count_reveals(session, user.id, since=now - REVEAL_WINDOW) >= REVEAL_LIMIT:
+    if not contact_reveals.record_reveal(session, schedule_id=schedule_id, contact_id=row.id, user_id=user.id,
+                                         login_id=user.login_id, limit=REVEAL_LIMIT, window=REVEAL_WINDOW, at=_now()):
+        session.rollback()  # 쓰기 잠금을 바로 놓는다
         raise ApiError(429, "too_many_reveals", TOO_MANY_REVEALS)
-    outreach.record_reveal(session, schedule_id=schedule_id, contact_id=row.id, user_id=user.id, at=now)
     session.commit()
     logger.info("번호 보기: 사용자 %s · 연락처 %s", user.id, row.id)
     return RevealOut(phone=_dashed(row.phone))

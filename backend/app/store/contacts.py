@@ -6,6 +6,7 @@ by_name 은 신원 규칙만 부른다. 번호(number)는 app.outreach.phone.nor
 「숨김」은 숨긴 사람과 숨긴 협력사의 사람이다.
 """
 
+import unicodedata
 from collections.abc import Sequence
 
 from sqlalchemy import ColumnElement, Select, or_, select
@@ -67,7 +68,7 @@ def search(
 ) -> list[Contact]:
     """그 일정에서 이름·담당에 query 가 든 사람(숨김 뺌). 이름이 query 와 같은 사람 먼저, 그다음 이름 순.
     company_ids 를 주면 그 협력사 사람만. query 의 %·_ 는 글자 그대로 찾는다."""
-    q = query.strip()
+    q = unicodedata.normalize("NFC", query.strip())  # 저장된 이름은 NFC(주소록 API) — macOS 의 NFD 입력도 같은 이름
     stmt = _with_company().where(
         Contact.schedule_id == schedule_id,
         ContactCompany.schedule_id == schedule_id,
@@ -90,7 +91,7 @@ def by_number(session: Session, number: str) -> list[Contact]:
 
 def by_name(session: Session, name: str) -> list[Contact]:
     """모든 일정에서 이름이 정확히 같은 사람(숨김 뺌), id 순. 신원 규칙 전용."""
-    name = name.strip()
+    name = unicodedata.normalize("NFC", name.strip())  # 저장된 이름은 NFC — NFD 로 들어온 주장도 같은 이름
     if not name:
         return []
     return list(session.scalars(_with_company().where(Contact.name == name, *_shown()).order_by(Contact.id)))

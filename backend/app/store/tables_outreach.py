@@ -262,7 +262,8 @@ class DoNotContactNumber(Base):
 class ContactReveal(Base):
     """전체 번호를 본 기록 한 줄(Task 72 — 감사: 누가 언제 어느 일정·연락처의 번호를 봤나). 번호는 어떤 꼴로도(가린 꼴도)
     두지 않는다. 일정을 지워도 남는다(purge_schedule 이 지우지 않음). 번호 보기 상한(사용자마다 10분에 30번)도 이 표로 센다
-    — store.outreach.record_reveal·count_reveals."""
+    — store.contact_reveals.record_reveal·count_reveals. login_id 는 그때의 로그인 id: 사용자를 지우면 users 의 id 가 다시
+    쓰일 수 있어 user_id 만으로는 누군지 남지 않는다(이 칸 전에 남은 줄은 비어 있다)."""
 
     __tablename__ = "contact_reveals"
     __table_args__ = (Index("ix_contact_reveals_user_at", "user_id", "at"), _NO_ID_REUSE)
@@ -271,6 +272,7 @@ class ContactReveal(Base):
     schedule_id: Mapped[int] = mapped_column(index=True)
     contact_id: Mapped[int]
     user_id: Mapped[int]
+    login_id: Mapped[str | None] = mapped_column(String(50), default=None)
     at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 

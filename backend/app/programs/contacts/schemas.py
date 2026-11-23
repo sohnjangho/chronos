@@ -4,18 +4,34 @@
 번호가 받는 번호인지는 app.outreach.phone.normalize 가 정하고, 근무시간 규칙은 service.check_hours 에 있다.
 """
 
+import unicodedata
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StrictInt,
+    model_validator,
+)
 
+
+def _nfc(value: object) -> object:
+    """글은 검사·길이 재기·저장 전에 NFC 로 — macOS(NFD)와 Windows(NFC)에서 친 같은 이름이 한 이름(찾기·신원 규칙)."""
+    return unicodedata.normalize("NFC", value) if isinstance(value, str) else value
+
+
+Nfc = BeforeValidator(_nfc)
 Gender = Literal["male", "female", "unknown"]
 Language = Literal["ko", "en", "zh", "vi"]  # 계획 Task 100 languages.SUPPORTED 와 같은 넷(그 모듈이 생기면 그것으로)
 VoiceMode = Literal["auto", "manual"]  # auto = 연락처 성별로 음성을 고름, manual = voice_id
 Channel = Literal["sms", "kakao", "call"]
-Name = Annotated[str, Field(min_length=1, max_length=100)]
-Short = Annotated[str, Field(max_length=100)]
-Note = Annotated[str, Field(max_length=2000)]
-Reason = Annotated[str, Field(max_length=200)]
+Name = Annotated[str, Nfc, Field(min_length=1, max_length=100)]
+Short = Annotated[str, Nfc, Field(max_length=100)]
+Note = Annotated[str, Nfc, Field(max_length=2000)]
+Reason = Annotated[str, Nfc, Field(max_length=200)]
+VoiceId = Annotated[str, Field(max_length=100)]  # 꼴(영문·숫자·._:-, 64자)은 service.check_voice — 422 invalid_voice
 PhoneText = Annotated[str, Field(max_length=40)]  # 넘으면 검증 오류(값은 싣지 않는다 — app.errors)
 PERSON_CLEARABLE = {"phone", "hours", "voice_id", "dnc_reason"}  # PATCH 로 null 을 보내 비울 수 있는 칸
 
@@ -74,7 +90,7 @@ class PersonIn(Strict):
     gender: Gender = "unknown"
     language: Language = "ko"
     voice_mode: VoiceMode = "auto"
-    voice_id: Short | None = None
+    voice_id: VoiceId | None = None
     do_not_contact: bool = False
     dnc_reason: Reason | None = None
     note: Note = ""
@@ -94,7 +110,7 @@ class PersonPatch(Strict):
     gender: Gender | None = None
     language: Language | None = None
     voice_mode: VoiceMode | None = None
-    voice_id: Short | None = None
+    voice_id: VoiceId | None = None
     do_not_contact: bool | None = None
     dnc_reason: Reason | None = None
     note: Note | None = None

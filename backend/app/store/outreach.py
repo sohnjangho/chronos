@@ -35,7 +35,6 @@ from app.store.tables_outreach import (
     ContactCompany,
     ContactProposal,
     ContactReport,
-    ContactReveal,
     DoNotContactNumber,
     NotifyConnection,
     OutreachCall,
@@ -47,8 +46,8 @@ from app.store.timeutil import as_utc
 
 __all__ = [
     "LIMIT_RANGES", "Limits", "NotFound", "add_report", "add_usage", "auto_replies", "claim", "clear_do_not_contact",
-    "connection", "count_reveals", "do_not_contact_numbers", "get_call", "get_message", "is_do_not_contact", "limits",
-    "live_call", "mark_do_not_contact", "purge_schedule", "record_reveal", "sent_count", "thread", "unknown_calls",
+    "connection", "do_not_contact_numbers", "get_call", "get_message", "is_do_not_contact", "limits",
+    "live_call", "mark_do_not_contact", "purge_schedule", "sent_count", "thread", "unknown_calls",
     "unknown_messages", "validate_limits",
 ]
 
@@ -314,25 +313,6 @@ def mark_do_not_contact(session: Session, number: str, *, reason: str) -> None:
         sqlite_insert(DoNotContactNumber).values(number=target, reason=reason, created_at=datetime.now(UTC))
         .on_conflict_do_nothing(index_elements=[DoNotContactNumber.number])
     )
-
-
-# ── 번호 보기 기록(감사) ──────────────────────────────────────────────
-
-
-def record_reveal(
-    session: Session, *, schedule_id: int, contact_id: int, user_id: int, at: datetime | None = None
-) -> ContactReveal:
-    """전체 번호를 본 기록 한 줄(번호는 두지 않는다). flush 까지, commit 은 부른 쪽."""
-    row = ContactReveal(schedule_id=schedule_id, contact_id=contact_id, user_id=user_id, at=at or datetime.now(UTC))
-    session.add(row)
-    session.flush()
-    return row
-
-
-def count_reveals(session: Session, user_id: int, *, since: datetime) -> int:
-    """그 사용자가 since 뒤(같은 시각 포함)에 번호를 본 횟수 — 번호 보기 상한용."""
-    return session.scalar(select(func.count()).select_from(ContactReveal).where(
-        ContactReveal.user_id == user_id, ContactReveal.at >= since)) or 0
 
 
 def clear_do_not_contact(session: Session, number: str) -> None:
