@@ -40,8 +40,8 @@ def dispatch_checkins(schedule_id: int, body: DispatchCheckinIn, session: Sessio
 
 
 @router.post("/{schedule_id}/field/photos")
-def upload_field_photo(schedule_id: int, body: PhotoUploadIn, session: SessionDep) -> FieldListOut:
-    return field.upload_photo(session, schedule_id, body)
+async def upload_field_photo(schedule_id: int, body: PhotoUploadIn, session: SessionDep) -> FieldListOut:
+    return await field.upload_photo(session, schedule_id, body)
 
 
 @router.post("/{schedule_id}/field/polls")

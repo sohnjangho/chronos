@@ -27,6 +27,7 @@ function StatusBadge({ item }: { item: FieldItem }) {
     return item.response_choice === 'ready' ? <Badge tone="success">인계·투입 준비 완료</Badge> : <Badge tone="warning">사전 조치 필요</Badge>;
   }
   if (item.status === 'pending') return <Badge tone="warning">회신 대기</Badge>;
+  if (item.response_choice === 'unread') return <Badge tone="warning">판독하지 않음</Badge>;
   if (item.response_choice === 'delayed' || item.response_choice === 'infeasible' || item.response_choice === 'risk') {
     return <Badge tone="danger">지연·불가 우려</Badge>;
   }
@@ -186,7 +187,7 @@ function PhotoUploader({
     <section className="pg-card pg-fbox" aria-label="현장 사진 촬영 및 AI 판독">
       <div className="pg-card-head">
         <h3 className="pg-card-title">현장 사진 AI 진도율 판독 · 증빙 등록</h3>
-        <span className="pg-muted">스마트폰·태블릿 카메라로 촬영하거나 샘플 사진으로 바로 테스트하세요.</span>
+        <span className="pg-muted">스마트폰·태블릿 카메라로 촬영하거나 파일을 붙이면 그림 읽기 모델이 판독합니다. 샘플 단추는 사진이 없어 판독하지 않습니다.</span>
       </div>
       <div className="pg-fgrid-form">
         <label className="pg-flabel">
@@ -241,8 +242,10 @@ function PhotoUploader({
 
 function PhotoCard({ item, busy, onApply }: { item: FieldItem; busy: boolean; onApply(): Promise<void> }) {
   const p = item.payload_json || {};
+  // 판독하지 않은 사진(사진 없음·모델 호출 실패): 진도 숫자를 보이지 않고 까닭만 보이며 상신할 수 없다(F1).
+  const unread = item.response_choice === 'unread';
   const aiProgress = typeof p.ai_progress === 'number' ? p.ai_progress : (item.reported_progress ?? 0);
-  const aiStage = typeof p.ai_stage === 'string' ? p.ai_stage : item.response_note;
+  const aiReason = typeof p.ai_reason === 'string' ? p.ai_reason : typeof p.ai_stage === 'string' ? p.ai_stage : item.response_note;
   const risks = Array.isArray(p.ai_risks) ? (p.ai_risks as string[]) : [];
   const tag = typeof p.evidence_tag === 'string' ? p.evidence_tag : `#${item.activity_id}`;
   const dataUrl = typeof p.photo_data_url === 'string' ? p.photo_data_url : null;
@@ -259,23 +262,29 @@ function PhotoCard({ item, busy, onApply }: { item: FieldItem; busy: boolean; on
       <div className="pg-photo-frame">
         {dataUrl ? <img src={dataUrl} alt={String(p.photo_name ?? item.title)} className="pg-photo-img" /> : <SamplePhotoGraphic kindKey={String(p.sample_key ?? 'rebar')} />}
       </div>
-      <div className="pg-ai-result">
-        <div className="pg-ai-bar-head">
-          <span>AI 추정 진도율</span>
-          <b>{`${aiProgress}%`}</b>
+      {unread ? (
+        <div className="pg-ai-result">
+          <p className="pg-risk-line">{`판독하지 않음 — ${String(p.unread_reason ?? '')}`}</p>
         </div>
-        <div className="pg-ai-bar" role="progressbar" aria-valuenow={aiProgress} aria-valuemin={0} aria-valuemax={100}>
-          <span style={{ width: `${aiProgress}%` }} />
+      ) : (
+        <div className="pg-ai-result">
+          <div className="pg-ai-bar-head">
+            <span>AI 추정 진도율</span>
+            <b>{`${aiProgress}%`}</b>
+          </div>
+          <div className="pg-ai-bar" role="progressbar" aria-valuenow={aiProgress} aria-valuemin={0} aria-valuemax={100}>
+            <span style={{ width: `${aiProgress}%` }} />
+          </div>
+          <p className="pg-muted">{`판독 근거: ${aiReason}`}</p>
+          {risks.map((r) => (
+            <p key={r} className="pg-risk-line">{`⚠ 리스크 감지: ${r}`}</p>
+          ))}
         </div>
-        <p className="pg-muted">{`판독 단계: ${aiStage}`}</p>
-        {risks.map((r) => (
-          <p key={r} className="pg-risk-line">{`⚠ 리스크 감지: ${r}`}</p>
-        ))}
-      </div>
+      )}
       <div className="pg-fcard-foot">
         <span className="pg-muted">{`${String(p.photo_name ?? 'site_photo.jpg')} · ${String(p.captured_at ?? '금일')}`}</span>
         <span className="sch-gap" />
-        <Button variant="primary" disabled={busy || item.approval_id !== null} onClick={() => void onApply()}>
+        <Button variant="primary" disabled={busy || item.approval_id !== null || unread} onClick={() => void onApply()}>
           {item.approval_id !== null ? `승인함 #${item.approval_id} 확정됨` : '승인함 상신 · 증빙 확정'}
         </Button>
       </div>

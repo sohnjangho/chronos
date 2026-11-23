@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,7 @@ from app.agent.proposals import Proposal, ProposalError, propose
 from app.core.cpm import ScheduleError
 from app.errors import ApiError
 from app.harness.conditions import Condition
+from app.llm.client import LlmClient, LlmFailed, LlmNotReady
 from app.store import approvals
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound, get_record, load
@@ -28,6 +29,33 @@ from app.store.view import view_data
 
 UtcDatetime = Annotated[datetime, AfterValidator(as_utc)]
 FieldKind = Literal["checkin", "photo", "poll", "handoff"]
+
+# 사진 판독(PM 결정 11-23, F1): 사진을 그림 읽기(vision) 모델로 실제로 읽는다. 사진이 없거나 읽지 못하면
+# 「판독하지 않음」(response_choice unread, 진도 값 없음)과 까닭만 남기고, 숫자를 지어내지 않는다.
+UNREAD = "unread"
+NO_PHOTO = "사진이 없어 판독하지 않았습니다."
+BAD_ANSWER = "모델 답을 읽지 못해 판독하지 않았습니다."
+VISION_PROMPT = (
+    "너는 건설·제조 현장 사진을 보고 한 작업의 진도를 판독한다. 사진에 보이는 것만 근거로 삼고, 보이지 않는 것은 짐작하지 않는다. "
+    "progress: 이 작업의 진도율(0~100 정수). reason: 그 진도로 본 까닭 한 문장(한국어). "
+    "risks: 사진에 보이는 안전·품질·일정 위험(한국어 짧은 문장, 없으면 빈 목록)."
+)
+VISION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "progress": {"type": "integer"},
+        "reason": {"type": "string"},
+        "risks": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["progress", "reason", "risks"],
+    "additionalProperties": False,
+}
+
+
+class VisionAnswer(BaseModel):
+    progress: int = Field(ge=0, le=100)
+    reason: str = Field(min_length=1)
+    risks: list[str]
 
 
 class StrictIn(BaseModel):
@@ -111,6 +139,11 @@ class FieldListOut(BaseModel):
     items: list[FieldItemOut]
 
 
+def client_for(session: Session) -> LlmClient:
+    """사진 판독이 쓰는 LLM 클라이언트(시험이 대본 LLM 으로 바꾼다)."""
+    return LlmClient(session)
+
+
 def _load_view(session: Session, schedule_id: int) -> dict[str, Any]:
     try:
         return view_data(session, schedule_id)
@@ -192,18 +225,16 @@ def ensure_seeded(session: Session, schedule_id: int, view: dict[str, Any]) -> N
             trade=_guess_trade(a0["name"], 0),
             status="responded",
             title=f"[AI 사진 판독] {a0['id']} {a0['name']}",
-            prompt_text="현장 작업 사진 기반 AI 진도율 판독 및 증빙 태깅 결과입니다.",
-            response_choice="verified",
-            reported_progress=65,
-            reported_rd=max(1, rd0 - 1),
+            prompt_text=f"예시 항목 · {NO_PHOTO}",
+            response_choice=UNREAD,
+            reported_progress=None,
+            reported_rd=None,
             response_note="철근 배근 1차 검측 통과, 거푸집 조립 50% 진행 확인",
             payload_json={
                 "sample_key": "rebar",
                 "photo_name": f"site_{a0['id']}_{day_tag}.jpg",
-                "ai_progress": 65,
-                "ai_stage": "본작업 2단계 진행 (품질 검측 적합)",
-                "ai_risks": ["자재 적치 구역 통행로 1.2m 확보 필요"],
-                "confidence": 0.92,
+                "ai_progress": None,
+                "unread_reason": NO_PHOTO,
                 "evidence_tag": f"#{schedule_id}-{a0['id']}-{day_tag}",
                 "captured_at": f"{context.today().isoformat()} 14:20",
             },
@@ -344,51 +375,51 @@ def dispatch_checkins(session: Session, schedule_id: int, body: DispatchCheckinI
     return _list_out(session, schedule_id, view)
 
 
-def _analyze_photo(act: dict[str, Any], photo_name: str, note: str, schedule_id: int) -> dict[str, Any]:
-    text = f"{photo_name} {note} {act['name']}".lower()
+async def _read_photo(
+    session: Session, act: dict[str, Any], data_url: str, note: str
+) -> tuple[VisionAnswer | None, str | None]:
+    """그림 읽기 모델로 사진을 한 번 읽는다(llm_calls 에 남는다). (답, None) 또는 (None, 판독하지 않은 까닭)."""
     base_pct = round(float(act.get("progress") or 0.0) * 100)
-    risks: list[str] = []
-    if any(k in text for k in ("지연", "간섭", "우천", "비", "누수", "불량", "대기")):
-        est = max(base_pct, 40)
-        stage = "공정 진행 중 (리스크 요인 감지)"
-        risks.append("현장 작업 지연·간섭 요소가 감지되어 일정 재계산 검토가 필요합니다.")
-    elif any(k in text for k in ("완료", "마감", "출하", "준공")):
-        est = 95
-        stage = "최종 마무리 및 품질 검측 단계"
-    elif any(k in text for k in ("외장", "커튼월", "유리", "창호")):
-        est = min(100, max(base_pct + 20, 60))
-        stage = "외장재 설치·양중 본작업 단계"
-        risks.append("강풍·타워크레인 점유 시간 교차 확인 권장")
-    elif any(k in text for k in ("금형", "프레스", "조립", "설비")):
-        est = min(100, max(base_pct + 25, 75))
-        stage = "설비·금형 세팅 및 연속 가동 단계"
-    else:
-        est = min(100, max(base_pct + 25, 70))
-        stage = "주요 구조·본작업 시공 단계 (정상 양호)"
-    day_tag = str(context.today()).replace("-", "")
-    return {
-        "photo_name": photo_name,
-        "ai_progress": est,
-        "ai_stage": stage,
-        "ai_risks": risks,
-        "confidence": 0.91 if not risks else 0.87,
-        "evidence_tag": f"#{schedule_id}-{act['id']}-{day_tag}",
-        "captured_at": f"{context.today().isoformat()} {datetime.now().strftime('%H:%M')}",
-    }
+    text = f"작업: {act['id']} {act['name']}\n지금 기록된 진도: {base_pct}%\n현장 소견: {note or '(없음)'}"
+    messages = [
+        {"role": "system", "content": VISION_PROMPT},
+        {"role": "user", "content": [{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": data_url}}]},
+    ]
+    try:
+        reply = await client_for(session).chat("vision", messages, json_schema=VISION_SCHEMA)
+    except LlmNotReady as e:
+        return None, f"판독하지 못했습니다: {e.message}"
+    except LlmFailed as e:
+        return None, f"판독하지 못했습니다: {e.error.message}"
+    try:
+        return VisionAnswer.model_validate(reply.parsed), None
+    except ValidationError:
+        return None, BAD_ANSWER
 
 
-def upload_photo(session: Session, schedule_id: int, body: PhotoUploadIn) -> FieldListOut:
+async def upload_photo(session: Session, schedule_id: int, body: PhotoUploadIn) -> FieldListOut:
     view = _load_view(session, schedule_id)
     act = next((a for a in view["activities"] if a["id"] == body.activity_id), None)
     if act is None:
         raise ApiError(422, "invalid_activity", f"없는 액티비티입니다: {body.activity_id}")
-    analysis = _analyze_photo(act, body.photo_name, body.note, schedule_id)
-    if body.photo_data_url and body.photo_data_url.startswith("data:image/"):
-        analysis["photo_data_url"] = body.photo_data_url
+    photo = body.photo_data_url if body.photo_data_url and body.photo_data_url.startswith("data:image/") else None
+    answer, why = await _read_photo(session, act, photo, body.note) if photo else (None, NO_PHOTO)
+    day_tag = str(context.today()).replace("-", "")
+    payload: dict[str, Any] = {
+        "photo_name": body.photo_name,
+        "ai_progress": answer.progress if answer else None,
+        "evidence_tag": f"#{schedule_id}-{act['id']}-{day_tag}",
+        "captured_at": f"{context.today().isoformat()} {datetime.now().strftime('%H:%M')}",
+    }
+    if answer:
+        payload |= {"ai_reason": answer.reason, "ai_risks": answer.risks}
     else:
-        analysis["sample_key"] = "custom"
+        payload["unread_reason"] = why
+    if photo:
+        payload["photo_data_url"] = photo
+    else:
+        payload["sample_key"] = "custom"
     rd_now = int(act.get("rd") or act.get("od") or 1)
-    est_rd = 0 if analysis["ai_progress"] >= 100 else max(1, rd_now)
     trade = body.trade.strip() or _guess_trade(act["name"])
     session.add(
         FieldItem(
@@ -399,12 +430,16 @@ def upload_photo(session: Session, schedule_id: int, body: PhotoUploadIn) -> Fie
             trade=trade,
             status="responded",
             title=f"[AI 사진 판독] {act['id']} {act['name']}",
-            prompt_text=f"사진({body.photo_name}) Vision 분석 · 진도 {analysis['ai_progress']}% 추정",
-            response_choice="risk" if analysis["ai_risks"] else "verified",
-            reported_progress=analysis["ai_progress"],
-            reported_rd=est_rd,
-            response_note=body.note or analysis["ai_stage"],
-            payload_json=analysis,
+            prompt_text=(
+                f"사진({body.photo_name}) 그림 읽기 판독 · 진도 {answer.progress}%"
+                if answer
+                else f"사진({body.photo_name}) 판독하지 않음 — {why}"
+            ),
+            response_choice=UNREAD if answer is None else "risk" if answer.risks else "verified",
+            reported_progress=answer.progress if answer else None,
+            reported_rd=(0 if answer.progress >= 100 else max(1, rd_now)) if answer else None,
+            response_note=body.note or (answer.reason if answer else ""),
+            payload_json=payload,
         )
     )
     session.commit()
@@ -479,6 +514,8 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
     item = _get_item(session, schedule_id, item_id)
     if item.approval_id is not None:
         return _list_out(session, schedule_id, view)
+    if item.kind == "photo" and item.reported_progress is None:
+        raise ApiError(422, "photo_unread", "판독하지 않은 사진은 승인함에 올릴 수 없습니다.")
 
     record = get_record(session, schedule_id)
     before, stored, n = load(session, schedule_id)
