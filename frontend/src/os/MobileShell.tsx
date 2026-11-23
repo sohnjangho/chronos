@@ -2,6 +2,7 @@
 // OS 다중 창·Dock 대신 상단 헤더(화면 형태 전환 포함) + 풀스크린 본문 + 하단 5개 탭바로 구성하며
 // 「일정」 탭 안의 「현장 점검」에서 일일 체크인·사진 AI 판독·만회안 의견·D-3 핸드오프를 바로 수행한다.
 import { Suspense, useEffect, useRef, useState } from 'react';
+import { useAgentView } from './agentView';
 import { useApprovalPolling, useApprovals } from './approvals';
 import { ChronosMark, MoonIcon, SunIcon } from './icons';
 import ProgramIcon, { SystemIcon } from './ProgramIcon';
@@ -245,12 +246,15 @@ export default function MobileShell() {
   }, [isFieldRole, tab]);
 
   // 프로그램 내부에서 useWindows.open(id, params) 호출 시 모바일/태블릿 화면도 해당 프로그램으로 자동 전환.
+  // 단, 대화 탭에서 에이전트 턴이 창을 앞으로 내는 연출(스테이지)은 따라가지 않는다 — 답을 기다리는 화면을 지킨다(F5).
   useEffect(() => {
     if (wins.length === 0) return;
     const top = wins.reduce((a, b) => (b.z > a.z ? b : a));
     const sig = `${top.id}:${top.z}:${JSON.stringify(top.params ?? {})}`;
     if (sig === lastTopRef.current) return;
     lastTopRef.current = sig;
+    const agent = useAgentView.getState();
+    if (tab === 'chat' && (agent.focus.active || agent.ribbon.status === 'running')) return;
     const nextTab = tabForProgram(top.programId);
     setTab(nextTab);
     if (nextTab === 'schedule') {
@@ -259,7 +263,7 @@ export default function MobileShell() {
     }
     if (nextTab === 'more') setMoreProgram(top.programId);
     setParams(top.params);
-  }, [wins]);
+  }, [wins, tab]);
 
   const activeId =
     tab === 'chat'

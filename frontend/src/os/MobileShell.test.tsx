@@ -139,6 +139,33 @@ test('field role boots into dedicated simplified mobile navigation without appro
   expect(within(fieldNav).queryByRole('button', { name: /승인|자료함|전체/ })).toBeNull();
 });
 
+test('on the 현장 AI (chat) tab the phone stays put while the agent turn stages other windows (F5)', async () => {
+  signInAsDemo('field', '박현장', 'site1', 3);
+  render(<App />);
+  const fieldNav = screen.getByRole('navigation', { name: '모바일 현장 탐색' });
+  const chatTab = () => within(fieldNav).getByRole('button', { name: '현장 AI' });
+  await userEvent.click(chatTab());
+  expect(chatTab()).toHaveAttribute('aria-current', 'page');
+
+  act(() => {
+    useAgentView.getState().onToolStart({ run_id: 7, n: 1, call_id: 'c1', tool: 'schedule.find', program: 'schedule-table', arguments: '{"activity_id":"A1210"}' });
+    useWindows.getState().open('schedule-table', { activity: 'A1210' });
+  });
+  expect(chatTab()).toHaveAttribute('aria-current', 'page');
+
+  act(() => {
+    useAgentView.getState().onTurnDone();
+  });
+  expect(chatTab()).toHaveAttribute('aria-current', 'page');
+
+  // 턴이 없을 때 사용자가 연 창은 지금처럼 따라간다.
+  act(() => {
+    useAgentView.getState().reset();
+    useWindows.getState().open('gantt');
+  });
+  expect(within(fieldNav).getByRole('button', { name: '일정·간트' })).toHaveAttribute('aria-current', 'page');
+});
+
 test('tablet shell shows AI 대화 only side panel with collapse/expand and top WorkflowRibbon', async () => {
   vi.stubGlobal('innerWidth', 1024);
   vi.stubGlobal('innerHeight', 1366);
