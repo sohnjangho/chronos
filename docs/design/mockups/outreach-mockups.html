@@ -1,0 +1,243 @@
+<title>ChronOS 연락 화면 시안</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* layout: 한 줄 안내 → 메신저 꼴 창 두 장(문자·카카오톡 탭 / 통화 탭) → 세부 조각(초안·전화 걸기·설정) → 확인할 것 */
+:root{
+  --bg:#eef2f8; --panel:#ffffff; --ink:#18233a; --muted:#5d6b85; --line:#d5dcea; --soft:#f4f6fb;
+  --bar:#1b2a4a; --bar-ink:#eaf0ff; --accent:#2f6fe0; --accent-soft:#e3edff;
+  --ok:#14804a; --ok-soft:#e1f5ea; --warn:#a15c00; --warn-soft:#fff1d6; --bad:#b3261e; --bad-soft:#fde7e5;
+  --ai:#6b3fd4; --ai-soft:#efe8ff; --kakao:#5a4a00; --kakao-soft:#fff3b0; --them:#eef1f6;
+  --sans:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0f1626; --panel:#172138; --ink:#e7ecf7; --muted:#9aa7c0; --line:#2b3857; --soft:#1d2942;
+  --bar:#0b1120; --bar-ink:#dfe7fb; --accent:#6fa0ff; --accent-soft:#1f3260;
+  --ok:#5fd39a; --ok-soft:#143524; --warn:#f0b755; --warn-soft:#3a2c0e; --bad:#ff8a80; --bad-soft:#3b1a18;
+  --ai:#b79cff; --ai-soft:#2a2050; --kakao:#ffe27a; --kakao-soft:#3a3310; --them:#22304d; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0f1626; --panel:#172138; --ink:#e7ecf7; --muted:#9aa7c0; --line:#2b3857; --soft:#1d2942;
+  --bar:#0b1120; --bar-ink:#dfe7fb; --accent:#6fa0ff; --accent-soft:#1f3260;
+  --ok:#5fd39a; --ok-soft:#143524; --warn:#f0b755; --warn-soft:#3a2c0e; --bad:#ff8a80; --bad-soft:#3b1a18;
+  --ai:#b79cff; --ai-soft:#2a2050; --kakao:#ffe27a; --kakao-soft:#3a3310; --them:#22304d; color-scheme:dark }
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55;
+  padding-block:28px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:26px}
+h1{font-size:26px;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-size:19px;margin:0;text-wrap:balance}
+h3{font-size:15px;margin:0}
+p{margin:0}
+.lead{color:var(--muted);max-width:68ch}
+.sec{display:flex;flex-direction:column;gap:10px}
+/* 창 */
+.win{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel);font-size:13px}
+.win-bar{background:var(--bar);color:var(--bar-ink);padding:8px 12px;display:flex;align-items:center;gap:8px;font-weight:600;flex-wrap:wrap}
+.dots{display:flex;gap:5px}.dots i{width:9px;height:9px;border-radius:50%;background:#6c7a99;display:block}
+.test{margin-left:auto;font-size:11px;font-weight:700;background:var(--warn-soft);color:var(--warn);padding:1px 8px;border-radius:999px;white-space:nowrap}
+.body{display:grid;grid-template-columns:minmax(0,270px) minmax(0,1fr)}
+@media (max-width:680px){.body{grid-template-columns:minmax(0,1fr)}}
+.left{border-right:1px solid var(--line);background:var(--soft);display:flex;flex-direction:column;min-width:0}
+.find{margin:10px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted)}
+.co{padding:6px 12px 2px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.05em;display:flex;gap:6px;align-items:center}
+.who{display:flex;align-items:center;gap:8px;padding:7px 12px;min-width:0}
+.who.on{background:var(--accent-soft)}
+.who .nm{font-weight:600;white-space:nowrap}
+.who .rl{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.dot{min-width:18px;height:18px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;display:grid;place-items:center;padding:0 5px}
+.addr-foot{margin-top:auto;padding:10px 12px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+.right{display:flex;flex-direction:column;min-width:0}
+.head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.head .ttl{font-weight:700;font-size:15px}
+.head .sub{color:var(--muted);font-size:12px}
+.tabs{display:flex;gap:2px;margin-left:auto;background:var(--soft);border:1px solid var(--line);border-radius:9px;padding:2px}
+.tab{padding:4px 12px;border-radius:7px;font-size:12.5px;color:var(--muted);white-space:nowrap}
+.tab.on{background:var(--panel);color:var(--ink);font-weight:700;box-shadow:0 0 0 1px var(--line)}
+.thread{padding:12px 14px;display:flex;flex-direction:column;gap:9px;min-height:300px}
+.day{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:11.5px;font-weight:600;margin:4px 0}
+.day::before,.day::after{content:"";flex:1;height:1px;background:var(--line)}
+.b{max-width:min(520px,82%);display:flex;flex-direction:column;gap:3px}
+.b.me{align-self:flex-end;align-items:flex-end}
+.b.them{align-self:flex-start}
+.meta{font-size:11.5px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.who-tag{font-weight:700;color:var(--ink)}
+.who-tag.ai{color:var(--ai)}
+.bub{padding:8px 11px;border-radius:12px;overflow-wrap:anywhere}
+.me .bub{background:var(--accent-soft);border-bottom-right-radius:4px}
+.me.ai .bub{background:var(--ai-soft)}
+.them .bub{background:var(--them);border-bottom-left-radius:4px}
+.chip{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.chip.sms{background:var(--panel)}
+.chip.kko{background:var(--kakao-soft);color:var(--kakao);border-color:transparent}
+.chip.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+.chip.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.chip.bad{background:var(--bad-soft);color:var(--bad);border-color:transparent}
+.chip.ai{background:var(--ai-soft);color:var(--ai);border-color:transparent}
+.draft{align-self:flex-end;max-width:min(520px,82%);border:1.5px dashed var(--ai);border-radius:12px;padding:9px 11px;display:flex;flex-direction:column;gap:6px;background:var(--panel)}
+.btn{font:inherit;font-size:12px;padding:4px 10px;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+.acts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+.comp{border-top:1px solid var(--line);padding:10px 14px;display:flex;flex-direction:column;gap:7px;background:var(--soft)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+.seg span{padding:3px 11px;font-size:12px;color:var(--muted)}
+.seg span.on{background:var(--accent);color:#fff;font-weight:700}
+.inp{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:8px 10px;color:var(--muted);min-height:38px}
+.cline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cline .sp{margin-left:auto}
+.small{font-size:11.5px;color:var(--muted)}
+/* 통화 */
+.call{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:5px;background:var(--panel)}
+.call .top{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;font-size:13px;margin:0}
+.kv dt{color:var(--muted)}.kv dd{margin:0;overflow-wrap:anywhere}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12px}
+.ask{background:var(--accent-soft);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.ask ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+</style>
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:8px">
+    <h1>협력사 연락 화면 시안 (2차)</h1>
+    <p class="lead">말씀하신 대로 다시 그렸습니다. 왼쪽은 주소록, 오른쪽은 대화창입니다. 문자와 카카오톡은 한 대화에 섞여 보이고, 통화는 위 탭으로 바꿉니다. 날짜가 바뀌면 줄이 그어집니다. 이름·번호는 모두 가상입니다.</p>
+  </header>
+
+  <section class="sec">
+    <h2>① 문자 · 카카오톡 탭</h2>
+    <div class="win">
+      <div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>연락 · 5층 사무동 신축<span class="test">시험 모드 · 허용 번호 1개</span></div>
+      <div class="body">
+        <div class="left">
+          <div class="find">이름·담당 찾기</div>
+          <div class="co">대한골조</div>
+          <div class="who on"><span class="nm">박현장</span><span class="rl">골조 팀장</span><span class="dot">1</span></div>
+          <div class="who"><span class="nm">최반장</span><span class="rl">골조 반장 · 번호 없음</span></div>
+          <div class="co">한빛전기</div>
+          <div class="who"><span class="nm">이전기</span><span class="rl">전기 과장</span></div>
+          <div class="who"><span class="nm">정배선</span><span class="rl">전기 기사</span></div>
+          <div class="co">우리설비</div>
+          <div class="who"><span class="nm">김설비</span><span class="rl">설비 소장</span></div>
+          <div class="addr-foot">+ 사람 추가 · 협력사 추가 · CSV 가져오기<br>이 프로젝트의 주소록입니다</div>
+        </div>
+        <div class="right">
+          <div class="head">
+            <div><div class="ttl">박현장 <span class="sub">골조 팀장 · 대한골조</span></div><div class="sub num">010-****-0000 · 문자·카카오톡·전화 가능</div></div>
+            <div class="tabs"><span class="tab on">문자 · 카카오톡</span><span class="tab">통화 2</span></div>
+          </div>
+          <div class="thread">
+            <div class="day">2026년 11월 23일 월요일</div>
+            <div class="b me">
+              <div class="meta"><span class="who-tag">[김공정 발신]</span><span class="chip kko">카카오톡</span><span>17:30</span></div>
+              <div class="bub">[ChronOS] D-3 핸드오프 점검 — 3일 뒤 A1210 지상 골조 투입 준비를 확인해 주세요.</div>
+              <div class="meta"><span class="chip bad">카카오톡 실패</span><span class="chip ok">문자로 대신 보냄 · 도착</span></div>
+            </div>
+            <div class="b them">
+              <div class="meta"><span class="who-tag">박현장</span><span class="chip sms">문자</span><span>17:52</span></div>
+              <div class="bub">네 확인했습니다. 인원 6명 준비됩니다.</div>
+            </div>
+            <div class="day">2026년 11월 24일 화요일</div>
+            <div class="b me ai">
+              <div class="meta"><span class="who-tag ai">[에이전트 발신]</span><span class="chip sms">문자</span><span>08:02</span><span>· 김공정 승인</span></div>
+              <div class="bub">[ChronOS] 5층 사무동 11/24 체크인 — A1210 지상 골조 진행 상황을 알려 주세요. chronos.example/f/abc12</div>
+              <div class="meta"><span class="chip ok">도착</span><span>A1210 · 체크인 #31</span></div>
+            </div>
+            <div class="b them">
+              <div class="meta"><span class="who-tag">박현장</span><span class="chip sms">문자</span><span>08:40</span></div>
+              <div class="bub">정상 진행 중입니다. 오후에 철근 반입 예정.</div>
+            </div>
+            <div class="draft">
+              <div class="meta"><span class="who-tag ai">에이전트 초안</span><span class="chip sms">문자</span><span>아직 보내지 않음 · 대화 「주간 점검」에서</span></div>
+              <div>철근 반입 시간을 알려 주시면 타워크레인 일정을 맞추겠습니다.</div>
+              <div class="acts"><button class="btn">버리기</button><button class="btn">고치기</button><button class="btn pri">보내기</button></div>
+            </div>
+          </div>
+          <div class="comp">
+            <div class="cline"><span class="seg"><span class="on">문자</span><span>카카오톡</span></span><span class="small">연결할 작업: A1210 지상 골조 ▾</span><span class="small sp">0 / 45자 · 문자 1건</span></div>
+            <div class="inp">메시지를 입력하세요</div>
+            <div class="cline"><button class="btn">에이전트에게 초안 맡기기</button><span class="sp"></span><button class="btn pri">보내기</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="small">보낸 말풍선 위에 누가 보냈는지 적습니다. 사람이 직접 보내면 로그인한 이름으로 [김공정 발신], 에이전트가 쓴 것을 사람이 승인해 보내면 [에이전트 발신] 옆에 승인한 사람을 적습니다. 카카오톡을 고르면 승인된 알림톡 문안 가운데 고르는 칸으로 바뀝니다(카카오 규정상 자유 문장은 보낼 수 없습니다).</p>
+  </section>
+
+  <section class="sec">
+    <h2>② 통화 탭</h2>
+    <div class="win">
+      <div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>연락 · 5층 사무동 신축<span class="test">시험 모드 · 허용 번호 1개</span></div>
+      <div class="body">
+        <div class="left">
+          <div class="find">이름·담당 찾기</div>
+          <div class="co">대한골조</div>
+          <div class="who on"><span class="nm">박현장</span><span class="rl">골조 팀장</span></div>
+          <div class="who"><span class="nm">최반장</span><span class="rl">골조 반장 · 번호 없음</span></div>
+          <div class="co">한빛전기</div>
+          <div class="who"><span class="nm">이전기</span><span class="rl">전기 과장</span></div>
+        </div>
+        <div class="right">
+          <div class="head">
+            <div><div class="ttl">박현장 <span class="sub">골조 팀장 · 대한골조</span></div><div class="sub num">010-****-0000</div></div>
+            <div class="tabs"><span class="tab">문자 · 카카오톡</span><span class="tab on">통화 2</span></div>
+          </div>
+          <div class="thread">
+            <div class="day">2026년 11월 23일 월요일</div>
+            <div class="call">
+              <div class="top"><span class="who-tag ai" style="font-weight:700">[에이전트 발신]</span><span class="chip ai">AI 전화</span><span class="chip warn">받지 않음</span><span class="small">16:05 · 김공정 승인</span></div>
+              <div class="small">목적: A1210 만회안 B 가능 여부 확인 · 자동으로 다시 걸지 않습니다</div>
+              <div class="acts"><button class="btn">다시 걸기</button></div>
+            </div>
+            <div class="day">2026년 11월 24일 화요일</div>
+            <div class="call">
+              <div class="top"><span class="who-tag ai" style="font-weight:700">[에이전트 발신]</span><span class="chip ai">AI 전화</span><span class="chip ok">통화 2분 10초</span><span class="small">14:15 · 김공정 승인</span></div>
+              <div><b>요약</b> 토요일 6명 가능, 일요일은 불가. 가장 빠른 대안은 월요일 연장 작업.</div>
+              <div class="small">결과: 조건부 가능 (에이전트 제안 · 사람이 확정) · A1210 · 지연 기록 #7</div>
+              <div class="acts"><button class="btn">받아쓰기 보기</button><button class="btn">녹음 듣기</button><button class="btn">결과 확정</button></div>
+            </div>
+          </div>
+          <div class="comp">
+            <div class="cline"><span class="small">통화는 AI 음성 에이전트가 겁니다. 걸기 전에 목적과 물어볼 것을 확인합니다.</span><span class="sp"></span><button class="btn pri">전화 걸기</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>③ 세부</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>전화 걸기 창</h3>
+        <dl class="kv"><dt>받는 사람</dt><dd>박현장 팀장 (대한골조)</dd><dt>통화 목적</dt><dd>A1210 만회안 B(주말 작업 2일) 가능 여부 확인</dd><dt>물어볼 것</dt><dd>① 이번 주말 인원 투입 가능한지 ② 가능 인원 ③ 안 되면 가장 빠른 날</dd><dt>말하지 않을 것</dt><dd>계약·금액, 다른 협력사 이야기</dd><dt>연결</dt><dd>A1210 지상 골조 · 지연 기록 #7</dd></dl>
+        <div class="acts"><button class="btn">에이전트에게 다시 쓰게</button><button class="btn">고치기</button><button class="btn pri">전화 걸기</button></div>
+      </div>
+      <div class="card">
+        <h3>시험 모드일 때</h3>
+        <p class="small">허용 번호가 아닌 사람을 고르면 입력창 위에 이렇게 뜨고, [보내기]를 눌러도 실제로는 나가지 않고 기록만 남습니다.</p>
+        <div class="b me" style="align-self:stretch;max-width:none;align-items:flex-start">
+          <div class="meta"><span class="who-tag">[김공정 발신]</span><span class="chip sms">문자</span><span class="chip warn">시험 모드로 보내지 않음</span></div>
+          <div class="bub" style="align-self:stretch">내일 오전 전기 배관 자재 입고 확인 부탁드립니다.</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>여러 명에게 한 번에</h3>
+        <p class="small">현장 허브의 「체크인 일괄 발송」이나 스케줄 작업 행의 [연락]에서 시작하면, 받는 사람과 내용을 한 번 확인한 뒤 보냅니다. 보낸 것은 각 사람의 대화에 한 줄씩 들어가고 「묶음 #31 · 3명 중 2명 회신」이 함께 적힙니다.</p>
+      </div>
+      <div class="card">
+        <h3>설정 — 알림 연결</h3>
+        <dl class="kv"><dt>API Key</dt><dd class="num">…a1B2 (암호화 저장)</dd><dt>Account ID</dt><dd class="num">AC••••3c4d</dd><dt>발신번호</dt><dd class="num">070-0000-0000</dd><dt>카카오톡</dt><dd>채널 연결됨 · 문안 3개 중 승인 1 / 검수 중 2</dd><dt>AI 전화</dt><dd>음성 에이전트 연결됨</dd><dt>시험 모드</dt><dd>켜짐 · 허용 번호 1개</dd><dt>하루 상한</dt><dd>문자 50건 · 전화 10통</dd></dl>
+        <div class="acts"><button class="btn">시험 문자</button><button class="btn">시험 전화</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ask">
+    <h3>확인해 주실 것</h3>
+    <ol>
+      <li>이 배치가 말씀하신 것과 맞는지.</li>
+      <li>에이전트 초안은 대화 안에 점선 말풍선으로 두고, 사람이 [보내기]를 눌러야 나가게 했습니다. 이대로 좋은지.</li>
+      <li>카카오톡은 승인된 문안만 보낼 수 있어, 카카오톡을 고르면 문안 고르기 칸이 됩니다. 괜찮은지.</li>
+      <li>통화는 AI 음성 에이전트가 거는 방식입니다. 괜찮은지.</li>
+    </ol>
+  </section>
+</div>
