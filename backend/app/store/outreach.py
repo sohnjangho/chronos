@@ -81,6 +81,8 @@ class Limits:
     inbound_burst_minutes: int = 10
     reply_grace_minutes: int = 30  # 상대가 먼저 보낸 뒤 이 시간 안의 답은 근무시간 밖이어도 보낸다
     unknown_notice_daily: int = 1  # 모르는 번호에 고정 안내, 하루
+    unknown_calls_hourly: int = 6  # 모르는 번호·번호 숨김 전화를 모두 합쳐 지난 한 시간에 응대하는 수(넘으면 거절)
+    unknown_notice_total_daily: int = 10  # 모르는 번호 모두에게 하루에 만드는 고정 안내 수(넘으면 기록만)
 
 
 _COUNT = (0, 10_000)
@@ -97,6 +99,8 @@ LIMIT_RANGES: dict[str, tuple[int, int]] = {  # 칸마다 받는 값(양 끝 포
     "inbound_burst_minutes": (1, 1_440),
     "reply_grace_minutes": (0, 1_440),
     "unknown_notice_daily": _COUNT,
+    "unknown_calls_hourly": (0, 1_000),
+    "unknown_notice_total_daily": (0, 1_000),
 }
 _PAIRS = (  # (작은 쪽, 큰 쪽, 작은 쪽 칸의 오류 글)
     ("max_call_seconds_unknown", "max_call_seconds", "모르는 번호 통화 시간은 최대 통화 시간보다 길 수 없습니다."),

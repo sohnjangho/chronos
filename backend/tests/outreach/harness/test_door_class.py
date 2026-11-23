@@ -334,17 +334,37 @@ def test_foreign_number_is_unknown_and_never_meets_a_domestic_key(session, sid):
     person(session, company(session, sid), number=REP_PHONE)  # 15880199
     account(session, "admin", "+1 212 000 0199")
     block(session, "15880199")
-    assert door.number_key("+15880199") == "+15880199"  # 숫자만 남기면 국내 대표번호와 같아진다 — 그렇게 하지 않는다
+    assert door.stored_peer_number("+15880199") == "+15880199"  # 숫자만 남기면 국내 대표번호와 같아진다 — 그렇게 하지 않는다
     assert klass(session, "+15880199") == "unknown"  # 대표번호의 차단·연락처에 걸리지 않는다
     assert klass(session, FOREIGN) == "unknown"  # 계정에 적힌 나라 밖 번호도 내부가 아니다
     assert klass(session, "+1 212-000-0199") == "unknown"
 
 
-def test_number_key_forms():
-    assert door.number_key("+82 10-0000-0199") == door.number_key(SENTINEL_PHONE) == SENTINEL_DIGITS
-    assert door.number_key("+1 212 000 0199") == door.number_key(FOREIGN) == FOREIGN
-    for nothing in (None, "", phone.NO_NUMBER, "anonymous", "+0", "+8299", "12120000199", 7):
-        assert door.number_key(nothing) is None
+def test_stored_peer_number_forms():
+    stored = door.stored_peer_number
+    assert stored("+82 10-0000-0199") == stored(SENTINEL_PHONE) == SENTINEL_DIGITS
+    assert stored("+1 212 000 0199") == stored(" +1 (212) 000-0199 ") == stored(FOREIGN) == FOREIGN
+    for nothing in (None, "", phone.NO_NUMBER, "anonymous", "+0", "+8299", "12120000199", 7, b"01000000199",
+                    "+12120000199x", "+121200", "+1212000019912345678"):
+        assert stored(nothing) is None
+
+
+@pytest.mark.parametrize("number", ["+82 99 0000 0199", "+82 0000 0000 0199", "+0101234567", "+0 212 000 0199"])
+def test_malformed_domestic_plus_number_is_no_number_not_a_foreign_one(session, number):
+    """+82 인데 국내 번호가 아닌 것·+0 으로 시작하는 것은 나라 밖 번호로 치지 않는다(국내 번호의 틀린 꼴 — 번호 없음과 같다)."""
+    connect(session)
+    assert phone.normalize(number) is None
+    assert door.stored_peer_number(number) is None
+    assert klass(session, number) == "withheld"
+
+
+def test_stored_peer_number_is_named_and_documented_as_a_phone_number():
+    """돌려주는 값은 전화번호 그대로다 — 이름과 설명이 그것을 말하고, 기록·표시에는 phone.peer_key 를 쓰라고 적는다."""
+    assert not hasattr(door, "number_key")
+    doc = inspect.getdoc(door.stored_peer_number)
+    assert "전화번호" in doc and "phone.peer_key" in doc
+    assert phone.peer_key(door.stored_peer_number("+82 10-0000-0199")) == phone.peer_key(SENTINEL_PHONE)
+    assert phone.peer_key(door.stored_peer_number("+1 212 000 0199")) == phone.peer_key(FOREIGN)
 
 
 @pytest.mark.parametrize("medium", ["sms", "call"])
@@ -482,6 +502,46 @@ def test_classes_without_a_scope_get_an_empty_one_whatever_the_caller_carries(se
     scope = door.scope_of(session, Caller(cls, (pair(row),), 1))  # 손으로 만든 상대가 짝을 달고 와도
     assert scope == Scope(cls, (), (), False, "none")
     assert scope.contact_ids == () and scope.company_ids == ()
+
+
+def test_scope_of_checks_the_pairs_again(session, sid):
+    """Caller 를 그대로 믿지 않는다: 짝마다 그 일정의 연락처·협력사가 지금도 있고 보이는지 다시 본다(아닌 짝은 버린다)."""
+    connect(session)
+    sid2 = second_schedule(session)
+    here, there = person(session, company(session, sid)), person(session, company(session, sid2, "다라설비"))
+    caller = door.resolve(session, SENTINEL_PHONE, now=NOW)
+    assert door.scope_of(session, caller) == Scope("contact_multi", (sid, sid2), (pair(here), pair(there)), True, "trade")
+    there.hidden = True  # 판정 뒤에 한 사람이 숨겨졌다
+    session.flush()
+    assert door.scope_of(session, caller) == Scope("contact_multi", (sid,), (pair(here),), True, "trade")
+    here.phone_invalid = True
+    session.flush()
+    closed = door.scope_of(session, caller)
+    assert (closed.schedule_ids, closed.candidates, closed.facts, closed.personal) == ((), (), "none", False)
+
+
+@pytest.mark.parametrize("forge", ["no_such_ids", "other_schedule", "other_company", "hidden_company", "deleted"])
+def test_scope_of_closes_a_caller_whose_pair_is_not_real(session, sid, forge):
+    connect(session)
+    sid2 = second_schedule(session)
+    firm = company(session, sid)
+    row = person(session, firm)
+    other = person(session, company(session, sid2, "다라설비"), "박현장", OTHER_PHONE)
+    forged = {
+        "no_such_ids": Candidate(sid, 424242, 434343),
+        "other_schedule": Candidate(sid, other.id, other.company_id),  # 다른 일정의 사람을 이 일정 짝으로
+        "other_company": Candidate(sid, row.id, company(session, sid, "마바전기").id),  # 그 사람의 협력사가 아니다
+        "hidden_company": pair(row),
+        "deleted": pair(row),
+    }[forge]
+    if forge == "hidden_company":
+        firm.hidden = True
+    if forge == "deleted":
+        session.delete(row)
+    session.flush()
+    for cls in ("contact", "shared", "do_not_contact"):
+        scope = door.scope_of(session, Caller(cls, (forged,), None))
+        assert (scope.schedule_ids, scope.candidates, scope.facts, scope.personal) == ((), (), "none", False)
 
 
 def test_scope_of_refuses_the_outbound_class(session, sid):

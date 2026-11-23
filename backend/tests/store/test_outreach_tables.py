@@ -658,6 +658,7 @@ DEFAULTS = {
     "daily_sms_total": 50, "daily_calls_total": 10, "per_contact_sms_daily": 5, "per_contact_calls_daily": 2,
     "max_call_seconds": 300, "max_call_seconds_unknown": 120, "auto_reply_hourly": 5, "auto_reply_daily": 20,
     "inbound_burst_count": 5, "inbound_burst_minutes": 10, "reply_grace_minutes": 30, "unknown_notice_daily": 1,
+    "unknown_calls_hourly": 6, "unknown_notice_total_daily": 10,  # 모르는 번호 전체 상한(들어오는 문 리뷰 I-4·I-5)
 }
 
 
@@ -686,7 +687,8 @@ def test_limits_partial_override():
 @pytest.mark.parametrize("key,value", [
     ("daily_sms_total", -1), ("daily_sms_total", 10_001), ("daily_calls_total", 10_001),
     ("max_call_seconds", 7_201), ("max_call_seconds", 29), ("max_call_seconds_unknown", 7_201),
-    ("inbound_burst_count", 0),
+    ("inbound_burst_count", 0), ("unknown_calls_hourly", 1_001), ("unknown_calls_hourly", -1),
+    ("unknown_notice_total_daily", 1_001), ("unknown_notice_total_daily", -1),
     ("auto_reply_hourly", "5"), ("auto_reply_daily", 2.5), ("inbound_burst_count", True), ("reply_grace_minutes", None),
 ])
 def test_limits_invalid_value_falls_back_to_default(key, value, caplog, fresh_warnings):
@@ -702,6 +704,15 @@ def test_limits_edges_are_allowed():
                         "reply_grace_minutes": 0}))
     assert (got.daily_sms_total, got.daily_calls_total, got.max_call_seconds, got.reply_grace_minutes) == (
         10_000, 0, 7_200, 0)
+
+
+def test_unknown_totals_take_zero_to_a_thousand():
+    got = limits(_conn({"unknown_calls_hourly": 0, "unknown_notice_total_daily": 1_000}))
+    assert (got.unknown_calls_hourly, got.unknown_notice_total_daily) == (0, 1_000)
+    assert len(DEFAULTS) == len(LIMIT_RANGES) == 14
+    assert validate_limits({"unknown_calls_hourly": 1_000, "unknown_notice_total_daily": 0}) == {}
+    assert validate_limits({"unknown_calls_hourly": 1_001, "unknown_notice_total_daily": "3"}) == {
+        "unknown_calls_hourly": "0~1,000 사이로 넣어 주세요.", "unknown_notice_total_daily": "정수로 넣어 주세요."}
 
 
 def test_limits_warns_once_per_field(caplog, fresh_warnings):
