@@ -175,6 +175,10 @@ export interface ToolRegistryItem {
   avg_ms?: number | null;
   description: string;
   schema: Record<string, unknown>;
+  /** 자료를 바꾸는 도구인가(등록할 때 정한 값). 예전 서버는 없다. */
+  mutates?: boolean;
+  /** 부를 수 있는 역할(admin·user·field) — 서버가 막는 바로 그 줄(ctx.require_editor)로 정한다. 예전 서버는 없다. */
+  roles?: string[];
 }
 
 export interface SkillRegistryItem {

@@ -720,6 +720,60 @@ def test_vision_by_a_tool_lights_vision_tool_but_an_image_turn_does_not(client, 
     assert "vision_turn" in lit and "vision_tool" not in lit
 
 
+def test_sources_list_every_guide_and_prompt_file_as_it_is_on_disk(client, admin):
+    """프롬프트·지식 탭은 손으로 쓴 목록이 아니다: 가이드·파이프라인 프롬프트 폴더를 그대로 읽는다(11-23 info.md 포함)."""
+    from app.agent import context as agent_context
+
+    sources = client.get("/api/devconsole/catalog", headers=admin).json()["sources"]
+    on_disk = sorted(p.stem for p in agent_context.GUIDES_DIR.glob("*.md") if not p.name.startswith("_"))
+    guides = {g["name"]: g for g in sources["guides"]}
+    assert sorted(guides) == on_disk and "info" in guides
+    assert "공공데이터" in guides["info"]["keywords"]
+    assert guides["evidence"]["content"] == (agent_context.GUIDES_DIR / "evidence.md").read_text(encoding="utf-8").strip()
+    prompts = {p["name"] for p in sources["pipeline_prompts"]}
+    assert {"import_detect", "import_map", "extract", "repair"} <= prompts
+
+
+# ── 도구 등록부: 쓰기 여부와 부를 수 있는 역할(서버가 막는 바로 그 줄) ────────────
+
+
+EDITOR_TOOLS = {"schedule.create_project", "out.submit_change", "scenario.submit", "rules.propose",
+                "schedule.record_actual"}  # tests/security/test_roles.py EDIT_TOOLS 와 같다
+
+
+def registry_tools(client, admin) -> dict[str, dict]:
+    return {t["name"]: t for t in client.get("/api/devconsole/catalog", headers=admin).json()["registry"]["tools"]}
+
+
+def test_registry_lists_every_tool_with_its_write_kind_and_the_roles_the_server_allows(client, admin):
+    tools = registry_tools(client, admin)
+    assert {"info.list", "info.call", "files.set_axes", "field.list", "schedule.import"} <= set(tools)
+    assert len(tools) >= 37
+    assert {n for n, t in tools.items() if "field" not in t["roles"]} == EDITOR_TOOLS
+    assert all(t["roles"][:2] == ["admin", "user"] for t in tools.values())
+    assert (tools["info.list"]["mutates"], tools["info.call"]["mutates"], tools["field.list"]["mutates"]) == (
+        False, True, False)
+
+
+def test_registry_roles_follow_the_tool_code_not_a_list(client, admin):
+    from pydantic import BaseModel, ConfigDict
+
+    from tests.tool_doubles import registered
+
+    class In(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+    class Out(BaseModel):
+        ok: bool
+
+    def guarded(args: In, ctx) -> Out:
+        ctx.require_editor()
+        return Out(ok=True)
+
+    with registered("zz.guarded_spy", guarded, mutates=True):
+        assert registry_tools(client, admin)["zz.guarded_spy"]["roles"] == ["admin", "user"]
+
+
 def test_health_stop_turn_and_tool_toggle_roundtrip(client, admin, user, session, finished_turn):
     del finished_turn
     h_res = client.get("/api/devconsole/health", headers=admin)

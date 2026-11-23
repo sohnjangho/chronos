@@ -784,3 +784,7 @@
   font-weight: 700;
 }
 .dc-harness-test-res .dc-raw { margin-top: 6px; }
+.dc-tool-name b { display: block; font-size: var(--fs-13); white-space: nowrap; }
+.dc-tool-name code { font-size: var(--fs-11); color: var(--fg-muted); }
+.dc-tool-roles { min-width: 9em; }
+.dc-tool-roles .dc-tag { margin: 4px 0 0; }

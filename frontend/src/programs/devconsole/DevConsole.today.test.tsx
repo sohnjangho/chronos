@@ -87,6 +87,62 @@ describe('하네스 — 묶음과 찾기', () => {
   });
 });
 
+const tool = (name: string, category: string, mutates: boolean, roles: string[]) => ({
+  name, llm_name: name.replace('.', '__'), program: null, category, enabled: true, calls: 0, failed: 0, avg_ms: null,
+  description: `${name} 설명`, schema: { type: 'object' }, mutates, roles,
+});
+
+describe('도구·스킬 — 한글 이름·묶음·쓰기·역할', () => {
+  beforeEach(() =>
+    mockCatalog((c) => {
+      c.registry.tools = [
+        tool('info.call', '조회·계산·조작', true, ['admin', 'user', 'field']),
+        tool('info.list', '조회·계산·조작', false, ['admin', 'user', 'field']),
+        tool('out.submit_change', '승인 상신', true, ['admin', 'user']),
+        tool('schedule.create_project', '조회·계산·조작', true, ['admin', 'user']),
+        tool('progress.read', '조회·계산·조작', false, ['admin', 'user', 'field']),
+      ] as never;
+    }),
+  );
+  const table = () => screen.findByRole('table', { name: '등록된 도구 목록' });
+  const row = (t: HTMLElement, id: string) => within(t).getByText(id).closest('tr')!;
+
+  test('each tool shows its shared Korean label, write kind and the roles that may call it', async () => {
+    show('registry');
+    const t = await table();
+    const call = row(t, 'info.call');
+    expect(within(call).getByText('정보 API 조회')).toBeVisible();
+    expect(within(call).getByText('쓰기')).toBeVisible();
+    expect(within(call).getByText('관리자 · 사용자 · 현장 관리자')).toBeVisible();
+    expect(within(row(t, 'info.list')).getByText('읽기 전용')).toBeVisible();
+    const submit = row(t, 'out.submit_change');
+    expect(within(submit).getByText('상신')).toBeVisible();
+    expect(within(submit).getByText('관리자 · 사용자')).toBeVisible();
+    expect(within(submit).getByText('현장 관리자 거절')).toBeVisible();
+  });
+
+  test('tools are grouped by area and search finds them by Korean label or id', async () => {
+    show('registry');
+    const t = await table();
+    expect(within(t).getAllByRole('rowgroup').map((g) => g.getAttribute('aria-label')).filter(Boolean)).toEqual([
+      '일정·공정 도구', '승인·규칙 상신 도구', '근거·정보 API 도구',
+    ]);
+    await userEvent.type(screen.getByRole('searchbox', { name: '도구 찾기' }), '정보 API');
+    expect(within(await table()).queryByText('progress.read')).toBeNull();
+    expect(within(await table()).getByText('info.list')).toBeVisible();
+  });
+
+  test('an older server without roles or write kind shows a dash, not a guess', async () => {
+    mockCatalog((c) => {
+      c.registry.tools = [{ ...tool('progress.read', '조회·계산·조작', false, []), mutates: undefined, roles: undefined }] as never;
+    });
+    show('registry');
+    const r = row(await table(), 'progress.read');
+    expect(within(r).getByText('공정률 조회')).toBeVisible();
+    expect(within(r).getAllByText('—')).toHaveLength(2);
+  });
+});
+
 describe('실행 추적 — 11-23 신호', () => {
   async function traceList(d = done()) {
     mockTurn(d);
