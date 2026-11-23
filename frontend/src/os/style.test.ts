@@ -145,3 +145,16 @@ test('every var(--name) used without a fallback is defined somewhere (an unknown
   }
   expect([...missing].sort()).toEqual([]);
 });
+
+test('in the chat bar the pill buttons keep one line and only the model button shrinks (U3)', () => {
+  const chat = programCss['../programs/chat/chat.css'];
+  const rule = (sel: string) => {
+    const i = chat.indexOf(`${sel} {`);
+    expect(i, sel).toBeGreaterThanOrEqual(0);
+    return chat.slice(i, chat.indexOf('}', i));
+  };
+  const pill = rule('.ch-bar > .ch-pill:not(.ch-picker)');
+  expect(pill).toMatch(/white-space:\s*nowrap/);
+  expect(pill).toMatch(/flex:\s*none/);
+  expect(rule('.ch-bar > .ch-model-wrap')).toMatch(/min-width:\s*0/);
+});

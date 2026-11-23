@@ -389,7 +389,18 @@ p.ch-ctx-body { padding-top: 16px; }
 }
 
 .ch-model-btn {
-  max-width: 210px;
+  max-width: min(210px, 100%);
+}
+
+/* 좁은 창: 알약 단추는 한 줄 그대로 두고 모델 단추만 줄어든다(글자가 세로로 꺾이지 않게). */
+.ch-bar > .ch-pill:not(.ch-picker) {
+  white-space: nowrap;
+  flex: none;
+}
+
+.ch-bar > .ch-model-wrap {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .ch-model-pop {
