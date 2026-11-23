@@ -29,7 +29,8 @@ if [[ ! -x "$BIN" ]]; then
   chmod +x "$BIN"
 fi
 
-echo "Qdrant 시작 (http://127.0.0.1:6333, storage: $DATA_DIR)"
+ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+echo "Qdrant 시작 (http://127.0.0.1:6333, storage: $DATA_DIR, fd limit: $(ulimit -n))"
 export QDRANT__STORAGE__STORAGE_PATH="$DATA_DIR"
 export QDRANT__SERVICE__HOST="127.0.0.1"
 export QDRANT__SERVICE__HTTP_PORT="6333"

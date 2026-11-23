@@ -173,7 +173,7 @@ async def synthesize_pack(
             json_schema=SYNTH_SCHEMA,
             timeout_s=60,
             chat_session_id=chat_session_id,
-            max_tokens=6000,
+            max_tokens=12000,
         )
         if not isinstance(reply.parsed, dict):
             return base
