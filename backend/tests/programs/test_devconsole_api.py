@@ -849,8 +849,9 @@ def test_sources_list_every_guide_and_prompt_file_as_it_is_on_disk(client, admin
 
 EDITOR_TOOLS = {"schedule.create_project", "out.submit_change", "scenario.submit", "rules.propose",
                 "schedule.record_actual",  # tests/security/test_roles.py EDIT_TOOLS 와 같다
-                # 새 일정을 만드는 길(F4 재확인, test_roles.NEW_SCHEDULE_TOOLS). ask.questionnaire 는 purpose generate 만 막는다
-                "ask.questionnaire", "generate.extract_conditions", "generate.run", "schedule.import"}
+                # 새 일정을 만드는 길(F4 재확인, test_roles.NEW_SCHEDULE_TOOLS)
+                "generate.extract_conditions", "generate.run", "schedule.import"}
+PARTLY_EDITOR_TOOLS = {"ask.questionnaire"}  # purpose generate 일 때만 막는다 — 현장 관리자도 부를 수 있다(일부 거절)
 
 
 def registry_tools(client, admin) -> dict[str, dict]:
@@ -862,6 +863,8 @@ def test_registry_lists_every_tool_with_its_write_kind_and_the_roles_the_server_
     assert {"info.list", "info.call", "files.set_axes", "field.list", "schedule.import"} <= set(tools)
     assert len(tools) >= 37
     assert {n for n, t in tools.items() if "field" not in t["roles"]} == EDITOR_TOOLS
+    assert {n for n, t in tools.items() if t["field_limited"]} == PARTLY_EDITOR_TOOLS
+    assert tools["ask.questionnaire"]["roles"] == ["admin", "user", "field"]
     assert all(t["roles"][:2] == ["admin", "user"] for t in tools.values())
     assert (tools["info.list"]["mutates"], tools["info.call"]["mutates"], tools["field.list"]["mutates"]) == (
         False, True, False)
@@ -882,8 +885,16 @@ def test_registry_roles_follow_the_tool_code_not_a_list(client, admin):
         ctx.require_editor()
         return Out(ok=True)
 
-    with registered("zz.guarded_spy", guarded, mutates=True):
-        assert registry_tools(client, admin)["zz.guarded_spy"]["roles"] == ["admin", "user"]
+    def sometimes(args: In, ctx) -> Out:
+        if args is not None:
+            ctx.require_editor()
+        return Out(ok=True)
+
+    with registered("zz.guarded_spy", guarded, mutates=True), registered("zz.sometimes_spy", sometimes):
+        tools = registry_tools(client, admin)
+        assert (tools["zz.guarded_spy"]["roles"], tools["zz.guarded_spy"]["field_limited"]) == (["admin", "user"], False)
+        assert (tools["zz.sometimes_spy"]["roles"], tools["zz.sometimes_spy"]["field_limited"]) == (
+            ["admin", "user", "field"], True)
 
 
 def test_health_stop_turn_and_tool_toggle_roundtrip(client, admin, user, session, finished_turn):

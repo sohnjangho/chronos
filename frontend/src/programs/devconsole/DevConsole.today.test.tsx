@@ -101,6 +101,7 @@ describe('도구·스킬 — 한글 이름·묶음·쓰기·역할', () => {
         tool('out.submit_change', '승인 상신', true, ['admin', 'user']),
         tool('schedule.create_project', '조회·계산·조작', true, ['admin', 'user']),
         tool('progress.read', '조회·계산·조작', false, ['admin', 'user', 'field']),
+        { ...tool('ask.questionnaire', '조회·계산·조작', false, ['admin', 'user', 'field']), field_limited: true },
       ] as never;
     }),
   );
@@ -119,13 +120,17 @@ describe('도구·스킬 — 한글 이름·묶음·쓰기·역할', () => {
     expect(within(submit).getByText('상신')).toBeVisible();
     expect(within(submit).getByText('관리자 · 사용자')).toBeVisible();
     expect(within(submit).getByText('현장 관리자 거절')).toBeVisible();
+    const ask = row(t, 'ask.questionnaire');
+    expect(within(ask).getByText('관리자 · 사용자 · 현장 관리자')).toBeVisible();
+    expect(within(ask).getByText('현장 관리자 일부 거절')).toBeVisible();
+    expect(within(row(t, 'info.list')).queryByText(/현장 관리자.*거절/)).toBeNull();
   });
 
   test('tools are grouped by area and search finds them by Korean label or id', async () => {
     show('registry');
     const t = await table();
     expect(within(t).getAllByRole('rowgroup').map((g) => g.getAttribute('aria-label')).filter(Boolean)).toEqual([
-      '일정·공정 도구', '승인·규칙 상신 도구', '근거·정보 API 도구',
+      '일정·공정 도구', '승인·규칙 상신 도구', '질문지 도구', '근거·정보 API 도구',
     ]);
     await userEvent.type(screen.getByRole('searchbox', { name: '도구 찾기' }), '정보 API');
     expect(within(await table()).queryByText('progress.read')).toBeNull();

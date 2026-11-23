@@ -191,6 +191,8 @@ export interface ToolRegistryItem {
   mutates?: boolean;
   /** 부를 수 있는 역할(admin·user·field) — 서버가 막는 바로 그 줄(ctx.require_editor)로 정한다. 예전 서버는 없다. */
   roles?: string[];
+  /** 현장 관리자는 어떤 인자에서만 거절(도구 코드의 조건 안 require_editor). 예전 서버는 없다. */
+  field_limited?: boolean;
 }
 
 export interface SkillRegistryItem {

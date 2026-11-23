@@ -6,9 +6,11 @@
 세션 기록 수(session_counts)는 기록된 단계·현장 항목에서만 센다. 기록이 없는 규칙은 None(지어내지 않는다).
 """
 
+import ast
 import asyncio
 import inspect
 import json
+import textwrap
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -310,14 +312,25 @@ ROLE_TOOL = "schedule.create_project"
 EDIT_ROUTE = ("PATCH", "/api/schedules/{schedule_id}")
 
 
-def editor_tools() -> set[str]:
-    """현장 관리자에게 막힌 도구: 도구 함수가 ctx.require_editor() 를 부르는 것(서버가 막는 바로 그 줄을 읽는다)."""
+def _is_role_check(node: ast.AST) -> bool:
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "require_editor"
+            and isinstance(node.func.value, ast.Name) and node.func.value.id == "ctx")
+
+
+def editor_tools() -> dict[str, str]:
+    """현장 관리자에게 막힌 도구: 도구 함수가 ctx.require_editor() 를 부르는 것(서버가 막는 바로 그 줄을 읽는다).
+    값은 "always"(함수 맨 바깥 줄 — 늘 막음) 또는 "some"(if 안 등 — 어떤 인자에서만 막음)."""
     registry.load_all()
-    found = set()
+    found: dict[str, str] = {}
     for spec in registry.list_tools(enabled_only=False):
         fn = registry._functions.get(spec.name)
-        if fn is not None and "ctx.require_editor()" in inspect.getsource(fn):
-            found.add(spec.name)
+        if fn is None:
+            continue
+        body = ast.parse(textwrap.dedent(inspect.getsource(fn))).body[0]
+        if any(isinstance(st, ast.Expr) and _is_role_check(st.value) for st in body.body):
+            found[spec.name] = "always"
+        elif any(_is_role_check(node) for node in ast.walk(body)):
+            found[spec.name] = "some"
     return found
 
 

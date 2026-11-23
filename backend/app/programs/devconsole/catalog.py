@@ -238,7 +238,8 @@ def get_catalog(session: Session) -> dict[str, Any]:
             "category": cat,
             "enabled": t.enabled,
             "mutates": t.mutates,  # 자료를 바꾸는 도구(등록할 때 정한 값). 상신 도구는 category 「승인 상신」
-            "roles": ["admin", "user"] if t.name in editors else ["admin", "user", "field"],
+            "roles": ["admin", "user"] if editors.get(t.name) == "always" else ["admin", "user", "field"],
+            "field_limited": editors.get(t.name) == "some",  # 현장 관리자는 어떤 인자에서만 거절(예: 새 일정 질문지)
             "calls": ts["calls"],
             "failed": ts["failed"],
             "avg_ms": ts["avg_ms"],

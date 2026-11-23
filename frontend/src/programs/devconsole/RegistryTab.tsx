@@ -81,12 +81,17 @@ function WriteKind({ t }: { t: ToolRegistryItem }) {
   return t.mutates ? <Badge tone="warning">쓰기</Badge> : <Badge tone="neutral">읽기 전용</Badge>;
 }
 
-function Roles({ roles }: { roles: string[] | undefined }) {
+function Roles({ roles, limited }: { roles: string[] | undefined; limited: boolean }) {
   if (!roles) return <span className="dc-muted">—</span>;
   return (
     <>
       <span>{roles.map((r) => ROLE_NAMES[r] ?? r).join(' · ')}</span>
       {!roles.includes('field') && <span className="dc-tag is-warn" title="도구가 ctx.require_editor() 로 막습니다.">현장 관리자 거절</span>}
+      {limited && (
+        <span className="dc-tag is-warn" title="도구가 어떤 인자에서만 ctx.require_editor() 로 막습니다(예: 새 일정 질문지).">
+          현장 관리자 일부 거절
+        </span>
+      )}
     </>
   );
 }
@@ -122,7 +127,7 @@ function ToolRow({ t, expanded, busy, onToggle, onExpand }: ToolRowProps) {
       </td>
       <td><Badge tone={tone}>{t.category}</Badge></td>
       <td><WriteKind t={t} /></td>
-      <td className="dc-tool-roles"><Roles roles={t.roles} /></td>
+      <td className="dc-tool-roles"><Roles roles={t.roles} limited={t.field_limited === true} /></td>
       <td>{t.program ? <code>{t.program}</code> : <span className="dc-muted">공통</span>}</td>
       <td>
         <div>{t.description}</div>
