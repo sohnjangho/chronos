@@ -12,8 +12,11 @@ export interface HeaderMark {
   title?: string;
 }
 
-/** 글 폭 어림(12px 굵은 글꼴: 한글 11 · 그 밖 7) + 앞 여백 6 · 뒤 2. */
-const textW = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 11 : 7), 8);
+/** 글자 폭 어림(굵은 글꼴: 한글 11 · 그 밖 7). */
+const glyphW = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 11 : 7), 0);
+/** 이름표는 선에서 3px 떨어져 쓰고, 이웃 이름표와는 글자끼리 GAP 이상 띄운다. */
+const PAD = 3;
+const GAP = 4;
 
 /** 이름표가 겹칠 때 덜 중요한 것부터 줄이거나 뺀다: 오늘 < 기한 < Data Date. */
 const WEIGHT: Record<HeaderMark['tone'], number> = { data: 3, deadline: 2, today: 1 };
@@ -23,23 +26,31 @@ interface Placed {
   left: boolean;
 }
 
+/** 줄여 쓰는 차례: 전체 이름 → 짧은 이름(「DD 04.17」·「기한 12.24」) → 날짜만(끝 낱말). 겹치는 글은 하나로. */
+function shortened(m: HeaderMark): string[] {
+  const date = m.label.split(' ').at(-1)!;
+  const name = m.tone === 'data' ? `DD ${date}` : m.tone === 'deadline' ? `기한 ${date}` : m.label;
+  return [...new Set([m.label, name, date])];
+}
+
 /**
- * 세로선 이름표 자리(재확인 ④: 좁은 휴대폰 간트에서 「Data Date」와 「준공 기한」이 겹쳤다). 이름표마다 선 오른쪽 · 왼쪽 ×
- * 전체 이름 · 날짜만(끝 낱말) 가운데, 서로 겹치지 않는 조합 중 값이 가장 작은 것을 고른다 — 빼기 1000 · 날짜만 10(× 중요도),
- * 머리 밖으로 나감 100, 왼쪽 1. 둘 데가 없으면 그 이름표는 뺀다(선은 차트에 그대로). 이름표는 몇 개뿐이라 다 따져 본다.
+ * 세로선 이름표 자리(재확인 ④·재확인 2: 좁은 휴대폰 간트에서 「Data Date」와 「준공 기한」이 겹쳤고, 날짜만 남으면 무엇인지
+ * 몰랐다). 이름표마다 선 오른쪽 · 왼쪽 × 전체 이름 · 짧은 이름 · 날짜만 가운데, 글자끼리 겹치지 않는 조합 중 값이 가장 작은 것을
+ * 고른다 — 빼기 1000 · 날짜만 10 · 짧은 이름 5(× 중요도), 머리 밖으로 나감 100, 왼쪽 1. 둘 데가 없으면 그 이름표는 뺀다
+ * (선은 차트에 그대로). 이름표는 몇 개뿐이라 다 따져 본다.
  */
 function placeMarks(marks: HeaderMark[], w: number): (Placed | null)[] {
   type Option = { text: string; left: boolean; box: [number, number] | null; cost: number };
   const order = marks.map((_, i) => i).sort((a, b) => WEIGHT[marks[b].tone] - WEIGHT[marks[a].tone]);
   const choices = order.map((i): Option[] => {
     const m = marks[i];
-    const texts = [...new Set([m.label, m.label.split(' ').at(-1)!])];
-    const opts = texts.flatMap((text) =>
+    const opts = shortened(m).flatMap((text, tier) =>
       [false, true].map((left): Option => {
-        const tw = textW(text);
-        const box: [number, number] = left ? [m.x - tw, m.x] : [m.x, m.x + tw];
+        const gw = glyphW(text);
+        const box: [number, number] = left ? [m.x - PAD - gw, m.x - PAD] : [m.x + PAD, m.x + PAD + gw];
         const outside = box[0] < 0 || box[1] > w;
-        return { text, left, box, cost: (text === m.label ? 0 : 10 * WEIGHT[m.tone]) + (left ? 1 : 0) + (outside ? 100 : 0) };
+        const cut = text === m.label ? 0 : tier === 1 && text !== m.label.split(' ').at(-1) ? 5 : 10;
+        return { text, left, box, cost: cut * WEIGHT[m.tone] + (left ? 1 : 0) + (outside ? 100 : 0) };
       }),
     );
     return [...opts, { text: '', left: false, box: null, cost: 1000 * WEIGHT[m.tone] }];
@@ -54,7 +65,7 @@ function placeMarks(marks: HeaderMark[], w: number): (Placed | null)[] {
     }
     for (const o of choices[k]) {
       const b = o.box;
-      if (b && picks.some((p) => p.box && b[0] < p.box[1] && p.box[0] < b[1])) continue;
+      if (b && picks.some((p) => p.box && b[0] < p.box[1] + GAP && p.box[0] < b[1] + GAP)) continue;
       picks.push(o);
       go(k + 1, cost + o.cost);
       picks.pop();
@@ -69,39 +80,28 @@ function placeMarks(marks: HeaderMark[], w: number): (Placed | null)[] {
   return out;
 }
 
+/** 달 이름 폭 어림(12px 굵은 글꼴: 한글 11 · 점 3 · 그 밖 7) + 앞 여백 6. */
+const monthW = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 11 : ch === '.' ? 3 : 7), 6);
+/** 아주 좁은 달의 숫자만(11px 숫자 6.5) + 앞 여백 2. */
+const tightW = (t: string) => t.length * 6.5 + 2;
+
 /**
- * 달 이름. 연도를 달 달(첫 달·1월, 또는 앞 달에서 넘겨받음)은 'YYYY년 M월' → 'YY.M' 가운데 들어가는 것.
- * 둘 다 안 들어가면 그래도 'YY.M' 을 쓰고 다음 달까지 걸쳐 쓰므로 다음 달 이름은 비운다(좁은 창에서도 첫 달·1월은 연도를 단다).
- * 다만 첫 달이 'M월' 도 안 들어가는 조각이면 연도를 다음 달에 넘기고, 다음 달이 1월이면(거기서 연도를 단다) 이 달은 'M월'.
- * 그 밖의 달은 'M월'(안 들어가면 빈칸).
+ * 달 이름(재확인 2: 보이는 달은 모두 칸 이름이 있다 — 걸쳐 쓰느라 다음 달을 비우지 않는다).
+ * 연도를 달 달(첫 달·1월, 또는 앞 달에서 넘겨받음)은 'YYYY년 M월' → 'YY.M', 그 밖은 'M월' 가운데 들어가는 것.
+ * 연도를 못 달았으면 다음 달로 넘긴다. 'M월' 도 안 들어가면 숫자만 작은 글꼴로(tight), 그것도 안 들어가면 빈칸.
  */
 function monthLabels(scale: Scale) {
-  const ms = months(scale);
-  const fits = (t: string, w: number) => textW(t) <= w;
   let carry: string | null = null;
-  let skip = false;
-  return ms.map((m, i) => {
+  return months(scale).map((m) => {
     const own = m.label.includes('년') ? m.label.split(' ')[0] : null;
     const year = own ?? carry;
     const month = m.label.split(' ').at(-1)!;
-    carry = null;
-    if (skip) {
-      skip = false;
-      return { ...m, label: '' };
-    }
-    const plain = fits(month, m.w) ? month : '';
-    if (!year) return { ...m, label: plain };
-    const short = `${year.slice(2, 4)}.${month.replace('월', '')}`;
-    const fitted = [`${year} ${month}`, short].find((t) => fits(t, m.w));
-    if (fitted) return { ...m, label: fitted };
-    const next = ms[i + 1];
-    if (next?.label.includes('년')) return { ...m, label: plain };
-    if (next && i === 0 && !plain) {
-      carry = year;
-      return { ...m, label: '' };
-    }
-    skip = next !== undefined;
-    return { ...m, label: short };
+    const n = month.replace('월', '');
+    const forms = [...(year ? [`${year} ${month}`, `${year.slice(2, 4)}.${n}`] : []), month];
+    const named = forms.find((f) => monthW(f) <= m.w);
+    carry = year !== null && (named === undefined || named === month) ? year : null;
+    if (named !== undefined) return { ...m, label: named, tight: false };
+    return { ...m, label: tightW(n) <= m.w ? n : '', tight: true };
   });
 }
 
@@ -117,7 +117,7 @@ export default function Header({ scale, marks = [] }: { scale: Scale; marks?: He
         {monthLabels(scale).map((m, i) => (
           <g key={`m${i}`}>
             <line className="gantt-head-line" x1={m.x} x2={m.x} y1={0} y2={42} />
-            <text className="gantt-month" x={m.x + 6} y={15}>
+            <text className={`gantt-month${m.tight ? ' is-tight' : ''}`} x={m.x + (m.tight ? 2 : 6)} y={15}>
               {m.label}
             </text>
           </g>

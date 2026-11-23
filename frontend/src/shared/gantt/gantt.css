@@ -6,6 +6,7 @@
 .gantt-head-line { stroke: var(--border); stroke-width: 1; }
 .gantt-head-tick { stroke: var(--border); stroke-width: 1; }
 .gantt-svg .gantt-month { font-size: var(--fs-12); font-weight: 700; fill: var(--fg); }
+.gantt-svg .gantt-month.is-tight { font-size: var(--fs-11); font-weight: 400; letter-spacing: -0.04em; } /* 아주 좁은 달(휴대폰): 숫자만, 가는 글꼴 */
 .gantt-svg .gantt-week { fill: var(--fg-muted); }
 .gantt-svg .gantt-mark { font-weight: 700; }
 .gantt-svg .gantt-mark.is-data { fill: var(--warning-text); }
