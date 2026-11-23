@@ -8,7 +8,7 @@ import RawBlock from './RawBlock';
 const WHAT: Record<NodeKey, string> = {
   request: '대화창에서 받은 사용자 글을 모델에게 넘깁니다. 질문지 답과 승인 거부도 글로 바꿔 넣습니다.',
   context: '지시문·분야 지식·정밀도·지금 상황·날짜 도우미·대화 기록·도구 목록을 모아 모델에게 보낼 메시지를 만듭니다.',
-  skill: '맞는 스킬(순서가 정해진 작업)이 있으면 그것을 씁니다. 스킬은 묶음 3에서 들어오므로 지금은 늘 건너뜁니다.',
+  skill: '맞는 스킬(순서가 정해진 작업)이 있으면 그것을 쓰고, 없으면 건너뜁니다.',
   plan: '첫 모델 호출입니다. 요청을 읽고 어떤 도구를 어떤 차례로 부를지 정합니다.',
   judge: '도구 결과를 보고 다음 도구를 부를지, 답을 낼지 정합니다. 모델 호출 한 번이 루프 한 바퀴입니다.',
   tool: '모델이 고른 도구를 등록부에서 찾아 실행합니다. 날짜·여유 같은 계산은 여기서 코드가 합니다.',
@@ -61,7 +61,8 @@ function ContextMix({ parts }: { parts: ContextPart[] }) {
 
 function ThisTurn({ node }: { node: StructureNode }) {
   const { count, state, detail } = node;
-  if (node.key === 'skill') return <>건너뜀 (묶음 3에서)</>;
+  // 스킬 칸: 맞으면 서버가 in 에 스킬 이름을 둔다(service.py).
+  if (node.key === 'skill') return <>{count > 0 && typeof detail.in === 'string' ? `적용: ${detail.in}` : '맞는 스킬 없음'}</>;
   const parts = [`${count}번`];
   if (detail.ms !== null) parts.push(node.key === 'respond' ? `요청 전체 ${seconds(detail.ms)}` : seconds(detail.ms));
   if (state === 'now') parts.push('진행 중');

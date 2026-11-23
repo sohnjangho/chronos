@@ -45,8 +45,8 @@ HARNESS_PRINCIPLES: list[str] = [
     "차단은 예외 종료가 아니라 도구 결과(JSON)로 돌려준다 — 위반 이유와 자가 점검(reflection) 지시를 적어 모델이 스스로 고치게 한다",
     "도구 실행이 실패하면 DB 트랜잭션(session.rollback)을 즉시 되돌려 반쪽짜리 쓰기를 남기지 않는다",
     "원본 일정·내 규칙 변경은 에이전트가 직접 확정하지 못하고 승인함(Approval) 상신 도구를 통해서만 반영한다",
-    "다시 고치기는 정해진 횟수(하네스 5회 · 루프 12바퀴)만 시키고 그 뒤는 사람에게 넘긴다",
-]
+    "다시 고치기는 정해진 횟수(하네스 {max_check_retries}회 · 루프 {max_steps}바퀴)만 시키고 그 뒤는 사람에게 넘긴다",
+]  # {이름} 칸은 get_catalog 가 지금 설정값(에이전트 설정)으로 채운다
 
 HARNESS_RULES: list[dict[str, Any]] = [
     {
@@ -259,7 +259,7 @@ def get_catalog(session: Session) -> dict[str, Any]:
     ]
 
     return {
-        "principles": HARNESS_PRINCIPLES,
+        "principles": [p.format(**cfg) for p in HARNESS_PRINCIPLES],
         "harness": harness,
         "agent_config": cfg,
         "sources": {

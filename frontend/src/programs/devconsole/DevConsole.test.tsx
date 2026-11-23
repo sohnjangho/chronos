@@ -71,6 +71,24 @@ describe('지시서 시험', () => {
     expect(screen.getByText('일치 없음')).toBeVisible();
   });
 
+  test('skill node detail says the real result: no matching skill, or the applied skill name (U7)', async () => {
+    show();
+    await userEvent.click(await node('스킬 찾기'));
+    expect(within(detail()).getByText('맞는 스킬 없음')).toBeVisible();
+    expect(detail()).not.toHaveTextContent(/묶음 3|늘 건너뜁니다/);
+  });
+
+  test('a matched skill shows its name in this turn (U7)', async () => {
+    const d = done();
+    d.structure.nodes = d.structure.nodes.map((n) =>
+      n.key === 'skill' ? { ...n, state: 'past', count: 1, detail: { ...n.detail, in: '골조 지연 만회' } } : n,
+    );
+    mockTurn(d);
+    show();
+    await userEvent.click(await node('스킬 찾기'));
+    expect(within(detail()).getByText('적용: 골조 지연 만회')).toBeVisible();
+  });
+
   test('clicking a node shows its detail folded', async () => {
     show();
     await userEvent.click(await node('컨텍스트 조립'));

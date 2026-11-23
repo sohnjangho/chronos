@@ -525,6 +525,7 @@ def test_agent_config_roundtrip_and_turn_structure_sync(client, admin, user, fin
     assert cat["agent_config"]["max_steps"] == 8
     lim_rule = next(r for r in cat["harness"] if r["id"] == "H-LIM-01")
     assert "8바퀴" in lim_rule["title"] and "3회" in lim_rule["title"]
+    assert any("하네스 3회 · 루프 8바퀴" in p for p in cat["principles"])  # U7: 원칙 박스도 설정값
     assert len(cat["sources"]["pipeline_prompts"]) >= 5
     assert any(t["name"] == "schedule.read" and "calls" in t and t["enabled"] is True for t in cat["registry"]["tools"])
 
