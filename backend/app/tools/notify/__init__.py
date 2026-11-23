@@ -6,25 +6,28 @@
 모든 도구가 지키는 것:
 - 현장 관리자면 FIELD_REFUSAL. 일정은 ctx.require_schedule_id() 로만 — 인자로 일정 id 를 받지 않는다.
 - 연락처는 그 일정 것만(store.contacts.get_contact). 다른 일정·없는 id 는 같은 NOT_FOUND.
+- 초안의 연락 가능 검사(수신 거부·번호·채널)는 메시지 API 의 하나뿐인 검사 `service.check_reachable` 이고, 문자 초안 줄은
+  `service.create_agent_draft` 가 만든다([에이전트에게 초안 맡기기]와 같은 함수). 그 ApiError 는 refusal() 로 ToolError 가 된다.
 - 결과·카드에 전화번호(가린 꼴도)·키·Account ID 를 싣지 않는다. 메모(note)·수신 거부 까닭(dnc_reason)은 싣지 않는다.
   이름·담당·협력사·공종도 자유 글이라 hide_phones 를 거쳐 싣는다(리뷰 판정 17·18 — 첫째 줄은 싣지 않기).
 """
 
 from sqlalchemy.orm import Session
 
-from app.outreach import phone
+from app.errors import ApiError
 from app.outreach.redact import hide_phones
-from app.store import contacts, outreach
+from app.programs.outreach import service
+from app.store import contacts
 from app.store.schedules import NotFound, load
 from app.store.tables_outreach import Contact
 from app.tools.context import ToolContext, ToolError
 
-AGENT_NAME = "에이전트"  # 초안의 origin_name
+AGENT_NAME = service.AGENT_NAME  # 초안의 origin_name
 FIELD_REFUSAL = "현장 관리자는 연락처를 쓸 수 없습니다."
 NOT_FOUND = "연락처를 찾을 수 없습니다."
 NO_ACTIVITY = "작업을 찾을 수 없습니다. 작업 id 는 일정 도구로 확인하세요."
-DO_NOT_CONTACT = "이 사람은 수신 거부라 연락 초안을 만들 수 없습니다."
-NO_NUMBER = "이 연락처에는 쓸 수 있는 전화번호가 없어 초안을 만들 수 없습니다. 번호는 사람이 연락처 창에서 넣습니다."
+HIDDEN_CHARS = "글에 보이지 않는 제어 글자나 글 방향을 바꾸는 글자가 있습니다. 빼고 다시 써 주세요."
+_TOOL_TEXT = {service.BAD_TEXT: HIDDEN_CHARS, service.ACTIVITY_NOT_FOUND: NO_ACTIVITY}  # 도구가 전부터 쓰던 글
 
 
 def schedule_for(ctx: ToolContext) -> int:
@@ -42,14 +45,9 @@ def contact_in(session: Session, schedule_id: int, contact_id: int) -> Contact:
         raise ToolError(NOT_FOUND) from None
 
 
-def reachable(session: Session, who: Contact) -> str:
-    """초안을 만들 수 있는 사람인지: 수신 거부(이 줄의 표시 또는 번호 기준)·번호 없음이면 ToolError. 정리된 번호를 준다."""
-    if who.do_not_contact or (who.phone and outreach.is_do_not_contact(session, who.phone)):
-        raise ToolError(DO_NOT_CONTACT)
-    number = phone.normalize(who.phone)
-    if number is None or who.phone_invalid:
-        raise ToolError(NO_NUMBER)
-    return number
+def refusal(error: ApiError) -> ToolError:
+    """메시지 API 서비스의 거절 → 도구의 거절(글은 고정 한국어 — 번호·까닭 없음). 도구가 전부터 다르게 쓰던 두 글만 바꾼다."""
+    return ToolError(_TOOL_TEXT.get(error.message, error.message))
 
 
 def check_activity(session: Session, schedule_id: int, activity_id: str | None) -> None:

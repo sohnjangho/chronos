@@ -69,6 +69,7 @@ NO_NUMBER = "이 연락처에는 쓸 수 있는 전화번호가 없어 초안을
 KAKAO_LOCKED = "카카오톡은 채널·문안 승인 뒤 쓸 수 있습니다 — 문자로 초안을 만드세요."
 NO_SMS = "이 연락처는 문자를 받을 수 없습니다(휴대전화 번호가 아니거나 문자 받기가 꺼져 있음)."
 NO_KAKAO = "이 연락처는 카카오톡 받기가 꺼져 있습니다 — 문자로 초안을 만드세요."
+NO_CALL = "이 연락처는 전화를 받을 수 없습니다(걸 수 없는 번호이거나 전화 받기가 꺼져 있음)."
 BAD_LENGTH = f"글은 1~{BODY_MAX}자여야 합니다."
 DRAFT_FAILED = "초안을 만들지 못했습니다 — 잠시 뒤 다시 눌러 주세요."
 LLM_NOT_READY = "LLM 연결이 필요합니다. 설정에서 연결해 주세요."  # 대화 에이전트(agent.loop.NOT_READY)와 같은 글
@@ -349,17 +350,22 @@ def resend(session: Session, schedule_id: int, message_id: int, user: User) -> R
 _drafting: set[tuple[int, int]] = set()  # 지금 초안을 만드는 (일정, 연락처) — 도는 동안 또 누르면 거절(이 프로세스 안)
 
 
-def check_agent_draft(session: Session, schedule_id: int, contact_id: int, channel: str) -> Contact:
-    """에이전트 초안을 만들 수 있는 사람·채널인지. 이 차례로 거절(줄을 만들지 않음, 글에 번호·까닭 없음):
-    그 일정 연락처가 아님 404 → 수신 거부(줄 표시 또는 번호 기준) 409 do_not_contact → 쓸 번호 없음 409 no_number →
-    카카오톡 통로가 등록돼 있지 않음 409 channel_locked → 문자를 받을 수 없음(깃발 꺼짐·휴대전화 아님 — 카카오톡도 문이
-    문자로 바꿔 보낼 수 있어야 함) 409 no_sms → 카카오톡 받기 꺼짐 409 no_kakao."""
+def check_reachable(session: Session, schedule_id: int, contact_id: int, channel: str) -> Contact:
+    """에이전트 초안(문자·카카오톡 줄, 대화 에이전트의 전화 초안)을 만들 수 있는 사람·채널인지 — 하나뿐인 검사. 이 차례로
+    거절(쓰지 않음, 글에 번호·까닭 없음): 그 일정 연락처가 아님 404 → 수신 거부(줄 표시 또는 번호 기준) 409 do_not_contact →
+    쓸 번호 없음 409 no_number → 전화: 걸 수 없음(깃발 꺼짐·phone.can_call 거짓) 409 no_call / 문자·카카오톡: 카카오톡 통로가
+    등록돼 있지 않음 409 channel_locked → 문자를 받을 수 없음(깃발 꺼짐·휴대전화 아님 — 카카오톡도 문이 문자로 바꿔 보낼 수
+    있어야 함) 409 no_sms → 카카오톡 받기 꺼짐 409 no_kakao."""
     who = _contact(session, schedule_id, contact_id)
     if who.do_not_contact or (who.phone is not None and outreach.is_do_not_contact(session, who.phone)):
         raise ApiError(409, "do_not_contact", DO_NOT_CONTACT)
     number = phone.normalize(who.phone)
     if number is None or who.phone_invalid:
         raise ApiError(409, "no_number", NO_NUMBER)
+    if channel == "call":
+        if not (who.can_call and phone.can_call(number)):
+            raise ApiError(409, "no_call", NO_CALL)
+        return who
     kakao = channel == "kakao"
     if kakao and "kakao" not in channels.registered():
         raise ApiError(409, "channel_locked", KAKAO_LOCKED)
@@ -368,6 +374,11 @@ def check_agent_draft(session: Session, schedule_id: int, contact_id: int, chann
     if kakao and not who.can_kakao:
         raise ApiError(409, "no_kakao", NO_KAKAO)
     return who
+
+
+def check_agent_draft(session: Session, schedule_id: int, contact_id: int, channel: str) -> Contact:
+    """메시지 초안(sms·kakao)의 연락 가능 검사 — check_reachable 그대로."""
+    return check_reachable(session, schedule_id, contact_id, channel)
 
 
 def _check_text(body: object, body_ko: object) -> None:

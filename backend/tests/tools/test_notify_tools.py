@@ -588,3 +588,48 @@ async def test_template_values_are_checked_for_hidden_characters(session, sid, t
                                                   "template_use": "schedule", "template_vars": {"날짜": value}}, tctx)
     assert not result.ok and "보이지 않는" in result.error
     assert _count(session, OutreachMessage) == 0 and events == []
+
+
+# ── 공용 초안 함수·하나의 연락 가능 검사(후속) ──────────────────────────────
+
+
+def _spy(monkeypatch, module, name: str) -> list:
+    calls, real = [], getattr(module, name)
+
+    def wrapped(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(module, name, wrapped)
+    return calls
+
+
+async def test_message_draft_is_made_by_the_shared_agent_draft_function(session, sid, tctx, events, fake_channel,
+                                                                        monkeypatch):
+    from app.programs.outreach import service
+
+    conn = _conn(session)
+    _template(session, conn, "schedule")
+    who = _person(session, sid)
+    made = _spy(monkeypatch, service, "create_agent_draft")
+    ok = await _call("notify.draft_message", {"contact_id": who.id, "channel": "sms", "body": "안녕"}, tctx)
+    assert ok.ok and len(made) == 1 and made[0][1]["chat_session_id"] == tctx.chat_session_id
+    bad = await _call("notify.draft_message", {"contact_id": who.id, "channel": "kakao", "body": "작업 확인 부탁드립니다",
+                                               "template_use": "schedule", "template_vars": {"날짜": "3월\u202e 2일"}}, tctx)
+    assert not bad.ok and "보이지 않는" in bad.error and len(made) == 2  # 공용 함수가 문안 값을 보고 거절
+    assert _count(session, OutreachMessage) == 1 and len(_cards(events)) == 1
+
+
+async def test_call_draft_refuses_do_not_contact_through_the_shared_check(session, sid, sid2, tctx, events,
+                                                                         monkeypatch):
+    from app.programs.outreach import service
+
+    who = _person(session, sid)
+    _person(session, sid2, name=OTHER_PERSON, company=OTHER_COMPANY)
+    outreach.mark_do_not_contact(session, SENTINEL_DIGITS, reason="그만")
+    session.commit()
+    checked = _spy(monkeypatch, service, "check_reachable")
+    result = await _call("notify.draft_call", {"contact_id": who.id, "purpose": "확인", "questions": ["가능?"]}, tctx)
+    assert not result.ok and result.error == "이 사람은 수신 거부라 연락 초안을 만들 수 없습니다."
+    assert [c[0][1:] for c in checked] == [(sid, who.id, "call")]
+    assert _count(session, OutreachCall) == 0 and events == []
