@@ -136,7 +136,9 @@ _SOFT = frozenset("은는이을를에의도로요다니습합함입임네죠해�
 _FINAL_L = "".join(chr(0xAC00 + 28 * i + 8) for i in range(399))  # 받침이 ㄹ 인 글자(할·될·갈 …)
 _FINAL_SS = "".join(chr(0xAC00 + 28 * i + 20) for i in range(399))  # 받침이 ㅆ 인 글자(했·었·았·였 …)
 _HEDGE = re.compile(  # 이 말이 든 상대 줄은 근거가 아니다(흐린 말·전해 들은 말·우리 말 되받기·지난 일·뒤집음)
-    r"수도\s*있|수도\s*없|지도\s*몰|지도\s*모르|아마|혹시|듯|것\s*같|거\s*같|아닐|아니면|무리|거짓"
+    # 낱말인 것(아마·혹시·무리·거짓·원래)은 낱말 첫머리에서만 — 「마무리」「아마추어」 속의 조각은 흐린 말이 아니다(Task 86 고침)
+    r"수도\s*있|수도\s*없|지도\s*몰|지도\s*모르|(?<!\w)아마(?!추)|(?<!\w)혹시|(?<!반)듯|것\s*같|거\s*같|아닐|아니면"
+    r"|(?<!\w)무리|(?<!\w)거짓"
     r"|(?:다|라|냐)고|대요|(?<!그)래요|다더|라더|다던|라던|던데|더라|답니다|(?<!바)랍니다|다네|라네|다며|라며"
     r"|었었|았었|였었|했었|확인해\s*보|알아보|여쭤보|물어보"
     # 고침 2 — 「고」 없이 전한 말(가능하다 했어요·하셨어요·들었어요, 가능하대 — 「2대」「최대」「교대」는 뺌, 답디다·더군)
@@ -145,7 +147,8 @@ _HEDGE = re.compile(  # 이 말이 든 상대 줄은 근거가 아니다(흐린 
     rf"|겠죠|겠지|텐데|려나|(?:해|하게|같아)\s*보(?:여|입|이네)|걸로\s*(?:압|알)|[{_FINAL_L}]\s?걸(?:요|$|[^\w])"
     r"|(?:가능할|될|일)\s*수\s*있"
     # 지난 일·바뀜(했는데·었는데·이었는데·원래)
-    rf"|[{_FINAL_SS}]는데|원래")
+    # 「있는데」는 잇는 말(지금 있음)이라 지난 일이 아니다 — 「있었는데」는 「었는데」로 잡힌다
+    rf"|[{_FINAL_SS.replace('있', '')}]는데|(?<!\w)원래")
 
 
 @dataclass(frozen=True)
@@ -174,6 +177,12 @@ def _line(raw: str) -> _Line | None:
         at += len(word)
         ends.append(at)
     return _Line(words, gaps, "".join(words), starts, tuple(ends), "?" in text or words[-1].endswith("까"))
+
+
+def _spoke(lines: object) -> bool:
+    """상대가 무언가를 말했는가 — 상한 안의 글 줄 가운데 낱말이 있는 줄이 하나라도(근거가 되든 안 되든)."""
+    return any(isinstance(raw, str) and _WORD.search(_norm(raw[:MAX_LINE_CHARS]))
+               for raw in _listed(lines)[:MAX_PEER_LINES])
 
 
 def _lines(lines: object) -> list[_Line]:
@@ -506,8 +515,11 @@ def check(session: Session, ref: Ref, *, said: list[str], peer_lines: list[str],
 
     peers = _lines(peer_lines)
     unheard = _mark_answers(row, peers) + _mark_reports(session, ref, peers)
-    if not peers or unheard:
-        notes["unsupported_answer"] = f"{unheard}건" if peers else NO_PEER
+    spoke = _spoke(peer_lines)
+    # 「아무도 말하지 않음」은 상대 줄이 정말 비었을 때만. 줄은 있는데 모두 근거에서 빠졌으면(흐린 말·물음) 근거가 필요한 주장
+    # (답·보고 — 날짜는 따로)이 있을 때만 그 검사로 깃발이 선다(Task 86 고침 — 「혹시 내일 작업 있나요?」에 답만 해도 걸리던 것)
+    if not spoke or unheard:
+        notes["unsupported_answer"] = f"{unheard}건" if spoke else NO_PEER
 
     text, whole = _said_text(said)
     flat = "".join(ch for ch in text if ch.isalnum())

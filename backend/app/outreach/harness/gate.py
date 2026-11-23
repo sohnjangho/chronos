@@ -515,9 +515,14 @@ def _confirm_sent(session: Session, number: str, row_id: int) -> bool:
 
 
 def _within_grace(session: Session, row: OutreachMessage, number: str, now: datetime, minutes: int) -> bool:
-    """답 유예: 이 글이 그 번호가 방금(유예 시간 안에) 보낸 받은 문자의 답인가. 보낸 때와 받은 때가 모두 그 안이어야 한다."""
+    """답 유예: 이 글이 그 번호가 방금(유예 시간 안에) 보낸 받은 문자의 답인가. 보낸 때와 받은 때가 모두 그 안이어야 한다.
+    설계대로 **상대가 먼저 보낸 대화에만** 준다 — 그 받은 문자가 우리 요청에 온 답이면(Task 67 의 물려받기 규칙과 같다: 받은 줄이
+    가리키는 줄이 우리가 보낸, 같은 일정의, 글이 있는 메시지) 유예 없이 근무시간 규칙(예약)을 따른다."""
     asked = session.get(OutreachMessage, row.reply_to_id) if row.reply_to_id is not None else None
     if asked is None or asked.direction != "in":
+        return False
+    ours = session.get(OutreachMessage, asked.reply_to_id) if asked.reply_to_id is not None else None
+    if ours is not None and ours.direction == "out" and ours.schedule_id == asked.schedule_id and ours.body.strip():
         return False
     sender = session.get(Contact, asked.contact_id) if asked.contact_id is not None else None
     if phone.normalize(sender.phone if sender is not None else asked.peer_number) != number:

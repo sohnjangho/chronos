@@ -90,6 +90,49 @@ async def test_reply_exemption_ends_at_30_minutes(session, sid, fake_channel, mi
         assert (out.rule, out.scheduled_at) == (3, MONDAY) and trail(session, reply) == [("working_hours", "blocked")]
 
 
+@pytest.mark.parametrize("started_by,code", [("them", "accepted"), ("our_request", "scheduled")])
+async def test_grace_is_for_conversations_they_started_not_for_answers_to_our_request(session, sid, fake_channel,
+                                                                                    started_by, code):
+    """설계: 30분 유예는 상대가 먼저 보낸 대화에만. 상대가 19:00 에 먼저 보냄 → 우리 19:10 답은 나감. 우리 09:00 요청에 19:00 에
+    온 답 → 우리 19:10 답은 다음 근무 시작(월 08:00)으로 예약. 「우리 요청에 온 답」은 Task 67 의 물려받기 규칙과 같다(받은 줄이
+    가리키는 줄이 우리가 보낸 같은 일정의 글 있는 메시지)."""
+    connect(session)
+    who = person(session, sid)
+    ours = message(session, who, status="accepted", body="토요일 6명 가능하신가요", claimed_at=OFF.replace(hour=9),
+                   created_at=OFF.replace(hour=9)) if started_by == "our_request" else None
+    asked = inbound(session, who, ago=timedelta(minutes=10), now=OFF + timedelta(minutes=10),
+                    reply_to_id=ours.id if ours is not None else None)
+    reply = message(session, who, body="확인했습니다", reply_to_id=asked.id)
+    session.commit()
+
+    out = await send(reply, USER, OFF + timedelta(minutes=10))
+
+    assert out.code == code
+    if code == "scheduled":
+        assert (out.rule, out.scheduled_at) == (3, MONDAY) and trail(session, reply) == [("working_hours", "blocked")]
+        assert fake_channel.delivered == []
+    else:
+        assert trail(session, reply)[0] == ("reply_within_grace", "noted")
+
+
+@pytest.mark.parametrize("request_kind", ["empty_body", "other_schedule", "inbound"])
+async def test_grace_stays_when_there_is_no_request_of_ours_to_inherit(session, sid, fake_channel, request_kind):
+    """받은 줄이 가리키는 것이 물려받을 우리 요청이 아니면(글 없음 · 다른 일정 · 우리 글이 아님) 상대가 먼저 보낸 것으로 본다."""
+    connect(session)
+    who = person(session, sid)
+    pointed = {
+        "empty_body": lambda: message(session, who, status="accepted", body="  ", created_at=OFF.replace(hour=9)),
+        "other_schedule": lambda: message(session, who, status="accepted", schedule_id=sid + 1000,
+                                          created_at=OFF.replace(hour=9)),
+        "inbound": lambda: inbound(session, who, ago=timedelta(hours=2)),
+    }[request_kind]()
+    asked = inbound(session, who, ago=timedelta(minutes=10), reply_to_id=pointed.id)
+    reply = message(session, who, body="확인했습니다", reply_to_id=asked.id)
+    session.commit()
+
+    assert (await send(reply, USER, OFF)).code == "accepted"
+
+
 @pytest.mark.parametrize("grace,minutes,code", [(10, 9, "accepted"), (10, 11, "scheduled"), (0, 0, "scheduled")])
 async def test_reply_grace_comes_from_the_limits(session, sid, fake_channel, grace, minutes, code):
     connect(session, limits_json={"reply_grace_minutes": grace})

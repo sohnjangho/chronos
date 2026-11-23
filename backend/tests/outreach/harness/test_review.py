@@ -275,6 +275,43 @@ def test_no_peer_line_at_all_is_never_clean(session):
         assert got == Verdict(False, ["unsupported_answer"])
 
 
+HEDGE_QUESTIONS = ("혹시 내일 작업 있나요?", "마무리 작업 언제예요?", "내일 작업 있는데 몇 시에 가요?")
+
+
+@pytest.mark.parametrize("line", HEDGE_QUESTIONS)
+def test_peer_said_something_so_a_reply_claiming_nothing_is_clean(session, line):
+    """상대가 말을 했으면(그 줄이 근거로 쓰이든 안 쓰이든) 「아무도 말하지 않음」 깃발은 없다 — 근거가 필요한 주장(답·보고·날짜)이
+    있을 때만 그 검사로 깃발."""
+    ref = row(session, "message")
+
+    assert run(session, ref, ["담당자가 확인 후 알려드리겠습니다"], peer=[line]) == Verdict(True, [])
+
+
+def test_claims_still_need_support_when_every_peer_line_is_a_hedge(session):
+    """흐린 말뿐인 상대 줄은 여전히 근거가 아니다 — 그 줄에 기대는 답·보고는 깃발."""
+    ref = row(session, "message", answers_json=[answer("내일 작업 있나요")])
+    store.add_report(session, medium="sms", message_id=ref.row_id, kind="delay", text="지연", quote="내일 작업 있나요")
+    session.commit()
+
+    got = run(session, ref, ["네 확인했습니다"], peer=["혹시 내일 작업 있나요?"])
+
+    assert got == Verdict(False, ["unsupported_answer"])
+    assert answers(session, ref)[0]["quote_found"] is False
+
+
+@pytest.mark.parametrize(("line", "hedge"), [
+    ("마무리 작업 언제예요?", False),  # 「무리」가 낱말 안에 있을 뿐
+    ("내일 작업 있는데 몇 시에 가요?", False),  # 「있는데」는 잇는 말(지난 일이 아님)
+    ("오늘은 무리입니다", True),
+    ("혹시 내일 작업 있나요?", True),
+    ("철근 배근이 끝났는데 다시 하래요", True),
+    ("6명 가능했는데 지금은 3명", True),
+    ("반듯하게 6명 가능합니다", False),
+])
+def test_hedge_words_are_whole_words_not_pieces_of_words(line, hedge):
+    assert (review._line(line) is None) is hedge
+
+
 def test_broken_answer_rows_are_not_clean(session):
     ref = row(session, answers_json=["글 한 줄", answer("토요일 6명 가능")])
 
