@@ -19,9 +19,10 @@ class PlaceCallIn(BaseModel):
 
 @tool(
     "notify.place_call",
-    "이 대화에서 notify__draft_call 로 만든 AI 전화 초안을 건다(전화 권한이 위임일 때만): {call_id}. 시험 모드·수신 거부·"
-    "근무시간·상한은 걸 때 다시 본다. 결과 outcome 을 그대로 전한다 — queued 는 「걸 차례에 넣었습니다」(아직 통화한 것이 "
-    "아님), blocked_hours 는 근무시간 밖, unsure 는 「확인 필요」(다시 걸지 않는다), 그 밖은 막힌 까닭(message).",
+    "이 대화에서 notify__draft_call 로 만든 AI 전화 초안을 건다(전화 권한이 위임일 때만): {call_id}. 사용자가 보내라(걸어라)고 "
+    "한 초안만 보낸다 — 초안만 원하면 부르지 않는다. 시험 모드·수신 거부·근무시간·상한은 걸 때 다시 본다. 결과 outcome 을 그대로 "
+    "전한다 — queued 는 「걸 차례에 넣었습니다」(아직 통화한 것이 아님), blocked_hours 는 근무시간 밖(이번 턴에 다시 걸지 않는다), "
+    "unsure 는 「확인 필요」, 그 밖은 막힌 까닭(message). accepted·queued·unsure 뒤에는 같은 초안으로 다시 부르지 않는다.",
     program="contacts",
     mutates=True,
 )

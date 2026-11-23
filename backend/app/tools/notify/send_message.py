@@ -81,9 +81,11 @@ async def send_draft(kind: Literal["message", "call"], row_id: int, ctx: ToolCon
 
 @tool(
     "notify.send_message",
-    "이 대화에서 notify__draft_message 로 만든 문자 초안을 보낸다(문자 권한이 위임일 때만): {message_id}. 시험 모드·수신 거부·"
-    "근무시간·상한은 보낼 때 다시 본다. 결과 outcome 을 그대로 전한다 — accepted 만 「보냈습니다」, scheduled 는 예약, "
-    "unsure 는 「보냈는지 확인 필요」(다시 보내지 않는다), 그 밖은 막힌 까닭(message).",
+    "이 대화에서 notify__draft_message 로 만든 문자 초안을 보낸다(문자 또는 카카오톡 권한이 위임일 때 보인다 — 그 초안의 "
+    "채널 권한이 위임이어야 나간다): {message_id}. 사용자가 보내라(걸어라)고 한 초안만 보낸다 — 초안만 원하면 부르지 않는다. "
+    "시험 모드·수신 거부·근무시간·상한은 보낼 때 다시 본다. 결과 outcome 을 그대로 전한다 — accepted 만 「보냈습니다」, "
+    "scheduled 는 예약, unsure 는 「보냈는지 확인 필요」, 그 밖은 막힌 까닭(message). accepted·unsure 뒤에는 같은 초안으로 "
+    "다시 부르지 않는다.",
     program="contacts",
     mutates=True,
 )

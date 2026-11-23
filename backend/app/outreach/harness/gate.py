@@ -18,7 +18,7 @@ channel_choice allowed). 그 앞에 노트(GATE_NOTES)가 있을 수 있고, 통
   문자·카카오톡은 scheduled(누른 쪽의 send_mode 를 적어 둔다 — 일꾼이 때가 되면 그것으로 처음부터 다시 검사받는다),
   통화는 blocked_hours. 보낼 수 없는 사람(현장 관리자 등)이 누른 것, 그리고 **사람이 해 둔 예약(scheduled + send_mode)을
   권한 없는 에이전트가 다시 넣은 것**은 줄을 건드리지 않는다 — 뒤의 것은 어느 차례가 걸릴 입력이든 needs_approval 이다
-  (권한을 차례보다 먼저 정한다).
+  (권한을 차례보다 먼저 정한다). 위임 없는 에이전트가 넣은 초안은 근무시간(3)보다 권한(5)에서 먼저 멈춘다 — 예약하지 않는다.
 - 통로 결과 셋은 판정 코드 셋이다: sent → accepted(통화 queued) · failed → failed · unsure → unsure(「보냈는지 확인 필요」,
   다시 보내지 않는다). 통로가 예외로 끝나거나 취소되면 unsure. 통로가 준 글(fail_text)은 어디에도 싣지 않는다 — fail_code 를
   FAIL_TEXT 의 정해 둔 문장으로 옮긴다(모르는 코드는 SEND_FAILED).
@@ -337,6 +337,11 @@ def _decide(session: Session, kind: str, row_id: int, actor: Actor, now: datetim
         barred = None  # 수신 거부로 표시한 뒤의 확인 문자 한 번
     if barred is not None:
         return stop(barred, "blocked_test" if barred.rule == TEST_MODE else "draft")
+
+    # 위임 없는 에이전트는 권한(5)을 근무시간(3)보다 먼저 본다 — 근무 밖이라 예약해도 때가 되면 권한에서 멈추므로, 나가지 않을 것을
+    # 「다음 근무 시작에 보냅니다」라고 알리지 않는다(Task 81 고침 1). 사람·일꾼은 차례 그대로.
+    if mode is None and actor.kind == "agent":
+        return stop(needs)
 
     # 3 근무시간
     limits = outreach.limits(conn)

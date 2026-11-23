@@ -407,17 +407,52 @@ async def test_scheduled_row_is_rechecked_from_the_top_when_due(session, sid, fa
         assert trail(session, row) == [("working_hours", "blocked"), ("permission", "blocked")]
 
 
-async def test_unapproved_agent_message_scheduled_off_hours_never_leaves(session, sid, fake_channel):
-    """「승인 받기」인 에이전트의 글이 근무 밖이라 예약돼도(차례 3이 먼저) 때가 되면 권한에서 멈춘다 — 사람 승인 없이 나가지 않는다."""
+async def test_unapproved_agent_message_off_hours_is_not_scheduled(session, sid, fake_channel):
+    """「승인 받기」인 에이전트의 글은 근무 밖이어도 예약하지 않는다 — 권한을 근무시간보다 먼저 본다(Task 81 고침 1. 전에는 차례 3이
+    먼저라 「다음 근무 시작에 보냅니다」로 예약했다가 때가 되면 권한에서 멈췄다 — 나가지 않을 것을 나간다고 알렸다)."""
     connect(session)
     row = message(session, person(session, sid), origin="agent")
     session.commit()
 
-    assert (await send(row, AGENT, OFF)).code == "scheduled"
-    out = await send(row, SYSTEM, MONDAY)
+    out = await send(row, AGENT, OFF)
 
-    assert (out.code, out.rule) == ("needs_approval", 5) and fake_channel.delivered == []
-    assert reread(session, row).status == "draft"
+    assert (out.code, out.rule, out.scheduled_at) == ("needs_approval", 5, None) and fake_channel.delivered == []
+    row = reread(session, row)
+    assert (row.status, row.scheduled_at, row.send_mode, row.approved_by) == ("draft", None, None, None)
+    assert trail(session, row) == [("permission", "blocked")]
+    assert (await send(row, SYSTEM, MONDAY)).code == "not_sendable"  # 일꾼이 넣을 예약이 없다
+
+
+@pytest.mark.parametrize("channel,over", [
+    ("sms", {}), ("call", {}), ("call", {"agent_sms": "delegate"}),
+    ("kakao", {"agent_sms": "delegate"}),  # 문자만 위임 — 카카오톡 줄(문자로 나가도)은 카카오톡 권한도 있어야 한다
+    ("kakao", {"agent_kakao": "delegate"}),  # 카카오톡만 위임 — 문자로 나갈 줄이라 문자 권한도 있어야 한다
+])
+async def test_agent_without_delegation_needs_approval_even_off_hours(session, sid, fake_channel, channel, over):
+    """위임이 아닌 에이전트는 근무 밖에도 needs_approval — 줄은 초안 그대로(scheduled_at 없음), 판정 사건은 permission 하나."""
+    connect(session, **over)
+    row = row_for(session, channel, person(session, sid), origin="agent")
+    session.commit()
+
+    out = await send(row, AGENT, OFF)
+
+    assert (out.code, out.rule, out.scheduled_at) == ("needs_approval", 5, None) and fake_channel.delivered == []
+    row = reread(session, row)
+    assert (row.status, row.scheduled_at, row.send_mode) == ("draft", None, None)
+    assert trail(session, row) == [("permission", "blocked")]
+
+
+@pytest.mark.parametrize("actor", ["user", "delegated_agent"])
+async def test_people_and_delegated_agents_are_still_scheduled_off_hours(session, sid, fake_channel, actor):
+    """사람·위임된 에이전트는 전처럼 근무시간이 권한보다 먼저다 — 근무 밖이면 예약."""
+    connect(session, **(DELEGATED if actor == "delegated_agent" else {}))
+    row = message(session, person(session, sid), origin="agent")
+    session.commit()
+
+    out = await send(row, AGENT if actor == "delegated_agent" else USER, OFF)
+
+    assert (out.code, out.rule) == ("scheduled", 3) and as_utc(out.scheduled_at) == MONDAY
+    assert reread(session, row).send_mode == ("delegated" if actor == "delegated_agent" else "approved")
 
 
 @pytest.mark.parametrize("channel", ["sms", "call"])

@@ -130,7 +130,8 @@ async def test_reply_to_an_unknown_number_gets_the_same_grace(session, sid, fake
 
 
 async def test_grace_skips_only_working_hours(session, sid, fake_channel):
-    """답 유예는 근무시간만 건너뛴다 — 권한은 그대로(노트가 먼저, 판정이 뒤). 근무 중이면 노트가 없다."""
+    """답 유예는 근무시간만 건너뛴다 — 권한은 그대로. 위임 없는 에이전트는 권한을 근무시간보다 먼저 보므로(Task 81 고침 1) 유예
+    노트 없이 permission 하나. 근무 중이면 노트가 없다."""
     connect(session)
     who = person(session, sid)
     asked = inbound(session, who, ago=timedelta(minutes=3))
@@ -141,7 +142,7 @@ async def test_grace_skips_only_working_hours(session, sid, fake_channel):
     out = await send(reply, AGENT, OFF)
 
     assert (out.code, out.rule) == ("needs_approval", 5) and fake_channel.delivered == []
-    assert trail(session, reply) == [("reply_within_grace", "noted"), ("permission", "blocked")]
+    assert trail(session, reply) == [("permission", "blocked")]
     assert (await send(daytime, USER, WORK)).code == "accepted"
     assert trail(session, daytime) == [("channel_choice", "allowed"), ("delivery", "allowed")]
 

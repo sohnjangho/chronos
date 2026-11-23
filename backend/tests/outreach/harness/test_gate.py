@@ -228,7 +228,8 @@ async def test_first_tripped_rule_is_reported(session, sid, fake_channel, first)
         message(session, who, status="accepted", claimed_at=when - timedelta(seconds=30))
     session.commit()
 
-    out = await send(row, USER if first == 6 else AGENT, OFF if first <= 3 else WORK)
+    # 3·4 는 사람이 넣는다 — 위임 없는 에이전트는 권한(5)을 근무시간(3)·상한(4)보다 먼저 본다(Task 81 고침 1)
+    out = await send(row, USER if first in (3, 4, 6) else AGENT, OFF if first <= 3 else WORK)
 
     codes = {2: "do_not_contact", 3: "scheduled", 4: "limit_daily", 5: "needs_approval", 6: "duplicate"}
     assert (out.code, out.rule) == (codes[first], first)

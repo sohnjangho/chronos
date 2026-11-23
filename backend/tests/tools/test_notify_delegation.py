@@ -8,6 +8,7 @@
 
 import json
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from sqlalchemy import event, func, select
@@ -443,3 +444,53 @@ async def test_outreach_writes_no_evidence_rows(session, sid, tctx, fake_channel
     session.expire_all()
     for model in (EvidenceSearch, EvidenceItem, EvidenceLink):
         assert session.scalar(select(func.count()).select_from(model)) == 0
+
+
+# ── 고침 1: 근무 밖의 위임 없는 보내기 · 사용자가 보내라 한 것만 ──────────
+
+
+@pytest.mark.parametrize("channel,over", [
+    ("sms", {"agent_sms": "approve", "agent_kakao": "approve"}),  # 숨긴 도구를 그래도 부름
+    ("kakao", {"agent_kakao": "approve"}),  # 문자만 위임 — 도구는 보이지만 카카오톡 줄은 위임이 아니다
+])
+async def test_undelegated_send_off_hours_is_needs_approval_not_scheduled(session, sid, tctx, events, fake_channel,
+                                                                         monkeypatch, channel, over):
+    """근무 밖이어도 「다음 근무 시작에 보냅니다」라고 하지 않는다 — 나가지 않을 것이므로 needs_approval, 줄은 초안 그대로."""
+    monkeypatch.setattr(send_message, "_now", lambda: OFF)
+    _conn(session, **over)
+    row = _draft(session, _person(session, sid), tctx.chat_session_id, channel=channel)
+    result = await registry.call("notify.send_message", {"message_id": row.id}, tctx)
+    assert result.ok and result.output["outcome"] == "needs_approval" and result.output["scheduled_at"] is None
+    assert "근무" not in result.output["message"]
+    row = _reread(session, row)
+    assert (row.status, row.scheduled_at, row.send_mode) == ("draft", None, None)
+    assert fake_channel.delivered == [] and [c["outcome"] for c in _cards(events)] == ["needs_approval"]
+
+
+async def test_undelegated_call_off_hours_is_needs_approval(session, sid, tctx, fake_channel, monkeypatch):
+    monkeypatch.setattr(send_message, "_now", lambda: OFF)
+    _conn(session, agent_call="approve")
+    row = _call_draft(session, _person(session, sid), tctx.chat_session_id)
+    result = await registry.call("notify.place_call", {"call_id": row.id}, tctx)
+    assert result.output["outcome"] == "needs_approval" and _reread(session, row).status == "draft"
+
+
+USER_INTENT = "사용자가 보내라(걸어라)고 한 초안만 보낸다 — 초안만 원하면 부르지 않는다"
+
+
+def test_send_tool_descriptions_say_when_to_call_and_when_not_to_call_again():
+    registry.load_all()
+    specs = {s.name: s.description for s in registry.list_tools(enabled_only=False)}
+    send, place = specs["notify.send_message"], specs["notify.place_call"]
+    for text in (send, place):
+        assert USER_INTENT in text
+        assert "accepted" in text and "unsure" in text and "같은 초안" in text and "다시 부르지 않는다" in text
+    assert "문자 또는 카카오톡 권한이 위임일 때" in send and "문자 권한이 위임일 때만" not in send
+    assert "blocked_hours" in place and "이번 턴에 다시 걸지 않는다" in place
+
+
+def test_guide_says_send_only_what_the_user_asked_to_send():
+    from app.agent import context
+
+    guide = (Path(context.__file__).parent / "prompts" / "guides" / "notify.md").read_text(encoding="utf-8")
+    assert USER_INTENT in guide
