@@ -10,14 +10,15 @@ channel_choice allowed). 그 앞에 노트(GATE_NOTES)가 있을 수 있고, 통
 - **DB 일은 스레드에서 한다**(판정 한 묶음, 결과 적기) — 이벤트 루프를 막지 않는다. 부른 쪽이 그 사이 취소돼도 하던 묶음을
   끝까지 마친 뒤 취소를 다시 올린다: 차지한 줄이 통로 호출도 결과도 없이 남지 않는다(통로를 부르기 전에 취소됐으면 failed).
 - 판정 한 묶음(상한 셈·같은 글 검사·차지하기)은 `BEGIN IMMEDIATE` 한 트랜잭션이다 — 두 호출이 같은 한 자리를 함께 지나가지
-  못한다. 문의 연결은 잠긴 DB 를 BUSY_WAIT_MS 만 기다린다. 잠금을 얻지 못하면(시작할 때든 commit 할 때든) **예외 없이 되돌리고**
+  못한다. 문의 연결은 잠긴 DB 를 BUSY_WAIT_MS 만 기다린다(문이 쥔 그 연결만 — 풀의 다른 연결은 그대로). 잠금을 얻지 못하면(시작할 때든 commit 할 때든) **예외 없이 되돌리고**
   「잠시 뒤 다시」(duplicate)를 돌려준다. 통로를 부르기 전에 commit 하고 세션을 닫는다(부르는 동안 연결도 잠금도 쥐지 않는다).
 - 줄은 draft·scheduled(통화는 blocked_hours 도)일 때만 받는다. 나가는 중인 줄(sending · queued·dialing·in_call)을 다시
   넣으면 duplicate(「이미 보냈습니다」라고 하지 않는다), 끝난 줄은 not_sendable — 둘 다 줄을 건드리지 않는다.
 - 걸리면 줄은 초안으로 돌아가고 fail_reason 에 까닭, send_mode 는 비운다. 예외: 시험 모드 → blocked_test, 근무시간 →
   문자·카카오톡은 scheduled(누른 쪽의 send_mode 를 적어 둔다 — 일꾼이 때가 되면 그것으로 처음부터 다시 검사받는다),
   통화는 blocked_hours. 보낼 수 없는 사람(현장 관리자 등)이 누른 것, 그리고 **사람이 해 둔 예약(scheduled + send_mode)을
-  권한 없는 에이전트가 다시 넣은 것**은 줄을 건드리지 않는다.
+  권한 없는 에이전트가 다시 넣은 것**은 줄을 건드리지 않는다 — 뒤의 것은 어느 차례가 걸릴 입력이든 needs_approval 이다
+  (권한을 차례보다 먼저 정한다).
 - 통로 결과 셋은 판정 코드 셋이다: sent → accepted(통화 queued) · failed → failed · unsure → unsure(「보냈는지 확인 필요」,
   다시 보내지 않는다). 통로가 예외로 끝나거나 취소되면 unsure. 통로가 준 글(fail_text)은 어디에도 싣지 않는다 — fail_code 를
   FAIL_TEXT 의 정해 둔 문장으로 옮긴다(모르는 코드는 SEND_FAILED).
@@ -196,16 +197,22 @@ def _locked(exc: OperationalError) -> bool:
 
 @contextmanager
 def _session() -> Iterator[Session]:
-    """문이 쓰는 세션. 잠긴 DB 를 BUSY_WAIT_MS 만 기다리고(풀에 돌려주기 전에 그 연결의 기다림을 되돌린다), 끝날 때 꼭
-    rollback 한다 — commit 이 실패한 연결이 트랜잭션(과 쓰기 잠금)을 쥔 채 풀로 돌아가 다른 요청에서 commit 되지 않게."""
-    with Session(db._engine) as session:
-        waited = session.scalar(text("PRAGMA busy_timeout"))
-        session.execute(text(f"PRAGMA busy_timeout = {min(waited, BUSY_WAIT_MS)}"))
+    """문이 쓰는 세션 — 풀에서 꺼낸 **연결 하나**에 묶는다. 그 연결만 잠긴 DB 를 BUSY_WAIT_MS 만 기다리게 하고, 풀에 돌려주기
+    전에 같은 연결의 기다림을 되돌린다(세션은 commit 하면 연결을 풀에 돌려주므로, 세션으로 되돌리면 다른 연결에 적힌다 — 그러면
+    문과 상관없는 세션이 짧게 기다리다 실패한다). 끝날 때 꼭 rollback 한다 — commit 이 실패한 연결이 트랜잭션(과 쓰기 잠금)을
+    쥔 채 풀로 돌아가 다른 요청에서 commit 되지 않게."""
+    with db._engine.connect() as held:
+        raw = held.connection.driver_connection  # 기다림은 DBAPI 연결에 바로 — 세션의 트랜잭션과 얽히지 않는다
+        waited = raw.execute("PRAGMA busy_timeout").fetchone()[0]
+        raw.execute(f"PRAGMA busy_timeout = {min(waited, BUSY_WAIT_MS)}")
         try:
-            yield session
+            with Session(bind=held) as session:
+                try:
+                    yield session
+                finally:
+                    session.rollback()
         finally:
-            session.rollback()
-            session.execute(text(f"PRAGMA busy_timeout = {waited}"))
+            raw.execute(f"PRAGMA busy_timeout = {waited}")
 
 
 async def _off_loop(work: Callable[..., Any], *args: Any) -> tuple[Any, asyncio.CancelledError | None]:
@@ -269,9 +276,23 @@ def _decide(session: Session, kind: str, row_id: int, actor: Actor, now: datetim
         return stop(Outcome("not_sendable", "보내거나 걸 수 있는 권한이 없습니다", PRECHECK), None)
     if actor.kind == "system" and row.status != "scheduled":
         return stop(Outcome("not_sendable", "일꾼은 예약된 줄만 보냅니다", PRECHECK), None)
+    conn = outreach.connection(session)
+    if kind == "call":
+        lane, body = "call", ""
+    elif conn is None or row.channel not in _MESSAGE_CHANNELS:
+        lane, body = row.channel, row.body  # 바로 아래 앞 확인에서 걸린다
+    else:
+        lane, body = _lane(session, conn, row)
+    wanted = {lane} if kind == "call" else {row.channel, lane}  # 카카오톡 줄이 문자로 나가면 둘 다 되어야 한다
+    # 권한은 어느 차례보다 먼저 정한다: 이 줄을 보낼 권한이 없는 쪽은 사람이 해 둔 예약(scheduled + send_mode)을 어느 차례에서도
+    # 바꾸지 못한다 — 오늘 상한이 찼다고, 지금 시험 모드라고 월요일 예약이 초안으로 돌아가면 안 된다. 일꾼이 넣은 것은 아래에서
+    # 차례대로 보고 초안으로 돌린다(그대로 두면 일꾼이 끝없이 다시 넣는다).
+    mode = _mode(actor, row, conn, wanted)
+    needs = Outcome("needs_approval", "사람의 승인이 필요합니다", PERMISSION)
+    if mode is None and actor.kind != "system" and row.status == "scheduled" and row.send_mode is not None:
+        return stop(needs, None)
     if kind == "message" and row.channel not in _MESSAGE_CHANNELS:
         return stop(Outcome("not_sendable", "보낼 수 없는 채널입니다", PRECHECK))
-    conn = outreach.connection(session)
     if conn is None or conn.status != "ok":
         return stop(Outcome("not_ready", "알림 연결이 준비되지 않았습니다. 설정에서 연결을 확인해 주세요", PRECHECK))
     contact = session.get(Contact, row.contact_id) if row.contact_id is not None else None
@@ -283,8 +304,6 @@ def _decide(session: Session, kind: str, row_id: int, actor: Actor, now: datetim
         return stop(Outcome("not_sendable", "받는 번호가 없거나 맞지 않습니다", PRECHECK))
     if stored != number:  # 정리되지 않은 꼴로 저장된 번호는 수신 거부·사람당 상한·중복 검사(번호로 찾는다)가 찾지 못한다
         return stop(Outcome("not_sendable", "연락처 번호를 다시 저장해 주세요", PRECHECK))
-    lane, body = ("call", "") if kind == "call" else _lane(session, conn, row)
-    wanted = {lane} if kind == "call" else {row.channel, lane}  # 카카오톡 줄이 문자로 나가면 둘 다 되어야 한다
     if not all(_can_take(contact, number, name) for name in wanted):
         return stop(Outcome("not_sendable", "이 번호로는 그 방법으로 연락할 수 없습니다", PRECHECK))
     if lane == "sms" and not body.strip():
@@ -307,17 +326,11 @@ def _decide(session: Session, kind: str, row_id: int, actor: Actor, now: datetim
 
     # 3 근무시간
     limits = outreach.limits(conn)
-    mode = _mode(actor, row, conn, wanted)
-    # 사람이 해 둔 예약(scheduled + send_mode)은 권한 없는 쪽이 다시 넣었다고 바뀌지 않는다(일꾼이 넣은 것은 초안으로 돌린다)
-    needs = Outcome("needs_approval", "사람의 승인이 필요합니다", PERMISSION)
-    kept = None if actor.kind != "system" and row.status == "scheduled" and row.send_mode is not None else "draft"
     working, start = _working(contact.hours_json if contact is not None else None,
                               contacts.calendar_of(session, row.schedule_id), now)
     if not working:
         if kind == "message" and _within_grace(session, row, number, now, limits.reply_grace_minutes):
             notes.append(("reply_within_grace", "상대가 방금 보낸 문자의 답이라 근무시간 밖이어도 보냅니다"))
-        elif mode is None and kept is None:
-            return stop(needs, None)
         elif kind == "call":
             return stop(Outcome("blocked_hours", "근무시간 밖입니다" if start else NO_HOURS, WORKING_HOURS, start), "blocked_hours")
         elif start is None:
@@ -331,7 +344,7 @@ def _decide(session: Session, kind: str, row_id: int, actor: Actor, now: datetim
     if over is not None:
         return stop(over)
     if mode is None:
-        return stop(needs, kept)
+        return stop(needs)
     twin = _twin(session, row, lane, body, number, now)
     if twin is not None:
         return stop(twin)
@@ -438,9 +451,9 @@ def _working(person_hours: dict | None, calendar: CalendarSpec, now: datetime) -
         return False, None
 
 
-def _mode(actor: Actor, row: _Row, conn: NotifyConnection, wanted: set[str]) -> _Mode | None:
-    """차례 5: 이 줄을 보내는 방식 (send_mode, approved_by). 승인이 있어야 하면 None."""
-    delegated = all(getattr(conn, f"agent_{name}") == "delegate" for name in wanted)
+def _mode(actor: Actor, row: _Row, conn: NotifyConnection | None, wanted: set[str]) -> _Mode | None:
+    """차례 5: 이 줄을 보내는 방식 (send_mode, approved_by). 승인이 있어야 하면 None. 연결이 없거나 모르는 채널이면 위임이 아니다."""
+    delegated = conn is not None and all(getattr(conn, f"agent_{name}", None) == "delegate" for name in wanted)
     if actor.kind == "user":
         return ("manual", None) if row.origin == "user" else ("approved", actor.name)
     if actor.kind == "agent":

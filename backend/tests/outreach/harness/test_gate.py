@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import get_args
 
 import pytest
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine, delete, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -411,8 +411,8 @@ async def test_delivery_failure_marks_failed_with_clean_reason(session, sid, fak
     assert row.status == "failed" and out.message == row.fail_reason == gate.FAIL_TEXT["bad_sender"]
     assert trail(session, row) == [("channel_choice", "allowed"), ("delivery", "blocked")]
     stored = json.dumps(events.of(session, Ref("message", row.id)), ensure_ascii=False)
-    for text in (out.message, row.fail_reason, stored):
-        assert not leaks(text) and RAW not in text and "kat-test" not in text and "0000" not in text
+    for kept in (out.message, row.fail_reason, stored):
+        assert not leaks(kept) and RAW not in kept and "kat-test" not in kept and "0000" not in kept
     assert_clean(caplog)
 
 
@@ -927,6 +927,44 @@ async def test_gate_waits_about_a_second_not_the_engines_timeout(session, sid, f
     assert gate.BUSY_WAIT_MS / 1000 * 0.8 <= waited < 3
     with db._engine.connect() as pooled:
         assert pooled.exec_driver_sql("PRAGMA busy_timeout").scalar() == 5000
+
+
+async def test_short_database_wait_stays_on_the_gates_own_connection(session, sid, fake_channel, monkeypatch):
+    """문이 줄인 DB 기다림(1초)은 문이 쓰는 그 연결에서만, 쓰는 동안만이다 — 풀에 쉬는 연결이 여럿이어도 문이 지나간 뒤(지나감·
+    걸림·없는 줄·잠금 실패 모두) 모든 연결이 앱의 기다림 그대로이고, 문과 상관없는 세션이 잠긴 DB 를 기다리는 시간도 그대로다."""
+    connect(session)
+    who = person(session, sid)
+    ids = [message(session, who, body=f"물음 {i}").id for i in range(6)]
+    session.commit()
+    session.rollback()
+    engine = create_engine(f"sqlite:///{db_path()}", connect_args={"timeout": 1.5}, hide_parameters=True)
+    monkeypatch.setattr(db, "_engine", engine)
+
+    def waits() -> list[int]:
+        """풀의 연결들을 한꺼번에 꺼내 저마다의 기다림(ms)을 읽는다."""
+        held = [engine.connect() for _ in range(max(3, engine.pool.checkedin()))]
+        try:
+            return [pooled.exec_driver_sql("PRAGMA busy_timeout").scalar() for pooled in held]
+        finally:
+            for pooled in held:
+                pooled.close()
+
+    try:
+        assert set(waits()) == {1500}
+        outs = await asyncio.gather(*(gate.dispatch("message", row_id, USER, now=WORK) for row_id in ids))
+        assert sorted(o.code for o in outs) == ["accepted"] * 5 + ["limit_person"]  # commit 하는 두 길, 여러 연결에서
+        assert (await gate.dispatch("message", 987654, USER, now=WORK)).code == "not_sendable"
+        with closing(sqlite3.connect(db_path(), isolation_level=None)) as holder:
+            holder.execute("BEGIN IMMEDIATE")
+            assert (await gate.dispatch("message", ids[0], USER, now=WORK)).message == BUSY  # 잠금 실패
+            started = time.monotonic()
+            with Session(engine) as unrelated, pytest.raises(OperationalError):
+                unrelated.execute(text("BEGIN IMMEDIATE"))
+            assert time.monotonic() - started >= 1.3  # 문의 1초가 아니라 엔진의 1.5초
+            holder.execute("ROLLBACK")
+        assert set(waits()) == {1500}
+    finally:
+        engine.dispose()
 
 
 async def test_cancel_while_deciding_does_not_leave_a_claimed_row(session, sid, fake_channel):

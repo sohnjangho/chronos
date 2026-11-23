@@ -13,7 +13,7 @@ import app
 from app.outreach.harness import events, gate, registry
 from app.outreach.harness.types import Ref
 from app.store import outreach
-from app.store.tables_outreach import DoNotContactNumber, KakaoTemplate
+from app.store.tables_outreach import BlockedNumber, DoNotContactNumber, KakaoTemplate
 from app.store.timeutil import as_utc
 from tests import schedules
 from tests.harness_doubles import FakeChannel
@@ -415,6 +415,54 @@ async def test_agent_without_permission_cannot_disturb_a_persons_schedule(sessio
     assert len(fake_channel.delivered) == 1
 
 
+@pytest.mark.parametrize("obstacle", ["no_connection", "connection_failed", "cannot_take_sms", "test_mode", "blocked_number", "dnc",
+                                      "daily", "person", "duplicate"])
+async def test_unpermitted_agent_never_changes_a_persons_schedule_whichever_rule_fires(session, sid, fake_channel, obstacle):
+    """보낼 권한이 없는 에이전트는 사람이 승인해 예약해 둔 줄을 **어느 차례에서도** 바꾸지 못한다 — 근무 중에 다시 넣었을 때
+    앞 확인(0)·시험 모드(1)·차단·수신 거부(2)·상한(4)·중복(6)이 먼저 걸릴 입력이어도 판정은 needs_approval, 줄은 그대로다.
+    (오늘 상한이 찼다고 월요일 예약이 초안으로 돌아가면 월요일 글이 나가지 않는다.)"""
+    conn = None if obstacle == "no_connection" else connect(session)
+    who = person(session, sid)
+    row = message(session, who, origin="agent", status="scheduled", scheduled_at=MONDAY, send_mode="approved", approved_by="김공정")
+    if obstacle == "connection_failed":
+        conn.status = "failed"
+    elif obstacle == "cannot_take_sms":
+        who.can_sms = False
+    elif obstacle == "test_mode":
+        conn.test_mode = True
+    elif obstacle == "blocked_number":
+        session.add(BlockedNumber(number=PHONE, reason="요청", created_by="관리자"))
+    elif obstacle == "dnc":
+        who.do_not_contact = True
+    elif obstacle == "daily":
+        conn.limits_json = {"daily_sms_total": 1}
+        earlier(session, "sms", person(session, sid, OTHER_PHONE, name="이철근"))
+    elif obstacle == "person":  # 리뷰의 재현: 한 사람 하루 상한 2 를 오늘 다 씀
+        conn.limits_json = {"per_contact_sms_daily": 2}
+        earlier(session, "sms", who)
+        earlier(session, "sms", who, body="앞서 보낸 둘째 글")
+    elif obstacle == "duplicate":
+        message(session, who, status="accepted", claimed_at=WORK - timedelta(seconds=30))
+    session.commit()
+
+    out = await send(row, AGENT, WORK)
+
+    assert (out.code, out.rule) == ("needs_approval", 5) and fake_channel.delivered == []
+    row = reread(session, row)
+    assert (row.status, row.send_mode, row.approved_by, row.fail_reason) == ("scheduled", "approved", "김공정", None)
+    assert as_utc(row.scheduled_at) == MONDAY and trail(session, row) == [("permission", "blocked")]
+
+    # 걸림돌을 치우면(상한·중복은 날이 바뀌어 저절로 풀린다) 사람의 예약은 제때 그대로 나간다
+    conn = conn or connect(session)
+    conn.status, conn.test_mode = "ok", False
+    who.can_sms, who.do_not_contact = True, False
+    for blocked in session.query(BlockedNumber):
+        session.delete(blocked)
+    session.commit()
+    assert (await send(row, SYSTEM, MONDAY)).code == "accepted"
+    assert len(fake_channel.delivered) == 1
+
+
 async def test_approved_row_without_an_approver_does_not_leave(session, sid, fake_channel):
     """일꾼은 「approved」 라고만 적힌 줄을 믿지 않는다 — 승인한 사람(approved_by)이 있어야 한다."""
     connect(session)
@@ -429,16 +477,40 @@ async def test_approved_row_without_an_approver_does_not_leave(session, sid, fak
 SEND_MODE_WRITERS = {"outreach/harness/gate.py"}  # send_mode 를 적는 app 모듈 — 문 밖에서 예약 줄을 만드는 작업이 여기 이름을 더한다
 
 
+def _writes_send_mode(node: ast.AST) -> bool:
+    """그 자리가 연락 줄의 send_mode 에 값을 적는가: 속성에 넣기(`row.send_mode = …`), 또는 줄을 만들거나 고칠 때
+    (`OutreachMessage(…)`·`OutreachCall(…)`·`.values(…)`) 인자로 주기. 비우는 것(None)과 응답 모델에 옮겨 담는 것은 아니다."""
+    if isinstance(node, ast.Attribute):
+        return node.attr == "send_mode" and isinstance(node.ctx, ast.Store)
+    if not isinstance(node, ast.Call):
+        return False
+    called = getattr(node.func, "attr", getattr(node.func, "id", None))
+    return called in ("OutreachMessage", "OutreachCall", "values") and any(
+        keyword.arg == "send_mode" and not (isinstance(keyword.value, ast.Constant) and keyword.value.value is None)
+        for keyword in node.keywords)
+
+
+def _send_mode_writes(source: str) -> int:
+    return sum(_writes_send_mode(node) for node in ast.walk(ast.parse(source)))
+
+
 def test_only_named_modules_write_send_mode():
-    """일꾼은 줄의 send_mode 를 믿는다 — 그래서 그 칸을 적는 코드(속성에 넣기·만들 때 인자로 주기)는 이름을 밝힌 모듈뿐이다."""
+    """일꾼은 줄의 send_mode 를 믿는다 — 그래서 그 칸에 값을 적는 코드는 이름을 밝힌 모듈뿐이다."""
     root = Path(app.__file__).parent
-    found = set()
-    for path in root.rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            stored = isinstance(node, ast.Attribute) and node.attr == "send_mode" and isinstance(node.ctx, ast.Store)
-            if stored or (isinstance(node, ast.keyword) and node.arg == "send_mode"):
-                found.add(path.relative_to(root).as_posix())
+    found = {path.relative_to(root).as_posix() for path in root.rglob("*.py")
+             if _send_mode_writes(path.read_text(encoding="utf-8"))}
     assert found == SEND_MODE_WRITERS
+
+
+def test_send_mode_writes_are_recognised():
+    assert _send_mode_writes("row.send_mode = 'manual'") == 1
+    assert _send_mode_writes("row.send_mode, row.approved_by = mode") == 1
+    assert _send_mode_writes("OutreachCall(status='scheduled', send_mode='delegated')") == 1
+    assert _send_mode_writes("tables.OutreachMessage(send_mode=mode)") == 1
+    assert _send_mode_writes("update(OutreachMessage).values(send_mode='approved')") == 1
+    assert _send_mode_writes("update(OutreachMessage).values(status='draft', send_mode=None)") == 0  # 비우기
+    assert _send_mode_writes("MessageOut(id=row.id, send_mode=row.send_mode)") == 0  # 응답에 옮겨 담기
+    assert _send_mode_writes("mode = row.send_mode") == 0
 
 
 # ── 4 상한 ────────────────────────────────────────────────────────────
