@@ -1,8 +1,11 @@
 """정보 API 연결 저장·연결 시험·빠른 채움 목록. 평문 키는 요청을 처리하는 동안에만 쓰고 암호문으로만 저장한다.
 
 기상청(kma) 연결 시험은 서비스마다 한 번씩 부른다: 단기예보(서울 격자 60·127) 1번, ASOS 일자료(서울 108, 사흘 전 하루) 1번.
-범용(generic) 연결은 주소·설명이 꼭 있고, 주소는 저장할 때 내부망 꼴을 거절한다(부를 때 app.info.generic 이 다시 본다).
-범용 연결 시험은 test_path 를 한 번 부른다(HTTP 상태·걸린 시간·응답 앞 300자, 키 지움).
+범용(generic) 연결은 주소·설명이 꼭 있고 키는 8자 이상, 주소는 저장할 때 내부망 꼴을 거절한다(부를 때 app.info.generic 이
+다시 본다). 머리글 방식이면 Host·Content-Length 같은 머리글 이름을 키 이름으로 쓰지 못한다.
+이름·설명·쓰는 법·시험 경로에 키(새 키나 저장된 키, 그대로·인코딩·디코딩 꼴)가 들어 있으면 저장하지 않는다 — 모델과 DB 에 그대로 간다.
+범용 연결 시험은 test_path 를 한 번 부른다(HTTP 상태·걸린 시간·응답 앞 300자, 키 지움). 200 이어도 응답 머리
+resultCode 가 계정 오류(20~22·30~33)면 실패로 본다.
 """
 
 import time
@@ -31,6 +34,10 @@ from app.store.tables import InfoConnection
 
 DEFAULT_BASE_URLS = {"kma": kma.DEFAULT_BASE_URL}
 MIN_SECRET_CHARS_FOR_LAST4 = 8
+MIN_GENERIC_SECRET_CHARS = 8
+TEXT_FIELDS = ("name", "description", "usage", "test_path")  # 모델에게 가는 글 — 키가 들어 있으면 안 된다
+KEY_IN_TEXT = ("이름·설명·쓰는 법·시험 경로에 서비스키가 들어 있습니다. 글에서 키를 지우고 다시 저장해 주세요"
+               "(키는 서비스키 칸에만 넣습니다).")
 TEST_STN, TEST_NX, TEST_NY = "108", 60, 127
 TEST_DAYS_AGO = 3  # ASOS 일자료는 다음 날 들어온다 — 넉넉히 사흘 전 하루
 # 요약 줄에 쓰는 짧은 말
@@ -38,12 +45,28 @@ SHORT = {"not_registered": "등록 안 됨", "key_expired": "키 기한 지남",
          "rate_limited": "호출 한도 초과", "bad_key": "키 오류", "timeout": "응답 늦음"}
 
 
-def _secret_value(secret: SecretStr) -> str:
+def _secret_value(secret: SecretStr, preset: str) -> str:
     value = secret.get_secret_value().strip()
     if not secret_is_sendable(value):
         raise ApiError(422, "invalid_secret",
                        "서비스키에 쓸 수 없는 문자가 있습니다. 공백이나 줄바꿈이 섞이지 않았는지 확인해 주세요.")
+    if preset == "generic" and len(value) < MIN_GENERIC_SECRET_CHARS:
+        raise ApiError(422, "secret_too_short", f"범용 연결의 서비스키는 {MIN_GENERIC_SECRET_CHARS}자 이상이어야 합니다.")
     return value
+
+
+def _stored_key(conn: InfoConnection) -> str | None:
+    try:
+        return decrypt(conn.secret_ciphertext)
+    except SecretUnreadable:
+        return None
+
+
+def _check_no_key(texts: list[str], keys: list[str | None]) -> None:
+    """글에 키(섞인 꼴·풀어 보아 남는 꼴까지)가 있으면 422. 키는 메시지에 담지 않는다."""
+    for key in filter(None, keys):
+        if any(text and (generic.scrub(text, key) != text or generic.key_survives(text, key)) for text in texts):
+            raise ApiError(422, "key_in_text", KEY_IN_TEXT)
 
 
 def _last4(secret: str) -> str:
@@ -66,8 +89,12 @@ def _untested(conn: InfoConnection) -> None:
     conn.status, conn.checked_at = "unknown", None
 
 
-def _check_generic(base_url: str | None, description: str, test_path: str, key_name: str) -> None:
+def _check_generic(base_url: str | None, description: str, test_path: str, key_in: str, key_name: str) -> None:
     """범용 연결의 저장 검사: 주소(내부망 꼴 거절)·설명이 꼭 있고, 시험 경로는 부를 때와 같은 경로 검사."""
+    if key_in == "header" and key_name.casefold() in generic.FORBIDDEN_KEY_HEADERS:
+        raise ApiError(422, "key_name_not_allowed",
+                       f"머리글 「{key_name}」에는 키를 넣을 수 없습니다(Host·Content-Length·Cookie 같은 머리글). "
+                       "공급자 문서의 키 머리글 이름(예: Authorization)을 넣어 주세요.")
     if not base_url:
         raise ApiError(422, "base_url_required", "범용 연결에는 주소가 필요합니다.")
     if (problem := generic.base_url_problem(base_url)) is not None:
@@ -84,12 +111,14 @@ def list_connections(session: Session) -> list[InfoConnection]:
 
 def create_connection(session: Session, data: InfoConnectionCreate) -> InfoConnection:
     """저장만 한다(status unknown). 시험은 /test 로 따로."""
+    secret = _secret_value(data.secret, data.preset)
+    _check_no_key([getattr(data, f) for f in TEXT_FIELDS], [secret])
     if data.preset == "generic":
-        _check_generic(data.base_url, data.description, data.test_path, data.key_name)
+        _check_generic(data.base_url, data.description, data.test_path, data.key_in, data.key_name)
     conn = InfoConnection(name=data.name, preset=data.preset, base_url=data.base_url or DEFAULT_BASE_URLS[data.preset],
                           description=data.description, usage=data.usage, key_in=data.key_in, key_name=data.key_name,
                           test_path=data.test_path)
-    _set_secret(conn, _secret_value(data.secret))
+    _set_secret(conn, secret)
     session.add(conn)
     session.commit()
     return conn
@@ -98,13 +127,16 @@ def create_connection(session: Session, data: InfoConnectionCreate) -> InfoConne
 def update_connection(session: Session, conn_id: int, data: InfoConnectionUpdate) -> InfoConnection:
     """고친다. 키·주소·키 넣는 곳·키 이름이 바뀌면 status 를 unknown 으로 되돌린다. 다른 주소로 바꿀 때는 키도 다시 받는다."""
     conn = _get(session, conn_id)
-    new_secret = _secret_value(data.secret) if data.secret is not None else None
+    new_secret = _secret_value(data.secret, conn.preset) if data.secret is not None else None
     if data.base_url is not None and data.base_url != conn.base_url and new_secret is None:
         raise ApiError(422, "secret_required", "다른 주소로 바꾸면 서비스키를 다시 넣어 주세요.")
-    fields = data.model_dump(exclude_unset=True, exclude={"name", "secret"})
+    fields = data.model_dump(exclude_unset=True, exclude={"secret"})
     fields = {k: v for k, v in fields.items() if v is not None}
+    _check_no_key([fields.get(f, getattr(conn, f)) for f in TEXT_FIELDS], [new_secret, _stored_key(conn)])
+    fields.pop("name", None)
     if conn.preset == "generic":
-        merged = {c: fields.get(c, getattr(conn, c)) for c in ("base_url", "description", "test_path", "key_name")}
+        merged = {c: fields.get(c, getattr(conn, c))
+                  for c in ("base_url", "description", "test_path", "key_in", "key_name")}
         _check_generic(**merged)
     if any(fields.get(c, getattr(conn, c)) != getattr(conn, c) for c in ("base_url", "key_in", "key_name")):
         _untested(conn)
@@ -156,7 +188,7 @@ async def _test_kma(conn: InfoConnection) -> InfoTestOut:
 
 
 async def _test_generic(conn: InfoConnection) -> InfoTestOut:
-    """test_path 를 한 번 부른다. ok = 2xx 이고 공공데이터포털 오류 봉투가 아님."""
+    """test_path 를 한 번 부른다. ok = 2xx 이고 공공데이터포털 오류 봉투가 아니고 응답 머리 resultCode 가 계정 오류가 아님."""
     if not conn.test_path:
         raise ApiError(422, "test_path_required", "시험 경로를 넣어 주세요.")
     target = GenericConn(conn.name, conn.base_url, _key(conn), conn.key_in, conn.key_name)
@@ -165,6 +197,8 @@ async def _test_generic(conn: InfoConnection) -> InfoTestOut:
     try:
         got = await generic.fetch(target, conn.test_path, {})
         status, sample = got.http_status, got.text[:generic.SAMPLE_LIMIT]
+        if (code := generic.result_code_failure(got.text)) is not None:
+            error = ServiceErrorOut(code=code, message=generic.failure_message(code, conn.name))
     except GenericFailed as e:
         error, status, sample = ServiceErrorOut(code=e.code, message=e.message), e.http_status, e.sample
     check = ServiceCheckOut(service="generic", label=conn.name, ok=error is None,

@@ -153,7 +153,7 @@ def test_internal_base_url_is_refused_at_save(client, admin, url):
 
 @pytest.mark.parametrize(("field", "value"), [
     ("key_name", "Service Key"), ("key_name", "a" * 61), ("key_in", "body"), ("description", "가" * 501),
-    ("usage", "가" * 4001), ("test_path", "가" * 501),
+    ("usage", "가" * 3001), ("test_path", "가" * 501),
 ])
 def test_field_shapes(client, admin, field, value):
     assert client.post(URL, json={**GEN, field: value}, headers=admin).status_code == 422
@@ -249,3 +249,65 @@ def test_templates_are_listed_for_admins_only(client, admin, user):
     assert r.json() == [t.model_dump() for t in templates.load_templates()]
     assert all(set(t) == {"id", "label", "base_url", "key_in", "key_name", "description", "usage", "test_path",
                           "docs_url"} for t in r.json())
+
+
+# ── 보안 검토 반영(1차) ─────────────────────────────────────────────
+
+PASTED = {"raw": info_doubles.KEY, "encoded": info_doubles.KEY_ENCODED,
+          "plus encoded": info_doubles.KEY.replace("+", "%2B")}
+
+
+@pytest.mark.parametrize("field", ["usage", "description", "name", "test_path"])
+@pytest.mark.parametrize("form", PASTED.values(), ids=PASTED.keys())
+def test_a_key_pasted_into_the_notes_is_refused(client, admin, field, form):
+    value = {"usage": f"예: {info_doubles.BASE}/getRestDeInfo?ServiceKey={form}&solYear=2026",
+             "description": f"공휴일 {form}", "name": f"공휴일 {form}"[:100],
+             "test_path": f"/getRestDeInfo?q={form}"}[field]
+    r = client.post(URL, json={**GEN, field: value}, headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "key_in_text" and "키" in r.json()["message"]
+    assert info_doubles.KEY not in r.text and info_doubles.KEY_ENCODED not in r.text
+
+
+def test_patch_checks_the_notes_against_the_stored_and_the_new_key(client, admin):
+    made = _gen(client, admin)
+    r = client.patch(f"{URL}/{made['id']}", json={"usage": f"키 {info_doubles.KEY_ENCODED}"}, headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "key_in_text"
+    new_key = "NEWkeyABCDEF123456"
+    client.patch(f"{URL}/{made['id']}", json={"usage": f"메모 {new_key}"}, headers=admin)
+    r = client.patch(f"{URL}/{made['id']}", json={"secret": new_key}, headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "key_in_text"
+
+
+@pytest.mark.parametrize("name", ["Host", "content-length", "Transfer-Encoding", "Connection", "TE", "Upgrade",
+                                  "Expect", "accept-encoding", "Cookie"])
+def test_header_mode_refuses_hop_and_framing_header_names(client, admin, name):
+    r = client.post(URL, json={**GEN, "key_in": "header", "key_name": name}, headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "key_name_not_allowed"
+    made = _gen(client, admin, name=f"x{name}")
+    r = client.patch(f"{URL}/{made['id']}", json={"key_in": "header", "key_name": name}, headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "key_name_not_allowed"
+
+
+def test_header_names_are_fine_in_query_mode(client, admin):
+    assert client.post(URL, json={**GEN, "key_in": "query", "key_name": "Host"}, headers=admin).status_code == 201
+
+
+def test_generic_key_must_be_at_least_8_characters(client, admin):
+    r = client.post(URL, json={**GEN, "secret": "abc1234"}, headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "secret_too_short" and "abc1234" not in r.text
+    made = _gen(client, admin)
+    r = client.patch(f"{URL}/{made['id']}", json={"secret": "short"}, headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "secret_too_short"
+
+
+@pytest.mark.parametrize(("code", "expected"), [("30", "not_registered"), ("22", "rate_limited"),
+                                                ("31", "key_expired"), ("00", None), ("03", None)])
+def test_connection_test_reads_account_errors_in_the_result_code(client, admin, api, code, expected):
+    api.answer = (200, {"response": {"header": {"resultCode": code, "resultMsg": "x"}}})
+    made = _gen(client, admin)
+    body = client.post(f"{URL}/{made['id']}/test", headers=admin).json()
+    error = body["services"][0]["error"]
+    assert body["ok"] is (expected is None) and body["http_status"] == 200 and body["sample"]
+    assert (error or {}).get("code") == expected
+    if expected:
+        assert error["message"] == kma.FAILED_MESSAGES[expected].replace("기상청", "공휴일")

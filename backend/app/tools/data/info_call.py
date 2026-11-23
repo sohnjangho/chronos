@@ -1,11 +1,13 @@
 """info.call — 범용(generic) 정보 API 연결 하나를 GET 으로 한 번 부르고, 응답을 근거로 남긴다.
 
 - 판단(어느 연결·경로·파라미터)은 에이전트, 호출은 코드(app.info.generic): 연결 주소 + path 에 키를 붙여 부른다.
-- 응답은 JSON 그대로, XML 은 JSON 꼴로, 에이전트에게는 3,500자까지(잘리면 truncated 와 「범위를 좁혀」 안내).
+- 응답은 JSON 그대로, XML 은 JSON 꼴로, 에이전트에게는 JSON 글로 옮겨 3,500자까지(잘리면 truncated 와 「범위를 좁혀」 안내).
+  결과 칸은 evidence_id·truncated 를 body 앞에 둔다(도구 결과 4,000자 한도에 잘려도 남게).
 - 결과는 근거(evidence_searches mode "info" + evidence_items 한 줄: 제목 = 연결 이름 + path, 출처 = 연결 이름,
   주소 = 키를 뺀 부른 주소, 본문 앞부분)로 넣고 evidence_id 를 돌려준다. 카드는 근거 카드.
 - 한 요청(그 대화의 마지막 사용자 메시지 뒤)에 LIMIT 번까지(실패 포함). 날씨 조회·근거 검색과 따로 센다.
-  인자가 틀린 것(없는 연결·kma 연결·안 되는 경로)은 부르기 전에 거절하고 세지 않는다.
+  인자가 틀린 것(없는 연결·kma 연결·안 되는 경로·주소를 만들 수 없는 params)은 부르기 전에 거절하고 세지 않는다.
+- 실패 안내에는 HTTP 상태와 응답 앞 300자(키 지움)를 붙여 에이전트가 호출을 고칠 수 있게 한다.
 - 부르기 전에는 DB 에 쓰지 않는다(루프가 도구 전에 commit 했다). 성공 줄은 받은 세션에 flush 만(루프가 commit),
   실패 줄은 따로 연 짧은 세션에 바로 저장한다(루프가 rollback 해도 한도에 들게). 키는 출력·카드·기록에 없다.
 """
@@ -44,6 +46,7 @@ KMA_ONLY = "기상청 전용 연결입니다. 날씨는 info__weather 로 보세
 UNREADABLE_KEY = "저장된 서비스키를 읽을 수 없습니다. 관리자에게 설정의 정보 API 연결에서 키를 다시 넣어 달라고 알리세요."
 TITLE_MAX, URL_MAX = 300, 1000
 
+ParamName = Annotated[str, Field(min_length=1, max_length=100)]
 ParamValue = Annotated[str, Field(max_length=500)]
 
 
@@ -53,17 +56,19 @@ class CallIn(BaseModel):
     connection_id: int = Field(description="info__list 의 id(kind generic 인 연결)")
     path: str = Field(min_length=1, max_length=500,
                       description="연결 주소 뒤에 붙일 / 로 시작하는 상대 경로(예: /getRestDeInfo). 쓰는 법(usage)대로")
-    params: dict[str, ParamValue] = Field(default_factory=dict, max_length=30,
+    params: dict[ParamName, ParamValue] = Field(default_factory=dict, max_length=30,
                                           description="질의 값(이름 → 값). 키는 넣지 않는다 — 코드가 붙인다")
 
 
 class CallOut(BaseModel):
+    """칸 차례가 뜻이 있다: 도구 결과가 길어 잘려도 evidence_id·truncated 는 body 앞이라 남는다."""
+
     ok: bool
     http_status: int
-    content_type: str
-    body: str  # 3,500자까지, 키를 지웠다
-    truncated: bool
+    content_type: str  # 100자까지, 키를 지웠다
     evidence_id: int
+    truncated: bool
+    body: str  # JSON 글로 옮겨 3,500자까지, 키를 지웠다
 
 
 def _connection(ctx: ToolContext, connection_id: int) -> InfoConnection:
@@ -127,8 +132,11 @@ async def info_call(args: CallIn, ctx: ToolContext) -> CallOut:
     try:
         got = await generic.fetch(conn, args.path, args.params)
     except GenericFailed as e:
+        if e.code == "bad_path":  # 부르기 전에 막힌 인자 오류 — 세지 않는다
+            raise ToolError(e.message) from None
         _record_failure(ctx, title, e.code, int((time.perf_counter() - start) * 1000))
-        raise ToolError(f"{e.message} {FALLBACK}") from None
+        seen = f" (HTTP {e.http_status}) 응답 앞부분: {e.sample}" if e.http_status is not None else ""
+        raise ToolError(f"{e.message}{seen} {FALLBACK}") from None
     body, truncated = generic.body_for_model(got.text, got.cut)
     hit = SearchHit(title=title, url=got.url[:URL_MAX], hostname=httpx.URL(base_url).host, description=body,
                     date=None)
@@ -137,5 +145,5 @@ async def info_call(args: CallIn, ctx: ToolContext) -> CallOut:
                                      mode=INFO_MODE, ok=True, error_code=None,
                                      latency_ms=int((time.perf_counter() - start) * 1000), hits=[hit])
     ctx.emit(_card(search_id, f"{name} {query}", items[0].id, hit))
-    return CallOut(ok=True, http_status=got.http_status, content_type=got.content_type, body=body,
-                   truncated=truncated, evidence_id=items[0].id)
+    return CallOut(ok=True, http_status=got.http_status, content_type=got.content_type, evidence_id=items[0].id,
+                   truncated=truncated, body=body)

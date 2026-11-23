@@ -13,10 +13,10 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app.agent.context import UiContext
+from app.agent.context import CUT_NOTE, UiContext, result_text
 from app.agent.loop import run_turn
 from app.config import Settings
-from app.info import generic, kma
+from app.info import generic, kma, templates
 from app.llm.client import LlmClient
 from app.security.crypto import encrypt
 from app.store import chats
@@ -106,9 +106,9 @@ async def test_list_shows_usable_connections_without_key_material(session, ctx):
     found = r.output["connections"]
     assert [(c["id"], c["name"], c["kind"], c["status"]) for c in found] == [
         (weather.id, "기상청", "kma", "ok"), (row.id, "공휴일", "generic", "unknown")]
-    assert set(found[1]) == {"id", "name", "kind", "description", "usage", "status"}
-    assert (found[1]["description"], found[1]["usage"]) == ("공휴일·대체공휴일(연·월별)", row.usage)
-    assert "info__weather" in found[0]["usage"] and found[0]["description"]
+    assert set(found[1]) == {"id", "name", "kind", "description", "status", "usage_chars", "usage"}
+    assert (found[1]["description"], found[1]["usage"]) == ("공휴일·대체공휴일(연·월별)", None)  # 쓰는 법은 하나씩
+    assert found[1]["usage_chars"] == len(row.usage) and found[0]["description"]
     text = json.dumps(r.output, ensure_ascii=False)
     assert not _leaks(text) and KEY[-4:] not in text and row.secret_ciphertext not in text
 
@@ -231,16 +231,19 @@ async def test_no_write_is_held_while_waiting_for_the_api(holidays, ctx_chat, mo
 # ── 키가 어디에도 새지 않는다(에이전트 루프 전체) ───────────────────
 
 
-async def test_planted_key_appears_nowhere(session, holidays, caplog, monkeypatch):
+@pytest.mark.parametrize(("key_in", "key_name"), [("query", "ServiceKey"), ("header", "Authorization")])
+async def test_planted_key_appears_nowhere(session, holidays, caplog, monkeypatch, key_in, key_name):
     caplog.set_level(logging.DEBUG)
+    holidays.key_in, holidays.key_name = key_in, key_name
+    session.commit()
 
     def answer(request):
         if request.url.path.endswith("/boom"):
             raise RuntimeError(f"boom {request.url} {KEY}")
         if request.url.path.endswith("/down"):
             raise httpx.ConnectError(f"cannot reach {request.url}")
-        return 200, {"echo": KEY, "echo2": KEY_ENCODED, "echo3": KEY_ENCODED.lower(),
-                     "url": str(request.url), "items": [{"dateName": "기독탄신일"}]}
+        return 200, {"echo": KEY, "echo2": KEY_ENCODED, "echo3": KEY_ENCODED.lower(), "url": str(request.url),
+                     "headers": dict(request.headers), "items": [{"dateName": "기독탄신일"}]}
 
     monkeypatch.setattr(generic, "TRANSPORT", ApiMock(answer))
     add_connection(session)
@@ -271,3 +274,89 @@ async def test_planted_key_appears_nowhere(session, holidays, caplog, monkeypatc
     for text in stored:
         assert not _leaks(text), text[:300]
     assert "HTTP Request: GET https://apis.data.go.kr" in caplog.text
+
+
+# ── 보안 검토 반영(1차) ─────────────────────────────────────────────
+
+
+async def test_list_one_connection_gives_its_usage(session, ctx):
+    weather = _row(session, name="기상청", preset="kma", base_url=kma.DEFAULT_BASE_URL, usage="")
+    row = _row(session)
+    r = await call("info.list", {"connection_id": row.id}, ctx)
+    assert r.ok, r.error
+    [one] = r.output["connections"]
+    assert (one["id"], one["usage"], one["usage_chars"]) == (row.id, row.usage, len(row.usage))
+    [kma_row] = (await call("info.list", {"connection_id": weather.id}, ctx)).output["connections"]
+    assert "info__weather" in kma_row["usage"]
+    r = await call("info.list", {"connection_id": 999}, ctx)
+    assert not r.ok and "info__list" in r.error
+
+
+async def test_list_of_the_five_real_templates_fits_the_tool_result(session, ctx):
+    for t in templates.load_templates():
+        _row(session, name=t.label, base_url=t.base_url, description=t.description, usage=t.usage,
+             key_name=t.key_name, test_path=t.test_path)
+    r = await call("info.list", {}, ctx)
+    text = result_text(r, limit=4000)
+    assert len(json.dumps(r.output, ensure_ascii=False)) < 4000 and not text.endswith(CUT_NOTE)
+    assert len(r.output["connections"]) == 5
+
+
+async def test_list_scrubs_a_key_already_stored_in_the_notes(session, ctx):
+    row = _row(session, name=f"공휴일 {KEY[:4]}", description=f"키 {KEY_ENCODED}",
+               usage=f"예: {BASE}/getRestDeInfo?ServiceKey={KEY.replace('+', '%2B')}&solYear=2026")
+    for args in ({}, {"connection_id": row.id}):
+        r = await call("info.list", args, ctx)
+        assert r.ok and not _leaks(json.dumps(r.output, ensure_ascii=False))
+
+
+def _holidays(n: int) -> dict:
+    items = [{"dateKind": "01", "dateName": "기독탄신일", "isHoliday": "Y", "locdate": 20261225 + i, "seq": 1}
+             for i in range(n)]
+    return {"response": {"header": {"resultCode": "00", "resultMsg": "NORMAL SERVICE."},
+                         "body": {"items": {"item": items}, "numOfRows": n, "pageNo": 1, "totalCount": n}}}
+
+
+async def test_a_quote_heavy_body_keeps_evidence_id_inside_the_tool_result(api, holidays, ctx):
+    api.answer = (200, _holidays(60))
+    r = await call("info.call", _args(holidays), ctx)
+    assert r.ok and r.output["truncated"] is True
+    keys = list(r.output)
+    assert keys.index("evidence_id") < keys.index("body") and keys.index("truncated") < keys.index("body")
+    text = result_text(r, limit=4000)
+    assert not text.endswith(CUT_NOTE) and json.loads(text)["evidence_id"] == r.output["evidence_id"]
+
+
+async def test_param_names_and_values_are_capped(api, holidays, ctx):
+    r = await call("info.call", _args(holidays, params={"k" * 101: "v"}), ctx)
+    assert not r.ok and r.error.startswith("입력 형식 오류")
+    r = await call("info.call", _args(holidays, params={"q": "가" * 501}), ctx)
+    assert not r.ok and r.error.startswith("입력 형식 오류")
+    r = await call("info.call", _args(holidays, params={f"p{i}": "1" for i in range(31)}), ctx)
+    assert not r.ok and r.error.startswith("입력 형식 오류") and api.requests == []
+
+
+async def test_a_url_too_long_to_build_is_a_korean_bad_path_and_not_counted(api, holidays, ctx_chat, session, caplog):
+    r = await call("info.call", _args(holidays, params={f"p{i}": "가" * 500 for i in range(30)}), ctx_chat)
+    assert not r.ok and any("가" <= ch <= "힣" for ch in r.error) and "도구 실행 중 오류" not in r.error
+    assert api.requests == [] and "Traceback" not in caplog.text
+    assert searches_since(session, ctx_chat.chat_session_id, None, info=True) == 0
+
+
+async def test_argument_errors_are_not_counted(api, holidays, ctx_chat, session):
+    weather = _row(session, name="기상청", preset="kma", base_url=kma.DEFAULT_BASE_URL)
+    bad = [_args(holidays, path="//evil.example"), _args(holidays, params={"servicekey": "x"}),
+           ARGS | {"connection_id": 999}, _args(weather), _args(holidays, path="/a/%2e%2e/b")]
+    for args in bad:
+        assert not (await call("info.call", args, ctx_chat)).ok
+    assert searches_since(session, ctx_chat.chat_session_id, None, info=True) == 0 and api.requests == []
+    for _ in range(4):
+        assert (await call("info.call", _args(holidays), ctx_chat)).ok
+        session.commit()
+    assert (await call("info.call", _args(holidays), ctx_chat)).error == LIMIT_MESSAGE
+
+
+async def test_a_failed_call_shows_the_status_and_the_start_of_the_body(api, holidays, ctx):
+    api.answer = (500, f"필수 파라미터 solYear 누락 (key={KEY})", {"content-type": "text/plain"})
+    r = await call("info.call", _args(holidays), ctx)
+    assert not r.ok and "HTTP 500" in r.error and "필수 파라미터 solYear 누락" in r.error and not _leaks(r.error)

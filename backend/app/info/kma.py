@@ -43,13 +43,13 @@ FAILED_MESSAGES = {
     "unknown": "기상청 응답을 읽지 못했습니다.",
 }
 # returnReasonCode·resultCode → code. 00 정상, 03 자료 없음은 따로 다룬다.
-_REASONS = {
+REASONS = {
     "30": "not_registered", "31": "key_expired", "32": "ip_not_allowed", "22": "rate_limited",
     "20": "bad_key", "21": "bad_key", "33": "bad_key",
     "10": "bad_request", "11": "bad_request", "12": "bad_url",
     "01": "server_error", "02": "server_error", "04": "server_error", "05": "server_error",
 }
-_STATUS = {400: "bad_request", 401: "bad_key", 403: "bad_key", 404: "bad_url", 429: "rate_limited"}
+STATUS = {400: "bad_request", 401: "bad_key", 403: "bad_key", 404: "bad_url", 429: "rate_limited"}
 _XML_CODE = re.compile(r"<(returnReasonCode|resultCode)>\s*(\d+)\s*<")
 
 
@@ -96,7 +96,7 @@ class _HideServiceKey(logging.Filter):
 logging.getLogger("httpx").addFilter(_HideServiceKey())
 
 
-def _encoded(key: str) -> str:
+def encoded(key: str) -> str:
     return key if "%" in key else quote(key, safe="")
 
 
@@ -122,7 +122,7 @@ def _reason(data: object, text: str) -> str | None:
 
 async def _get(conn: KmaConn, path: str, params: dict[str, str]) -> list[dict]:
     """한 번 불러 item 목록을 돌려준다. NO_DATA 면 []. 실패는 KmaFailed(except 밖에서 던진다)."""
-    url = f"{conn.base_url.rstrip('/')}{path}?serviceKey={_encoded(conn.key)}&{urlencode(params)}"
+    url = f"{conn.base_url.rstrip('/')}{path}?serviceKey={encoded(conn.key)}&{urlencode(params)}"
     code: str | None = None
     try:
         async with httpx.AsyncClient(transport=TRANSPORT, timeout=TIMEOUT_S, trust_env=False) as http:
@@ -140,11 +140,11 @@ async def _get(conn: KmaConn, path: str, params: dict[str, str]) -> list[dict]:
         if reason == "03":
             return []
         if reason not in (None, "00"):
-            code = _REASONS.get(reason.zfill(2), "unknown")
+            code = REASONS.get(reason.zfill(2), "unknown")
         elif response.status_code >= 500:
             code = "server_error"
         elif response.status_code >= 400:
-            code = _STATUS.get(response.status_code, "unknown")
+            code = STATUS.get(response.status_code, "unknown")
         elif reason is None or not isinstance(data, dict):  # 읽을 수 없는 본문(XML 성공 응답 등)
             code = "unknown"
     if code is not None:

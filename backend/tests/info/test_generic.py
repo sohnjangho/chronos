@@ -358,3 +358,200 @@ async def test_httpx_request_log_line_hides_the_key(use, caplog, key_name):
     await generic.fetch(conn(key_name=key_name), "/x", {"q": "1"})
     assert "HTTP Request: GET" in caplog.text and f"{key_name}=" in caplog.text
     assert KEY not in caplog.text and KEY_ENCODED not in caplog.text and "zyxwVUTSrqpo" not in caplog.text
+
+
+# ── 보안 검토 반영(1차) ─────────────────────────────────────────────
+
+
+def test_model_body_is_budgeted_by_its_json_escaped_length():
+    """따옴표·역빗금이 많은 본문도 JSON 으로 옮겼을 때 한도 안이다(도구 결과 4,000자 안에 evidence_id 가 남게)."""
+    for text in ('"' * 5000, "\\" * 5000, '{"a": "b"}' * 600, "가" * 9000):
+        body, truncated = generic.body_for_model(text, cut=False)
+        assert truncated and len(json.dumps(body, ensure_ascii=False)) <= generic.BODY_LIMIT
+        assert body.endswith(generic.TRUNCATED_HINT)
+    body, truncated = generic.body_for_model('"' * 1000, cut=False)
+    assert body == '"' * 1000 and not truncated
+
+
+def _gzip_bomb(size: int) -> bytes:
+    import zlib
+
+    packer = zlib.compressobj(9, zlib.DEFLATED, 16 + zlib.MAX_WBITS)
+    zeros = b"\0" * (1024 * 1024)
+    return b"".join(packer.compress(zeros) for _ in range(size // len(zeros))) + packer.flush()
+
+
+async def test_a_gzip_bomb_never_expands_past_the_cap(use, monkeypatch):
+    import zlib
+
+    bomb = _gzip_bomb(64 * 1024 * 1024)
+    produced = []
+    real = zlib.decompressobj
+
+    class Spy:
+        def __init__(self, *a):
+            self.inner = real(*a)
+
+        def decompress(self, data, max_length=0):
+            out = self.inner.decompress(data, max_length)
+            produced.append(len(out))
+            assert max_length, "max_length 없이 풀면 안 된다"
+            return out
+
+        def __getattr__(self, name):
+            return getattr(self.inner, name)
+
+    async def socket_chunks():  # 실제 소켓처럼 64KB 씩(미리 풀리지 않게 흐름으로)
+        for i in range(0, len(bomb), 65536):
+            yield bomb[i:i + 65536]
+
+    monkeypatch.setattr(generic.zlib, "decompressobj", Spy)
+    use(ApiMock(lambda request: httpx.Response(200, content=socket_chunks(),
+                                               headers={"content-encoding": "gzip", "content-type": "text/plain"})))
+    got = await generic.fetch(conn(), "/x", {})
+    assert got.cut and len(got.text) == generic.MAX_BYTES
+    assert sum(produced) <= generic.MAX_BYTES + 1
+
+
+@pytest.mark.parametrize("wbits", [16 + 15, 15, -15])  # gzip · zlib 감싼 deflate · 날 deflate
+async def test_compressed_bodies_are_read(use, wbits):
+    import zlib
+
+    packer = zlib.compressobj(6, zlib.DEFLATED, wbits)
+    raw = json.dumps(holiday_body()).encode()
+    encoding = "gzip" if wbits > 15 else "deflate"
+    packed = packer.compress(raw) + packer.flush()
+
+    async def body():
+        yield packed
+
+    use(ApiMock(lambda request: httpx.Response(200, content=body(), headers={
+        "content-encoding": encoding, "content-type": "application/json"})))
+    got = await generic.fetch(conn(), "/x", {})
+    assert json.loads(got.text) == holiday_body()
+
+
+async def test_an_unknown_content_encoding_is_refused(use):
+    use(ApiMock(httpx.Response(200, content=b"\x1b\x00", headers={"content-encoding": "br"})))
+    with pytest.raises(GenericFailed) as e:
+        await generic.fetch(conn(), "/x", {})
+    assert e.value.code == "bad_encoding" and "압축" in e.value.message
+
+
+async def test_content_type_is_scrubbed_and_cut(use):
+    use(ApiMock(httpx.Response(200, json={"a": 1}, headers={"content-type": f"application/json; echo={KEY}"})))
+    got = await generic.fetch(conn(), "/x", {})
+    assert KEY not in got.content_type and "zyxwVUTSrqpo" not in got.content_type
+    use(ApiMock(httpx.Response(200, content=b"{}", headers={"content-type": "x/" + "A" * 20000})))
+    assert len((await generic.fetch(conn(), "/x", {})).content_type) <= 100
+
+
+MIXED = {
+    "plus only as %2B": KEY.replace("+", "%2B"),
+    "html &#43;": KEY.replace("+", "&#43;"),
+    "html &#x2F;": KEY.replace("/", "&#x2F;"),
+    "double encoded": KEY_ENCODED.replace("%", "%25"),
+    "json \\u002b": KEY.replace("+", "\\u002b"),
+    "slash only encoded": KEY.replace("/", "%2f"),
+}
+
+
+@pytest.mark.parametrize("form", MIXED.values(), ids=MIXED.keys())
+def test_scrub_catches_mixed_forms(form):
+    for key in (KEY, KEY_ENCODED):
+        out = generic.scrub(f"prefix {form} suffix", key)
+        assert "zyxwVUTSrqpo" not in out and out.startswith("prefix ") and out.endswith(" suffix")
+
+
+@pytest.mark.parametrize("form", [KEY.replace("+", "&amp;#43;"), KEY.replace("+", "%25252B")])
+async def test_a_body_still_holding_the_key_after_decoding_is_dropped(use, form):
+    use(ApiMock((200, f"request was /x?sk={form}&q=1", {"content-type": "text/plain"})))
+    got = await generic.fetch(conn(), "/x", {})
+    assert got.text == generic.KEY_IN_BODY and "zyxwVUTSrqpo" not in got.text
+
+
+async def test_failure_sample_holding_the_key_is_dropped(use):
+    use(ApiMock((500, f"error for key {KEY.replace('+', '&amp;#43;')}", {"content-type": "text/plain"})))
+    with pytest.raises(GenericFailed) as e:
+        await generic.fetch(conn(), "/x", {})
+    assert "zyxwVUTSrqpo" not in (e.value.sample or "")
+
+
+def test_mask_has_no_space_so_no_leftover_after_the_key_name_pass():
+    assert " " not in generic.MASK
+    assert generic.scrub(f"serviceKey={KEY}&q=1", KEY, key_name="serviceKey") == f"serviceKey={generic.MASK}&q=1"
+
+
+async def test_http_connections_go_to_the_validated_ip_with_the_host_header(use, monkeypatch):
+    mock = use(ApiMock())
+    answers = iter([[PUBLIC_IP], ["10.0.0.1"]])  # 두 번째로 풀면 내부망(리바인딩) — 다시 풀지 않아야 한다
+    monkeypatch.setattr(generic, "RESOLVE", lambda host, port: next(answers))
+    await generic.fetch(conn(base_url="http://api.example.kr/svc"), "/x", {"q": "1"})
+    [sent] = mock.requests
+    assert sent.url.host == PUBLIC_IP and sent.headers["host"] == "api.example.kr"
+    assert sent.url.path == "/svc/x"
+
+
+async def test_https_connections_keep_the_host_name(use):
+    mock = use(ApiMock())
+    await generic.fetch(conn(), "/x", {})
+    assert mock.requests[0].url.host == HOST
+
+
+@pytest.mark.parametrize("address", ["::7f00:1", "::a00:1", "64:ff9b::7f00:1", "64:ff9b::a9fe:a9fe", "fec0::1"])
+def test_embedded_and_site_local_ipv6_are_not_public(address):
+    assert generic._public(address) is False
+    assert generic.base_url_problem(f"http://[{address}]/x") is not None
+
+
+async def test_name_resolution_is_inside_the_15_second_budget(use, monkeypatch):
+    import time
+
+    def slow(host, port):
+        time.sleep(0.5)
+        return [PUBLIC_IP]
+
+    mock = use(ApiMock())
+    monkeypatch.setattr(generic, "RESOLVE", slow)
+    monkeypatch.setattr(generic, "TIMEOUT_S", 0.05)
+    start = time.perf_counter()
+    with pytest.raises(GenericFailed) as e:
+        await generic.fetch(conn(), "/x", {})
+    assert e.value.code == "timeout" and time.perf_counter() - start < 0.4 and mock.requests == []
+
+
+async def test_a_url_that_cannot_be_built_is_a_bad_path(use, caplog):
+    mock = use(ApiMock())
+    with pytest.raises(GenericFailed) as e:
+        await generic.fetch(conn(), "/x", {f"p{i}": "가" * 500 for i in range(30)})
+    assert e.value.code == "bad_path" and any("가" <= ch <= "힣" for ch in e.value.message)
+    assert mock.requests == [] and "Traceback" not in caplog.text
+
+
+@pytest.mark.parametrize("path", ["/a/%252e%252e/b", "/a%25/b", "/%25"])
+def test_percent_25_in_the_path_part_is_refused(path):
+    assert generic.request_problem(path, {}, "serviceKey")
+
+
+def test_percent_25_in_a_query_value_is_fine():
+    assert generic.request_problem("/x?q=%25EC%2584", {}, "serviceKey") is None
+
+
+@pytest.mark.parametrize(("body", "expected"), [
+    ({"response": {"header": {"resultCode": "30", "resultMsg": "SERVICE KEY IS NOT REGISTERED ERROR."}}}, "not_registered"),
+    ({"response": {"header": {"resultCode": "22"}}}, "rate_limited"),
+    ({"response": {"header": {"resultCode": "33"}}}, "bad_key"),
+    ({"response": {"header": {"resultCode": "00"}}}, None),
+    ({"response": {"header": {"resultCode": "03"}}}, None),
+    ({"response": {"header": {"resultCode": "10"}}}, None),
+    ({"other": 1}, None),
+])
+def test_result_code_account_failures(body, expected):
+    assert generic.result_code_failure(json.dumps(body)) == expected
+
+
+async def test_header_mode_body_and_logs_hold_no_key(use, caplog):
+    caplog.set_level(logging.DEBUG)
+    use(ApiMock((200, {"echo": KEY, "auth": f"Bearer {KEY}"})))
+    got = await generic.fetch(conn(key_in="header", key_name="Authorization"), "/x", {})
+    assert "zyxwVUTSrqpo" not in got.text + got.url + caplog.text

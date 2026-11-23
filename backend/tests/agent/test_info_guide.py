@@ -28,3 +28,12 @@ def test_info_guide_says_how_to_use_the_tools():
 
 def test_system_prompt_always_mentions_info_list():
     assert "info__list" in context.system_prompt([])
+
+
+def test_a_bare_rest_day_word_does_not_pick_the_info_guide():
+    assert context.select_guides("휴일 반영해서 지연 다시 계산해줘", NO_UI, has_files=False) == ["delay"]
+
+
+def test_info_guide_lists_then_reads_one_usage_then_calls():
+    guide = (context.GUIDES_DIR / "info.md").read_text(encoding="utf-8")
+    assert "connection_id" in guide and guide.index("info__list") < guide.index("info__call")

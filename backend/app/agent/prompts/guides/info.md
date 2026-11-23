@@ -1,6 +1,6 @@
 정보 API(공공데이터)
-- 질문에 바깥 공공데이터(공휴일·기상특보·대기오염·입찰공고·건축인허가 등)가 필요하면 먼저 info__list 로 관리자가 연결해 둔 API 를 본다. 날씨 통계·예보는 kind kma 연결이므로 info__weather 로 본다.
-- description(무엇을 주는지)을 읽고 맞는 연결을 고르고, usage(쓰는 법)의 경로·필수 파라미터·예시대로 info__call 의 path 와 params 를 짠다. 한 요청에 최대 4번이다(실패도 센다). truncated 이면 범위를 좁혀 다시 부른다.
+- 질문에 바깥 공공데이터(공휴일·기상특보·대기오염·입찰공고·건축인허가 등)가 필요하면 먼저 info__list 를 입력 없이 불러 관리자가 연결해 둔 API 목록을 본다. 날씨 통계·예보는 kind kma 연결이므로 info__weather 로 본다.
+- description(무엇을 주는지)을 읽고 맞는 연결을 고른 뒤, info__list 에 그 connection_id 를 주어 다시 불러 usage(쓰는 법)를 본다. usage 의 경로·필수 파라미터·예시대로 info__call 의 path 와 params 를 짠다. 한 요청에 최대 4번이다(실패도 센다). truncated 이면 범위를 좁혀 다시 부르고, 실패하면 안내에 붙은 HTTP 상태와 응답 앞부분을 보고 고친다.
 - 응답 body 에 실제로 있는 값만 인용한다. 없는 값을 짐작해 채우거나 다시 계산하지 않는다.
 - 쓴 값은 가정에 넣고 evidence_ids 에 결과의 evidence_id 를 넣는다(source 는 연결 이름). 답에서는 "[근거 n]"(n = evidence_id)으로 적는다.
 - 키는 코드가 붙인다. 사용자에게 키를 묻지 않고, path·params 에 키를 넣지 않는다.

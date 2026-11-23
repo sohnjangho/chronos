@@ -34,10 +34,22 @@ HOLIDAY_XML = ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><re
                "</items><totalCount>2</totalCount></body></response>")
 
 
+async def _chunks(body: bytes):
+    yield body
+
+
+def streamed(response: httpx.Response) -> httpx.Response:
+    """실제 소켓처럼 아직 읽지 않은 응답으로(httpx 는 bytes 로 만든 응답을 미리 읽는다 — aiter_raw 를 쓸 수 없다)."""
+    if not response.is_stream_consumed:
+        return response
+    return httpx.Response(response.status_code, headers=response.headers, content=_chunks(response.content))
+
+
 class ApiMock(httpx.MockTransport):
     """값은 (상태, 본문[, 머리글]) · httpx.Response · 예외, 또는 request → 그것(동기·비동기).
 
     본문이 dict·list 면 JSON, str 이면 글(기본 text/xml), bytes 면 그대로. 받은 요청은 `.requests` 에 남는다.
+    응답은 늘 아직 읽지 않은 흐름으로 준다(streamed). 압축 본문은 미리 풀리지 않게 async 반복자로 만들어 넘긴다.
     """
 
     def __init__(self, answer: object = None) -> None:
@@ -55,11 +67,11 @@ class ApiMock(httpx.MockTransport):
         if isinstance(answer, Exception):
             raise answer
         if isinstance(answer, httpx.Response):
-            return answer
+            return streamed(answer)
         status, body, *rest = answer
         headers = rest[0] if rest else None
         if isinstance(body, dict | list):
-            return httpx.Response(status, json=body, headers=headers)
+            return streamed(httpx.Response(status, json=body, headers=headers))
         if isinstance(body, bytes):
-            return httpx.Response(status, content=body, headers=headers)
-        return httpx.Response(status, text=body, headers=headers or {"content-type": "text/xml;charset=UTF-8"})
+            return streamed(httpx.Response(status, content=body, headers=headers))
+        return streamed(httpx.Response(status, text=body, headers=headers or {"content-type": "text/xml;charset=UTF-8"}))

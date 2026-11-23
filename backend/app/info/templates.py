@@ -50,7 +50,7 @@ class Template(BaseModel):
     key_in: Literal["query", "header"]
     key_name: Annotated[str, Field(pattern=generic.KEY_NAME_PATTERN)]
     description: Annotated[str, Field(min_length=1, max_length=500)]
-    usage: Annotated[str, Field(max_length=4000)]
+    usage: Annotated[str, Field(max_length=3000)]  # 연결의 usage 한도와 같다
     test_path: Annotated[str, Field(min_length=1, max_length=500)]
     docs_url: Annotated[str, AfterValidator(_docs_url)]
 

@@ -13,7 +13,7 @@ BaseUrl = Annotated[str, AfterValidator(normalize_base_url)]
 UtcDatetime = Annotated[datetime, AfterValidator(as_utc)]
 Name = Annotated[str, Field(min_length=1, max_length=100)]
 Description = Annotated[str, Field(max_length=500)]
-Usage = Annotated[str, Field(max_length=4000)]
+Usage = Annotated[str, Field(max_length=3000)]  # info.list 로 하나씩 보여도 도구 결과 4,000자 안에 들게
 KeyName = Annotated[str, Field(pattern=KEY_NAME_PATTERN)]
 TestPath = Annotated[str, Field(max_length=500)]
 
