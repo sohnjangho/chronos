@@ -59,15 +59,17 @@ class CompanyPatch(Strict):
 
 
 class PersonIn(Strict):
-    """hours 가 null 이면 프로젝트 달력의 기본 근무시간. phone 이 null·빈 글이면 번호 없음."""
+    """hours 가 null 이면 프로젝트 달력의 기본 근무시간. phone 이 null·빈 글이면 번호 없음.
+    can_sms·can_call 을 보내지 않으면(null) 번호 종류가 정한다(phone.can_sms·phone.can_call). 참으로 보냈는데 그 번호로
+    안 되면 422 channel_not_possible."""
 
     name: Name
     role_title: Short = ""  # 담당
     company_id: int
     phone: PhoneText | None = None
-    can_sms: bool = True
+    can_sms: bool | None = None
     can_kakao: bool = True
-    can_call: bool = True
+    can_call: bool | None = None
     hours: HoursIn | None = None
     gender: Gender = "unknown"
     language: Language = "ko"
@@ -132,9 +134,10 @@ class PersonBrief(BaseModel):
     company_id: int
     phone_masked: str  # 010-****-0199, 번호가 없으면 「번호 없음」
     has_phone: bool
+    phone_kind: str | None  # phone.kind: mobile | landline | internet | rep | safe | tollfree | premium, 번호 없으면 null
     channels: list[Channel]  # 받을 수 있다고 둔 것(can_*)
     unread: int  # 읽지 않은 받은 메시지
-    do_not_contact: bool
+    do_not_contact: bool  # 번호 기준(store.outreach.is_do_not_contact) 또는 이 연락처의 표시
     phone_invalid: bool
     last_line: str | None
     hidden: bool

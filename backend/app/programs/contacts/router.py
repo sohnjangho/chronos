@@ -53,8 +53,11 @@ def person(schedule_id: int, contact_id: int, session: SessionDep) -> PersonDeta
 
 
 @router.patch("/{schedule_id}/contacts/people/{contact_id}")
-def patch_person(schedule_id: int, contact_id: int, body: PersonPatch, session: SessionDep) -> PersonDetail:
-    return service.patch_person(session, schedule_id, contact_id, body)
+def patch_person(
+    schedule_id: int, contact_id: int, body: PersonPatch, session: SessionDep, user: UserDep
+) -> PersonDetail:
+    """보낸 칸만. 보이던 수신 거부를 끄는 것(do_not_contact: false)은 관리자만 — 그 번호가 있는 모든 일정에서 풀린다."""
+    return service.patch_person(session, schedule_id, contact_id, body, user)
 
 
 @router.post("/{schedule_id}/contacts/people/{contact_id}/reveal")

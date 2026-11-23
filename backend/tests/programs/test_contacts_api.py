@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.core.model import CalendarSpec
 from app.outreach import phone
@@ -14,11 +14,13 @@ from app.outreach.hours import KST
 from app.programs.contacts import service
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
+from app.store import outreach
 from app.store.tables import User
 from app.store.tables_outreach import (
     Contact,
     ContactProposal,
     ContactReport,
+    DoNotContactNumber,
     OutreachCall,
     OutreachMessage,
 )
@@ -31,8 +33,14 @@ BAD_PHONE = ("invalid_phone", "전화번호 형식이 맞지 않습니다.")
 BAD_DAYS = ("invalid_hours", "근무 요일을 하나 이상 골라 주세요.")
 BAD_TIME = ("invalid_hours", "시각은 HH:MM 으로 넣어 주세요.")
 SAME_TIME = ("invalid_hours", "시작과 끝 시각이 같습니다. 끝나는 시각을 다르게 넣어 주세요.")
+NOT_STORABLE = ("invalid_phone", "주소록에 둘 수 없는 번호입니다.")
+SMS_ONLY_MOBILE = ("channel_not_possible", "문자는 휴대전화 번호로만 보낼 수 있습니다.")
+NO_CALL = ("channel_not_possible", "이 번호로는 전화를 걸 수 없습니다.")
+ADMIN_CLEARS = ("admin_only", "수신 거부는 관리자만 풀 수 있습니다(이 번호가 있는 모든 프로젝트에서 풀립니다).")
+PREMIUM = "060-700-0199"  # 정보 이용 번호(가상) — phone.storable 이 거절
+LANDLINE = "02-2000-0199"  # 유선(가상) — 문자 불가, 전화 가능
 SAT_10 = datetime(2027, 3, 6, 10, 0, tzinfo=KST)  # 토요일 오전
-BRIEF_KEYS = {"id", "name", "role_title", "company_id", "phone_masked", "has_phone", "channels", "unread",
+BRIEF_KEYS = {"id", "name", "role_title", "company_id", "phone_masked", "has_phone", "phone_kind", "channels", "unread",
               "do_not_contact", "phone_invalid", "last_line", "hidden"}
 DETAIL_KEYS = BRIEF_KEYS | {"hours", "working_now", "hours_label", "gender", "language", "voice_mode", "voice_id",
                             "dnc_reason", "note", "linked_activities"}
@@ -234,17 +242,204 @@ def test_too_long_phone_is_422_without_value(client, user, sid):
 
 
 def test_phone_rule_comes_from_the_phone_module(client, user, sid, monkeypatch):
-    """주소록은 받는 번호 규칙을 따로 두지 않는다 — phone.normalize 가 받으면 받고, 거절하면 거절한다."""
+    """주소록은 둘 수 있는 번호 규칙을 따로 두지 않는다 — phone.storable 이 받으면 받고, 거절하면 거절한다."""
     company = _company(client, user, sid)
-    monkeypatch.setattr(phone, "normalize", lambda raw: "15880000" if raw == "1588-0000" else None)
+    monkeypatch.setattr(phone, "storable", lambda number: phone.kind(number) == "premium")  # 규칙을 거꾸로
 
-    accepted = client.post(_url(sid, "/people"), json={"name": "대표번호", "company_id": company, "phone": "1588-0000"},
+    accepted = client.post(_url(sid, "/people"), json={"name": "정보이용", "company_id": company, "phone": PREMIUM},
                            headers=user)
     refused = client.post(_url(sid, "/people"), json={"name": "김공정", "company_id": company, "phone": SENTINEL_PHONE},
                           headers=user)
 
     assert accepted.status_code == 201 and accepted.json()["has_phone"] is True
     assert (refused.status_code, refused.json()["code"]) == (422, "invalid_phone")
+
+
+def test_premium_number_is_refused_like_a_bad_number(client, user, sid, caplog):
+    company = _company(client, user, sid)
+    pid = _person(client, user, sid, company)["id"]
+
+    created = client.post(_url(sid, "/people"), json={"name": "정보이용", "company_id": company, "phone": PREMIUM},
+                          headers=user)
+    patched = client.patch(_url(sid, f"/people/{pid}"), json={"phone": PREMIUM}, headers=user)
+
+    for r in (created, patched):
+        assert r.status_code == 422, r.json()
+        assert (r.json()["code"], r.json()["message"]) == NOT_STORABLE
+        assert "0199" not in r.text and "700" not in r.text
+    assert client.post(_url(sid, f"/people/{pid}/reveal"), headers=user).json() == {"phone": SENTINEL_PHONE}
+    assert_clean(caplog, PREMIUM)
+
+
+@pytest.mark.parametrize(("raw", "kind", "dashed", "channels"), [
+    ("02-2000-0199", "landline", "02-2000-0199", ["kakao", "call"]),
+    ("031-200-0199", "landline", "031-200-0199", ["kakao", "call"]),
+    ("070-0000-0199", "internet", "070-0000-0199", ["kakao", "call"]),
+    ("1588-0199", "rep", "1588-0199", ["kakao", "call"]),
+    ("0507-2000-0199", "safe", "0507-2000-0199", ["kakao", "call"]),
+    ("080-200-0199", "tollfree", "080-200-0199", ["kakao", "call"]),
+    (SENTINEL_PHONE, "mobile", SENTINEL_PHONE, ["sms", "kakao", "call"]),
+])
+def test_every_storable_kind_is_kept_with_its_kind_and_channels(client, user, sid, raw, kind, dashed, channels):
+    pid = _person(client, user, sid, _company(client, user, sid), phone=raw)["id"]
+
+    listed = _people(client.get(_url(sid), headers=user).json())[0]
+    detail = client.get(_url(sid, f"/people/{pid}"), headers=user).json()
+
+    assert (listed["phone_kind"], detail["phone_kind"]) == (kind, kind)
+    assert (listed["channels"], detail["channels"]) == (channels, channels)
+    assert client.post(_url(sid, f"/people/{pid}/reveal"), headers=user).json() == {"phone": dashed}
+
+
+# ── 채널은 번호 종류를 따른다(phone.can_sms · phone.can_call) ────────────────────
+
+def test_person_without_number_gets_no_sms_or_call(client, user, sid):
+    created = _person(client, user, sid, _company(client, user, sid), phone=None)
+
+    assert (created["phone_kind"], created["channels"]) == (None, ["kakao"])
+
+
+@pytest.mark.parametrize("body", [{"phone": LANDLINE, "can_sms": True}, {"phone": None, "can_sms": True}])
+def test_sms_on_a_number_that_cannot_take_texts_is_422(client, user, sid, body):
+    company = _company(client, user, sid)
+    landline = _person(client, user, sid, company, name="박유선", phone=LANDLINE)["id"]
+    mobile = _person(client, user, sid, company)["id"]
+
+    created = client.post(_url(sid, "/people"), json={"name": "이현장", "company_id": company, **body}, headers=user)
+    asked = client.patch(_url(sid, f"/people/{landline}"), json={"can_sms": True}, headers=user)
+    moved = client.patch(_url(sid, f"/people/{mobile}"), json=body, headers=user)
+
+    for r in (created, asked, moved):
+        assert r.status_code == 422, r.json()
+        assert (r.json()["code"], r.json()["message"]) == SMS_ONLY_MOBILE
+        assert "0199" not in r.text
+    detail = client.get(_url(sid, f"/people/{mobile}"), headers=user).json()
+    assert (detail["phone_kind"], detail["channels"]) == ("mobile", ["sms", "kakao", "call"])
+
+
+def test_call_flag_follows_phone_can_call(client, user, sid, monkeypatch):
+    company = _company(client, user, sid)
+    monkeypatch.setattr(phone, "can_call", lambda number: False)
+
+    asked = client.post(_url(sid, "/people"), json={"name": "이현장", "company_id": company, "phone": SENTINEL_PHONE,
+                                                    "can_call": True}, headers=user)
+    defaulted = _person(client, user, sid, company)
+
+    assert (asked.status_code, asked.json()["code"], asked.json()["message"]) == (422, *NO_CALL)
+    assert defaulted["channels"] == ["sms", "kakao"]
+
+
+def test_new_number_resets_channel_flags_but_same_number_does_not(client, user, sid):
+    pid = _person(client, user, sid, _company(client, user, sid))["id"]
+
+    def patch(body: dict) -> list[str]:
+        r = client.patch(_url(sid, f"/people/{pid}"), json=body, headers=user)
+        assert r.status_code == 200, r.json()
+        return r.json()["channels"]
+
+    assert patch({"can_call": False}) == ["sms", "kakao"]
+    assert patch({"phone": SENTINEL_DIGITS}) == ["sms", "kakao"]  # 같은 번호 — 손으로 끈 것을 그대로
+    assert patch({"phone": LANDLINE}) == ["kakao", "call"]  # 새 번호 — 번호 종류대로
+    assert patch({"phone": "010-0000-0198", "can_call": False}) == ["sms", "kakao"]  # 보낸 칸은 보낸 대로
+    assert patch({"phone": None}) == ["kakao"]
+
+
+# ── 수신 거부는 번호 기준(store.outreach 의 세 함수) ───────────────────────────────
+
+def test_do_not_contact_is_read_by_number(client, user, session, sid, sid2):
+    company, company2 = _company(client, user, sid), _company(client, user, sid2, name="나래전기")
+    marked = _person(client, user, sid, company, name="가번호")["id"]  # 번호 기준 표시만
+    elsewhere = _person(client, user, sid, company, name="나다른", phone="010-0000-0198")["id"]
+    flagged = _person(client, user, sid2, company2, name="다른일정", phone="010-0000-0198")["id"]
+    clean = _person(client, user, sid, company, name="라없음", phone="010-0000-0197")["id"]
+    no_number = _person(client, user, sid, company, name="마번호없음", phone=None, do_not_contact=True)["id"]
+    outreach.mark_do_not_contact(session, SENTINEL_PHONE, reason="번호 기준")
+    session.get(Contact, flagged).do_not_contact = True  # 다른 일정의 연락처 표시만(번호 기준 줄 없음)
+    session.commit()
+
+    listed = {p["id"]: p["do_not_contact"] for p in _people(client.get(_url(sid), headers=user).json())}
+    detailed = {pid: client.get(_url(sid, f"/people/{pid}"), headers=user).json()["do_not_contact"] for pid in listed}
+
+    assert listed == detailed == {marked: True, elsewhere: True, clean: False, no_number: True}
+    session.expire_all()
+    for pid, shown in listed.items():
+        row = session.get(Contact, pid)
+        assert shown == (row.do_not_contact or (row.phone is not None and outreach.is_do_not_contact(session, row.phone)))
+
+
+def test_setting_do_not_contact_marks_the_number(client, user, session, sid, sid2):
+    pid = _person(client, user, sid, _company(client, user, sid))["id"]
+    other = _person(client, user, sid2, _company(client, user, sid2), name="다른일정")["id"]
+    created = _person(client, user, sid, _company(client, user, sid, name="나래전기"), name="새사람",
+                      phone="010-0000-0198", do_not_contact=True, dnc_reason="처음부터")
+
+    r = client.patch(_url(sid, f"/people/{pid}"), json={"do_not_contact": True, "dnc_reason": "본인 요청"}, headers=user)
+
+    assert r.status_code == 200 and r.json()["do_not_contact"] is True
+    assert created["do_not_contact"] is True
+    session.expire_all()
+    reasons = dict(session.execute(select(DoNotContactNumber.number, DoNotContactNumber.reason)).all())
+    assert reasons == {SENTINEL_DIGITS: "본인 요청", "01000000198": "처음부터"}
+    assert session.get(Contact, pid).do_not_contact is True
+    assert client.get(_url(sid2, f"/people/{other}"), headers=user).json()["do_not_contact"] is True  # 같은 번호
+
+
+def test_clearing_do_not_contact_is_admin_only_and_clears_everywhere(client, user, admin, session, sid, sid2):
+    pid = _person(client, user, sid, _company(client, user, sid), do_not_contact=True, dnc_reason="본인 요청")["id"]
+    other = _person(client, user, sid2, _company(client, user, sid2), name="다른일정", do_not_contact=True)["id"]
+    plain = _person(client, user, sid, _company(client, user, sid, name="나래전기"), name="보통",
+                    phone="010-0000-0198")["id"]
+    number_only = _person(client, user, sid, _company(client, user, sid, name="다온설비"), name="번호만",
+                          phone="010-0000-0197")["id"]
+    outreach.mark_do_not_contact(session, "010-0000-0197", reason="번호 기준")
+    session.commit()
+
+    refused = [client.patch(_url(sid, f"/people/{x}"), json={"do_not_contact": False}, headers=user)
+               for x in (pid, number_only)]
+    no_op = client.patch(_url(sid, f"/people/{plain}"), json={"do_not_contact": False}, headers=user)
+
+    for r in refused:
+        assert r.status_code == 403, r.json()
+        assert (r.json()["code"], r.json()["message"]) == ADMIN_CLEARS
+    assert no_op.status_code == 200
+    session.expire_all()
+    assert outreach.is_do_not_contact(session, SENTINEL_PHONE) and outreach.is_do_not_contact(session, "010-0000-0197")
+
+    cleared = [client.patch(_url(sid, f"/people/{x}"), json={"do_not_contact": False}, headers=admin)
+               for x in (pid, number_only)]
+
+    assert [(r.status_code, r.json()["do_not_contact"], r.json()["dnc_reason"]) for r in cleared] == [(200, False, None)] * 2
+    session.expire_all()
+    assert not outreach.is_do_not_contact(session, SENTINEL_PHONE)
+    assert not outreach.is_do_not_contact(session, "010-0000-0197")
+    assert client.get(_url(sid2, f"/people/{other}"), headers=user).json()["do_not_contact"] is False
+
+
+def test_list_query_count_does_not_grow_with_people(client, user, session, sid):
+    company = _company(client, user, sid)
+    statements: list[str] = []
+
+    def count(*args) -> None:
+        statements.append(args[2])
+
+    def add(numbers: range) -> None:
+        for i in numbers:
+            _person(client, user, sid, company, name=f"사람{i}", phone=f"010-0000-{1000 + i}", do_not_contact=i % 2 == 0)
+
+    def list_queries() -> int:
+        statements.clear()
+        event.listen(session.get_bind(), "before_cursor_execute", count)
+        try:
+            assert client.get(_url(sid), headers=user).status_code == 200
+        finally:
+            event.remove(session.get_bind(), "before_cursor_execute", count)
+        return len(statements)
+
+    add(range(2))
+    few = list_queries()
+    add(range(2, 12))
+
+    assert list_queries() == few
 
 
 def test_new_number_clears_wrong_number_flag(client, user, session, sid):
@@ -268,7 +463,7 @@ def test_empty_phone_clears_number(client, user, sid):
         assert r.status_code == 200 and r.json()["has_phone"] is False
 
 
-def test_hours_gender_language_roundtrip(client, user, sid):
+def test_hours_gender_language_roundtrip(client, user, admin, sid):
     company = _company(client, user, sid)
     sent = {"hours": {"days": [4, 0, 2, 0], "start": "07:30", "end": "17:00"}, "gender": "female", "language": "vi",
             "voice_mode": "manual", "voice_id": "voice-a", "can_kakao": False, "do_not_contact": True,
@@ -285,7 +480,7 @@ def test_hours_gender_language_roundtrip(client, user, sid):
 
     back = client.patch(_url(sid, f"/people/{pid}"),
                         json={"hours": None, "gender": "male", "language": "ko", "voice_mode": "auto", "voice_id": None,
-                              "can_kakao": True, "do_not_contact": False, "dnc_reason": None}, headers=user).json()
+                              "can_kakao": True, "do_not_contact": False, "dnc_reason": None}, headers=admin).json()
     assert (back["hours"], back["gender"], back["language"], back["voice_mode"], back["voice_id"]) == (
         None, "male", "ko", "auto", None)
     assert (back["channels"], back["do_not_contact"], back["dnc_reason"]) == (["sms", "kakao", "call"], False, None)
@@ -293,7 +488,7 @@ def test_hours_gender_language_roundtrip(client, user, sid):
 
 @pytest.mark.parametrize("bad", [{"gender": "other"}, {"gender": "남"}, {"language": "jp"}, {"language": "KO"},
                                  {"voice_mode": "pick"}, {"name": None}, {"name": ""}, {"company_id": None},
-                                 {"can_sms": None}, {"note": None}, {"phone_invalid": False}, {"schedule_id": 2}])
+                                 {"can_kakao": None}, {"note": None}, {"phone_invalid": False}, {"schedule_id": 2}])
 def test_fixed_sets_and_required_fields(client, user, sid, bad):
     company = _company(client, user, sid)
     pid = _person(client, user, sid, company)["id"]
