@@ -1,4 +1,5 @@
-// S-커브 카드: 계획 누적(실선) · 실적 누적(굵은 실선, Data Date 까지) · 지연 영향 반영(점선, Data Date 부터)
+// S-커브 카드: 계획 누적(실선) · 실적 누적(굵은 실선, Data Date 까지) · 예측(점선, Data Date 부터 — 지금 저장된 일정의 계산이라
+// 승인해 반영한 지연만 들어 있다. 기록만 한 열린 지연은 창 위 띠로 따로 보인다)
 // · 주간(월간) 계획·실적 막대(오른쪽 눈금) · Data Date 세로선. 점·값은 모두 서버 값이다.
 import { dot } from '../../shared/schedule/format';
 import { md, pct } from './format';
@@ -18,7 +19,7 @@ export const periodWord = (unit: Unit) => (unit === 'week' ? '주간' : '월간'
 export const legend = (unit: Unit): [string, string][] => [
   ['계획 누적', 'is-plan'],
   ['실적 누적', 'is-actual'],
-  ['지연 영향 반영', 'is-forecast'],
+  ['예측(승인·반영된 지연만)', 'is-forecast'],
   [`${periodWord(unit)} 계획`, 'is-bar-plan'],
   [`${periodWord(unit)} 실적`, 'is-bar-actual'],
 ];
@@ -60,7 +61,7 @@ export function CurveSvg({ data, width, height, y = 0 }: { data: ProgressData; w
   const xOf = xScale(dates, box);
   const right = s.dataDateX > box.w * 0.6;
   const label = `Data Date ${md(data.data_date)} · 계획 ${pct(data.plan_now)}% · 실적 ${pct(data.actual_now)}%`;
-  const spoken = `누적 공정률 곡선(계획, 실적, 지연 영향 반영) — Data Date ${dot(data.data_date)}, 계획 ${pct(data.plan_now)}%, 실적 ${pct(data.actual_now)}%`;
+  const spoken = `누적 공정률 곡선(계획, 실적, 예측) — Data Date ${dot(data.data_date)}, 계획 ${pct(data.plan_now)}%, 실적 ${pct(data.actual_now)}%`;
   return (
     <svg className="pg-curve" y={y} width={width} height={height} role="img" aria-label={spoken}>
       <g transform={`translate(${LEFT - PAD} 0)`}>

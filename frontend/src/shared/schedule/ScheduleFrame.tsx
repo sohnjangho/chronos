@@ -1,10 +1,12 @@
 // 일정 도구 프로그램(스케줄·간트차트·CPM·공정률)의 창 틀. 프로그램은 자기 화면만 children 으로 넘긴다.
 // - 일정: params.id, 없으면 OS 지금 일정을 따른다. 같은 일정을 보는 창들은 일정 저장소 하나를 함께 쓴다(scheduleStore).
 // - 창 제목 「<프로그램> — <일정 이름>」, 머리줄 요약(서버 계산값), 알림 줄, 화면 맥락(uiContext) 알림, params.activity.
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+// - 간트차트·공정률: 기록했지만 승인 전인(열린) 지연의 띠. 열린 지연은 일정·공정률 계산에 넣지 않는다(PM 결정 11-20·11-23).
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
+import { api } from '../api';
 import Badge from '../ui/Badge';
 import { dot } from './format';
 import { ScheduleScope, useSchedule, useScheduleStore, type Scope } from './scope';
@@ -49,6 +51,47 @@ function NoticeBar({ windowId }: { windowId: string }) {
       <button type="button" className="sch-x" aria-label="알림 닫기" onClick={() => store.getState().setNotice(null)}>
         ×
       </button>
+    </div>
+  );
+}
+
+/** 열린 지연 띠를 보이는 프로그램. */
+const DELAY_BAND = new Set(['gantt', 'progress']);
+
+/**
+ * 열린(기록했지만 승인·반영 전) 지연의 건수와 일수 합 — 지연 기록 API 의 사건 그대로. 일정을 다시 읽을 때마다(view 가 바뀜:
+ * 에이전트 도구 뒤·창 열기·되돌리기) 다시 묻는다. 못 읽으면 띠를 보이지 않는다.
+ */
+function useOpenDelays(on: boolean): { count: number; days: number } | null {
+  const scheduleId = useSchedule((s) => s.scheduleId);
+  const view = useSchedule((s) => s.view);
+  const [open, setOpen] = useState<{ count: number; days: number } | null>(null);
+  useEffect(() => {
+    if (!on || !view) return;
+    let live = true;
+    api<{ events: { status: string; days: number }[] }>(`/api/schedules/${scheduleId}/delays`).then(
+      (d) => {
+        const rows = d.events.filter((e) => e.status === 'open');
+        if (live) setOpen({ count: rows.length, days: rows.reduce((n, e) => n + e.days, 0) });
+      },
+      () => live && setOpen(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [on, scheduleId, view]);
+  return on ? open : null;
+}
+
+function OpenDelayBand({ programId }: { programId: string }) {
+  const open = useOpenDelays(DELAY_BAND.has(programId));
+  if (!open?.count) return null;
+  return (
+    <div className="sch-notice is-info" role="note" aria-label="기록된 지연">
+      <span>
+        <b>{`기록된 지연 ${open.count}건 · +${open.days}일 · 승인 전`}</b>
+        {' — 일정·공정률 계산에는 승인해 반영한 지연만 들어갑니다'}
+      </span>
     </div>
   );
 }
@@ -115,6 +158,7 @@ function Held({ windowId, params, programId, name, children, dataDate, headExtra
           <Stats dataDate={dataDate} extra={headExtra} />
         </div>
       )}
+      <OpenDelayBand programId={programId} />
       <NoticeBar windowId={windowId} />
       {/* 일정이 바뀌면 프로그램 화면을 새로 그린다(찾기·접기 같은 화면 상태가 다른 일정으로 넘어가지 않게). */}
       <div className="sch-body" key={store.getState().scheduleId}>

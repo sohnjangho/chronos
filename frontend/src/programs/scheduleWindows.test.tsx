@@ -10,7 +10,8 @@ import { forgetSchedules, holdSchedule, scheduleStore } from '../shared/schedule
 import Gantt from './gantt/Gantt';
 import { bar, leftRow, setupGantt } from './gantt/testKit';
 import ScheduleTable from './schedule-table/ScheduleTable';
-import { cell, editCell, loadSpy, makeView, mockPatch, row, rowOrNull, schedule, server, table, writes } from './schedule-table/testKit';
+import { cell, editCell, fetchMock, loadSpy, makeView, mockPatch, row, rowOrNull, schedule, server, table, writes } from './schedule-table/testKit';
+import { json } from '../test-helpers';
 
 beforeEach(() => {
   localStorage.clear();
@@ -172,4 +173,49 @@ test('opening another window keeps the delay notice when the version did not cha
   await waitFor(() => expect(loadSpy).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(schedule().view?.version).toBe(2));
   expect(within(tableWin.container).getByText(/늦어졌습니다/)).toBeVisible();
+});
+
+// W2(11-23, PM 결정 1): 기록했지만 승인 전인(열린) 지연은 계산에 넣지 않고, 간트·공정률 창 위 띠로 건수와 일수 합을 알린다.
+const delayEvent = (id: number, days: number, status: 'open' | 'reflected') => ({ id, activity_id: 'A2020', days, status });
+let delayEvents: ReturnType<typeof delayEvent>[] = [];
+
+function stubDelays() {
+  const inner = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input, init) =>
+    String(input) === '/api/schedules/1/delays' ? json(200, { schedule_id: 1, version: 1, events: delayEvents }) : inner(input, init),
+  );
+}
+const band = () => screen.queryByRole('note', { name: '기록된 지연' });
+
+test('the gantt shows a band with the count and days of open delays, not the reflected ones', async () => {
+  delayEvents = [delayEvent(1, 3, 'open'), delayEvent(2, 2, 'open'), delayEvent(3, 4, 'reflected')];
+  stubDelays();
+  render(<Gantt windowId="w2" params={{ id: '1' }} />);
+  await waitFor(() => expect(band()).toHaveTextContent('기록된 지연 2건 · +5일 · 승인 전'));
+  expect(band()).toHaveTextContent('일정·공정률 계산에는 승인해 반영한 지연만 들어갑니다');
+});
+
+test('no band without open delays, and none in the schedule table', async () => {
+  delayEvents = [delayEvent(3, 4, 'reflected')];
+  stubDelays();
+  render(<Gantt windowId="w2" params={{ id: '1' }} />);
+  await screen.findByRole('toolbar', { name: '간트 도구' });
+  await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u) === '/api/schedules/1/delays')).toBe(true));
+  expect(band()).toBeNull();
+  delayEvents = [delayEvent(1, 3, 'open')];
+  render(<ScheduleTable windowId="w1" params={{ id: '1' }} />);
+  await screen.findByRole('table', { name: '스케줄표' });
+  await waitFor(() => expect(band()).not.toBeNull()); // 간트는 다시 읽고 띠를 보인다
+  expect(screen.getAllByRole('note', { name: '기록된 지연' })).toHaveLength(1); // 스케줄 창에는 없다
+});
+
+test('the band follows a reload of the schedule (a delay recorded in the chat)', async () => {
+  delayEvents = [];
+  stubDelays();
+  render(<Gantt windowId="w2" params={{ id: '1' }} />);
+  await screen.findByRole('toolbar', { name: '간트 도구' });
+  expect(band()).toBeNull();
+  delayEvents = [delayEvent(1, 3, 'open')];
+  await act(() => schedule().load()); // 에이전트 도구가 끝나면 지금 일정 저장소를 다시 읽는다
+  await waitFor(() => expect(band()).toHaveTextContent('기록된 지연 1건 · +3일 · 승인 전'));
 });

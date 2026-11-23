@@ -1,5 +1,5 @@
 // 위 띠: 상태(계획보다 늦음/계획대로 · n주차 / N주 · 준공 +n일 · 준공 여유 m일) + KPI 다섯
-// (계획 공정률 · 실적 공정률(차이 %p) · 일정 수행 지수 · 준공 · 액티비티). 값은 모두 서버 값.
+// (계획 공정률 · 실적 공정률(차이 %p) · 일정 수행 지수 · 준공 · 작업(마일스톤 제외)). 값은 모두 서버 값.
 import type { ReactNode } from 'react';
 import Badge from '../../shared/ui/Badge';
 import { days, md, pct, signed } from './format';
@@ -69,7 +69,7 @@ export default function KpiRow({ data, planStart }: { data: ProgressData; planSt
         extra={f.delta ? <span className={`pg-stat-x${f.delta > 0 ? ' is-danger' : ''}`}>{days(f.delta)}</span> : null}
         sub={`Plan ${md(f.plan)} · ${f.deadline ? `기한 ${md(f.deadline)}` : '기한 없음'}`}
       />
-      <Stat label="액티비티" value={String(c.done)} extra={<span className="pg-stat-x is-muted">{`/ ${c.total} 완료`}</span>} sub={`진행 ${c.in_progress} · 지연 ${c.late}`} />
+      <Stat label="작업 (마일스톤 제외)" value={String(c.done)} extra={<span className="pg-stat-x is-muted">{`/ ${c.total} 완료`}</span>} sub={`진행 ${c.in_progress} · 지연 ${c.late}`} />
     </section>
   );
 }

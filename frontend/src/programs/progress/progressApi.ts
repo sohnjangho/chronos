@@ -10,7 +10,7 @@ export interface CurvePoint {
   plan_cum: number;
   /** Data Date 까지만(그 뒤는 null). */
   actual_cum: number | null;
-  /** Data Date 부터만(그 앞은 null). 지연 영향을 반영한 지금 계산. */
+  /** Data Date 부터만(그 앞은 null). 지금 저장된 일정의 예측(승인·반영된 지연만, 열린 지연은 넣지 않음). */
   forecast_cum: number | null;
   plan_period: number;
   actual_period: number | null;

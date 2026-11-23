@@ -1,4 +1,4 @@
-// 마일스톤 추적: Plan 대비 실적(끝난 것)·지연 영향 반영(아직 안 온 것). 상태·차이는 서버 값.
+// 마일스톤 추적: Plan 대비 실적(끝난 것)·예측(아직 안 온 것, 승인·반영된 지연만). 상태·차이는 서버 값.
 import Badge, { type Tone } from '../../shared/ui/Badge';
 import Table from '../../shared/ui/Table';
 import { days, md, signed } from './format';
@@ -18,7 +18,7 @@ export default function MilestoneTable({ data }: { data: ProgressData }) {
     <section className="pg-card pg-ms-card" aria-label="마일스톤">
       <div className="pg-card-head">
         <h3 className="pg-card-title">마일스톤 추적</h3>
-        <span className="pg-muted">Plan 대비 실적 · 아직 안 온 것은 지연 영향 반영</span>
+        <span className="pg-muted">Plan 대비 실적 · 아직 안 온 것은 예측(승인·반영된 지연만)</span>
       </div>
       <div className="pg-card-body pg-ms-body">
         <Table<Milestone>

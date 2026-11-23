@@ -7,6 +7,7 @@ import { forgetSchedules, scheduleStore } from '../../shared/schedule/scheduleSt
 import { setup } from '../../shared/schedule/testKit';
 import manifest from './index';
 import Progress from './Progress';
+import { json } from '../../test-helpers';
 import { lastUrl, mockProgress, P, progressUrls, stubProgressApi } from './testKit';
 
 const downloadSvgImage = vi.hoisted(() => vi.fn(async () => 'png' as const));
@@ -317,4 +318,26 @@ test('reset restores default order, spans and visibility even when all widgets w
     ['delay', '3'],
     ['lookahead', '3'],
   ]);
+});
+
+// W2(11-23, PM 결정 1): 열린 지연은 곡선·SPI·마일스톤에 넣지 않는다 — 위 띠로 알리고, 점선은 보이는 그대로 부른다.
+test('open delays show as a band, and the dotted line says it holds only approved delays', async () => {
+  const inner = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (input, init) =>
+    String(input) === '/api/schedules/1/delays'
+      ? json(200, { events: [{ status: 'open', days: 3 }, { status: 'reflected', days: 2 }] })
+      : inner(input, init),
+  );
+  show();
+  expect(await screen.findByRole('note', { name: '기록된 지연' })).toHaveTextContent('기록된 지연 1건 · +3일 · 승인 전');
+  expect(screen.getByText('예측(승인·반영된 지연만)')).toBeVisible();
+  expect(screen.getByText('Plan 대비 실적 · 아직 안 온 것은 예측(승인·반영된 지연만)')).toBeVisible();
+  expect(screen.queryByText(/지연 영향 반영/)).toBeNull();
+});
+
+// W5(11-23): 공정률은 작업만 센다(스케줄·간트의 액티비티 수에는 마일스톤도 들어 있다).
+test('the count card says it counts tasks without milestones', async () => {
+  show();
+  expect(await screen.findByText('작업 (마일스톤 제외)')).toBeVisible();
+  expect(within(screen.getByRole('region', { name: '공정률 요약' })).queryByText('액티비티')).toBeNull();
 });
