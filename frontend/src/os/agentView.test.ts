@@ -11,4 +11,8 @@ describe('새 에이전트 도구의 화면 이름(A6)', () => {
     expect(labelOf('files.set_axes', null)).toBe('자료 분류 수정');
     expect(resolveToolTarget('files.set_axes', null).programId).toBe('library');
   });
+
+  it('field.list 는 「현장 데이터 조회」다', () => {
+    expect(labelOf('field.list', 'progress')).toBe('현장 데이터 조회');
+  });
 });

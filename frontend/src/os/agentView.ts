@@ -88,6 +88,7 @@ const TOOL_NAMES: Record<string, string> = {
   'visual.make': '보고서 그림 생성',
   'ui.open_window': '프로그램 창 열기',
   'progress.read': '공정률 조회',
+  'field.list': '현장 데이터 조회',
   'schedule.list': '전체 일정 조회',
   'conditions.list': '조건 목록 조회',
   'schedule.activity_detail': '액티비티 상세 조회',
