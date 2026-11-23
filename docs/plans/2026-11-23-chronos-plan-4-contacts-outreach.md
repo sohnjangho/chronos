@@ -189,7 +189,7 @@ graph LR
 | 번호 보기(`reveal`) | POST · `Cache-Control: no-store` · 현장 관리자 403 · 다른 일정이면 404 · 누가 어느 연락처를 봤는지(번호 없이) 로그 | `test_reveal_is_scoped_logged_and_uncached` (72) |
 | 녹음 파일·음성 샘플 | 로그인·역할·일정 확인 뒤에만 내려줌 | `test_recording_needs_role_and_project` (91) |
 | 개발 콘솔(실행 추적·진단·사용량·격자 결과) | 콘솔 응답은 가린 번호와 끝 4자리 없는 상태 글만. 사건·도구 인자는 저장할 때 이미 번호를 가림 | `test_console_outreach_views_have_no_number_or_key` (108), `test_run_output_has_no_number` (98) |
-| 연결 진단 결과(화면·저장된 마지막 진단·콘솔·선택 스크립트 출력) | 걸음 결과의 `detail`·`data` 는 진단 함수의 `clean` 을 거친다: 키·Account ID·번호(7자리 넘는 숫자 묶음) 없음. 받은 통화의 건 번호는 가린 꼴만 | `test_step_results_are_scrubbed` (59), `test_caller_number_is_never_in_step_results` (60), `test_stored_diagnosis_has_no_key_or_number` (70) |
+| 연결 진단 결과(화면·저장된 마지막 진단·콘솔·선택 스크립트 출력) | 걸음 결과의 `detail`·`notes` 는 진단 함수의 `scrub` 을 거친다: 키·Account ID·번호(7자리 넘는 숫자 묶음) 없음. 받은 통화의 건 번호는 가린 꼴만 | Task 59 의 지우기 시험(`tests/notify/test_diagnostics.py`), `test_caller_number_is_never_in_step_results` (60), `test_stored_diagnosis_has_no_key_or_number` (70) |
 | **받는 쪽: 발신 번호 속이기(전화·문자)** | 주소록 번호로 와도 말할 수 있는 것은 등급 범위까지. 변경·확정은 하지 않음. 범위는 도구가 매번 코드로 다시 계산 | `test_known_number_never_gets_beyond_class_scope`, `test_no_tool_changes_schedule_or_contact_data` (67) |
 | **받는 쪽: 모르는 사람에게 알려 줌** | `unknown`·`withheld`·`do_not_contact` 등급에는 일정 도구가 없다. 문자 답은 고정 안내 한 줄. `take_message(claimed_name)` 은 그 이름이 주소록에 있든 없든 같은 글 | `test_unknown_class_has_no_schedule_tools`, `test_claim_reply_is_same_whether_name_exists` (67), `test_unknown_sms_gets_fixed_notice_only` (84) |
 | 받는 쪽: 발신 번호 자체 | 번호는 `door` 만 읽는다. 지시문·도구 결과·사건에 없음. 「모르는 번호」 묶음은 가린 꼴과 `peer_key` | `test_inbound_spec_and_events_have_no_caller_number` (95), `test_unknown_list_has_no_full_number` (85) |
@@ -235,30 +235,16 @@ P1~P4 는 PM 이 설정 → 알림 연결의 [연결 진단]으로(P0-R), P5~P14
 
 **[PM 결정 11-23]** PM 은 터미널 스크립트를 쓰지 않는다. 키는 모두 설정 화면에 넣고, 확인 걸음은 앱이 저장된 키로 돌린다. 그래서 확인 걸음은 **불러 쓸 수 있는 함수**(걸음 결과 목록을 돌려줌)로 만들고, 알림 연결 API(Task 70·90)가 그것을 부르고, 설정 화면(Task 74·93)이 OK/FAIL 줄로 보인다. 아래 두 작업의 함수 이름·꼴은 **그 작업 보고서의 최종 인터페이스가 우선**이다(Task 59 는 지금 이 꼴로 고쳐지고 있다).
 
-### Task 59: 연결 진단 함수 — REST(P1~P4) [opus] · G10
+### Task 59: 연결 진단 함수 — REST(P1~P4) [opus] · G10 — **끝남(커밋 0d4dea1)**
 
-**Files:**
-- Create: `backend/app/notify/{__init__,diagnostics}.py`, `backend/tests/notify/{__init__,test_diagnostics}.py`
-- 선택: `backend/scripts/probe_outreach.py`(같은 함수를 환경 변수로 부르는 얇은 싸개 — 어느 작업의 조건도 아님), `backend/tests/scripts/test_probe_outreach_clean.py`
+**Files(만들어진 것):** `backend/app/notify/{__init__,diagnostics}.py`, `backend/tests/notify/test_diagnostics.py`, 선택 싸개 `backend/scripts/probe_outreach.py` + `backend/tests/scripts/test_probe_outreach_clean.py`(어느 작업의 조건도 아님 — PM 은 쓰지 않는다)
 
-**Interfaces:**
-- `StepResult(code: str, title: str, status: Literal["ok", "fail", "skip"], detail: str, data: dict)` — `code` 는 `P1`…, `detail` 은 사람이 읽는 한 줄(한국어), `data` 는 뒤 작업이 읽을 값(상태 말 목록·응답 칸 이름·지연 ms 등). 둘 다 `clean` 을 거쳐 키·Account ID·번호가 없다.
-- `async run_rest(conn: DiagConn(base_url, account_id, key, sender), *, steps: Sequence[str] = ("P1", "P3", "P4"), send_to: str | None = None, transport=None) -> list[StepResult]` — 걸음마다 따로 OK/FAIL. **P2(실제 문자 1건)는 `steps` 에 있고 `send_to` 가 있을 때만** 돈다(없으면 `skip`). 한 번 부를 때 REST 요청 8번·문자 1건까지. DB·`data/` 에 쓰지 않는다(저장은 부른 쪽이). `httpx`(`trust_env=False`, 리다이렉트 안 따름, 15초).
-- `clean(text, secrets: Iterable[str], numbers: Iterable[str], limit=200) -> str`.
-- 걸음: **P1** 인증 + 발신번호 목록(구조와 개수, 번호는 가림) · **P2** `POST {base}/v1/accounts/{accountId}/messages` 로 `send_to` 에 「[ChronOS] 연결 진단 문자입니다.」 1건(중복 방지 키 포함) · **P3** `GET …/messages/{id}` 를 5초 간격 최대 4번, 상태 말이 바뀌는 것을 `data.states` 에(P2 를 안 돌렸으면 `skip`) · **P4** `GET …/messages?status=received`(구조와 건수만).
-- 요청 본문 칸 이름·발신번호 목록 경로는 설계에 없다 → **한국AI통신 공개 문서에서 확인해 넣고, 모듈 머리 주석에 본 문서 쪽 이름을 적는다.** 문서에서 찾지 못한 걸음은 지어내지 말고 `skip — 문서 확인 필요` 를 돌려준다.
-
-- [ ] **Step 1: 실패하는 시험**(`httpx.MockTransport`)
-```python
-async def test_step_results_are_scrubbed(): ...          # 가짜 응답에 SENTINEL_KEY·Account ID·SENTINEL_PHONE 을 되돌려 보내도 결과 JSON 에 없음
-async def test_each_step_reports_separately(): ...       # P1 실패(401)여도 P4 는 따로 결과가 있음, code·status·detail
-async def test_real_sms_only_when_requested_with_number(): ...   # steps 에 P2 없거나 send_to None → 문자 요청 0번, P2 skip
-async def test_request_cap(): ...
-async def test_writes_nothing(): ...
-```
-- [ ] **Step 2: 실패 확인** — `cd backend && .venv/bin/python -m pytest -q tests/notify/test_diagnostics.py` → FAIL(모듈 없음)
-- [ ] **Step 3~4** — 구현 → 통과 + ruff. **실제 계정으로 돌리지 않는다.**
-- [ ] **Step 5: 커밋** `feat: 연결 진단 함수 — REST(P1~P4)`
+**Interfaces(뒤 작업은 이 이름을 쓴다 — 0d4dea1 의 코드 그대로):**
+- `DiagnosticConn(base_url, key, account_id, sender="", test_to="")` — `test_to` 가 실제 문자를 받을 번호.
+- `DiagnosticStep(id: "P1"…"P4", label, ok: bool, detail: str, latency_ms: int | None, skipped: bool, notes: list[str])` — `detail`·`notes` 는 이미 지운 글(키·Account ID·번호·8자리 넘는 숫자 묶음·40자 넘는 토큰 없음). 실패는 `ok False`, 돌리지 않은 것은 `skipped True`.
+- `async run_checks(conn, http: httpx.AsyncClient, *, send_test_sms: bool = False, steps: tuple[int, ...] = (1, 2, 3, 4), sleep=asyncio.sleep, calls: Calls | None = None) -> list[DiagnosticStep]` — **실제 문자는 `send_test_sms=True` 일 때만**(아니면 P2·P3 은 건너뜀). 요청 상한 8번(`Calls`). 예외를 던지지 않고 DB 에 쓰지 않는다. 걸음 함수 `check_senders`·`check_send_sms`·`check_message_status`·`check_received`.
+- `scrub(text, *, secrets: list[str], numbers: list[str], limit=200) -> str` · `structure(obj) -> str`(칸 이름만).
+- **문서 확인분은 모듈 머리 주석에 있다**(본 날짜·문서 쪽 이름과 함께): 발신번호 목록 `GET /v1/accounts/{accountId}/sender-numbers`, 문자 보내기 본문 `To`·`From`·`Body`·`Type`·`IdempotencyKey`, 상태 말 `queued|sent|failed|received`·`failureCode`, 받은 문자 `GET …/messages?status=received&pageSize=`. **Task 69 는 이것을 그대로 쓴다**(여기 없는 것은 여전히 「문서 확인 필요」).
 
 ### Task 60: 연결 진단 함수 — 음성·받는 통화(P5~P14) [fable] · G11
 
@@ -267,10 +253,10 @@ async def test_writes_nothing(): ...
 - Modify: `backend/pyproject.toml`(`[project.optional-dependencies] voice = ["koreaaitel[<문서에서 확인한 extra>]==<문서에서 확인한 버전>"]` — **적기만 하고 설치하지 않는다**)
 
 **Interfaces:**
-- Consumes: Task 59 `StepResult`·`clean`.
-- `async run_voice(conn: DiagConn, voice: VoiceDiag(provider: "google" | "openai", key, model: str | None), *, steps: Sequence[str] = ("P5", "P9", "P11"), call_to: str | None = None, lang2: str = "en", wait_inbound_s: int = 90, sdk=None) -> list[StepResult]` — SDK import 는 함수 안에서(없으면 P5 가 `fail — 음성 SDK 가 설치돼 있지 않습니다`, 뒤 걸음은 `skip`). `sdk` 인자는 시험이 가짜를 끼우는 자리. **실제로 거는 걸음(P6·P7·P8·P10)은 `steps` 에 있고 `call_to` 가 있을 때만**, 한 번 부를 때 거는 통화 3통(통마다 60초에 코드가 끊음)·받는 통화 2통·샘플 1번까지.
+- Consumes: Task 59 `DiagnosticStep`·`DiagnosticConn`·`scrub`·`Calls`(같은 꼴로 걸음 결과를 돌려준다 — 화면이 REST 와 음성 결과를 같은 줄로 그린다).
+- `async run_voice_checks(conn: DiagnosticConn, voice: VoiceDiag(provider: "google" | "openai", key, model: str | None), *, steps: tuple[int, ...] = (5, 9, 11), call_to: str | None = None, lang2: str = "en", wait_inbound_s: int = 90, sdk=None) -> list[DiagnosticStep]` — SDK import 는 함수 안에서(없으면 P5 가 `ok False` 「sdk_not_installed — 음성 SDK 가 설치돼 있지 않습니다」, 뒤 걸음은 `skipped`). `sdk` 인자는 시험이 가짜를 끼우는 자리. **실제로 거는 걸음(P6·P7·P8·P10)은 `steps` 에 있고 `call_to` 가 있을 때만**, 한 번 부를 때 거는 통화 3통(통마다 60초에 코드가 끊음)·받는 통화 2통·샘플 1번까지.
 - 걸음: **P5** import·버전 + 플랫폼으로 나가는 연결 · **P6** `call_to` 로 한국어 통화, 고정 첫마디 「안녕하세요, ChronOS 연결 진단 전화입니다. 이 통화는 기록됩니다.」, 첫 응답 지연(ms) · **P7** 그 통화의 전사 이벤트 `transcript(role, text)` 수와 역할 · **P8** 같은 통화에서 `@agent.tool` 도구 `diag_fact()` 1번 불림 · **P9** 음성 목록(이름·성별 칸이 있는지) + 한 문장 샘플 1개(바이트 수만) · **P10** `lang2` 첫마디로 1통 · **P11** 발신번호를 SDK 에이전트에 묶기 · **P12** `wait_inbound_s` 동안 걸려 오는 1통 받기(화면이 「지금 휴대전화로 070 번호에 걸어 주세요」를 보임) · **P13** 받은 통화의 건 번호가 읽히는지(`data.readable`, 값은 싣지 않음) · **P14** 한 번 더 걸려 오면 받지 않고 거절(되는지와 방법 이름).
-- SDK 의 클래스·함수 서명, 번호 묶는 방법, 거절 방법, extra 이름·버전은 **공개 문서와 `help()` 로 확인해 쓴다.** 설계에 적힌 이름(`agent.call`·`@agent.tool`·`call.transfer`·`call.hangup`·이벤트 넷·`GeminiRealtime`·`OpenAIRealtime`) 밖의 것은 문서에서 본 대로만. 못 찾은 걸음은 `skip — 문서 확인 필요`.
+- SDK 의 클래스·함수 서명, 번호 묶는 방법, 거절 방법, extra 이름·버전은 **공개 문서와 `help()` 로 확인해 쓴다.** 설계에 적힌 이름(`agent.call`·`@agent.tool`·`call.transfer`·`call.hangup`·이벤트 넷·`GeminiRealtime`·`OpenAIRealtime`) 밖의 것은 문서에서 본 대로만. 못 찾은 걸음은 건너뜀(`skipped`, 「문서 확인 필요」).
 - 여기서 실제로 돈 SDK 호출 꼴이 Task 113(SDK 어댑터)의 본보기가 된다.
 
 - [ ] **Step 1: 실패하는 시험**(가짜 `sdk`)
@@ -615,7 +601,7 @@ Task 61 이 이미 진행 중이라 그 작업의 표는 건드리지 않고, �
 **Files:** Modify `backend/app/store/tables_outreach.py`(표 하나·칸 다섯 더함); Create `backend/app/store/outreach_usage.py`, `backend/tests/store/test_outreach_usage.py`
 **Interfaces:**
 - 표 `outreach_usage(id, at idx, kind(text_reply|draft|summary|translation|voice_model|transcription|voice_sample), ref_kind str|null(message|call), ref_id int|null, model str|null, input_tokens=0, output_tokens=0, seconds int|null, cost float|null)`.
-- 칸(모두 NULL 가능 — `add_missing_columns` 가 기존 DB 에도 더한다): `outreach_messages.length_kind`(sms|long) · `outreach_messages.provider_cost` · `outreach_calls.provider_cost` · **`notify_connections.last_diagnosis_json`** · **`voice_settings.last_diagnosis_json`**(마지막 연결 진단·음성 진단 — `{ran_at, steps: [{code, title, status, detail}], real: bool}`, 가린 글만. Task 70·90 이 쓰고 설정 화면과 개발 콘솔이 읽는다).
+- 칸(모두 NULL 가능 — `add_missing_columns` 가 기존 DB 에도 더한다): `outreach_messages.length_kind`(sms|long) · `outreach_messages.provider_cost` · `outreach_calls.provider_cost` · **`notify_connections.last_diagnosis_json`** · **`voice_settings.last_diagnosis_json`**(마지막 연결 진단·음성 진단 — `{ran_at, steps: [DiagnosticStep 을 dict 로], real: bool}`, 가린 글만. Task 70·90 이 쓰고 설정 화면과 개발 콘솔이 읽는다).
 - `outreach_usage.add(session, kind, *, ref: tuple[str, int] | None = None, model=None, input_tokens=0, output_tokens=0, seconds=None, cost=None) -> None`(flush 만) · `outreach_usage.summary(session, *, days: int) -> UsageSummary(sms, long, kakao, auto_replies, call_seconds, calls_placed, calls_answered, calls_rejected, by_kind: dict[kind, {count, input_tokens, output_tokens, seconds, cost | None}], provider_cost: float | None)` — 건수는 `outreach_messages`·`outreach_calls` 에서 세고(보낸 것만: `accepted·delivered`), 요금은 **제공사·모델이 알려 준 값의 합**이며 하나도 없으면 None(계산해 채우지 않는다).
 
 - [ ] **Step 1: 실패하는 시험** — `test_db_made_by_task_61_gets_new_table_and_columns`(진단 칸 둘 포함) · `test_summary_counts_sms_long_kakao_and_auto_replies` · `test_call_seconds_and_answered_rejected` · `test_cost_is_none_when_nothing_reported_and_sum_when_reported` · `test_by_kind_tokens`
@@ -637,7 +623,7 @@ Task 61 이 이미 진행 중이라 그 작업의 표는 건드리지 않고, �
   - `class Provider(Protocol)`: `async check() -> Check` · `async send_message(req) -> Accepted` · `async message_status(provider_id) -> Delivery` · `async received(since: datetime | None) -> list[Inbound]` · `async call_info(provider_call_id) -> dict`.
   - `class KatClient`(위 Protocol 구현, `__init__(conn, *, transport=None)`) · `client_for(row: NotifyConnection) -> Provider`(키를 풀어 만든다 — **시험이 바꾸는 한 곳**) · `STATUS_MAP: dict[str, str]`(제공사 상태 말 → 우리 상태).
 - 주소는 `{base_url}/v1/accounts/{account_id}/…` 로만 만든다. 머리글 `Authorization: Bearer <key>`. 리다이렉트를 따르지 않고 시간 제한 15초, 다시 시도하지 않는다(다시 보내기는 나가는 문이 중복 방지 키로 정한다).
-- **요청·응답 칸 이름과 `STATUS_MAP` 은 Task 59 진단 함수가 문서에서 확인해 쓴 것과 P0-R 결과(`StepResult.data`)로 채운다.** P0-R 전에 시작하면(우선 길이라 늘 그렇다) 설계에 적힌 경로만으로 짜고, 확인 안 된 칸은 `# P0 확인` 주석을 달아 세 함수(`_message_body`, `_parse_delivery`, `_parse_inbound`)에 모은다 — P0-R 뒤 그 세 함수만 고친다.
+- **요청·응답 칸 이름과 `STATUS_MAP` 은 Task 59 모듈 머리 주석의 문서 확인분(`To`·`From`·`Body`·`Type`·`IdempotencyKey`, 상태 `queued|sent|failed|received`, `failureCode`)과 P0-R 결과(`DiagnosticStep.notes`)로 채운다.** P0-R 전에 시작하면(우선 길이라 늘 그렇다) 설계에 적힌 경로만으로 짜고, 확인 안 된 칸은 `# P0 확인` 주석을 달아 세 함수(`_message_body`, `_parse_delivery`, `_parse_inbound`)에 모은다 — P0-R 뒤 그 세 함수만 고친다.
 
 - [ ] **Step 1: 실패하는 시험**(`KatMock`)
 ```python
@@ -661,7 +647,7 @@ async def test_status_and_received_are_parsed(): ...  # delivered / failed+fell_
 - `ConnectionOut`: `id, name, provider, base_url, secret_last4, account_id_masked, sender_number_masked, senders: [가린 번호], kakao_channel, test_mode, allow_numbers: [가린 번호], limits: {…}, agent_sms, agent_kakao, agent_call, inbound_mode, handoff_number_masked, is_default, status, checked_at, latency_ms, used_today: {sms, call}`.
 - `PATCH` 본문: 위 칸 가운데 고칠 것 + `secret`(SecretStr) + `allow_numbers_add: [str]`, `allow_numbers_remove: [int]`(목록 순번 — 가린 번호로는 지울 수 없으므로) + `sender_index: int`(`senders` 의 순번) + `handoff_number`. 번호는 `phone.normalize` 를 거치고 틀리면 422(값을 되돌려 보내지 않음).
 - **상한(읽기·고치기 — 이 길 하나뿐)**: `GET /api/notify/connections/{id}/limits` → `limits_of` 가 돌려주는 값 전부(`daily_sms` · `daily_calls` · `person_sms` · `person_calls` · `max_call_seconds` · `unknown_call_seconds` · `auto_reply_per_hour` · `auto_reply_per_day` · `inbound_burst_count` · `inbound_burst_minutes` · `reply_grace_minutes` · `unknown_notice_per_day` — 칸 이름은 접근 함수의 것을 그대로 쓴다) + `defaults`. `PUT …/limits`(고칠 칸만) → 저장은 Task 61 의 저장 함수로만(`PATCH /connections/{id}` 는 상한을 받지 않는다). 검증(벗어나면 422, 한국어 까닭): `daily_sms` 0~1000 · `daily_calls` 0~200 · `person_sms` 0~50 · `person_calls` 0~20 · `max_call_seconds` 30~900 · `unknown_call_seconds` 30~`max_call_seconds` · `auto_reply_per_hour` 0~20 · `auto_reply_per_day` `auto_reply_per_hour`~100 · `inbound_burst_count` 2~20 · `inbound_burst_minutes` 1~60 · `reply_grace_minutes` 0~120 · `unknown_notice_per_day` 0~5. `POST …/limits/reset` → 기본값.
-- **연결 진단**: `POST /api/notify/connections/{id}/diagnose {steps?: ["P1","P2","P3","P4"], send: bool = false}` → 저장된 키를 풀어 Task 59 `run_rest` 를 부르고 `{ran_at, steps: [{code, title, status, detail}], sent_real: bool}` 를 돌려준다. **`send` 가 참일 때만 P2 를 넣고, 받는 번호는 첫 허용 번호뿐**(허용 번호가 없으면 P2 는 `skip — 허용 번호가 없습니다`). 결과는 Task 112 의 `notify_connections.last_diagnosis_json` 에 저장한다(가린 글만). `GET …/{id}/diagnosis` → 마지막 진단. 진단 중에는 DB 쓰기를 쥐지 않는다. 설정의 [시험 문자]는 `diagnose {steps: ["P2","P3"], send: true}` 다.
+- **연결 진단**: `POST /api/notify/connections/{id}/diagnose {steps?: ["P1","P2","P3","P4"], send: bool = false}` → 저장된 키를 풀어 `DiagnosticConn` 을 만들고 Task 59 `run_checks(conn, http, send_test_sms=send, steps=…)` 를 부른 뒤 `{ran_at, steps: [{id, label, ok, skipped, detail, latency_ms, notes}], sent_real: bool}` 를 돌려준다. **`send` 가 참일 때만 `send_test_sms=True`, `test_to` 는 첫 허용 번호뿐**(허용 번호가 없으면 `send` 를 받지 않고 422 「허용 번호를 먼저 넣어 주세요」). 결과는 Task 112 의 `notify_connections.last_diagnosis_json` 에 저장한다(가린 글만). `GET …/{id}/diagnosis` → 마지막 진단. 진단 중에는 DB 쓰기를 쥐지 않는다. 설정의 [시험 문자]는 `diagnose {steps: ["P2","P3"], send: true}` 다.
 - 연결 테스트는 `provider.check()` 한 번. 결과는 `{ok, latency_ms, senders:[가린], error:{code,message}|null}`.
 - `GET /api/notify/status`(로그인한 누구나, 현장 관리자 뺌) → `{ready, test_mode, allow_count, agent: {sms, kakao, call}, inbound_mode, kakao_ready}` — 화면 머리의 「시험 모드 · 허용 번호 n개」, 입력창의 카카오톡 잠금, 맥락 줄이 쓴다(`kakao_ready` 는 Task 101 전에는 늘 False).
 - 차단 목록(관리자): `GET /api/notify/blocked` → `[{id, number_masked, reason, created_by, created_at}]` · `POST /api/notify/blocked {number, reason}` 또는 `{peer_key}`(「모르는 번호」 묶음에서 바로 — 번호를 화면에 내리지 않고 차단) · `DELETE /api/notify/blocked/{id}`.
@@ -675,8 +661,8 @@ def test_probe_result_is_masked(client, admin, fake_provider): ...
 def test_bad_key_error_has_no_key(client, admin, fake_provider): ...
 def test_user_cannot_manage(client, user): ...  # 403
 def test_delete_with_history_is_409(client, admin, session): ...
-def test_diagnose_runs_with_stored_key_and_returns_step_lines(client, admin, monkeypatch): ...   # run_rest 를 가짜로 — 넘어간 key 가 저장된 것, 응답은 code·status·detail
-def test_diagnose_real_send_only_when_requested_and_only_to_first_allowed_number(client, admin, monkeypatch): ...   # send false → steps 에 P2 없음·send_to None, true → 첫 허용 번호, 허용 번호 없으면 skip
+def test_diagnose_runs_with_stored_key_and_returns_step_lines(client, admin, monkeypatch): ...   # run_checks 를 가짜로 — 넘어간 conn.key 가 저장된 것, 응답은 id·ok·skipped·detail
+def test_diagnose_real_send_only_when_requested_and_only_to_first_allowed_number(client, admin, monkeypatch): ...   # send false → send_test_sms False·test_to "", true → test_to 가 첫 허용 번호, 허용 번호 없으면 422
 def test_stored_diagnosis_has_no_key_or_number(client, admin, session): ...
 def test_diagnose_is_admin_only(client, user): ...
 def test_limits_read_update_validate_and_reset(client, admin): ...   # PUT {person_sms: 3} → GET 3, {max_call_seconds: 10} → 422, reset → 기본값, 문이 다음 검사부터 새 값을 씀
@@ -773,7 +759,7 @@ def test_field_role_403(client, field_user, sid): ...
 ### Task 74: 설정 — 「알림 연결」 화면 [opus] · G13
 
 **Files:** Create `frontend/src/programs/settings/{NotifySection.tsx,NotifyCard.tsx,NotifyAdd.tsx,NotifyPolicy.tsx,notifyApi.ts,notify.css,NotifySection.test.tsx}`, `frontend/src/shared/outreach/{limitsApi.ts,LimitsForm.tsx,LimitsForm.test.tsx}`; Modify `frontend/src/programs/settings/{model.ts,Settings.tsx}`(구역 `notify` 「알림 연결」 — 「정보 API 연결」 다음, 관리자 전용)
-**Interfaces:** Consumes Task 70 API. 본보기 `LlmSection.tsx`·`ConnectionCard.tsx`·`InfoSection.tsx`. Produces 시안 ④: 카드(이름·공급자·상태·주소·키 끝 4자리·Account ID 가린 꼴·확인 시각, [연결 테스트][연결 진단][URL 수정][키 교체][삭제]), **연결 진단 결과**(걸음마다 한 줄 `P1 OK — 인증됨 · 발신번호 2개` / `P4 FAIL — …` / `P2 건너뜀`, 돌린 시각, 「실제 문자 1건 보내기」 켬(첫 허용 번호 가린 꼴을 보이고 확인 창) · 마지막 진단은 다시 열어도 보임 · [시험 문자]는 P2·P3 만 돌리는 같은 길), 연결 추가 창(이름·공급자·주소·API Key·Account ID, [저장하고 연결 테스트]), 아래 칸 `NotifyPolicy`(발신번호 고르기 · 시험 모드 켬/끔 + 허용 번호 더하기·빼기 · **「상한」 묶음**(`frontend/src/shared/outreach/{limitsApi.ts,LimitsForm.tsx}` — 하루 문자·전화, 한 사람 하루 문자·전화, 최대 통화 시간(모르는 번호), 자동 답 한 시간·하루, 잦은 전화 횟수·분, 답 유예 분, 모르는 번호 안내 하루 횟수 · 칸마다 기본값 표시·[기본값으로] · 범위를 벗어나면 서버 까닭을 칸 아래에 — 개발 콘솔(Task 98)이 같은 `LimitsForm` 을 쓴다) · **에이전트 발송 권한** 문자/카카오톡/전화 각각 `승인 받기 | 위임`). 시험 모드를 끄거나 「위임」으로 바꿀 때는 확인 창(「허용 번호가 아닌 사람에게도 실제로 나갑니다」/「에이전트가 사람 확인 없이 보냅니다」). 「받는 범위·차단」·「AI 전화」·「카카오톡 채널과 문안」 묶음은 자리만(Task 85·93·102 가 채움).
+**Interfaces:** Consumes Task 70 API. 본보기 `LlmSection.tsx`·`ConnectionCard.tsx`·`InfoSection.tsx`. Produces 시안 ④: 카드(이름·공급자·상태·주소·키 끝 4자리·Account ID 가린 꼴·확인 시각, [연결 테스트][연결 진단][URL 수정][키 교체][삭제]), **연결 진단 결과**(걸음마다 한 줄 `P1 OK — 인증됨 · 발신번호 2개` / `P4 FAIL — …` / `P2 건너뜀`, `notes` 는 접어서, 돌린 시각, 「실제 문자 1건 보내기」 켬(첫 허용 번호 가린 꼴을 보이고 확인 창) · 마지막 진단은 다시 열어도 보임 · [시험 문자]는 P2·P3 만 돌리는 같은 길), 연결 추가 창(이름·공급자·주소·API Key·Account ID, [저장하고 연결 테스트]), 아래 칸 `NotifyPolicy`(발신번호 고르기 · 시험 모드 켬/끔 + 허용 번호 더하기·빼기 · **「상한」 묶음**(`frontend/src/shared/outreach/{limitsApi.ts,LimitsForm.tsx}` — 하루 문자·전화, 한 사람 하루 문자·전화, 최대 통화 시간(모르는 번호), 자동 답 한 시간·하루, 잦은 전화 횟수·분, 답 유예 분, 모르는 번호 안내 하루 횟수 · 칸마다 기본값 표시·[기본값으로] · 범위를 벗어나면 서버 까닭을 칸 아래에 — 개발 콘솔(Task 98)이 같은 `LimitsForm` 을 쓴다) · **에이전트 발송 권한** 문자/카카오톡/전화 각각 `승인 받기 | 위임`). 시험 모드를 끄거나 「위임」으로 바꿀 때는 확인 창(「허용 번호가 아닌 사람에게도 실제로 나갑니다」/「에이전트가 사람 확인 없이 보냅니다」). 「받는 범위·차단」·「AI 전화」·「카카오톡 채널과 문안」 묶음은 자리만(Task 85·93·102 가 채움).
 - [ ] **Step 1: 실패하는 시험** — 카드에 키 끝 4자리만 / 추가 → POST → 실패하면 까닭 줄 / [연결 진단] 이 OK/FAIL 줄을 그림·마지막 진단을 다시 읽음 / 「실제 문자」는 확인 창을 거치고 허용 번호가 없으면 잠김 / 권한 토글이 PATCH `agent_sms: "delegate"` / 상한 칸 고치기가 `PUT …/limits` 한 칸만 보냄·422 까닭을 칸 아래에·[기본값으로] / 시험 모드 끄기는 확인 창을 거침 / 허용 번호 더하기·순번으로 빼기 / 사용자 계정에는 구역이 안 보임
 - [ ] **Step 2~4**(화면 검수: 기본·900×600, 두 테마) · **Step 5: 커밋** `feat: 설정 — 알림 연결`
 
@@ -784,7 +770,7 @@ def test_field_role_403(client, field_user, sid): ...
 **Files:** Create `backend/app/programs/devconsole/outreach_view.py`(연락 쪽 읽기 조립 — `service.py`·`catalog.py` 가 500줄을 넘어 새 파일), `backend/tests/programs/test_devconsole_outreach_view.py`; Modify `backend/app/programs/devconsole/{router.py,schemas.py,service.py}`(진단·사용량 응답에 잇는 몇 줄), `frontend/src/programs/devconsole/{TurnPicker.tsx,TraceTimeline.tsx,HealthTab.tsx,UsageTab.tsx,devApi.ts,testKit.ts,DevConsole.test.tsx}`
 **Interfaces:**
 - **실행 추적**: 고르는 목록에 종류 `대화 턴 | 연락`. `GET /api/dev/outreach?kind=message|call&limit=` → `[{kind, id, at, direction, channel, origin(user|agent|peer), origin_name, send_mode, caller_class, status, contact_name | null, number_masked, schedule_name | null, events: n}]` · `GET /api/dev/outreach/{kind}/{id}` → `{head: 위 칸 + approved_by·fail_reason·reply_to_id, timeline: [TimelineItem]}` — `timeline` 은 그 줄의 하네스 사건을 **턴과 같은 `TimelineItem` 꼴**로 옮긴 것(문 판정 `gate.1`…`gate.7` · 들어오는 문 `door.class`·`door.admit` · 도구 호출 `tool:<이름>` · 뒤 확인 깃발 · 통로 결과), 그래서 `TraceTimeline` 이 그대로 그린다. 머리 줄: 누가 시작했나(사람 이름 / 에이전트 / 상대) · 권한 방식(직접·승인·위임) · 등급 · 상태.
-- **시스템 진단**: 진단 응답(지금의 `HealthOut`)에 `notify` 칸 — `{connected, status, checked_at, test_mode, allow_count, sender_masked, inbound_mode, agent: {sms, kakao, call}, worker: worker.status(), last_diagnosis: {ran_at, steps: [{code, status, detail}]} | null, kakao: null, voice: null}`(`last_diagnosis` 는 저장된 마지막 연결 진단 그대로 — 콘솔이 진단을 다시 돌리지 않는다. `kakao`·`voice` 는 Task 111·110 이 채운다 — 그 전에는 「아직 없음」). 연결이 없으면 `connected false` 한 줄.
+- **시스템 진단**: 진단 응답(지금의 `HealthOut`)에 `notify` 칸 — `{connected, status, checked_at, test_mode, allow_count, sender_masked, inbound_mode, agent: {sms, kakao, call}, worker: worker.status(), last_diagnosis: {ran_at, steps: [{id, label, ok, skipped, detail}]} | null, kakao: null, voice: null}`(`last_diagnosis` 는 저장된 마지막 연결 진단 그대로 — 콘솔이 진단을 다시 돌리지 않는다. `kakao`·`voice` 는 Task 111·110 이 채운다 — 그 전에는 「아직 없음」). 연결이 없으면 `connected false` 한 줄.
 - **사용량·비용**: 사용량 응답에 `outreach` 칸 — Task 112 `outreach_usage.summary(days)` 의 `{sms, long, kakao, auto_replies, provider_cost}`. 요금은 `provider_cost` 가 None 이면 「제공사가 알려 주지 않음」.
 - 전화번호는 가린 꼴만, 키·Account ID 는 어떤 꼴로도 싣지 않는다.
 
@@ -796,7 +782,7 @@ def test_gate_decision_and_tool_calls_appear_in_order(client, admin, session): .
 def test_console_outreach_views_have_no_number_or_key(client, admin, session): ...  # 목록·상세·진단·사용량 응답 전체에 SENTINEL_PHONE·SENTINEL_KEY·Account ID 없음
 def test_health_notify_without_connection(client, admin): ...
 def test_health_shows_worker_last_run_times(client, admin): ...
-def test_health_shows_last_diagnosis_lines_without_rerunning(client, admin, session, monkeypatch): ...   # run_rest 가 불리지 않음
+def test_health_shows_last_diagnosis_lines_without_rerunning(client, admin, session, monkeypatch): ...   # run_checks 가 불리지 않음
 def test_usage_counts_sms_and_long_and_hides_cost_when_unreported(client, admin, session): ...
 def test_admin_only(client, user): ...
 ```
@@ -1163,9 +1149,9 @@ async def test_result_stays_proposed_until_confirmed(): ...
 
 **Files:** Create `backend/app/programs/notify_settings/voice.py`(라우터 한 벌 더), `backend/tests/programs/test_voice_settings_api.py`
 **Interfaces:**
-- Consumes: Task 60 `run_voice`, Task 70 의 연결·허용 번호, Task 112 `voice_settings.last_diagnosis_json`.
+- Consumes: Task 60 `run_voice_checks`, Task 70 의 연결·허용 번호, Task 112 `voice_settings.last_diagnosis_json`.
 - API(관리자): `GET /api/notify/connections/{id}/voice` → `{provider, secret_last4, model, voice_male_contact, voice_female_contact, voice_unknown, voices_by_language, status, checked_at, sdk_installed}`(최대 통화 시간은 여기서 다루지 않는다 — 상한 API) · `PUT …/voice`(키는 `SecretStr`, 암호화 저장·끝 4자리만).
-- **음성 진단**: `POST …/voice/diagnose {steps?: ["P5"…"P14"], call: bool = false, inbound: bool = false, model: "google" | "openai" | null}` → 저장된 두 키(연결 키·음성 키)를 풀어 `run_voice` 를 부르고 `{ran_at, steps: [{code, title, status, detail}], called_real: bool}`. **`call` 이 참일 때만 거는 걸음(P6·P7·P8·P10)을 넣고 받는 번호는 첫 허용 번호뿐**, `inbound` 가 참일 때만 P12~P14(기다리는 동안 응답이 늦는다 — 화면은 이 요청을 따로 보낸다). 결과는 `voice_settings.last_diagnosis_json` 에(가린 글만) · `GET …/voice/diagnosis`. `sdk_installed` 가 거짓이면 P5 가 그 까닭으로 실패하고 나머지는 건너뛴다 — **SDK 설치는 여기서 하지 않는다(PM 승인·PM 설치, P0-V ①).** 설정의 [시험 전화]는 `voice/diagnose {steps: ["P6","P7","P8"], call: true}` 다.
+- **음성 진단**: `POST …/voice/diagnose {steps?: ["P5"…"P14"], call: bool = false, inbound: bool = false, model: "google" | "openai" | null}` → 저장된 두 키(연결 키·음성 키)를 풀어 `run_voice_checks` 를 부르고 `{ran_at, steps: [{id, label, ok, skipped, detail, latency_ms, notes}], called_real: bool}`(Task 70 의 진단 응답과 같은 꼴). **`call` 이 참일 때만 거는 걸음(P6·P7·P8·P10)을 넣고 받는 번호는 첫 허용 번호뿐**, `inbound` 가 참일 때만 P12~P14(기다리는 동안 응답이 늦는다 — 화면은 이 요청을 따로 보낸다). 결과는 `voice_settings.last_diagnosis_json` 에(가린 글만) · `GET …/voice/diagnosis`. `sdk_installed` 가 거짓이면 P5 가 그 까닭으로 실패하고 나머지는 건너뛴다 — **SDK 설치는 여기서 하지 않는다(PM 승인·PM 설치, P0-V ①).** 설정의 [시험 전화]는 `voice/diagnose {steps: ["P6","P7","P8"], call: true}` 다.
 - `status` 는 마지막 진단의 P5(연결)·P6(통화) 결과로 정한다(`ok`/`failed`/`unknown`).
 
 - [ ] **Step 1: 실패하는 시험**
