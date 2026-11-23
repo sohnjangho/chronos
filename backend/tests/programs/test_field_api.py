@@ -434,3 +434,17 @@ def test_bulk_check_in_skips_work_that_already_waits_and_says_so(client, admin, 
     assert again.json()["notice"] == (
         "체크인 0건을 보냈습니다. 2건은 건너뛰었습니다 — 회신을 기다리는 체크인이나 승인함에서 기다리는 보고가 "
         "이미 있습니다(A, B).")
+
+
+def test_an_old_field_approval_without_reasons_reads_as_field_report(client, admin, session, sid):
+    """재확인 3(#21): 사유를 저장하기 전에 만든 현장 관리자 건(reasons_json 비어 있음)은 읽을 때 「현장 보고」 사유로 보인다.
+    저장된 줄은 그대로다."""
+    field_user = _headers(session, "field")
+    row = _checkin_approval(client, field_user, session, sid, "B", 50)
+    row.reasons_json = []  # 예전 줄을 흉내 냄
+    session.commit()
+    assert client.get(f"/api/approvals/{row.id}", headers=admin).json()["reasons"] == ["field_report"]
+    listed = client.get("/api/approvals?status=pending", headers=admin).json()["items"]
+    assert next(i for i in listed if i["id"] == row.id)["reasons"] == ["field_report"]
+    session.expire_all()
+    assert session.get(Approval, row.id).reasons_json == []

@@ -43,9 +43,22 @@ def _get(session: Session, approval_id: int) -> Approval:
         raise ApiError(404, "not_found", NOT_FOUND_MESSAGE) from None
 
 
-def _out(row: Approval) -> dict:
+def _field_names(session: Session) -> set[str]:
+    """현장 관리자(field) 계정 이름들 — 사유가 비어 있는 예전 줄의 사유를 읽을 때 채우려고."""
+    return set(session.scalars(select(User.name).where(User.role == "field")))
+
+
+def _reasons(row: Approval, field_names: set[str]) -> list[str]:
+    """저장된 사유. 비어 있으면 읽을 때 알 수 있는 것을 채운다 — 현장 관리자가 올려 기다리는 건은 「현장 보고」
+    (field_report, 사유를 저장하기 전에 만든 줄, 재확인 3). 저장된 줄은 바꾸지 않는다."""
+    if row.reasons_json or row.status != "pending" or row.requested_by not in field_names:
+        return list(row.reasons_json)
+    return ["field_report"]
+
+
+def _out(row: Approval, field_names: set[str]) -> dict:
     return {
-        "id": row.id, "kind": row.kind, "title": row.title, "status": row.status, "reasons": row.reasons_json,
+        "id": row.id, "kind": row.kind, "title": row.title, "status": row.status, "reasons": _reasons(row, field_names),
         "schedule_id": row.schedule_id, "draft_id": row.draft_id, "base_version": row.base_version,
         "version": row.version, "restore_to": row.restore_to, "retry": row.retry, "request": row.request,
         "chat_session_id": row.chat_session_id, "requested_by": row.requested_by, "decided_by": row.decided_by,
@@ -54,7 +67,8 @@ def _out(row: Approval) -> dict:
 
 
 def list_approvals(session: Session, status: str) -> ApprovalList:
-    items = [ApprovalOut(**_out(r)) for r in approvals.listed(session, status)]
+    names = _field_names(session)
+    items = [ApprovalOut(**_out(r, names)) for r in approvals.listed(session, status)]
     return ApprovalList(mode=approval_mode(session), items=items)
 
 
@@ -84,7 +98,8 @@ def _actuals_blocked(session: Session, row: Approval) -> str | None:
 
 def detail(session: Session, approval_id: int) -> ApprovalDetail:
     row = _get(session, approval_id)
-    return ApprovalDetail(**_out(row), mode=approval_mode(session), diff=row.diff_json, blocked=_blocked(session, row))
+    return ApprovalDetail(**_out(row, _field_names(session)), mode=approval_mode(session), diff=row.diff_json,
+                          blocked=_blocked(session, row))
 
 
 def count(session: Session) -> CountOut:
