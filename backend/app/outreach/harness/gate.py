@@ -522,13 +522,25 @@ def _within_grace(session: Session, row: OutreachMessage, number: str, now: date
     if asked is None or asked.direction != "in":
         return False
     ours = session.get(OutreachMessage, asked.reply_to_id) if asked.reply_to_id is not None else None
-    if ours is not None and ours.direction == "out" and ours.schedule_id == asked.schedule_id and ours.body.strip():
-        return False
+    if (ours is not None and ours.direction == "out" and ours.kind == "normal" and ours.schedule_id == asked.schedule_id
+            and ours.body.strip() and not _answers_their_text(session, ours)):
+        return False  # 「우리 요청」은 대화를 여는 보통 글뿐 — 우리 자동 답·고정 안내·확인 문자·상대 글에 단 답은 아니다(판정 11-24)
     sender = session.get(Contact, asked.contact_id) if asked.contact_id is not None else None
     if phone.normalize(sender.phone if sender is not None else asked.peer_number) != number:
         return False
     ages = [now - as_utc(at) for at in (asked.sent_at, asked.created_at) if at is not None]
     return bool(ages) and all(timedelta() <= age < timedelta(minutes=minutes) for age in ages)
+
+
+def _answers_their_text(session: Session, ours: OutreachMessage) -> bool:
+    """그 나간 글이 같은 사람이 보낸 받은 문자에 단 답인가(그러면 대화를 연 요청이 아니다). 다른 사람의 글에서 이어진 후속 줄
+    (넘기기 — 담당자에게 새로 보냄)은 그 사람에게는 요청이다."""
+    prior = session.get(OutreachMessage, ours.reply_to_id) if ours.reply_to_id is not None else None
+    if prior is None or prior.direction != "in":
+        return False
+    if prior.contact_id is not None or ours.contact_id is not None:
+        return prior.contact_id == ours.contact_id
+    return prior.peer_number == ours.peer_number
 
 
 def _working(person_hours: dict | None, calendar: CalendarSpec, now: datetime) -> tuple[bool, datetime | None]:

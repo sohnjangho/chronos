@@ -115,6 +115,27 @@ async def test_grace_is_for_conversations_they_started_not_for_answers_to_our_re
         assert trail(session, reply)[0] == ("reply_within_grace", "noted")
 
 
+@pytest.mark.parametrize("ours_kind", ["auto_reply", "notice", "dnc_confirm", "normal_reply"])
+async def test_their_conversation_keeps_grace_through_our_own_replies(session, sid, fake_channel, ours_kind):
+    """판정(11-24): 상대가 19:00 에 먼저 보냄 → 우리 답 19:02 → 상대가 19:05 에 다시 → 우리 19:07 답도 유예로 나간다. 우리 답(자동 답·
+    고정 안내·확인 문자, 그리고 상대 글에 사람이 단 보통 답)은 「우리 요청」이 아니다 — 요청은 대화를 여는 kind normal 글뿐."""
+    connect(session)
+    who = person(session, sid)
+    first = inbound(session, who, ago=timedelta(minutes=7), now=OFF + timedelta(minutes=7))
+    kind = "normal" if ours_kind == "normal_reply" else ours_kind
+    ours = message(session, who, kind=kind, origin="user" if kind == "normal" else "agent", status="accepted",
+                   body="네 확인했습니다", reply_to_id=first.id, claimed_at=OFF + timedelta(minutes=2),
+                   created_at=OFF + timedelta(minutes=2))
+    again = inbound(session, who, ago=timedelta(minutes=2), now=OFF + timedelta(minutes=7), body="그럼 몇 시요?",
+                    reply_to_id=ours.id)
+    reply = message(session, who, body="담당자가 알려드리겠습니다", reply_to_id=again.id)
+    session.commit()
+
+    out = await send(reply, USER, OFF + timedelta(minutes=7))
+
+    assert out.code == "accepted" and trail(session, reply)[0] == ("reply_within_grace", "noted")
+
+
 @pytest.mark.parametrize("request_kind", ["empty_body", "other_schedule", "inbound"])
 async def test_grace_stays_when_there_is_no_request_of_ours_to_inherit(session, sid, fake_channel, request_kind):
     """받은 줄이 가리키는 것이 물려받을 우리 요청이 아니면(글 없음 · 다른 일정 · 우리 글이 아님) 상대가 먼저 보낸 것으로 본다."""
