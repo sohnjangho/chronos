@@ -7,7 +7,7 @@
 
 import secrets
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
@@ -22,7 +22,7 @@ from app.harness.conditions import Condition
 from app.store import approvals
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound, get_record, load
-from app.store.tables import DelayEvent, FieldItem, User
+from app.store.tables import FieldItem, User
 from app.store.timeutil import as_utc
 from app.store.view import view_data
 
@@ -474,7 +474,7 @@ def update_handoff(session: Session, schedule_id: int, item_id: int, body: Hando
 
 
 def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> FieldListOut:
-    """현장 회신/사진/의견을 실제 승인함(Approval) · 지연 기록(DelayEvent) · 내 규칙 제안으로 반영."""
+    """현장 회신/사진/의견을 실제 승인함(Approval) · 내 규칙 제안으로 반영."""
     view = _load_view(session, schedule_id)
     item = _get_item(session, schedule_id, item_id)
     if item.approval_id is not None:
@@ -514,24 +514,9 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
         session.commit()
         return _list_out(session, schedule_id, view)
 
-    # checkin / photo / handoff -> 지연 우려 시 DelayEvent 동시 기록 + 일정 변경 승인 상신
+    # checkin / photo / handoff -> 일정 변경 승인 상신. 지연 사건은 만들지 않는다(PM 결정 11-23, F2):
+    # 늦음은 이 승인 건(진도·잔여일)이 승인되면 일정에 들어가고, 지연 기록은 본사가 지연 기록 창·대화에서 한다.
     today_d = context.today()
-    if item.response_choice in ("delayed", "risk", "hold"):
-        session.add(
-            DelayEvent(
-                schedule_id=schedule_id,
-                activity_id=item.activity_id,
-                start_date=today_d,
-                days=2,
-                cause=item.response_note or f"현장 {item.kind} 지연 감지",
-                responsibility="ours",
-                evidence=str((item.payload_json or {}).get("evidence_tag") or item.title)[:200],
-                source="chat",
-                status="open",
-                created_by=item.trade,
-            )
-        )
-
     pct_val = item.reported_progress if item.reported_progress is not None else 50
     progress_frac = round(max(0.0, min(1.0, pct_val / 100.0)), 2)
     data_date = before.data_date or today_d
