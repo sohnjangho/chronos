@@ -3,6 +3,7 @@
 응답 모양은 공개 문서(docs.koreaaitel.com, 2026-11-23)의 칸 이름을 따른 가상 값이다.
 """
 
+import asyncio
 import json
 import logging
 from dataclasses import asdict
@@ -12,7 +13,8 @@ import httpx
 import pytest
 
 from app.info.generic import key_survives
-from app.outreach import provider
+from app.notify import diagnostics
+from app.outreach import phone, provider, redact
 from app.outreach.provider import (
     RECEIVED_MAX_PAGES,
     RECEIVED_PAGE_SIZE,
@@ -22,6 +24,7 @@ from app.outreach.provider import (
     MessageRequest,
     ProviderConn,
     ProviderFailed,
+    Received,
 )
 from app.security import crypto
 from app.store.tables_outreach import NotifyConnection
@@ -37,11 +40,21 @@ from tests.provider_doubles import (
     KAT_SENDER,
     FakeProvider,
     KatMock,
+    RealProviderCall,
 )
 
 CONN = ProviderConn(base_url=KAT_BASE, account_id=KAT_ACCOUNT, key=SENTINEL_KEY)
 T0 = datetime(2026, 11, 23, 3, 0, 0, tzinfo=UTC)
+NOW = T0 + timedelta(days=1)  # 시험 속 「지금」
 ECHO = f"key={SENTINEL_KEY} acct={KAT_ACCOUNT} to={SENTINEL_PHONE} raw={SENTINEL_DIGITS}"  # 제공사가 되돌려 보낸다고 치는 글
+GOOD = {"messageId": "MG1", "direction": "inbound", "from": SENTINEL_DIGITS, "to": KAT_SENDER, "body": "네", "numMedia": 0,
+        "mediaUrl": [], "dateCreated": "2026-11-23T03:00:00.123Z"}
+
+
+@pytest.fixture(autouse=True)
+def fixed_now(monkeypatch):
+    """제공사 호출이 보는 시각을 고정한다(벽시계에 기대지 않게)."""
+    monkeypatch.setattr(provider, "_now", lambda: NOW)
 
 
 def sms(**changes: object) -> MessageRequest:
@@ -89,11 +102,25 @@ def answer(status: int, body: object = None, **kw: object):
     return lambda request: httpx.Response(status, json=body, **kw) if body is not None else httpx.Response(status, **kw)
 
 
-def raising(exc_type: type[Exception]):
+def raw(status: int, content: bytes, content_type: str = "text/html"):
+    return lambda request: httpx.Response(status, content=content, headers={"content-type": content_type})
+
+
+def raising(exc_type: type[Exception], text: str = ""):
     def override(request: httpx.Request) -> httpx.Response:
-        raise exc_type(f"boom {ECHO} {request.url}")
+        raise exc_type(f"boom {text} {ECHO} {request.url}")
 
     return override
+
+
+def page(rows: list) -> object:
+    return answer(200, {"data": rows, "meta": {"page": 0, "pageSize": 100, "total": len(rows)}})
+
+
+def row(**changes: object) -> NotifyConnection:
+    fields = {"name": "기본", "base_url": KAT_BASE, "secret_ciphertext": crypto.encrypt(SENTINEL_KEY), "secret_last4": "9999",
+              "account_id": KAT_ACCOUNT}
+    return NotifyConnection(**{**fields, **changes})
 
 
 # ── 보내기 ──────────────────────────────────────────────────────────
@@ -107,6 +134,7 @@ async def test_send_puts_bearer_and_idempotency_key():
     assert request.method == "POST"
     assert str(request.url) == f"{KAT_BASE}/v1/accounts/{KAT_ACCOUNT}/messages"
     assert request.headers["authorization"] == f"Bearer {SENTINEL_KEY}"
+    assert request.headers["content-type"] == "application/json"
     # Type 은 넣지 않는다 — 제공사가 본문 길이로 sms/lms 를 고른다(문서).
     assert json.loads(request.content) == {"To": SENTINEL_DIGITS, "From": KAT_SENDER, "Body": "내일 08시 타설입니다.",
                                            "IdempotencyKey": "idem-0001"}
@@ -129,21 +157,115 @@ async def test_kakao_body_has_channel_template_and_no_fallback_unless_asked():
     assert "Body" not in second and "Type" not in second
 
 
-@pytest.mark.parametrize("req", [
-    sms(idempotency_key=""), sms(to=""), sms(sender=""), sms(body=""), sms(channel="call"),
+BAD_REQUESTS = [
+    sms(to=""), sms(sender=""), sms(body=""), sms(channel="call"), sms(to=None), sms(body=7),
     kakao(kakao_channel=None), kakao(template_code=""),
-])
+    kakao(template_vars={"a": object()}), kakao(template_vars={"a": 3}), kakao(template_vars=["a"]),  # 보낼 꼴로 만들 수 없다
+    # 중복 방지 키는 ^[A-Za-z0-9_-]{8,64}$ 만
+    sms(idempotency_key=""), sms(idempotency_key="short"), sms(idempotency_key="a" * 65), sms(idempotency_key=" idem-0001"),
+    sms(idempotency_key="idem 0001"), sms(idempotency_key="idem-0001\n"), sms(idempotency_key="키-한글-0001"),
+    sms(idempotency_key=None), sms(idempotency_key=17),
+]
+
+
+@pytest.mark.parametrize("req", BAD_REQUESTS)
 async def test_incomplete_request_is_refused_before_any_call(req):
     mock = KatMock()
     e = await failure(KatClient(CONN, transport=mock).send_message(req))
-    assert e.code == "bad_request" and mock.requests == [] and e.maybe_sent is False
+    assert e.code == "bad_request" and mock.requests == [] and e.maybe_sent is False and e.http_status is None
+    fake = FakeProvider()  # 가짜도 같은 검사를 한다
+    assert (await failure(fake.send_message(req))).code == "bad_request" and fake.sent == []
 
 
-async def test_same_idempotency_key_goes_out_as_given_and_is_not_retried_here():
-    mock = KatMock(override=answer(500, {"error": "x", "code": "internal"}))
-    e = await failure(KatClient(CONN, transport=mock).send_message(sms()))
-    assert e.code == "server" and e.http_status == 500
-    assert len(mock.requests) == 1  # 다시 시도하지 않는다 — 다시 보내기는 나가는 문이 정한다
+@pytest.mark.parametrize("key", ["idem-0001", "a" * 8, "A_b-9" * 12 + "abcd", "0f8fad5bd9cb469fa16570867728950e"])
+async def test_idempotency_key_goes_on_the_wire_as_given_and_nothing_is_retried(key):
+    mock = KatMock()
+    client = KatClient(CONN, transport=mock)
+    first = await client.send_message(sms(idempotency_key=key))
+    assert [body["IdempotencyKey"] for body in mock.sent_bodies()] == [key]
+    assert await client.send_message(sms(idempotency_key=key)) == first and len(mock.messages) == 1  # 같은 키는 같은 메시지
+    mock.requests.clear()
+    mock.override = answer(500, {"error": "x", "code": "internal"})
+    e = await failure(client.send_message(sms(idempotency_key=key)))
+    assert e.code == "server" and len(mock.requests) == 1  # 다시 시도하지 않는다 — 다시 보내기는 나가는 문이 정한다
+    assert json.loads(mock.requests[0].content)["IdempotencyKey"] == key
+
+
+async def test_message_the_vendor_already_marked_failed_is_still_accepted_with_its_id():
+    mock = KatMock(override=answer(201, {"messageId": "MG9", "status": "failed", "failureCode": "invalid_number"}))
+    assert await KatClient(CONN, transport=mock).send_message(sms()) == Accepted(provider_id="MG9")  # 실패는 상태 조회가 알린다
+
+
+# ── 보냈는지 알 수 있는가(maybe_sent) ──────────────────────────────
+
+POST_OUTCOMES = [  # (이름, 가짜 응답, code, http_status, maybe_sent)
+    ("connect error", raising(httpx.ConnectError), "network", None, False),
+    ("tls error", raising(httpx.ConnectError, "[SSL: CERTIFICATE_VERIFY_FAILED]"), "network", None, False),
+    ("connect timeout", raising(httpx.ConnectTimeout), "timeout", None, False),
+    ("pool timeout", raising(httpx.PoolTimeout), "timeout", None, False),
+    ("write timeout", raising(httpx.WriteTimeout), "timeout", None, True),
+    ("write error", raising(httpx.WriteError), "network", None, True),
+    ("read timeout", raising(httpx.ReadTimeout), "timeout", None, True),
+    ("read error", raising(httpx.ReadError), "network", None, True),
+    ("protocol error", raising(httpx.RemoteProtocolError), "network", None, True),
+    ("other exception", raising(RuntimeError), "unknown", None, True),
+    ("2xx unreadable body", raw(200, b"<html>"), "unknown", 200, True),
+    ("204 empty", answer(204), "unknown", 204, True),
+    ("2xx without id", answer(202, {"note": "queued"}), "unknown", 202, True),
+    ("2xx error-shaped", answer(200, {"error": "x", "code": "invalid_phone"}), "unknown", 200, True),
+    ("302", answer(302, headers={"location": "https://elsewhere.invalid/"}), "bad_request", 302, True),
+    ("400", answer(400, {"code": "invalid_phone"}), "bad_request", 400, False),
+    ("401", raw(401, b"nope"), "bad_key", 401, False),
+    ("403", answer(403, {"code": "forbidden"}), "bad_account", 403, False),
+    ("408", answer(408), "bad_request", 408, False),
+    ("409", answer(409, {"code": "idempotency_conflict"}), "bad_request", 409, True),  # 같은 키가 처리되는 중일 수 있다
+    ("422", answer(422, {"code": "quota_exceeded"}), "bad_request", 422, False),
+    ("429", answer(429, {"code": "rate_limited"}), "rate_limited", 429, False),
+    ("500", answer(500, {"code": "internal"}), "server", 500, True),
+    ("502 html", raw(502, b"<html>Bad Gateway</html>"), "server", 502, True),  # 관문이 대신 답함 — 제공사는 받았을 수 있다
+    ("503", answer(503), "server", 503, True),
+    ("504", raw(504, b"upstream timed out", "text/plain"), "server", 504, True),
+    ("500 with a 4xx-looking code", answer(500, {"code": "invalid_phone"}), "bad_request", 500, True),
+]
+
+
+@pytest.mark.parametrize(("name", "override", "code", "status", "maybe_sent"), POST_OUTCOMES, ids=[c[0] for c in POST_OUTCOMES])
+async def test_send_says_whether_the_message_may_have_gone(name, override, code, status, maybe_sent):
+    mock = KatMock(override=override)
+    client = KatClient(CONN, transport=mock)
+    sent = await failure(client.send_message(sms()))
+    assert (sent.code, sent.http_status, sent.maybe_sent) == (code, status, maybe_sent)
+    assert ("보냈는지" in sent.message) is maybe_sent  # 글에도 적는다
+    asked = await failure(client.message_status("MG000001abcdef"))
+    assert asked.maybe_sent is False and "보냈는지" not in asked.message  # 조회는 보낸 것이 없다
+    assert len(mock.requests) == 2  # 다시 시도하지 않는다
+    assert leaks(*everything_in(sent), *everything_in(asked)) == []
+
+
+async def test_whole_call_is_bounded_by_the_time_limit(monkeypatch):
+    async def slow(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(5)
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(provider, "TIMEOUT_S", 0.05)
+    e = await failure(KatClient(CONN, transport=httpx.MockTransport(slow)).send_message(sms()))
+    assert (e.code, e.maybe_sent) == ("timeout", True)
+
+
+async def test_cancelled_send_propagates_cancellation():
+    """끊긴 보내기는 ProviderFailed 가 아니다 — 부른 쪽이 「보냈는지 모름」으로 다뤄야 한다(모듈 머리 글)."""
+    started = asyncio.Event()
+
+    async def slow(request: httpx.Request) -> httpx.Response:
+        started.set()
+        await asyncio.sleep(5)
+        return httpx.Response(201, json={"messageId": "MG1"})
+
+    task = asyncio.ensure_future(KatClient(CONN, transport=httpx.MockTransport(slow)).send_message(sms()))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 # ── 실패 코드 ───────────────────────────────────────────────────────
@@ -158,13 +280,14 @@ async def test_401_is_bad_key_without_key_in_message():
 
 @pytest.mark.parametrize(("status", "vendor_code", "call", "expected"), [
     (403, "forbidden", "check", "bad_account"),
-    (403, "overseas_ip_blocked", "send", "network"),
+    (403, "overseas_ip_blocked", "send", "overseas_ip"),
     (404, "not_found", "check", "bad_account"),  # 계정 경로뿐인 주소가 없다 → Account ID·기본 주소
     (404, "not_found", "send", "bad_account"),
     (404, "not_found", "status", "bad_request"),  # 그 메시지가 없다
     (404, "not_found", "call", "bad_request"),
     (400, "from_not_registered", "send", "bad_sender"),
     (400, "invalid_phone", "send", "bad_request"),
+    (400, "INVALID_PHONE_NUMBER", "send", "bad_request"),
     (422, "quota_exceeded", "send", "bad_request"),
     (422, "recipient_blocked", "send", "bad_request"),
     (429, "rate_limited", "send", "rate_limited"),
@@ -179,9 +302,27 @@ async def test_http_errors_map_to_codes(status, vendor_code, call, expected):
              "received": lambda: client.received(None), "call": lambda: client.call_info("CA000001")}
     e = await failure(calls[call]())
     assert (e.code, e.http_status) == (expected, status)
-    assert e.maybe_sent is False  # 제공사가 거절이라고 답했다
+    assert e.maybe_sent is False and e.retry_after_s is None
     assert len(mock.requests) == 1 and leaks(*everything_in(e)) == []
     assert any("가" <= ch <= "힣" for ch in e.message)  # 한국어
+
+
+async def test_overseas_ip_has_its_own_code_and_says_korean_addresses_only():
+    mock = KatMock(override=answer(403, {"error": "x", "code": "overseas_ip_blocked", "ip": "203.0.113.9"}))
+    e = await failure(KatClient(CONN, transport=mock).send_message(sms()))
+    assert e.code == "overseas_ip" and "한국" in e.message and "IP" in e.message and "203.0.113.9" not in e.message
+
+
+@pytest.mark.parametrize(("header", "expected"), [("30", 30), ("0", 0), ("9999", 600), (" 12 ", 12), (None, None),
+                                                  ("soon", None), ("-5", None), ("1.5", None),
+                                                  ("Wed, 21 Oct 2026 07:28:00 GMT", None), (ECHO, None)])
+async def test_429_keeps_retry_after_seconds_capped(header, expected):
+    headers = {} if header is None else {"retry-after": header}
+    mock = KatMock(override=answer(429, {"code": "rate_limited"}, headers=headers))
+    e = await failure(KatClient(CONN, transport=mock).send_message(sms()))
+    assert (e.code, e.retry_after_s) == ("rate_limited", expected) and leaks(*everything_in(e)) == []
+    other = KatMock(override=answer(503, {"code": "x"}, headers={"retry-after": "30"}))
+    assert (await failure(KatClient(CONN, transport=other).check())).retry_after_s is None  # 429 에만
 
 
 async def test_known_vendor_codes_get_their_own_message_and_unknown_ones_are_named():
@@ -191,55 +332,27 @@ async def test_known_vendor_codes_get_their_own_message_and_unknown_ones_are_nam
     assert "brand_new_code" in (await failure(client.send_message(sms()))).message
 
 
-async def test_vendor_error_code_that_holds_a_secret_is_not_repeated():
+async def test_vendor_error_code_is_repeated_only_when_it_is_a_plain_lowercase_word():
     key = "katTESTkeyZZZZ9999"  # 코드처럼 생긴 키(글자·숫자뿐)
     conn = ProviderConn(base_url=KAT_BASE, account_id=KAT_ACCOUNT, key=key)
-    for vendor_code in (key, key.upper(), SENTINEL_KEY, ECHO, f"x_{KAT_ACCOUNT}", 7, None, "a" * 41):
+    odd = (key, key.upper(), key.lower(), SENTINEL_KEY, ECHO, f"x_{KAT_ACCOUNT}", 7, None, "a" * 41, f"to_{SENTINEL_DIGITS}",
+           "code9", "Mixed_Case", "UPPER_CODE", "with-dash", "")
+    for vendor_code in odd:
         mock = KatMock(key=key, override=answer(422, {"error": ECHO, "code": vendor_code}))
         e = await failure(KatClient(conn, transport=mock).send_message(sms()))
         assert e.code == "bad_request" and "제공사 코드" not in e.message, vendor_code
         assert leaks(*everything_in(e)) == [] and not key_survives(e.message, key), vendor_code
-
-
-async def test_message_the_vendor_already_marked_failed_is_still_accepted_with_its_id():
-    mock = KatMock(override=answer(201, {"messageId": "MG9", "status": "failed", "failureCode": "invalid_number"}))
-    assert await KatClient(CONN, transport=mock).send_message(sms()) == Accepted(provider_id="MG9")  # 실패는 상태 조회가 알린다
+    lower = "kattestkeyzzzz"  # 소문자뿐인 키가 코드로 되돌아와도 옮기지 않는다
+    mock = KatMock(key=lower, override=answer(422, {"code": lower}))
+    e = await failure(KatClient(ProviderConn(KAT_BASE, KAT_ACCOUNT, lower), transport=mock).send_message(sms()))
+    assert lower not in e.message
 
 
 @pytest.mark.parametrize(("body", "content_type"), [(b"<html>ok</html>", "text/html"), (b"[1, 2]", "application/json"),
-                                                    (b"", "application/json")])
+                                                    (b"", "application/json"), (b"\xff\xfe", "application/json")])
 async def test_unreadable_success_body_is_unknown(body, content_type):
-    mock = KatMock(override=lambda r: httpx.Response(200, content=body, headers={"content-type": content_type}))
-    e = await failure(KatClient(CONN, transport=mock).check())
-    assert e.code == "unknown" and e.http_status == 200
-
-
-async def test_timeout_and_network_codes():
-    cases = [(httpx.ConnectTimeout, "timeout", False), (httpx.ReadTimeout, "timeout", True),
-             (httpx.ConnectError, "network", False), (httpx.ReadError, "network", True),
-             (httpx.RemoteProtocolError, "network", True), (RuntimeError, "unknown", True)]
-    for exc_type, code, maybe_sent in cases:
-        mock = KatMock(override=raising(exc_type))
-        client = KatClient(CONN, transport=mock)
-        sent = await failure(client.send_message(sms()))
-        assert (sent.code, sent.maybe_sent, sent.http_status) == (code, maybe_sent, None), exc_type
-        asked = await failure(client.message_status("MG000001abcdef"))
-        assert (asked.code, asked.maybe_sent) == (code, False), exc_type  # 조회는 보낸 것이 없다
-        assert len(mock.requests) == 2  # 다시 시도하지 않는다
-        assert leaks(*everything_in(sent), *everything_in(asked)) == [], exc_type
-    assert "보냈는지" in sent.message  # 보냈는지 알 수 없다는 말
-
-
-async def test_whole_call_is_bounded_by_the_time_limit(monkeypatch):
-    import asyncio
-
-    async def slow(request: httpx.Request) -> httpx.Response:
-        await asyncio.sleep(5)
-        return httpx.Response(200, json={})
-
-    monkeypatch.setattr(provider, "TIMEOUT_S", 0.05)
-    e = await failure(KatClient(CONN, transport=httpx.MockTransport(slow)).send_message(sms()))
-    assert (e.code, e.maybe_sent) == ("timeout", True)
+    e = await failure(KatClient(CONN, transport=KatMock(override=raw(203, body, content_type))).check())
+    assert e.code == "unknown" and e.http_status == 203  # 받은 상태 그대로
 
 
 async def test_redirect_is_not_followed():
@@ -250,10 +363,17 @@ async def test_redirect_is_not_followed():
     assert leaks(*everything_in(e)) == []
 
 
+# ── 요청 전에 막는 것 ──────────────────────────────────────────────
+
+
 @pytest.mark.parametrize("base_url", [
     "http://127.0.0.1", "http://api.koreaaitel.com", "https://localhost", "https://127.0.0.1:8443", "https://10.0.0.5",
     "https://169.254.169.254", "https://[::1]", f"https://{SENTINEL_KEY}@api.koreaaitel.com", "ftp://api.koreaaitel.com",
     "", "not a url",
+    # 주소는 scheme·호스트·포트뿐 — 뒤에 붙는 /v1/accounts/… 가 질의·조각 속으로 들어가지 않게(진단과 같은 검사)
+    "https://api.koreaaitel.com?x=", "https://api.koreaaitel.com#", "https://api.koreaaitel.com/proxy?u=",
+    "https://api.koreaaitel.com/a/../b", "https://api.koreaaitel.com/v1", " https://api.koreaaitel.com",
+    "https://api.koreaaitel.com ", "https://api.koreaaitel.com%20", "https://evil.example\\.koreaaitel.com",
 ])
 async def test_internal_base_url_is_refused(base_url, no_provider_dns):
     mock = KatMock()
@@ -262,6 +382,14 @@ async def test_internal_base_url_is_refused(base_url, no_provider_dns):
         e = await failure(call)
         assert e.code == "bad_request" and e.maybe_sent is False and leaks(*everything_in(e)) == []
     assert mock.requests == [] and no_provider_dns == []  # 요청 0번, 이름도 풀지 않았다
+
+
+async def test_base_url_with_trailing_slash_or_port_is_used_as_is():
+    for base, expected in ((f"{KAT_BASE}/", f"{KAT_BASE}/v1/accounts/{KAT_ACCOUNT}/sender-numbers"),
+                           (f"{KAT_BASE}:8443", f"{KAT_BASE}:8443/v1/accounts/{KAT_ACCOUNT}/sender-numbers")):
+        mock = KatMock()
+        await KatClient(ProviderConn(base_url=base, account_id=KAT_ACCOUNT, key=SENTINEL_KEY), transport=mock).check()
+        assert str(mock.requests[0].url) == expected
 
 
 async def test_host_that_resolves_inside_is_refused(monkeypatch):
@@ -298,6 +426,46 @@ async def test_account_id_cannot_climb_out_of_its_path_segment():
     assert mock.requests[0].url.raw_path == b"/v1/accounts/..%2F..%2Fadmin%3Fx%3D/sender-numbers"
 
 
+async def test_message_id_is_one_path_segment():
+    mock = KatMock()
+    await failure(KatClient(CONN, transport=mock).message_status("../sender-numbers"))
+    assert mock.requests[0].url.raw_path == f"/v1/accounts/{KAT_ACCOUNT}/messages/..%2Fsender-numbers".encode()
+    for bad in ("", None):
+        e = await failure(KatClient(CONN, transport=mock).message_status(bad))
+        assert e.code == "bad_request"
+    assert len(mock.requests) == 1
+
+
+# ── 시험에서는 실제 전송으로 나갈 수 없다 ──────────────────────────
+
+
+async def test_client_without_a_mock_transport_is_refused_under_tests(monkeypatch):
+    reached: list[httpx.Request] = []
+
+    async def real_transport(self, request: httpx.Request) -> httpx.Response:
+        reached.append(request)
+        raise httpx.ConnectError("blocked by the test")
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", real_transport)
+    with pytest.raises(RealProviderCall, match="fake_provider"):
+        await provider.client_for(row()).check()  # fake_provider 를 잊은 시험
+    with pytest.raises(AssertionError, match="KatMock"):
+        KatClient(CONN)
+    assert reached == []
+
+
+async def test_diagnostics_client_without_a_mock_transport_is_refused_under_tests():
+    with pytest.raises(RealProviderCall, match="transport"):
+        diagnostics.make_client()
+    async with diagnostics.make_client(transport=KatMock()) as http:
+        assert http.trust_env is False and http.follow_redirects is False
+
+
+def test_outside_tests_no_transport_means_the_real_one(monkeypatch):
+    monkeypatch.undo()  # 이 시험만 autouse 막이를 푼다(아무것도 보내지 않는다)
+    assert provider._default_transport() is None and KatClient(CONN)._transport is None
+
+
 # ── 로그·되돌려 주는 값 ────────────────────────────────────────────
 
 
@@ -315,6 +483,7 @@ async def test_no_key_phone_or_account_in_logs(caplog):
     await client.call_info("CA000001")
     for override in (answer(401, {"error": ECHO, "code": ECHO}), answer(500, {"error": ECHO}), raising(httpx.ConnectError),
                      raising(httpx.ReadTimeout), raising(RuntimeError), answer(200, {"messageId": SENTINEL_KEY}),
+                     answer(201, {"messageId": SENTINEL_PHONE}), page([{**GOOD, "from": ECHO, "dateCreated": ECHO}]),
                      answer(302, headers={"location": f"https://elsewhere.invalid/?{ECHO}"})):
         mock.override = override
         await failure(client.send_message(sms()))
@@ -330,11 +499,27 @@ async def test_new_client_registers_its_key_and_account_with_the_log_filter(capl
     key, account = "kat-test-key-UNIQ0001", "AC0000000000uniq"
     log = logging.getLogger("app.outreach.elsewhere")
     log.warning("before key=%s account=%s", key, account)
-    KatClient(ProviderConn(base_url=KAT_BASE, account_id=account, key=key))
+    KatClient(ProviderConn(base_url=KAT_BASE, account_id=account, key=key), transport=KatMock())
     log.warning("after key=%s account=%s", key, account)
     before, after = (r.getMessage() for r in caplog.records)
     assert key in before  # 시험이 뜻이 있으려면: 등록 전에는 남는다
     assert key not in after and account not in after and after.startswith("after key=")
+
+
+async def test_registered_secrets_survive_another_caller_installing_its_own_source(caplog, monkeypatch):
+    """다른 모듈이 redact.install 로 제 비밀 목록을 걸어도, 이미 만든 클라이언트의 요청 줄에서 Account ID 가 지워진다."""
+    monkeypatch.setattr(redact, "_FILTER", redact._FILTER)  # 이 시험이 건 것을 되돌린다
+    caplog.set_level(logging.INFO)
+    key, account = "kat-test-key-KEEP0002", "AC0000000000keep"
+    mock = KatMock(key=key, account=account)
+    client = KatClient(ProviderConn(base_url=KAT_BASE, account_id=account, key=key), transport=mock)
+    redact.install(lambda: ["some-other-module-secret-1234"])
+    await client.check()
+    request_lines = [r.getMessage() for r in caplog.records if r.name == "httpx"]
+    assert request_lines and all("/v1/accounts/" in line for line in request_lines)
+    assert not any(account in line or key in line for line in request_lines)
+    logging.getLogger("app.outreach.elsewhere").warning("other=%s", "some-other-module-secret-1234")
+    assert "some-other-module-secret-1234" not in caplog.records[-1].getMessage()  # 그쪽 것도 그대로 지워진다
 
 
 async def test_vendor_echo_never_reaches_a_return_value():
@@ -342,42 +527,111 @@ async def test_vendor_echo_never_reaches_a_return_value():
     client = KatClient(CONN, transport=mock)
     mock.override = answer(201, {"messageId": SENTINEL_KEY, "status": "queued"})
     e = await failure(client.send_message(sms()))  # 키를 id 로 돌려주면 받지 않는다
-    assert (e.code, e.maybe_sent) == ("unknown", True) and leaks(*everything_in(e)) == []
-    mock.override = answer(201, {"status": "queued"})
-    assert (await failure(client.send_message(sms()))).maybe_sent is True  # id 가 없어도 보냈을 수 있다
+    assert (e.code, e.maybe_sent, e.http_status) == ("unknown", True, 201) and leaks(*everything_in(e)) == []
 
     mock.override = answer(200, {"messageId": "MG1", "status": "failed", "failureCode": SENTINEL_KEY, "failureMessage": ECHO})
     delivery = await client.message_status("MG1")
     assert delivery.state == "failed" and delivery.fail_code == "unknown" and leaks(delivery, asdict(delivery)) == []
 
-    mock.override = answer(200, {"data": [
-        {"messageId": SENTINEL_KEY, "direction": "inbound", "from": SENTINEL_DIGITS, "body": "x", "dateCreated": "2026-11-23T03:00:00Z"},
-        {"messageId": "MG2", "direction": "inbound", "from": SENTINEL_DIGITS, "body": f"키는 {SENTINEL_KEY} 계정 {KAT_ACCOUNT}",
-         "dateCreated": "2026-11-23T03:00:01Z"}], "meta": {}})
-    inbound = await client.received(None)
-    assert [m.provider_id for m in inbound] == ["MG2"]
-    assert SENTINEL_KEY not in inbound[0].body and KAT_ACCOUNT not in inbound[0].body and inbound[0].body.startswith("키는 ")
+    mock.override = page([
+        {**GOOD, "messageId": SENTINEL_KEY},
+        {**GOOD, "messageId": "MG2", "body": f"키는 {SENTINEL_KEY} 계정 {KAT_ACCOUNT}", "dateCreated": "2026-11-23T03:00:01Z"}])
+    got = await client.received(None)
+    assert [m.provider_id for m in got.items] == ["MG2"] and got.skipped == 1
+    body = got.items[0].body
+    assert SENTINEL_KEY not in body and KAT_ACCOUNT not in body and body.startswith("키는 ")
 
     mock.override = answer(200, {"senderNumbers": [{"number": ECHO, "status": "approved"}, {"number": 7, "status": "approved"},
                                                    {"number": "070-0000-0123", "status": "approved"}, "junk"]})
     assert (await client.check()).senders == [KAT_SENDER]
 
 
+@pytest.mark.parametrize("message_id", [SENTINEL_PHONE, SENTINEL_DIGITS, "+82 10-0000-0199", "1588-0199", "031-200-0199", 123, None,
+                                        "", "a b", "x" * 101])
+async def test_message_id_that_is_a_phone_number_or_not_an_id_is_refused(message_id):
+    mock = KatMock(override=answer(201, {"messageId": message_id, "status": "queued"}))
+    e = await failure(KatClient(CONN, transport=mock).send_message(sms()))
+    assert (e.code, e.maybe_sent, e.http_status) == ("unknown", True, 201) and leaks(*everything_in(e)) == []
+    mock = KatMock(override=page([{**GOOD, "messageId": message_id}, {**GOOD, "messageId": "MG7"}]))
+    got = await KatClient(CONN, transport=mock).received(None)
+    assert [m.provider_id for m in got.items] == ["MG7"] and got.skipped == 1  # 그 줄만 건너뛴다
+
+
+@pytest.mark.parametrize("message_id", ["202611230000123", "1234567890123456789", "MG01000000199", "msg_01.a:b-c"])
+async def test_ids_with_long_digit_runs_are_fine(message_id):
+    mock = KatMock(override=answer(201, {"messageId": message_id, "status": "queued"}))
+    assert (await KatClient(CONN, transport=mock).send_message(sms())).provider_id == message_id
+
+
 def test_reprs_hide_key_account_numbers_and_text():
-    mock = KatMock()
-    client = KatClient(CONN, transport=mock)
+    client = KatClient(CONN, transport=KatMock())
     inbound = provider.Inbound(provider_id="MG1", from_number=SENTINEL_DIGITS, body=f"연락처 {SENTINEL_PHONE}", at=T0,
-                               has_media=False)
+                               has_media=False, to_number=SENTINEL_DIGITS)
     check = provider.Check(ok=True, senders=[SENTINEL_DIGITS], latency_ms=3)
-    assert leaks(CONN, client, sms(body=f"연락처 {SENTINEL_PHONE}"), inbound, check, str(CONN), f"{client}") == []
+    got = Received(items=[inbound], fetched_at=NOW)
+    assert leaks(CONN, client, sms(body=f"연락처 {SENTINEL_PHONE}"), inbound, check, got, str(CONN), f"{client}") == []
     assert "idem-0001" in repr(sms())  # 가릴 것이 아닌 칸은 보인다
+
+
+# ── 읽는 양의 상한 ─────────────────────────────────────────────────
+
+
+async def test_response_body_over_the_cap_is_not_read_to_the_end(monkeypatch):
+    monkeypatch.setattr(provider, "MAX_BYTES", 2000)
+    pulled = []
+
+    async def endless():
+        for i in range(500):
+            pulled.append(i)
+            yield b'{"pad": "' + b"a" * 990 if i == 0 else b"a" * 1000
+
+    def stream(status: int):
+        return lambda request: httpx.Response(status, content=endless(), headers={"content-type": "application/json"})
+
+    mock = KatMock(override=stream(200))
+    client = KatClient(CONN, transport=mock)
+    e = await failure(client.received(None))
+    assert (e.code, e.http_status, e.maybe_sent) == ("unknown", 200, False)
+    assert len(pulled) < 10  # 500 조각을 다 읽지 않았다
+    e = await failure(client.send_message(sms()))
+    assert (e.code, e.http_status, e.maybe_sent) == ("unknown", 200, True)  # 2xx 인데 읽지 못함 — 보냈을 수 있다
+    mock.override = stream(400)
+    e = await failure(client.send_message(sms()))
+    assert (e.code, e.http_status, e.maybe_sent) == ("bad_request", 400, False)  # 상태로 가른다
+
+    fits = json.dumps({"senderNumbers": [], "pad": "a" * 1900}).encode()
+    assert len(fits) <= 2000
+    assert (await KatClient(CONN, transport=KatMock(override=raw(200, fits, "application/json"))).check()).senders == []
+
+
+async def test_inbound_body_is_capped_and_cleaned():
+    hostile = "x\x00y\x1b[31mred\x07 \u202eevil\u2066 \r\n\tz\x7f"
+    mock = KatMock(override=page([{**GOOD, "messageId": "L1", "body": "가" * 5000}, {**GOOD, "messageId": "L2", "body": hostile},
+                                  {**GOOD, "messageId": "L3", "body": "가" * 4000}, {**GOOD, "messageId": "L4", "body": {"x": 1}},
+                                  {**GOOD, "messageId": "L5", "body": "\x00" * 5000 + "끝"}]))
+    got = {m.provider_id: m for m in (await KatClient(CONN, transport=mock).received(None)).items}
+    assert (len(got["L1"].body), got["L1"].body_cut) == (provider.INBOUND_BODY_MAX, True)  # 4,000자에서 자르고 표시한다
+    assert (got["L2"].body, got["L2"].body_cut) == ("xy[31mred evil \n\tz", False)  # 제어 글자·방향 덮어쓰기 글자를 뺀다
+    assert (len(got["L3"].body), got["L3"].body_cut) == (4000, False)
+    assert (got["L4"].body, got["L5"].body, got["L5"].body_cut) == ("", "끝", False)
 
 
 # ── 상태·받은 문자·발신번호·통화 ───────────────────────────────────
 
 
-def test_status_map_covers_the_documented_words():
-    assert STATUS_MAP == {"queued": "accepted", "sent": "delivered", "failed": "failed", "received": "received"}
+async def test_each_documented_status_word_reaches_the_caller_through_the_map(monkeypatch):
+    mock = KatMock()
+    client = KatClient(CONN, transport=mock)
+    one = (await client.send_message(sms())).provider_id
+    seen = {}
+    for word in ("queued", "sent", "failed"):
+        mock.set_status(one, word)
+        seen[word] = (await client.message_status(one)).state
+    assert seen == {"queued": "accepted", "sent": "delivered", "failed": "failed"}
+    assert STATUS_MAP["received"] == "received" and set(STATUS_MAP) == {"queued", "sent", "failed", "received"}
+    mock.set_status(one, "sent")
+    monkeypatch.setitem(STATUS_MAP, "sent", "accepted")  # P3 실측이 「도착 아님」이면 이 한 줄만 바꾼다
+    assert (await client.message_status(one)).state == "accepted"
 
 
 async def test_status_and_received_are_parsed():
@@ -397,18 +651,20 @@ async def test_status_and_received_are_parsed():
     assert mock.requests[-1].url.path == f"/v1/accounts/{KAT_ACCOUNT}/messages/{two}"
 
     mock.set_status(two, "failed", "some_new_code")
-    assert ((await client.message_status(two)).fail_code, "some_new_code" in (await client.message_status(two)).fail_text) \
-        == ("some_new_code", True)
-    mock.set_status(two, "failed")
-    plain = await client.message_status(two)
-    assert plain.fail_code == "unknown" and plain.fail_text
+    newer = await client.message_status(two)
+    assert newer.fail_code == "some_new_code" and "some_new_code" in newer.fail_text
+    for odd in (None, f"n{SENTINEL_DIGITS}", "Some_Code", "code9", 7):  # 소문자 낱말이 아니면 옮기지 않는다
+        mock.set_status(two, "failed", odd)
+        plain = await client.message_status(two)
+        assert plain.fail_code == "unknown" and plain.fail_text and leaks(plain) == []
 
     first = mock.add_inbound(SENTINEL_DIGITS, "네 알겠습니다", T0)
     second = mock.add_inbound("+82 10-0000-0188", "사진 보냅니다", T0 + timedelta(seconds=30), media=1)
-    inbound = await client.received(None)
-    assert [(m.provider_id, m.from_number, m.body, m.at, m.has_media) for m in inbound] == [
-        (first, SENTINEL_DIGITS, "네 알겠습니다", T0, False),
-        (second, "01000000188", "사진 보냅니다", T0 + timedelta(seconds=30), True)]  # 오래된 것부터, 번호는 정리한 꼴
+    got = await client.received(None)
+    assert isinstance(got, Received) and (got.truncated, got.skipped, got.redated, got.fetched_at) == (False, 0, 0, NOW)
+    assert [(m.provider_id, m.from_number, m.to_number, m.body, m.at, m.has_media, m.body_cut) for m in got.items] == [
+        (first, SENTINEL_DIGITS, KAT_SENDER, "네 알겠습니다", T0, False, False),
+        (second, "01000000188", KAT_SENDER, "사진 보냅니다", T0 + timedelta(seconds=30), True, False)]  # 오래된 것부터
     assert dict(mock.requests[-1].url.params) == {"status": "received", "pageSize": str(RECEIVED_PAGE_SIZE), "page": "0"}
 
 
@@ -416,40 +672,59 @@ async def test_status_and_received_are_parsed():
 async def test_status_word_we_do_not_know_is_a_failure_not_a_guess(status):
     mock = KatMock(override=answer(200, {"messageId": "MG1", "status": status}))
     e = await failure(KatClient(CONN, transport=mock).message_status("MG1"))
-    assert e.code == "unknown"
-
-
-async def test_message_id_is_one_path_segment():
-    mock = KatMock()
-    await failure(KatClient(CONN, transport=mock).message_status("../sender-numbers"))
-    assert mock.requests[0].url.raw_path == f"/v1/accounts/{KAT_ACCOUNT}/messages/..%2Fsender-numbers".encode()
-    for bad in ("", None):
-        e = await failure(KatClient(CONN, transport=mock).message_status(bad))
-        assert e.code == "bad_request"
-    assert len(mock.requests) == 1
+    assert e.code == "unknown" and e.http_status == 200
 
 
 async def test_received_keeps_only_since_and_later_and_stops_paging_at_older_rows():
     mock = KatMock()
     client = KatClient(CONN, transport=mock)
-    ids = [mock.add_inbound(SENTINEL_DIGITS, f"회신 {i}", T0 + timedelta(seconds=i)) for i in range(150)]
+    size = RECEIVED_PAGE_SIZE
+    total, in_first_page, in_second_page = size + size // 2, size + size // 2 - size // 5, size // 5
+    ids = [mock.add_inbound(SENTINEL_DIGITS, f"회신 {i}", T0 + timedelta(seconds=i)) for i in range(total)]
     mock.messages[(await client.send_message(sms())).provider_id]["dateCreated"] = "2026-11-23T03:05:00.000Z"  # 보낸 것은 받은 것이 아니다
     mock.requests.clear()
 
-    since = T0 + timedelta(seconds=120)
+    since = T0 + timedelta(seconds=in_first_page)
     got = await client.received(since)
-    assert [m.provider_id for m in got] == ids[120:]  # 같은 시각 것도 준다(겹침은 받는 쪽이 id 로 막는다)
-    assert [r.url.params["page"] for r in mock.requests] == ["0"]  # 첫 쪽에서 더 오래된 줄을 봤다
+    assert [m.provider_id for m in got.items] == ids[in_first_page:]  # 같은 시각 것도 준다(겹침은 받는 쪽이 id 로 막는다)
+    assert [r.url.params["page"] for r in mock.requests] == ["0"] and got.truncated is False  # 첫 쪽의 끝 줄이 since 보다 오래됐다
 
     mock.requests.clear()
-    got = await client.received(T0 + timedelta(seconds=20))
-    assert [m.provider_id for m in got] == ids[20:] and [r.url.params["page"] for r in mock.requests] == ["0", "1"]
+    got = await client.received(T0 + timedelta(seconds=in_second_page))
+    assert [m.provider_id for m in got.items] == ids[in_second_page:]
+    assert [r.url.params["page"] for r in mock.requests] == ["0", "1"]
 
-    naive = (T0 + timedelta(seconds=120)).replace(tzinfo=None)  # DB 에서 읽은 시각(UTC, tz 없음)
-    assert [m.provider_id for m in await client.received(naive)] == ids[120:]
+    naive = since.replace(tzinfo=None)  # DB 에서 읽은 시각(UTC, tz 없음)
+    assert [m.provider_id for m in (await client.received(naive)).items] == ids[in_first_page:]
 
     mock.requests.clear()
-    assert len(await client.received(None)) == RECEIVED_PAGE_SIZE and len(mock.requests) == 1  # 처음에는 한 쪽만
+    assert len((await client.received(None)).items) == size and len(mock.requests) == 1  # 처음에는 한 쪽만
+
+
+def test_a_full_page_of_the_longest_texts_fits_under_the_response_cap():
+    """쪽 크기는 응답 상한에 맞춘 값이다: 2,000자 문자가 \\uXXXX 꼴로 한 쪽 가득 와도 읽을 수 있어야 한다."""
+    full = {"data": [{**GOOD, "messageId": f"MG{i:06d}abcdef", "accountId": KAT_ACCOUNT, "subject": None,
+                      "body": "가" * 2000, "mediaUrl": [f"https://media.invalid/{i}/{n}.jpg" for n in range(3)]}
+                     for i in range(RECEIVED_PAGE_SIZE)], "meta": {"page": 0, "pageSize": RECEIVED_PAGE_SIZE, "total": 9999}}
+    assert len(json.dumps(full, ensure_ascii=True)) < provider.MAX_BYTES
+
+
+async def test_paging_stops_on_the_last_row_of_a_page_not_on_any_older_row():
+    """쪽이 꼭 최신순이 아니어도(오래된 줄 하나가 앞에 끼어도) 다음 쪽의 새 줄을 놓치지 않는다."""
+    since = datetime(2026, 11, 23, 2, 0, tzinfo=UTC)
+    first = [{**GOOD, "messageId": "OLD", "dateCreated": "2026-11-20T00:00:00Z"}] + [
+        {**GOOD, "messageId": f"N{i}", "dateCreated": f"2026-11-23T03:{i // 60:02d}:{i % 60:02d}Z"} for i in range(99)]
+    second = [{**GOOD, "messageId": f"P{i}", "dateCreated": "2026-11-23T02:59:00Z"} for i in range(10)]
+    mock = KatMock(override=lambda r: page(first if r.url.params["page"] == "0" else second)(r))
+    got = await KatClient(CONN, transport=mock).received(since)
+    assert [r.url.params["page"] for r in mock.requests] == ["0", "1"]
+    assert len(got.items) == 109 and "OLD" not in {m.provider_id for m in got.items} and got.truncated is False
+
+    # 끝 줄을 읽을 수 없으면 그 쪽에서 읽힌 마지막 줄로 정한다
+    tail_broken = [{**GOOD, "messageId": f"Q{i}", "dateCreated": "2026-11-20T00:00:00Z"} for i in range(99)] + ["junk"]
+    mock = KatMock(override=page(tail_broken))
+    got = await KatClient(CONN, transport=mock).received(since)
+    assert len(mock.requests) == 1 and got.items == [] and got.skipped == 1
 
 
 async def test_received_stops_at_the_page_limit_and_says_so(caplog):
@@ -457,24 +732,79 @@ async def test_received_stops_at_the_page_limit_and_says_so(caplog):
     for i in range(RECEIVED_PAGE_SIZE * RECEIVED_MAX_PAGES + 5):
         mock.add_inbound(SENTINEL_DIGITS, "회신", T0 + timedelta(seconds=i))
     got = await KatClient(CONN, transport=mock).received(T0)
-    assert len(mock.requests) == RECEIVED_MAX_PAGES and len(got) == RECEIVED_PAGE_SIZE * RECEIVED_MAX_PAGES
-    assert got[0].at < got[-1].at
+    assert len(mock.requests) == RECEIVED_MAX_PAGES and len(got.items) == RECEIVED_PAGE_SIZE * RECEIVED_MAX_PAGES
+    assert got.truncated is True and got.items[0].at < got.items[-1].at  # 더 오래된 5건은 못 읽었다 — 부른 쪽이 안다
     assert any("쪽" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
 
 
-async def test_received_skips_rows_it_cannot_read_and_duplicates():
-    good = {"messageId": "MG1", "direction": "inbound", "from": SENTINEL_DIGITS, "body": None, "numMedia": 0,
-            "mediaUrl": ["https://media.invalid/1.jpg"], "dateCreated": "2026-11-23T03:00:00.123Z"}
-    rows = [good, dict(good), {**good, "messageId": "MG2", "direction": "outbound"}, {**good, "messageId": "MG3", "from": ""},
-            {**good, "messageId": "MG4", "dateCreated": "어제"}, {**good, "messageId": None}, "junk",
-            {**good, "messageId": "MG5", "from": "1588-0000", "dateCreated": "2026-11-23T12:00:01+09:00"}]
-    mock = KatMock(override=answer(200, {"data": rows, "meta": {"page": 0, "pageSize": 100, "total": len(rows)}}))
+@pytest.mark.parametrize("bad_date", ["0001-01-01T00:00:00+09:00", "9999-12-31T23:59:59-01:00", "어제", "", None, 1763866800,
+                                      ["2026-11-23T03:00:00Z"], "2026-13-45T00:00:00Z"])
+async def test_one_unreadable_date_skips_only_that_row(bad_date):
+    mock = KatMock(override=page([GOOD, {**GOOD, "messageId": "MG2", "dateCreated": bad_date}]))
+    got = await KatClient(CONN, transport=mock).received(T0 - timedelta(days=1))
+    assert [m.provider_id for m in got.items] == ["MG1"] and got.skipped == 1
+
+
+async def test_any_error_while_reading_one_row_skips_only_that_row(monkeypatch):
+    real = provider._parse_inbound
+
+    def flaky(item, secrets):
+        if isinstance(item, dict) and item.get("messageId") == "MG2":
+            raise ArithmeticError(f"boom {ECHO}")
+        return real(item, secrets)
+
+    monkeypatch.setattr(provider, "_parse_inbound", flaky)
+    mock = KatMock(override=page([GOOD, {**GOOD, "messageId": "MG2"}, {**GOOD, "messageId": "MG3"}]))
     got = await KatClient(CONN, transport=mock).received(None)
-    assert [(m.provider_id, m.from_number, m.body, m.has_media) for m in got] == [
-        ("MG1", SENTINEL_DIGITS, "", True), ("MG5", "15880000", "", True)]  # 사람 번호가 아니어도 숫자만 남겨 준다
-    assert got[0].at == datetime(2026, 11, 23, 3, 0, 0, 123000, tzinfo=UTC) and got[1].at.utcoffset() == timedelta(0)
+    assert [m.provider_id for m in got.items] == ["MG1", "MG3"] and got.skipped == 1
+
+
+async def test_received_skips_rows_it_cannot_read_and_duplicates():
+    rows = [GOOD, dict(GOOD), {**GOOD, "messageId": "MG2", "direction": "outbound"}, {**GOOD, "messageId": None}, "junk",
+            {**GOOD, "messageId": "MG3", "direction": ["inbound"]},
+            {**GOOD, "messageId": "MG5", "body": None, "numMedia": 0, "mediaUrl": ["https://media.invalid/1.jpg"],
+             "dateCreated": "2026-11-23T12:00:01+09:00"},
+            {**GOOD, "messageId": "MG6", "numMedia": "3", "dateCreated": "2026-11-23T03:00:02"},
+            {**GOOD, "messageId": "MG7", "numMedia": True, "mediaUrl": "x", "dateCreated": "2026-11-23T03:00:03Z"}]
+    mock = KatMock(override=page(rows))
+    got = await KatClient(CONN, transport=mock).received(None)
+    assert [(m.provider_id, m.body, m.has_media) for m in got.items] == [
+        ("MG1", "네", False), ("MG5", "", True), ("MG6", "네", False), ("MG7", "네", False)]  # 수·목록이 아닌 값은 사진으로 보지 않는다
+    assert got.skipped == 4
+    at = [m.at for m in got.items]
+    assert at[0] == datetime(2026, 11, 23, 3, 0, 0, 123000, tzinfo=UTC) and at[1] == datetime(2026, 11, 23, 3, 0, 1, tzinfo=UTC)
+    assert at[2] == datetime(2026, 11, 23, 3, 0, 2, tzinfo=UTC)  # tz 가 없으면 UTC 로 본다
     e = await failure(KatClient(CONN, transport=KatMock(override=answer(200, {"meta": {}}))).received(None))
-    assert e.code == "unknown"
+    assert e.code == "unknown" and e.http_status == 200
+
+
+@pytest.mark.parametrize(("given", "expected"), [
+    (SENTINEL_PHONE, SENTINEL_DIGITS), ("+82 10-0000-0199", SENTINEL_DIGITS), ("1588-0199", "15880199"),
+    ("+1 588 0199", "+15880199"),  # 나라 밖 번호는 국내 대표번호 15880199 와 같은 열쇠가 되지 않는다
+    ("+1588-0199", "+15880199"), ("+1 (555) 123-4567", "+15551234567"), ("+44 20 7946 0958", "+442079460958"),
+    ("+82 1588-0199", "15880199"), ("+8215880199", "15880199"),  # +82 가 붙은 대표번호는 국내 열쇠 그대로
+    ("KB국민", phone.NO_NUMBER), ("114", phone.NO_NUMBER), ("#0100000019", phone.NO_NUMBER),
+    ("(((((((((((0", phone.NO_NUMBER), ("", phone.NO_NUMBER), ("+", phone.NO_NUMBER), ("+12", phone.NO_NUMBER),
+    ("+1234567890123456", phone.NO_NUMBER), (["01000000199"], phone.NO_NUMBER), (None, phone.NO_NUMBER), (0, phone.NO_NUMBER),
+])
+async def test_sender_and_receiver_numbers_of_an_inbound_text(given, expected):
+    mock = KatMock(override=page([{**GOOD, "from": given, "to": given}]))
+    got = await KatClient(CONN, transport=mock).received(None)
+    assert [(m.from_number, m.to_number) for m in got.items] == [(expected, expected)] and got.skipped == 0
+
+
+async def test_row_dated_in_the_future_gets_the_fetch_time_and_is_counted():
+    def at(delta: timedelta) -> str:
+        return (NOW + delta).isoformat().replace("+00:00", "Z")
+
+    far = {**GOOD, "messageId": "F1", "dateCreated": "2099-01-01T00:00:00Z"}
+    mock = KatMock(override=page([far, dict(far),  # 같은 줄이 두 번 와도 한 번만 센다
+                                  {**GOOD, "messageId": "F2", "dateCreated": at(timedelta(minutes=5, seconds=1))},
+                                  {**GOOD, "messageId": "F3", "dateCreated": at(timedelta(minutes=4))}, GOOD]))
+    got = await KatClient(CONN, transport=mock).received(T0)
+    times = {m.provider_id: m.at for m in got.items}
+    assert times == {"MG1": T0.replace(microsecond=123000), "F1": NOW, "F2": NOW, "F3": NOW + timedelta(minutes=4)}
+    assert (got.redated, got.fetched_at) == (2, NOW)  # 시계가 조금 다른 것(5분까지)은 그대로 둔다
 
 
 async def test_check_returns_approved_senders_and_latency():
@@ -482,34 +812,56 @@ async def test_check_returns_approved_senders_and_latency():
     check = await KatClient(CONN, transport=mock).check()
     assert check.ok is True and check.senders == [KAT_SENDER] and check.latency_ms >= 0  # 승인 대기 번호는 뺀다
     assert [(r.method, r.url.path) for r in mock.requests] == [("GET", f"/v1/accounts/{KAT_ACCOUNT}/sender-numbers")]
+    mock.senders = [{"number": n, "status": "approved"} for n in ("+82 70-0000-0123", "1588-0199", "07000000123", "114", "9")]
+    assert (await KatClient(CONN, transport=mock).check()).senders == [KAT_SENDER, "15880199", "114"]  # 저장된 꼴과 같은 열쇠
     e = await failure(KatClient(CONN, transport=KatMock(override=answer(200, {"grace": []}))).check())
-    assert e.code == "unknown"
+    assert e.code == "unknown" and e.http_status == 200
 
 
 async def test_call_info_returns_only_plain_documented_fields():
     mock = KatMock()
-    mock.add_call("CA000001", hangupCause=ECHO, transferReasonText=ECHO, recordingUrl=f"https://x.invalid/{KAT_ACCOUNT}/r.wav",
+    mock.add_call("CA000001", transferReasonText=ECHO, recordingUrl=f"https://x.invalid/{KAT_ACCOUNT}/r.wav",
                   transfers=[{"to": SENTINEL_DIGITS}], surprise=SENTINEL_KEY)
     info = await KatClient(CONN, transport=mock).call_info("CA000001")
     assert mock.requests[0].url.path == f"/v1/accounts/{KAT_ACCOUNT}/calls/CA000001"
-    assert info["status"] == "completed" and info["direction"] == "outbound" and info["duration"] == 42
-    assert info["dateCreated"] == "2026-11-23T00:00:00.000Z" and info["hangupSource"] == "callee"
-    assert not {"to", "from", "accountId", "recordingUrl", "transfers", "transferReasonText", "surprise"} & set(info)
+    assert info == {"callId": "CA000001", "status": "completed", "direction": "outbound", "duration": 42, "answeredBy": None,
+                    "hangupCause": None, "hangupSource": "callee", "callerIdRestricted": None, "recording": False,
+                    "dateCreated": "2026-11-02T00:00:00.000Z", "dateUpdated": "2026-11-02T00:00:42.000Z"}
     assert leaks(info, json.dumps(info, ensure_ascii=False)) == []
+
+
+async def test_call_info_drops_values_of_the_wrong_shape():
+    mock = KatMock()
+    mock.add_call("CA1", status="in-progress", duration=int(SENTINEL_DIGITS), hangupCause="1588-0199 로 전환", answeredBy=1.5,
+                  recording=f"https://x.invalid/rec/{SENTINEL_DIGITS}.wav", callerIdRestricted="yes", hangupSource=ECHO,
+                  direction=SENTINEL_PHONE, dateCreated=ECHO, dateUpdated=SENTINEL_DIGITS)
+    info = await KatClient(CONN, transport=mock).call_info("CA1")
+    assert info == {"callId": "CA1", "status": "in-progress", "direction": None, "duration": None, "answeredBy": None,
+                    "hangupCause": None, "hangupSource": None, "callerIdRestricted": None, "recording": None,
+                    "dateCreated": None, "dateUpdated": None}
+    mock.add_call("CA2", duration=True, hangupCause="no-answer", answeredBy="human", callerIdRestricted=True)
+    info = await KatClient(CONN, transport=mock).call_info("CA2")
+    assert (info["duration"], info["hangupCause"], info["answeredBy"], info["callerIdRestricted"]) == (None, "no-answer", "human", True)
+    mock.add_call("CA4", dateCreated="0001-01-01T00:00:00+09:00", dateUpdated="9999-12-31T23:59:59-01:00")
+    info = await KatClient(CONN, transport=mock).call_info("CA4")
+    assert (info["dateCreated"], info["dateUpdated"]) == (None, None)  # 읽을 수 없는 시각 때문에 호출이 깨지지 않는다
+    for call_id in (SENTINEL_PHONE, SENTINEL_KEY, 7):  # 번호·키 꼴의 id 는 받지 않는다
+        mock.add_call("CA3", callId=call_id)
+        e = await failure(KatClient(CONN, transport=mock).call_info("CA3"))
+        assert e.code == "unknown" and e.http_status == 200 and leaks(*everything_in(e)) == []
 
 
 # ── client_for · 가짜 ─────────────────────────────────────────────
 
 
-def row(**changes: object) -> NotifyConnection:
-    fields = {"name": "기본", "base_url": KAT_BASE, "secret_ciphertext": crypto.encrypt(SENTINEL_KEY), "secret_last4": "9999",
-              "account_id": KAT_ACCOUNT}
-    return NotifyConnection(**{**fields, **changes})
-
-
-def test_client_for_decrypts_the_stored_key():
+async def test_client_for_decrypts_the_stored_key_and_calls_with_it(monkeypatch):
+    mock = KatMock()
+    monkeypatch.setattr(provider, "_default_transport", lambda: mock)
     client = provider.client_for(row())
     assert isinstance(client, KatClient) and client.conn == CONN
+    await client.check()
+    assert mock.requests[0].headers["authorization"] == f"Bearer {SENTINEL_KEY}"
+    assert mock.requests[0].url.path == f"/v1/accounts/{KAT_ACCOUNT}/sender-numbers"
 
 
 def test_client_for_with_unreadable_secret_is_bad_key():
@@ -524,6 +876,14 @@ async def test_fake_provider_replaces_client_for(fake_provider):
     again = await fake_provider.send_message(sms())
     assert first == again and len(fake_provider.sent) == 1  # 같은 키는 한 번만 나간다
     assert (await fake_provider.message_status(first.provider_id)).state == "accepted"
-    fake_provider.fail = ProviderFailed("rate_limited", "잠시 뒤 다시 해 주세요.", 429)
-    assert (await failure(fake_provider.check())).code == "rate_limited"
-    assert fake_provider.log == ["send_message", "send_message", "message_status", "check"]
+    old, new = (provider.Inbound(provider_id=f"MG{i}", from_number=SENTINEL_DIGITS, body="네", at=T0 + timedelta(hours=i),
+                                 has_media=False) for i in (1, 2))
+    fake_provider.inbox = [new, old]
+    fake_provider.received_flags = {"truncated": True}
+    got = await fake_provider.received(T0 + timedelta(hours=2))
+    assert isinstance(got, Received) and got.items == [new] and got.truncated is True and got.fetched_at is not None
+    assert (await fake_provider.received(None)).items == [old, new]
+    fake_provider.fail = ProviderFailed("rate_limited", "잠시 뒤 다시 해 주세요.", 429, retry_after_s=30)
+    e = await failure(fake_provider.check())
+    assert (e.code, e.retry_after_s) == ("rate_limited", 30)
+    assert fake_provider.log == ["send_message", "send_message", "message_status", "received", "received", "check"]

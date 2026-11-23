@@ -2,16 +2,27 @@
 
 - 주소는 `{base_url}/v1/accounts/{account_id}/…` 로만 만든다(Account ID·id 는 %인코딩한 한 칸). 머리글 `Authorization: Bearer`.
   리다이렉트를 따르지 않고, 이름 풀이를 넣어 한 번에 15초(`TIMEOUT_S`), 다시 시도하지 않는다(다시 보내기는 나가는 문이
-  중복 방지 키로 정한다). 요청마다 새 클라이언트(`diagnostics.make_client` — trust_env=False).
-- 요청 전에 막는 것(요청 0번): 주소가 https 가 아니거나 사용자 정보(@)·localhost·내부망이면 `bad_request`, 호스트가 내부망
-  IP 로 풀리면 `bad_request`, 풀지 못하면 `network`, 키·Account ID 가 비었거나 8자보다 짧거나 쓸 수 없는 글자면
-  `bad_key`·`bad_account`, 보낼 것이 모자라면 `bad_request`. 주소·이름 풀이 검사는 연결 진단(app.notify.diagnostics)과
-  같은 함수다. 진단처럼 풀린 IP 로 붙지는 않는다(https 인증서 확인이 이름을 지킨다).
-- 키: 풀린 키는 이 프로세스 안에만 있다. `KatClient` 를 만들면 키·Account ID 가 로그 거르개에 오른다(`register_secrets` —
-  `redact.install` 을 부르는 곳은 이 모듈 하나). 실패는 `ProviderFailed(code, message)` 뿐이고 글은 이 파일의 표에서만 온다:
+  중복 방지 키로 정한다). 요청마다 새 클라이언트(`diagnostics.make_client` — trust_env=False). 응답 본문은 `MAX_BYTES`
+  (1MB)까지만 읽는다.
+- 요청 전에 막는 것(요청 0번, `maybe_sent=False`): 기본 주소가 https://호스트[:포트] 꼴이 아니거나(경로·질의·조각·빈칸·@)
+  localhost·내부망이면 `bad_request`, 호스트가 내부망 IP 로 풀리면 `bad_request`, 풀지 못하면 `network`, 키·Account ID 가
+  비었거나 8자보다 짧거나 쓸 수 없는 글자면 `bad_key`·`bad_account`, 보낼 것이 모자라거나 보낼 꼴로 만들 수 없거나 중복
+  방지 키가 `^[A-Za-z0-9_-]{8,64}$` 이 아니면 `bad_request`. 주소·이름 풀이 검사와 경로 칸 인코딩은 연결 진단
+  (app.notify.diagnostics)과 같은 함수다. 풀린 IP 로 붙지는 않는다(https 인증서 확인이 이름을 지킨다).
+- 키: 풀린 키는 이 프로세스 안에만 있다. `KatClient` 를 만들면 키·Account ID 가 로그 거르개에 오른다(`register_secrets` → `redact.add_secrets`).
+  이 모듈이 올리는 것은 `ProviderFailed` 뿐이고(한 줄의 읽기 오류도 그 줄만 건너뛴다) 글은 이 파일의 표에서만 온다:
   통신 예외·제공사 오류 본문·실패 글(`failureMessage`)은 어디에도 옮기지 않는다(예외는 이어 붙이지도 않는다).
-  제공사가 준 id·코드는 꼴이 맞고 키·Account ID 가 들어 있지 않을 때만 받는다. 로그에는 종류·코드·상태만 남긴다.
-- `maybe_sent`: 보내기(POST)가 나간 뒤 끊기거나 시간이 넘었거나 2xx 인데 읽지 못하면 참 — 보냈는지 알 수 없다.
+  제공사가 준 id 는 꼴이 맞고 키·Account ID·전화번호가 아닐 때만, 코드는 소문자 낱말(`^[a-z_]{1,40}$`)일 때만 받는다.
+  로그에는 종류·코드·상태만 남긴다.
+- **`maybe_sent`(보내기만)**: 문자가 갔는지 알 수 없으면 참. 거짓인 것은 둘뿐이다 — 한 바이트도 나가기 전의 실패(요청 전
+  거절·이름 풀이·연결·TLS·연결 줄 기다림)와 제공사가 409 밖의 4xx 로 거절한 것. 그 밖은 모두 참: 쓰는 중·읽는 중의
+  시간 초과와 끊김, 읽을 수 없거나 id 가 없는 2xx, 3xx, **모든 5xx**(관문이 대신 답했을 수 있다)와 409(같은 키가 처리되는 중).
+- **끊김(`asyncio.CancelledError`)은 그대로 올라간다.** 보내기가 끊겼으면 부른 쪽이 「보냈는지 모름」으로 다뤄야 한다.
+- **받은 문자(`received`)**: 제공사에 날짜 거르기가 없어 최신순 쪽을 `RECEIVED_MAX_PAGES` 쪽까지 읽고 여기서 거른다
+  (`at >= since`). 다음 쪽으로 갈지는 그 쪽의 **끝 줄**로 정한다. 읽지 못한 것이 남으면 `truncated`, 건너뛴 줄 수는 `skipped`.
+  시각이 조회 시각보다 5분 넘게 앞선 줄은 조회 시각으로 바꾸고 센다(`redated`). **부른 쪽(일꾼)은 다음 since 를
+  `max(at)` 으로 잡지 않는다** — 제공사 시계·늦게 붙는 줄 때문에 놓친다. `fetched_at` 에서 여유를 뺀 값을 쓰고 겹침은
+  `provider_id` 로 막는다. 본문은 제어 글자·방향 덮어쓰기 글자를 빼고 4,000자까지(`body_cut`).
 
 문서로 확인한 것(2026-11-23, https://docs.koreaaitel.com):
 - api-reference — 인증, 기본 주소 https://api.koreaaitel.com
@@ -19,7 +30,7 @@
   `IdempotencyKey`(빈 글은 400)·`Kakao{ChannelId, TemplateId, Variables}`(알림톡 — `Body`·`Type` 을 넣지 않는다)·
   `Fallback{Body, Disabled}`(빼면 알림톡 실패 때 문안 그대로 문자가 나간다) → 201 `messageId`·`status`·`failureCode`.
   오류 `{error, code}`: 400 `from_not_registered`·`invalid_phone`…, 401, 403(`overseas_ip_blocked`), 422 `quota_exceeded`·
-  `recipient_blocked`·`content_blocked`, 429 `rate_limited`
+  `recipient_blocked`·`content_blocked`, 429 `rate_limited`(+ `Retry-After`)
 - api-reference/claw-ops-api/messages/get-message — `GET …/messages/{messageId}`: `status` queued|sent|failed|received,
   `failureCode` 18가지(아래 `_FAILURES` 의 글은 이 쪽의 설명), 시각은 ISO 8601 UTC(`Z`). 요금 칸 없음
 - api-reference/claw-ops-api/messages/list-messages · messages(안내) — `GET …/messages?status=received&pageSize=&page=`:
@@ -32,26 +43,22 @@
 문서에 없어 정해 둔 것(`# P0 확인` — P0-R 뒤 `_message_body`·`_parse_delivery`·`_parse_inbound` 와 `STATUS_MAP` 만 고친다):
 - `sent` → `delivered`: 단말 도착이라는 말은 문서에 없다(통신사 성공 리포트). 실측(P3)이 다르면 `STATUS_MAP` 한 줄.
 - `fell_back` 은 늘 False: 대신 나간 문자는 따로 된 메시지인데 원래 알림톡에서 그것을 알 칸이 문서에 없다.
-- 받은 문자의 시각 거르기는 여기서 한다(`dateCreated >= since`, 최신순 쪽을 `RECEIVED_MAX_PAGES` 까지).
 - 틀린 키와 틀린 Account ID 를 제공사가 어떻게 가르는지 문서에 없다: 401 → `bad_key`, 403 과 계정 경로의 404 → `bad_account`.
 """
 
 import asyncio
+import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
 
 import httpx
 
 from app.info import generic
 from app.notify import diagnostics
-from app.notify.diagnostics import (  # 진단과 같은 검사·경로 칸 인코딩(옮겨 적지 않는다)
-    _resolve_problem,
-    _segment,
-)
 from app.outreach import phone, redact
 from app.security import crypto
 from app.store.tables_outreach import NotifyConnection
@@ -59,8 +66,13 @@ from app.store.tables_outreach import NotifyConnection
 logger = logging.getLogger(__name__)
 
 TIMEOUT_S = diagnostics.TIMEOUT_S  # 요청 하나에 쓰는 전체 시간(이름 풀이 포함)
-RECEIVED_PAGE_SIZE = 100  # 제공사 상한
-RECEIVED_MAX_PAGES = 3  # received 한 번이 쓰는 요청 수의 상한
+MAX_BYTES = 1_000_000  # 응답 본문은 여기까지만 읽는다
+# 한 쪽 50줄: 가장 긴 문자(2,000자)가 \uXXXX 꼴(한 자 6바이트)로 50줄 와도 0.6MB 라 MAX_BYTES 에 걸리지 않는다(100줄이면 넘는다).
+RECEIVED_PAGE_SIZE = 50  # 제공사 상한은 100
+RECEIVED_MAX_PAGES = 4  # received 한 번이 쓰는 요청 수의 상한(= 한 번에 읽는 줄은 200까지)
+INBOUND_BODY_MAX = 4000  # 받은 문자 본문(글자 수)
+FUTURE_SLACK = timedelta(minutes=5)  # 받은 문자의 시각이 이보다 더 앞서 있으면 조회 시각으로 바꾼다
+RETRY_AFTER_MAX = 600
 RESOLVE: diagnostics.Resolver | None = None  # 호스트 → IP 목록. None 이면 diagnostics.RESOLVE. 시험이 바꿔 끼운다
 STATUS_MAP: dict[str, str] = {"queued": "accepted", "sent": "delivered", "failed": "failed", "received": "received"}  # P0 확인
 
@@ -70,6 +82,7 @@ _MESSAGES = {
     "bad_account": "이 계정으로는 쓸 수 없습니다. Account ID 와 구독 상태를 확인해 주세요.",
     "bad_sender": "발신번호가 등록·승인되지 않았습니다.",
     "rate_limited": "요청이 너무 잦습니다. 잠시 뒤 다시 해 주세요.",
+    "overseas_ip": "제공사는 한국 안의 IP 주소에서 온 요청만 받습니다. 이 서버가 나가는 IP 가 한국 밖으로 보입니다.",
     "timeout": "제공사 응답이 시간 안에 오지 않았습니다.",
     "network": "제공사에 연결하지 못했습니다.",
     "bad_request": "제공사가 요청을 받아들이지 않았습니다.",
@@ -85,7 +98,7 @@ _VENDOR = {  # 제공사 오류 code(문서) → (우리 code, 글)
     "recipient_blocked": ("bad_request", "제공사의 수신 거부 목록에 있는 번호입니다."),
     "quota_exceeded": ("bad_request", "이번 달 발송 한도를 넘었습니다."),
     "content_blocked": ("bad_request", "제공사가 내용을 차단했습니다."),
-    "overseas_ip_blocked": ("network", "한국 밖 IP 에서 온 요청이라 제공사가 거절했습니다. 서버가 나가는 IP 를 확인해 주세요."),
+    "overseas_ip_blocked": ("overseas_ip", _MESSAGES["overseas_ip"]),
     "kakao_variable_missing": ("bad_request", "알림톡 문안의 변수가 빠졌습니다."),
     "kakao_variable_unknown": ("bad_request", "알림톡 문안에 없는 변수가 있습니다."),
 }
@@ -110,13 +123,30 @@ _FAILURES = {  # failureCode(get-message 문서) → 글
     "unknown": "실패한 까닭을 확인할 수 없습니다.",
 }
 _ITEMS = {"messages": "메시지", "calls": "통화"}
-_CALL_FIELDS = ("callId", "status", "direction", "duration", "answeredBy", "hangupCause", "hangupSource",
-                "callerIdRestricted", "recording", "dateCreated", "dateUpdated")  # 번호·계정·주소·자유 글은 뺀다
+# call_info 가 돌려주는 칸(번호·계정·주소·자유 글은 뺀다): 낱말 · 참거짓 · 시각 + callId · duration
+_CALL_WORDS = ("status", "direction", "answeredBy", "hangupCause", "hangupSource")
+_CALL_FLAGS = ("callerIdRestricted", "recording")
+_CALL_TIMES = ("dateCreated", "dateUpdated")
 _NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout, httpx.UnsupportedProtocol)  # 나가기 전에 끝남
-_CODE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,39}")
+_CODE = re.compile(r"[a-z_]{1,40}")  # 제공사 코드 가운데 옮겨 적어도 되는 꼴
+_WORD = re.compile(r"[a-z][a-z_\-]{0,39}")  # 통화 상태 말(in-progress · no-answer …)
 _ID = re.compile(r"[A-Za-z0-9_.:\-]{1,100}")
+_IDEMPOTENCY = re.compile(r"[A-Za-z0-9_-]{8,64}")
 _NUMBER = re.compile(r"[0-9+\-\s().]{3,25}")
+_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?")
 _NOT_DIGIT = re.compile(r"[^0-9]")
+_BIDI = "".join(chr(c) for c in (*range(0x202A, 0x202F), *range(0x2066, 0x206A)))  # 글 방향을 덮어쓰는 글자
+_UNPRINTABLE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f" + _BIDI + "]")  # 줄 바꿈·탭 밖의 제어 글자와 _BIDI
+
+
+def _now() -> datetime:
+    """지금(UTC). 시험이 바꿔 끼운다."""
+    return datetime.now(UTC)
+
+
+def _default_transport() -> httpx.AsyncBaseTransport | None:
+    """transport 를 주지 않은 클라이언트가 쓸 것 — None 이면 httpx 의 실제 전송. 시험에서는 이것이 막혀 있다."""
+    return None
 
 
 @dataclass(frozen=True)
@@ -131,19 +161,23 @@ class ProviderConn:
 class ProviderFailed(Exception):
     """제공사를 부르지 못했거나 불렀지만 실패했다. message 는 한국어이고 키·번호·Account ID 가 없다.
 
-    code: bad_key | bad_account | bad_sender | rate_limited | timeout | network | bad_request | server | unknown.
-    maybe_sent 가 참이면 보내기 요청이 나간 뒤라 문자가 갔는지 알 수 없다(거짓이면 가지 않았다).
+    code: bad_key | bad_account | bad_sender | rate_limited | overseas_ip | timeout | network | bad_request | server | unknown.
+    http_status 는 받은 상태 그대로(응답을 받지 못했으면 None). maybe_sent 가 참이면 문자가 갔는지 알 수 없다(모듈 머리 글).
+    retry_after_s 는 429 의 Retry-After 초(600 까지, 없거나 읽을 수 없으면 None).
     """
 
-    def __init__(self, code: str, message: str, http_status: int | None = None, *, maybe_sent: bool = False) -> None:
+    def __init__(self, code: str, message: str, http_status: int | None = None, *, maybe_sent: bool = False,
+                 retry_after_s: int | None = None) -> None:
         super().__init__(message)
         self.code, self.message, self.http_status, self.maybe_sent = code, message, http_status, maybe_sent
+        self.retry_after_s = retry_after_s
 
 
 @dataclass(frozen=True)
 class MessageRequest:
     """보낼 것 하나. channel 은 sms | kakao. kakao 면 kakao_channel(채널 id)·template_code(문안 id)가 있어야 하고
-    body 는 쓰지 않는다(문안대로 나간다). fallback_sms 가 거짓이면 알림톡이 실패해도 문자로 대신 보내지 않는다."""
+    body 는 쓰지 않는다(문안대로 나간다). fallback_sms 가 거짓이면 알림톡이 실패해도 문자로 대신 보내지 않는다.
+    idempotency_key 는 `^[A-Za-z0-9_-]{8,64}$`."""
 
     channel: str
     to: str = field(repr=False)
@@ -174,18 +208,33 @@ class Delivery:
 
 @dataclass(frozen=True)
 class Inbound:
-    """받은 문자 한 건. from_number 는 phone.normalize 꼴(사람 번호가 아니면 숫자만), at 은 UTC."""
+    """받은 문자 한 건. from_number(보낸 쪽)·to_number(받은 우리 번호)는 국내 번호면 phone.normalize 꼴, 나라 밖 번호면
+    `+숫자`, 번호로 볼 수 없으면 phone.NO_NUMBER. at 은 UTC. body_cut 은 본문을 INBOUND_BODY_MAX 에서 잘랐다는 표시."""
 
     provider_id: str
     from_number: str = field(repr=False)
     body: str = field(repr=False)
     at: datetime
     has_media: bool
+    to_number: str = field(default=phone.NO_NUMBER, repr=False)
+    body_cut: bool = False
+
+
+@dataclass(frozen=True)
+class Received:
+    """받은 문자 조회 한 번. items 는 오래된 것부터. truncated 면 쪽 상한에 걸려 더 오래된 것을 읽지 못했다.
+    skipped 는 읽을 수 없어 건너뛴 줄 수, redated 는 시각이 앞서 있어 조회 시각으로 바꾼 줄 수, fetched_at 은 조회를 시작한 시각."""
+
+    items: list[Inbound]
+    truncated: bool = False
+    skipped: int = 0
+    redated: int = 0
+    fetched_at: datetime | None = None
 
 
 @dataclass(frozen=True)
 class Check:
-    """연결 확인. senders 는 승인된 발신번호(숫자만)."""
+    """연결 확인. senders 는 승인된 발신번호(phone.normalize 꼴, 그 꼴이 아니면 숫자만)."""
 
     ok: bool
     senders: list[str] = field(repr=False)
@@ -201,26 +250,17 @@ class Provider(Protocol):
 
     async def message_status(self, provider_id: str) -> Delivery: ...
 
-    async def received(self, since: datetime | None) -> list[Inbound]: ...
+    async def received(self, since: datetime | None) -> Received: ...
 
     async def call_info(self, provider_call_id: str) -> dict: ...
 
 
-# ── 키 지우기 ───────────────────────────────────────────────────────
-
-_SECRETS: tuple[str, ...] = ()  # 이 프로세스가 쓴 키·Account ID(로그 줄마다 읽히므로 통째로 바꿔 넣는다)
-
-
-def _known_secrets() -> list[str]:
-    return list(_SECRETS)
-
+# ── 키 지우기·값 고르기 ─────────────────────────────────────────────
 
 def register_secrets(*values: str) -> None:
-    """키·Account ID 를 로그 거르개(redact)에 올린다. 8자보다 짧은 값은 올리지 않는다(보통 글을 망가뜨린다 — 쓰지도 않는다)."""
-    global _SECRETS
-    fresh = [v for v in values if isinstance(v, str) and len(v) >= diagnostics.MIN_SECRET]
-    _SECRETS = tuple(dict.fromkeys((*_SECRETS, *fresh)))
-    redact.install(_known_secrets)
+    """키·Account ID 를 로그 거르개에 올린다(redact.add_secrets — 더하기만 하고 다른 곳의 install 에 밀려나지 않는다).
+    8자보다 짧은 값은 오르지 않는다(보통 글을 망가뜨린다 — 그런 값으로는 부르지도 않는다)."""
+    redact.add_secrets(*values)
 
 
 def _holds_secret(text: str, secrets: list[str]) -> bool:
@@ -228,23 +268,60 @@ def _holds_secret(text: str, secrets: list[str]) -> bool:
 
 
 def _safe(pattern: re.Pattern[str], value: object, secrets: list[str]) -> str | None:
-    """제공사가 준 id·코드: 꼴이 맞고 키·Account ID 가 들어 있지 않을 때만 그 값."""
+    """제공사가 준 코드·낱말: 꼴이 맞고 키·Account ID 가 들어 있지 않을 때만 그 값."""
     if isinstance(value, str) and pattern.fullmatch(value) and not _holds_secret(value, secrets):
         return value
     return None
 
 
+def _safe_id(value: object, secrets: list[str]) -> str | None:
+    """제공사가 준 id: 꼴이 맞고 키·Account ID 가 아니고 전화번호도 아닐 때만. 숫자가 길게 이어진 것만으로는 막지 않는다."""
+    found = _safe(_ID, value, secrets)
+    return found if found is not None and phone.normalize(found) is None else None
+
+
+def _peer_number(raw: object) -> str:
+    """제공사가 준 번호 → 국내 번호면 phone.normalize 꼴, 나라 밖(+82 가 아닌 +) 번호면 `+숫자`, 그 밖은 phone.NO_NUMBER.
+    나라 밖 번호를 숫자만 남기면 국내 번호와 같은 열쇠가 될 수 있다(+1 588 0199 ≠ 1588-0199)."""
+    if not isinstance(raw, str):
+        return phone.NO_NUMBER
+    local = phone.normalize(raw)
+    if local is not None:
+        return local
+    text, digits = raw.strip(), _NOT_DIGIT.sub("", raw)
+    if text.startswith("+") and _NUMBER.fullmatch(text) and not digits.startswith("82") and 7 <= len(digits) <= 15:
+        return "+" + digits
+    return phone.NO_NUMBER
+
+
+def _when(value: object) -> datetime | None:
+    """ISO 8601 글 → UTC 시각(tz 가 없으면 UTC 로 본다). 읽을 수 없으면 None."""
+    try:
+        at = datetime.fromisoformat(value)
+        return (at if at.tzinfo else at.replace(tzinfo=UTC)).astimezone(UTC)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _retry_after(value: object) -> int | None:
+    text = value.strip() if isinstance(value, str) else ""
+    return min(int(text), RETRY_AFTER_MAX) if text.isascii() and text.isdigit() and len(text) <= 9 else None
+
+
 def _failed(code: str, label: str, *, message: str | None = None, status: int | None = None,
-            maybe_sent: bool = False) -> ProviderFailed:
+            maybe_sent: bool = False, retry_after_s: int | None = None) -> ProviderFailed:
     """실패 하나를 만들고 종류만 로그에 남긴다."""
     logger.warning("제공사 호출 실패: %s code=%s status=%s maybe_sent=%s", label, code, status, maybe_sent)
     return ProviderFailed(code, (message or _MESSAGES[code]) + (MAYBE_SENT if maybe_sent else ""), status,
-                          maybe_sent=maybe_sent)
+                          maybe_sent=maybe_sent, retry_after_s=retry_after_s)
 
 
-def _http_failure(status: int, vendor: str | None, label: str, on_item: bool) -> ProviderFailed:
-    """2xx 가 아닌 응답 → ProviderFailed. vendor 는 오류 본문의 code(받을 수 있는 꼴일 때만)."""
-    if vendor in _VENDOR:
+def _http_failure(status: int, vendor: object, label: str, *, on_item: bool, sends: bool, retry_after: object,
+                  secrets: list[str]) -> ProviderFailed:
+    """2xx 가 아닌 응답 → ProviderFailed. vendor 는 오류 본문의 code — 문서의 코드면 그 글, 아니면 소문자 낱말일 때만 옮긴다.
+    보내기였으면 409 밖의 4xx 만 「가지 않았다」(maybe_sent 거짓)."""
+    shown = _safe(_CODE, vendor, secrets)
+    if isinstance(vendor, str) and vendor in _VENDOR:
         code, message = _VENDOR[vendor]
     elif 300 <= status < 400:
         code, message = "bad_request", "제공사가 다른 주소로 넘기는 응답을 보내 따라가지 않았습니다. 기본 주소를 확인해 주세요."
@@ -261,43 +338,49 @@ def _http_failure(status: int, vendor: str | None, label: str, on_item: bool) ->
     elif status >= 500:
         code, message = "server", None
     elif 400 <= status < 500:
-        code, message = "bad_request", (f"{_MESSAGES['bad_request']}(제공사 코드 {vendor})" if vendor else None)
+        code, message = "bad_request", (f"{_MESSAGES['bad_request']}(제공사 코드 {shown})" if shown else None)
     else:
         code, message = "unknown", None
-    return _failed(code, label, message=message, status=status)
+    rejected = 400 <= status < 500 and status != 409
+    return _failed(code, label, message=message, status=status, maybe_sent=sends and not rejected,
+                   retry_after_s=_retry_after(retry_after) if status == 429 else None)
 
 
 # ── 제공사 칸 이름을 아는 세 함수(P0-R 뒤 여기만 고친다) ────────────
 
 
 def _message_body(req: MessageRequest) -> dict:
-    """보내기 본문. 모자라면 ProviderFailed(bad_request) — 요청 전."""
-    if not (req.to and req.sender and req.idempotency_key):
-        raise ProviderFailed("bad_request", "받는 번호·발신번호·중복 방지 키가 모두 있어야 보냅니다.")
+    """보내기 본문. 모자라거나 보낼 꼴이 아니면 ProviderFailed(bad_request) — 요청 전. 가짜(FakeProvider)도 이것을 거친다."""
+    if not all(isinstance(v, str) and v for v in (req.to, req.sender)):
+        raise ProviderFailed("bad_request", "받는 번호와 발신번호가 모두 있어야 보냅니다.")
+    if not isinstance(req.idempotency_key, str) or not _IDEMPOTENCY.fullmatch(req.idempotency_key):
+        raise ProviderFailed("bad_request", "중복 방지 키가 없거나 쓸 수 없는 꼴입니다(영문·숫자·_·- 8~64자).")
     body: dict = {"To": req.to, "From": req.sender, "IdempotencyKey": req.idempotency_key}
     if req.channel == "sms":
-        if not req.body:
+        if not isinstance(req.body, str) or not req.body:
             raise ProviderFailed("bad_request", "보낼 글이 비어 있습니다.")
         return {**body, "Body": req.body}  # Type 은 뺀다 — 제공사가 길이로 sms/lms 를 고른다
     if req.channel == "kakao":
-        if not (req.kakao_channel and req.template_code):
+        if not all(isinstance(v, str) and v for v in (req.kakao_channel, req.template_code)):
             raise ProviderFailed("bad_request", "알림톡은 채널과 문안이 있어야 보냅니다.")
-        body["Kakao"] = {"ChannelId": req.kakao_channel, "TemplateId": req.template_code,
-                         "Variables": dict(req.template_vars or {})}
+        variables = {} if req.template_vars is None else req.template_vars
+        if not isinstance(variables, dict) or not all(isinstance(x, str) for kv in variables.items() for x in kv):
+            raise ProviderFailed("bad_request", "알림톡 변수는 이름과 값이 모두 글이어야 합니다.")
+        body["Kakao"] = {"ChannelId": req.kakao_channel, "TemplateId": req.template_code, "Variables": dict(variables)}
         if not req.fallback_sms:
             body["Fallback"] = {"Disabled": True}  # 빼면 제공사가 문자로 대신 보낸다
-        elif req.fallback_body:
+        elif isinstance(req.fallback_body, str) and req.fallback_body:
             body["Fallback"] = {"Body": req.fallback_body}
         return body
     raise ProviderFailed("bad_request", "이 통로로는 보낼 수 없습니다.")
 
 
-def _parse_delivery(data: dict, secrets: list[str]) -> Delivery:
+def _parse_delivery(data: dict, secrets: list[str], status: int) -> Delivery:
     """메시지 하나 → Delivery. 모르는 상태 말은 짐작하지 않고 실패(unknown)."""
-    status = data.get("status")
-    state = STATUS_MAP.get(status) if isinstance(status, str) else None
+    word = data.get("status")
+    state = STATUS_MAP.get(word) if isinstance(word, str) else None
     if state not in ("accepted", "delivered", "failed"):
-        raise _failed("unknown", "messages", status=200)
+        raise _failed("unknown", "messages", status=status)
     if state != "failed":
         return Delivery(state=state)
     code = _safe(_CODE, data.get("failureCode"), secrets) or "unknown"
@@ -306,28 +389,34 @@ def _parse_delivery(data: dict, secrets: list[str]) -> Delivery:
 
 
 def _parse_inbound(row: object, secrets: list[str]) -> Inbound | None:
-    """받은 문자 한 줄 → Inbound. 읽을 수 없는 줄(받은 것이 아님·id·번호·시각 없음)은 None."""
+    """받은 문자 한 줄 → Inbound(시각은 제공사가 준 그대로). 읽을 수 없는 줄(받은 것이 아님·id·시각 없음)은 None."""
     if not isinstance(row, dict) or row.get("direction", "inbound") != "inbound":
         return None
-    provider_id = _safe(_ID, row.get("messageId"), secrets)
-    raw = row.get("from")
-    number = (phone.normalize(raw) or _NOT_DIGIT.sub("", raw)) if isinstance(raw, str) and _NUMBER.fullmatch(raw) else ""
-    try:
-        at = datetime.fromisoformat(row.get("dateCreated"))
-    except (TypeError, ValueError):
+    provider_id, at = _safe_id(row.get("messageId"), secrets), _when(row.get("dateCreated"))
+    if provider_id is None or at is None:
         return None
-    if provider_id is None or not number:
-        return None
-    body = row.get("body") if isinstance(row.get("body"), str) else ""
+    body = _UNPRINTABLE.sub("", row["body"]) if isinstance(row.get("body"), str) else ""
     for secret in secrets:
         body = generic.scrub(body, secret)
-    media = row.get("numMedia")
-    has_media = (isinstance(media, int) and media > 0) or bool(row.get("mediaUrl"))
-    return Inbound(provider_id=provider_id, from_number=number, body="" if _holds_secret(body, secrets) else body,
-                   at=(at if at.tzinfo else at.replace(tzinfo=UTC)).astimezone(UTC), has_media=has_media)
+    if _holds_secret(body, secrets):
+        body = ""
+    media, urls = row.get("numMedia"), row.get("mediaUrl")
+    return Inbound(provider_id=provider_id, from_number=_peer_number(row.get("from")), body=body[:INBOUND_BODY_MAX], at=at,
+                   has_media=(type(media) is int and media > 0) or (isinstance(urls, list) and bool(urls)),
+                   to_number=_peer_number(row.get("to")), body_cut=len(body) > INBOUND_BODY_MAX)
 
 
 # ── 호출 ────────────────────────────────────────────────────────────
+
+
+async def _read(response: httpx.Response) -> bytes | None:
+    """본문을 MAX_BYTES 까지 읽는다. 넘으면 그만 읽고 None."""
+    raw = bytearray()
+    async for chunk in response.aiter_bytes():
+        raw += chunk
+        if len(raw) > MAX_BYTES:
+            return None
+    return bytes(raw)
 
 
 class KatClient:
@@ -335,14 +424,14 @@ class KatClient:
 
     def __init__(self, conn: ProviderConn, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.conn = conn
-        self._transport = transport
+        self._transport = transport if transport is not None else _default_transport()
         self._secrets = [s for s in (conn.key, conn.account_id) if isinstance(s, str) and s]
         register_secrets(*self._secrets)
 
     def _unusable(self) -> ProviderFailed | None:
         """연결 값 때문에 부를 수 없는 까닭(요청 전)."""
         if diagnostics.base_url_problem(self.conn.base_url) is not None:
-            return ProviderFailed("bad_request", "기본 주소를 쓸 수 없습니다. https:// 로 시작하는 공개 주소여야 합니다.")
+            return ProviderFailed("bad_request", "기본 주소를 쓸 수 없습니다. https://호스트 꼴의 공개 주소여야 합니다.")
         for value, code, name in ((self.conn.key, "bad_key", "키"), (self.conn.account_id, "bad_account", "Account ID")):
             if not isinstance(value, str) or len(value) < diagnostics.MIN_SECRET or not value.isascii() \
                     or not value.isprintable():
@@ -350,33 +439,48 @@ class KatClient:
                                             "설정 → 알림 연결에서 다시 넣어 주세요.")
         return None
 
-    async def _call(self, method: str, resource: str, item_id: object = None, *, on_item: bool = False,
-                    **kw: object) -> dict:
-        """요청 한 번 → 2xx 의 JSON 객체. 그 밖은 ProviderFailed. 예외는 종류만 본다(글에 주소·머리글이 있다)."""
+    def _request_parts(self, resource: str, item_id: object, on_item: bool,
+                       body: dict | None) -> tuple[str, dict, bytes | None]:
+        """요청 전 검사를 하고 (주소, 머리글, 본문)을 만든다. 안 되면 ProviderFailed — 아무것도 나가지 않았다."""
         refused = self._unusable()
         if refused is not None:
             raise refused
         if on_item and (not isinstance(item_id, str) or not item_id):
             raise ProviderFailed("bad_request", f"{_ITEMS[resource]} id 가 비어 있습니다.")
-        url = f"{self.conn.base_url.rstrip('/')}/v1/accounts/{_segment(self.conn.account_id)}/{resource}"
-        url += f"/{_segment(item_id)}" if on_item else ""
-        code = problem = response = None
+        url = f"{self.conn.base_url.rstrip('/')}/v1/accounts/{diagnostics.segment(self.conn.account_id)}/{resource}"
+        url += f"/{diagnostics.segment(item_id)}" if on_item else ""
+        headers = {"Authorization": f"Bearer {self.conn.key}", "Accept": "application/json"}
+        if body is None:
+            return url, headers, None
+        # 여기서 글로 바꾼다(요청을 만들기 전) — _message_body 가 글만 남겼으므로 실패하지 않는다
+        return url, {**headers, "Content-Type": "application/json"}, json.dumps(body).encode()
+
+    async def _call(self, method: str, resource: str, item_id: object = None, *, on_item: bool = False,
+                    params: dict | None = None, body: dict | None = None) -> tuple[int, dict]:
+        """요청 한 번 → (상태, 2xx 의 JSON 객체). 그 밖은 ProviderFailed. 예외는 종류만 본다(글에 주소·머리글이 있다)."""
+        url, headers, content = self._request_parts(resource, item_id, on_item, body)
+        sends = method == "POST"
+        code = problem = status = raw = retry_after = None
         started = unsent = False
         try:
             async with asyncio.timeout(TIMEOUT_S):
-                problem = await _resolve_problem(self.conn, RESOLVE)  # .base_url 만 읽는다
+                problem = await diagnostics.resolve_problem(self.conn, RESOLVE)
                 if problem is None:
                     async with diagnostics.make_client(transport=self._transport) as http:
+                        request = http.build_request(method, url, headers=headers, params=params, content=content)
                         started = True
-                        response = await http.request(method, url, headers={
-                            "Authorization": f"Bearer {self.conn.key}", "Accept": "application/json"}, **kw)
+                        response = await http.send(request, stream=True)
+                        try:
+                            status, retry_after = response.status_code, response.headers.get("retry-after")
+                            raw = await _read(response)
+                        finally:
+                            await response.aclose()
         except (httpx.TimeoutException, TimeoutError) as e:
             code, unsent = "timeout", isinstance(e, _NOT_SENT)
         except httpx.TransportError as e:
             code, unsent = "network", isinstance(e, _NOT_SENT)
-        except Exception:  # noqa: BLE001 — 어떤 예외 글도 밖으로 내지 않는다
+        except Exception:  # noqa: BLE001 — 어떤 예외 글도 밖으로 내지 않는다(끊김 CancelledError 는 그대로 올라간다)
             code = "unknown"
-        sends = method == "POST"
         if code is not None:  # except 밖에서 올린다 — 원래 예외(주소·키가 든)를 이어 붙이지 않으려고
             raise _failed(code, resource, maybe_sent=sends and started and not unsent)
         if problem is not None:
@@ -384,80 +488,93 @@ class KatClient:
                 raise _failed("network", resource, message="기본 주소의 호스트 이름을 찾지 못했습니다.")
             raise _failed("bad_request", resource, message="기본 주소가 내부망으로 풀려 부르지 않았습니다.")
         try:
-            data = response.json()
+            data = json.loads(raw) if raw is not None else None
         except (ValueError, RecursionError):
             data = None
-        if not 200 <= response.status_code < 300:
-            vendor = _safe(_CODE, data.get("code"), self._secrets) if isinstance(data, dict) else None
-            raise _http_failure(response.status_code, vendor, resource, on_item)
-        if not isinstance(data, dict):
-            raise _failed("unknown", resource, status=response.status_code, maybe_sent=sends)
-        return data
+        if not 200 <= status < 300:
+            raise _http_failure(status, data.get("code") if isinstance(data, dict) else None, resource, on_item=on_item,
+                                sends=sends, retry_after=retry_after, secrets=self._secrets)
+        if not isinstance(data, dict):  # 읽을 수 없거나 상한을 넘은 2xx — 보내기였으면 갔을 수 있다
+            raise _failed("unknown", resource, status=status, maybe_sent=sends)
+        return status, data
 
     async def check(self) -> Check:
         """인증 + 발신번호 목록. 승인된 번호만 돌려준다."""
         start = time.perf_counter()
-        data = await self._call("GET", "sender-numbers")
+        status, data = await self._call("GET", "sender-numbers")
         latency_ms = int((time.perf_counter() - start) * 1000)
         rows = data.get("senderNumbers")
         if not isinstance(rows, list):
-            raise _failed("unknown", "sender-numbers", status=200)
-        senders = [_NOT_DIGIT.sub("", row["number"]) for row in rows
-                   if isinstance(row, dict) and row.get("status") == "approved"
+            raise _failed("unknown", "sender-numbers", status=status)
+        numbers = [row["number"] for row in rows if isinstance(row, dict) and row.get("status") == "approved"
                    and isinstance(row.get("number"), str) and _NUMBER.fullmatch(row["number"])]
-        return Check(ok=True, senders=list(dict.fromkeys(senders)), latency_ms=latency_ms)
+        senders = [phone.normalize(n) or _NOT_DIGIT.sub("", n) for n in numbers]  # 저장된 번호와 같은 열쇠
+        return Check(ok=True, senders=list(dict.fromkeys(s for s in senders if s)), latency_ms=latency_ms)
 
     async def send_message(self, req: MessageRequest) -> Accepted:
-        """한 건 보내기(문자 또는 알림톡). 접수되면 제공사 id. 201 의 status 가 failed 여도 id 를 돌려준다(상태 조회가 알린다)."""
-        data = await self._call("POST", "messages", json=_message_body(req))
-        provider_id = _safe(_ID, data.get("messageId"), self._secrets)
+        """한 건 보내기(문자 또는 알림톡). 접수되면 제공사 id. 201 의 status 가 failed 여도 id 를 돌려준다(상태 조회가 알린다).
+        실패의 maybe_sent 가 참이면 보냈는지 알 수 없다. 끊기면(CancelledError) 그대로 올라간다 — 그것도 「모름」이다."""
+        status, data = await self._call("POST", "messages", body=_message_body(req))
+        provider_id = _safe_id(data.get("messageId"), self._secrets)
         if provider_id is None:
-            raise _failed("unknown", "messages", status=201, maybe_sent=True)
+            raise _failed("unknown", "messages", status=status, maybe_sent=True)
         return Accepted(provider_id=provider_id)
 
     async def message_status(self, provider_id: str) -> Delivery:
-        return _parse_delivery(await self._call("GET", "messages", provider_id, on_item=True), self._secrets)
+        status, data = await self._call("GET", "messages", provider_id, on_item=True)
+        return _parse_delivery(data, self._secrets, status)
 
-    async def received(self, since: datetime | None) -> list[Inbound]:
+    async def received(self, since: datetime | None) -> Received:
         """받은 문자를 오래된 것부터. since(tz 없으면 UTC) 와 같거나 뒤인 것만 — 겹침은 부른 쪽이 provider_id 로 막는다.
-
-        제공사에 날짜 거르기가 없어 최신순 쪽을 since 보다 오래된 줄이 나올 때까지 읽는다(RECEIVED_MAX_PAGES 까지).
-        since 가 None 이면 가장 최근 한 쪽만."""
+        since 가 None 이면 가장 최근 한 쪽만. 쪽 넘기기·truncated·redated·다음 since 를 잡는 법은 모듈 머리 글."""
+        fetched_at = _now()
         floor = since.replace(tzinfo=UTC) if since is not None and since.tzinfo is None else since
         found: dict[str, Inbound] = {}
-        skipped, more = 0, False
+        skipped = redated = 0
+        more = False
         for page in range(RECEIVED_MAX_PAGES):
-            data = await self._call("GET", "messages", params={
+            status, data = await self._call("GET", "messages", params={
                 "status": "received", "pageSize": str(RECEIVED_PAGE_SIZE), "page": str(page)})
             rows = data.get("data")
             if not isinstance(rows, list):
-                raise _failed("unknown", "messages", status=200)
-            older = False
-            for message in (_parse_inbound(row, self._secrets) for row in rows):
+                raise _failed("unknown", "messages", status=status)
+            last: datetime | None = None  # 이 쪽에서 읽힌 마지막 줄의 시각
+            for row in rows:
+                try:
+                    message = _parse_inbound(row, self._secrets)
+                except Exception:  # noqa: BLE001 — 한 줄의 오류는 그 줄만 건너뛴다
+                    message = None
                 if message is None:
                     skipped += 1
-                elif floor is not None and message.at < floor:
-                    older = True
-                else:
-                    found.setdefault(message.provider_id, message)
-            more = floor is not None and not older and len(rows) >= RECEIVED_PAGE_SIZE  # since 가 없으면 한 쪽만
+                    continue
+                last = message.at
+                if message.provider_id in found:
+                    continue
+                if message.at > fetched_at + FUTURE_SLACK:
+                    message, redated = replace(message, at=fetched_at), redated + 1
+                if floor is None or message.at >= floor:
+                    found[message.provider_id] = message
+            more = floor is not None and len(rows) >= RECEIVED_PAGE_SIZE and (last is None or last >= floor)
             if not more:
                 break
-        if more:
-            logger.warning("받은 문자가 %d쪽을 넘어 더 오래된 것은 읽지 못했습니다", RECEIVED_MAX_PAGES)
-        if skipped:
-            logger.warning("받은 문자 목록에서 읽을 수 없는 줄 %d개를 건너뛰었습니다", skipped)
-        return sorted(found.values(), key=lambda m: m.at)
+        if more or skipped or redated:
+            logger.warning("받은 문자 조회: %d쪽 뒤에도 남음=%s 건너뜀=%d 시각 바꿈=%d", RECEIVED_MAX_PAGES, more, skipped, redated)
+        return Received(items=sorted(found.values(), key=lambda m: m.at), truncated=more, skipped=skipped, redated=redated,
+                        fetched_at=fetched_at)
 
     async def call_info(self, provider_call_id: str) -> dict:
-        """통화 하나의 문서에 있는 칸 가운데 번호·계정·주소가 아닌 것만(_CALL_FIELDS). 없는 칸은 None."""
-        data = await self._call("GET", "calls", provider_call_id, on_item=True)
-        out: dict = {}
-        for name in _CALL_FIELDS:
+        """통화 하나의 칸 가운데 번호·계정·주소가 아닌 것만: callId · duration(초) · _CALL_WORDS(제공사 말 그대로) ·
+        _CALL_FLAGS · _CALL_TIMES(ISO 글). 없거나 꼴이 다른 값은 None."""
+        status, data = await self._call("GET", "calls", provider_call_id, on_item=True)
+        call_id, duration = data.get("callId"), data.get("duration")
+        if call_id is not None and _safe_id(call_id, self._secrets) is None:
+            raise _failed("unknown", "calls", status=status)
+        out: dict = {"callId": call_id, "duration": duration if type(duration) is int and 0 <= duration <= 86_400 else None}
+        out |= {name: _safe(_WORD, data.get(name), self._secrets) for name in _CALL_WORDS}
+        out |= {name: data.get(name) if type(data.get(name)) is bool else None for name in _CALL_FLAGS}
+        for name in _CALL_TIMES:
             value = data.get(name)
-            if isinstance(value, str):
-                value = redact.scrub(value, self._secrets)[:100]
-            out[name] = value if isinstance(value, str | int | float | bool) else None
+            out[name] = value if isinstance(value, str) and _TIME.fullmatch(value) and _when(value) is not None else None
         return out
 
 

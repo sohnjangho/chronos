@@ -5,6 +5,10 @@
 - FakeProvider — `Provider` 를 메모리로 구현한 것. fixture `fake_provider` 가 `provider.client_for` 를 이것으로 바꾼다
   (그래서 쓰는 쪽은 `from app.outreach import provider` 뒤 `provider.client_for(row)` 로 불러야 한다).
 - autouse `no_provider_dns` — `provider.RESOLVE` 를 공인 IP 하나로 답하는 가짜로 바꾼다(시험이 DNS 를 쓰지 않게).
+- autouse `no_real_provider` — 시험에서는 실제 전송으로 나갈 수 없다: transport 없이 `KatClient` 를 만들거나(`client_for`
+  포함) `diagnostics.make_client()` 를 transport 없이 부르면 바로 `RealProviderCall`(AssertionError) 이 난다.
+  진단 쪽은 모듈 속성 `diagnostics.make_client` 를 감싼 것이라 `from … import make_client` 로 먼저 잡아 둔 이름에는
+  듣지 않는다 — 진단을 부르는 코드는 `diagnostics.make_client(...)` 로 부를 것.
 """
 
 import json
@@ -13,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
+from app.notify import diagnostics
 from app.outreach import provider
 from app.outreach.provider import (
     Accepted,
@@ -21,6 +26,7 @@ from app.outreach.provider import (
     Inbound,
     MessageRequest,
     ProviderFailed,
+    Received,
 )
 from tests.outreach_doubles import SENTINEL_KEY
 
@@ -28,7 +34,13 @@ KAT_BASE = "https://api.koreaaitel.com"
 KAT_ACCOUNT = "AC00000000003c4d"
 KAT_SENDER = "07000000123"
 PUBLIC_IP = "93.184.216.34"
-_T0 = datetime(2026, 11, 23, 0, 0, 0, tzinfo=UTC)
+_T0 = datetime(2026, 11, 2, 0, 0, 0, tzinfo=UTC)  # 지난 날짜(제공사 호출은 5분 넘게 앞선 시각을 조회 시각으로 바꾼다)
+NO_TRANSPORT = ("시험에서 실제 제공사로 나가려 했습니다 — KatClient(conn, transport=KatMock()) 로 만들거나 "
+                "fixture fake_provider 를 쓰세요(진단은 make_client(transport=…)).")
+
+
+class RealProviderCall(AssertionError):
+    """시험이 가짜 없이 제공사 클라이언트를 만들었다."""
 
 
 def _iso(at: datetime) -> str:
@@ -145,8 +157,10 @@ class KatMock(httpx.MockTransport):
 class FakeProvider:
     """메모리 `Provider`. 보낸 요청은 `sent`, 불린 차례는 `log`. `fail` 에 ProviderFailed 를 두면 모든 호출이 그것을 올린다.
 
+    보내기는 실제 클라이언트와 같은 검사(`provider._message_body`)를 거친다 — 모자란 요청은 ProviderFailed(bad_request).
     같은 `idempotency_key` 로 다시 보내면 처음 것의 id 를 돌려주고 `sent` 에 다시 쌓지 않는다. 상태는 `statuses[id]`
-    (없으면 accepted), 받은 문자는 `inbox`(received 가 since 이후 것만 오래된 차례로), 통화는 `call_infos[id]`.
+    (없으면 accepted), 받은 문자는 `inbox`(received 가 since 이후 것만 오래된 차례로 — `truncated`·`skipped`·`redated` 는
+    `received_flags` 에 둔 값), 통화는 `call_infos[id]`.
     """
 
     def __init__(self) -> None:
@@ -157,6 +171,7 @@ class FakeProvider:
         self.statuses: dict[str, Delivery] = {}
         self.inbox: list[Inbound] = []
         self.call_infos: dict[str, dict] = {}
+        self.received_flags: dict = {}  # Received 의 truncated·skipped·redated
         self._ids: dict[str, str] = {}
 
     def _called(self, name: str) -> None:
@@ -170,6 +185,7 @@ class FakeProvider:
 
     async def send_message(self, req: MessageRequest) -> Accepted:
         self._called("send_message")
+        provider._message_body(req)
         if req.idempotency_key not in self._ids:
             self._ids[req.idempotency_key] = f"FAKE{len(self._ids) + 1:04d}"
             self.sent.append(req)
@@ -179,10 +195,11 @@ class FakeProvider:
         self._called("message_status")
         return self.statuses.get(provider_id, Delivery(state="accepted"))
 
-    async def received(self, since: datetime | None) -> list[Inbound]:
+    async def received(self, since: datetime | None) -> Received:
         self._called("received")
         floor = since.replace(tzinfo=UTC) if since is not None and since.tzinfo is None else since
-        return sorted((m for m in self.inbox if floor is None or m.at >= floor), key=lambda m: m.at)
+        items = sorted((m for m in self.inbox if floor is None or m.at >= floor), key=lambda m: m.at)
+        return Received(items=items, fetched_at=datetime.now(UTC), **self.received_flags)
 
     async def call_info(self, provider_call_id: str) -> dict:
         self._called("call_info")
@@ -202,6 +219,24 @@ def no_provider_dns(monkeypatch) -> list[str]:
 
     monkeypatch.setattr(provider, "RESOLVE", resolve)
     return asked
+
+
+@pytest.fixture(autouse=True)
+def no_real_provider(monkeypatch) -> None:
+    """시험에서는 실제 전송을 고를 수 없다(모듈 머리 글). 가짜 transport 를 준 것은 그대로 지나간다."""
+
+    def refuse() -> None:
+        raise RealProviderCall(NO_TRANSPORT)
+
+    real_make_client = diagnostics.make_client
+
+    def make_client(*, transport: httpx.AsyncBaseTransport | None = None) -> httpx.AsyncClient:
+        if transport is None:
+            raise RealProviderCall(NO_TRANSPORT)
+        return real_make_client(transport=transport)
+
+    monkeypatch.setattr(provider, "_default_transport", refuse)
+    monkeypatch.setattr(diagnostics, "make_client", make_client)
 
 
 @pytest.fixture

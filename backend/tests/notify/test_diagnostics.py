@@ -304,6 +304,34 @@ async def test_unsafe_base_url_is_refused_before_any_request(base):
         assert not r.ok and not r.skipped and r.detail.startswith("bad_base_url · ") and "주소" in r.detail
 
 
+@pytest.mark.parametrize("base", [
+    "https://api.koreaaitel.com?x=", "https://api.koreaaitel.com#", "https://api.koreaaitel.com/proxy?u=",
+    "https://api.koreaaitel.com/a/../b", "https://api.koreaaitel.com/v1", " https://api.koreaaitel.com",
+    "https://api.koreaaitel.com ", "https://api.koreaaitel.com%20", "https://api.koreaaitel.com%0a",
+    "https://api.koreaaitel.com\t", "https://api.koreaaitel.com\n", "https://evil.example\\.koreaaitel.com",
+])
+async def test_base_url_with_path_query_fragment_or_whitespace_is_refused(base):
+    """주소는 scheme·호스트·포트뿐이어야 한다 — 뒤에 붙이는 /v1/accounts/… 가 질의·조각 속으로 들어가지 않게."""
+    conn = DiagnosticConn(base_url=base, key=SENTINEL_KEY, account_id=ACCOUNT, sender=FROM, test_to=TO)
+    fake = KatFake()
+    async with client(fake) as http:
+        results = await run_checks(conn, http, send_test_sms=True, sleep=no_sleep)
+    assert fake.requests == [] and len(results) == 4
+    for r in results:
+        assert not r.ok and not r.skipped and r.detail.startswith("bad_base_url · ") and "주소" in r.detail
+
+
+@pytest.mark.parametrize("base", ["https://api.koreaaitel.com", "https://api.koreaaitel.com/", "HTTPS://API.KOREAAITEL.COM",
+                                  "https://api.koreaaitel.com:8443"])
+def test_plain_base_urls_are_accepted(base):
+    assert diagnostics.base_url_problem(base) is None
+
+
+def test_shared_helpers_have_public_names_and_the_old_ones_still_work():
+    assert diagnostics.segment is diagnostics._segment and diagnostics.resolve_problem is diagnostics._resolve_problem
+    assert diagnostics.segment("..") == "%2E%2E" and diagnostics.segment("a/b?c") == "a%2Fb%3Fc"
+
+
 async def test_broken_connection_values_never_raise():
     fake = KatFake()
     async with client(fake) as http:
