@@ -14,8 +14,9 @@
   claimed_at 을 조건부 UPDATE 한 문장으로 잡은 쪽만 답한다(SQLite 가 쓰기를 한 줄로 세우므로 둘 가운데 하나만 바뀐 줄 1).
 - 응대 작업은 줄이 빌 때까지 하나씩 꺼내(같은 번호는 응대 안에서도 차례로) 끝나면 스스로 멈춘다 — 남아 도는 것이 없다.
   한 건의 예외는 그 건만 끝낸다. 기다리지 않는다: 프로세스를 닫을 때 끊긴 응대는 다음 쓸기가 닫는다.
-- **남은 구멍**: 쓸기는 응대 작업이 시작할 때(새 문자가 넘어올 때·drain·kick) 돈다. 서버가 다시 뜬 뒤 새 문자가 오기 전에는
-  잃은 줄을 찾지 않는다 — 일꾼 바퀴(worker.tick)나 lifespan 이 `inbox.kick()` 을 한 줄 부르면 바퀴마다 쓴다(그 파일은 Task 71 것).
+- **쓸기가 도는 때**: 응대 작업이 시작할 때마다 — 새 문자가 넘어올 때(enqueue), drain, 그리고 **일꾼 바퀴마다**(worker.tick 끝의
+  `inbox.kick(now=…)` — 고침 1). 그래서 새 문자가 오지 않아도 잃은 넘기기는 다음 바퀴(TICK_S 안)에 답한다. 작업이 이미 돌면 kick 은
+  아무것도 하지 않는다(쓸기는 DB 질의 둘).
 """
 
 import asyncio
@@ -65,16 +66,20 @@ def enqueue(message_id: int) -> None:
     if type(message_id) is not int or not _answering():
         return
     _put(message_id)
-    _start()
+    _start(None)
 
 
-def kick() -> None:
-    """응대 작업을 띄운다(쓸기부터) — 일꾼 고리가 돌 때만, 이벤트 루프 안에서만."""
-    if _answering():
-        _start()
+def kick(now: datetime | None = None) -> None:
+    """응대 작업을 띄운다(쓸기부터) — 일꾼 고리가 돌 때만, 이벤트 루프 안에서만, 이미 돌면 아무것도 하지 않는다. 일꾼 바퀴가 끝날
+    때마다 부른다. now 는 그 바퀴의 시각(시험·대본이 준 것 — 없으면 지금). 예외를 올리지 않는다(일꾼 바퀴를 깨지 않게)."""
+    try:
+        if _answering():
+            _start(now)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("들어온 문자 응대 작업을 띄우지 못했습니다 (%s)", type(exc).__name__)
 
 
-def _start() -> None:
+def _start(now: datetime | None) -> None:
     global _task
     if _task is not None and not _task.done():
         return
@@ -82,12 +87,12 @@ def _start() -> None:
         loop = asyncio.get_running_loop()
     except RuntimeError:  # 루프 밖(스레드)에서 불림 — 다음 쓸기가 찾는다
         return
-    _task = loop.create_task(_run(), name="outreach-text-inbox")
+    _task = loop.create_task(_run(now), name="outreach-text-inbox")
 
 
-async def _run() -> None:
+async def _run(now: datetime | None) -> None:
     try:
-        await drain()
+        await drain(now=now)
     except Exception as exc:  # noqa: BLE001 — 응대 작업이 무엇으로 깨져도 일꾼에는 닿지 않는다
         logger.warning("들어온 문자 응대 작업이 오류로 끝났습니다 (%s)", type(exc).__name__)
 

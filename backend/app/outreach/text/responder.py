@@ -117,11 +117,20 @@ async def handle(message_id: int, *, now: datetime | None = None) -> None:
     """받은 문자 한 건에 답한다(모듈 머리 글). now 는 시험·대본의 시각(없으면 지금). 예외를 올리지 않는다(취소만 올린다)."""
     fixed = None if now is None else as_utc(now)
     clock: Callable[[], datetime] = (lambda: fixed) if fixed is not None else _now
-    key = await asyncio.to_thread(_peer_key, message_id)
+    try:
+        key = await asyncio.to_thread(_peer_key, message_id)
+    except Exception as exc:  # noqa: BLE001 — 잡기 전이라 줄은 그대로 남고 다음 쓸기가 다시 본다
+        logger.warning("들어온 문자를 읽지 못했습니다 (%s)", type(exc).__name__)
+        return
     if key is None:
         return
     async with _turn(key):
-        if not await asyncio.to_thread(_claim, message_id, clock()):
+        try:
+            claimed = await asyncio.to_thread(_claim, message_id, clock())
+        except Exception as exc:  # noqa: BLE001 — 잡지 못했으니 줄은 그대로 — 다음 쓸기가 다시 본다
+            logger.warning("들어온 문자를 잡지 못했습니다 (%s)", type(exc).__name__)
+            return
+        if not claimed:
             return
         try:
             await _answer(message_id, clock, fixed)

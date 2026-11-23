@@ -260,6 +260,7 @@ async def tick(now: datetime | None = None) -> dict:
         run.trouble(type(exc).__name__)
     finally:
         state.ticking = False
+    inbox.kick(now=now)  # 들어온 문자 응대: 바퀴마다 쓸기를 깨운다(잃은 넘기기 — Task 84). 이미 돌면 아무것도 안 함
     return run.result
 
 

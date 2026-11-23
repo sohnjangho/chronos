@@ -446,3 +446,77 @@ def test_text_session_cannot_be_pinned_outside_tests(monkeypatch):
     monkeypatch.delenv("CHRONOS_HARNESS_SANDBOX", raising=False)
     with pytest.raises(RuntimeError), text_session.pinned(Counting()):
         pass
+
+
+# ── 고침 1: 일꾼 바퀴마다 쓸기를 깨운다 · handle 은 예외를 올리지 않는다 ──────
+
+
+async def test_a_tick_without_new_texts_answers_a_lost_hand_off(session, fake_provider, fake_channel, scripted):
+    """넘기기를 잃은 줄(판정 commit 뒤 프로세스가 죽음 — 여기서는 일꾼 고리가 돌지 않을 때 받은 줄): 새 문자 없이 다음 바퀴가
+    쓸기를 깨워 답한다. 대본의 시각 그대로."""
+    setup(session, agent_sms="delegate")
+    scripted(Reply("네 확인했습니다"))
+    await arrive(fake_provider, text_in(body="내일 뵙겠습니다"))  # 일꾼 고리가 돌지 않음 → 넘기기 없음
+    assert replies(session) == [] and inbox._pending_count() == 0
+
+    worker._state.running = True  # 서버가 다시 떠 일꾼 고리가 돈다
+    later = NOW + timedelta(minutes=1)
+    await arrive(fake_provider, at=later)  # 새 문자 없는 바퀴
+    await inbox.idle()
+
+    [row] = inbound_rows(session)
+    [reply] = replies(session)
+    assert (reply.reply_to_id, reply.status, reply.send_mode) == (row.id, "accepted", "delegated")
+
+
+async def test_tick_does_not_wake_the_sweep_unless_the_worker_loop_runs(session, fake_provider, fake_channel, scripted):
+    setup(session, agent_sms="delegate")
+    scripted(Reply("네 확인했습니다"))
+    await arrive(fake_provider, text_in(body="내일 뵙겠습니다"))
+    await arrive(fake_provider, at=NOW + timedelta(minutes=1))
+
+    assert inbox._task is None and replies(session) == []
+
+
+async def test_kick_while_the_task_runs_starts_no_second_one(session, fake_channel, monkeypatch):
+    worker._state.running = True
+    gate_open = asyncio.Event()
+
+    async def slow(*, now=None):
+        await asyncio.wait_for(gate_open.wait(), timeout=5)
+        return 0
+
+    monkeypatch.setattr(inbox, "drain", slow)
+    inbox.kick(now=NOW)
+    first = inbox._task
+    inbox.kick(now=NOW)
+    inbox.enqueue(1)
+    assert inbox._task is first
+    gate_open.set()
+    await inbox.idle()
+
+
+async def test_handle_does_not_raise_before_it_takes_the_text(session, fake_provider, fake_channel, scripted, monkeypatch):
+    """잡기 전에 DB 가 깨져도 handle 은 예외를 올리지 않고, 줄은 잡히지 않은 채 남아 다음 쓸기가 답한다."""
+    setup(session, agent_sms="delegate")
+    scripted(Reply("네 확인했습니다"))
+    await arrive(fake_provider, text_in(body="내일 뵙겠습니다"))
+    [row] = inbound_rows(session)
+    real = responder._claim
+
+    def broken(*args):
+        raise RuntimeError("잠김")
+
+    real_key = responder._peer_key
+    monkeypatch.setattr(responder, "_claim", broken)
+    await responder.handle(row.id, now=NOW)
+    session.expire_all()
+    assert session.get(OutreachMessage, row.id).claimed_at is None
+
+    monkeypatch.setattr(responder, "_peer_key", broken)
+    await responder.handle(row.id, now=NOW)
+
+    monkeypatch.setattr(responder, "_claim", real)
+    monkeypatch.setattr(responder, "_peer_key", real_key)
+    await answer()
+    assert [r.status for r in replies(session)] == ["accepted"]
