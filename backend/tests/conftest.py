@@ -8,6 +8,7 @@ from app.config import Settings
 from app.db import get_session
 from app.files import classify, jobs, merge_suggest
 from app.main import app
+from app.outreach import worker
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
 from app.store.tables import User
@@ -47,6 +48,21 @@ def quiet_file_worker(monkeypatch):
     monkeypatch.setattr(jobs, "start", start)
     monkeypatch.setattr(classify, "after_index", skip)
     monkeypatch.setattr(merge_suggest, "suggest_if_due", skip)
+
+
+@pytest.fixture(autouse=True)
+def quiet_outreach_worker(monkeypatch):
+    """연락 일꾼(Task 71 — 예약 발송·상태 조회·들어온 문자). 시험에서는 앱(lifespan)이 일꾼을 띄우지 않는다 — 시험은
+    worker.tick(now=…) 을 한 바퀴씩 직접 부른다. 일꾼의 메모리 상태(status)도 시험마다 새것. 진짜 start 는
+    worker.start.__wrapped__."""
+    real_start = worker.start
+
+    @functools.wraps(real_start)
+    def start() -> None:
+        return None
+
+    monkeypatch.setattr(worker, "start", start)
+    monkeypatch.setattr(worker, "_state", worker._State())
 
 
 @pytest.fixture

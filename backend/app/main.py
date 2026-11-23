@@ -10,7 +10,7 @@ from app.config import Settings, validate_settings
 from app.db import close_db, get_session, init_db
 from app.errors import install_error_handlers
 from app.files import jobs
-from app.outreach import redact
+from app.outreach import redact, worker
 from app.programs.files.guard import UploadGuard
 from app.store import settings as settings_store
 from app.store.workflows import close_unfinished
@@ -52,7 +52,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             except KeyError:
                 pass
     jobs.start()  # 파일 뒤 작업 줄(임베딩·분류·다시 넣기). CHRONOS_QDRANT_URL 이 빈 값이면 뜻 검색만 끈다(분류는 된다)
+    worker.start()  # 연락 일꾼(예약 문자·상태 조회·들어온 문자). 알림 연결이 없거나 ok 가 아니면 아무것도 하지 않는다
     yield
+    await worker.stop()
     await jobs.stop()
     close_db()
 
