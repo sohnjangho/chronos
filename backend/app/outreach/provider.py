@@ -84,57 +84,16 @@ RESOLVE: diagnostics.Resolver | None = None  # 호스트 → IP 목록. None 이
 STATUS_MAP: dict[str, str] = {"queued": "accepted", "sent": "delivered", "failed": "failed", "received": "received"}  # P0 확인
 
 MAYBE_SENT = " 보냈는지는 알 수 없습니다(이미 나갔을 수 있습니다)."
-_MESSAGES = {
-    "bad_key": "제공사가 키를 받아들이지 않았습니다. 설정 → 알림 연결에서 키를 확인해 주세요.",
-    "bad_account": "이 계정으로는 쓸 수 없습니다. Account ID 와 구독 상태를 확인해 주세요.",
-    "bad_sender": "발신번호가 등록·승인되지 않았습니다.",
-    "rate_limited": "요청이 너무 잦습니다. 잠시 뒤 다시 해 주세요.",
-    "overseas_ip": "제공사는 한국 안의 IP 주소에서 온 요청만 받습니다. 이 서버가 나가는 IP 가 한국 밖으로 보입니다.",
-    "timeout": "제공사 응답이 시간 안에 오지 않았습니다.",
-    "network": "제공사에 연결하지 못했습니다.",
-    "bad_request": "제공사가 요청을 받아들이지 않았습니다.",
-    "server": "제공사 서버 오류입니다. 잠시 뒤 다시 해 주세요.",
-    "unknown": "제공사 응답을 읽지 못했습니다.",
-}
-_VENDOR = {  # 제공사 오류 code(문서) → (우리 code, 글)
-    "from_not_registered": ("bad_sender", _MESSAGES["bad_sender"]),
-    "invalid_phone": ("bad_request", "받는 번호가 올바르지 않습니다."),
-    "INVALID_PHONE_NUMBER": ("bad_request", "받는 번호가 올바르지 않습니다."),
-    "UNSUPPORTED_COUNTRY": ("bad_request", "지원하지 않는 나라의 번호입니다."),
-    "body_too_long": ("bad_request", "글이 너무 깁니다."),
-    "recipient_blocked": ("bad_request", "제공사의 수신 거부 목록에 있는 번호입니다."),
-    "quota_exceeded": ("bad_request", "이번 달 발송 한도를 넘었습니다."),
-    "content_blocked": ("bad_request", "제공사가 내용을 차단했습니다."),
-    "overseas_ip_blocked": ("overseas_ip", _MESSAGES["overseas_ip"]),
-    "kakao_variable_missing": ("bad_request", "알림톡 문안의 변수가 빠졌습니다."),
-    "kakao_variable_unknown": ("bad_request", "알림톡 문안에 없는 변수가 있습니다."),
-}
-_FAILURES = {  # failureCode(get-message 문서) → 글
-    "invalid_number": "없는 번호입니다(비가입·결번·서비스 정지).",
-    "recipient_opted_out": "받는 사람이 수신을 거부한 상태입니다.",
-    "spam_blocked": "통신사가 스팸으로 보고 차단했습니다.",
-    "number_ported": "번호이동된 번호입니다.",
-    "handset_off": "단말기 전원이 꺼져 있습니다.",
-    "out_of_coverage": "단말기가 서비스 지역 밖에 있습니다.",
-    "handset_storage_full": "단말기 저장 공간이 부족합니다.",
-    "timeout": "결과를 기다리는 시간이 지났습니다.",
-    "invalid_data": "발송 데이터에 오류가 있습니다.",
-    "invalid_message": "메시지 형식에 오류가 있습니다.",
-    "message_too_large": "메시지 크기가 허용 범위를 넘었습니다.",
-    "rate_limited": "전송량이 허용 한도를 넘었습니다.",
-    "invalid_sender": "발신번호 형식에 오류가 있습니다.",
-    "sender_not_registered": "등록되지 않은 발신번호입니다.",
-    "sender_blocked": "차단된 발신번호입니다.",
-    "service_not_permitted": "서비스 권한 문제로 보내지 못했습니다.",
-    "carrier_error": "통신사에서 오류가 났습니다.",
-    "unknown": "실패한 까닭을 확인할 수 없습니다.",
-}
+# 한국어 글의 표는 연결 진단과 한 벌을 같이 쓴다(app.notify.diagnostics 에 있다)
+_MESSAGES = diagnostics.MESSAGES  # 우리 code → 글
+_VENDOR = diagnostics.VENDOR  # 제공사 오류 code(문서) → (우리 code, 글)
+_FAILURES = diagnostics.FAILURES  # failureCode(get-message 문서) → 글
 _ITEMS = {"messages": "메시지", "calls": "통화"}
 # call_info 가 돌려주는 칸(번호·계정·주소·자유 글은 뺀다): 낱말 · 참거짓 · 시각 + callId · duration
 _CALL_WORDS = ("status", "direction", "answeredBy", "hangupCause", "hangupSource")
 _CALL_FLAGS = ("callerIdRestricted", "recording")
 _CALL_TIMES = ("dateCreated", "dateUpdated")
-_NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout, httpx.UnsupportedProtocol)  # 나가기 전에 끝남
+_NOT_SENT = diagnostics.NOT_SENT  # 나가기 전에 끝남(예외 종류)
 _CODE = re.compile(r"[a-z_]{1,40}")  # 제공사 코드 가운데 옮겨 적어도 되는 꼴
 _WORD = re.compile(r"[a-z][a-z_\-]{0,39}")  # 통화 상태 말(in-progress · no-answer …)
 _ID = re.compile(r"(?=.*[A-Za-z0-9])[A-Za-z0-9_.:\-]{1,100}")  # 글자·숫자가 하나는 있어야 한다
@@ -338,33 +297,15 @@ def _failed(code: str, label: str, *, message: str | None = None, status: int | 
                 maybe_sent=maybe_sent, retry_after_s=retry_after_s)
 
 
-def _http_failure(status: int, vendor: object, label: str, *, on_item: bool, sends: bool, retry_after: object,
+def _http_failure(status: int, vendor: object, label: str, *, on_item: bool, maybe_sent: bool, retry_after: object,
                   secrets: list[str]) -> ProviderFailed:
-    """2xx 가 아닌 응답 → ProviderFailed. vendor 는 오류 본문의 code — 문서의 코드면 그 글, 아니면 소문자 낱말일 때만 옮긴다.
-    보내기였으면 409 밖의 4xx 만 「가지 않았다」(maybe_sent 거짓)."""
+    """2xx 가 아닌 응답 → ProviderFailed. code·글은 연결 진단과 같은 `diagnostics.http_failure`. vendor(오류 본문의 code)가
+    문서에 없는 것이면 소문자 낱말일 때만 글 끝에 옮긴다."""
+    code, message = diagnostics.http_failure(status, vendor, on_item=on_item, item=_ITEMS.get(label, "메시지"))
     shown = _safe(_CODE, vendor, secrets)
-    if isinstance(vendor, str) and vendor in _VENDOR:
-        code, message = _VENDOR[vendor]
-    elif 300 <= status < 400:
-        code, message = "bad_request", "제공사가 다른 주소로 넘기는 응답을 보내 따라가지 않았습니다. 기본 주소를 확인해 주세요."
-    elif status == 401:
-        code, message = "bad_key", None
-    elif status == 403:
-        code, message = "bad_account", None
-    elif status == 404 and on_item:
-        code, message = "bad_request", f"제공사에서 그 {_ITEMS[label]}를 찾을 수 없습니다."
-    elif status == 404:
-        code, message = "bad_account", "제공사 주소를 찾지 못했습니다. Account ID 와 기본 주소를 확인해 주세요."
-    elif status == 429:
-        code, message = "rate_limited", None
-    elif status >= 500:
-        code, message = "server", None
-    elif 400 <= status < 500:
-        code, message = "bad_request", (f"{_MESSAGES['bad_request']}(제공사 코드 {shown})" if shown else None)
-    else:
-        code, message = "unknown", None
-    rejected = 400 <= status < 500 and status != 409
-    return _failed(code, label, message=message, status=status, maybe_sent=sends and not rejected,
+    if shown and message == _MESSAGES["bad_request"]:
+        message = f"{message}(제공사 코드 {shown})"
+    return _failed(code, label, message=message, status=status, maybe_sent=maybe_sent,
                    retry_after_s=_retry_after(retry_after) if status == 429 else None)
 
 
@@ -471,54 +412,36 @@ class KatClient:
                     params: dict | None = None, body: dict | None = None) -> tuple[int, dict]:
         """요청 한 번 → (상태, 2xx 의 JSON 객체). 그 밖은 ProviderFailed. 예외는 종류만 본다(글에 주소·머리글이 있다)."""
         url, headers, content = self._request_parts(resource, item_id, on_item, body)
-        sends = method == "POST"
-        code = problem = status = raw = retry_after = request = None
-        wrote = unsent = packed = False  # wrote: 전송이 요청 본문을 읽기 시작했다 — 연결을 마치고 쓰기에 들어갔다는 뜻
-
-        async def payload(data: bytes):
-            nonlocal wrote
-            wrote = True
-            yield data
-
+        exchange, problem = diagnostics.Exchange(sends=method == "POST"), None  # 「나갔는가」는 진단과 같은 구현
         try:
             async with asyncio.timeout(TIMEOUT_S):
                 problem = await diagnostics.resolve_problem(self.conn, RESOLVE)
                 if problem is None:
                     async with diagnostics.make_client(transport=self._transport) as http:
-                        request = http.build_request(method, url, headers=headers, params=params,
-                                                     content=None if content is None else payload(content))
-                        response = await http.send(request, stream=True)
-                        try:
-                            status, retry_after = response.status_code, response.headers.get("retry-after")
-                            packed = diagnostics.encoded(response)
-                            raw = await diagnostics.read_body(response, MAX_BYTES)
-                        finally:
-                            await response.aclose()
-        except (httpx.TimeoutException, TimeoutError) as e:
-            code, unsent = "timeout", isinstance(e, _NOT_SENT)
-        except httpx.TransportError as e:
-            code, unsent = "network", isinstance(e, _NOT_SENT)
-        except Exception:  # noqa: BLE001 — 어떤 예외 글도 밖으로 내지 않는다(끊김 CancelledError 는 그대로 올라간다)
-            code = "unknown"
-        del url, headers, content, request, body  # 키·번호가 든 것은 여기서 버린다(지역 변수까지 찍는 traceback 에 남지 않게)
+                        await exchange.run(http, method, url, headers=headers, params=params, content=content,
+                                           max_bytes=MAX_BYTES)
+        except Exception as e:  # noqa: BLE001 — 어떤 예외 글도 밖으로 내지 않는다(끊김 CancelledError 는 그대로 올라간다)
+            exchange.fail(e)
+        del url, headers, content, body  # 키·번호가 든 것은 여기서 버린다(지역 변수까지 찍는 traceback 에 남지 않게)
+        status, code, maybe_sent = exchange.status, exchange.error, exchange.maybe_sent
         if code is not None and status is None:  # except 밖에서 올린다 — 원래 예외(주소·키가 든)를 이어 붙이지 않으려고
-            raise _failed(code, resource, maybe_sent=sends and wrote and not unsent)
+            raise _failed(code, resource, maybe_sent=maybe_sent)
         if problem is not None:
             if problem == diagnostics.RESOLVE_FAILED:
                 raise _failed("network", resource, message="기본 주소의 호스트 이름을 찾지 못했습니다.")
             raise _failed("bad_request", resource, message="기본 주소가 내부망으로 풀려 부르지 않았습니다.")
         try:
-            data = json.loads(raw) if raw is not None and code is None else None
+            data = json.loads(exchange.raw) if exchange.raw is not None and code is None else None
         except (ValueError, RecursionError):
             data = None
         if not 200 <= status < 300:  # 본문을 읽다 끊겼어도 받은 상태로 가른다
             raise _http_failure(status, data.get("code") if isinstance(data, dict) else None, resource, on_item=on_item,
-                                sends=sends, retry_after=retry_after, secrets=self._secrets)
+                                maybe_sent=maybe_sent, retry_after=exchange.retry_after, secrets=self._secrets)
         if code is not None:  # 2xx 를 받고 본문을 읽다 끊겼다 — 보내기였으면 갔을 수 있다
-            raise _failed(code, resource, status=status, maybe_sent=sends)
+            raise _failed(code, resource, status=status, maybe_sent=maybe_sent)
         if not isinstance(data, dict):  # 읽을 수 없거나 읽지 않은(상한·압축) 2xx
-            raise _failed("unknown", resource, status=status, maybe_sent=sends,
-                          kind=_BodyNotRead if raw is None and not packed else ProviderFailed)
+            raise _failed("unknown", resource, status=status, maybe_sent=maybe_sent,
+                          kind=_BodyNotRead if exchange.raw is None and not exchange.packed else ProviderFailed)
         return status, data
 
     async def check(self) -> Check:

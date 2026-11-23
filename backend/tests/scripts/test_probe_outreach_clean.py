@@ -78,7 +78,7 @@ def test_full_run_prints_ok_lines_and_no_secret(monkeypatch, capsys):
     assert code == 0, out
     for step in ("P1", "P2", "P3", "P4"):
         assert f"[{step}] OK — " in out
-    assert "queued → sent" in out and "구조:" in out
+    assert "접수됨 → 전송됨" in out and "status=sent" in out and "구조:" in out
     assert_clean(out)
     assert p.sent == len(fake.requests) == 5
     assert len([r for r in fake.requests if r.method == "POST"]) == 1
@@ -88,7 +88,7 @@ def test_still_queued_is_a_fail_line(monkeypatch, capsys):
     set_env(monkeypatch, ENV)
     code, p = run(["--send"], transport=KatFake(statuses=("queued",)), sleep=no_sleep)
     out = capsys.readouterr().out
-    assert "[P3] FAIL — still_queued" in out and code == 1 and p.sent == 7
+    assert "[P3] FAIL — still_queued · 접수됨" in out and code == 1 and p.sent == 7
 
 
 def test_error_and_network_failures_print_no_secret(monkeypatch, capsys):
@@ -102,7 +102,8 @@ def test_error_and_network_failures_print_no_secret(monkeypatch, capsys):
 
     code2, _ = run(["--steps", "4"], transport=KatFake(override=boom), sleep=no_sleep)
     out = capsys.readouterr().out
-    assert "[P1] FAIL — unauthorized" in out and "[P4] FAIL — ConnectError" in out and code == code2 == 1
+    assert "[P1] FAIL — bad_key · " in out and "[P4] FAIL — network · " in out and code == code2 == 1
+    assert "code=unauthorized" in out and "ConnectError" in out and "[P2]" not in out  # 고르지 않은 단계는 찍지 않는다
     assert "cannot reach" not in out
     assert_clean(out)
 

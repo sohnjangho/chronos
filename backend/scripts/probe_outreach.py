@@ -8,8 +8,8 @@
 
 - 환경 변수: `KAT_API_KEY`, `KAT_ACCOUNT_ID`(모든 단계), `KAT_FROM`(발신번호) · `PROBE_TO`(PM 본인 번호)(P2).
   없으면 그 단계는 SKIP. 셸 기록에 남지 않게 `read -rs` 로 넣는다.
-- 끝 줄: 단계마다 `[P2] OK — …` / `[P2] FAIL — <code>` / `[P2] SKIP — <까닭>`. 종료 코드: FAIL 이 있거나
-  키·Account ID 가 없으면 1. 요청 상한 8번, 문자 1건. 앱 DB·data/ 는 건드리지 않는다.
+- 끝 줄: 단계마다 `[P2] OK — …` / `[P2] FAIL — <code> · <까닭>` / `[P2] SKIP — <까닭>`(고르지 않은 단계는 찍지 않는다).
+  P3 이 끝까지 접수 상태면(`still_queued`) 여기서는 FAIL 로 찍는다. 종료 코드: FAIL 이 있거나 키·Account ID 가 없으면 1. 요청 상한 8번, 문자 1건. 앱 DB·data/ 는 건드리지 않는다.
 """
 
 import argparse
@@ -89,7 +89,7 @@ class Probe:
             if result.skipped:
                 raise Skip(result.detail)
             if not result.ok:
-                raise StepFail(result.detail)
+                raise StepFail(f"{result.code} · {result.detail}")
             note.text = result.detail + (f" · {result.latency_ms}ms" if result.latency_ms is not None else "")
 
 
@@ -128,10 +128,12 @@ def run(argv: list[str] | None = None, *, transport: httpx.AsyncBaseTransport | 
             return await run_checks(conn, http, send_test_sms=args.send, steps=args.steps, sleep=sleep, calls=p.calls)
 
     for result in asyncio.run(go()):
+        if result.code == "skipped_not_requested":  # --steps 로 고르지 않은 단계
+            continue
         if result.id == "P2" and result.skipped and not args.send:
             result.detail = "--send 필요"
         elif result.id == "P2" and result.skipped:  # --send 를 줬는데 못 보냄 → 실패로
-            result.skipped, result.detail = False, "missing_number · --send 에는 KAT_FROM·PROBE_TO 가 모두 필요"
+            result.skipped, result.code, result.detail = False, "missing_number", "--send 에는 KAT_FROM·PROBE_TO 가 모두 필요"
         p.show(result)
     print(f"\n요청 수: {p.sent}")
     return (1 if p.failed else 0), p
