@@ -1,7 +1,21 @@
 // 개발 콘솔 시험 전용 도우미. 화면 코드는 이 파일을 import 하지 않는다. 사람·현장·모델 이름은 모두 가상이다.
 import { vi } from 'vitest';
 import { json, signInAsDemo } from '../../test-helpers';
-import type { HarnessTestOut, NodeKey, NodeState, StructureNode, TraceItem, Turn, TurnDetail, UsageOut } from './devApi';
+import type {
+  HarnessMark,
+  HarnessTestOut,
+  NodeKey,
+  NodeState,
+  NotifyHealth,
+  NotifyStep,
+  OutreachDetail,
+  OutreachRow,
+  StructureNode,
+  TraceItem,
+  Turn,
+  TurnDetail,
+  UsageOut,
+} from './devApi';
 
 const MODEL = 'claude-sonnet-5.5';
 const at = (base: number, ms: number) => new Date(base + ms).toISOString();
@@ -124,6 +138,84 @@ export const usage = (over: Partial<UsageOut> = {}): UsageOut => ({
   ...over,
 });
 
+/** 연락 기록 한 줄(가상 — 번호는 가린 꼴만). */
+export function outreachRow(over: Partial<OutreachRow> = {}): OutreachRow {
+  return {
+    kind: 'message', id: 501, at: new Date(Date.now() - 600_000).toISOString(), direction: 'out', channel: 'sms',
+    origin: 'agent', origin_name: '에이전트', send_mode: 'delegated', caller_class: null, status: 'unconfirmed',
+    contact_name: '가상 담당', company_name: '한빛전기', number_masked: '010-****-0199', schedule_name: '5층 사무동 신축',
+    events: 7, needs_check: true, ...over,
+  };
+}
+
+const OUTREACH_ROWS = (): OutreachRow[] => [
+  outreachRow(),
+  outreachRow({ kind: 'call', id: 77, channel: 'call', origin: 'user', origin_name: '김하늘', send_mode: 'approved', caller_class: 'outbound', status: 'completed', contact_name: '나가상', company_name: '동해설비', events: 2, needs_check: false, at: new Date(Date.now() - 900_000).toISOString() }),
+  outreachRow({ id: 502, direction: 'in', origin: 'peer', origin_name: '', send_mode: null, caller_class: 'unknown', status: 'received', contact_name: null, company_name: null, schedule_name: null, events: 1, needs_check: false, at: new Date(Date.now() - 1_200_000).toISOString() }),
+];
+
+const mark = (over: Partial<HarnessMark>): HarnessMark => ({
+  group: 'gate_decision', group_label: '나가는 문 판정', rule: null, verdict: 'allowed', verdict_label: '지나감', attempt: null,
+  order: null, code: null, needs_check: false, unknown: false, ...over,
+});
+
+/** 연락 기록 하나의 시간표: 예약(근무시간 막음) → 시도 2(메모 → 통로 고르기 → 확인 필요) → 도구 · 도구 거절 · 모르는 사건. */
+export function outreachDetail(over: Partial<OutreachDetail> = {}): OutreachDetail {
+  const base = Date.now() - 600_000;
+  const item = (seq: number, label: string, m: HarnessMark): TraceItem => ({
+    seq, kind: 'harness', label, started_at: at(base, seq * 1000), ms: null, model: null, input_tokens: 0, output_tokens: 0,
+    cost: null, ok: m.verdict !== 'blocked', error: m.verdict === 'blocked' ? m.verdict_label : null, input_text: '', output_text: '',
+    parallel_group: null, harness: m,
+  });
+  const timeline = [
+    item(1, '근무시간', mark({ rule: 'working_hours', verdict: 'blocked', verdict_label: '막음', attempt: 1, order: 3 })),
+    item(2, '판정 메모', mark({ group: 'gate_note', group_label: '판정 메모', rule: 'reply_within_grace', verdict: 'noted', verdict_label: '메모', attempt: 2 })),
+    item(3, '통로 고르기 — 문자', mark({ rule: 'channel_choice', attempt: 2, order: 7, code: 'sms' })),
+    item(4, '통로 결과 — 보냈는지 확인 필요', mark({ group: 'channel_result', group_label: '통로 결과', rule: 'delivery', verdict: 'noted', verdict_label: '확인 필요', attempt: 2, needs_check: true })),
+    item(5, '도구 find_contact', mark({ group: 'tool', group_label: '도구', rule: 'tool:find_contact', code: 'find_contact' })),
+    item(6, '도구 거절 schedule_fact', mark({ group: 'tool', group_label: '도구', rule: 'scope_denied', verdict: 'blocked', verdict_label: '막음', code: 'schedule_fact' })),
+    item(7, '알 수 없는 사건', mark({ group: null, group_label: '알 수 없는 사건', verdict: null, verdict_label: '—', unknown: true })),
+  ];
+  return {
+    head: { ...outreachRow(), approved_by: null, fail_reason: null, reply_to_id: null },
+    timeline,
+    groups: [
+      { key: 'gate_decision', label: '나가는 문 판정', count: 2 }, { key: 'gate_note', label: '판정 메모', count: 1 },
+      { key: 'admission', label: '들어오는 문', count: 0 }, { key: 'tool', label: '도구', count: 2 },
+      { key: 'post_check', label: '뒤 확인', count: 0 }, { key: 'channel_result', label: '통로 결과', count: 1 },
+      { key: 'call', label: '통화', count: 0 }, { key: 'text_reply', label: '문자 답 만들기', count: 0 },
+      { key: 'recovery', label: '서버 다시 시작', count: 0 }, { key: 'unknown', label: '알 수 없는 사건', count: 1 },
+    ],
+    attempts: 2,
+    needs_check: 1,
+    omitted: 0,
+    ...over,
+  };
+}
+
+/** 시스템 진단의 알림 연결(가상). 실패 한 걸음 · 확인 필요 한 걸음. */
+export function notifyHealth(over: Partial<NotifyHealth> = {}): NotifyHealth {
+  const step = (id: string, label: string, outcome: NotifyStep['outcome'], detail: string, code: string): NotifyStep => ({
+    id, label, ok: outcome === 'ok', skipped: outcome === 'skipped', detail, code, maybe_sent: outcome === 'check' && id === 'P2',
+    pending: outcome === 'check' && id === 'P3', outcome,
+  });
+  return {
+    connected: true, status: 'ok', checked_at: '2026-11-24T00:30:00+00:00', test_mode: true, allow_count: 2,
+    sender_masked: '070-****-0123', inbound_mode: 'known', agent: { sms: 'delegate', kakao: 'approve', call: 'approve' },
+    worker: { running: true, last_tick_at: '2026-11-24T01:02:03+00:00', last_due_at: '2026-11-24T01:02:03+00:00', last_status_poll_at: '2026-11-24T01:01:43+00:00', last_inbound_poll_at: null, last_error_kind: null },
+    needs_check: 1,
+    last_diagnosis: {
+      ran_at: '2026-11-24T00:40:00+00:00', state: 'done', steps: [
+        step('P1', '인증 + 발신번호 목록', 'ok', '발신번호 1개(승인 1)', 'ok'),
+        step('P2', '시험 문자 1건 보내기', 'skipped', '시험 문자를 청하지 않았습니다', 'skipped_no_send'),
+        step('P3', '보낸 문자 상태 조회', 'check', '아직 접수 상태입니다(실패 아님)', 'still_queued'),
+        step('P4', '받은 문자 목록', 'failed', '받은 문자 목록을 읽지 못했습니다', 'server'),
+      ],
+    },
+    kakao: null, voice: null, ...over,
+  };
+}
+
 const OLDER = turn({ turn_id: 38, request: '5층 사무동 공정표 만들어 줘', status: 'done', ms: 64_000, tokens: 48_200, started_at: new Date(Date.now() - 86_400_000).toISOString() });
 
 let list: Turn[] = [];
@@ -239,6 +331,9 @@ function healthSample() {
 
 let sampleCatalog = catalogSample();
 let sampleHealth: Record<string, unknown> = healthSample();
+let outreachRows: OutreachRow[] = [];
+let outreachMore = false;
+const outreachById = new Map<string, OutreachDetail>();
 
 /** 가짜 개발 콘솔 서버. 상세는 queue 를 차례로(마지막 하나는 계속), 다른 턴은 byId 로. */
 export function setup(role: 'admin' | 'user' = 'admin') {
@@ -251,9 +346,16 @@ export function setup(role: 'admin' | 'user' = 'admin') {
   harnessPatch = {};
   sampleCatalog = catalogSample();
   sampleHealth = healthSample();
+  outreachRows = OUTREACH_ROWS();
+  outreachMore = false;
+  outreachById.clear();
+  outreachById.set('message/501', outreachDetail());
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === '/api/devconsole/turns?limit=30') return json(200, list);
+    if (url === '/api/devconsole/outreach?limit=30') return json(200, { items: outreachRows, more: outreachMore, limit: 30 });
+    const o = /^\/api\/devconsole\/outreach\/(message|call)\/(\d+)$/.exec(url);
+    if (o && outreachById.has(`${o[1]}/${o[2]}`)) return json(200, outreachById.get(`${o[1]}/${o[2]}`));
     const m = /^\/api\/devconsole\/turns\/(\d+)$/.exec(url);
     if (m && Number(m[1]) === 41) return detailResponse(queue.length > 1 ? queue.shift()! : queue[0]);
     if (m && byId.has(Number(m[1]))) return json(200, byId.get(Number(m[1])));
@@ -310,6 +412,9 @@ function harnessOut(ruleId: string): HarnessTestOut {
 export const mockCatalog = (edit: (c: ReturnType<typeof catalogSample>) => void) => edit(sampleCatalog);
 /** 시스템 진단에 칸을 더한다(새 서버의 info_api·evidence_reuse·holidays·vision). */
 export const mockHealth = (extra: Record<string, unknown>) => void (sampleHealth = { ...sampleHealth, ...extra });
+/** 연락 기록 목록(more = 상한 밖에 더 있음)과 상세(kind/id 열쇠). */
+export const mockOutreachList = (rows: OutreachRow[], more = false) => void ((outreachRows = rows), (outreachMore = more));
+export const mockOutreach = (kind: string, id: number, d: OutreachDetail) => void outreachById.set(`${kind}/${id}`, d);
   export const urls = () => fetchMock.mock.calls.map(([u]) => String(u));
   export const fetchCount = () => urls().filter((u) => u === '/api/devconsole/turns/41').length;
   export const lastUrl = () => urls().at(-1) ?? '';

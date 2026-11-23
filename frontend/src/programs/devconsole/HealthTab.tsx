@@ -1,10 +1,12 @@
 // 시스템 진단(Health) 탭: LLM 연결 · Qdrant 벡터 DB · 근거 검색/MCP · SQLite DB 현황 · 실행 중 턴 제어,
 // 11-23: 정보 API 연결 · 근거 다시 쓰기 · 공휴일 표 · 그림 읽기 배정(HealthTodayCards).
+// Task 108: 알림 연결 묶음(NotifyHealthCard — 저장된 마지막 연결 진단을 보일 뿐, 다시 돌리지 않는다).
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '../../shared/api';
 import Badge from '../../shared/ui/Badge';
 import { devApi, type HealthOut } from './devApi';
 import HealthTodayCards from './HealthTodayCards';
+import NotifyHealthCard from './NotifyHealthCard';
 
 function bytesText(bytes: number): string {
   if (bytes <= 0) return '0 B';
@@ -181,7 +183,7 @@ export default function HealthTab() {
         <div>
           <h2 className="dc-cat-h2">시스템 진단 (Health)</h2>
           <p className="dc-muted">
-            LLM 연결·키 복호화, Qdrant 벡터 검색 서버, Liner Search/MCP, SQLite DB, 정보 API 연결·근거 다시 쓰기·공휴일 표·그림 읽기 배정 및 현재 실행 중인 에이전트 턴 상태를 점검합니다.
+            LLM 연결·키 복호화, Qdrant 벡터 검색 서버, Liner Search/MCP, SQLite DB, 정보 API 연결·근거 다시 쓰기·공휴일 표·그림 읽기 배정·알림 연결 및 현재 실행 중인 에이전트 턴 상태를 점검합니다.
           </p>
         </div>
         <div className="dc-cfg-actions">
@@ -203,6 +205,7 @@ export default function HealthTab() {
           <div className="dc-health-grid" role="region" aria-label="핵심 인프라 진단">
             <CoreCards data={data} />
             <HealthTodayCards data={data} badge={(st) => statusBadge(st as Parameters<typeof statusBadge>[0])} />
+            {data.notify && <NotifyHealthCard n={data.notify} />}
           </div>
           <ActiveTurns turns={data.active_turns} stoppingId={stoppingId} onStop={(id) => void stopTurn(id)} />
         </>

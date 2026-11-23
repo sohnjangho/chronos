@@ -6,11 +6,12 @@ import { useSession } from '../../os/session';
 import Badge from '../../shared/ui/Badge';
 import Tabs from '../../shared/ui/Tabs';
 import AgentStructure from './AgentStructure';
-import { devApi, type CatalogOut, type NodeKey, type TurnDetail } from './devApi';
+import { devApi, type CatalogOut, type NodeKey, type OutreachRow, type TurnDetail } from './devApi';
 import { cost, seconds, status, tokens } from './format';
 import HarnessTab from './HarnessTab';
 import HealthTab from './HealthTab';
 import NodeDetail from './NodeDetail';
+import OutreachTrace from './OutreachTrace';
 import RegistryTab from './RegistryTab';
 import SourcesTab from './SourcesTab';
 import TraceTimeline from './TraceTimeline';
@@ -159,6 +160,10 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
   const [catalogTick, setCatalogTick] = useState(0);
   const d = useTurnData();
   const turnTab = tab === 'structure' || tab === 'trace';
+  /** 실행 추적에서 고른 연락 기록(Task 108). 턴을 고르면 비운다. */
+  const [contact, setContact] = useState<OutreachRow | null>(null);
+  const showContact = tab === 'trace' && contact !== null;
+  const turnShown = turnTab && !showContact;
   const catTab = tab === 'harness' || tab === 'sources' || tab === 'registry';
   useEffect(() => {
     if (!catTab) return;
@@ -190,16 +195,25 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
       </div>
       {turnTab && (
         <div className="dc-top">
-          <TurnPicker turns={d.turns} current={d.detail?.turn ?? null} onOpen={() => void d.reloadTurns()} onPick={d.select} />
-          {d.detail && <TurnStats detail={d.detail} halted={d.halted} checkedAt={d.checkedAt} />}
-          {d.detail && (
+          <TurnPicker
+            turns={d.turns}
+            current={d.detail?.turn ?? null}
+            onOpen={() => void d.reloadTurns()}
+            onPick={(id) => {
+              setContact(null);
+              d.select(id);
+            }}
+            outreach={tab === 'trace' ? { current: contact, onPick: setContact } : undefined}
+          />
+          {d.detail && turnShown && <TurnStats detail={d.detail} halted={d.halted} checkedAt={d.checkedAt} />}
+          {d.detail && turnShown && (
             <button type="button" className="dc-btn dc-export-btn" onClick={exportTurnJson}>
               JSON 내보내기
             </button>
           )}
         </div>
       )}
-      {turnTab && d.error && (
+      {turnShown && d.error && (
         <p className="dc-error dc-pad" role="alert">
           {d.error}
         </p>
@@ -211,9 +225,14 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
         {tab === 'harness' && catalog && <HarnessTab catalog={catalog} onSaved={reloadCatalog} />}
         {tab === 'sources' && catalog && <SourcesTab catalog={catalog} />}
         {tab === 'registry' && catalog && <RegistryTab catalog={catalog} onChanged={reloadCatalog} />}
-        {turnTab && !d.detail && !d.error && <p className="dc-empty">{empty}</p>}
+        {turnShown && !d.detail && !d.error && <p className="dc-empty">{empty}</p>}
+        {showContact && (
+          <div className="dc-scroll">
+            <OutreachTrace key={`${contact.kind}/${contact.id}`} row={contact} />
+          </div>
+        )}
         {tab === 'structure' && d.detail && <StructureView key={d.detail.turn.turn_id} detail={d.detail} />}
-        {tab === 'trace' && d.detail && (
+        {tab === 'trace' && turnShown && d.detail && (
           <div className="dc-scroll">
             <TraceTimeline key={d.detail.turn.turn_id} items={d.detail.timeline} running={d.detail.turn.status === 'running'} />
           </div>

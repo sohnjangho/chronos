@@ -5,7 +5,25 @@ import { useWindows } from '../../os/windowStore';
 import { json } from '../../test-helpers';
 import DevConsole from './DevConsole';
 import manifest from './index';
-import { done, fetchCount, fetchMock, lastUrl, mockHarness, mockTurn, mockTurnSequence, mockUsage, running, setup, urls } from './testKit';
+import {
+  done,
+  fetchCount,
+  fetchMock,
+  lastUrl,
+  mockHarness,
+  mockHealth,
+  mockOutreach,
+  mockOutreachList,
+  mockTurn,
+  mockTurnSequence,
+  mockUsage,
+  notifyHealth,
+  outreachDetail,
+  outreachRow,
+  running,
+  setup,
+  urls,
+} from './testKit';
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const structure = () => screen.findByRole('group', { name: '에이전트 구조' });
@@ -487,5 +505,126 @@ describe('Fix round 1', () => {
     expect(screen.queryByText('5층 사무동 공정표 만들어 줘')).toBeNull();
     await userEvent.click(screen.getByRole('radio', { name: '실패·중단' }));
     expect(screen.getByText('찾는 요청이 없습니다.')).toBeVisible();
+  });
+});
+
+describe('연락 — 실행 추적 · 알림 연결 · 문자 사용량 (Task 108)', () => {
+  /** 실행 추적 탭에서 고르기를 열고 종류를 「연락」으로. */
+  async function openContacts() {
+    await openTrace();
+    await userEvent.click(screen.getByRole('button', { name: /^요청:/ }));
+    const dialog = screen.getByRole('dialog', { name: '요청 고르기' });
+    await userEvent.click(within(dialog).getByRole('radio', { name: '연락' }));
+    await within(dialog).findByText('가상 담당 · 한빛전기');
+    return dialog;
+  }
+  async function openContact() {
+    const dialog = await openContacts();
+    await userEvent.click(within(dialog).getByRole('button', { name: /가상 담당 · 한빛전기/ }));
+    return screen.findByRole('list', { name: '실행 추적' });
+  }
+
+  test('the picker switches between turns and contacts and finds contacts by name', async () => {
+    const dialog = await openContacts();
+    expect(urls()).toContain('/api/devconsole/outreach?limit=30');
+    expect(within(dialog).getByText('모르는 번호 010-****-0199')).toBeVisible();
+    expect(within(dialog).getAllByRole('button')).toHaveLength(3);
+    await userEvent.type(within(dialog).getByRole('searchbox'), '한빛');
+    expect(within(dialog).getAllByRole('button')).toHaveLength(1);
+    await userEvent.click(within(dialog).getByRole('radio', { name: '대화 턴' }));
+    expect(within(dialog).getByText('5층 사무동 공정표 만들어 줘')).toBeVisible();
+  });
+
+  test('a picked contact shows who started it, the permission mode, the class and the state', async () => {
+    await openContact();
+    expect(urls()).toContain('/api/devconsole/outreach/message/501');
+    const head = screen.getByRole('group', { name: '이 연락' });
+    expect(head).toHaveTextContent('가상 담당 · 한빛전기');
+    expect(head).toHaveTextContent('시작 에이전트');
+    expect(head).toHaveTextContent('권한 위임');
+    expect(head).toHaveTextContent('보냈는지 확인 필요');
+    expect(screen.getByRole('button', { name: /^연락:/ })).toHaveTextContent('가상 담당');
+    expect(screen.queryByRole('group', { name: '이 요청' })).toBeNull();
+  });
+
+  test('the timeline splits attempts in order and marks the unsure result as needs-check, not failure', async () => {
+    const list = await openContact();
+    expect(within(list).getAllByText(/^시도 \d$/).map((e) => e.textContent)).toEqual(['시도 1', '시도 2', '시도 2', '시도 2']);
+    const unsure = within(list).getByRole('button', { name: /통로 결과 — 보냈는지 확인 필요/ });
+    expect(within(unsure).getByText('확인 필요', { selector: '.dc-tag' })).toBeVisible();
+    expect(within(unsure).getByText('확인 필요', { selector: '.dc-c-res' })).not.toHaveClass('is-danger');
+    expect(within(list).getByRole('button', { name: /근무시간/ })).toHaveTextContent('막음');
+    expect(screen.getByText(/확인 필요 1건/)).toBeVisible();
+    expect(within(list).getByRole('button', { name: /알 수 없는 사건/ })).toBeVisible();
+  });
+
+  test('events are grouped with counts, filtered by group and searched by code', async () => {
+    const list = await openContact();
+    const groups = screen.getByRole('radiogroup', { name: '사건 묶음' });
+    expect(within(groups).getAllByRole('radio').map((r) => r.textContent)).toEqual([
+      '전체 7', '나가는 문 판정 2', '판정 메모 1', '도구 2', '통로 결과 1', '알 수 없는 사건 1',
+    ]);
+    await userEvent.click(within(groups).getByRole('radio', { name: '도구 2' }));
+    expect(within(list).getAllByRole('button')).toHaveLength(2);
+    await userEvent.click(within(groups).getByRole('radio', { name: '전체 7' }));
+    await userEvent.type(screen.getByRole('searchbox', { name: '사건 찾기' }), 'schedule_fact');
+    expect(within(list).getAllByRole('button').map((b) => b.textContent)).toEqual([expect.stringContaining('도구 거절 schedule_fact')]);
+  });
+
+  test('machine output of an event opens folded', async () => {
+    const list = await openContact();
+    await userEvent.click(within(list).getByRole('button', { name: /통로 고르기 — 문자/ }));
+    expect(within(list).getByRole('button', { name: '기계 출력 펼치기' })).toBeVisible();
+    expect(within(list).queryByText('"channel_choice"')).toBeNull();
+    await userEvent.click(within(list).getByRole('button', { name: '기계 출력 펼치기' }));
+    expect(within(list).getByText('"channel_choice"')).toBeVisible();
+  });
+
+  test('a row with no recorded events says so, and more rows beyond the cap are marked', async () => {
+    mockOutreachList([outreachRow({ kind: 'call', id: 9, channel: 'call', events: 0, needs_check: false, status: 'draft' })], true);
+    mockOutreach('call', 9, outreachDetail({ head: { ...outreachRow({ kind: 'call', id: 9, channel: 'call', status: 'draft' }), approved_by: null, fail_reason: null, reply_to_id: null }, timeline: [], groups: [], attempts: 0, needs_check: 0 }));
+    const dialog = await openContacts();
+    expect(within(dialog).getByText(/더 오래된 기록이 있습니다/)).toBeVisible();
+    await userEvent.click(within(dialog).getByRole('button', { name: /가상 담당/ }));
+    expect(await screen.findByText('이 연락에는 남은 하네스 사건이 없습니다.')).toBeVisible();
+  });
+
+  test('the health tab shows the notify connection, worker times and the stored diagnosis with one failure and one needs-check', async () => {
+    mockHealth({ notify: notifyHealth() });
+    render(<DevConsole windowId="w1" params={{ tab: 'health' }} />);
+    const card = await screen.findByRole('article', { name: '알림 연결' });
+    expect(card).toHaveTextContent('시험 모드켬');
+    expect(card).toHaveTextContent('허용 번호2개');
+    expect(card).toHaveTextContent('070-****-0123');
+    expect(card).toHaveTextContent('확인 필요 1건');
+    const worker = within(card).getByRole('group', { name: '조회 일꾼' });
+    expect(worker).toHaveTextContent('돌고 있음');
+    expect(worker).toHaveTextContent('받은 문자 조회아직 없음');
+    const steps = within(card).getByRole('list', { name: '마지막 연결 진단' });
+    const line = (id: string) => within(steps).getByText(id).closest('li')!;
+    expect(within(line('P1')).getByText('정상')).toBeVisible();
+    expect(within(line('P3')).getByText('확인 필요')).toBeVisible();
+    expect(within(line('P4')).getByText('실패')).toBeVisible();
+    expect(within(line('P2')).getByText('건너뜀')).toBeVisible();
+    expect(card).toHaveTextContent('카카오톡아직 없음');
+    expect(card).toHaveTextContent('AI 전화아직 없음');
+    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'POST')).toBe(false);
+  });
+
+  test('the health tab says when there is no notify connection', async () => {
+    mockHealth({ notify: { ...notifyHealth(), connected: false } });
+    render(<DevConsole windowId="w1" params={{ tab: 'health' }} />);
+    const card = await screen.findByRole('article', { name: '알림 연결' });
+    expect(card).toHaveTextContent('알림 연결이 없습니다');
+    expect(within(card).queryByRole('list', { name: '마지막 연결 진단' })).toBeNull();
+  });
+
+  test('usage shows sms and long counts and says the provider does not report the fee', async () => {
+    mockUsage({ outreach: { sms: 12, long: 3, kakao: 0, auto_replies: 2, provider_cost: null } });
+    await openUsage();
+    const table = screen.getByRole('table', { name: '연락 사용량' });
+    expect(within(table).getByRole('row', { name: /^문자/ })).toHaveTextContent('12');
+    expect(within(table).getByRole('row', { name: /^그 가운데 장문/ })).toHaveTextContent('3');
+    expect(within(table).getByRole('row', { name: /제공사 요금/ })).toHaveTextContent('제공사가 알려 주지 않음');
   });
 });

@@ -1,10 +1,11 @@
 // 사용량·비용: 기간(7/14/30일)과 묶는 기준(모델·사용자·날짜·작업 종류)으로 표 + 토큰 가로 막대, 합계 줄, 근거 검색 수,
 // 11-23: 따로 센 호출(정보 API · Liner 검색 대 다시 쓰기 · 그림 읽기 · 임베딩, UsageCounters).
+// Task 108: 연락 사용량(문자·장문·카카오톡·자동 답, 제공사 요금 — 알려 주지 않으면 그렇게 적는다).
 // 비용은 Liner 가 보낸 값만(cost_known 이 거짓이면 "—" 와 안내).
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../shared/api';
 import Field from '../../shared/ui/Field';
-import { devApi, type UsageGroup, type UsageOut, type UsageRow, type UsageTotals } from './devApi';
+import { devApi, type OutreachUsage, type UsageGroup, type UsageOut, type UsageRow, type UsageTotals } from './devApi';
 import { cost, count } from './format';
 import UsageCounters from './UsageCounters';
 
@@ -99,6 +100,41 @@ function UsageTable({ data, group }: { data: UsageOut; group: UsageGroup }) {
   );
 }
 
+export const FEE_UNREPORTED = '제공사가 알려 주지 않음';
+
+/** 연락 사용량: 나간 것(차지한 순간 기준 — 하루 상한이 세는 수와 같다). 장문은 문자의 일부. */
+function OutreachUsageTable({ o }: { o: OutreachUsage }) {
+  const lines: [string, string, string][] = [
+    ['문자 (단문·장문)', count(o.sms), '대신 문자로 나간 카카오톡 포함'],
+    ['그 가운데 장문', count(o.long), ''],
+    ['카카오톡', count(o.kakao), ''],
+    ['자동 답·고정 안내', count(o.auto_replies), '문자 수에 이미 들어 있음'],
+    ['제공사 요금', o.provider_cost === null ? FEE_UNREPORTED : cost(o.provider_cost), '메시지마다의 요금은 제공사가 주지 않습니다'],
+  ];
+  return (
+    <div className="dc-u-wrap">
+      <table className="dc-u" aria-label="연락 사용량">
+        <thead>
+          <tr>
+            <th scope="col">연락</th>
+            <th scope="col">건수·요금</th>
+            <th scope="col">메모</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map(([name, value, note]) => (
+            <tr key={name}>
+              <th scope="row">{name}</th>
+              <td>{value}</td>
+              <td className="dc-u-note">{note}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function UsageTab() {
   const [days, setDays] = useState(14);
   const [group, setGroup] = useState<UsageGroup>('model');
@@ -151,6 +187,7 @@ export default function UsageTab() {
       {body && !body.cost_known && <p className="dc-note">{COST_NOTE}</p>}
       {body ? <UsageTable data={body} group={group} /> : !error && <p className="dc-empty">불러오는 중…</p>}
       {body?.counters && <UsageCounters counters={body.counters} />}
+      {body?.outreach && <OutreachUsageTable o={body.outreach} />}
     </div>
   );
 }

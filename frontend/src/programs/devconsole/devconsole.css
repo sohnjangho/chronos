@@ -795,3 +795,19 @@
 .dc-health-list .dc-tag { margin-left: 0; }
 .dc-u .dc-u-group th { background: var(--bg-app); color: var(--fg); font-weight: 700; text-align: left; }
 .dc-u .dc-u-note { color: var(--fg-muted); text-align: left; white-space: normal; }
+
+/* ── 연락(Task 108): 실행 추적의 연락 머리 줄·사건 거르기 · 진단의 알림 연결 묶음 ── */
+.dc-o-trace { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.dc-o-head { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--bg-panel-alt); }
+.dc-o-head > .dc-ellipsis { max-width: 100%; }
+.dc-o-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; }
+.dc-o-filters .dc-chip-bar { flex: 1 1 auto; min-width: 0; }
+.dc-o-search { flex: 0 1 260px; width: auto; min-width: 140px; }
+.dc-o-wide { grid-column: 1 / -1; }
+.dc-o-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 440px)); gap: 8px 48px; }
+.dc-o-diag { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dc-o-diag h4 { margin: 4px 0 0; font-size: var(--fs-12); font-weight: 600; color: var(--fg); }
+.dc-o-diag .dc-health-list { max-height: none; }
+.dc-o-diag .dc-health-list li > .dc-ellipsis { flex: 0 1 auto; }
+.dc-o-detail { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.dc-o-rule { margin-left: 6px; color: var(--fg-muted); font-size: var(--fs-11); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

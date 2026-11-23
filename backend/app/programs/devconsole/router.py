@@ -1,15 +1,17 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.programs.devconsole import catalog, service
+from app.programs.devconsole import catalog, outreach_view, service
 from app.programs.devconsole.schemas import (
     AgentConfigOut,
     AgentConfigPatch,
     DevUsageOut,
     HealthOut,
+    OutreachDetailOut,
+    OutreachListOut,
     StopTurnOut,
     ToolToggleIn,
     ToolToggleOut,
@@ -34,6 +36,19 @@ def list_turns(session: SessionDep, limit: Annotated[int, Query(ge=1, le=200)] =
 @router.get("/turns/{turn_id}")
 def get_turn(turn_id: int, session: SessionDep) -> TurnDetail:
     return service.get_turn(session, turn_id)
+
+
+@router.get("/outreach")
+def list_outreach(
+    session: SessionDep, kind: Literal["message", "call"] | None = None,
+    limit: Annotated[int, Query(ge=1, le=outreach_view.LIST_MAX)] = outreach_view.LIST_DEFAULT,
+) -> OutreachListOut:
+    return outreach_view.list_rows(session, kind, limit)
+
+
+@router.get("/outreach/{kind}/{row_id}")
+def get_outreach(kind: Literal["message", "call"], row_id: int, session: SessionDep) -> OutreachDetailOut:
+    return outreach_view.detail(session, kind, row_id)
 
 
 @router.get("/usage")

@@ -499,7 +499,8 @@ def test_usage_when_nothing_happened(client, admin):
     assert u == {"rows": [], "totals": zero, "cost_known": False, "searches": {"calls": 0, "failed": 0},
                  "counters": {"info_api": {"calls": 0, "failed": 0}, "weather": {"calls": 0, "failed": 0},
                               "searches": {"calls": 0, "failed": 0}, "reuses": {"calls": 0},
-                              "vision": zero, "embedding": zero}}
+                              "vision": zero, "embedding": zero},
+                 "outreach": {"sms": 0, "long": 0, "kakao": 0, "auto_replies": 0, "provider_cost": None}}
 
 
 def test_catalog_and_harness_block_simulation(client, admin):

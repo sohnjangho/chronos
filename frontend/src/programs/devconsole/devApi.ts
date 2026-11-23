@@ -68,9 +68,29 @@ export interface ContextPart {
   share: number;
 }
 
+/** 연락 하네스 사건 한 줄의 표지(Task 108). 이름·묶음은 서버가 harness.types 상수에서 읽는다. 자유 글은 없다. */
+export interface HarnessMark {
+  /** EVENT_GROUPS 의 묶음. 모르는 사건은 null. */
+  group: string | null;
+  group_label: string;
+  /** 사건 이름(코드). 모르는 사건은 null. */
+  rule: string | null;
+  verdict: 'blocked' | 'allowed' | 'noted' | null;
+  verdict_label: string;
+  /** 보내기 시도 차례(1부터) — 판정 메모·문 판정·통로 결과만. */
+  attempt: number | null;
+  /** 나가는 문의 차례. */
+  order: number | null;
+  /** 정해 둔 detail 코드 또는 도구 이름. */
+  code: string | null;
+  /** 통로 결과 unsure — 「확인 필요」(실패 아님). */
+  needs_check: boolean;
+  unknown: boolean;
+}
+
 export interface TraceItem {
   seq: number;
-  kind: 'context' | 'llm' | 'tool' | 'inner_llm';
+  kind: 'context' | 'llm' | 'tool' | 'inner_llm' | 'harness';
   label: string;
   /** tool 은 그 도구를 부른 답이 끝난 때부터 앞 단계 시간을 더한 어림. */
   started_at: string;
@@ -87,6 +107,55 @@ export interface TraceItem {
   parallel_group: number | null;
   /** tool: 그 단계 기록이 보여 주는 신호(signals.ts). 예전 서버는 보내지 않는다. */
   signals?: string[];
+  /** harness: 연락 하네스 사건의 표지. */
+  harness?: HarnessMark;
+}
+
+export type OutreachKind = 'message' | 'call';
+
+/** 연락 기록 한 줄(번호는 가린 꼴만, 글·받아쓰기 없음). */
+export interface OutreachRow {
+  kind: OutreachKind;
+  id: number;
+  at: string;
+  direction: 'out' | 'in' | string;
+  channel: 'sms' | 'kakao' | 'call' | string;
+  origin: 'user' | 'agent' | 'peer' | string;
+  origin_name: string;
+  send_mode: 'manual' | 'approved' | 'delegated' | null;
+  caller_class: string | null;
+  status: string;
+  /** 주소록 이름. 없으면 「모르는 번호」. */
+  contact_name: string | null;
+  company_name: string | null;
+  number_masked: string;
+  schedule_name: string | null;
+  events: number;
+  needs_check: boolean;
+}
+
+export interface OutreachList {
+  items: OutreachRow[];
+  /** 상한 밖에 더 있다. */
+  more: boolean;
+  limit: number;
+}
+
+export interface OutreachHead extends OutreachRow {
+  approved_by: string | null;
+  fail_reason: string | null;
+  reply_to_id: number | null;
+}
+
+export interface OutreachDetail {
+  head: OutreachHead;
+  timeline: TraceItem[];
+  /** 묶음별 사건 수(EVENT_GROUP_KEYS 차례 + unknown). */
+  groups: { key: string; label: string; count: number }[];
+  attempts: number;
+  needs_check: number;
+  /** 보이지 않는 앞선 사건 수. */
+  omitted: number;
 }
 
 export interface TurnDetail {
@@ -116,6 +185,16 @@ export interface UsageOut {
   searches: { calls: number; failed: number };
   /** 11-23: 따로 센 호출. 예전 서버는 보내지 않는다. */
   counters?: UsageCounters | null;
+  /** Task 108: 연락 사용량. long 은 sms 의 부분 집합, provider_cost null = 제공사가 알려 주지 않음. */
+  outreach?: OutreachUsage | null;
+}
+
+export interface OutreachUsage {
+  sms: number;
+  long: number;
+  kakao: number;
+  auto_replies: number;
+  provider_cost: number | null;
 }
 
 export interface UsageCounters {
@@ -275,6 +354,39 @@ export interface HealthOut {
   evidence_reuse?: ReuseHealth | null;
   holidays?: HolidayHealth | null;
   vision?: VisionHealth | null;
+  /** Task 108: 기본 알림 연결. */
+  notify?: NotifyHealth | null;
+}
+
+/** 저장된 마지막 연결 진단의 걸음. outcome check = 결과를 모름(실패 아님). */
+export interface NotifyStep {
+  id: string;
+  label: string;
+  ok: boolean;
+  skipped: boolean;
+  detail: string;
+  code: string;
+  maybe_sent: boolean;
+  pending: boolean;
+  outcome: 'ok' | 'failed' | 'check' | 'skipped';
+}
+
+/** 기본 알림 연결(키·Account ID 없음, 발신번호는 가린 꼴). 연결이 없으면 connected false 뿐. */
+export interface NotifyHealth {
+  connected: boolean;
+  status: string | null;
+  checked_at: string | null;
+  test_mode: boolean | null;
+  allow_count: number;
+  sender_masked: string | null;
+  inbound_mode: string | null;
+  agent: Record<string, string> | null;
+  /** 연락 일꾼 메모리 상태(시각은 ISO). */
+  worker: Record<string, unknown> | null;
+  needs_check: number;
+  last_diagnosis: { ran_at: string; state: string; steps: NotifyStep[] } | null;
+  kakao: null;
+  voice: null;
 }
 
 /** 정보 API 연결(주소·키 없음). */
@@ -313,6 +425,8 @@ export const RECENT = 30;
 export const devApi = {
   turns: () => api<Turn[]>(`/api/devconsole/turns?limit=${RECENT}`),
   turn: (id: number) => api<TurnDetail>(`/api/devconsole/turns/${id}`),
+  outreachList: () => api<OutreachList>(`/api/devconsole/outreach?limit=${RECENT}`),
+  outreach: (kind: OutreachKind, id: number) => api<OutreachDetail>(`/api/devconsole/outreach/${kind}/${id}`),
   usage: (days: number, group: UsageGroup) => api<UsageOut>(`/api/devconsole/usage?days=${days}&group=${group}`),
   catalog: () => api<CatalogOut>('/api/devconsole/catalog'),
   testHarness: (ruleId: string) => api<HarnessTestOut>(`/api/devconsole/harness/${ruleId}/test`, { method: 'POST' }),

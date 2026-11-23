@@ -40,6 +40,7 @@ from app.info import generic
 from app.llm import assignments
 from app.llm.assignments import default_connection
 from app.llm.connections import secret_is_sendable
+from app.programs.devconsole import outreach_view
 from app.programs.devconsole.schemas import (
     ActiveTurnOut,
     CallCount,
@@ -185,7 +186,8 @@ def _counters(session: Session, days: int) -> UsageCountersOut:
 
 def usage(session: Session, *, days: int, group: UsageGroup) -> DevUsageOut:
     base = store.usage(session, days=days, group=group)
-    return DevUsageOut(**base.model_dump(), counters=_counters(session, days))
+    return DevUsageOut(**base.model_dump(), counters=_counters(session, days),
+                       outreach=outreach_view.usage(session, days))
 
 
 # ── 구조 ────────────────────────────────────────────────────────────
@@ -675,7 +677,8 @@ def health(session: Session) -> HealthOut:
     ]
     return HealthOut(llm=llm_h, qdrant=qdrant_h, search=search_h, db=db_h, active_turns=active,
                      info_api=_info_api_health(session), evidence_reuse=_reuse_health(session),
-                     holidays=_holiday_health(), vision=_vision_health(session))
+                     holidays=_holiday_health(), vision=_vision_health(session),
+                     notify=outreach_view.notify_health(session))
 
 
 def stop_turn(chat_session_id: int) -> StopTurnOut:

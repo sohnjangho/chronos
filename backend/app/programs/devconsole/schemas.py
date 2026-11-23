@@ -12,6 +12,9 @@ __all__ = [
     "CallCount",
     "DbHealthOut",
     "DevUsageOut",
+    "EventGroupCount",
+    "HarnessItem",
+    "HarnessMark",
     "HealthOut",
     "HolidayHealthOut",
     "InfoApiHealthOut",
@@ -19,6 +22,14 @@ __all__ = [
     "LlmHealthOut",
     "NodeDetail",
     "NodeOut",
+    "NotifyDiagnosisOut",
+    "NotifyHealthOut",
+    "NotifyStepOut",
+    "OutreachDetailOut",
+    "OutreachHeadOut",
+    "OutreachListOut",
+    "OutreachRowOut",
+    "OutreachUsageOut",
     "QdrantHealthOut",
     "ReuseCount",
     "ReuseHealthOut",
@@ -83,9 +94,25 @@ class StructureOut(BaseModel):
     harness_summary: dict[str, Any] | None = None  # 하네스 점검 요약(rounds·passed·violations·uncheckable·tools)
 
 
+class HarnessMark(BaseModel):
+    """연락 하네스 사건 한 줄(Task 108 — kind "harness" 인 줄만). 이름·묶음은 harness.types 의 상수에서 읽는다.
+    사건의 자유 글(detail·evidence)은 싣지 않는다 — 정해 둔 코드(FIXED_DETAILS)·도구 이름·차례 번호만."""
+
+    group: str | None  # EVENT_GROUPS 의 묶음. 모르는 사건은 null
+    group_label: str
+    rule: str | None  # 사건 이름(코드). 모르는 사건은 null
+    verdict: Literal["blocked", "allowed", "noted"] | None
+    verdict_label: str
+    attempt: int | None  # 보내기 시도 차례(1부터) — 판정 메모·문 판정·통로 결과만
+    order: int | None  # 나가는 문의 차례(GATE_RULES 의 열쇠)
+    code: str | None  # 정해 둔 detail 코드(FIXED_DETAILS) 또는 도구 이름
+    needs_check: bool  # 통로 결과 unsure — 「확인 필요」(실패가 아니다)
+    unknown: bool  # 모양이 틀렸거나 낱말에 없는 사건 — 「알 수 없는 사건」
+
+
 class TimelineItem(BaseModel):
     seq: int  # 시간표 안 차례(1부터)
-    kind: Literal["context", "llm", "tool", "inner_llm"]
+    kind: Literal["context", "llm", "tool", "inner_llm", "harness"]
     label: str
     started_at: datetime  # tool 은 그 도구를 부른 답이 끝난 때부터 앞 단계 시간을 더한 어림
     ms: int | None
@@ -101,6 +128,60 @@ class TimelineItem(BaseModel):
     # tool: 그 단계 기록이 보여 주는 신호(info_used·evidence_reused·evidence_fresh·import_confirmed·import_refused·
     # repair_stopped·role_blocked). 그 밖은 빈 목록
     signals: list[str] = Field(default_factory=list)
+
+
+class HarnessItem(TimelineItem):
+    """연락 기록의 시간표 줄(Task 108): 턴과 같은 TimelineItem 꼴 + 하네스 표지. kind 는 늘 "harness"."""
+
+    harness: HarnessMark
+
+
+class OutreachRowOut(BaseModel):
+    """연락 기록 한 줄(문자·카카오톡·통화). 번호는 가린 꼴만, 글·받아쓰기·제공사 id 는 없다."""
+
+    kind: Literal["message", "call"]
+    id: int
+    at: datetime  # 줄을 만든 때
+    direction: str  # out | in
+    channel: str  # sms | kakao | call
+    origin: str  # user | agent | peer
+    origin_name: str
+    send_mode: str | None  # manual | approved | delegated
+    caller_class: str | None
+    status: str
+    contact_name: str | None  # 주소록 이름(없으면 「모르는 번호」)
+    company_name: str | None
+    number_masked: str  # 010-****-0199 꼴
+    schedule_name: str | None
+    events: int  # 하네스 사건 수
+    needs_check: bool  # 보냈는지 확인 필요(unconfirmed)
+
+
+class OutreachListOut(BaseModel):
+    items: list[OutreachRowOut]  # 새것부터
+    more: bool  # 상한 밖에 더 있다
+    limit: int
+
+
+class OutreachHeadOut(OutreachRowOut):
+    approved_by: str | None
+    fail_reason: str | None  # 번호·비밀을 지운 글
+    reply_to_id: int | None
+
+
+class EventGroupCount(BaseModel):
+    key: str  # EVENT_GROUP_KEYS 하나 또는 "unknown"
+    label: str
+    count: int
+
+
+class OutreachDetailOut(BaseModel):
+    head: OutreachHeadOut
+    timeline: list[HarnessItem]  # 남긴 차례대로
+    groups: list[EventGroupCount]  # EVENT_GROUP_KEYS 차례 + 끝에 unknown
+    attempts: int  # 보내기 시도 수
+    needs_check: int  # 「확인 필요」 통로 결과 수
+    omitted: int  # 보이지 않는 앞선 사건 수(저장할 때 생략된 것 + 상한 밖)
 
 
 class TurnDetail(BaseModel):
@@ -129,8 +210,20 @@ class UsageCountersOut(BaseModel):
     embedding: UsageTotals  # 임베딩 호출(llm_calls purpose embedding)
 
 
+class OutreachUsageOut(BaseModel):
+    """연락 사용량(store.outreach_usage.summary 의 다섯 칸). long 은 sms 의 부분 집합. provider_cost 가 None 이면 제공사가
+    요금을 알려 주지 않았다."""
+
+    sms: int
+    long: int
+    kakao: int
+    auto_replies: int
+    provider_cost: float | None
+
+
 class DevUsageOut(UsageOut):
     counters: UsageCountersOut | None = None
+    outreach: OutreachUsageOut | None = None
 
 
 class AgentConfigOut(BaseModel):
@@ -234,6 +327,44 @@ class ActiveTurnOut(BaseModel):
     stop_requested: bool
 
 
+class NotifyStepOut(BaseModel):
+    """저장된 마지막 연결 진단의 걸음 한 줄. outcome: ok · failed · check(결과를 모름 — 실패가 아니다) · skipped."""
+
+    id: str
+    label: str
+    ok: bool
+    skipped: bool
+    detail: str
+    code: str
+    maybe_sent: bool
+    pending: bool
+    outcome: Literal["ok", "failed", "check", "skipped"]
+
+
+class NotifyDiagnosisOut(BaseModel):
+    ran_at: datetime
+    state: str  # done | sending
+    steps: list[NotifyStepOut]
+
+
+class NotifyHealthOut(BaseModel):
+    """기본 알림 연결(키·Account ID 없음, 발신번호는 가린 꼴). 연결이 없으면 connected false 뿐."""
+
+    connected: bool
+    status: str | None = None  # ok | failed | unknown — 마지막 연결 시험
+    checked_at: datetime | None = None
+    test_mode: bool | None = None
+    allow_count: int = 0
+    sender_masked: str | None = None
+    inbound_mode: str | None = None
+    agent: dict[str, str] | None = None  # sms·kakao·call → approve | delegate
+    worker: dict[str, Any] | None = None  # app.outreach.worker.status()
+    needs_check: int = 0  # 보냈는지 확인 필요(unconfirmed) 메시지 수
+    last_diagnosis: NotifyDiagnosisOut | None = None  # 저장된 것 그대로(다시 돌리지 않음)
+    kakao: None = None  # Task 111
+    voice: None = None  # Task 110
+
+
 class HealthOut(BaseModel):
     llm: LlmHealthOut
     qdrant: QdrantHealthOut
@@ -245,6 +376,7 @@ class HealthOut(BaseModel):
     evidence_reuse: ReuseHealthOut | None = None
     holidays: HolidayHealthOut | None = None
     vision: VisionHealthOut | None = None
+    notify: NotifyHealthOut | None = None  # Task 108
 
 
 class StopTurnOut(BaseModel):
