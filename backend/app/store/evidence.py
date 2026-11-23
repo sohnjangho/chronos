@@ -3,12 +3,14 @@
 - 링크의 대상은 일정(schedule_id) 또는 초안(draft_id) 하나이고, 받친 것은 조건(condition_id)이나 가정
   (assumption_label)이다. 초안이 승인되어 일정이 되면(ScheduleDraft.schedule_id) 그 초안의 링크도 그 일정의 것이다.
 - extra_json 은 scholar 의 authors·journal·citation_count 처럼 검색 방식마다 다른 값을 둔다(없으면 {}).
+- 근거 검색 결과는 같은 주소(url)의 살아 있는 줄(「다시 쓰지 않기」가 아니고 SAME_URL_DAYS 안)이 있으면 새로 넣지 않고
+  그 줄(그 evidence_id)을 돌려준다. 한 검색 안의 같은 주소도 한 줄. 날씨·정보 API 줄은 같은 주소여도 값이 달라 늘 넣는다.
 - 쓰기는 flush 만 한다(commit 은 부르는 쪽).
 """
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, or_, select
@@ -24,6 +26,7 @@ WEATHER_MODE = "weather"  # info.weather 가 남기는 줄(근거 검색 한도�
 INFO_MODE = "info"  # info.call 이 남기는 줄(근거 검색·날씨 한도와 따로 센다)
 REUSE_MODE = "reuse"  # evidence.search 가 저장된 근거를 다시 쓴 줄(Liner 를 부르지 않았다. app.store.evidence_reuse)
 NOT_SEARCH_MODES = (WEATHER_MODE, INFO_MODE, REUSE_MODE)  # 근거 검색 수에 들지 않는 줄
+SAME_URL_DAYS = 30  # 같은 주소의 줄을 다시 돌려주는 기간(evidence_reuse.REUSE_DAYS 와 같다)
 
 
 @dataclass(frozen=True)
@@ -57,19 +60,50 @@ def record_search(
     latency_ms: int,
     hits: Sequence["SearchHit"],
 ) -> tuple[int, list[EvidenceItem]]:
-    """검색 한 줄과 결과 줄들을 넣고 flush 한다. (검색 id, 결과 줄 — id 가 붙은 차례 그대로)."""
+    """검색 한 줄과 결과 줄들을 넣고 flush 한다. (검색 id, 결과 줄 — 받은 차례 그대로, 같은 주소는 한 줄).
+
+    근거 검색(mode 가 NOT_SEARCH_MODES 가 아님)이면 같은 주소의 살아 있는 줄을 새로 넣지 않고 그대로 돌려준다."""
     row = EvidenceSearch(chat_session_id=chat_session_id, query=query, mode=mode, ok=ok, error_code=error_code,
                          result_count=len(hits), latency_ms=latency_ms)
     session.add(row)
     session.flush()
-    items = [
-        EvidenceItem(search_id=row.id, title=h.title, url=h.url, hostname=h.hostname, description=h.description,
-                     published=h.date, extra_json=_extra(h))
-        for h in hits
-    ]
-    session.add_all(items)
+    if mode in NOT_SEARCH_MODES:
+        items = [_item(row.id, h) for h in hits]
+        session.add_all(items)
+        session.flush()
+        return row.id, items
+    by_url = _live_by_url(session, {h.url for h in hits})
+    items = []
+    for h in hits:
+        if h.url not in by_url:
+            by_url[h.url] = _item(row.id, h)
+            session.add(by_url[h.url])
+        if by_url[h.url] not in items:
+            items.append(by_url[h.url])
     session.flush()
     return row.id, items
+
+
+def _item(search_id: int, h: "SearchHit") -> EvidenceItem:
+    return EvidenceItem(search_id=search_id, title=h.title, url=h.url, hostname=h.hostname, description=h.description,
+                        published=h.date, extra_json=_extra(h))
+
+
+def _live_by_url(session: Session, urls: set[str]) -> dict[str, EvidenceItem]:
+    """주소 → 그 주소의 살아 있는 근거 검색 줄(다시 쓰지 않기가 아니고 SAME_URL_DAYS 안, 가장 새것)."""
+    if not urls:
+        return {}
+    since = (datetime.now(UTC) - timedelta(days=SAME_URL_DAYS)).replace(tzinfo=None)  # DB 는 시간대 없는 UTC
+    rows = session.scalars(
+        select(EvidenceItem).join(EvidenceSearch, EvidenceSearch.id == EvidenceItem.search_id)
+        .where(EvidenceItem.url.in_(urls), EvidenceItem.retired.is_(False), EvidenceItem.created_at >= since,
+               EvidenceSearch.mode.notin_(NOT_SEARCH_MODES))
+        .order_by(EvidenceItem.id.desc())
+    )
+    found: dict[str, EvidenceItem] = {}
+    for item in rows:
+        found.setdefault(item.url, item)
+    return found
 
 
 def last_user_message_at(session: Session, chat_session_id: int) -> datetime | None:

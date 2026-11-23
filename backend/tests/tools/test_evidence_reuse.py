@@ -150,10 +150,11 @@ async def test_retired_evidence_is_not_reused_until_restored(ctx, session, web):
 
 
 async def test_fresh_searches_liner_again(ctx, session, web):
-    await _saved(ctx)
+    evidence_id = await _saved(ctx)
     r = await call("evidence.search", {"query": QUERY, "fresh": True}, ctx)
     assert r.ok and r.output["reused"] is False and len(web.requests) == 2
-    assert session.query(EvidenceItem).count() == 2
+    # A7: 새로 찾은 결과가 같은 주소면 새 줄을 넣지 않고 그 근거 번호를 그대로 돌려준다(붙은 곳도 그대로)
+    assert session.query(EvidenceItem).count() == 1 and r.output["results"][0]["evidence_id"] == evidence_id
 
 
 async def test_any_reusable_mode_serves_any_other_and_says_its_own_mode(ctx, events, session, web):

@@ -129,6 +129,48 @@ async def test_a_new_user_message_starts_a_new_count(ctx_chat, session, web, cha
     assert r.ok and r.output["used"] == 1
 
 
+# ── A7: 같은 주소는 새 근거 번호로 다시 넣지 않는다 ─────────────────
+
+
+async def test_same_url_keeps_its_evidence_id(ctx, session, web):
+    first = await call("evidence.search", {"query": "층당 골조 기간"}, ctx)
+    session.commit()
+    again = await call("evidence.search", {"query": "골조 공기 기준", "fresh": True}, ctx)
+    assert first.ok and again.ok, again.error
+    assert again.output["results"][0]["evidence_id"] == first.output["results"][0]["evidence_id"]
+    assert session.query(EvidenceItem).count() == 1 and session.query(EvidenceSearch).count() == 2
+
+
+async def test_same_url_twice_in_one_search_is_one_row(ctx, session, liner_conn, monkeypatch):
+    monkeypatch.setattr(search, "TRANSPORT", mock(200, web_body(hit(), hit(title="골조 공기 기준(2)"), hit(url="https://example.com/b"))))
+    r = await call("evidence.search", {"query": "층당 골조 기간"}, ctx)
+    assert [x["evidence_id"] for x in r.output["results"]] == [1, 2] and session.query(EvidenceItem).count() == 2
+
+
+async def test_retired_or_old_rows_are_not_used_again(ctx, session, web):
+    from datetime import UTC, datetime, timedelta
+
+    first = (await call("evidence.search", {"query": "층당 골조 기간"}, ctx)).output["results"][0]["evidence_id"]
+    session.get(EvidenceItem, first).retired = True  # 「다시 쓰지 않기」
+    session.commit()
+    second = (await call("evidence.search", {"query": "층당 골조 기간"}, ctx)).output["results"][0]["evidence_id"]
+    session.get(EvidenceItem, second).created_at = datetime.now(UTC) - timedelta(days=31)  # 30일 지남
+    session.commit()
+    third = (await call("evidence.search", {"query": "층당 골조 기간"}, ctx)).output["results"][0]["evidence_id"]
+    assert len({first, second, third}) == 3 and session.query(EvidenceItem).count() == 3
+
+
+def test_weather_and_info_rows_always_get_new_rows(session):
+    """날씨·정보 API 줄은 같은 주소(포털)여도 값이 달라 따로 넣는다."""
+    from app.llm.search import SearchHit
+    from app.store.evidence import INFO_MODE, WEATHER_MODE, record_search
+
+    found = SearchHit(title="서울 12월", url="https://data.kma.go.kr", hostname="data.kma.go.kr", description="x", date=None)
+    ids = [record_search(session, chat_session_id=None, query="q", mode=mode, ok=True, error_code=None, latency_ms=0,
+                         hits=[found])[1][0].id for mode in (WEATHER_MODE, WEATHER_MODE, INFO_MODE)]
+    assert len(set(ids)) == 3
+
+
 async def test_failures_count_toward_the_limit(ctx_chat, session, liner_conn, monkeypatch):
     t = mock(402, {})
     monkeypatch.setattr(search, "TRANSPORT", t)
