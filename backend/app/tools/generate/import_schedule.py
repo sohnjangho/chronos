@@ -39,6 +39,7 @@ from app.tools.registry import call, tool
 NEED_LEVEL = "가져오려면 분야(domain)와 정밀도(level)를 정해 주세요. 정밀도는 액티비티 수(rows)에 맞게 고릅니다."
 ASK_TITLE = "공정표 가져오기 — 빈 칸 확인"
 PREVIEW_ROWS = 20  # 판단에 보여 줄 앞 행 수(숫자는 코드가 센 통계로 따로 준다)
+JUDGE_MAX_TOKENS = 12000  # 판단 답의 한도. normal 기본(4000)이면 열 대응 답이 잘려 「표를 판단하지 못했습니다」가 잦다
 ESTIMATE_RULES = (
     "- 파일 값은 그대로 쓴다: id·이름·WBS 와 파일에 있는 기간·선행은 코드가 파일 값으로 덮어쓴다.",
     "- '?' 인 칸만 정한다: 기간이 '?' 면 kind 와 od(근무일), 선행이 '?' 면 predecessors(이 표의 id 만).",
@@ -154,7 +155,8 @@ async def _judge(llm: LlmClient, prompt: str, user: str, schema: dict, ctx: Tool
     """에이전트 판단 한 번(normal, strict JSON). 답을 읽지 못하면 ImportProblem, LLM 실패는 그대로 올라간다."""
     system = (PROMPTS / f"{prompt}.md").read_text(encoding="utf-8")
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    reply = await llm.chat("normal", messages, json_schema=schema, chat_session_id=ctx.chat_session_id)
+    reply = await llm.chat("normal", messages, json_schema=schema, chat_session_id=ctx.chat_session_id,
+                           max_tokens=JUDGE_MAX_TOKENS)
     if reply.parsed is None or reply.finish_reason == "length":
         raise ImportProblem(UNREAD)
     return reply.parsed

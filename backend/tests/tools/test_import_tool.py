@@ -21,7 +21,14 @@ from app.llm.client import MAX_TOKENS, LlmClient
 from app.store.drafts import get_draft
 from app.store.files import raw_path
 from app.store.schedules import from_json, run
-from app.store.tables import Approval, FileRow, QuestionnaireRecord, ScheduleDraft, User
+from app.store.tables import (
+    Approval,
+    FileRow,
+    LlmCall,
+    QuestionnaireRecord,
+    ScheduleDraft,
+    User,
+)
 from app.tools.registry import call, list_tools
 from tests.gen_doubles import reply, user_text
 from tests.llm_doubles import add_connection
@@ -29,6 +36,7 @@ from tests.loop_doubles import ScriptedLlm
 
 HEADER = ["작업 ID", "작업명", "WBS", "선행 작업", "시작일", "종료일", "비고"]
 FIRST = date(2027, 3, 2)
+JUDGE_MAX_TOKENS = 12000  # I4: 표 판단은 normal 기본 한도(4000)보다 길게 받는다
 BIG_IDS = [f"A{1000 + 10 * i}" for i in range(120)]
 
 # 선행이 있는 작은 공정표. B·D 는 기간이 비었다. C 는 A 시작 2일 뒤 시작(SS+2).
@@ -153,9 +161,22 @@ async def test_detect_card_counts_rows_by_code(ctx, events, llm, session):
     out = r.output
     assert (out["step"], out["is_schedule"], out["rows"], out["sheets"]) == ("checked", True, 120, ["공정표", "메모"])
     assert out["columns"] == BIG_COLUMNS  # 확인 단계의 열 대응 — 가져올 때 그대로 넘긴다(M7)
-    assert [b["max_tokens"] for b in llm.bodies] == [MAX_TOKENS["normal"]] * 2  # 판단은 normal
+    assert [c.purpose for c in session.scalars(select(LlmCall))] == ["normal"] * 2  # 판단은 normal
+    assert [b["max_tokens"] for b in llm.bodies] == [JUDGE_MAX_TOKENS] * 2  # I4: 4000 에 잘리지 않게
     assert all(b["response_format"]["json_schema"]["strict"] for b in llm.bodies)
     assert session.scalars(select(ScheduleDraft)).all() == []  # 확인만 — 먼저 묻고 가져온다
+
+
+async def test_column_judgment_longer_than_the_normal_limit_is_read(ctx, llm, session):
+    """I4: 열 대응 답이 normal 기본 한도(4000 토큰)를 넘어도 잘리지 않게 한도를 넓혀 부르고, 그 답을 읽는다."""
+    fid = put(session, PRED_CSV.encode(), "기초_공정.csv", "table")
+    long_plan = csv_plan()
+    long_plan["usage"]["completion_tokens"] = MAX_TOKENS["normal"] + 1000
+    llm.push(long_plan, estimate(est("B", 4), est("D", 2)))
+    r = await call("schedule.import", importing(fid), ctx)
+    assert r.ok, r.error
+    assert r.output["step"] == "drafted"
+    assert llm.bodies[0]["max_tokens"] == JUDGE_MAX_TOKENS > MAX_TOKENS["normal"]
 
 
 async def test_non_schedule_table_gets_no_card(ctx, events, llm, session):
