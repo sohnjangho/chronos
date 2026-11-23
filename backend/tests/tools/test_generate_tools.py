@@ -234,7 +234,10 @@ async def test_run_generates_and_stores_draft(ctx, liner, session, events):
     assert out["ok"] and out["finish"] == FINISH and out["activity_count"] == 4 and out["critical_count"] == 4
     assert out["rounds"] == [{"n": 1, "activity_count": 4, "violations": 1}, {"n": 2, "activity_count": 4, "violations": 0}]
     assert out["violations"] == [] and out["notices"] == [] and out["conflict"] == [] and out["reason"] is None
-    assert out["warnings"] == ["액티비티가 4개입니다. L3는 50~100개입니다."] and out["assumptions"] == []
+    assert out["warnings"] == ["액티비티가 4개입니다. L3는 50~100개입니다."]
+    assert out["assumptions"] == [{  # 고침이 골조를 23일 → 20일로 줄였다(A1)
+        "label": "A1020 1층 골조 기간", "value": "조건을 맞추려 23일 → 20일(근무일)로 줄였습니다 — 확인 필요",
+        "source": "고침", "evidence_ids": []}]
     assert session.get(ScheduleDraft, out["draft_id"]) is not None
     stages = {e.data["stage"] for e in events if e.type == "card" and e.data["kind"] == "generation"}
     assert stages == {"wbs", "schedule", "compute", "critical", "check"}

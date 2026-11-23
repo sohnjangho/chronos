@@ -108,6 +108,26 @@ async def test_changed_violations_keep_the_repair_going(ctx, llm, liner):
     assert r.report.violations[0].amount == 1
 
 
+async def test_shortened_durations_are_added_to_assumptions(ctx, llm, liner, session):
+    """A1: 고침 회차가 첫 초안보다 줄인 기간(같은 id)은 가정 목록에 적힌다 — 코드가 견준다. 초안에도 같이 저장."""
+    script(liner, WBS_OK, SCHED_LATE_BY_3, SCHED_OK)
+    r = await gen(ctx, llm, inputs=[FINISH_BY])
+    assert r.ok and r.assumptions == [{
+        "label": "A1020 1층 골조 기간", "value": "조건을 맞추려 23일 → 20일(근무일)로 줄였습니다 — 확인 필요",
+        "source": "고침",
+    }]
+    assert session.get(ScheduleDraft, r.draft_id).assumptions_json == r.assumptions
+
+
+async def test_lengthened_or_unchanged_durations_add_no_assumption(ctx, llm, liner):
+    script(liner, WBS_OK, SCHED_OK)  # 첫 초안이 이미 맞음 — 고침 없음
+    assert (await gen(ctx, llm, inputs=[FINISH_BY])).assumptions == []
+    long_form = act("A1015", "기초 거푸집", "1.1.1", 30, ["A1000"])
+    script(liner, WBS_OK, sched(20, frame_preds=("A1010", "A1015"), extra=[long_form]), SCHED_OK)
+    r = await gen(ctx, llm, inputs=[FINISH_BY])  # A1015 를 빼고 나머지 기간은 그대로 — 줄인 것이 아니다
+    assert r.ok and [x.violations for x in r.rounds] == [1, 0] and r.assumptions == []
+
+
 async def test_best_draft_is_kept_at_the_limit(ctx, llm, liner):
     script(liner, WBS_OK, SCHED_LATE_BY_3, SCHED_LATE_BY_1, SCHED_CYCLE)
     r = await gen(ctx, llm, inputs=[FINISH_BY], max_rounds=3)

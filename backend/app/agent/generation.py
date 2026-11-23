@@ -71,6 +71,7 @@ REPEAT_REASON = f"같은 위반이 두 회차 이어져 고치기를 멈췄습�
 NO_DRAFT_REASON = "일정 초안을 만들지 못했습니다. 다시 시도해 주세요."
 OUT_OF_RANGE = "날짜 계산이 범위를 넘었습니다(기간·lag 가 너무 큽니다)."
 STOPPED_REASON = "중단했습니다."
+SHORTENED_SOURCE = "고침"  # 고침 회차가 줄인 기간을 적은 가정 줄의 출처
 
 
 class _Stopped(Exception):
@@ -130,6 +131,7 @@ class _Loop:
         self.best: _Scored | None = None
         self.last_violations: frozenset[Violation] | None = None  # 바로 앞 회차의 위반(깨진 회차면 None)
         self.repeated = False  # 같은 위반이 두 회차 이어져 멈췄다
+        self.first_od: dict[str, int] | None = None  # 처음 만든(읽은) 초안의 작업 기간 {id: od}
 
     def card(self, stage: GenStage) -> None:
         rounds = [asdict(r) for r in self.rounds]
@@ -222,6 +224,8 @@ class _Loop:
         schedule = build(self.draft, self.wbs, self.setting)
         if self.fixed is not None:
             schedule = self.fixed.constrain(schedule)
+        if self.first_od is None:
+            self.first_od = {a.id: a.od for a in schedule.activities if a.kind == "task"}
         count = len(schedule.activities)
         try:
             cpm, report = self.measure(schedule, count)
@@ -266,12 +270,23 @@ class _Loop:
         fit = ["정밀도 맞춤(위반은 아니지만 고칠 때 맞춘다):", *(f"- {w}" for w in fresh)]
         return "\n".join([self.violation_note, *fit])
 
+    def shortened(self, schedule: Schedule) -> list[dict]:
+        """처음 초안보다 기간이 줄어든 작업(같은 id)마다 가정 한 줄(출처 「고침」) — 줄인 것을 말없이 넘기지 않는다."""
+        first = self.first_od or {}
+        return [
+            {"label": f"{a.id} {a.name} 기간", "source": SHORTENED_SOURCE,
+             "value": f"조건을 맞추려 {first[a.id]}일 → {a.od}일(근무일)로 줄였습니다 — 확인 필요"}
+            for a in schedule.activities if a.kind == "task" and a.id in first and a.od < first[a.id]
+        ]
+
     def result(self, assumptions: list[dict], failure: str | None = None, stopped: bool = False) -> GenResult:
         """끝 결과. failure 는 LLM 실패 안내 글, stopped 는 멈춤(둘 다 그때까지 가장 나은 초안이 있으면 저장한다)."""
         best = self.best
         if best is not None and self.fixed is not None:  # 추정한 칸(출처 「추정」)
             assumptions = [*assumptions, *self.fixed.estimates(best.schedule)]
-        base = {"conditions": self.conditions, "rounds": self.rounds, "assumptions": assumptions}
+        if best is not None:
+            assumptions = [*assumptions, *self.shortened(best.schedule)]
+        base ={"conditions": self.conditions, "rounds": self.rounds, "assumptions": assumptions}
         if best is None:
             if not stopped and failure is None:
                 logger.warning(
