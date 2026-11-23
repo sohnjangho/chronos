@@ -291,6 +291,60 @@ def test_every_storable_kind_is_kept_with_its_kind_and_channels(client, user, si
     assert client.post(_url(sid, f"/people/{pid}/reveal"), headers=user).json() == {"phone": dashed}
 
 
+@pytest.mark.parametrize(("raw", "dashed"), [("+82 1588 0199", "1588-0199"), ("02-1588-0000", "1588-0000"),
+                                             ("1588-0199", "1588-0199")])
+def test_representative_number_is_shown_with_a_dash_and_masked_to_its_prefix(client, user, sid, raw, dashed):
+    pid = _person(client, user, sid, _company(client, user, sid), phone=raw)["id"]
+
+    listed = _people(client.get(_url(sid), headers=user).json())[0]
+
+    assert client.post(_url(sid, f"/people/{pid}/reveal"), headers=user).json() == {"phone": dashed}
+    assert (listed["phone_kind"], listed["phone_masked"]) == ("rep", f"{dashed[:4]}-****")
+    assert dashed[-4:] not in listed["phone_masked"]  # 가린 꼴은 앞 4자리(국번)만 — 끝 4자리는 보이지 않는다
+
+
+def test_representative_dash_does_not_depend_on_the_mask_shape(client, user, sid, monkeypatch):
+    pid = _person(client, user, sid, _company(client, user, sid), phone="1588-0199")["id"]
+    monkeypatch.setattr(phone, "mask", lambda number: "대표번호")  # 줄표로 나눌 수 없는 가린 꼴
+
+    assert client.post(_url(sid, f"/people/{pid}/reveal"), headers=user).json() == {"phone": "1588-0199"}
+
+
+def _leaves(value) -> list[str]:
+    """JSON 의 모든 키와 값(글로)."""
+    if isinstance(value, dict):
+        return [leaf for k, v in value.items() for leaf in (str(k), *_leaves(v))]
+    if isinstance(value, list):
+        return [leaf for v in value for leaf in _leaves(v)]
+    return [str(value)]
+
+
+REFUSED_NUMBERS = [  # 번호 칸이 들어간 몸 — 422 몸 어디에도 그 숫자가 없어야 한다
+    {"phone": PREMIUM},  # 둘 수 없는 060
+    {"phone": "010-0000-019"},  # 틀린 꼴
+    {"phone": "01O-0000-0199"},  # 숫자 아닌 글자
+    {"phone": LANDLINE, "can_sms": True},  # 휴대전화가 아닌데 문자
+    {"phone": SENTINEL_PHONE * 4},  # 너무 김(pydantic 검증 오류)
+    {"phone": 1000000199},  # 글이 아님(pydantic 검증 오류)
+]
+
+
+@pytest.mark.parametrize("body", REFUSED_NUMBERS, ids=[str(b["phone"])[:16] for b in REFUSED_NUMBERS])
+def test_no_422_body_carries_the_submitted_number(client, user, sid, body):
+    company = _company(client, user, sid)
+    pid = _person(client, user, sid, company, phone="010-0000-0198")["id"]
+    digits = "".join(c for c in str(body["phone"]) if c.isdigit())
+
+    created = client.post(_url(sid, "/people"), json={"name": "이현장", "company_id": company, **body}, headers=user)
+    patched = client.patch(_url(sid, f"/people/{pid}"), json=body, headers=user)
+
+    for r in (created, patched):
+        assert r.status_code == 422, r.json()
+        for leaf in _leaves(r.json()):  # code · message · detail(loc·msg·type) 모두
+            leaf_digits = "".join(c for c in leaf if c.isdigit())
+            assert digits not in leaf_digits and digits[-4:] not in leaf_digits and digits[1:] not in leaf_digits, leaf
+
+
 # ── 채널은 번호 종류를 따른다(phone.can_sms · phone.can_call) ────────────────────
 
 def test_person_without_number_gets_no_sms_or_call(client, user, sid):

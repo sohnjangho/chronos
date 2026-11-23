@@ -166,9 +166,11 @@ def _threads(session: Session, schedule_id: int, contact_id: int | None = None) 
 
 def _dashed(number: str | None) -> str | None:
     """저장 꼴 → 010-0000-0199 · 1588-0199. 앞 조각은 phone.mask 의 첫 조각(앞자리, 대표번호는 앞 4자리), 끝은 4자리,
-    그 사이가 가운데. 나눌 수 없으면 저장된 그대로."""
+    그 사이가 가운데. 나눌 수 없으면 저장된 그대로. 대표번호(8자리)는 가린 꼴과 상관없이 앞 4 · 뒤 4."""
     if number is None:
         return None
+    if phone.kind(number) == "rep":
+        return f"{number[:4]}-{number[4:]}"
     head, sep, _ = phone.mask(number).partition("-")
     if not sep or not number.startswith(head) or len(number) < len(head) + 4:
         return number
