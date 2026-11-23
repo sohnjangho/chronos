@@ -10,6 +10,7 @@ from app.config import Settings, validate_settings
 from app.db import close_db, get_session, init_db
 from app.errors import install_error_handlers
 from app.files import jobs
+from app.outreach import redact
 from app.programs.files.guard import UploadGuard
 from app.store import settings as settings_store
 from app.store.workflows import close_unfinished
@@ -40,6 +41,7 @@ def include_program_routers(target: FastAPI) -> list[str]:
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     validate_settings(Settings())
+    redact.activate()  # 로그 거르개(번호·키 지우기) — 불러오는 순서와 상관없이 건다
     init_db()
     registry.load_all()  # 에이전트가 쓸 도구를 모두 등록한다
     with contextmanager(get_session)() as session:

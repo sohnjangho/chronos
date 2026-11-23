@@ -19,7 +19,7 @@ def init_db() -> None:
     global _engine
     settings = Settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    _engine = create_engine(f"sqlite:///{settings.data_dir / 'chronos.db'}")
+    _engine = create_engine(f"sqlite:///{settings.data_dir / 'chronos.db'}", hide_parameters=True)  # 오류 글에 값(번호) 없이
     Base.metadata.create_all(_engine)
     add_missing_columns(_engine, Base.metadata)  # 지금 모델에 더해진 칸을 기존 DB 에도 더한다
     with Session(_engine) as session:

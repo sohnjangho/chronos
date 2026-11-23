@@ -7,8 +7,9 @@
   있거나 localhost·내부망이면 · 키·Account ID 가 비었거나 8자보다 짧거나 쓸 수 없는 글자면 · 호스트 이름을 풀어(5초 안,
   `RESOLVE` 바꿔 끼울 수 있음) 공인 IP 만 나오지 않으면. 이때 모든 단계가 실패(요청 0번).
   주소의 호스트는 고정하지 않는다(관리자가 설정에서 바꿀 수 있고, 저장할 때의 검사는 뒤 작업).
-- `detail`·`notes` 는 이미 지운 글이다: 키·Account ID(원문·%인코딩·+인코딩·대소문자 꼴), 번호(원문·하이픈·점·빈칸·
-  괄호·+82·%20·%2D·%2E 꼴), 8자리 이상 숫자 묶음, 40자 넘는 토큰. 응답은 칸 이름(구조)만 남기고, 발신번호는 숫자 없이
+- `detail`·`notes` 는 이미 지운 글이다: 키·Account ID 와 번호는 app.outreach.redact.scrub(연락 전체가 쓰는 한 곳 — 인코딩·
+  대소문자·섞인 꼴, 번호 모양)으로, 여기서는 더해서 알려 준 번호(발신·수신 — 대표번호 꼴 포함, 구분·+82·%인코딩 꼴),
+  8자리 이상 숫자 묶음, 40자 넘는 토큰을 지우고 한 줄로 자른다. 응답은 칸 이름(구조)만 남기고, 발신번호는 숫자 없이
   순번·상태만 남긴다.
 - 실제 문자는 `send_test_sms is True`(글 "true"·1 은 아님)이고 공유 상한에 2번(POST + 상태 조회 1번)이 남았을 때만 1건.
   기본 「연결 테스트」는 보내지 않는다.
@@ -37,11 +38,12 @@ import uuid
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
-from urllib.parse import quote, quote_plus
+from urllib.parse import quote
 
 import httpx
 
 from app.info.generic import base_url_problem as _info_url_problem
+from app.outreach import redact
 
 DEFAULT_BASE_URL = "https://api.koreaaitel.com"
 MAX_REQUESTS = 8
@@ -56,8 +58,6 @@ LABELS = {"P1": "인증 + 발신번호 목록", "P2": "시험 문자 1건 보내
 UNTRUSTED_CLIENT = "untrusted_client · 클라이언트는 trust_env=False 로 만들어야 합니다 — make_client() 를 쓰세요"
 MAYBE_SENT = "보냈는지 알 수 없음 — 문자가 갔을 수도 안 갔을 수도 있습니다. 다시 누르면 두 번째 문자가 갈 수 있습니다"
 _SEP = r"(?:[\s.\-()+]|%20|%2D|%2E|%28|%29|%2B)*"  # 번호 사이 구분(%인코딩 꼴 포함)
-_S = r"(?:[\s.\-]|%20|%2D|%2E)"
-_PHONE_RE = re.compile(rf"(?:(?:\+|%2B)?82{_S}?|0)\d{{1,2}}{_S}?\d{{3,4}}{_S}?\d{{4}}", re.IGNORECASE)  # 010-0000-0000 · +82 10-…
 _DIGITS_RE = re.compile(r"\d{8,}")  # 7자리 넘는(8자리 이상) 숫자 묶음
 _TOKEN_RE = re.compile(r"[A-Za-z0-9%+/=_\-]{40,}")
 
@@ -207,11 +207,6 @@ def _segment(value: object) -> str:
     return q.replace(".", "%2E") if q and set(q) <= {"."} else q
 
 
-def _secret_forms(secret: str) -> set[str]:
-    full = "".join(f"%{b:02X}" for b in secret.encode())
-    return {secret, quote(secret), quote(secret, safe=""), quote_plus(secret), quote_plus(secret, safe=""), full}
-
-
 def _number_patterns(number: str) -> list[re.Pattern[str]]:
     """번호 하나를 국내 꼴·+82 꼴로, 사이에 구분(하이픈·점·빈칸·괄호·+·%20·%2D·%2E)이 있어도 찾는 정규식들."""
     d = _digits(number)
@@ -226,14 +221,11 @@ def _number_patterns(number: str) -> list[re.Pattern[str]]:
 
 
 def scrub(text: object, *, secrets: list[str], numbers: list[str], limit: int = 200) -> str:
-    """키·Account ID(인코딩·대소문자 꼴 포함)·번호·긴 숫자 묶음·긴 토큰을 지우고 한 줄로 자른다."""
-    out = str(text)
-    forms = {f for s in secrets if isinstance(s, str) and s for f in _secret_forms(s)}
-    for f in sorted(forms, key=len, reverse=True):
-        out = re.sub(re.escape(f), "…", out, flags=re.IGNORECASE)
+    """키·Account ID·번호(redact.scrub), 알려 준 번호·긴 숫자 묶음·긴 토큰을 지우고 한 줄로 자른다."""
+    out = redact.scrub(str(text), secrets)
     for rx in (rx for n in numbers if isinstance(n, str) and n for rx in _number_patterns(n)):
         out = rx.sub("…", out)
-    for rx in (_PHONE_RE, _DIGITS_RE, _TOKEN_RE):
+    for rx in (_DIGITS_RE, _TOKEN_RE):
         out = rx.sub("…", out)
     return re.sub(r"\s+", " ", out).strip()[:limit]
 
