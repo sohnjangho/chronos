@@ -52,6 +52,22 @@ function Why({ item }: { item: Detail }) {
   );
 }
 
+/** 서버가 요약에 남긴 알릴 것(summary.notes) — 예: 현장 회신의 실제 시작이 선행이 허락하는 날보다 이르다. */
+function Notes({ item }: { item: Detail }) {
+  const notes = asList(asObj(item.summary).notes).map(asText).filter(Boolean);
+  if (notes.length === 0) return null;
+  return (
+    <section className="apv-why" aria-label="알릴 것">
+      <b>알릴 것</b>
+      {notes.map((n, i) => (
+        <p key={i} className="apv-muted apv-wrap">
+          {n}
+        </p>
+      ))}
+    </section>
+  );
+}
+
 function Numbers({ item, scheduleName }: { item: Detail; scheduleName: string | null }) {
   const s = asObj(item.summary);
   const count = asNum(s.changed_count);
@@ -202,6 +218,7 @@ export default function ApprovalDetail({ item, scheduleName }: Props) {
         <p className="apv-meta apv-wrap">{meta.filter(Boolean).join(' · ')}</p>
         <DecidedLine item={item} />
         {!rule && <Why item={item} />}
+        {!rule && <Notes item={item} />}
       </header>
       <div className="apv-body">
         {rule ? (

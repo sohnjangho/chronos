@@ -17,12 +17,13 @@ from sqlalchemy.orm import Session
 from app.agent import context
 from app.agent.proposals import Proposal, ProposalError, propose
 from app.core.cpm import ScheduleError
+from app.core.model import Schedule
 from app.errors import ApiError
 from app.harness.conditions import Condition
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady
 from app.store import approvals
 from app.store.messages import schedule_error_message
-from app.store.schedules import NotFound, get_record, load
+from app.store.schedules import NotFound, get_record, load, run
 from app.store.tables import FieldItem, User
 from app.store.timeutil import as_utc
 from app.store.view import view_data
@@ -525,6 +526,15 @@ def update_handoff(session: Session, schedule_id: int, item_id: int, body: Hando
     return _list_out(session, schedule_id, view)
 
 
+def _earliest_start(schedule: Schedule, stored: list[dict], activity_id: str) -> date | None:
+    """반영 전 일정에서 그 액티비티의 가장 이른 시작(선행·제약·Data Date 를 따른 계산). 계산이 안 되면 None."""
+    try:
+        row = run(schedule, stored).rows.get(activity_id)
+    except ScheduleError:
+        return None
+    return row.es if row is not None else None
+
+
 def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> FieldListOut:
     """현장 회신/사진/의견을 실제 승인함(Approval) · 내 규칙 제안으로 반영."""
     view = _load_view(session, schedule_id)
@@ -570,17 +580,25 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
 
     # checkin / photo / handoff -> 일정 변경 승인 상신. 지연 사건은 만들지 않는다(PM 결정 11-23, F2):
     # 늦음은 이 승인 건(진도·잔여일)이 승인되면 일정에 들어가고, 지연 기록은 본사가 지연 기록 창·대화에서 한다.
-    today_d = context.today()
+    # 현장 회신의 「오늘」은 일정의 Data Date 다(없을 때만 실제 오늘). 실제 오늘을 넣으면 Data Date 가 먼 일정에서
+    # 시작일이 몇 달 어긋난다(재확인 #18). 넣는 실제 시작은 Data Date 를 넘지 않고, 선행이 허락하는 날보다 이르면 요약에 남긴다.
     pct_val = item.reported_progress if item.reported_progress is not None else 50
     progress_frac = round(max(0.0, min(1.0, pct_val / 100.0)), 2)
-    data_date = before.data_date or today_d
+    data_date = before.data_date or context.today()
     new_acts = []
+    notes: list[str] = []
     for a in before.activities:
         if a.id != item.activity_id:
             new_acts.append(a)
             continue
-        actual_start = a.actual_start or (today_d if progress_frac > 0 else None)
-        actual_finish = today_d if progress_frac >= 1.0 else None
+        actual_start = a.actual_start
+        if actual_start is None and progress_frac > 0:
+            actual_start = data_date
+            earliest = _earliest_start(before, stored, a.id)
+            if earliest is not None and earliest > data_date:
+                notes.append(f"{a.id} {a.name}: 실제 시작을 Data Date {data_date.isoformat()}로 넣었습니다 — 선행 작업·제약으로 "
+                             f"계산한 가장 이른 시작 {earliest.isoformat()}보다 이릅니다(선행이 끝나기 전에 시작한 것으로 기록됩니다).")
+        actual_finish = data_date if progress_frac >= 1.0 else None
         rd_val = 0 if progress_frac >= 1.0 else (item.reported_rd if item.reported_rd is not None else (a.rd if a.rd is not None else a.od))
         new_acts.append(replace(a, progress=progress_frac, rd=rd_val, actual_start=actual_start, actual_finish=actual_finish))
 
@@ -606,6 +624,8 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
             force_auto=False,
         )
         approval_row = res.row
+        if notes:  # 승인함 요약에 보인다(화면 approvals/ApprovalDetail 의 알릴 것)
+            approval_row.summary_json = {**approval_row.summary_json, "notes": notes}
     except ProposalError:
         # 진도 수치 변화 없이 증빙·체크인만 확정할 때는 현장 확인 규칙 건으로 승인함에 남긴다.
         note_rule = f"[현장 확인] {item.activity_id} {item.activity_name} — {item.response_note or '현황 확인 완료'}"[:190]

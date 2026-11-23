@@ -386,3 +386,17 @@ describe('F4 현장 관리자', () => {
     expect(screen.queryByText('현장 관리자는 승인·거부할 수 없습니다')).toBeNull();
   });
 });
+
+// 재확인 #18: 현장 회신의 실제 시작이 선행이 허락하는 날보다 이르면 서버가 summary.notes 에 남긴다 — 상세에 보인다.
+describe('승인 요약의 알릴 것', () => {
+  test('notes in the summary are shown on the detail', () => {
+    const note = 'B 작업 B: 실제 시작을 Data Date 2027-03-04로 넣었습니다 — 선행 작업·제약으로 계산한 가장 이른 시작 2027-03-09보다 이릅니다.';
+    render(detail({ summary: { ...SUMMARY, notes: [note] } }));
+    expect(within(screen.getByRole('region', { name: '알릴 것' })).getByText(note)).toBeVisible();
+  });
+
+  test('without notes there is no such section', () => {
+    render(detail({}));
+    expect(screen.queryByRole('region', { name: '알릴 것' })).toBeNull();
+  });
+});

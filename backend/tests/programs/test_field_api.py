@@ -1,14 +1,18 @@
 """현장 허브 API(/api/schedules/{id}/field...): 체크인 반영·사진 판독."""
 
 import json
+from dataclasses import replace
+from datetime import date
 
 import httpx
 import pytest
 from sqlalchemy import func, select
 
+from app.agent import context
 from app.llm.client import LlmClient
 from app.programs.progress import field
 from app.store.tables import Approval, DelayEvent, FieldItem, LlmCall, User
+from tests import schedules
 from tests.llm_doubles import FakeLiner, add_connection, chat_body
 
 PHOTO = "data:image/png;base64,iVBORw0KGgo="
@@ -158,6 +162,55 @@ def test_approval_requester_is_the_signed_in_person(client, admin, session, sid)
     session.expire_all()
     me = session.scalars(select(User).where(User.login_id == "admin")).one()
     assert session.get(Approval, approval_id).requested_by == me.name
+
+
+REAL_TODAY = date(2026, 11, 23)  # 실제 오늘 — Data Date(2027-03-04)와 멀다
+DATA_DATE = date(2027, 3, 4)
+
+
+@pytest.fixture
+def dated_sid(session, monkeypatch) -> int:
+    """Data Date 가 실제 오늘과 먼 일정: A(3일) → B(2일), 착공 2027-03-01, Data Date 2027-03-04(A·B 둘 다 아직 시작 전)."""
+    monkeypatch.setattr(context, "today", lambda: REAL_TODAY)
+    return schedules.store(session, replace(schedules.sample(), data_date=DATA_DATE))
+
+
+def _checkin_approval(client, admin, session, sid, aid: str, progress: int) -> Approval:
+    item = _pending_checkin(client, admin, sid, aid)
+    r = client.post(f"/api/schedules/{sid}/field/{item['id']}/respond",
+                    json={"response_choice": "on_track", "reported_progress": progress, "reported_rd": 1,
+                          "response_note": ""}, headers=admin)
+    assert r.status_code == 200, r.json()
+    r = client.post(f"/api/schedules/{sid}/field/{item['id']}/apply", headers=admin)
+    assert r.status_code == 200, r.json()
+    approval_id = next(i for i in r.json()["items"] if i["id"] == item["id"])["approval_id"]
+    session.expire_all()
+    return session.get(Approval, approval_id)
+
+
+def _snapshot(row: Approval, aid: str) -> dict:
+    return next(a for a in row.snapshot_json["activities"] if a["id"] == aid)
+
+
+def test_checkin_start_is_the_data_date_not_the_real_today(client, admin, session, dated_sid):
+    """#18(재확인): 현장 회신으로 넣는 실제 시작은 일정의 Data Date 다(실제 오늘 아님). 선행이 막지 않으면 알릴 것도 없다."""
+    row = _checkin_approval(client, admin, session, dated_sid, "A", 30)
+    a = _snapshot(row, "A")
+    assert a["actual_start"] == DATA_DATE.isoformat() and a["actual_finish"] is None
+    assert row.snapshot_json["data_date"] == DATA_DATE.isoformat()
+    assert not row.summary_json.get("notes")
+    done = _checkin_approval(client, admin, session, dated_sid, "B", 100)
+    assert (_snapshot(done, "B")["actual_start"], _snapshot(done, "B")["actual_finish"]) == (DATA_DATE.isoformat(),) * 2
+
+
+def test_checkin_start_earlier_than_the_predecessors_allow_is_shown_in_the_summary(client, admin, session, dated_sid):
+    """#18(재확인): B 의 선행 A 가 아직이라 계산상 가장 이른 시작은 Data Date 뒤다. 실제 시작을 Data Date 로 넣되 그 사실을
+    승인 요약(summary.notes)에 남긴다 — Data Date 보다 늦게는 넣지 않는다."""
+    row = _checkin_approval(client, admin, session, dated_sid, "B", 30)
+    assert _snapshot(row, "B")["actual_start"] == DATA_DATE.isoformat()
+    notes = row.summary_json["notes"]
+    assert len(notes) == 1 and "B" in notes[0] and "2027-03-04" in notes[0] and "2027-03-09" in notes[0]
+    assert "선행" in notes[0]
 
 
 LEGACY = "판독하지 않음 — 이전 방식으로 만든 항목입니다. 사진을 다시 올려 주세요"
