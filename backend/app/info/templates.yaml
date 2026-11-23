@@ -1,0 +1,102 @@
+# 정보 API 「빠른 채움」 목록 — 관리자가 고르고 키만 넣으면 된다.
+# 모든 항목은 공식 문서(공공데이터포털 상세 페이지·제공기관 활용가이드)로 확인한 것만 싣는다.
+# 확인 근거: .superpowers/sdd/2026-11-23-sop-fixes/templates-research.md
+templates:
+  - id: holidays
+    label: 특일 정보(공휴일·대체공휴일)
+    base_url: https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService
+    key_in: query
+    key_name: ServiceKey
+    description: 한국천문연구원이 주는 연·월별 공휴일(대체·임시공휴일 포함)과 국경일 목록입니다. 작업일 수 계산, 공휴일에 걸린 일정·마감일 확인에 씁니다.
+    usage: |
+      GET 만. 키 이름은 ServiceKey(대문자 S). JSON 은 _type=json (없으면 XML).
+      [공휴일] /getRestDeInfo — 공공기관 휴일(대체·임시공휴일 포함). 제헌절은 안 나옴.
+      [국경일] /getHoliDeInfo — 국경일. 제헌절은 isHoliday=N 으로 나옴.
+      필수: solYear(연 4자리, 예 2026). 선택: solMonth(월 2자리, 01~12. 빼면 그 해 전체), numOfRows(기본 10 — 한 해 전체면 50 정도로).
+      예: /getRestDeInfo?solYear=2026&solMonth=05&_type=json
+      예(한 해): /getRestDeInfo?solYear=2026&numOfRows=50&_type=json
+      응답: response.header.resultCode "00"=정상. body.items.item = 날짜 목록, body.totalCount=전체 건수.
+      item: locdate=날짜 YYYYMMDD(숫자), dateName=이름(예 삼일절·대체공휴일), isHoliday=Y/N(공공기관 휴일 여부), dateKind=01 국경일·02 기념일·03 24절기·04 잡절, seq=순번.
+      주의: 다음다음 해 자료는 보통 6~8월에 올라오고, 대체공휴일은 대통령령 시행 뒤 반영됩니다. 휴일 판단은 isHoliday=Y 만 쓰세요.
+    test_path: /getRestDeInfo?solYear=2025&solMonth=10&numOfRows=20&_type=json
+    docs_url: https://www.data.go.kr/data/15012690/openapi.do
+
+  - id: weather_warnings
+    label: 기상특보(주의보·경보)
+    base_url: https://apis.data.go.kr/1360000/WthrWrnInfoService
+    key_in: query
+    key_name: serviceKey
+    description: 기상청이 낸 기상특보(강풍·호우·한파·건조·폭풍해일·풍랑·태풍·대설·황사·폭염 등)의 현황과 발표 이력입니다. 옥외 작업·타설·양중 일정이 특보로 막히는지 판단할 때 씁니다.
+    usage: |
+      GET 만. 키 이름 serviceKey. JSON 은 dataType=JSON. 모든 호출에 pageNo·numOfRows 필수.
+      [특보현황] /getPwnStatus — 최근 7일 안의 최신 특보 발효 현황. 필수 외 조건 없음.
+        예: /getPwnStatus?pageNo=1&numOfRows=10&dataType=JSON
+        item: tmFc=발표시각 YYYYMMDDHHMM, tmEf=발효현황 시각, t6=특보 발효현황 글(예 "o 강풍주의보 : 울릉도.독도"), t7=예비특보 현황, other=참고.
+      [특보목록] /getWthrWrnList — 발표된 특보 제목 목록. 선택: stnId(지점), fromTmFc·toTmFc(YYYYMMDD).
+        예: /getWthrWrnList?pageNo=1&numOfRows=20&dataType=JSON&stnId=109&fromTmFc=20260715&toTmFc=20260716
+        item: title=제목(예 "[특보] 제06-28호 : … / 강풍주의보 해제"), tmFc, tmSeq, stnId.
+      [통보문] /getWthrWrnMsg — 특보 본문. stnId 필수, fromTmFc·toTmFc 선택(빼면 오늘).
+        item: t1=제목, t2=해당구역, t3=발효시각, t4=내용(해제 예고 등), t6=발효현황.
+      stnId(지점 → 특보 구역): 108 전국, 109 서울·인천·경기, 159 부산·울산·경남, 143 대구·경북, 156 광주·전남, 146 전북, 133 대전·세종·충남, 131 충북, 105 강원, 184 제주.
+      응답 header.resultCode 가 0(00) 이면 정상, 3(03) 이면 자료 없음. 문서에 과거 몇 일까지 조회되는지는 적혀 있지 않습니다 — 오래된 기간이 비면 그대로 "자료 없음"으로 답하세요.
+    test_path: /getPwnStatus?pageNo=1&numOfRows=1&dataType=JSON
+    docs_url: https://www.data.go.kr/data/15000415/openapi.do
+
+  - id: air_quality
+    label: 에어코리아 대기오염정보
+    base_url: https://apis.data.go.kr/B552584/ArpltnInforInqireSvc
+    key_in: query
+    key_name: serviceKey
+    description: 한국환경공단 에어코리아의 측정소·시도별 실시간 대기오염(미세먼지·오존 등)과 미세먼지·오존 예보입니다. 미세먼지 나쁨으로 옥외 작업을 줄이거나 미룰지 판단할 때 씁니다.
+    usage: |
+      GET 만. 키 이름 serviceKey. JSON 은 returnType=json. 페이지: pageNo, numOfRows(선택).
+      [시도별 실시간] /getCtprvnRltmMesureDnsty — 필수 sidoName: 전국·서울·부산·대구·인천·광주·대전·울산·경기·강원·충북·충남·전북·전남·경북·경남·제주·세종·전남광주. ver=1.0 을 붙여야 PM2.5 가 나옴.
+        예: /getCtprvnRltmMesureDnsty?sidoName=서울&returnType=json&numOfRows=100&pageNo=1&ver=1.0
+      [측정소별 실시간] /getMsrstnAcctoRltmMesureDnsty — 필수 stationName(예 종로구), dataTerm(DAILY=1일·MONTH=1개월·3MONTH=3개월). ver=1.0 권장.
+        예: /getMsrstnAcctoRltmMesureDnsty?stationName=종로구&dataTerm=DAILY&returnType=json&numOfRows=24&pageNo=1&ver=1.0
+        item: dataTime=측정 "YYYY-MM-DD HH:MM", stationName, pm10Value·pm25Value=농도(㎍/㎥), o3Value(ppm), khaiGrade=통합대기환경지수, pm10Grade·pm25Grade=24시간 등급. 등급 1 좋음·2 보통·3 나쁨·4 매우나쁨. *Flag 에 값이 있으면 점검·이상 자료.
+      [예보] /getMinuDustFrcstDspth — 선택 searchDate(YYYY-MM-DD, 발표일), informCode(PM10·PM25·O3).
+        예: /getMinuDustFrcstDspth?searchDate=2026-03-10&informCode=PM10&returnType=json
+        item: dataTime=발표 "YYYY-MM-DD HH시 발표", informData=예보 대상일, informGrade="서울 : 나쁨,제주 : 보통,…", informOverall=개황, informCause=원인.
+        매일 5·11·17·23시 발표, 오늘·내일(17시부터 모레)까지. 오존 예보는 4~10월만.
+      응답 header.resultCode 00 이 정상. 한글 값은 params 에 그대로 넣으면 됩니다.
+    test_path: /getCtprvnRltmMesureDnsty?sidoName=%EC%84%9C%EC%9A%B8&returnType=json&numOfRows=1&pageNo=1&ver=1.0
+    docs_url: https://www.data.go.kr/data/15073861/openapi.do
+
+  - id: building_permits
+    label: 건축인허가 정보(건축HUB)
+    base_url: https://apis.data.go.kr/1613000/ArchPmsHubService
+    key_in: query
+    key_name: serviceKey
+    description: 국토교통부 건축HUB(세움터)의 건축인허가 기본개요·동별개요·철거멸실 정보입니다. 대지의 건축허가일·착공예정일·실제착공일·사용승인일과 연면적·용도를 확인해 인허가·공정 일정을 판단할 때 씁니다.
+    usage: |
+      GET 만. 키 이름 serviceKey. JSON 은 _type=json (없으면 XML). 페이지: pageNo, numOfRows(최대 100).
+      공통 필수: sigunguCd(시군구코드 5자리), bjdongCd(법정동코드 5자리) — 10자리 법정동코드의 앞 5자리·뒤 5자리(행정표준코드, code.go.kr). 예 서울 강남구 개포동 = 11680 / 10300.
+      공통 선택: platGbCd(0 대지·1 산·2 블록), bun(번 4자리, 예 0012), ji(지 4자리, 예 0004), startDate·endDate(YYYYMMDD).
+      [기본개요] /getApBasisOulnInfo
+        예: /getApBasisOulnInfo?sigunguCd=11680&bjdongCd=10300&platGbCd=0&bun=0012&ji=0004&numOfRows=10&pageNo=1&_type=json
+        item: platPlc=대지위치, bldNm=건물명, archGbCdNm=건축구분(신축·증축·용도변경 등), archPmsDay=건축허가일, stcnsSchedDay=착공예정일, stcnsDelayDay=착공연기일, realStcnsDay=실제착공일, useAprDay=사용승인일(모두 YYYYMMDD, 없으면 빈칸), platArea·archArea·totArea=대지·건축·연면적(㎡), bcRat=건폐율, vlRat=용적률, mainPurpsCdNm=주용도, mgmPmsrgstPk=허가대장 PK.
+      [동별개요] /getApDongOulnInfo — 같은 파라미터. item: strctCdNm=구조, mainPurpsCdNm, totArea, rideUseElvtCnt=승용승강기 수.
+      [철거멸실] /getApDemolExtngMgmRgstInfo — 같은 파라미터. item: demolStrtDay·demolEndDay=철거 시작·종료일, demolExtngDay=철거멸실일.
+      응답: response.header.resultCode 00 정상, body.items.item, body.totalCount. 한 지번에 허가가 여러 건이면 archPmsDay 로 구분하세요.
+    test_path: /getApBasisOulnInfo?sigunguCd=11680&bjdongCd=10300&platGbCd=0&bun=0012&ji=0004&numOfRows=2&pageNo=1&_type=json
+    docs_url: https://www.data.go.kr/data/15136267/openapi.do
+
+  - id: g2b_bids
+    label: 나라장터 입찰공고
+    base_url: https://apis.data.go.kr/1230000/ad/BidPublicInfoService02
+    key_in: query
+    key_name: serviceKey
+    description: 조달청 나라장터의 공사·용역·물품 입찰공고 목록입니다. 공고일·입찰마감일시·개찰일시를 확인해 조달·입찰 준비 일정을 짤 때 씁니다.
+    usage: |
+      GET 만. 키 이름 serviceKey. JSON 은 type=json. 필수: pageNo, numOfRows, inqryDiv. 공고 업무(공사·용역·물품)에 맞는 경로를 써야 결과가 나옵니다.
+      조회 기간은 한 번에 7일 이내(2026-11-10 변경). 날짜는 YYYYMMDDHHMM.
+      [공사 목록] /getBidPblancListInfoCnstwk02  [용역] /getBidPblancListInfoServc02  [물품] /getBidPblancListInfoThng02
+        inqryDiv: 1=등록일시(inqryBgnDt·inqryEndDt 필수), 2=입찰공고번호(bidNtceNo 필수), 3=변경일시(기간 필수).
+        예: /getBidPblancListInfoCnstwk02?inqryDiv=1&inqryBgnDt=202611160000&inqryEndDt=202611222359&pageNo=1&numOfRows=20&type=json
+        예: /getBidPblancListInfoCnstwk02?inqryDiv=2&bidNtceNo=R25BK00932003&pageNo=1&numOfRows=10&type=json
+      [조건 검색(공사)] /getBidPblancListInfoCnstwkPPSSrch02 — inqryDiv 1=공고게시일시·2=개찰일시, inqryBgnDt·inqryEndDt, type=json 을 꼭 넣으세요. 선택: bidNtceNm(공고명 일부), ntceInsttNm(공고기관명 일부), dminsttNm(수요기관명 일부), prtcptLmtRgnCd(참가제한지역 11 서울·41 경기 등), indstrytyNm(업종명 일부), presmptPrceBgn·presmptPrceEnd(추정가격 원).
+      item: bidNtceNo=공고번호(R+연2+BK+순번8), bidNtceOrd=차수, bidNtceNm=공고명, ntceKindNm=등록·변경·취소·재공고, ntceInsttNm=공고기관, dminsttNm=수요기관, bidNtceDt=공고일시, bidBeginDt=입찰개시, bidClseDt=입찰마감, opengDt=개찰일시(모두 "YYYY-MM-DD HH:MM:SS"), bidQlfctRgstDt=참가자격등록마감, cntrctCnclsMthdNm=계약방법.
+      응답 header.resultCode 00 정상, body.totalCount=전체 건수.
+    test_path: /getBidPblancListInfoCnstwk02?inqryDiv=1&inqryBgnDt=202507010000&inqryEndDt=202507012359&pageNo=1&numOfRows=1&type=json
+    docs_url: https://www.data.go.kr/data/15129394/openapi.do
