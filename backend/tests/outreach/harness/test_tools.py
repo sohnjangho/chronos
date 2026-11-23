@@ -1080,6 +1080,25 @@ async def test_claim_never_reaches_people_who_cannot_be_contacted(session, fake_
 
 def test_row_caps_are_the_ruled_numbers():
     assert (tools.MAX_CLAIM_ROWS, tools.MAX_REPORTS, tools.MAX_PROPOSALS, tools.MAX_ANSWERS) == (3, 5, 5, 20)
+    assert tools.MAX_EMERGENCY_REPORTS == 2
+    assert tools.TEXT_WINDOW == timedelta(hours=24)
+
+
+async def test_review_reports_do_not_count_against_the_report_cap(session):
+    """뒤 확인(kind review)이 같은 대화에 남긴 줄은 보통 보고 상한에 세지 않는다 — 다섯 번 보류돼도 연락처의 보고는 남는다."""
+    w = world(session)
+    connect(session)
+    box, row = inbound(session, "call", PHONE)
+    for _ in range(5):
+        store.add_report(session, schedule_id=w.a, medium="call", contact_id=w.park.id, kind="review", text="내용 확인 필요",
+                         status="open", created_at=box.now(), call_id=row.id)
+    session.commit()
+
+    r = await box.call("report_from_contact", {"kind": "delay", "text": "자재가 늦습니다", "quote": "모레 옵니다"})
+
+    session.expire_all()
+    assert r == {"say": "담당자가 확인하도록 전달했습니다"}
+    assert count(session, ContactReport, ContactReport.kind == "delay") == 1
 
 
 async def test_identity_claim_rows_are_capped_per_conversation_not_per_name(session, fake_channel):

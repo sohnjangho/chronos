@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from app import db
 from app.outreach import hours, phone, redact
 from app.outreach.harness import events, facts, gate
+from app.outreach.harness.review import REVIEW_KIND
 from app.outreach.harness.toolsets import ALL, ARGS, for_class, tool_defs
 from app.outreach.harness.types import (
     GATE_RULES,
@@ -376,11 +377,11 @@ class Toolbox:
         return (session.scalar(counted) or 0) < cap
 
     def report(self, session: Session, kind: str, text: str, quote: str = "") -> str:
-        """보고 한 줄(한 대화에 MAX_REPORTS 줄까지, 긴급 알림은 따로 MAX_EMERGENCY_REPORTS 줄까지). 돌려주는 것은 사건에
+        """보고 한 줄(한 대화에 MAX_REPORTS 줄까지 — 뒤 확인 줄은 세지 않음, 긴급 알림은 따로 MAX_EMERGENCY_REPORTS 줄까지). 돌려주는 것은 사건에
         적을 한마디."""
         urgent = kind == "emergency"
         if not self.room(session, ContactReport, MAX_EMERGENCY_REPORTS if urgent else MAX_REPORTS,
-                         (ContactReport.kind == "emergency") if urgent else (ContactReport.kind != "emergency")):
+                         (ContactReport.kind == "emergency") if urgent else ContactReport.kind.not_in(("emergency", REVIEW_KIND))):
             return f"보고는 {OVER}이라 남기지 않음"
         person = self.person(session)
         outreach.add_report(session, schedule_id=self.sid, medium=self.medium, contact_id=person.id if person else None,
