@@ -31,6 +31,7 @@ logging.makeLogRecord 로 만든 줄(이름이 뒤에 붙음)은 메시지를 �
 
 import logging
 import re
+import threading
 from collections.abc import Callable, Iterable
 from contextvars import ContextVar
 
@@ -40,7 +41,7 @@ from app.outreach.phone import AREA, FORMAT_CHARS, _local, _parts
 PHONE_MASK = "[번호]"
 HIDDEN_LINE = "(비밀 목록을 읽지 못해 이 로그 줄을 숨겼습니다)"
 LOGGERS = ("app.outreach", "app.programs.contacts", "app.programs.outreach", "app.programs.notify_settings",
-           "app.tools.notify", "app.notify", "app.errors", "uvicorn.error", "httpx")
+           "app.tools.notify", "app.notify", "app.errors", "uvicorn.error", "httpx", "httpcore")
 MIN_SECRET = 8
 SPOKEN_MIN = 7  # 한글로 읽은 숫자는 이만큼 이어지면 지운다
 FOREIGN_MIN, MAX_DIGITS = 8, 15  # E.164 는 15자리까지
@@ -209,9 +210,44 @@ def _usable(secrets: Iterable[object]) -> list[str]:
     return out
 
 
+# add_secrets 로 등록한 비밀(프로세스 전체, 더하기만). install·activate·모듈 다시 불러오기에 밀려나지 않는다.
+_REGISTERED: set[str] = globals().get("_REGISTERED", set())
+_REGISTERED_LOCK: threading.Lock = globals().get("_REGISTERED_LOCK", threading.Lock())
+
+
+def add_secrets(*values: object) -> None:
+    """비밀(키·Account ID …)을 더한다. 글·SecretStr 만, 8자보다 짧은 값은 버린다(scrub 과 같은 규칙). 같은 값은 한 번."""
+    usable = _usable(values)
+    with _REGISTERED_LOCK:
+        _REGISTERED.update(usable)
+
+
+def forget_secrets() -> None:
+    """등록한 비밀을 모두 비운다 — 시험 전용(tests/outreach_doubles 의 autouse 고정물이 시험마다 부른다)."""
+    with _REGISTERED_LOCK:
+        _REGISTERED.clear()
+
+
+def _registered() -> list[str]:
+    with _REGISTERED_LOCK:
+        return list(_REGISTERED)
+
+
+def _ordered(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(sorted(set(values), key=lambda v: (-len(v), v)))  # 긴 것부터(겹치는 값이 덜 남게)
+
+
+def secrets() -> tuple[str, ...]:
+    """지금 쓰는 비밀 전체: add_secrets 로 등록한 값 + install 원천이 주는 값. 다른 모듈이 비밀 목록을 읽는 단 하나의 길.
+    install 원천이 실패하면 그 예외가 그대로 올라간다(부르는 쪽이 「읽지 못함」으로 다룬다)."""
+    source = _FILTER._secrets_provider() if _FILTER is not None else []
+    return _ordered([*_registered(), *_usable(source)])
+
+
 def scrub(text: str, secrets: Iterable[str]) -> str:
-    """비밀(키·Account ID — 원문·URL 인코딩·섞인 꼴)과 번호를 지운다. 8자보다 짧거나 글이 아닌 비밀은 건너뛴다."""
-    for secret in _usable(secrets):
+    """비밀(주어진 것 + add_secrets 로 등록한 것 — 원문·URL 인코딩·섞인 꼴)과 번호를 지운다.
+    8자보다 짧거나 글이 아닌 비밀은 건너뛴다."""
+    for secret in _ordered([*_registered(), *_usable(secrets)]):
         text = generic.scrub(text, secret)
     return hide_phones(text)
 
@@ -231,7 +267,8 @@ def _clean_value(value: object, clean: Callable[[str], str]) -> object:
 
 
 class HideSecrets(logging.Filter):
-    """로그 줄(메시지·예외 글·stack·extra 칸)에서 secrets_provider() 의 비밀과 번호를 지운다. 줄은 늘 남긴다(True)."""
+    """로그 줄(메시지·예외 글·stack·extra 칸)에서 비밀(add_secrets 로 등록한 것 + secrets_provider() 의 것)과 번호를
+    지운다. 줄은 늘 남긴다(True)."""
 
     def __init__(self, secrets_provider: Callable[[], list[str]]) -> None:
         super().__init__()
@@ -337,7 +374,7 @@ def activate() -> None:
 
 
 def install(secrets_provider: Callable[[], list[str]]) -> None:
-    """LOGGERS 의 줄을 이 비밀 목록으로 지운다. 다시 부르면 목록만 바꾼다."""
+    """LOGGERS 의 줄을 지울 비밀 원천(하나)을 정한다. 다시 부르면 원천만 바꾼다 — add_secrets 로 등록한 값은 그대로 남는다."""
     global _FILTER
     _FILTER = HideSecrets(secrets_provider)
     activate()

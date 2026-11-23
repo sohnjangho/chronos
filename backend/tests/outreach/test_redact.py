@@ -19,9 +19,12 @@ from app.outreach.redact import (
     PHONE_MASK,
     HideSecrets,
     activate,
+    add_secrets,
+    forget_secrets,
     hide_phones,
     install,
     scrub,
+    secrets,
 )
 from tests.outreach_doubles import SENTINEL_KEY, SENTINEL_PHONE, assert_clean
 
@@ -397,3 +400,89 @@ def test_db_errors_hide_bound_parameters(session):
         session.execute(insert, {"p": SENTINEL_PHONE})
     session.rollback()
     assert "0199" not in str(caught.value)
+
+
+# ── 비밀 등록(더하기만) ─────────────────────────────────────────────────────
+
+KEY_A, KEY_B, KEY_C = "registered-key-AAAA1111", "installed-key-BBBB2222", "installed-key-CCCC3333"
+
+
+@pytest.fixture
+def source(monkeypatch):
+    """install 원천을 바꾸는 시험 — 끝나면 원래 거르개로."""
+    monkeypatch.setattr(redact, "_FILTER", redact._FILTER)
+
+
+def test_add_secrets_survives_install(caplog, source):
+    add_secrets(KEY_A)
+    install(lambda: [KEY_B])
+    logging.getLogger("app.outreach.t62").warning("a=%s b=%s", KEY_A, KEY_B)
+    assert caplog.records
+    assert_clean(caplog, KEY_A, KEY_B)
+    assert set(secrets()) == {KEY_A, KEY_B}
+    out = scrub(f"a={KEY_A} b={KEY_B}", secrets())
+    assert not key_survives(out, KEY_A) and not key_survives(out, KEY_B)
+    assert not key_survives(scrub(f"a={KEY_A}", []), KEY_A)  # 등록한 값은 scrub 이 늘 지운다
+
+
+def test_second_install_drops_only_its_own_source(caplog, source):
+    add_secrets(KEY_A)
+    install(lambda: [KEY_B])
+    install(lambda: [KEY_C])
+    assert set(secrets()) == {KEY_A, KEY_C}
+    logging.getLogger("app.outreach.t62").warning("a=%s c=%s", KEY_A, KEY_C)
+    assert_clean(caplog, KEY_A, KEY_C)
+
+
+def test_add_secrets_rules(source):
+    install(list)  # 다른 시험이 남긴 원천과 상관없이
+    add_secrets(SecretStr(KEY_A), KEY_A, "short", None, 12345, b"bytes-value-123")
+    add_secrets()
+    assert secrets() == (KEY_A,)
+
+
+def test_registered_secrets_survive_activate_and_reload(caplog, factory, source):
+    add_secrets(KEY_A)
+    activate()
+    importlib.reload(redact)
+    assert KEY_A in redact.secrets()
+    logging.getLogger("app.outreach.t62").warning("a=%s", KEY_A)
+    assert_clean(caplog, KEY_A)
+
+
+@pytest.mark.parametrize("name", ["httpx", "httpcore.http11"])
+def test_registered_account_is_cleaned_from_http_logs(caplog, name):
+    add_secrets(ACCOUNT)
+    caplog.set_level(logging.DEBUG, logger=name)
+    logging.getLogger(name).info('HTTP Request: GET https://api.example.invalid/v1/accounts/%s/messages "200"', ACCOUNT)
+    assert caplog.records
+    assert_clean(caplog, ACCOUNT)
+
+
+def test_registered_values_are_added_to_a_plain_filter():
+    add_secrets(KEY_A)
+    record = logging.LogRecord("x", logging.WARNING, __file__, 1, "%s %s", (KEY_A, SENTINEL_KEY), None)
+    HideSecrets(lambda: [SENTINEL_KEY]).filter(record)
+    assert record.getMessage() == "[키지움] [키지움]"
+
+
+def test_concurrent_add_secrets():
+    import threading
+    values = [f"concurrent-key-{n:04d}" for n in range(200)]
+    threads = [threading.Thread(target=add_secrets, args=(v,)) for v in values]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert set(values) <= set(secrets())
+
+
+def test_forget_secrets_is_reset_between_tests_part1():
+    add_secrets(KEY_A)
+
+
+def test_forget_secrets_is_reset_between_tests_part2():
+    assert KEY_A not in secrets()
+    add_secrets(KEY_A)
+    forget_secrets()
+    assert KEY_A not in secrets()

@@ -5,7 +5,10 @@
 
 import re
 
+import pytest
+
 from app.info.generic import key_survives
+from app.outreach import redact
 
 SENTINEL_PHONE = "010-0000-0199"
 SENTINEL_KEY = "kat-test-key-ZZZZ9999"
@@ -21,6 +24,13 @@ def _leaks(line: str, texts: tuple[str, ...]) -> list[str]:
         found.append("SENTINEL_PHONE")
     found += [text for text in (SENTINEL_KEY, *texts) if text and key_survives(line, text)]
     return found
+
+
+@pytest.fixture(autouse=True)
+def _forget_registered_secrets():
+    """redact.add_secrets 로 등록한 비밀은 프로세스 전체에 남는다 — 시험마다 비운다(시험끼리 새지 않게)."""
+    yield
+    redact.forget_secrets()
 
 
 def assert_clean(caplog, *texts: str) -> None:
