@@ -4,9 +4,8 @@
 // 글은 서버가 줄을 만들었다고 답했을 때만 비운다. 결과 줄은 서버 판정 그대로(labels.ts 의 statusLabel·outcomeLabel) — 미리 「보냄」을
 // 그리지 않고, 「확인 필요」를 보냄으로, 「잠시 뒤 다시」를 「이미 보냈습니다」로 바꾸지 않는다. 줄의 상태는 다시 읽은 대화가 그린다.
 import { useEffect, useId, useRef, useState } from 'react';
-import { ApiError } from '../../shared/api';
 import { channelLabel, outcomeLabel, statusLabel, type Label } from '../../shared/outreach/labels';
-import { outreachApi, type MessageChannel, type MessageIn, type MessageResult } from '../../shared/outreach/outreachApi';
+import { outreachApi, sendOutcomeUnknown, type MessageChannel, type MessageIn, type MessageResult } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import ActivityPicker from './ActivityPicker';
 import { getNotifyStatus, KIND_LABEL, type NotifyStatus, type PersonBrief } from './contactsApi';
@@ -74,8 +73,8 @@ function useSend(scheduleId: number, onSent: () => Promise<void>) {
       made();
       setResult(sendResult(r));
     } catch (e) {
-      // 답을 받지 못함: 나갔는지 모른다(실패가 아니다) — 글은 그대로, 다시 읽은 대화가 상태를 말한다.
-      if (e instanceof ApiError && e.status === 0) setResult({ text: SEND_UNKNOWN, tone: 'warn' });
+      // 나갔는지 모름(답 없음·서버 오류·읽지 못한 답 — 실패가 아니다): 글은 그대로, 다시 읽은 대화가 상태를 말한다.
+      if (sendOutcomeUnknown(e)) setResult({ text: SEND_UNKNOWN, tone: 'warn' });
       else setResult({ text: e instanceof Error && e.message ? e.message : '요청을 처리할 수 없습니다.', tone: 'bad' });
     }
     try {

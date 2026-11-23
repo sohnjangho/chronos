@@ -161,6 +161,14 @@ interface PaneProps {
 /** 오른쪽 칸: 사람·협력사 양식, 또는 고른 사람의 머리 + 대화 자리, 또는 고르라는 글. */
 function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projectName, isAdmin, kakaoReady, tab, setTab, params, reload }: PaneProps) {
   const close = () => setMode({ kind: 'none' });
+  // 넘겨받은 글·작업(params.compose·activity)은 params.contact 인 사람의 입력창에만, 한 번만 — 그 입력창이 처음 그려진 뒤에는
+  // 다시 넘기지 않는다(다른 사람에게 가거나, 보낸 뒤 돌아와도 다시 채워지지 않게). 같은 내용을 다시 넘겨받아도 다시 채우지 않는다.
+  const handKey = `${params?.contact ?? ''}\u0000${params?.compose ?? ''}\u0000${params?.activity ?? ''}`;
+  const [usedKey, setUsedKey] = useState<string | null>(null);
+  const handing = mode.kind === 'none' && selected !== null && selected.id === positiveInt(params?.contact) && usedKey !== handKey;
+  useEffect(() => {
+    if (handing && tab === 'messages') setUsedKey(handKey);
+  }, [handing, tab, handKey]);
   if (mode.kind === 'person')
     return (
       <PersonForm
@@ -208,7 +216,7 @@ function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projec
         onBack={() => setSelectedId(null)}
       />
       <section className="ct-slot" aria-label="대화" data-tab={tab}>
-        <ThreadSlot key={selected.id} scheduleId={scheduleId} person={selected} tab={tab} compose={params?.compose} activity={params?.activity} call={params?.call} onChanged={reload} />
+        <ThreadSlot key={selected.id} scheduleId={scheduleId} person={selected} tab={tab} compose={handing ? params?.compose : undefined} activity={handing ? params?.activity : undefined} call={params?.call} onChanged={reload} />
       </section>
     </>
   );

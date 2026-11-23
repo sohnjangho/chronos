@@ -266,6 +266,26 @@ describe('agent draft', () => {
     expect(acts()).toHaveLength(1);
   });
 
+  test.each(['500', 'unreadable 200'])('a send answered with %s is also 「not known whether it went out」 in the warning tone, locked until the re-read', async (kind) => {
+    stubThread({ 1: [DRAFT] });
+    if (kind === '500') failNext((c) => c.url.endsWith('/send'), 500, { code: 'internal_error', message: '서버 오류가 났습니다.' });
+    else {
+      const inner = globalThis.fetch;
+      vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).endsWith('/send') ? Promise.resolve(new Response('<html>proxy</html>', { status: 200 })) : inner(input, init)));
+    }
+    const reread = holdNext((c) => c.method === 'GET' && gets().length === 2);
+    show();
+    await userEvent.click(button(await findBubble('타워크레인 일정을 맞추겠습니다.'), '보내기'));
+    await waitFor(() => expect(gets()).toHaveLength(2));
+    expect(within(bubble('타워크레인 일정을 맞추겠습니다.')).getByRole('button', { name: '보내는 중…' })).toBeDisabled();
+    reread();
+    const note = async () => within(bubble('타워크레인 일정을 맞추겠습니다.')).getByRole('status');
+    await waitFor(async () => expect(await note()).toHaveTextContent('보냈는지 확인하지 못했습니다 — 다시 읽은 뒤 상태를 확인해 주세요'));
+    expect(await note()).toHaveClass('is-warn');
+    expect(screen.queryByText('서버 오류가 났습니다.')).toBeNull();
+  });
+
   test('a blocked send shows the gate text and the schedule outcome shows the time', async () => {
     stubThread({ 1: [DRAFT] });
     nextSend({ code: 'scheduled', message: '근무시간 밖이라 다음 근무 시작에 보냅니다', scheduled_at: '2026-11-30T08:00:00+09:00' }, { status: 'scheduled', scheduled_at: '2026-11-29T23:00:00Z', send_mode: 'approved', approved_by: '김하늘' });

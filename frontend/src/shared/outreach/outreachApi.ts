@@ -1,7 +1,7 @@
 // 메시지 API(Task 73, backend/app/programs/outreach/schemas.py) — 한 사람과의 대화 읽기, 초안 고치기·지우기, 보내기, 예약 취소,
 // 다시 보내기. 연락처 창의 대화 칸과 대화 카드 등 다른 프로그램이 함께 쓴다. 응답에 전화번호 칸은 없다(연락처는 가린 꼴만).
 // 보내기는 막힌 것도 결과라 늘 200 이고 outcome 이 무엇이 됐는지 말한다 — 화면은 그 글을 그대로 보이고, 줄의 상태는 다시 읽어 그린다.
-import { api } from '../api';
+import { api, ApiError } from '../api';
 
 /** received 는 받은 줄. sending 은 내부 상태(잠깐). unconfirmed = 보냈는지 알 수 없음(자동으로 다시 보내지 않는다). */
 export type MessageStatus = 'draft' | 'scheduled' | 'sending' | 'accepted' | 'delivered' | 'failed' | 'unconfirmed' | 'blocked_test' | 'received';
@@ -111,6 +111,11 @@ export interface MessagePatch {
   channel?: MessageChannel;
   activity_id?: string | null;
 }
+
+/** 보내기 요청(만들며 보내기·초안 보내기)이 나갔는지 모르는 실패인가: 답이 없음(연결 끊김, status 0) · 서버 오류(5xx) · 200 인데 몸을
+ *  읽지 못함(bad_response — 줄이 만들어져 나간 뒤일 수도 있다). 이때 화면은 실패가 아니라 「확인하지 못했습니다」를 보이고 다시 읽는다. */
+export const sendOutcomeUnknown = (e: unknown) =>
+  e instanceof ApiError && (e.status === 0 || e.status >= 500 || e.code === 'bad_response');
 
 const base = (sid: number) => `/api/schedules/${sid}/outreach`;
 const post = (body?: unknown) => ({ method: 'POST', ...(body === undefined ? {} : { body: JSON.stringify(body) }) });

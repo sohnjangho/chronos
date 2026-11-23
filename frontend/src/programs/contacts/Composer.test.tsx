@@ -9,6 +9,7 @@ import { useWindows } from '../../os/windowStore';
 import type { Activity, ScheduleView } from '../../shared/schedule/scheduleApi';
 import type { Message, MessageIn, Outcome } from '../../shared/outreach/outreachApi';
 import { json } from '../../test-helpers';
+import Contacts from './Contacts';
 import { SEND_UNKNOWN } from './MessageThread';
 import { CHOI, JUNG, KIM, LEE, mockStatus, PARK, person, STATUS } from './testKit';
 import { arrive, gets, holdNext, message, stubThread } from './threadKit';
@@ -32,7 +33,7 @@ const SCHEDULE = {
   relations: [], resources: [], summary: { critical_count: 0, negative_float_count: 0, warning_count: 0 },
 } as ScheduleView;
 
-type Script = { outcome: Outcome; row: Partial<Message> } | { status: number; body: unknown } | 'network';
+type Script = { outcome: Outcome; row: Partial<Message> } | { status: number; body: unknown } | 'network' | 'garbled';
 let posts: MessageIn[];
 let scheduleGets: string[];
 let script: Script[];
@@ -65,6 +66,7 @@ function stub(rows: Record<number, Message[]> = {}) {
         const s = script.shift() ?? OK;
         if (held) await held;
         if (s === 'network') throw new TypeError('network');
+        if (s === 'garbled') return new Response('<html>proxy</html>', { status: 200 }); // 200 인데 읽을 수 없는 몸
         if ('status' in s) return json(s.status, s.body);
         const activity = body.activity_id ? { id: body.activity_id, name: SCHEDULE.activities.find((a) => a.id === body.activity_id)?.name ?? null } : null;
         const row = message({ id: nextId++, body: body.body, channel: body.channel, origin_name: '김하늘', activity, created_at: '2026-11-24T01:00:00Z', ...s.row });
@@ -349,6 +351,27 @@ describe('send', () => {
     expect(posts).toHaveLength(1);
   });
 
+  test.each([
+    ['a server error (500)', { status: 500, body: { code: 'internal_error', message: '서버 오류가 났습니다.' } } as Script],
+    ['a 200 whose body cannot be read', 'garbled' as Script],
+  ])('%s: not known whether it went out — warning tone, text kept, locked until the re-read', async (_name, s) => {
+    stub();
+    script.push(s);
+    show();
+    await ready();
+    await type('확인 부탁드립니다.');
+    const release = holdNext((c) => c.method === 'GET' && c.url.includes('/outreach/threads/1'));
+    await userEvent.click(sendBtn());
+    await waitFor(() => expect(result()).toHaveTextContent(SEND_UNKNOWN));
+    expect(result().textContent).toBe(SEND_UNKNOWN);
+    expect(result()).toHaveClass('is-warn');
+    expect(box()).toHaveValue('확인 부탁드립니다.');
+    expect(sendBtn()).toBeDisabled();
+    await act(async () => release());
+    await waitFor(() => expect(sendBtn()).toBeEnabled());
+    expect(posts).toHaveLength(1);
+  });
+
   test('a double click and fast repeated clicks make one request; [보내기] is locked until the answer', async () => {
     stub();
     show();
@@ -458,5 +481,65 @@ describe('activity picker', () => {
     await userEvent.click(sendBtn());
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).not.toHaveProperty('activity_id');
+  });
+});
+
+describe('handed-over text and activity (params.compose · params.activity)', () => {
+  const book = () => screen.getByRole('navigation', { name: '주소록' });
+  const choose = async (name: string) => userEvent.click(await within(book()).findByRole('button', { name: new RegExp(name) }));
+  const openFor = () => render(<Contacts windowId="w1" params={{ contact: '1', compose: '철근 반입 시간을 알려 주세요.', activity: 'A1210' }} />);
+  const picker = () => within(composer()).getByRole('button', { name: /연결할 작업/ });
+
+  test('fill only the person they were handed over for, never another person', async () => {
+    stub();
+    openFor();
+    await waitFor(() => expect(box()).toHaveValue('철근 반입 시간을 알려 주세요.'));
+    await waitFor(() => expect(picker()).toHaveTextContent('연결할 작업: A1210 지상 골조'));
+    await choose('이전기');
+    await screen.findByRole('region', { name: '이전기 대화' });
+    expect(box()).toHaveValue('');
+    expect(picker()).toHaveTextContent('연결할 작업: 없음');
+    await choose('김설비');
+    await screen.findByRole('region', { name: '김설비 대화' });
+    expect(box()).toHaveValue('');
+  });
+
+  test('a person opened without params.contact gets nothing handed over', async () => {
+    stub();
+    render(<Contacts windowId="w1" params={{ compose: '누구에게나?', activity: 'A1210' }} />);
+    await choose('박현장');
+    await screen.findByRole('region', { name: '박현장 대화' });
+    expect(box()).toHaveValue('');
+    expect(picker()).toHaveTextContent('연결할 작업: 없음');
+  });
+
+  test('used once: after sending to that person, leaving and coming back leaves the composer empty', async () => {
+    stub();
+    openFor();
+    await waitFor(() => expect(box()).toHaveValue('철근 반입 시간을 알려 주세요.'));
+    await within(composer()).findByText(BAND);
+    await userEvent.click(sendBtn());
+    await waitFor(() => expect(result()).toHaveTextContent('보냈습니다'));
+    expect(box()).toHaveValue('');
+    await choose('이전기');
+    await screen.findByRole('region', { name: '이전기 대화' });
+    await choose('박현장');
+    await screen.findByRole('region', { name: '박현장 대화' });
+    await within(composer()).findByText(BAND);
+    expect(box()).toHaveValue('');
+    expect(picker()).toHaveTextContent('연결할 작업: 없음');
+    expect(posts).toHaveLength(1);
+  });
+
+  test('used once: coming back before sending does not fill it again either', async () => {
+    stub();
+    openFor();
+    await waitFor(() => expect(box()).toHaveValue('철근 반입 시간을 알려 주세요.'));
+    await choose('이전기');
+    await screen.findByRole('region', { name: '이전기 대화' });
+    await choose('박현장');
+    await screen.findByRole('region', { name: '박현장 대화' });
+    await within(composer()).findByText(BAND);
+    expect(box()).toHaveValue('');
   });
 });

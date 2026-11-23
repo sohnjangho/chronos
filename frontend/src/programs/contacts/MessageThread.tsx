@@ -3,8 +3,7 @@
 // 적고, 줄의 상태는 다시 읽은 것으로 그린다 — 「보냄」을 미리 그리지 않는다. 「확인 필요」 줄의 [다시 보내기]는 먼저 묻는다.
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { outcomeLabel, type Label } from '../../shared/outreach/labels';
-import { ApiError } from '../../shared/api';
-import { outreachApi, type Message } from '../../shared/outreach/outreachApi';
+import { outreachApi, sendOutcomeUnknown, type Message } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import Bubble from './Bubble';
 import { groupByDay } from './thread';
@@ -155,7 +154,7 @@ export default function MessageThread({ scheduleId, thread, blocked }: Props) {
             r = await outreachApi.send(scheduleId, m.id);
           } catch (e) {
             // 답이 오지 않았다: 서버가 받아 보냈을 수도 있다 — 「실패」가 아니라 「모름」, 다시 읽은 줄이 상태를 말한다.
-            if (e instanceof ApiError && e.status === 0) return { on: m.id, note: { text: SEND_UNKNOWN, tone: 'warn' } };
+            if (sendOutcomeUnknown(e)) return { on: m.id, note: { text: SEND_UNKNOWN, tone: 'warn' } };
             throw e;
           }
           thread.apply(r.message);
