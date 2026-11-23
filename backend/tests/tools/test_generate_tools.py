@@ -297,7 +297,8 @@ async def test_run_reports_violations_at_the_limit(ctx, liner):
     r = await call("generate.run", run_args(), ctx)
     assert r.ok and not r.output["ok"] and r.output["conflict"] == ["in.finish_by"] and len(r.output["rounds"]) == 5
     v = r.output["violations"][0]
-    assert v["condition_id"] == "in.finish_by" and v["amount"] == 3 and v["message"] == "준공이 기한보다 3일 늦습니다."
+    # A3(리뷰): 위반 수가 같으면 어긴 양이 작은 안(1일 늦음)이 남는다 — 마지막(3일 늦음)이 아니다
+    assert v["condition_id"] == "in.finish_by" and v["amount"] == 1 and v["message"] == "준공이 기한보다 1일 늦습니다."
     assert r.output["reason"] == "조건을 모두 맞추지 못했습니다." and r.output["draft_id"] is not None
 
 
