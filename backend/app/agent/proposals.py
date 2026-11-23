@@ -39,6 +39,7 @@ SCENARIO_LOCKED_MESSAGE = "승인을 기다리거나 반영되었거나 버린 �
 # 실적 날짜 규칙(재확인 2): 실제 시작·종료는 Data Date 뒤일 수 없고, 실제 시작은 착공일 앞일 수 없다.
 ACTUALS_INVALID = "실제 날짜가 Data Date({})·착공일({})과 맞지 않아 넣을 수 없습니다: {}"
 ACTUALS_BLOCKED = "실제 날짜가 Data Date({})와 맞지 않아 반영할 수 없습니다 — 현장에서 다시 올려 주세요. ({})"
+DATA_DATE_BLOCKED = "Data Date 를 {}로 옮길 수 없습니다 — 그 뒤의 실적이 있습니다: {}"
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,20 @@ def actual_dates_problem(before: Schedule | None, after: Schedule) -> str | None
     return ", ".join(bad[:3]) + (f" 외 {len(bad) - 3}건" if len(bad) > 3 else "")
 
 
+def data_date_problem(before: Schedule | None, after: Schedule) -> str | None:
+    """Data Date 를 바꿀 때(새로 넣거나 옮기거나) 그 뒤로 남는 실적(실제 시작·종료)이 있으면 거절 글. 없으면 None.
+    실적 날짜 규칙(actual_dates_problem)을 Data Date 쪽에서 지킨다 — 앞으로 당겨 「Data Date 뒤의 실적」을 만들지 않게."""
+    dd = after.data_date
+    if dd is None or (before is not None and before.data_date == dd):
+        return None
+    late = [f"{a.id} {label} {day.isoformat()}" for a in after.activities
+            for label, day in (("실제 시작", a.actual_start), ("실제 종료", a.actual_finish)) if day is not None and day > dd]
+    if not late:
+        return None
+    more = f" 외 {len(late) - 3}건" if len(late) > 3 else ""
+    return DATA_DATE_BLOCKED.format(dd.isoformat(), ", ".join(late[:3]) + more)
+
+
 def actuals_invalid(after: Schedule, problem: str) -> str:
     """일정 변경 길(propose·표 고치기·실적 도구)의 거절 글."""
     dd = after.data_date.isoformat() if after.data_date else "없음"
@@ -132,6 +147,8 @@ def unchanged(before: Schedule, before_conditions: list[dict], after: Schedule, 
 
 def _assess(session: Session, p: Proposal) -> tuple[Assessment, list[dict], str]:
     """(사유를 더하기 전 판단, 변경 이력, 승인 수준). 계산이 안 되거나 바뀌는 것이 없거나 실적 날짜 규칙을 어기면 ProposalError."""
+    if (moved := data_date_problem(p.before, p.after)) is not None:
+        raise ProposalError("actual_dates", moved)
     if (problem := actual_dates_problem(p.before, p.after)) is not None:
         raise ProposalError("actual_dates", actuals_invalid(p.after, problem))
     try:

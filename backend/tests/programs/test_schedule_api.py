@@ -674,3 +674,14 @@ def test_table_edit_of_actual_dates_follows_the_data_date_and_the_project_start(
     r = _patch(client, admin, sid, "A", 2, **body)
     assert r.status_code == 422 and r.json()["code"] == "actual_dates" and why in r.json()["message"]
     assert client.get(f"/api/schedules/{sid}", headers=admin).json()["version"] == 2
+
+
+def test_the_data_date_cannot_move_before_recorded_actuals(client, admin, sid):
+    """리뷰: Data Date 를 실적보다 앞으로 옮기면 「Data Date 뒤의 실적」이 생긴다 — 같은 규칙으로 거절하고 그 실적을 든다."""
+    assert client.patch(f"/api/schedules/{sid}", json={"data_date": "2027-03-04", "base_version": 1}, headers=admin).status_code == 200
+    assert _patch(client, admin, sid, "A", 2, actual_start="2027-03-01", actual_finish="2027-03-03", progress=1).status_code == 200
+    r = client.patch(f"/api/schedules/{sid}", json={"data_date": "2027-03-02", "base_version": 3}, headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "actual_dates"
+    assert r.json()["message"] == "Data Date 를 2027-03-02로 옮길 수 없습니다 — 그 뒤의 실적이 있습니다: A 실제 종료 2027-03-03"
+    assert client.get(f"/api/schedules/{sid}", headers=admin).json()["version"] == 3
+    assert client.patch(f"/api/schedules/{sid}", json={"data_date": "2027-03-05", "base_version": 3}, headers=admin).status_code == 200

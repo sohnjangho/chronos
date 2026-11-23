@@ -81,6 +81,16 @@ async def test_actual_start_before_the_project_start_is_refused(ctx_ab, session,
     assert current_version(session, sid_ab) == 1
 
 
+async def test_a_data_date_argument_before_other_actuals_is_refused(ctx_ab, session, sid_ab):
+    """리뷰: data_date 인자로 Data Date 를 다른 작업의 실적보다 앞으로 옮기면 거절(그 실적을 든다)."""
+    await record({"activity_id": "A", "actual_start": "2027-03-01", "actual_finish": "2027-03-05", "data_date": "2027-03-05"},
+                 ctx_ab)
+    r = await call("schedule.record_actual", {"activity_id": "B", "progress": 0, "data_date": "2027-03-03"}, ctx_ab)
+    assert not r.ok
+    assert r.error == "Data Date 를 2027-03-03로 옮길 수 없습니다 — 그 뒤의 실적이 있습니다: A 실제 종료 2027-03-05"
+    assert current_version(session, sid_ab) == 2
+
+
 async def test_done_without_finish_uses_data_date(ctx_ab):
     o = await record({"activity_id": "A", "progress": 1, "data_date": DD}, ctx_ab)
     assert o["activity"]["actual_finish"] == DD and o["activity"]["progress"] == 1

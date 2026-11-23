@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import date
 from typing import Any, NamedTuple
 
-from app.agent.proposals import actual_dates_problem, actuals_invalid
+from app.agent.proposals import actual_dates_problem, actuals_invalid, data_date_problem
 from app.core.model import Activity, Relation, Schedule
 from app.errors import ApiError
 from app.programs.schedule.schemas import ActivityCreate, RelationIn
@@ -108,6 +108,8 @@ def set_data_date(schedule: Schedule, value: date | None) -> Edit:
     """Data Date 를 value 로(None 이면 지움). 같으면 바뀐 것 없음."""
     if schedule.data_date == value:
         return Edit(schedule, [], "")
+    if (moved := data_date_problem(schedule, replace(schedule, data_date=value))) is not None:  # 실적보다 앞으로(리뷰)
+        raise ApiError(422, "actual_dates", moved)
     iso = value.isoformat() if value else None
     old = schedule.data_date.isoformat() if schedule.data_date else None
     changes = [{"id": None, "field": "data_date", "from": old, "to": iso}]
