@@ -3,7 +3,8 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test } from 'vitest';
 import { json } from '../../test-helpers';
-import type { NotifyConnection, VoiceDiagnosis, VoiceModels, VoiceSettings, VoiceStep, VoiceStepId } from './notifyApi';
+import type { NotifyConnection } from './notifyApi';
+import type { VoiceDiagnosis, VoiceModels, VoiceSettings, VoiceStep, VoiceStepId } from './voiceApi';
 import { renderAs, resetAll, sent } from './testKit';
 import { voiceStatus } from './VoiceBlock';
 
@@ -681,4 +682,45 @@ test('the card status: 연결됨 · 실패 · 확인 필요(never 실패 for an 
   expect(voiceStatus(voice({ status: 'ok' }), unknownCall)).toEqual({ tone: 'warning', text: '확인 필요' });
   const pending = diag({ P5: { ok: false, skipped: false, pending: true, code: 'timeout', detail: '확인하지 못했습니다.' } });
   expect(voiceStatus(voice({ status: 'unknown' }), pending).text).toBe('확인 필요');
+});
+
+// ── 고침 1: 결과 모름은 실패가 아님(서버 꼴 그대로) · 연결의 번호를 화면 끝까지 ──
+
+const UNKNOWN_P6: Partial<VoiceStep> = { ok: false, skipped: false, maybe_sent: true, pending: false, code: 'cut_unconfirmed', detail: '끊으려 했지만 통화가 끊겼는지 확인하지 못했습니다.' };
+
+test('an unknown call outcome is 확인 필요 even when the server status is failed (a definite failure elsewhere)', () => {
+  // 서버가 실제로 낼 수 있는 꼴: P11 분명한 실패 → status failed, 그 뒤 마지막 시험 전화가 모름 → call_unknown true
+  const d = diag(
+    { P5: { ok: true, skipped: false, code: 'ok', detail: '연결됐습니다.' }, P11: { ok: false, skipped: false, code: 'bad_number', detail: '거절됐습니다.' }, P6: UNKNOWN_P6 },
+    { part: 'call', call_unknown: true, calls: [{ at: RAN, by: '김하늘', outcome: 'unknown' }] },
+  );
+  expect(voiceStatus(voice({ status: 'failed' }), d)).toEqual({ tone: 'warning', text: '확인 필요' });
+  // 고침 뒤 서버: P5·P11 성공 + P6 모름 → status ok 그대로 — 카드는 「확인 필요」
+  const ok = diag({ P5: { ok: true, skipped: false, code: 'ok', detail: '연결됐습니다.' }, P11: { ok: true, skipped: false, code: 'ok', detail: '묶였습니다.' }, P6: UNKNOWN_P6 }, { part: 'call', call_unknown: true });
+  expect(voiceStatus(voice({ status: 'ok' }), ok).text).toBe('확인 필요');
+});
+
+const FROM_CONN = voice({ agent_number_masked: null, agent_number_kind: '', agent_number_effective_masked: '070-****-0123', agent_number_source: 'connection' });
+
+test('with the KoreaAITel number in use, real calls are open and the inbound dialog and running line name that number', async () => {
+  let release: () => void = () => {};
+  open({
+    [VOICE]: FROM_CONN,
+    [`POST ${VOICE}/diagnose`]: () => new Promise<Response>((r) => (release = () => r(json(200, diag({}, { part: 'inbound' }))))),
+  });
+  const b = await findBlock();
+  expect(within(b).getByRole('switch', { name: /실제 통화 포함/ })).toBeEnabled();
+  expect(within(b).queryByText(/AI 전화 번호를 먼저 넣어 주세요/)).toBeNull();
+  await askReal(b, '받는 통화 확인');
+  const confirm = within(b).getByRole('group', { name: '받는 통화 확인 시작' });
+  expect(confirm).toHaveTextContent('AI 전화 번호 070-****-0123에 두 번 걸어 주세요');
+  await userEvent.click(within(confirm).getByRole('button', { name: '시작' }));
+  expect(within(b).getByRole('status', { name: '음성 진단 진행' })).toHaveTextContent('지금 휴대전화로 070-****-0123에 걸어 주세요');
+  release();
+});
+
+test('only with no number anywhere does it ask for the AI call number', async () => {
+  open({ [VOICE]: voice({ agent_number_masked: null, agent_number_effective_masked: null, agent_number_source: null, test_call_index: null }) });
+  const b = await findBlock();
+  expect(within(b).getByText('AI 전화 번호를 먼저 넣어 주세요.')).toBeVisible();
 });

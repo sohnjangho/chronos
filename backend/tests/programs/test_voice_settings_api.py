@@ -20,11 +20,10 @@ import pytest
 
 from app.db import get_session
 from app.main import app
-from app.notify import diagnostics
+from app.notify import diagnostics, live_models
 from app.notify import diagnostics_voice as dv
 from app.notify.diagnostics import DiagnosticStep
 from app.outreach import redact
-from app.outreach.voice import live_models
 from app.programs.notify_settings import diagnose as diagnose_mod
 from app.programs.notify_settings import router as router_mod
 from app.programs.notify_settings import voice

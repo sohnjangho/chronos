@@ -4,19 +4,19 @@ import { ApiError } from '../../shared/api';
 import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import { checkedText, type LlmError } from './model';
+import type { NotifyConnection } from './notifyApi';
+import { ConfirmPanel } from './NotifyPolicy';
+import { ErrorLine, StepLine, toProblem, uncertain } from './parts';
 import {
   voiceApi,
   type CallRecord,
-  type NotifyConnection,
   type VoiceDiagnoseIn,
   type VoiceDiagnosis,
   type VoicePart,
   type VoiceSettings,
   type VoiceStep,
   type VoiceStepId,
-} from './notifyApi';
-import { ConfirmPanel } from './NotifyPolicy';
-import { ErrorLine, StepLine, toProblem, uncertain } from './parts';
+} from './voiceApi';
 
 export const SDK_BAND = '음성 SDK 가 설치돼 있지 않습니다 — 설치는 PM 승인 뒤에 합니다';
 const EXTRA_BAND = '고른 음성 모델에 필요한 묶음이 설치돼 있지 않습니다 — 설치는 PM 승인 뒤에 합니다';
@@ -74,7 +74,7 @@ function diagWhy(v: VoiceSettings): string | null {
 function callWhy(conn: NotifyConnection, v: VoiceSettings): string | null {
   if (v.test_call_index !== null && conn.allow_numbers.some((a) => a.index === v.test_call_index)) return null;
   if (conn.allow_numbers.length === 0) return '허용 번호를 먼저 넣어 주세요 — 시험 전화는 첫 허용 번호로만 겁니다.';
-  if (!v.agent_number_masked) return 'AI 전화 번호를 먼저 넣어 주세요.';
+  if (!v.agent_number_effective_masked) return 'AI 전화 번호를 먼저 넣어 주세요.';
   return '첫 허용 번호가 전화를 걸 수 없는 번호입니다.';
 }
 
@@ -269,7 +269,7 @@ function CallConfirm({ pending, voice, hold, onGo, onCancel }: { pending: Pendin
     return (
       <ConfirmPanel
         label="받는 통화 확인 시작"
-        text={`${pending.target} 휴대전화로 AI 전화 번호 ${voice.agent_number_masked ?? ''}에 두 번 걸어 주세요 — 첫 통화는 받고, 다음 통화는 받지 않고 거절합니다. 이쪽에서 거는 전화는 없고, 한 번에 ${lim.inbound_wait_default}초씩 기다립니다. 시작할까요?`}
+        text={`${pending.target} 휴대전화로 AI 전화 번호 ${voice.agent_number_effective_masked ?? ''}에 두 번 걸어 주세요 — 첫 통화는 받고, 다음 통화는 받지 않고 거절합니다. 이쪽에서 거는 전화는 없고, 한 번에 ${lim.inbound_wait_default}초씩 기다립니다. 시작할까요?`}
         action="시작"
         disabled={hold}
       onConfirm={onGo}
@@ -437,7 +437,7 @@ export function VoiceDiagnostics({ conn, voice, d, r, hold, extra, below }: {
         </span>
       </div>
       {r.pending && <CallConfirm pending={r.pending} voice={voice} hold={hold} onGo={() => void r.go()} onCancel={r.cancel} />}
-      {d.running && <RunningLine running={d.running} agent={voice.agent_number_masked ?? 'AI 전화 번호'} wait={voice.call_limits.inbound_wait_default} />}
+      {d.running && <RunningLine running={d.running} agent={voice.agent_number_effective_masked ?? 'AI 전화 번호'} wait={voice.call_limits.inbound_wait_default} />}
       {serverRunning && (
         <div className="st-actions">
           <p className="st-warn">{`음성 진단이 도는 중입니다(${serverRunning.by ?? '누군지 모름'} · ${checkedText(serverRunning.ran_at, null)}). 끝난 뒤 다시 읽어 주세요.`}</p>

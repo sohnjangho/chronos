@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import Badge, { type Tone } from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import { checkedText, type LlmError } from './model';
-import { voiceApi, type NotifyConnection, type VoiceDiagnosis, type VoiceSettings } from './notifyApi';
+import type { NotifyConnection } from './notifyApi';
 import { ConfirmPanel } from './NotifyPolicy';
 import { ErrorLine, toProblem } from './parts';
 import { useRealCall, useVoiceDiagnosis, VoiceDiagnostics } from './VoiceDiagnosis';
+import { voiceApi, type VoiceDiagnosis, type VoiceSettings } from './voiceApi';
 import VoiceForm, { PROVIDERS } from './VoiceForm';
 
 type Mode = 'idle' | 'edit' | 'delete';
@@ -17,13 +18,13 @@ const JUDGED = ['P5', 'P6', 'P11'];
 
 /**
  * 카드의 상태: 서버의 status 와 마지막 진단 그대로. 결과를 모르는 것(call_unknown · pending · maybe_sent)은 「확인 필요」 — 실패로 그리지 않는다.
- * failed → 실패 · 모름 → 확인 필요 · ok → 연결됨 · 돌린 줄이 있는데 unknown → 확인 필요 · 그 밖 → 아직 진단 안 함.
+ * 모름 → 확인 필요 · failed → 실패 · ok → 연결됨 · 돌린 줄이 있는데 unknown → 확인 필요 · 그 밖 → 아직 진단 안 함.
  */
 export function voiceStatus(v: VoiceSettings, d: VoiceDiagnosis | null): { tone: Tone; text: string } {
   const done = d?.state === 'done' ? d : null;
   const unsure = !!done && (done.call_unknown || done.steps.some((s) => JUDGED.includes(s.id) && s.ran_at && (s.pending || s.maybe_sent)));
+  if (unsure) return { tone: 'warning', text: '확인 필요' }; // 결과 모름이 먼저 — 다른 곳의 실패가 있어도 실패로 그리지 않는다
   if (v.status === 'failed') return { tone: 'danger', text: '실패' };
-  if (unsure) return { tone: 'warning', text: '확인 필요' };
   if (v.status === 'ok') return { tone: 'success', text: '연결됨' };
   if (done?.steps.some((s) => s.ran_at)) return { tone: 'warning', text: '확인 필요' };
   return { tone: 'neutral', text: '아직 진단 안 함' };

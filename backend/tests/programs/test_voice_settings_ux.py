@@ -10,8 +10,9 @@ from types import SimpleNamespace
 import pytest
 
 from app.notify import diagnostics_voice as dv
+from app.notify import live_models
 from app.outreach import phone, redact
-from app.outreach.voice import live_models, numbers
+from app.outreach.voice import numbers
 from app.programs.notify_settings import diagnose as diagnose_mod
 from app.store.tables_outreach import NotifyConnection, VoiceSettings
 from tests.notify.test_diagnostics_voice import GOOD_CALL, FakeAgent, FakeSdk, World
@@ -416,3 +417,62 @@ def test_session_failure_is_read_from_raw_and_from_already_cleaned_log_lines():
     assert session_failure(vague) == ("CA3", None)
     other = logging.LogRecord("clawops.agent", logging.INFO, __file__, 1, "Media stream started: %s", ("CA4",), None)
     assert session_failure(other) is None
+
+
+# ── 고침 1: 결과 모름은 실패가 아님 · 모델 확인은 읽은 목록 전체로 · SDK 는 쓸 때만 ─────────
+
+
+def _rows(**kinds: dict) -> list[dict]:
+    from app.programs.notify_settings import voice as voice_mod
+
+    out = [voice_mod._never(n) for n in dv.STEPS]
+    for name, kw in kinds.items():
+        n = int(name[1:])
+        out[n - 5] = voice_mod._line(n, ran_at="2026-11-24T00:00:00+00:00", detail="글", **kw)
+    return out
+
+
+@pytest.mark.parametrize("code", ["cut_unconfirmed", "not_finished", "dial_timeout", "unknown"])
+def test_a_call_of_unknown_outcome_is_never_a_failure(code):
+    """서버의 실제 꼴: 결과를 모르는 통화 줄은 ok:false · skipped:false · maybe_sent:true · pending:false."""
+    from app.programs.notify_settings import voice as voice_mod
+
+    unknown = {"code": code, "maybe_sent": True}
+    ok = {"code": "ok", "ok": True}
+    assert voice_mod._status(_rows(P5=ok, P11=ok, P6=unknown)) == "ok"
+    assert voice_mod._status(_rows(P5={"code": "timeout", "pending": True}, P6=unknown)) is None
+    assert voice_mod._status(_rows(P6=unknown)) is None  # 모름만 있으면 앞 값 그대로
+    assert voice_mod._status(_rows(P5=ok, P11={"code": "bad_number"}, P6=unknown)) == "failed"  # 분명한 실패는 그대로
+
+
+def test_unknown_call_leaves_the_card_status_unfailed_end_to_end(client, admin, fake_provider, monkeypatch, google):
+    conn = ready(client, admin)
+    cid = conn["id"]
+    monkeypatch.setattr(dv, "run_voice_checks", Spy({6: dv.VoiceStep(
+        id="P6", label=dv.LABELS["P6"], ok=False, detail="끊겼는지 확인하지 못했습니다.", code="cut_unconfirmed",
+        maybe_sent=True)}))
+    body = diag(client, admin, cid, call_body(conn)).json()
+    assert body["call_unknown"] is True
+    p6 = next(s for s in body["steps"] if s["id"] == "P6")
+    assert (p6["ok"], p6["skipped"], p6["maybe_sent"], p6["pending"]) == (False, False, True, False)
+    assert client.get(f"{BASE}/{cid}/voice", headers=admin).json()["status"] == "ok"
+
+
+def test_the_model_check_uses_every_live_model_read_not_the_shortened_display_list(client, admin, fake_provider,
+                                                                                   spy, google):
+    google.items = [model(f"gemini-live-{n}", LIVE) for n in range(100)]
+    conn = ready(client, admin)
+    cid = conn["id"]
+    assert put(client, admin, cid, model="gemini-live-80").status_code == 200
+    assert "gemini-live-80" not in models(client, admin, cid).json()["models"]  # 화면 목록은 짧게
+    r = diag(client, admin, cid, call_body(conn))
+    assert r.status_code == 200 and len(spy.calls) == 1  # 막지 않았다
+
+
+def test_the_google_listing_lives_outside_the_voice_package():
+    """outreach/voice 는 SDK 를 어디서도 import 하지 않는다(test_simulated 의 검사) — 구글 목록은 진단 쪽(app.notify)에 둔다."""
+    from pathlib import Path
+
+    voice_dir = Path(numbers.__file__).parent
+    assert not (voice_dir / "live_models.py").exists()
+    assert live_models.__name__ == "app.notify.live_models"

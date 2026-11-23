@@ -4,6 +4,8 @@
   돌려주는 수에 상한. 키는 쓰기 전에 `redact.add_secrets` 에 올린다.
 - 무엇이 잘못되든 던지지 않고 작은 고정 목록(`FALLBACK`, `DEFAULT_LIVE_MODEL` 이 맨 앞)과 그 까닭(쉬운 한국어)을 돌려준다.
   예외 글은 읽지 않는다(키·계정이 들 수 있다) — 남기는 것은 까닭의 낱말뿐.
+- `google-genai` 는 `google_client` 안에서만 불러온다(이 모듈을 불러와도 SDK 가 올라오지 않는다). `app/outreach/voice` 가 아니라
+  여기(진단 쪽)에 두는 것은 그 패키지가 어디서도 SDK 를 import 하지 않는다는 규칙 때문이다(고침 1).
 """
 
 import logging
@@ -33,9 +35,10 @@ NO_LIVE = "이 키의 모델 목록에 실시간 음성(Live) 모델이 보이�
 
 @dataclass(frozen=True)
 class LiveModels:
-    models: tuple[str, ...]
+    models: tuple[str, ...]  # 화면에 보일 목록(기본 모델 맨 앞, MAX_MODELS 까지)
     fallback: bool  # 구글에서 읽은 목록이 아니라 고정 목록인가(이때 진단은 모델을 막지 않는다)
     reason: str | None  # fallback 의 까닭(쉬운 한국어). 읽은 목록이면 None
+    available: frozenset[str] = frozenset()  # 읽은 Live 모델 전부(자르지 않음) — 진단 전 확인은 이것과 견준다
 
 
 def _fallback(reason: str, word: str) -> LiveModels:
@@ -58,7 +61,7 @@ def _status(error: BaseException) -> int | None:
 
 
 def _names(page: object) -> list[str]:
-    """첫 쪽에서 Live 를 받는 모델 이름만(「models/」 를 뗀 꼴). 기본 모델을 맨 앞으로, 상한까지."""
+    """첫 쪽에서 Live 를 받는 모델 이름만(「models/」 를 뗀 꼴, 자르지 않음). 기본 모델을 맨 앞으로."""
     found: list[str] = []
     for item in list(page or [])[:PAGE_SIZE]:
         actions = getattr(item, "supported_actions", None) or []
@@ -67,7 +70,7 @@ def _names(page: object) -> list[str]:
         if LIVE_ACTION in actions and _NAME.fullmatch(name) and name not in found:
             found.append(name)
     found.sort(key=lambda n: n != DEFAULT_LIVE_MODEL)
-    return found[:MAX_MODELS]
+    return found
 
 
 def list_live_models(key: str | None, client: Callable[[str, float], object] | None = None) -> LiveModels:
@@ -89,4 +92,4 @@ def list_live_models(key: str | None, client: Callable[[str, float], object] | N
         return _fallback(FAILED, type(e).__name__)
     if not names:
         return _fallback(NO_LIVE, "no_live")
-    return LiveModels(models=tuple(names), fallback=False, reason=None)
+    return LiveModels(models=tuple(names[:MAX_MODELS]), fallback=False, reason=None, available=frozenset(names))

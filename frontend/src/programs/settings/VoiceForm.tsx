@@ -4,9 +4,10 @@ import { ApiError } from '../../shared/api';
 import Button from '../../shared/ui/Button';
 import Field from '../../shared/ui/Field';
 import type { LlmError } from './model';
-import { voiceApi, type NotifyConnection, type PhoneKind, type VoiceModels, type VoicePatch, type VoiceProvider, type VoiceSettings } from './notifyApi';
+import type { NotifyConnection, PhoneKind } from './notifyApi';
 import { KIND_LABEL } from './NotifyPolicy';
 import { ErrorLine, toProblem } from './parts';
+import { voiceApi, type VoiceModels, type VoicePatch, type VoiceProvider, type VoiceSettings } from './voiceApi';
 
 const KEY_AGAIN = '공급자를 바꾸면 음성 모델 키를 다시 넣어 주세요.';
 const CUSTOM = '__custom__';

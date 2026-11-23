@@ -35,9 +35,9 @@ from starlette.concurrency import run_in_threadpool
 
 from app.db import get_session
 from app.errors import ApiError
-from app.notify import diagnostics, diagnostics_voice
+from app.notify import diagnostics, diagnostics_voice, live_models
 from app.outreach import phone, provider, redact
-from app.outreach.voice import live_models, numbers, runner
+from app.outreach.voice import numbers, runner
 from app.programs.notify_settings import diagnose, service
 from app.programs.notify_settings.voice_schemas import (
     SLOT_FIELDS,
@@ -492,18 +492,19 @@ def _steps(record: dict, fresh: dict[int, dict] | None = None) -> list[dict]:
 
 
 def _status(steps: list[dict]) -> str | None:
-    """걸음마다의 마지막 결과 가운데 연결(P5)·번호 묶기(P11)·통화(P6)로 정한다. 결과를 확인하지 못한 줄(`pending` — 시간 상한)은
-    판정에서 뺀다 — 실패로도 성공으로도 세지 않고, 이번에 돌리지 않은 걸음의 묵은 `pending` 이 분명한 결과를 막지도 않는다.
+    """걸음마다의 마지막 결과 가운데 연결(P5)·번호 묶기(P11)·통화(P6)로 정한다. 결과를 모르는 줄 — 시간 상한에 걸린 `pending`, 걸렸는지·
+    끊겼는지 모르는 통화 `maybe_sent`(cut_unconfirmed·not_finished …) — 은 판정에서 뺀다(고침 1, 계약 C5): 실패로도 성공으로도 세지 않고,
+    이번에 돌리지 않은 걸음의 묵은 「모름」이 분명한 결과를 막지도 않는다. 세 결과(성공·실패·모름)는 셋으로 남는다.
 
-    | 남은(pending 아닌) P5·P11·P6 가운데 분명한 실패 | P5        | 결과                 |
-    | 있음                                           | 무엇이든  | "failed"             |
-    | 없음                                           | 성공      | "ok"                 |
-    | 없음                                           | pending   | None(앞 값 그대로)   |
-    | 없음                                           | 돌린 적 없음·건너뜀, 셋 가운데 pending 있음 | None(앞 값 그대로) |
-    | 없음                                           | 돌린 적 없음·건너뜀, pending 없음           | "unknown"          |
+    | 남은(모름 아닌) P5·P11·P6 가운데 분명한 실패 | P5        | 결과                 |
+    | 있음                                         | 무엇이든  | "failed"             |
+    | 없음                                         | 성공      | "ok"                 |
+    | 없음                                         | 모름      | None(앞 값 그대로)   |
+    | 없음                                         | 돌린 적 없음·건너뜀, 셋 가운데 모름 있음 | None(앞 값 그대로) |
+    | 없음                                         | 돌린 적 없음·건너뜀, 모름 없음           | "unknown"          |
     """
     judged = {line["id"]: line for line in steps if line["id"] in ("P5", "P11", "P6")}
-    definite = [line for line in judged.values() if not line["pending"]]
+    definite = [line for line in judged.values() if not (line["pending"] or line["maybe_sent"])]
     if any(line["ran_at"] and not line["ok"] and not line["skipped"] for line in definite):
         return "failed"
     if judged["P5"]["ok"]:
@@ -569,7 +570,7 @@ async def _model_refused(prep: _Prep, budget: diagnostics_voice.VoiceBudget, now
     if prep.voice.provider != "google" or not prep.voice.model:
         return None
     found = await run_in_threadpool(live_models.list_live_models, prep.voice.key)
-    if found.fallback or prep.voice.model in found.models:
+    if found.fallback or prep.voice.model in found.available:
         return None
     step = diagnostics_voice.VoiceStep(id="P5", label=diagnostics_voice.LABELS["P5"], ok=False,
                                        detail=MODEL_UNUSABLE.format(model=prep.voice.model), code="model_not_available")
