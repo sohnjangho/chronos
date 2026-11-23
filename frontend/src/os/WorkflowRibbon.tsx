@@ -72,7 +72,7 @@ export default function WorkflowRibbon() {
                 →
               </span>
             )}
-            <span className={`os-wf-ribbon-node is-${step.status}`}>
+            <span className={`os-wf-ribbon-node is-${step.status}`} title={step.tool}>
               <span className="os-wf-ribbon-step-ico" aria-hidden="true">
                 {step.status === 'running' ? <span className="os-wf-ribbon-pulse" /> : (STEP_ICON[step.status] ?? '·')}
               </span>

@@ -26,7 +26,7 @@ function StepsLine({ steps }: { steps: Step[] }) {
     <div className="ch-steps-wrap">
       <button type="button" className="ch-step" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className={`ch-dot is-${state}`} aria-hidden="true" />
-        {!open && <span className="ch-step-names ch-ellipsis">{[...new Set(steps.map((s) => toolLabel(s.tool)))].join(' · ')}</span>}
+        {!open && <span className="ch-step-names ch-ellipsis" title={[...new Set(steps.map((s) => s.tool))].join(' · ')}>{[...new Set(steps.map((s) => toolLabel(s.tool)))].join(' · ')}</span>}
         <span className="ch-step-meta">{meta}</span>
         <span aria-hidden="true">{open ? '⌄' : '›'}</span>
       </button>

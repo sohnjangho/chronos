@@ -1,26 +1,7 @@
 // 서버 이름(도구·프로그램·상태)을 화면 글로, 시간·토큰을 짧은 글로. 모르는 이름은 받은 그대로 보인다.
 import { getProgram, resolveProgram } from '../../os/registry';
 
-const TOOLS: Record<string, string> = {
-  'generate.extract_conditions': '조건 뽑기',
-  'generate.run': '일정 만들기',
-  'ask.questionnaire': '질문 만들기',
-  'ask.fill_answers': '질문지 답 채우기',
-  'out.submit_change': '저장 요청',
-  'schedule.read': '일정 읽기',
-  'schedule.list': '전체 일정 조회',
-  'schedule.activity_detail': '액티비티 상세 조회',
-  'progress.read': '공정률 조회',
-  'conditions.list': '조건 목록 조회',
-  'report.learn_template': '보고서 양식 학습',
-  'report.generate': '보고서 생성',
-  'report.list_templates': '보고서 양식 조회',
-  'report.revise': '보고서 항목 수정',
-  'calc.cpm': '경로 계산',
-  'harness.check': '조건 점검',
-  'ui.open_window': '창 열기',
-};
-export const toolLabel = (tool: string) => TOOLS[tool] ?? tool;
+export { toolLabel } from '../../shared/toolLabels';
 
 /** 도구가 속한 프로그램 이름(없으면 뒷단 도구). 옛 단계의 없어진 id(일정판 schedule)는 지금 프로그램 이름으로. */
 export const programLabel = (program: string | null) =>

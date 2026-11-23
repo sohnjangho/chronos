@@ -70,10 +70,10 @@ test('workflow steps follow the live workflow events and open the workflow progr
   await send('공정표 만들어 줘');
   act(() => live.push([workflow('running', [['generate.extract_conditions', 'done'], ['generate.run', 'running']])]));
   const steps = await within(panel()).findByRole('list', { name: '워크플로우 단계' });
-  expect(within(steps).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['① 조건 뽑기 · 끝남', '② 일정 만들기 · 진행 중']);
+  expect(within(steps).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['① 조건 뽑기 · 끝남', '② 스케줄·WBS 생성 · 진행 중']);
   act(() => live.push([workflow('done', [['generate.extract_conditions', 'done'], ['generate.run', 'done']]), ['done', {}]]));
   act(() => live.close());
-  expect(await within(steps).findByText('② 일정 만들기 · 끝남')).toBeVisible();
+  expect(await within(steps).findByText('② 스케줄·WBS 생성 · 끝남')).toBeVisible();
   await userEvent.click(within(panel()).getByRole('button', { name: '워크플로우 창에서 보기' }));
   expect(openSpy).toHaveBeenCalledWith('workflow', { run: '3' });
 });

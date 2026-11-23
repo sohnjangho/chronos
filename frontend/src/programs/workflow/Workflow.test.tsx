@@ -54,7 +54,7 @@ describe('R6 실행 목록·단계 그림·단계 상세', () => {
     await renderWorkflow({});
     expect(node(3)).toHaveClass('running');
     expect(node(3)).toHaveAttribute('aria-pressed', 'true');
-    expect(within(detailPane()).getByRole('heading', { name: /④ 저장 요청/ })).toBeVisible();
+    expect(within(detailPane()).getByRole('heading', { name: /④ 승인 상신/ })).toBeVisible();
     expect(within(detailPane()).getByText('아직 없습니다 (진행 중)')).toBeVisible();
   });
 

@@ -60,6 +60,8 @@ describe('지시서 시험 (실제 사건 모양)', () => {
     await send('q');
     const line = screen.getByRole('button', { name: /도구 1개/ });
     expect(line).toBeVisible();
+    // 접힌 줄은 한글 이름, 가리키면 서버 도구 id (U5)
+    expect(within(line).getByText('일정 읽기')).toHaveAttribute('title', 'schedule.read');
     expect(line).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(line);
     // 펼치면 단계 이름(한국어)과 서버가 보낸 도구 이름 그대로

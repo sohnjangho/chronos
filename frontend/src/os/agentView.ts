@@ -1,6 +1,7 @@
 // 에이전트 실시간 작업 화면 연출 (Computer Use 뷰) · 상단 얇은 워크플로우 진행 리본 상태·안무 큐.
 import { create } from 'zustand';
 import { scheduleStore } from '../shared/schedule/scheduleStore';
+import { toolLabel } from '../shared/toolLabels';
 import { useCurrentSchedule } from './currentSchedule';
 import { loadPref, savePref } from './prefs';
 import { resolveProgram } from './registry';
@@ -60,45 +61,6 @@ const EMPTY_RIBBON: WorkflowRibbonState = {
   creatingNewProject: false,
 };
 
-const TOOL_NAMES: Record<string, string> = {
-  'schedule.read': '일정 읽기',
-  'schedule.find': '액티비티 찾기',
-  'schedule.record_actual': '실적 반영',
-  'schedule.import': '공정표 가져오기',
-  'schedule.create_project': '새 프로젝트 생성',
-  'calc.cpm': '주공정(CPM) 계산',
-  'harness.check': '조건 점검',
-  'generate.extract_conditions': '조건 뽑기',
-  'generate.run': '스케줄·WBS 생성',
-  'delay.record': '지연 기록',
-  'delay.analyze': '지연 영향 분석',
-  'shorten.make': '만회·단축안 생성',
-  'scenario.create': '대안 시나리오 생성',
-  'scenario.submit': '시나리오 승인 상신',
-  'rules.propose': '내 규칙 제안',
-  'out.submit_change': '승인 상신',
-  'ask.questionnaire': '질문지 생성',
-  'ask.fill_answers': '질문지 답 채우기',
-  'files.search': '자료함 검색',
-  'files.read': '문서 읽기',
-  'files.set_axes': '자료 분류 수정',
-  'evidence.search': '기준·근거 검색',
-  'evidence.attach': '근거 연결',
-  'info.weather': '기상청 근거 조회',
-  'info.list': '정보 API 목록',
-  'info.call': '정보 API 조회',
-  'visual.make': '보고서 그림 생성',
-  'ui.open_window': '프로그램 창 열기',
-  'progress.read': '공정률 조회',
-  'field.list': '현장 데이터 조회',
-  'schedule.list': '전체 일정 조회',
-  'conditions.list': '조건 목록 조회',
-  'schedule.activity_detail': '액티비티 상세 조회',
-  'report.learn_template': '보고서 양식 학습',
-  'report.generate': '보고서 생성',
-  'report.list_templates': '보고서 양식 조회',
-  'report.revise': '보고서 항목 수정',
-};
 
 const TOOL_PROGRAM_FALLBACK: Record<string, string> = {
   'schedule.read': 'schedule-table',
@@ -464,7 +426,7 @@ export const useAgentView = create<AgentViewState>((set, get) => {
           return {
             n: typeof r.n === 'number' ? r.n : 1,
             tool,
-            label: TOOL_NAMES[tool] ?? tool,
+            label: toolLabel(tool),
             program: typeof r.program === 'string' ? r.program : null,
             status: validStepStatus(r.status),
           };
@@ -504,7 +466,7 @@ export const useAgentView = create<AgentViewState>((set, get) => {
       const program = typeof data.program === 'string' ? data.program : null;
       const argsText = typeof data.arguments === 'string' ? data.arguments : undefined;
       const args = parseArgs(argsText);
-      const labelName = TOOL_NAMES[tool] ?? tool;
+      const labelName = toolLabel(tool);
       const totalSteps = Math.max(stepN, get().focus.totalSteps);
 
       const isGenCreation =

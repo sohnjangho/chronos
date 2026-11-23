@@ -1,17 +1,6 @@
 // 서버가 보내는 이름(도구·단계·사유·분야)을 화면 글로. 모르는 이름은 받은 그대로 보인다.
 
-const TOOLS: Record<string, string> = {
-  'generate.extract_conditions': '조건 뽑기',
-  'generate.run': '일정 만들기',
-  'ask.questionnaire': '질문 만들기',
-  'ask.fill_answers': '질문지 답 채우기',
-  'out.submit_change': '저장 요청',
-  'schedule.read': '일정 읽기',
-  'calc.cpm': '경로 계산',
-  'harness.check': '조건 점검',
-  'ui.open_window': '창 열기',
-};
-export const toolLabel = (tool: string) => TOOLS[tool] ?? tool;
+export { toolLabel } from '../../shared/toolLabels';
 
 /** 생성 단계(Task 9 의 GenStage) 차례. */
 export const STAGES: [string, string][] = [
