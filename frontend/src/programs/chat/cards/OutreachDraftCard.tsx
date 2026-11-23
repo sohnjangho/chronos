@@ -1,7 +1,9 @@
 // 문자 초안 카드(Task 83 — notify.draft_message 의 card{kind:"outreach_draft"}). 카드 자료에 번호는 없다.
 // 받는 사람(이름·담당·협력사) · 채널 · 글(+번역)을 점선 상자에. 「승인 받기」면 [버리기][고치기][보내기] — [보내기]는 연락처 대화 칸과 같다:
 // 한 번 누름 = 요청 하나, 답이 오고 그 줄을 다시 읽을 때까지 잠김, 결과 글은 서버 판정 그대로(labels.outcomeLabel), 나갔는지 모르면
-// SEND_UNKNOWN. 그 줄이 이미 초안이 아니면(보냈음·버렸음 — 카드를 그릴 때 한 번 읽거나, 409·404 뒤에 다시 읽어 안다) 단추 대신 지금 상태 한 줄.
+// SEND_UNKNOWN. 그 줄이 이미 초안이 아니면(보냈음·버렸음·예약됨 — 카드를 그릴 때 한 번 읽거나, 409·404 뒤에 다시 읽어 안다) 단추 대신 지금 상태 한 줄.
+// 사람이 승인한 글이 나가는 글이어야 한다: [보내기]는 보내기 바로 전에 그 줄을 다시 읽어, 초안이 아니면(예약 포함) 보내지 않고 상태 줄을,
+// 글·채널이 카드에 보인 것과 다르면 카드를 지금 글로 바꾸고 보내지 않는다(다음 누름에 보냄). 읽지 못하면 보내지 않는다.
 import { useEffect, useRef, useState } from 'react';
 import { useWindows } from '../../../os/windowStore';
 import { ApiError } from '../../../shared/api';
@@ -12,6 +14,8 @@ import { asNum, asObj, asText, Card, type CardProps } from './Card';
 import './outreachCards.css';
 
 const GONE = '이 초안은 이제 없습니다(버렸거나 지웠습니다)';
+export const CHANGED = '글이 바뀌었습니다 — 확인한 뒤 다시 눌러 주세요';
+export const UNREAD = '지금 상태를 읽지 못해 보내지 않았습니다 — 다시 눌러 주세요';
 
 /** 카드 contact {name, role_title, company} → 「박현장 · 골조 팀장 · 대한골조」. 없으면 null. */
 export function contactLine(v: unknown): string | null {
@@ -53,39 +57,54 @@ function useDraftRow(sid: number | null, contactId: number | null, id: number | 
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<Label | null>(null);
   const inFlight = useRef(false);
+  // 지금 모습을 바꿀 때마다 하나 늘린다 — 늦게 온 열 때 읽기가 그 뒤 동작이 알게 된 새 모습을 덮지 못하게.
+  const seq = useRef(0);
+  const apply = (m: Now) => {
+    seq.current += 1;
+    setNow(m);
+  };
   const known = sid !== null && contactId !== null && id !== null;
 
   useEffect(() => {
     if (sid === null || contactId === null || id === null) return;
     let live = true;
-    void tryRead(sid, contactId, id).then((m) => live && m !== undefined && setNow(m));
+    const at = seq.current;
+    void tryRead(sid, contactId, id).then((m) => live && m !== undefined && seq.current === at && apply(m));
     return () => {
       live = false;
     };
   }, [sid, contactId, id]);
 
-  async function run(verb: string, work: (sid: number, id: number) => Promise<void>) {
+  async function run(verb: string, work: (sid: number, contactId: number, id: number) => Promise<void>) {
     if (!known || inFlight.current) return;
     inFlight.current = true;
     setBusy(verb);
     setNote(null);
     let stale: string | null = null;
     try {
-      await work(sid, id);
+      await work(sid, contactId, id);
     } catch (e) {
       // 이미 초안이 아님(409)·없음(404): 다시 읽은 지금 상태가 말한다. 그 밖은 서버 글 그대로.
       if (e instanceof ApiError && (e.status === 409 || e.status === 404)) stale = e.message;
       else setNote({ text: e instanceof Error && e.message ? e.message : '요청을 처리할 수 없습니다.', tone: 'bad' });
     }
     const fresh = await tryRead(sid, contactId, id);
-    if (fresh !== undefined) setNow(fresh);
+    if (fresh !== undefined) apply(fresh);
     else if (stale) setNote({ text: stale, tone: 'bad' });
     inFlight.current = false;
     setBusy(null);
   }
 
-  const send = () =>
-    run('send', async (s, i) => {
+  /** shown = 카드가 지금 보이는 글·채널(사람이 승인하는 것). */
+  const send = (shown: { body: string; channel: string }) =>
+    run('send', async (s, c, i) => {
+      const cur = await tryRead(s, c, i);
+      if (cur === undefined) return void setNote({ text: UNREAD, tone: 'warn' });
+      if (cur === null || cur.status !== 'draft') return void apply(cur); // 버렸음·보냈음·예약됨 — 상태 줄
+      if (cur.body !== shown.body || cur.channel !== shown.channel) {
+        apply(cur);
+        return void setNote({ text: CHANGED, tone: 'warn' });
+      }
       let r;
       try {
         r = await outreachApi.send(s, i);
@@ -94,13 +113,13 @@ function useDraftRow(sid: number | null, contactId: number | null, id: number | 
         if (sendOutcomeUnknown(e)) return void setNote({ text: SEND_UNKNOWN, tone: 'warn' });
         throw e;
       }
-      setNow(r.message);
+      apply(r.message);
       if (r.outcome) setNote(said(r.outcome));
     });
   const discard = () =>
-    run('discard', async (s, i) => {
+    run('discard', async (s, _c, i) => {
       await outreachApi.remove(s, i);
-      setNow(null);
+      apply(null);
     });
   return { now, busy, note, send, discard };
 }
@@ -145,7 +164,7 @@ export default function OutreachDraftCard({ data }: CardProps) {
           <Button disabled={locked} onClick={() => useWindows.getState().open('contacts', { id: String(sid), contact: String(contactId), tab: 'messages' })}>
             고치기
           </Button>
-          <Button variant="primary" disabled={locked} onClick={() => void send()}>
+          <Button variant="primary" disabled={locked} onClick={() => void send({ body, channel })}>
             {busy === 'send' ? '보내는 중…' : '보내기'}
           </Button>
         </div>

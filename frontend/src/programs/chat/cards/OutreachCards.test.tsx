@@ -32,13 +32,15 @@ function row(over: Partial<Message> = {}): Message {
 }
 
 // ── 가짜 메시지 API(그 사람의 줄을 쥐고 있어 보낸 뒤 다시 읽으면 바뀐 줄이 온다) ──
-type Answer = { outcome: Outcome; row: Partial<Message> } | { http: number; body: unknown } | 'network' | 'garbled';
+/** 판정 · HTTP 오류 · 연결 끊김 · 읽지 못한 200 · 보내기 요청이 닿는 순간 줄을 바꿈(그 사이 다른 곳에서 보냄 — 그 뒤 보통 처리). */
+type Answer = { outcome: Outcome; row: Partial<Message> } | { http: number; body: unknown } | 'network' | 'garbled' | { before: (m: Message) => void };
 let rows: Message[];
 let calls: { method: string; url: string }[];
 let sendScript: Answer[];
 let readFails: number;
 let holdSend: Promise<void> | null;
-let holdRead: Promise<void> | null;
+/** 읽기 하나만 붙잡는다: skip 개를 그냥 보낸 뒤 오는 읽기 하나. 답은 받은 때의 모습으로 굳는다. */
+let holdRead: { skip: number; gate: Promise<void> } | null;
 
 function stubServer(initial: Message[] = [row()]) {
   rows = initial.map((m) => ({ ...m }));
@@ -58,18 +60,28 @@ function stubServer(initial: Message[] = [row()]) {
         const q = new URLSearchParams(read[1]);
         const before = Number(q.get('before') ?? Infinity);
         const limit = Number(q.get('limit') ?? 50);
-        const reply = { contact: { id: 7, name: '박현장' }, messages: rows.filter((m) => m.id < before).slice(-limit), has_more: false };
-        if (holdRead) await holdRead;
+        // 받은 때의 모습으로 굳힌다(붙잡아 둔 답이 그 뒤에 바뀐 줄을 싣지 않게)
+        const reply = json(200, { contact: { id: 7, name: '박현장' }, messages: rows.filter((m) => m.id < before).slice(-limit), has_more: false });
+        if (holdRead && holdRead.skip > 0) holdRead.skip -= 1;
+        else if (holdRead) {
+          const { gate } = holdRead;
+          holdRead = null;
+          await gate;
+        }
         if (readFails > 0) {
           readFails -= 1;
           throw new TypeError('network');
         }
-        return json(200, reply);
+        return reply;
       }
       const send = url.match(/^\/api\/schedules\/1\/outreach\/messages\/(\d+)\/send$/);
       if (method === 'POST' && send) {
         const m = rows.find((r) => r.id === Number(send[1]));
-        const s = sendScript.shift();
+        let s = sendScript.shift();
+        if (s && typeof s === 'object' && 'before' in s) {
+          if (m) s.before(m);
+          s = undefined;
+        }
         let reply: Response;
         if (s === 'network' || s === 'garbled') reply = new Response('<html>proxy</html>', { status: 200 });
         else if (s && 'http' in s) reply = json(s.http, s.body);
@@ -98,14 +110,14 @@ function stubServer(initial: Message[] = [row()]) {
 const sends = () => calls.filter((c) => c.method === 'POST' && c.url.endsWith('/send'));
 const deletes = () => calls.filter((c) => c.method === 'DELETE');
 const reads = () => calls.filter((c) => c.method === 'GET');
-function hold(which: 'send' | 'read'): () => void {
+/** 보내기는 놓을 때까지 모두, 읽기는 skip 개 뒤의 하나만 붙잡는다. */
+function hold(which: 'send' | 'read', skip = 0): () => void {
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
   if (which === 'send') holdSend = gate;
-  else holdRead = gate;
+  else holdRead = { skip, gate };
   return () => {
     if (which === 'send') holdSend = null;
-    else holdRead = null;
     release();
   };
 }
@@ -265,7 +277,7 @@ describe('[보내기] on a text draft behaves like the conversation pane', () =>
     const line = await within(c).findByText(text);
     expect(line).toHaveClass(tone);
     if (line !== note()) expect(note().textContent).toBe('');
-    await waitFor(() => expect(reads().length).toBe(2));
+    await waitFor(() => expect(reads().length).toBe(3)); // 열 때 · 보내기 바로 전 · 보낸 뒤
     await act(async () => {});
     expect(c.textContent).not.toMatch(/보냄|이미 보냈습니다/);
     if (stillDraft) expect(within(c).getByRole('button', { name: '보내기' })).toBeEnabled();
@@ -281,7 +293,7 @@ describe('[보내기] on a text draft behaves like the conversation pane', () =>
     sendScript.push(answer);
     renderCard(DRAFT);
     await settled();
-    const releaseRead = hold('read');
+    const releaseRead = hold('read', 1); // 보내기 전 읽기는 보내고, 보낸 뒤 다시 읽기를 붙잡는다
     await userEvent.click(sendBtn());
     await waitFor(() => expect(note().textContent).toBe(SEND_UNKNOWN));
     expect(note()).toHaveClass('is-warn');
@@ -310,7 +322,8 @@ describe('a stale card shows the current state in one line instead of buttons', 
     renderCard(DRAFT);
     await settled();
     expect(sendBtn()).toBeEnabled();
-    Object.assign(rows[0], { status: 'delivered', send_mode: 'approved', approved_by: '이담당' }); // 다른 곳에서 보냄
+    // 보내기 바로 전 읽기는 아직 초안 — 그 뒤 보내기 요청이 닿기 전에 다른 곳에서 보냄
+    sendScript.push({ before: (m) => void Object.assign(m, { status: 'delivered', send_mode: 'approved', approved_by: '이담당' }) });
     await userEvent.click(sendBtn());
     const c = card('문자 초안');
     await waitFor(() => expect(within(c).getByText('지금 상태: 도착 · [에이전트 발신] · 이담당 승인')).toBeVisible());
@@ -378,5 +391,103 @@ describe('the other buttons', () => {
     await userEvent.click(within(card('문자 초안')).getByRole('button', { name: '고치기' }));
     expect(openSpy).toHaveBeenCalledWith('contacts', { id: '1', contact: '7', tab: 'messages' });
     expect(sends()).toHaveLength(0);
+  });
+});
+
+describe('what the person approves is what goes out (re-read right before sending)', () => {
+  const CHANGED = '글이 바뀌었습니다 — 확인한 뒤 다시 눌러 주세요';
+  const UNREAD = '지금 상태를 읽지 못해 보내지 않았습니다 — 다시 눌러 주세요';
+  const EDITED = '고친 글 — 철근 반입은 토요일 오전으로 바꿔 주세요.';
+
+  test('the text was edited elsewhere after the card was drawn: the card shows the new text, warns, and sends nothing; the next click sends', async () => {
+    stubServer();
+    renderCard(DRAFT);
+    await settled();
+    rows[0].body = EDITED; // 연락처 창의 [고치기]
+    await userEvent.click(sendBtn());
+    const c = card('문자 초안');
+    expect(await within(c).findByText(EDITED)).toBeVisible();
+    expect(within(c).queryByText(DRAFT.body)).toBeNull();
+    expect(note().textContent).toBe(CHANGED);
+    expect(note()).toHaveClass('is-warn');
+    await waitFor(() => expect(sendBtn()).toBeEnabled());
+    expect(sends()).toHaveLength(0);
+    await userEvent.click(sendBtn());
+    await waitFor(() => expect(note().textContent).toBe('보냈습니다'));
+    expect(sends()).toHaveLength(1);
+  });
+
+  test('the channel was changed elsewhere: same — the card shows it and sends nothing', async () => {
+    stubServer();
+    renderCard(DRAFT);
+    await settled();
+    rows[0].channel = 'kakao';
+    await userEvent.click(sendBtn());
+    const c = await screen.findByRole('region', { name: '카카오톡 초안' });
+    expect(within(c).getByRole('status').textContent).toBe(CHANGED);
+    expect(sends()).toHaveLength(0);
+  });
+
+  test('the open-time read failed (card drawn from its data) and the text was edited: still checked before sending', async () => {
+    stubServer();
+    readFails = 1;
+    renderCard(DRAFT);
+    await settled();
+    rows[0].body = EDITED;
+    await userEvent.click(sendBtn());
+    expect(await within(card('문자 초안')).findByText(EDITED)).toBeVisible();
+    expect(note().textContent).toBe(CHANGED);
+    expect(sends()).toHaveLength(0);
+  });
+
+  test('the read right before sending fails: nothing is sent, a warning says so, and the buttons stay', async () => {
+    stubServer();
+    renderCard(DRAFT);
+    await settled();
+    readFails = 1;
+    await userEvent.click(sendBtn());
+    await waitFor(() => expect(note().textContent).toBe(UNREAD));
+    expect(note()).toHaveClass('is-warn');
+    await waitFor(() => expect(sendBtn()).toBeEnabled());
+    expect(sends()).toHaveLength(0);
+  });
+
+  const SCHEDULED = { status: 'scheduled' as const, scheduled_at: '2026-11-29T23:00:00Z', send_mode: 'approved' as const, approved_by: '김하늘' };
+  const SCHEDULED_LINE = '지금 상태: 예약됨 11/30(월) 08:00 · [에이전트 발신] · 김하늘 승인';
+
+  test('a row a person scheduled: the card shows the state line, never [보내기]', async () => {
+    stubServer([row(SCHEDULED)]);
+    renderCard(DRAFT);
+    const c = card('문자 초안');
+    expect(await within(c).findByText(SCHEDULED_LINE)).toBeVisible();
+    expect(within(c).queryByRole('button')).toBeNull();
+  });
+
+  test('the open-time read failed and the row was scheduled since: the click re-reads and refuses — no send, the state line instead', async () => {
+    stubServer();
+    readFails = 1;
+    renderCard(DRAFT);
+    await settled();
+    Object.assign(rows[0], SCHEDULED);
+    await userEvent.click(sendBtn());
+    const c = card('문자 초안');
+    expect(await within(c).findByText(SCHEDULED_LINE)).toBeVisible();
+    expect(within(c).queryByRole('button')).toBeNull();
+    expect(sends()).toHaveLength(0);
+  });
+
+  test('a slow open-time read does not overwrite the newer state from a send', async () => {
+    stubServer();
+    const releaseOpen = hold('read'); // 열 때 읽기(받은 때의 모습 = 초안)를 붙잡아 둔다
+    renderCard(DRAFT);
+    await settled();
+    await userEvent.click(sendBtn());
+    const c = card('문자 초안');
+    expect(await within(c).findByText('지금 상태: 접수 · [에이전트 발신] · 김하늘 승인')).toBeVisible();
+    await act(async () => releaseOpen());
+    await act(async () => {});
+    expect(within(c).getByText('지금 상태: 접수 · [에이전트 발신] · 김하늘 승인')).toBeVisible();
+    expect(within(c).queryByRole('button')).toBeNull();
+    expect(sends()).toHaveLength(1);
   });
 });

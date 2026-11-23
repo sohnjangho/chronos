@@ -19,8 +19,6 @@ interface Props {
 }
 
 const NEW_DRAFT = '새 초안을 만들었습니다 — 아직 보내지 않았습니다. [보내기]를 눌러야 나갑니다.';
-/** [보내기] 요청이 답을 받지 못함 — 나갔는지 모른다. 글은 labels.ts 에 있다(대화 카드도 쓴다). */
-export { SEND_UNKNOWN };
 type Done = { on: number; note: Label } | void;
 
 /** 줄마다 한 번에 요청 하나. 끝나면 대화를 다시 읽은 뒤에 잠금을 푼다. */

@@ -6,13 +6,12 @@
 // 글은 서버가 줄을 만들었다고 답했을 때만 비운다. 결과 줄은 서버 판정 그대로(labels.ts 의 statusLabel·outcomeLabel) — 미리 「보냄」을
 // 그리지 않고, 「확인 필요」를 보냄으로, 「잠시 뒤 다시」를 「이미 보냈습니다」로 바꾸지 않는다. 줄의 상태는 다시 읽은 대화가 그린다.
 import { useEffect, useId, useRef, useState } from 'react';
-import { channelLabel, outcomeLabel, statusLabel, type Label } from '../../shared/outreach/labels';
+import { channelLabel, outcomeLabel, SEND_UNKNOWN, statusLabel, type Label } from '../../shared/outreach/labels';
 import { ApiError } from '../../shared/api';
 import { outreachApi, sendOutcomeUnknown, type AgentDraftIn, type MessageChannel, type MessageIn, type MessageResult } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import ActivityPicker from './ActivityPicker';
 import { getNotifyStatus, KIND_LABEL, type NotifyStatus, type PersonBrief } from './contactsApi';
-import { SEND_UNKNOWN } from './MessageThread';
 import { SMS_BYTES, smsLength } from './smsLength';
 import type { ComposerSlotProps } from './ThreadPane';
 import './composer.css';
