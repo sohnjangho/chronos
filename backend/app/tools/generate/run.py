@@ -2,6 +2,7 @@
 
 초안은 schedule_drafts 에만 넣는다(그래서 mutates). 일정 저장(첫 버전)은 승인 뒤에 한다.
 끝나면 결과 카드 `AgentEvent("card", {"kind": "generation_result", …})` 를 한 번 낸다.
+초안을 하나도 못 만들었으면(멈춤은 빼고) 카드를 낸 뒤 ToolError 로 끝난다 — 워크플로우 단계가 실패로 남는다.
 """
 
 from datetime import date
@@ -155,4 +156,6 @@ async def run(args: RunIn, ctx: ToolContext) -> RunOut:
         raise ToolError(f"올바르지 않은 분야입니다: {args.domain}") from None
     out = _out(result)
     ctx.emit(result_card(out))
+    if result.draft_id is None and not ctx.stop_requested():  # 초안이 하나도 없다 — 워크플로우에 실패로 남긴다
+        raise ToolError(result.reason or "일정 초안을 만들지 못했습니다.")
     return out

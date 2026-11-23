@@ -1,3 +1,4 @@
+import dataclasses
 import json
 
 import httpx
@@ -264,11 +265,21 @@ async def test_run_rejects_invalid_domain(ctx):
     assert not r.ok and r.error == "올바르지 않은 분야입니다: ../ship"
 
 
-async def test_run_llm_down(ctx, liner, session):
+async def test_run_llm_down(ctx, liner, session, events):
+    """A2: 초안을 하나도 못 만들면 도구가 실패로 끝난다(워크플로우 단계가 failed). 결과 카드는 그대로 낸다."""
     script(liner, httpx.ReadTimeout("느림"))
     r = await call("generate.run", run_args(), ctx)
-    assert r.ok and not r.output["ok"] and r.output["draft_id"] is None and r.output["finish"] is None
-    assert "늦습니다" in r.output["reason"] and session.query(ScheduleDraft).count() == 0
+    assert not r.ok and "늦습니다" in r.error and r.error.startswith("일정을 만들지 못했습니다.")
+    assert session.query(ScheduleDraft).count() == 0
+    card = next(e.data for e in events if e.type == "card" and e.data["kind"] == "generation_result")
+    assert card["ok"] is False and card["draft_id"] is None and "늦습니다" in card["reason"]
+
+
+async def test_run_stopped_before_any_draft_is_not_a_failure(ctx, liner, session):
+    """멈춤으로 초안이 없으면 실패가 아니다(루프가 단계를 stopped 로 둔다)."""
+    stopped = dataclasses.replace(ctx, stop_requested=lambda: True)
+    r = await call("generate.run", run_args(), stopped)
+    assert r.ok and r.output["draft_id"] is None and r.output["reason"] == "중단했습니다." and liner.requests == []
 
 
 async def test_run_keeps_best_draft_when_llm_fails(ctx, liner, session):
