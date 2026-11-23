@@ -37,6 +37,7 @@ from app.db import get_session
 from app.errors import ApiError
 from app.notify import diagnostics, diagnostics_voice
 from app.outreach import phone, provider, redact
+from app.outreach.voice import runner
 from app.programs.notify_settings import diagnose, service
 from app.programs.notify_settings.voice_schemas import (
     SLOT_FIELDS,
@@ -110,8 +111,9 @@ def sdk_installed() -> bool:
 
 def worker_connected(agent_number: str | None) -> bool:
     """음성 일꾼이 이 번호로 플랫폼에 붙어 있는가(control 연결은 번호당 하나 — 붙어 있으면 진단이 연결하지 않는다).
-    아직 일꾼이 없어 늘 False 다. 일꾼을 만드는 작업이 이 함수 하나를 바꾼다 — 다른 것으로 짐작하지 않는다."""
-    return False
+    거는 통화 일꾼(Task 88)이 걸기 직전부터 통화가 끝날 때까지 쥔 것을 닫힌 쪽(번호와 상관없이)으로 답한다. 반대로 일꾼은
+    이 모듈의 _VOICE_RUNNING(진단이 도는 동안)을 보고 걸지 않는다. 같은 프로세스 안에서만 보인다."""
+    return runner.holds_line(agent_number)
 
 
 def _ceiling(steps: tuple[int, ...], wait: int) -> float:

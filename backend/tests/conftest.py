@@ -9,6 +9,7 @@ from app.db import get_session
 from app.files import classify, jobs, merge_suggest
 from app.main import app
 from app.outreach import worker
+from app.outreach.voice import runner
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
 from app.store.tables import User
@@ -52,7 +53,7 @@ def quiet_file_worker(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def quiet_outreach_worker(monkeypatch):
-    """연락 일꾼(Task 71 — 예약 발송·상태 조회·들어온 문자). 시험에서는 앱(lifespan)이 일꾼을 띄우지 않는다 — 시험은
+    """연락 일꾼(Task 71 — 예약 발송·상태 조회·들어온 문자)과 통화 일꾼(Task 88). 시험에서는 앱(lifespan)이 일꾼을 띄우지 않는다 — 시험은
     worker.tick(now=…) 을 한 바퀴씩 직접 부른다. 일꾼의 메모리 상태(status)도 시험마다 새것. 진짜 start 는
     worker.start.__wrapped__."""
     real_start = worker.start
@@ -63,6 +64,15 @@ def quiet_outreach_worker(monkeypatch):
 
     monkeypatch.setattr(worker, "start", start)
     monkeypatch.setattr(worker, "_state", worker._State())
+    # 통화 일꾼(Task 88)도 같다: 앱이 띄우지 않고(진짜는 runner.start.__wrapped__), 줄·상태는 시험마다 새것
+    real_runner_start = runner.start
+
+    @functools.wraps(real_runner_start)
+    def start_runner() -> None:
+        return None
+
+    monkeypatch.setattr(runner, "start", start_runner)
+    monkeypatch.setattr(runner, "_state", runner._State())
     monkeypatch.delenv("CHRONOS_OUTREACH_WORKER", raising=False)  # 시험을 돌리는 셸의 값과 상관없이 기본(켬)에서 시작
 
 
