@@ -1,5 +1,6 @@
 // 대화 한 개의 화면 상태. 실시간 SSE 사건과 다시 연 대화의 저장 메시지를 같은 모양으로 만든다(같은 카드로 보이게).
 
+import { toolLabel } from '../../shared/toolLabels';
 import type { ChatFile, ChatModel } from './chatApi';
 
 export type Json = Record<string, unknown>;
@@ -132,10 +133,13 @@ function endStep(a: Agent, data: Json): Agent {
 function errorPart(data: Json): Part {
   const action = isObj(data.action) && typeof data.action.open === 'string' ? data.action : null;
   const params = action && isObj(action.params) ? Object.fromEntries(Object.entries(action.params).map(([k, v]) => [k, String(v)])) : {};
+  // 서버 글의 「도구 id」(되풀이 실패로 멈춘 턴의 data.tool)는 한글 이름으로 바꿔 보인다.
+  const tool = str(data.tool);
+  const text = str(data.message) ?? '처리 중 문제가 생겼습니다.';
   return {
     type: 'error',
     code: str(data.code) ?? 'error',
-    message: str(data.message) ?? '처리 중 문제가 생겼습니다.',
+    message: tool ? text.replace(`「${tool}」`, `「${toolLabel(tool)}」`) : text,
     action: action ? { open: String(action.open), params } : null,
   };
 }

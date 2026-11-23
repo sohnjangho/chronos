@@ -386,6 +386,9 @@ def _run_live_scenario(rule_id: str) -> tuple[str, dict[str, Any], str]:
 # ── 루프 규칙(H-LOOP-01·H-LIM-01): 임시 DB 에서 진짜 에이전트 루프(loop.run_turn)를 대본 LLM 으로 돌린다 ──
 
 
+LIMIT_TOOL = "schedule.list"  # H-LIM-01: 일정이 없어도 성공하는 읽기 도구(단계 한도만 턴을 멈춘다)
+
+
 def _model_saw_tool_result(llm: ScriptedLiner) -> dict[str, Any]:
     """도구 실패 뒤 모델이 다음 호출에서 받은 tool 메시지(JSON)."""
     if len(llm.bodies) < 2:
@@ -422,7 +425,8 @@ def _run_loop_scenario(rule_id: str, cfg: dict[str, Any]) -> tuple[str, dict[str
         return sim, fb, held
 
     limit = int(cfg["max_steps"])
-    llm = ScriptedLiner(tool_turns=limit + 1)
+    # 늘 성공하는 읽기 도구로 돌린다 — 같은 실패 호출이면 되풀이 실패 가드(loop.FAILS_BEFORE_STOP)가 한도 전에 턴을 끝낸다
+    llm = ScriptedLiner(tool_turns=limit + 1, tool=LIMIT_TOOL)
     seen = run_isolated_turn(cfg, llm)
     error = seen["error"] or {}
     fb = {
@@ -436,7 +440,7 @@ def _run_loop_scenario(rule_id: str, cfg: dict[str, Any]) -> tuple[str, dict[str
         "error": error.get("message"),
     }
     held = fb["llm_calls"] == limit and fb["error_code"] == "step_limit" and fb["status"] == "failed"
-    sim = f"대본 LLM 이 바퀴마다 `{LOOP_TOOL}` 를 다시 호출(멈추지 않음) → 임시 DB 에서 에이전트 루프(loop.run_turn) 실실행, 한도 {limit}바퀴"
+    sim = f"대본 LLM 이 바퀴마다 `{LIMIT_TOOL}` 를 다시 호출(멈추지 않음) → 임시 DB 에서 에이전트 루프(loop.run_turn) 실실행, 한도 {limit}바퀴"
     return sim, fb, held
 
 

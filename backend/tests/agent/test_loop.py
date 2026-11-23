@@ -23,6 +23,7 @@ from app.llm.client import LlmClient
 from app.store import chats
 from app.store import questionnaires as qstore
 from app.store.files import raw_path
+from app.store.messages import FIELD_READ_ONLY_MESSAGE
 from app.store.questionnaires import Question
 from app.store.tables import (
     ChatMessage,
@@ -30,6 +31,7 @@ from app.store.tables import (
     LlmCall,
     QuestionnaireRecord,
     ScheduleDraft,
+    TraceEvent,
     User,
     WorkflowRun,
     WorkflowStep,
@@ -1072,13 +1074,15 @@ async def test_import_button_keeps_what_the_model_did_give(run, session, monkeyp
 
 @pytest.fixture
 def failing_tool():
-    """도구 'stubborn' {n}: 부를 때마다 센다. n 이 0 이면 늘 같은 까닭으로 실패, 아니면 성공."""
+    """도구 'stubborn' {n}: 부를 때마다 센다. n 이 0 이면 늘 같은 까닭으로 실패, -1 이면 역할 거절(현장 관리자), 아니면 성공."""
     seen: list[int] = []
 
     def stubborn(args: SpyIn, ctx) -> Empty:
         seen.append(args.n)
         if args.n == 0:
             raise ToolError("n 이 0 이면 안 됩니다.")
+        if args.n == -1:
+            raise ToolError(FIELD_READ_ONLY_MESSAGE)
         return Empty()
 
     with registered("stubborn", stubborn):
@@ -1099,6 +1103,36 @@ async def test_third_identical_failing_call_is_not_run(run, session, failing_too
     assert "n 이 0 이면 안 됩니다." in third["error"] and "인자를 바꿔" in third["error"]
     assert third["reflection"] == third["error"]
     assert ev[-1].type == "done" and not any(e.type == "error" for e in ev)
+
+
+async def test_a_refused_call_asked_again_ends_the_turn_without_asking_the_model_again(run, session, failing_tool):
+    """I1(재확인 리뷰): 같은 실패 호출을 14번 되풀이하는 모델 — 실패 둘·거절 하나 뒤, 거절한 호출이 또 오면 모델을 더 부르지
+    않고 턴을 끝낸다(LLM 4번). 끝 까닭은 단계 한도가 아니라 되풀이 실패(repeated_failure), 사용자에게는 코드가 쓴 글."""
+    llm = ScriptedLlm([calls("stubborn", {"n": 0}, call_id=f"c{i}") for i in range(14)] + [reply("안 불림")])
+    ev = await run(llm, "해 줘")
+    assert len(llm.requests) == 4
+    assert failing_tool == [0, 0]
+    assert _tool_ends(ev) == [("stubborn", False)] * 3
+    err = next(e.data for e in ev if e.type == "error")
+    assert (err["code"], err["tool"]) == ("repeated_failure", "stubborn")
+    assert err["message"] == "「stubborn」 — 같은 요청이 같은 까닭으로 거듭 실패해 멈췄습니다. 까닭: n 이 0 이면 안 됩니다."
+    assert ev[-1].type == "done" and not any(e.type == "text" for e in ev)
+    run_row = session.scalars(select(WorkflowRun)).one()
+    assert run_row.status == "failed"
+    end = session.scalars(select(TraceEvent).where(TraceEvent.kind == "end")).one()
+    assert (end.label, end.error) == ("failed", err["message"])
+
+
+async def test_repeated_role_refusals_say_the_account_cannot_do_it(run, session, failing_tool):
+    """I1(재확인 리뷰): 두 번의 실패가 역할 거절이면 「인자를 바꾸라」고 하지 않고 이 계정으로는 할 수 없다고 한다."""
+    llm = ScriptedLlm([calls("stubborn", {"n": -1}, call_id=f"c{i}") for i in range(5)] + [reply("안 불림")])
+    ev = await run(llm, "새 프로젝트 하나 만들어 줘")
+    assert len(llm.requests) == 4 and failing_tool == [-1, -1]
+    third = json.loads(llm.bodies[3]["messages"][-1]["content"])
+    assert "인자를 바꿔" not in third["error"] and "이 계정으로는 할 수 없" in third["error"]
+    err = next(e.data for e in ev if e.type == "error")
+    assert err["code"] == "repeated_failure" and "인자" not in err["message"]
+    assert err["message"] == f"「stubborn」 — 이 계정으로는 할 수 없는 요청이라 거듭 거절되어 멈췄습니다. 까닭: {FIELD_READ_ONLY_MESSAGE}"
 
 
 async def test_a_call_with_changed_arguments_still_runs(run, session, failing_tool):

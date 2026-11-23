@@ -67,3 +67,15 @@ test('a reopened session ends unfinished steps as stopped, unless a turn is stil
   const live = running.items[1];
   expect(live.kind === 'agent' && live.steps.map((s) => s.status)).toEqual(['failed', 'running']);
 });
+
+// I1(재확인 리뷰): 되풀이 실패로 끝난 턴의 글은 서버가 도구 id 를 「」로 싸 보낸다 — 화면은 한글 이름으로 바꿔 보인다.
+test('a repeated-failure stop names the tool by its Korean label', () => {
+  const message = '「schedule.import」 — 같은 요청이 같은 까닭으로 거듭 실패해 멈췄습니다. 까닭: 가져오려면 분야를 정해 주세요.';
+  const t = run([
+    ['tool_start', { call_id: 'c1', tool: 'schedule.import' }],
+    ['error', { code: 'repeated_failure', tool: 'schedule.import', message }],
+  ]);
+  const agent = t.items.at(-1)!;
+  const err = agent.kind === 'agent' ? agent.parts.find((p) => p.type === 'error') : undefined;
+  expect(err?.type === 'error' && err.message).toBe('「공정표 가져오기」 — 같은 요청이 같은 까닭으로 거듭 실패해 멈췄습니다. 까닭: 가져오려면 분야를 정해 주세요.');
+});

@@ -70,6 +70,12 @@ ROLE_REFUSED = ("이 계정(현장 관리자)은 새 일정을 만들 수 없고
                 "말고, 할 수 없는 일을 사용자에게 분명히 말한 뒤 턴을 끝내세요 — 예: 「이 계정으로는 새 일정을 만들 수 없습니다.」")
 FAILING_AGAIN = ("같은 도구 `{}`를 같은 인자로 이미 {}번 불렀고 매번 같은 까닭으로 실패했습니다: {} "
                  "이 호출은 실행하지 않았습니다. 인자를 바꿔 부르거나, 멈추고 그 까닭을 사용자에게 알리세요.")
+ROLE_FAILING_AGAIN = ("도구 `{}`는 이 계정으로는 할 수 없는 일이라 이미 {}번 거절됐습니다: {} 이 호출은 실행하지 않았습니다. "
+                      "다시 부르지 말고, 이 계정으로는 할 수 없다고 사용자에게 알린 뒤 턴을 끝내세요.")
+ROLE_ERRORS = frozenset({FIELD_READ_ONLY_MESSAGE})  # 역할 거절(인자를 바꿔도 소용없다)
+# 가드가 거절한 같은 호출이 또 오면 모델을 더 부르지 않고 턴을 끝낸다 — 사용자에게 보이는 글(「도구 id」는 화면이 한글 이름으로 바꾼다)
+REPEAT_STOPPED = "「{}」 — 같은 요청이 같은 까닭으로 거듭 실패해 멈췄습니다. 까닭: {}"
+ROLE_STOPPED = "「{}」 — 이 계정으로는 할 수 없는 요청이라 거듭 거절되어 멈췄습니다. 까닭: {}"
 IMPORT_AGAIN = "이번 턴에 이 파일(#{})은 이미 가져왔습니다. 다시 부르지 말고 받은 결과를 사용자에게 알리세요."
 ASKED_AGAIN = ("이번 턴에 이 파일(#{})은 빈 칸을 물을 질문지를 열었습니다(아직 가져오지 않았습니다). 다시 부르지 말고 "
                "질문지에 답해 달라고 말한 뒤 턴을 끝내세요 — 제출되면 answers·assumed 를 넣어 다시 부릅니다.")
@@ -205,6 +211,7 @@ class _Turn:
         self.refused: str | None = None  # 지금 도구를 실행하지 않은 까닭(같은 가져오기·확인 되풀이, 같은 실패 되풀이)
         self.ran = False  # 지금 도구를 실제로 실행했는가(거절한 호출은 실패 횟수에 넣지 않는다)
         self.failures: dict[tuple[str, str], tuple[str, int]] = {}  # 이 턴: (도구, 인자) → (마지막 오류, 연달아 같은 오류 수)
+        self.guard_refused: set[tuple[str, str]] = set()  # 이 턴에 되풀이 실패로 한 번 거절한 (도구, 인자)
 
     # ── 시작·끝 ──
 
@@ -325,6 +332,9 @@ class _Turn:
                     yield AgentEvent("text", {"text": text})
                 for call in calls:
                     if self.stopping():
+                        return
+                    if self._call_key(call) in self.guard_refused:  # 거절한 같은 호출이 또 왔다 — 모델을 더 부르지 않는다
+                        self.outcome = self._repeat_stopped(call)
                         return
                     for event in self.start_tool(call, reply, text):
                         yield event
@@ -513,9 +523,20 @@ class _Turn:
         self.failures[key] = (error, n + 1 if error == last else 1)
 
     def _failing_again(self, call: _Call) -> str | None:
-        """이 턴에 같은 도구·같은 인자가 같은 까닭으로 FAILS_BEFORE_STOP 번 실패했으면 실행하지 않을 까닭. 아니면 None."""
-        error, n = self.failures.get(self._call_key(call), ("", 0))
-        return FAILING_AGAIN.format(call.name, n, error) if n >= FAILS_BEFORE_STOP else None
+        """이 턴에 같은 도구·같은 인자가 같은 까닭으로 FAILS_BEFORE_STOP 번 실패했으면 실행하지 않을 까닭(거절했다고 적어 둔다).
+        역할 거절이면 인자를 바꾸라고 하지 않는다. 아니면 None."""
+        key = self._call_key(call)
+        error, n = self.failures.get(key, ("", 0))
+        if n < FAILS_BEFORE_STOP:
+            return None
+        self.guard_refused.add(key)
+        return (ROLE_FAILING_AGAIN if error in ROLE_ERRORS else FAILING_AGAIN).format(call.name, n, error)
+
+    def _repeat_stopped(self, call: _Call) -> _Outcome:
+        """거절한 같은 호출이 또 와서 턴을 끝낸다(끝 까닭 repeated_failure). 글은 코드가 쓴다 — 도구와 마지막 실패 까닭."""
+        error, _ = self.failures.get(self._call_key(call), ("", 0))
+        message = (ROLE_STOPPED if error in ROLE_ERRORS else REPEAT_STOPPED).format(call.name, error)
+        return _Outcome("failed", {"code": "repeated_failure", "message": message, "tool": call.name})
 
     def note_import(self, call: _Call, result: registry.ToolResult) -> None:
         """성공한 schedule.import 가 무엇을 했는지 적는다: 확인 · 질문지만 엶 · 초안 없음 · 가져옴(초안을 만듦)."""
