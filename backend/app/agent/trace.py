@@ -210,7 +210,7 @@ def _count_parts(
         "지시문": len(context.system_prompt(guides, active_domains=active_domains)) - len(knowledge) - len(levels),
         "분야 지식": len(knowledge),
         "정밀도": len(levels),
-        "지금 상황": len(context.situation(session, user, ui)) + (len(older) + 2 if older else 0),
+        "지금 상황": len(context.situation(session, user, ui, chat_session_id=chat_session_id)) + (len(older) + 2 if older else 0),
         "붙인 파일": len(attached) + 1 if attached else 0,
         "날짜 도우미": len("\n".join(context.date_helper(rows, context.today()))),
         "대화": len(json.dumps(context.history(rows), ensure_ascii=False)),

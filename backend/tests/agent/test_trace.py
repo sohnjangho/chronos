@@ -18,7 +18,7 @@ from app.agent.trace import (
     context_parts,
 )
 from app.llm.client import LlmClient
-from app.store import chats
+from app.store import approvals, chats
 from app.store.tables import ChatMessage, TraceEvent, User, WorkflowRun
 from app.tools import registry
 from tests.llm_doubles import KEY, FakeLiner, add_connection, chat_body
@@ -231,6 +231,21 @@ def test_context_parts_add_up_to_what_the_model_sees(session, admin_user, chat_i
     assert parts["지금 상황"] == len(context.situation(session, admin_user, ui))
     assert parts["대화"] == len(json.dumps(messages[1:], ensure_ascii=False))
     assert parts["도구 목록"] == len(json.dumps(tools, ensure_ascii=False))
+
+
+def test_situation_count_includes_this_chats_approvals_line(session, admin_user, chat_id, sid):
+    """A5 후속: 지금 상황에 이 대화 승인 건 줄이 붙으면 개발자 콘솔의 글자 수도 그 줄까지 센다."""
+    approvals.create(
+        session, kind="rule", title="내 규칙 저장 — 타설 전날 알림", reasons_json=["rule_save"], schedule_id=None,
+        draft_id=None, base_version=0, summary_json={}, diff_json=[], snapshot_json={}, conditions_json=[],
+        changes_json=[], status="pending", request="", chat_session_id=chat_id, requested_by="관리자", link_kind="rule",
+    )
+    session.commit()
+    ui = UiContext("schedule", sid, None)
+    parts = {p["name"]: p["chars"] for p in context_parts(session, admin_user, chat_id, ui, [])}
+    seen = context.situation(session, admin_user, ui, chat_session_id=chat_id)
+    assert "이 대화의 승인 건" in seen
+    assert parts["지금 상황"] == len(seen)
 
 
 # ── 글 자르기 ───────────────────────────────────────────────────────
