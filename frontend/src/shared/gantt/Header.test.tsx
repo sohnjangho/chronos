@@ -66,3 +66,64 @@ test('a mark that would run past the right edge is written leftwards from its li
   expect(data).toHaveAttribute('x', '43');
   expect(data.getAttribute('text-anchor') ?? 'start').toBe('start');
 });
+
+// 재확인 ④: 휴대폰(390px) 간트 머리에서 「Data Date 04.17」과 「준공 기한 12.24」가 겹쳐 「Data D준공 기한12.24」로 보였다.
+// 겹치면 덜 중요한 것부터 날짜만 남기고(전체 이름은 title), 둘 다 읽히게 — 이름표 자리는 서로 겹치지 않는다.
+const textW = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 11 : 7), 8);
+function boxes(c: HTMLElement) {
+  return [...c.querySelectorAll<SVGTextElement>('.gantt-mark')].map((el) => {
+    const x = Number(el.getAttribute('x'));
+    const w = textW(el.lastChild!.textContent!);
+    return el.getAttribute('text-anchor') === 'end' ? [x + 3 - w, x + 3] : [x - 3, x - 3 + w];
+  });
+}
+const apart = (bs: number[][]) => bs.every((a, i) => bs.every((b, j) => i === j || a[1] <= b[0] || b[1] <= a[0]));
+
+test('phone width: Data Date and the deadline label never overlap and both stay readable', () => {
+  // 휴대폰 간트 차트 폭(약 165px), Data Date 30 · 준공 기한 162(오른쪽 끝) — 재확인 RC-7 의 자리
+  const { container } = render(
+    <Header
+      scale={makeScale('2027-03-01', '2027-12-31', 165, 0)}
+      marks={[
+        { key: 'data', x: 30, label: 'Data Date 04.17', tone: 'data' },
+        { key: 'deadline', x: 162, label: '준공 기한 12.24', tone: 'deadline', title: '준공 2027-12-24까지 — 준공 기한 2027.12.24' },
+      ]}
+    />,
+  );
+  const data = container.querySelector('[data-mark="data"]')!;
+  const due = container.querySelector('[data-mark="deadline"]')!;
+  expect(data.lastChild!.textContent).toMatch(/04\.17$/);
+  expect(due.lastChild!.textContent).toMatch(/12\.24$/);
+  expect(apart(boxes(container))).toBe(true);
+  expect(due.querySelector('title')).toHaveTextContent('준공 기한 2027.12.24');
+});
+
+test('when there is room for one full label, the Data Date keeps its name and the deadline shows the date', () => {
+  const { container } = render(
+    <Header
+      scale={makeScale('2027-03-01', '2027-12-31', 220, 0)}
+      marks={[
+        { key: 'data', x: 30, label: 'Data Date 04.17', tone: 'data' },
+        { key: 'deadline', x: 215, label: '준공 기한 12.24', tone: 'deadline' },
+      ]}
+    />,
+  );
+  expect(container.querySelector('[data-mark="data"]')).toHaveTextContent('Data Date 04.17');
+  const due = container.querySelector('[data-mark="deadline"]')!;
+  expect(due.lastChild!.textContent).toBe('12.24');
+  expect(due.querySelector('title')).toHaveTextContent('준공 기한 12.24'); // 줄인 이름표는 전체 이름을 title 로
+  expect(apart(boxes(container))).toBe(true);
+});
+
+test('labels far apart keep their full names', () => {
+  const { container } = render(
+    <Header
+      scale={makeScale('2027-03-01', '2027-12-31', 1200, 0)}
+      marks={[
+        { key: 'data', x: 160, label: 'Data Date 04.17', tone: 'data' },
+        { key: 'deadline', x: 1180, label: '준공 기한 12.24', tone: 'deadline' },
+      ]}
+    />,
+  );
+  expect([...container.querySelectorAll('.gantt-mark')].map((e) => e.textContent)).toEqual(['Data Date 04.17', '준공 기한 12.24']);
+});
