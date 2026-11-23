@@ -1064,6 +1064,62 @@ def test_timed_out_connection_check_leaves_status_unchanged(client, admin, fake_
     assert client.get(f"{BASE}/{cid}/voice", headers=admin).json()["status"] == "ok"
 
 
+@pytest.mark.parametrize("start", ["ok", "failed"])
+@pytest.mark.parametrize(("then", "status"), [
+    ({5: ("bad_key", False), 11: ("skipped_not_connected", True)}, "failed"),  # 연결이 분명히 실패 — 남은 「확인 필요」가 막지 않는다
+    ({11: ("bad_number", False)}, "failed"),
+    ({}, "ok"),  # P5·P11 이 분명히 성공 — 돌리지 않은 P6 의 묵은 「확인 필요」가 끌어내리지 않는다
+])
+def test_stale_pending_call_step_does_not_block_a_later_connection_verdict(client, admin, fake_provider, monkeypatch,
+                                                                           start, then, status):
+    conn = ready(client, admin)
+    cid = conn["id"]
+    first = {} if start == "ok" else {5: row(5, "bad_key", "API 키가 맞지 않습니다.")}
+    monkeypatch.setattr(dv, "run_voice_checks", Spy(first))
+    assert diag(client, admin, cid, {}).status_code == 200
+
+    async def hang(_seen) -> None:
+        await asyncio.wait_for(asyncio.Event().wait(), 5)
+
+    monkeypatch.setattr(voice, "_ceiling", lambda steps, wait: 0.3)
+    monkeypatch.setattr(dv, "run_voice_checks", Spy(during=hang))
+    cut = diag(client, admin, cid, call_body(conn)).json()  # 시험 전화가 상한에 걸렸다 — P5·P11·P6 모두 「확인 필요」
+    assert all({s["id"]: s for s in cut["steps"]}[i]["pending"] for i in ("P5", "P11", "P6"))
+    was = client.get(f"{BASE}/{cid}/voice", headers=admin).json()
+    assert was["status"] == start
+
+    made = {n: row(n, code, "결과입니다.", skipped=skipped) for n, (code, skipped) in then.items()}
+    monkeypatch.setattr(dv, "run_voice_checks", Spy(made))
+    r = diag(client, admin, cid, {})  # 연결 진단은 P6 을 다시 돌리지 않는다
+    rows = {s["id"]: s for s in r.json()["steps"]}
+    assert rows["P6"]["pending"] is True and rows["P5"]["pending"] is False
+    now = client.get(f"{BASE}/{cid}/voice", headers=admin).json()
+    assert now["status"] == status and now["checked_at"] == r.json()["ran_at"] != was["checked_at"]
+
+
+def test_status_truth_table():
+    def lines(p5: str, p11: str, p6: str) -> list[dict]:
+        made = {"ok": {"code": "ok", "ok": True}, "fail": {"code": "bad_key"}, "pending": {"code": "timeout", "pending": True},
+                "skipped": {"code": "skipped_not_connected", "skipped": True}}
+        out = [voice._never(n) for n in dv.STEPS]
+        for n, kind in ((5, p5), (11, p11), (6, p6)):
+            if kind != "never":
+                out[n - 5] = voice._line(n, ran_at="2026-11-24T00:00:00+00:00", detail="글", **made[kind])
+        return out
+
+    table = {  # (P5, P11, P6) → 상태. None = 앞 값 그대로
+        ("fail", "ok", "pending"): "failed", ("fail", "pending", "pending"): "failed", ("ok", "fail", "pending"): "failed",
+        ("pending", "pending", "fail"): "failed", ("pending", "fail", "never"): "failed", ("ok", "ok", "fail"): "failed",
+        ("ok", "ok", "ok"): "ok", ("ok", "ok", "pending"): "ok", ("ok", "pending", "pending"): "ok", ("ok", "ok", "never"): "ok",
+        ("ok", "ok", "skipped"): "ok",
+        ("pending", "pending", "pending"): None, ("pending", "ok", "ok"): None, ("pending", "pending", "never"): None,
+        ("never", "never", "pending"): None, ("skipped", "pending", "never"): None,
+        ("never", "never", "never"): "unknown", ("never", "never", "ok"): "unknown", ("skipped", "skipped", "skipped"): "unknown",
+    }
+    for (p5, p11, p6), expected in table.items():
+        assert voice._status(lines(p5, p11, p6)) == expected, (p5, p11, p6)
+
+
 def test_ceilings_come_from_the_diagnostics_caps():
     link = diagnostics.RESOLVE_TIMEOUT_S + dv.CONNECT_TIMEOUT_S
     close = 2 * dv.HANGUP_TIMEOUT_S + dv.END_GRACE_S

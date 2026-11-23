@@ -610,14 +610,23 @@ def _steps(record: dict, fresh: dict[int, dict] | None = None) -> list[dict]:
 
 
 def _status(steps: list[dict]) -> str | None:
-    """걸음마다의 마지막 결과 가운데 연결(P5)·번호 묶기(P11)·통화(P6)로 정한다. 셋 가운데 결과를 확인하지 못한 줄(`pending` —
-    시간 상한에 걸림)이 있으면 None: 모르는 결과로 상태를 바꾸지 않는다."""
-    judged = [line for line in steps if line["id"] in ("P5", "P11", "P6")]
-    if any(line["pending"] for line in judged):
-        return None
-    if any(line["ran_at"] and not line["ok"] and not line["skipped"] for line in judged):
+    """걸음마다의 마지막 결과 가운데 연결(P5)·번호 묶기(P11)·통화(P6)로 정한다. 결과를 확인하지 못한 줄(`pending` — 시간 상한)은
+    판정에서 뺀다 — 실패로도 성공으로도 세지 않고, 이번에 돌리지 않은 걸음의 묵은 `pending` 이 분명한 결과를 막지도 않는다.
+
+    | 남은(pending 아닌) P5·P11·P6 가운데 분명한 실패 | P5        | 결과                 |
+    | 있음                                           | 무엇이든  | "failed"             |
+    | 없음                                           | 성공      | "ok"                 |
+    | 없음                                           | pending   | None(앞 값 그대로)   |
+    | 없음                                           | 돌린 적 없음·건너뜀, 셋 가운데 pending 있음 | None(앞 값 그대로) |
+    | 없음                                           | 돌린 적 없음·건너뜀, pending 없음           | "unknown"          |
+    """
+    judged = {line["id"]: line for line in steps if line["id"] in ("P5", "P11", "P6")}
+    definite = [line for line in judged.values() if not line["pending"]]
+    if any(line["ran_at"] and not line["ok"] and not line["skipped"] for line in definite):
         return "failed"
-    return "ok" if steps[0]["ok"] else "unknown"
+    if judged["P5"]["ok"]:
+        return "ok"
+    return None if len(definite) < len(judged) else "unknown"
 
 
 def _closed(record: dict, stamp: str = "", outcome: str | None = None) -> dict:
