@@ -1,0 +1,70 @@
+/* 「알림 연결」: 카드 안 진단 결과·실제 문자 켬·아래 칸(발신번호·시험 모드·권한·상한·자리). 색·글꼴은 tokens.css 변수만. */
+.st-nt .st-card { min-width: 0; }
+.st-nt-facts { grid-template-columns: 82px minmax(0, 1fr); }
+.st-nt-facts dd { font-variant-numeric: tabular-nums; }
+
+/* ── 실제 문자 1건 켬 + [시험 문자] + 까닭 줄 ── */
+.st-nt-real { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-3); background: var(--bg-panel-alt); }
+.st-nt-real-why { flex: 1 1 100%; overflow-wrap: anywhere; }
+.st-nt-switch { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-13); color: var(--fg); cursor: pointer; overflow-wrap: anywhere; }
+.st-nt-switch input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.st-nt-switch:has(input:disabled) { cursor: default; color: var(--fg-muted); }
+
+/* ── 연결 진단 결과: 걸음마다 한 줄, 메모는 접어서 ── */
+.st-nt-diag { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding-top: 10px; border-top: 1px solid var(--bg-app); }
+.st-nt-diag-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.st-nt-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; min-width: 0; }
+.st-nt-steps > li { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 5px 0; border-top: 1px solid var(--bg-app); }
+.st-nt-steps > li:first-child { border-top: 0; }
+.st-nt-step { display: flex; align-items: baseline; gap: 6px 8px; min-width: 0; font-size: var(--fs-13); }
+.st-nt-step-id { flex: none; width: 22px; font-variant-numeric: tabular-nums; }
+.st-nt-step .ui-badge { flex: none; min-width: 38px; text-align: center; }
+.st-nt-step-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.st-nt-step-text .st-muted { font-size: var(--fs-13); }
+.st-nt-step .st-count { flex: none; }
+.st-nt-notes { margin-left: 30px; min-width: 0; font-size: var(--fs-12); color: var(--fg-muted); }
+.st-nt-notes summary { cursor: pointer; }
+.st-nt-notes > div {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fs-11);
+  padding: 1px 0 1px 8px;
+  border-left: 2px solid var(--border);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ── 아래 칸: 묶음마다 제목 한 줄 ── */
+.st-nt-policy { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-top: 10px; border-top: 1px solid var(--border); }
+.st-nt-group { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-3); }
+.st-nt-group h4 { margin: 0; font-size: var(--fs-13); font-weight: 700; }
+.st-nt-group .ui-field { max-width: 360px; }
+.st-nt-limits > summary { cursor: pointer; font-size: var(--fs-13); font-weight: 700; overflow-wrap: anywhere; }
+.st-nt-limits[open] > summary { margin-bottom: 4px; }
+
+/* 허용 번호 */
+.st-nt-allow { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; min-width: 0; }
+.st-nt-allow > li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; padding: 4px 0; border-top: 1px solid var(--bg-app); }
+.st-nt-allow > li:first-child { border-top: 0; }
+.st-nt-num { font-variant-numeric: tabular-nums; font-size: var(--fs-13); }
+.st-nt-add { display: flex; gap: 6px; align-items: center; min-width: 0; max-width: 360px; }
+.st-nt-add .st-search { flex: 1 1 auto; min-width: 0; width: auto; }
+.st-nt-filter.st-search { flex: 1 1 200px; width: auto; max-width: 280px; }
+
+/* 에이전트 발송 권한: 줄마다 이름 · 승인 받기 | 위임 */
+.st-nt-perm { display: grid; grid-template-columns: 70px auto minmax(0, 1fr); align-items: center; gap: 4px 12px; min-width: 0; }
+.st-nt-perm-label { font-size: var(--fs-13); }
+.st-nt-perm-why { grid-column: 2 / -1; overflow-wrap: anywhere; }
+.st-nt-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-3); overflow: hidden; }
+.st-nt-seg-item { position: relative; display: flex; align-items: center; padding: 4px 12px; cursor: pointer; font-size: var(--fs-12); color: var(--fg); white-space: nowrap; }
+.st-nt-seg-item + .st-nt-seg-item { border-left: 1px solid var(--border-strong); }
+.st-nt-seg-item input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.st-nt-seg-item:has(input:checked) { background: var(--bg-selected); color: var(--tone-info-fg); font-weight: 700; }
+.st-nt-seg-item:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.st-nt-seg-item:has(input:disabled) { cursor: default; color: var(--fg-muted); }
+.st-nt-seg-item:has(input:disabled:checked) { background: var(--bg-app); color: var(--fg-muted); }
+
+@container st-main (max-width: 520px) {
+  .st-nt-perm { grid-template-columns: minmax(0, 1fr); }
+  .st-nt-perm-why { grid-column: 1; }
+  .st-nt-facts { grid-template-columns: 74px minmax(0, 1fr); }
+}

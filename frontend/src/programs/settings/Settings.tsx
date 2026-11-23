@@ -6,6 +6,7 @@ import AppearanceSection from './AppearanceSection';
 import ApprovalSection, { MeSection } from './ApprovalSection';
 import InfoSection from './InfoSection';
 import LlmSection, { AssignSection } from './LlmSection';
+import NotifySection from './NotifySection';
 import { resolveSection, visibleSections, type SectionId } from './model';
 import SchedulePrefsSection from './SchedulePrefsSection';
 import './settings.css';
@@ -16,6 +17,7 @@ const VIEWS: Record<SectionId, () => ReactNode> = {
   prefs: () => <SchedulePrefsSection />,
   llm: () => <LlmSection />,
   info: () => <InfoSection />,
+  notify: () => <NotifySection />,
   assign: () => <AssignSection />,
   account: () => <AccountSection />,
   approval: () => <ApprovalSection />,
@@ -27,6 +29,7 @@ const ICON_PATHS: Record<SectionId, string[]> = {
   prefs: ['M4 6h16', 'M4 12h10', 'M4 18h14', 'M18 10v8'],
   llm: ['M7 7h10v10H7z', 'M9.5 4v3', 'M14.5 4v3', 'M9.5 17v3', 'M14.5 17v3'],
   info: ['M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z', 'M12 10.5v5.5', 'M12 8h.01'],
+  notify: ['M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5H5l1.5-1.5z', 'M10 20.5a2 2 0 0 0 4 0'],
   assign: ['M4 7h6', 'M14 7h6', 'M10 7a2 2 0 1 0 4 0', 'M4 17h10', 'M18 17h2', 'M14 17a2 2 0 1 0 4 0'],
   account: ['M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M4 18.5c1-2.5 2.8-3.5 5-3.5s4 1 5 3.5', 'M16.5 9.5v4', 'M14.5 11.5h4'],
   approval: ['M12 4l6 2.5v5.5c0 4-2.5 6.8-6 8-3.5-1.2-6-4-6-8V6.5L12 4z', 'M9.5 12l1.8 1.8 3.2-3.6'],

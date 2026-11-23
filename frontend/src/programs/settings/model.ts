@@ -143,7 +143,7 @@ export const APPROVAL_MODES: { value: ApprovalMode; label: string; desc: string 
 
 export const approvalLabel = (m: ApprovalMode) => APPROVAL_MODES.find((x) => x.value === m)?.label ?? m;
 
-export type SectionId = 'me' | 'appearance' | 'prefs' | 'llm' | 'info' | 'assign' | 'account' | 'approval';
+export type SectionId = 'me' | 'appearance' | 'prefs' | 'llm' | 'info' | 'notify' | 'assign' | 'account' | 'approval';
 
 /** 설정 구역. 차례는 왼쪽 목록·메뉴 차례. */
 export const SECTIONS: { id: SectionId; label: string; desc: string; adminOnly: boolean }[] = [
@@ -152,6 +152,7 @@ export const SECTIONS: { id: SectionId; label: string; desc: string; adminOnly: 
   { id: 'prefs', label: '차트 · 표 기본값', desc: '간트 차트 막대 색상과 표·간트 열 레이아웃을 설정합니다.', adminOnly: false },
   { id: 'llm', label: 'LLM 연결', desc: 'AI 모델 제공자 연결 상태와 사용 가능한 모델을 관리합니다.', adminOnly: true },
   { id: 'info', label: '정보 API 연결', desc: '기상청 등 외부 근거 API 키와 서비스 상태를 관리합니다.', adminOnly: true },
+  { id: 'notify', label: '알림 연결', desc: '협력사에게 문자·전화를 보내는 연결 키, 시험 모드·상한·발송 권한을 관리합니다.', adminOnly: true },
   { id: 'assign', label: '작업별 모델 배정', desc: '에이전트의 6가지 작업 쓰임새마다 모델과 라우팅 기준을 지정합니다.', adminOnly: true },
   { id: 'account', label: '계정 (관리자·사용자)', desc: '작업 공간 사용자 계정을 추가하거나 권한을 관리합니다.', adminOnly: true },
   { id: 'approval', label: '승인 수준', desc: '일정 변경 승인 정책과 개발 콘솔의 에이전트 설정 연동을 확인합니다.', adminOnly: true },
