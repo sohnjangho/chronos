@@ -15,7 +15,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agent import context
-from app.agent.proposals import Proposal, ProposalError, propose
+from app.agent.proposals import (
+    Proposal,
+    ProposalError,
+    actual_dates_problem,
+    actuals_blocked,
+    propose,
+)
 from app.core.calendar import NoWorkdayError, WorkCalendar
 from app.core.cpm import ScheduleError
 from app.core.model import Activity, Schedule
@@ -612,6 +618,8 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
         new_acts.append(replace(a, progress=progress_frac, rd=rd_val, actual_start=actual_start, actual_finish=actual_finish))
 
     after = replace(before, data_date=data_date, activities=tuple(new_acts))
+    if (problem := actual_dates_problem(before, after)) is not None:  # Data Date 뒤·착공일 앞 실적은 올리지 않는다
+        raise ApiError(422, "actual_dates", actuals_blocked(after, problem))
     approval_row = None
     try:
         res = propose(

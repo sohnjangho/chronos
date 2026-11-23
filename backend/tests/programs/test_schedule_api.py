@@ -662,3 +662,15 @@ def test_first_save_approval_binds_chat_session_schedule_id(client, admin, sessi
     assert body["schedule_id"] is not None
     chat_detail = client.get(f"/api/chat/sessions/{chat.id}", headers=admin).json()
     assert chat_detail["schedule_id"] == body["schedule_id"]
+
+
+# ── 재확인 2: 표에서 고친 실적 날짜도 Data Date 뒤·착공일 앞이면 저장하지 않는다 ─────────────────
+@pytest.mark.parametrize(("body", "why"), [
+    ({"actual_start": "2027-02-26"}, "A 실제 시작 2027-02-26 — 착공일 2027-03-01 앞"),
+    ({"actual_start": "2027-03-01", "actual_finish": "2027-03-08"}, "A 실제 종료 2027-03-08 — Data Date 뒤"),
+])
+def test_table_edit_of_actual_dates_follows_the_data_date_and_the_project_start(client, admin, sid, body, why):
+    assert client.patch(f"/api/schedules/{sid}", json={"data_date": "2027-03-04", "base_version": 1}, headers=admin).status_code == 200
+    r = _patch(client, admin, sid, "A", 2, **body)
+    assert r.status_code == 422 and r.json()["code"] == "actual_dates" and why in r.json()["message"]
+    assert client.get(f"/api/schedules/{sid}", headers=admin).json()["version"] == 2

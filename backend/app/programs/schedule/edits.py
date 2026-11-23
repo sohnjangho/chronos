@@ -9,6 +9,7 @@ from dataclasses import replace
 from datetime import date
 from typing import Any, NamedTuple
 
+from app.agent.proposals import actual_dates_problem, actuals_invalid
 from app.core.model import Activity, Relation, Schedule
 from app.errors import ApiError
 from app.programs.schedule.schemas import ActivityCreate, RelationIn
@@ -93,6 +94,9 @@ def patch_activity(schedule: Schedule, aid: str, fields: dict[str, Any]) -> Edit
     new = activity_from_json({**old, **fields})
     _check(schedule, new, set(fields))
     acts = tuple(new if a.id == aid else a for a in schedule.activities)
+    edited = replace(schedule, activities=acts)
+    if (problem := actual_dates_problem(schedule, edited)) is not None:  # Data Date 뒤·착공일 앞 실적(재확인 2)
+        raise ApiError(422, "actual_dates", actuals_invalid(edited, problem))
     note = f"{aid} " + ", ".join(
         f"{LABELS[c['field']]} {_show(c['from'], c['field'])} → {_show(c['to'], c['field'])}"
         for c in changes

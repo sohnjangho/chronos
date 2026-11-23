@@ -36,6 +36,9 @@ NO_CHANGE_MESSAGE = "바뀌는 것이 없습니다."
 USED_DRAFT_MESSAGE = "이미 저장한 초안입니다."
 SCENARIO_STALE_MESSAGE = "기준 일정이 바뀌었습니다. 복사본을 다시 만들어 주세요."
 SCENARIO_LOCKED_MESSAGE = "승인을 기다리거나 반영되었거나 버린 복사본은 낼 수 없습니다."
+# 실적 날짜 규칙(재확인 2): 실제 시작·종료는 Data Date 뒤일 수 없고, 실제 시작은 착공일 앞일 수 없다.
+ACTUALS_INVALID = "실제 날짜가 Data Date({})·착공일({})과 맞지 않아 넣을 수 없습니다: {}"
+ACTUALS_BLOCKED = "실제 날짜가 Data Date({})와 맞지 않아 반영할 수 없습니다 — 현장에서 다시 올려 주세요. ({})"
 FIELD_WAITS_NOTE = "현장 관리자가 올린 건이라 승인 수준과 상관없이 승인을 기다립니다 — 승인되기 전에는 일정이 바뀌지 않습니다."
 
 
@@ -68,9 +71,11 @@ class ProposalResult:
 
 
 class ProposalError(Exception):
-    """code: schedule_invalid(계산 안 됨) | no_change | stale(그 사이 버전이 바뀜) | draft_used. message 는 한국어."""
+    """code: schedule_invalid(계산 안 됨) | no_change | stale(그 사이 버전이 바뀜) | draft_used |
+    actual_dates(실적 날짜 규칙 위반, actual_dates_problem). message 는 한국어."""
 
-    def __init__(self, code: Literal["schedule_invalid", "no_change", "stale", "draft_used"], message: str) -> None:
+    def __init__(self, code: Literal["schedule_invalid", "no_change", "stale", "draft_used", "actual_dates"],
+                 message: str) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
@@ -85,6 +90,37 @@ class ScenarioError(Exception):
         self.message = message
 
 
+def actual_dates_problem(before: Schedule | None, after: Schedule) -> str | None:
+    """바뀐(또는 새로 생긴) 실적 날짜 가운데 Data Date 뒤인 것(실제 시작·종료)과 착공일 앞인 것(실제 시작)을 한 줄로.
+    없으면 None. 바뀌지 않은 실적은 보지 않는다(예전 자료 때문에 다른 변경까지 막지 않게)."""
+    old = {a.id: a for a in before.activities} if before is not None else {}
+    bad: list[str] = []
+    for a in after.activities:
+        o = old.get(a.id)
+        for label, day, prev in (("실제 시작", a.actual_start, o.actual_start if o else None),
+                                 ("실제 종료", a.actual_finish, o.actual_finish if o else None)):
+            if day is None or day == prev:
+                continue
+            if after.data_date is not None and day > after.data_date:
+                bad.append(f"{a.id} {label} {day.isoformat()} — Data Date 뒤")
+            elif label == "실제 시작" and day < after.start:
+                bad.append(f"{a.id} {label} {day.isoformat()} — 착공일 {after.start.isoformat()} 앞")
+    if not bad:
+        return None
+    return ", ".join(bad[:3]) + (f" 외 {len(bad) - 3}건" if len(bad) > 3 else "")
+
+
+def actuals_invalid(after: Schedule, problem: str) -> str:
+    """일정 변경 길(propose·표 고치기·실적 도구)의 거절 글."""
+    dd = after.data_date.isoformat() if after.data_date else "없음"
+    return ACTUALS_INVALID.format(dd, after.start.isoformat(), problem)
+
+
+def actuals_blocked(after: Schedule, problem: str) -> str:
+    """현장 반영·승인 결정의 거절 글(현장에서 다시 올리라고)."""
+    return ACTUALS_BLOCKED.format(after.data_date.isoformat() if after.data_date else "없음", problem)
+
+
 def _effective(stored: list[dict]) -> dict[str, tuple]:
     """조립한 조건을 id → (종류, 값, 켜짐) 으로(차례·글·진 표시와 상관없이 비교하려고)."""
     return {c.id: (c.kind, c.params, c.enabled) for c in assemble_all(read_conditions(stored)[0])}
@@ -96,7 +132,9 @@ def unchanged(before: Schedule, before_conditions: list[dict], after: Schedule, 
 
 
 def _assess(session: Session, p: Proposal) -> tuple[Assessment, list[dict], str]:
-    """(사유를 더하기 전 판단, 변경 이력, 승인 수준). 계산이 안 되거나 바뀌는 것이 없으면 ProposalError."""
+    """(사유를 더하기 전 판단, 변경 이력, 승인 수준). 계산이 안 되거나 바뀌는 것이 없거나 실적 날짜 규칙을 어기면 ProposalError."""
+    if (problem := actual_dates_problem(p.before, p.after)) is not None:
+        raise ProposalError("actual_dates", actuals_invalid(p.after, problem))
     try:
         run(p.after, p.after_conditions)  # 화면과 같은 계산이 되는지
     except ScheduleError as e:

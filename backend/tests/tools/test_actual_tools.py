@@ -74,6 +74,13 @@ async def test_actual_after_data_date_is_refused(ctx_ab, session, sid_ab):
     assert current_version(session, sid_ab) == 1
 
 
+async def test_actual_start_before_the_project_start_is_refused(ctx_ab, session, sid_ab):
+    """재확인 2: 실제 시작은 착공일(2027-03-01) 앞일 수 없다 — 일정 변경의 공통 길(propose)이 막는다."""
+    r = await call("schedule.record_actual", {"activity_id": "A", "actual_start": "2027-02-20", "data_date": DD}, ctx_ab)
+    assert not r.ok and "착공일 2027-03-01 앞" in r.error
+    assert current_version(session, sid_ab) == 1
+
+
 async def test_done_without_finish_uses_data_date(ctx_ab):
     o = await record({"activity_id": "A", "progress": 1, "data_date": DD}, ctx_ab)
     assert o["activity"]["actual_finish"] == DD and o["activity"]["progress"] == 1

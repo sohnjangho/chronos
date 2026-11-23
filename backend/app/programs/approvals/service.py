@@ -10,6 +10,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agent.proposals import actual_dates_problem, actuals_blocked
 from app.errors import ApiError
 from app.programs.approvals.schemas import (
     ApprovalDetail,
@@ -22,6 +23,7 @@ from app.programs.approvals.schemas import (
 )
 from app.programs.progress.field import legacy_photo
 from app.store import approvals, chats, links
+from app.store.schedules import NotFound, from_json, load
 from app.store.settings import approval_mode, set_approval_mode
 from app.store.tables import Approval, FieldItem, User
 from app.store.versions import VersionConflict
@@ -60,7 +62,24 @@ def _blocked(session: Session, row: Approval) -> str | None:
     """반영할 수 없는 까닭. 이 건을 낸 사진 항목이 예전 방식(F1 이전, 지어낸 숫자)이면(재확인 #14) — 현장 허브와 같은 기준
     (progress.field.legacy_photo). 새 방식이 읽지 못해 사람이 손으로 넣은 것은 막지 않는다. 저장된 줄은 바꾸지 않는다."""
     photo = session.scalars(select(FieldItem).where(FieldItem.approval_id == row.id, FieldItem.kind == "photo")).first()
-    return OLD_PHOTO_MESSAGE if photo is not None and legacy_photo(photo) else None
+    if photo is not None and legacy_photo(photo):
+        return OLD_PHOTO_MESSAGE
+    return _actuals_blocked(session, row)
+
+
+def _actuals_blocked(session: Session, row: Approval) -> str | None:
+    """반영하면 실적 날짜가 Data Date 뒤이거나 실제 시작이 착공일 앞이 되는 건(재확인 2, #13·#18)의 까닭. 규칙 건은 일정이 없다."""
+    if row.kind == "rule" or not row.snapshot_json:
+        return None
+    before = None
+    if row.kind == "change":
+        try:
+            before = load(session, row.schedule_id, row.base_version)[0]
+        except NotFound:
+            before = None
+    after = from_json(row.snapshot_json)
+    problem = actual_dates_problem(before, after)
+    return actuals_blocked(after, problem) if problem is not None else None
 
 
 def detail(session: Session, approval_id: int) -> ApprovalDetail:
@@ -131,7 +150,7 @@ def decide(session: Session, approval_id: int, body: DecideIn, user: User) -> De
     if body.decision == "reject_retry" and not body.note:
         raise ApiError(422, "note_required", NOTE_REQUIRED_MESSAGE)
     if body.decision == "approve" and (blocked := _blocked(session, row)) is not None:
-        raise ApiError(422, "photo_unread", blocked)
+        raise ApiError(422, "photo_unread" if blocked == OLD_PHOTO_MESSAGE else "actual_dates", blocked)
     if body.decision == "approve":
         _approve(session, row, user, body.note)
     else:

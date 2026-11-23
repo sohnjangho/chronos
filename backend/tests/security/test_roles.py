@@ -24,6 +24,16 @@ from tests.schedules import sample, store
 FIELD_ONLY = "현장 관리자는 일정을 고치거나 승인·거부할 수 없습니다."
 
 
+@pytest.fixture(autouse=True)
+def today_in_the_project(monkeypatch):
+    """현장 회신의 「오늘」(Data Date 없는 시험 일정)을 착공(2027-03-01) 뒤로 — 실적은 착공일 앞일 수 없다(재확인 2)."""
+    from datetime import date
+
+    from app.agent import context
+
+    monkeypatch.setattr(context, "today", lambda: date(2027, 3, 3))
+
+
 @pytest.fixture
 def field_user(session) -> dict[str, str]:
     row = User(login_id="site1", name="박현장", role="field", password_hash=hash_password("field-pass"))

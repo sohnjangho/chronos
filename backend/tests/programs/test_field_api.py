@@ -18,6 +18,13 @@ from tests.llm_doubles import FakeLiner, add_connection, chat_body
 PHOTO = "data:image/png;base64,iVBORw0KGgo="
 
 
+@pytest.fixture(autouse=True)
+def today_in_the_project(monkeypatch):
+    """현장 회신의 「오늘」(Data Date 가 없을 때)을 착공(2027-03-01) 뒤로 — 실적은 착공일 앞일 수 없다(재확인 2).
+    실제 오늘을 쓰는 시험은 스스로 바꿔 끼운다."""
+    monkeypatch.setattr(context, "today", lambda: date(2027, 3, 3))
+
+
 @pytest.fixture
 def liner(session, monkeypatch) -> FakeLiner:
     """사진 판독이 부르는 그림 읽기 모델 자리에 대본 LLM 을 끼운다(네트워크 없음)."""
@@ -364,3 +371,46 @@ def test_a_photo_reading_applied_by_the_field_role_also_waits(client, admin, ses
     session.expire_all()
     assert session.get(Approval, approval_id).status == "pending"
     assert client.get(f"/api/schedules/{sid}", headers=admin).json()["version"] == 1
+
+
+# ── 재확인 2: 실적 날짜는 Data Date 뒤일 수 없고 실제 시작은 착공일 앞일 수 없다(승인 결정·현장 반영 모두) ──────
+ACTUALS = "실제 날짜가 Data Date({})와 맞지 않아 반영할 수 없습니다 — 현장에서 다시 올려 주세요. ({})"
+
+
+def test_an_approval_with_an_actual_start_before_the_project_start_cannot_be_applied(client, admin, session, dated_sid):
+    """#18 처럼 실제 오늘(2026-11-23)이 실제 시작으로 들어간 승인 건(예전에 만든 줄을 흉내 냄)은 결정할 때 막는다 — 상세 blocked,
+    승인 422 같은 글, 거부는 된다. 저장된 줄은 바꾸지 않는다."""
+    row = _checkin_approval(client, admin, session, dated_sid, "A", 30)
+    snap = {**row.snapshot_json, "activities": [
+        {**a, "actual_start": "2026-11-23"} if a["id"] == "A" else a for a in row.snapshot_json["activities"]]}
+    row.snapshot_json = snap
+    session.commit()
+    text = ACTUALS.format("2027-03-04", "A 실제 시작 2026-11-23 — 착공일 2027-03-01 앞")
+    assert client.get(f"/api/approvals/{row.id}", headers=admin).json()["blocked"] == text
+    r = client.post(f"/api/approvals/{row.id}/decide", json={"decision": "approve"}, headers=admin)
+    assert r.status_code == 422 and (r.json()["code"], r.json()["message"]) == ("actual_dates", text)
+    assert client.get(f"/api/schedules/{dated_sid}", headers=admin).json()["version"] == 1
+    assert client.post(f"/api/approvals/{row.id}/decide", json={"decision": "reject"}, headers=admin).status_code == 200
+
+
+def test_an_approval_with_an_actual_finish_after_the_data_date_cannot_be_applied(client, admin, session, dated_sid):
+    row = _checkin_approval(client, admin, session, dated_sid, "A", 30)
+    row.snapshot_json = {**row.snapshot_json, "activities": [
+        {**a, "actual_finish": "2027-03-10"} if a["id"] == "A" else a for a in row.snapshot_json["activities"]]}
+    session.commit()
+    blocked = client.get(f"/api/approvals/{row.id}", headers=admin).json()["blocked"]
+    assert blocked == ACTUALS.format("2027-03-04", "A 실제 종료 2027-03-10 — Data Date 뒤")
+
+
+def test_a_field_report_that_would_start_before_the_project_start_is_refused(client, admin, session, monkeypatch):
+    """Data Date 가 없는 일정이면 현장 회신의 「오늘」은 실제 오늘 — 착공일(2027-03-01)보다 앞이면 반영(상신)하지 않는다."""
+    monkeypatch.setattr(context, "today", lambda: REAL_TODAY)
+    sid = schedules.store(session, schedules.sample())
+    item = _pending_checkin(client, admin, sid, "A")
+    client.post(f"/api/schedules/{sid}/field/{item['id']}/respond",
+                json={"response_choice": "on_track", "reported_progress": 30, "response_note": ""}, headers=admin)
+    before = _count(session, Approval)
+    r = client.post(f"/api/schedules/{sid}/field/{item['id']}/apply", headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "actual_dates"
+    assert r.json()["message"] == ACTUALS.format("2026-11-23", "A 실제 시작 2026-11-23 — 착공일 2027-03-01 앞")
+    assert _count(session, Approval) == before

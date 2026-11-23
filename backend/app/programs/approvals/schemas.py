@@ -54,7 +54,7 @@ class ApprovalOut(BaseModel):
 class ApprovalDetail(ApprovalOut):
     mode: Mode
     diff: list[dict]  # [{activity_id, name, before: {start, finish} | null, after, finish_delta}]
-    blocked: str | None = None  # 반영할 수 없는 까닭(예전 방식 사진 판독에서 나온 건). 있으면 승인은 422, 거부는 된다
+    blocked: str | None = None  # 반영할 수 없는 까닭(예전 방식 사진 판독·실적 날짜 규칙 위반). 있으면 승인은 422, 거부는 된다
 
 
 class ApprovalList(BaseModel):
