@@ -195,6 +195,10 @@ graph LR
 17. **주소록(Task 72 — task-72-report).** 목록·상세에 `phone_kind`. `can_kakao` 도 `can_sms` 처럼 휴대전화만. 번호 보기는 DB 표에 남고 한 사람이 10분에 30번까지. 이름은 제어·방향 글자를 받지 않는다. `note`·`dnc_reason` 은 자유 글이라 **모델에게 가기 전에 `redact.hide_phones`** 를 거친다(Task 67·80). Task 75 화면은 번호 종류 이름표, API 가 주는 수신 거부 상태, 「수신 거부인 사람의 번호를 바꿔도 옛 번호는 계속 막힙니다」 안내를 보인다. Task 76(CSV)은 같은 검사 함수(`service.check_phone`·`check_channels`·`check_hours`)를 쓴다.
 18. **남은 한계(Task 84·88 이 알고 있어야 할 것).** 받아쓰기 가리개는 드문 끊어 읽기 몇 가지와 자유 글 속 050x 번호 거의 전부를 가리지 못한다(목록은 task-62-report). 그래서 **음성·글 지시문과 도구 결과에 번호를 아예 넣지 않는 것이 첫째 줄이고, 가리기는 둘째 줄**이다 — 가리개가 있다는 까닭으로 번호가 든 글을 모델에게 넘기지 않는다.
 
+19. **판정 사건은 시도마다 하나.** 「문 판정 사건 꼭 하나」는 줄마다가 아니라 **`dispatch` 를 한 번 부를 때마다**다. 예약됐다가 나중에 다시 `dispatch` 된 줄은 시도마다 판정 사건을 하나씩, 차례대로 갖는다(예: `working_hours` blocked → 뒤에 `channel_choice` allowed → `delivery`). Task 65 의 `test_every_decision_leaves_one_event` 는 dispatch 호출마다 센다. 개발 콘솔 시간줄(Task 108)은 시도를 차례대로 보인다.
+20. **도구의 결과와 거절은 다르다.** 도구가 **돌았는데** 바라는 것을 못 해 준 경우(`schedule_callback` 이 근무시간을 못 찾음, `propose_contact` 의 번호가 틀림 등)는 `tool:<이름>` **allowed** 이고 그 결과를 `detail` 에 적는다. `TOOL_REFUSALS` 는 하네스가 **돌리기를 거절한** 호출에만 쓴다. 통화 중 전환·회신을 나가는 문이 막으면(S-22) 서로 다른 종류의 사건 둘이 남는다: 문 판정(막은 차례의 이름, blocked)과 도구 호출(`tool:<이름>` allowed, detail 에 「문이 막음」).
+21. **범위의 꼴.** 사람들이 **둘 이상의 협력사**에 걸친 `shared` 번호는 아무것도 받지 못한다(`grant_facts "none"`). 한 일정에 짝이 둘인 것은 `contact` 가 아니라 `shared` 다(`contact` 로 만들면 잘못이다). **빈 범위는 「아무것도 안 보임」이지 「거르지 않음」이 아니다** — Task 67 의 도구는 `schedule_ids`·`company_ids` 가 비면 「줄 없음」으로 다룬다(빈 목록을 「조건 없음」으로 넘겨 전부를 읽지 않는다). 개발 콘솔은 사건을 묶어 보일 때 `harness.types.EVENT_GROUPS` 를 읽는다.
+
 ## 보안 — 번호와 키가 샐 수 있는 곳과 그것을 막는 시험
 
 | 샐 수 있는 곳 | 막는 방법 | 시험(작업) |
@@ -429,7 +433,7 @@ def may_reach(session: Session, number: str) -> bool            # 차례 1·2만
 # (설정의 시험 문자·전화는 따로 된 함수가 아니라 연결 진단의 걸음이다 — Task 70·90)
 def after_no_answer(call_id: int) -> int | None                 # 받지 않은 전화: 위임이고 아직 안 썼으면 다음 근무 시간대에 한 번
 ```
-- **차례와 결과(이 표가 구현이다 — 채널과 상관없이 같다).** 줄은 `draft`·`scheduled`·`blocked_hours`(통화) 일 때만 받는다(아니면 `not_sendable`, 아무것도 안 바꿈). 번호는 줄의 연락처 번호, 연락처가 없으면 `peer_number`. **한 번의 `dispatch` 는 문 판정 사건을 꼭 하나 남긴다**(걸린 차례의 `GATE_RULES` 이름 blocked, 또는 `channel_choice` allowed) — 그 앞에 `GATE_NOTES` 가 있을 수 있고, 통로를 불렀으면 뒤에 `delivery` 가 따로 온다[리뷰 판정 10].
+- **차례와 결과(이 표가 구현이다 — 채널과 상관없이 같다).** 줄은 `draft`·`scheduled`·`blocked_hours`(통화) 일 때만 받는다(아니면 `not_sendable`, 아무것도 안 바꿈). 번호는 줄의 연락처 번호, 연락처가 없으면 `peer_number`. **한 번의 `dispatch` 호출은 문 판정 사건을 꼭 하나 남긴다**(걸린 차례의 `GATE_RULES` 이름 blocked, 또는 `channel_choice` allowed — 줄마다가 아니라 호출마다다. 예약됐다 다시 나가는 줄은 시도마다 하나씩 차례로 쌓인다[리뷰 판정 19]) — 그 앞에 `GATE_NOTES` 가 있을 수 있고, 통로를 불렀으면 뒤에 `delivery` 가 따로 온다[리뷰 판정 10].
 
 | 차례 | 보는 것 | 걸리면 |
 |---|---|---|
@@ -472,7 +476,8 @@ async def test_do_not_contact_follows_the_number_across_projects(): ...
 async def test_row_without_contact_uses_peer_number(): ...
 async def test_delivery_failure_marks_failed_with_clean_reason(caplog): ...  # assert_clean
 async def test_field_role_cannot_dispatch(): ...
-async def test_every_decision_leaves_one_event(): ...   # GATE_RULES 이름의 사건이 꼭 하나(걸리면 그 차례, 지나가면 channel_choice), delivery 는 따로 한 줄, 노트는 판정 앞
+async def test_every_decision_leaves_one_event(): ...   # **dispatch 호출마다** GATE_RULES 이름의 사건이 꼭 하나(걸리면 그 차례, 지나가면 channel_choice), delivery 는 따로 한 줄, 노트는 판정 앞
+async def test_rescheduled_row_has_one_decision_per_attempt_in_order(): ...   # 근무 밖 dispatch → working_hours, 때가 돼 다시 dispatch → channel_choice·delivery : 판정 사건 둘이 차례대로
 async def test_unsure_delivery_is_unconfirmed_and_never_resent(): ...   # FakeChannel 이 Delivered("unsure") → 줄 unconfirmed, code "unsure", 다시 dispatch 해도 not_sendable·통로 0번
 async def test_cancelled_delivery_is_unsure(): ...
 async def test_failed_row_cannot_be_dispatched_again(): ...            # failed 줄 → not_sendable(다시 보내기는 새 줄)
@@ -524,6 +529,8 @@ def test_class_table_row(setup, expected): assert resolve(session, number, now=N
 def test_test_mode_beats_everything(): ...      # 내부 계정 번호라도 허용 번호가 아니면 outside_test
 def test_dnc_beats_internal_and_contact(): ...
 def test_dnc_class_comes_from_number_store_not_contact_rows(monkeypatch): ...   # mark_do_not_contact 한 번호는 주소록에 없어도 do_not_contact, 관리자 차단 번호는 blocked
+def test_shared_number_across_two_companies_gets_nothing(): ...   # grant_facts "none", personal False
+def test_two_candidates_in_one_schedule_is_shared_not_contact(): ...
 def test_scopes_are_built_closed(): ...   # contact_multi·둘 이상 일정의 internal 은 pinned 전 facts "none"·personal False
 def test_every_admit_verdict_carries_a_reason_code(): ...   # ADMIT_REASONS 안
 def test_hidden_contact_counts_as_unknown(): ...
@@ -560,6 +567,8 @@ def test_busy_is_missed(): ...
   - `unknown`·`withheld`: `take_message`·`propose_contact`·`handoff_to_human`(긴급 알림만 — 전환 없음)
   - 통화면 모든 등급에 `end_call`. `blocked`·`outside_test` 는 묶음 없음(세션이 만들어지지 않는다).
 - `tools.tool_defs(names) -> tuple[ToolDef(name, description, parameters), ...]`(JSON Schema — 음성·글 세션이 그대로 쓴다) · `class Toolbox(scope: Scope, medium: Medium, ref: Ref, *, names: frozenset[str])` — `async call(name, args) -> dict`. **불릴 때마다 사건 꼭 하나**[리뷰 판정 10] — 허용이면 `events.tool_rule(이름)`(`tool:<이름>`, allowed), 거절이면 `TOOL_REFUSALS` 의 까닭 **하나만**(blocked, detail 은 `events.tool_detail(이름, …)`): 묶음 어디에도 없는 이름 `tool:unknown` · 이 등급·매체의 묶음에 없음 `tool_not_allowed` · 인자가 틀림 `tool_bad_args` · 범위 밖을 물음 `scope_denied`. **거절된 호출에 `tool:<이름>` 과 거절 까닭을 둘 다 남기지 않는다.** 현장을 굳히면 `site_pinned`(detail 은 현장 이름). 남긴 뒤 곧바로 commit, `verdict allowed|blocked`, `detail` 은 인자를 `hide_phones` 해 200자 — 개발 콘솔의 실행 추적이 이것을 읽는다). 묶음에 없는 도구·틀린 인자는 `{"error": …}` + `blocked` 사건. 매체가 통화면 `control` 을 받아 전환·끊기를 한다(`set_control`).
+- **빈 범위는 「줄 없음」이다**[리뷰 판정 21]: `scope.schedule_ids`·`scope.company_ids`·`scope.contact_ids` 가 비면 도구는 DB 를 읽기 전에 빈 결과(또는 거절)를 돌려준다 — 빈 목록을 저장소 함수의 「조건 없음」(예: `search(…, company_ids=None)`)으로 넘기지 않는다.
+- **도구가 돈 결과와 하네스의 거절을 가른다**[리뷰 판정 20]: 돌았는데 못 해 준 것(`schedule_callback` 이 근무시간을 못 찾음 · `propose_contact` 의 번호가 틀림 · `find_contact` 0명 · `schedule_fact` 의 `ask`)은 `tool:<이름>` **allowed** 에 결과를 `detail` 로. `TOOL_REFUSALS` 는 돌리기를 거절한 것(묶음 밖·틀린 인자·모르는 이름·범위 밖)뿐. 전환·회신·후속을 나가는 문이 막으면 문이 자기 판정 사건(blocked)을 남기고, 도구는 따로 `tool:<이름>` allowed(detail 「문이 막음」)를 남긴다 — 종류가 다른 둘이다.
 - **모든 도구는 불릴 때마다 `Scope` 를 다시 본다.** 일정·연락처·협력사는 `Scope` 에서만 온다 — 도구 인자에는 일정 id·연락처 id·협력사 id 칸이 없고(`extra="forbid"`), 현장은 이름(`site`)으로만 받아 **`scope.schedule_ids` 안에서만** 맞춘다. 결과와 사건에 번호가 없다.
 
 | 도구(인자) | 코드가 하는 일 | 돌려주는 것 |
@@ -602,6 +611,9 @@ async def test_outbound_callee_cannot_hear_other_trades(): ...            # 우�
 async def test_model_supplied_tool_name_is_recorded_as_tool_unknown(): ...
 async def test_one_tool_call_leaves_exactly_one_event(): ...   # 허용 → tool:<이름> 하나, 범위 밖 → scope_denied 하나(tool:schedule_fact 없음), 묶음 밖 → tool_not_allowed 하나, 틀린 인자 → tool_bad_args 하나
 async def test_my_requests_refuses_before_site_is_chosen(): ...
+async def test_empty_scope_reads_no_rows(): ...   # unknown 등급의 Toolbox 에 find_contact·schedule_fact 를 억지로 넣어 불러도 0줄, 저장소 함수에 None(조건 없음)이 넘어가지 않음(스파이)
+async def test_ran_but_unsatisfied_is_allowed_with_outcome_detail(): ...   # 근무시간 못 찾은 schedule_callback·번호 틀린 propose_contact → tool:<이름> allowed, TOOL_REFUSALS 이름 없음
+async def test_gate_refused_transfer_leaves_gate_decision_and_tool_event(): ...   # 시험 모드 밖 번호로 전환 → test_mode blocked 하나 + tool:handoff_to_human allowed 하나
 async def test_mark_do_not_contact_goes_through_number_store(monkeypatch): ...
 async def test_notes_and_reasons_are_hidden_before_model(): ...   # find_contact 등 결과에 note·dnc_reason 을 싣는다면 hide_phones 를 거친 것만(싣지 않는 것이 기본)
 async def test_site_outside_candidates_is_not_matched(): ...
@@ -852,7 +864,7 @@ def test_field_role_403(client, field_user, sid): ...
 
 **Files:** Create `backend/app/programs/devconsole/outreach_view.py`(연락 쪽 읽기 조립 — `service.py`·`catalog.py` 가 500줄을 넘어 새 파일), `backend/tests/programs/test_devconsole_outreach_view.py`; Modify `backend/app/programs/devconsole/{router.py,schemas.py,service.py}`(진단·사용량 응답에 잇는 몇 줄), `frontend/src/programs/devconsole/{TurnPicker.tsx,TraceTimeline.tsx,HealthTab.tsx,UsageTab.tsx,devApi.ts,testKit.ts,DevConsole.test.tsx}`
 **Interfaces:**
-- **실행 추적**: 고르는 목록에 종류 `대화 턴 | 연락`. `GET /api/dev/outreach?kind=message|call&limit=` → `[{kind, id, at, direction, channel, origin(user|agent|peer), origin_name, send_mode, caller_class, status, contact_name | null, number_masked, schedule_name | null, events: n}]` · `GET /api/dev/outreach/{kind}/{id}` → `{head: 위 칸 + approved_by·fail_reason·reply_to_id, timeline: [TimelineItem]}` — `timeline` 은 그 줄의 하네스 사건을 **턴과 같은 `TimelineItem` 꼴**로 옮긴 것(문 판정 · 들어오는 문 · 도구 호출 · 뒤 확인 깃발 · 통로 결과 — **이름과 묶음은 `harness.types` 의 `GATE_RULES`·사건 이름 집합에서 읽는다**(콘솔에 따로 된 이름 표를 두지 않는다), 모델이 준 모르는 도구는 `tool:unknown` 한 가지로 보인다. 한 줄의 흐름은 「(노트) → 문 판정 하나 → `delivery` → `delivery_update`」로 묶어 보이고, **`unconfirmed`(통로 결과 `unsure`)는 「확인 필요」로 따로 세어** 진단의 알림 연결 묶음에 「확인 필요 n건」으로도 보인다), 그래서 `TraceTimeline` 이 그대로 그린다. 머리 줄: 누가 시작했나(사람 이름 / 에이전트 / 상대) · 권한 방식(직접·승인·위임) · 등급 · 상태.
+- **실행 추적**: 고르는 목록에 종류 `대화 턴 | 연락`. `GET /api/dev/outreach?kind=message|call&limit=` → `[{kind, id, at, direction, channel, origin(user|agent|peer), origin_name, send_mode, caller_class, status, contact_name | null, number_masked, schedule_name | null, events: n}]` · `GET /api/dev/outreach/{kind}/{id}` → `{head: 위 칸 + approved_by·fail_reason·reply_to_id, timeline: [TimelineItem]}` — `timeline` 은 그 줄의 하네스 사건을 **턴과 같은 `TimelineItem` 꼴**로 옮긴 것(문 판정 · 들어오는 문 · 도구 호출 · 뒤 확인 깃발 · 통로 결과 — **이름과 묶음은 `harness.types` 의 `GATE_RULES`·사건 이름 집합에서 읽는다**(콘솔에 따로 된 이름 표를 두지 않는다), 모델이 준 모르는 도구는 `tool:unknown` 한 가지로 보인다. 묶음은 `harness.types.EVENT_GROUPS` 로 정한다. 한 **시도**의 흐름은 「(노트) → 문 판정 하나 → `delivery` → `delivery_update`」이고, 여러 번 `dispatch` 된 줄(예약 뒤 다시 나감)은 **시도를 차례대로** 「시도 1 · 시도 2」로 나눠 보인다[리뷰 판정 19]. **`unconfirmed`(통로 결과 `unsure`)는 「확인 필요」로 따로 세어** 진단의 알림 연결 묶음에 「확인 필요 n건」으로도 보인다), 그래서 `TraceTimeline` 이 그대로 그린다. 머리 줄: 누가 시작했나(사람 이름 / 에이전트 / 상대) · 권한 방식(직접·승인·위임) · 등급 · 상태.
 - **시스템 진단**: 진단 응답(지금의 `HealthOut`)에 `notify` 칸 — `{connected, status, checked_at, test_mode, allow_count, sender_masked, inbound_mode, agent: {sms, kakao, call}, worker: worker.status(), last_diagnosis: {ran_at, steps: [{id, label, ok, skipped, detail}]} | null, kakao: null, voice: null}`(`last_diagnosis` 는 저장된 마지막 연결 진단 그대로 — 콘솔이 진단을 다시 돌리지 않는다. `kakao`·`voice` 는 Task 111·110 이 채운다 — 그 전에는 「아직 없음」). 연결이 없으면 `connected false` 한 줄.
 - **사용량·비용**: 사용량 응답에 `outreach` 칸 — Task 112 `outreach_usage.summary(days)` 의 `{sms, long, kakao, auto_replies, provider_cost}`. 요금은 `provider_cost` 가 None 이면 「제공사가 알려 주지 않음」(지금 제공사는 메시지마다의 요금을 주지 않으므로 문자 쪽은 늘 이 글이다).
 - 전화번호는 가린 꼴만, 키·Account ID 는 어떤 꼴로도 싣지 않는다.
@@ -863,7 +875,8 @@ def test_outreach_list_shows_starter_mode_class_from_rows(client, admin, session
 def test_timeline_is_built_only_from_recorded_events(client, admin, session): ...   # 사건이 없는 줄은 timeline == []
 def test_gate_decision_and_tool_calls_appear_in_order(client, admin, session): ...
 def test_unsure_rows_are_shown_as_needs_check_and_counted(client, admin, session): ...
-def test_event_groups_come_from_harness_types(): ...   # 콘솔 코드에 사건 이름 글자 목록이 따로 없음
+def test_event_groups_come_from_harness_types(): ...   # EVENT_GROUPS 를 읽음 — 콘솔 코드에 사건 이름 글자 목록이 따로 없음
+def test_attempts_are_shown_in_order(client, admin, session): ...   # 판정 사건 둘인 줄 → 시도 둘, 차례 그대로
 def test_console_outreach_views_have_no_number_or_key(client, admin, session): ...  # 목록·상세·진단·사용량 응답 전체에 SENTINEL_PHONE·SENTINEL_KEY·Account ID 없음
 def test_health_notify_without_connection(client, admin): ...
 def test_health_shows_worker_last_run_times(client, admin): ...
@@ -1105,7 +1118,7 @@ async def test_llm_failure_leaves_inbound_and_no_reply(caplog): ...      # asser
 | S-19 | 수신 거부·차단 번호에서 들어옴 | 수신 거부: 통화는 메모 도구만·문자는 기록만. 차단: 받지 않음·기록만. 우리 쪽 `dispatch` 는 여전히 막힘 | R-14 |
 | S-20 | 짧은 시간에 되풀이 | 통화: 대본이 정한 문턱을 넘는 첫 통화부터 `rejected`. 문자: 대본이 정한 자동 답 상한 뒤 멈춤 | R-15 · T-08 |
 | S-21 | 근무시간 밖 | 걸기: `blocked_hours`. 받기: 받는 범위 설정대로. 문자 받기: 30분 안이면 나가고 넘으면 예약. 온 답에 대한 답: 예약 | V-11 |
-| S-22 | 시험 모드에서 허용 안 된 번호 | 걸기·보내기: `blocked_test`·통로 0번(후속·전환 포함). 통화 받기: `rejected`. 문자 받기: 기록만 | V-12 · R-08 |
+| S-22 | 시험 모드에서 허용 안 된 번호 | 걸기·보내기: `blocked_test`·통로 0번(후속·전환 포함 — 통화 중 전환·회신이 막히면 사건이 **둘**: 문 판정 `test_mode` blocked 와 도구 호출 `tool:<이름>` allowed). 통화 받기: `rejected`. 문자 받기: 기록만 | V-12 · R-08 |
 | S-23 | 권한: 승인 받기 / 위임 | 승인 받기: 초안만. 위임: 나가고 `[에이전트 발신 · 위임]`. 통화 받기: 후속 행동(회신 초안)이 권한대로 | T-11 |
 | S-24 | 받지 않음·실패 / 실패·대신 보냄 | 통화: 다시 걸지 않음(위임이면 다음 근무 시간대 한 번 — **새 줄**, 사건 `no_answer_retry`), 끝난 까닭은 `call_result`. 메시지: `failed` 까닭·`fallback_sms` 표시. 변형: 통로가 `unsure` 를 주면 줄 `unconfirmed`·다시 보내지 않음 | — |
 
@@ -1397,7 +1410,7 @@ def test_voice_drivers_place_no_real_call(): ...
 
 **Files:** Create `backend/app/programs/devconsole/outreach_catalog.py`, `backend/app/outreach/scenarios/prove.py`, `backend/tests/programs/test_devconsole_outreach.py`, `backend/tests/outreach/scenarios/test_prove.py`, `frontend/src/programs/devconsole/{OutreachGrid.tsx,OutreachGrid.test.tsx}`; Modify `backend/app/programs/devconsole/{catalog.py,outreach_view.py,service.py}`(묶음 한 줄·받는 통화 가지·진단 한 칸 — 합쳐 30줄 안), `frontend/src/programs/devconsole/{HarnessTab.tsx,structureLayout.ts,devApi.ts,testKit.ts}`
 **Interfaces:**
-- 사건 이름·묶음(문 차례·받기 판정 코드·도구 거절·뒤 확인 깃발)은 `harness.types` 의 상수에서 읽어 그린다 — 콘솔에 따로 된 이름 표를 두지 않는다.
+- 사건 이름·묶음(문 차례·받기 판정 코드·도구 거절·뒤 확인 깃발)은 `harness.types` 의 상수(묶음은 `EVENT_GROUPS`)에서 읽어 그린다 — 콘솔에 따로 된 이름 표를 두지 않는다.
 - **격자**: 설계 표와 같은 꼴 — 줄 S-01…S-24, 칸 `전화 걸기 | 전화 받기 | 문자 받기 | 우리 문자·카카오톡에 온 답`, 칸마다 표시(●/—/글)와 결과(통과 · 실패 · 아직 안 돌림), 아래에 「채널에만 있는 것」 줄(통화 5 · 문자 3 · 카카오톡 2). `outreach_catalog.grid() -> {columns, rows: [{id, title, refs, cells: {column: {mark, runnable, guard}}}], channel_only: [{id, title, medium, guard}], principles: [한 벌 일곱 줄]}` 를 기존 카탈로그 응답의 그 묶음 자리에 싣는다.
 - **실엔진 시험 — 칸마다 자식 프로세스**[리뷰 판정 12]: 가짜 통로는 서버 프로세스 안에서 끼울 수 없다(`registry.pinned` 가 `RuntimeError`). 그래서 칸을 돌리면 서버는 **`CHRONOS_HARNESS_SANDBOX=1` 을 준 자식 프로세스**(`python -m app.outreach.scenarios.prove <rule_id>` — 임시 data 폴더, 30초 제한)를 띄우고, 그 안에서 `grid.run_cell` 이 **진짜** `gate`·`door`·`Toolbox`·`review` 를 돌린다(가짜는 통로·음성·글 세션·LLM 뿐). `prove`·구동기 모듈 이름을 `registry.SANDBOX_MODULES` 에 더한다. **서버 프로세스는 그 변수를 켜지 않는다.** 기존 길 `POST /api/dev/harness/{rule_id}/test` 로 받는다 — `rule_id` 는 `S-07@call_in`·`C-V1` 꼴. 돌려주는 것은 기존 꼴(`rule_id, title, blocked, engine: "live_harness", elapsed_ms, simulated_input, model_feedback`) + `checks: [{text, ok}]` + `events`(하네스 사건). PM 자료를 건드리지 않는다. [줄 전체 돌리기]·[전부 돌리기].
 - **지키는 곳을 무르면 실패함을 보인다**: 칸마다 [가드 끄고 돌리기] → `POST /api/dev/harness/{rule_id}/test?broken=1` → 같은 자식 프로세스 길에 `--broken` 을 붙여, 그 안에서만 `breaks.BREAKS[guard]` 를 걸고 돌린다. **서버 프로세스 안의 문·도구는 건드리지 않는다.** 결과는 `{broken_guard, passed}` — 기대는 `passed False`. 칸에 「가드 확인됨」(무르니 실패함) / 「가드 확인 안 됨」(물러도 통과 — 시험이 엔진을 보고 있지 않다는 뜻, 붉게).
