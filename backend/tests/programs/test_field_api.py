@@ -120,6 +120,21 @@ def test_failed_vision_call_leaves_the_photo_unread_with_its_reason(client, admi
     assert client.post(f"/api/schedules/{sid}/field/{item['id']}/apply", headers=admin).status_code == 422
 
 
+def test_a_phone_photo_shrunk_to_1280px_fits_the_upload_limit(client, admin, sid, liner):
+    """리뷰 I-2: 브라우저가 긴 변 1280px·JPEG 0.7 로 줄인 휴대폰 사진(base64 ~1MB)이 422 없이 판독까지 간다.
+    한도는 그림 읽기 한도(agent.image_turn.IMAGE_MAX_BYTES, 5MiB) 안이다."""
+    from app.agent.image_turn import IMAGE_MAX_BYTES
+
+    liner.push(chat_body(json.dumps({"progress": 40, "reason": "철근 배근은 끝났다.", "risks": []})))
+    big = "data:image/jpeg;base64," + "A" * 1_000_000
+    r = _upload(client, admin, sid, photo_data_url=big)
+    assert r.status_code == 200, r.json()
+    assert _newest_photo(r)["reported_progress"] == 40
+    assert field.PHOTO_DATA_URL_MAX < IMAGE_MAX_BYTES
+    too_big = _upload(client, admin, sid, photo_data_url="data:image/jpeg;base64," + "A" * field.PHOTO_DATA_URL_MAX)
+    assert too_big.status_code == 422
+
+
 def test_seeded_example_photo_has_no_made_up_reading(client, admin, sid):
     """F1: 처음 채우는 예시 사진 항목도 판독하지 않음이다(지어낸 진도·신뢰도 없음)."""
     r = client.get(f"/api/schedules/{sid}/field", headers=admin)

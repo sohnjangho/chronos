@@ -2,10 +2,14 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { resizeImage } from '../../shared/files/resizeImage';
 import { useSession } from '../../os/session';
 import { signInAsDemo, stubFetch } from '../../test-helpers';
 import FieldHub from './FieldHub';
 import type { FieldData, FieldItem } from './fieldApi';
+
+// 리뷰 I-2: jsdom 에는 그림 그리기가 없어 줄이기는 가짜로 — 무엇을 줄여 달라 했는지와 줄인 결과를 보내는지를 본다.
+vi.mock('../../shared/files/resizeImage', () => ({ resizeImage: vi.fn() }));
 
 const SUMMARY = { checkin_total: 0, checkin_responded: 0, photo_total: 1, poll_total: 0, poll_feasible: 0, poll_conditional: 0, poll_infeasible: 0, handoff_total: 0, handoff_ready: 0 };
 
@@ -122,4 +126,34 @@ test('a poll card waiting for a reply has no pre-pressed choice either (F7)', as
   expect(send).toBeDisabled();
   await userEvent.click(within(card).getByRole('button', { name: '조건부 가능' }));
   expect(send).toBeEnabled();
+});
+
+
+// 리뷰 I-2: 휴대폰 사진은 긴 변 1280px·JPEG 0.7 로 줄여 보내고, 줄여도 서버 한도를 넘으면 까닭을 말하고 보내지 않는다.
+async function pickPhoto(original: File, shrunk: File) {
+  vi.mocked(resizeImage).mockResolvedValue({ file: shrunk, resized: true });
+  const fetchSpy = stubFetch({ '/api/schedules/1/field': data([]), 'POST /api/schedules/1/field/photos': data([]) });
+  render(<FieldHub scheduleId={1} />);
+  await userEvent.click(await screen.findByRole('tab', { name: '사진 AI 판독' }));
+  await userEvent.upload(screen.getByLabelText('사진 촬영 / 파일 첨부'), original);
+  return fetchSpy;
+}
+const photoPosts = (spy: ReturnType<typeof stubFetch>) =>
+  spy.mock.calls.filter(([u, init]) => String(u) === '/api/schedules/1/field/photos' && init?.method === 'POST');
+
+test('a picked photo is shrunk to a 1280px JPEG before it is sent (I-2)', async () => {
+  const original = new File(['x'.repeat(4000)], 'rebar.jpg', { type: 'image/jpeg' });
+  const spy = await pickPhoto(original, new File(['small'], 'rebar.jpg', { type: 'image/jpeg' }));
+  expect(resizeImage).toHaveBeenCalledWith(original, 1280, { always: true, quality: 0.7 });
+  await userEvent.click(screen.getByRole('button', { name: 'AI 사진 판독 실행' }));
+  const sent = JSON.parse(String(photoPosts(spy)[0][1]?.body));
+  expect(sent.photo_data_url).toBe(`data:image/jpeg;base64,${btoa('small')}`);
+});
+
+test('a photo still over the limit after shrinking says so and is not sent (I-2)', async () => {
+  const huge = new File(['A'.repeat(1_200_000)], 'big.jpg', { type: 'image/jpeg' });
+  const spy = await pickPhoto(huge, huge);
+  expect(await screen.findByText('사진이 너무 큽니다 — 더 작은 사진으로 다시 올려 주세요')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'AI 사진 판독 실행' })).toBeDisabled();
+  expect(photoPosts(spy)).toHaveLength(0);
 });

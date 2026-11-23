@@ -66,11 +66,16 @@ class DispatchCheckinIn(StrictIn):
     activity_ids: list[str] | None = None
 
 
+# 사진 data URL 길이 한도. 화면이 긴 변 1280px·JPEG 0.7 로 줄여 보낸다(보통 base64 0.2~1MB). 그림 읽기 한도
+# (agent.image_turn.IMAGE_MAX_BYTES, 5MiB) 안이다. 화면(progress/FieldHub.tsx PHOTO_MAX_CHARS)과 같은 값.
+PHOTO_DATA_URL_MAX = 1_500_000
+
+
 class PhotoUploadIn(StrictIn):
     activity_id: str = Field(min_length=1, max_length=50)
     trade: str = Field(default="", max_length=120)
     photo_name: str = Field(min_length=1, max_length=200)
-    photo_data_url: str | None = Field(default=None, max_length=350_000)
+    photo_data_url: str | None = Field(default=None, max_length=PHOTO_DATA_URL_MAX)
     note: str = Field(default="", max_length=500)
 
 

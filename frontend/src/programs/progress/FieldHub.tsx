@@ -4,6 +4,7 @@ import { useSession } from '../../os/session';
 import { useActiveDevice } from '../../os/useIsMobile';
 import { useWindows } from '../../os/windowStore';
 import { ApiError } from '../../shared/api';
+import { resizeImage } from '../../shared/files/resizeImage';
 import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import { fieldApi, type FieldActivityOption, type FieldData, type FieldItem, type FieldKind } from './fieldApi';
@@ -174,6 +175,19 @@ function CheckinCard({
   );
 }
 
+const PHOTO_MAX_EDGE = 1280;
+/** 서버 사진 data URL 한도(backend progress/field.py PHOTO_DATA_URL_MAX 와 같다). */
+const PHOTO_MAX_CHARS = 1_500_000;
+const PHOTO_TOO_BIG = '사진이 너무 큽니다 — 더 작은 사진으로 다시 올려 주세요';
+
+const readDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => (typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('read')));
+    reader.onerror = () => reject(new Error('read'));
+    reader.readAsDataURL(file);
+  });
+
 function PhotoUploader({
   activities,
   busy,
@@ -189,15 +203,18 @@ function PhotoUploader({
   const [dataUrl, setDataUrl] = useState<string | undefined>(undefined);
   const [note, setNote] = useState('');
 
-  const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
+  const [tooBig, setTooBig] = useState(false);
+
+  // 휴대폰 사진은 수 MB 라 서버 한도를 넘는다 — 긴 변 1280px·JPEG 0.7 로 줄여 보낸다. 줄여도 넘으면 보내지 않는다(I-2).
+  const handleFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setPhotoName(file.name);
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') setDataUrl(reader.result);
-    };
-    reader.readAsDataURL(file);
+    const { file: small } = await resizeImage(file, PHOTO_MAX_EDGE, { always: true, quality: 0.7 });
+    const url = await readDataUrl(small);
+    const fits = url.length <= PHOTO_MAX_CHARS;
+    setTooBig(!fits);
+    setPhotoName(fits ? file.name : '');
+    setDataUrl(fits ? url : undefined);
   };
 
   return (
@@ -221,7 +238,8 @@ function PhotoUploader({
         </label>
         <label className="pg-flabel">
           <span>사진 촬영 / 파일 첨부</span>
-          <input type="file" accept="image/*" capture="environment" disabled={busy} onChange={handleFile} />
+          <input type="file" accept="image/*" capture="environment" disabled={busy} onChange={(e) => void handleFile(e)} />
+          {tooBig && <span role="alert" className="pg-risk-line">{PHOTO_TOO_BIG}</span>}
         </label>
         <label className="pg-flabel">
           <span>현장 소견 · 판독 참고 메모</span>
