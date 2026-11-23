@@ -9,6 +9,7 @@ import Dock from './Dock';
 import LockScreen from './LockScreen';
 import MenuBar from './MenuBar';
 import NewProjectModal from './NewProjectModal';
+import { useOutreachAlerts } from './outreachAlerts';
 import QuickStartWidget from './QuickStartWidget';
 import SearchPalette from './SearchPalette';
 import { useSession } from './session';
@@ -34,6 +35,7 @@ export default function Desktop() {
   const snapZone = useSnap((s) => s.zone);
   const snapBox = snapZone ? snapRect(snapZone) : null;
   useApprovalPolling();
+  useOutreachAlerts();
   useShellShortcuts();
   useEffect(() => {
     const onResize = () => useWindows.getState().fitToScreen();

@@ -45,9 +45,10 @@ def unknown_peer(peer_key: PeerKey, session: SessionDep) -> UnknownDetailOut:
     return service.unknown_detail(session, peer_key)
 
 
-@inbox_router.post(SCHEDULE + "/outreach/unknown/{peer_key}/contact")
+@inbox_router.post(SCHEDULE + "/outreach/unknown/{peer_key}/contact", status_code=201)
 def add_unknown_peer(schedule_id: int, peer_key: PeerKey, body: AddPeerIn, session: SessionDep) -> PersonDetail:
-    """[주소록에 넣기] — 그 번호로 지금 일정에 사람을 만든다(사람 양식과 같은 검사, 협력사는 고르거나 새로)."""
+    """[주소록에 넣기] — 그 번호로 지금 일정에 사람을 만든다(사람 양식과 같은 검사, 협력사는 고르거나 새로) → 201.
+    이 일정 주소록에 그 번호가 이미 있으면 409 already_in_book(확인과 넣기가 한 쓰기 트랜잭션)."""
     return service.add_peer(session, schedule_id, peer_key, body)
 
 

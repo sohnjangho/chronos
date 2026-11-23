@@ -8,20 +8,24 @@
   알려 준 새 연락처 — 받아들이면 지금 일정에 든다). 다른 일정의 줄은 없는 것과 같은 404.
 - 사람 만들기·언어 바꾸기는 주소록 서비스(사람 양식과 같은 검사 — check_texts·check_phone·check_channels·협력사 격리)로만 한다.
   검사는 줄을 바꾸기 전에 끝내고, 제안은 조건부 UPDATE 하나로 한 번만 정한다.
+- 같은 번호는 한 일정 주소록에 한 사람(숨긴 사람은 세지 않음): 「이미 있나」 확인과 넣기를 쓰기 트랜잭션(BEGIN IMMEDIATE) 하나에서
+  한다 — 두 탭·시간 초과 뒤 다시 누름이 둘을 만들지 못한다(같은 번호가 둘이면 들어오는 문이 그 번호를 shared 로 본다). 409 already_in_book.
 """
 
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
 from app.outreach import phone
 from app.outreach.redact import hide_phones
 from app.outreach.text.responder import HELD_REASON
-from app.programs.contacts import service as address_book
+from app.programs.contacts import (
+    service as address_book,  # 프로그램 사이 import 예외(판정 11-24)
+)
 from app.programs.contacts.schemas import CompanyIn, PersonDetail, PersonIn, PersonPatch
 from app.store import contacts, outreach
 from app.store.schedules import NotFound, get_record
@@ -29,6 +33,7 @@ from app.store.tables import ScheduleRecord, User
 from app.store.tables_outreach import (
     BlockedNumber,
     Contact,
+    ContactCompany,
     ContactProposal,
     ContactReport,
     OutreachCall,
@@ -272,6 +277,8 @@ def add_peer(session: Session, schedule_id: int, key: str, body: AddPeerIn) -> P
         raise ApiError(422, "peer_has_no_number", "번호가 없는 상대는 주소록에 넣을 수 없습니다.")
     person = _checked_person(body.name, body.role_title, number)
     company = _checked_company(session, schedule_id, body.company_id, body.company_name)
+    _begin_write(session)
+    _refuse_if_in_book(session, schedule_id, number)
     return _make_person(session, schedule_id, person, company)
 
 
@@ -306,9 +313,38 @@ def _checked_company(session: Session, schedule_id: int, company_id: int | None,
     return company_name
 
 
+ALREADY_IN_BOOK = "이 번호는 이미 이 프로젝트의 주소록에 있습니다."
+
+
+def _begin_write(session: Session) -> None:
+    """지금 트랜잭션을 끝내고 쓰기 트랜잭션(BEGIN IMMEDIATE)을 연다 — 「이미 있나」 확인과 넣기가 한 덩어리."""
+    session.rollback()
+    session.execute(text("BEGIN IMMEDIATE"))
+
+
+def _in_book(session: Session, schedule_id: int, number: str | None) -> bool:
+    """이 일정 주소록에 그 번호의 숨기지 않은 사람이 있나(다른 일정·숨긴 사람은 세지 않는다)."""
+    return number is not None and any(p.schedule_id == schedule_id and not p.hidden for p in contacts.by_number(session, number))
+
+
+def _refuse_if_in_book(session: Session, schedule_id: int, number: str | None) -> None:
+    if _in_book(session, schedule_id, number):
+        session.rollback()
+        raise ApiError(409, "already_in_book", ALREADY_IN_BOOK)
+
+
 def _make_person(session: Session, schedule_id: int, person: PersonIn, company: int | str) -> PersonDetail:
+    """쓰기 트랜잭션 안에서(부른 쪽이 _begin_write 와 첫 확인을 했다) 사람을 넣는다. 새 협력사는 주소록 서비스가 commit 하므로
+    그 뒤 쓰기 트랜잭션을 다시 열고 다시 확인한다 — 그사이 같은 번호가 들어왔으면 방금 만든 빈 협력사를 지우고 409
+    (제안은 accept 가 ApiError 에서 되돌린다)."""
     if isinstance(company, str):
-        company = address_book.create_company(session, schedule_id, CompanyIn(name=company)).id
+        made = address_book.create_company(session, schedule_id, CompanyIn(name=company)).id
+        _begin_write(session)
+        if _in_book(session, schedule_id, person.phone):
+            session.execute(delete(ContactCompany).where(ContactCompany.id == made))
+            session.commit()
+            raise ApiError(409, "already_in_book", ALREADY_IN_BOOK)
+        company = made
     return address_book.create_person(session, schedule_id, person.model_copy(update={"company_id": company}))
 
 
@@ -386,6 +422,8 @@ def accept(session: Session, schedule_id: int, proposal_id: int, body: AcceptIn,
     person = _checked_person(row.name if body.name is None else body.name,
                              row.role_title if body.role_title is None else body.role_title, row.phone)
     company = _checked_company(session, schedule_id, body.company_id, body.company_name)
+    _begin_write(session)
+    _refuse_if_in_book(session, schedule_id, person.phone)
     _decide(session, row, schedule_id, "accepted", user)
     try:
         return _make_person(session, schedule_id, person, company)

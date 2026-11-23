@@ -5,11 +5,14 @@
 현장 관리자는 모든 길이 403 field_no_contacts.
 """
 
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session
 
+from app.errors import ApiError
 from app.outreach import phone
 from app.programs.outreach import inbox_service
 from app.security.passwords import hash_password
@@ -209,13 +212,167 @@ def test_unknown_peer_can_be_added_to_this_project_only(client, user, session, s
     r = client.post(f"/api/schedules/{sid}/outreach/unknown/{key}/contact",
                     json={"name": "최반장", "role_title": "형틀 반장", "company_name": "새벽형틀"}, headers=user)
 
-    assert r.status_code == 200, r.json()
+    assert r.status_code == 201, r.json()  # 주소록의 사람 추가와 같은 201
     _clean(r.text)
     assert (r.json()["name"], r.json()["phone_masked"]) == ("최반장", "010-****-0199")
     people = _people(session, sid)
     assert [(p.name, p.phone, p.can_sms) for p in people] == [("최반장", SENTINEL_DIGITS, True)]
     assert _people(session, sid2) == []
     assert client.get("/api/outreach/unknown", headers=user).json()[0]["known"] is True
+
+
+ALREADY = ("already_in_book", "이 번호는 이미 이 프로젝트의 주소록에 있습니다.")
+
+
+def _two_at_once(engine, monkeypatch, first, second) -> list:
+    """두 요청이 「같은 번호가 이 일정 주소록에 있나」를 거의 같이 본다 — 확인 바로 뒤에서 서로를 1초까지 기다리게 해서,
+    확인과 넣기가 한 쓰기 트랜잭션이 아니면 둘 다 「없음」을 보고 둘 다 넣는다. 결과(사람 id 또는 ApiError 코드) 둘."""
+    gate, looked = threading.Barrier(2), inbox_service._in_book
+
+    def slow_look(*args, **kwargs):
+        found = looked(*args, **kwargs)
+        try:
+            gate.wait(1)
+        except threading.BrokenBarrierError:
+            pass
+        return found
+
+    monkeypatch.setattr(inbox_service, "_in_book", slow_look)
+    out: list = [None, None]
+
+    def run(i: int, call) -> None:
+        with Session(engine) as mine:
+            try:
+                out[i] = call(mine).id
+            except ApiError as exc:
+                out[i] = exc.code
+
+    threads = [threading.Thread(target=run, args=(i, c)) for i, c in enumerate((first, second))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30)
+    return out
+
+
+def test_adding_an_unknown_number_already_in_this_book_is_409(client, user, session, sid, sid2):
+    """[주소록에 넣기]를 두 탭에서·시간 초과 뒤 다시 눌러도 같은 번호의 사람은 하나 — 둘째는 409(번호 없음).
+    숨긴 사람·다른 일정의 사람은 세지 않는다."""
+    _msg(session)
+    key = phone.peer_key(SENTINEL_DIGITS)
+    _person(session, sid2, SENTINEL_DIGITS)  # 다른 일정
+    _person(session, sid, SENTINEL_DIGITS, hidden=True)  # 숨긴 사람
+    url = f"/api/schedules/{sid}/outreach/unknown/{key}/contact"
+
+    first = client.post(url, json={"name": "최반장", "company_name": "새벽형틀"}, headers=user)
+    again = client.post(url, json={"name": "최반장", "company_name": "새벽형틀"}, headers=user)
+
+    assert first.status_code == 201, first.json()
+    assert (again.status_code, (again.json()["code"], again.json()["message"])) == (409, ALREADY)
+    _clean(again.text)
+    assert [p.name for p in _people(session, sid) if not p.hidden] == ["최반장"]
+    assert session.scalar(select(func.count()).select_from(ContactCompany).where(ContactCompany.name == "새벽형틀")) == 1
+
+
+@pytest.mark.parametrize("new_company", [False, True])
+def test_two_tabs_adding_the_same_unknown_number_make_one_person(client, session, sid, monkeypatch, new_company):
+    """새 협력사를 만드는 길은 주소록 서비스가 협력사를 commit 한 뒤 다시 확인한다 — 진 쪽은 자기 빈 협력사를 지운다."""
+    _msg(session)
+    key = phone.peer_key(SENTINEL_DIGITS)
+    pick = {"company_name": "새벽형틀"} if new_company else {"company_id": _company(session, sid)}
+    body = inbox_service.AddPeerIn(name="최반장", **pick)
+    session.commit()
+
+    out = _two_at_once(session.get_bind(), monkeypatch, lambda s: inbox_service.add_peer(s, sid, key, body),
+                       lambda s: inbox_service.add_peer(s, sid, key, body))
+
+    assert out.count("already_in_book") == 1 and None not in out, out
+    assert [p.name for p in _people(session, sid)] == ["최반장"]
+    assert session.scalar(select(func.count()).select_from(ContactCompany).where(ContactCompany.name == "새벽형틀")) == (
+        1 if new_company else 0)
+
+
+def test_accepting_a_proposal_whose_number_is_already_in_this_book_is_409(client, user, session, sid):
+    pid = _person(session, sid, SENTINEL_DIGITS)
+    proposal = _proposal(session, sid)
+
+    r = client.post(f"/api/schedules/{sid}/contacts/proposals/{proposal.id}/accept", json={"company_name": "새벽형틀"},
+                    headers=user)
+
+    assert (r.status_code, (r.json()["code"], r.json()["message"])) == (409, ALREADY)
+    _clean(r.text)
+    assert [p.id for p in _people(session, sid)] == [pid]
+    assert session.scalar(select(func.count()).select_from(ContactCompany).where(ContactCompany.name == "새벽형틀")) == 0
+    assert session.get(ContactProposal, proposal.id).status == "pending"
+
+
+@pytest.mark.parametrize("new_company", [False, True])
+def test_two_proposals_with_one_number_accepted_together_make_one_person(client, session, sid, monkeypatch, new_company):
+    """같은 번호의 제안 둘(이 일정 것·모르는 번호의 것)을 두 사람이 같이 받음 — 사람 하나, 다른 하나는 409 이고 그 제안은 그대로."""
+    mine, loose = _proposal(session, sid), _proposal(session, None, name="최반장2")
+    who = session.scalar(select(User.id).where(User.role == "admin"))
+    body = inbox_service.AcceptIn(**({"company_name": "새벽형틀"} if new_company else {"company_id": _company(session, sid)}))
+    ids = (mine.id, loose.id)
+    session.commit()
+
+    out = _two_at_once(session.get_bind(), monkeypatch,
+                       lambda s: inbox_service.accept(s, sid, ids[0], body, s.get(User, who)),
+                       lambda s: inbox_service.accept(s, sid, ids[1], body, s.get(User, who)))
+
+    assert out.count("already_in_book") == 1 and None not in out, out
+    assert len(_people(session, sid)) == 1
+    session.expire_all()
+    statuses = sorted(session.get(ContactProposal, i).status for i in ids)
+    assert statuses == ["accepted", "pending"]
+    assert session.scalar(select(func.count()).select_from(ContactCompany).where(ContactCompany.name == "새벽형틀")) == (
+        1 if new_company else 0)
+
+
+@pytest.mark.parametrize("path", ["unknown", "proposal"])
+def test_a_person_added_while_the_new_company_is_made_wins(client, user, session, sid, monkeypatch, path):
+    """새 협력사는 주소록 서비스가 따로 commit 한다 — 그 틈에 다른 요청이 같은 번호의 사람을 넣으면 다시 확인해 409, 방금 만든 빈
+    협력사는 지우고 제안은 「확인할 연락처」로 되돌린다."""
+    _msg(session)
+    proposal = _proposal(session, sid)
+    theirs = _company(session, sid, "가람철근")  # 다른 요청의 사람은 자기 협력사에
+    made = inbox_service.address_book.create_company
+    engine = session.get_bind()
+
+    def other_request_in_between(*args, **kwargs):
+        company = made(*args, **kwargs)
+        with Session(engine) as other:
+            other.add(Contact(schedule_id=sid, company_id=theirs, name="먼저 넣은 사람", phone=SENTINEL_DIGITS))
+            other.commit()
+        return company
+
+    monkeypatch.setattr(inbox_service.address_book, "create_company", other_request_in_between)
+    url = (f"/api/schedules/{sid}/outreach/unknown/{phone.peer_key(SENTINEL_DIGITS)}/contact" if path == "unknown"
+           else f"/api/schedules/{sid}/contacts/proposals/{proposal.id}/accept")
+
+    r = client.post(url, json={"name": "최반장", "company_name": "새벽형틀"}, headers=user)
+
+    assert (r.status_code, r.json()["code"]) == (409, "already_in_book")
+    assert [p.name for p in _people(session, sid)] == ["먼저 넣은 사람"]
+    assert session.scalar(select(func.count()).select_from(ContactCompany).where(ContactCompany.name == "새벽형틀")) == 0
+    assert session.get(ContactProposal, proposal.id).status == "pending"
+
+
+def test_the_contacts_service_calls_the_inbox_makes_still_fit(session, sid, user):
+    """inbox_service 는 주소록 프로그램의 서비스를 부른다(계획 규칙의 예외 — 컨트롤러 판정). 그쪽 함수의 서명·돌려주는 꼴이
+    바뀌면 여기서 깨지도록, inbox 가 쓰는 꼴 그대로 부른다."""
+    from app.programs.contacts import service as address_book
+    from app.programs.contacts.schemas import CompanyIn, PersonIn, PersonPatch
+
+    draft = PersonIn(name="최반장", role_title="형틀 반장", company_id=0)
+    address_book.check_texts(draft.model_dump())
+    assert address_book.check_phone(SENTINEL_PHONE) == SENTINEL_DIGITS and address_book.check_phone(None) is None
+    company = address_book.create_company(session, sid, CompanyIn(name="새벽형틀"))
+    made = address_book.create_person(session, sid, draft.model_copy(update={"phone": SENTINEL_DIGITS, "company_id": company.id}))
+    assert (made.name, made.phone_masked, made.company_id) == ("최반장", "010-****-0199", company.id)
+    assert address_book.person(session, sid, made.id).id == made.id
+    admin = session.scalar(select(User).where(User.role == "admin"))
+    assert address_book.patch_person(session, sid, made.id, PersonPatch(language="en"), admin).language == "en"
+    assert isinstance(address_book.COMPANY_NOT_FOUND, str)
 
 
 # ── 확인할 보고 ────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { ApiError } from '../../shared/api';
 import LimitsForm from '../../shared/outreach/LimitsForm';
 import Button from '../../shared/ui/Button';
 import Field from '../../shared/ui/Field';
+import InboundBlock from './InboundBlock';
 import type { LlmError } from './model';
 import { notifyApi, type NotifyConnection, type NotifyPatch, type Permission, type PhoneKind } from './notifyApi';
 import { ErrorLine, toProblem } from './parts';
@@ -139,8 +140,14 @@ function AllowList({ conn, busy, addError, onPatch }: {
   );
 }
 
-/** 뒤 작업이 채울 자리: 카카오톡 채널과 문안(잠김) · 받는 범위·차단 · AI 전화. */
-function LaterGroups({ conn, voice, kakao }: { conn: NotifyConnection; voice?: ReactNode; kakao?: ReactNode }) {
+/** 카카오톡 채널과 문안(잠김 자리 또는 Task 102 묶음) · 받는 범위·차단(Task 85 InboundBlock) · AI 전화(Task 93 묶음 또는 자리). */
+function LaterGroups({ conn, voice, kakao, locked, onChanged }: {
+  conn: NotifyConnection;
+  voice?: ReactNode;
+  kakao?: ReactNode;
+  locked: boolean;
+  onChanged(): void;
+}) {
   return (
     <>
       {kakao ?? (
@@ -151,9 +158,7 @@ function LaterGroups({ conn, voice, kakao }: { conn: NotifyConnection; voice?: R
           <p className="st-muted">{KAKAO_LOCKED} 그때까지 카카오톡으로 고른 것은 문자로 나갑니다.</p>
         </Group>
       )}
-      <Group title="받는 범위 · 차단">
-        <p className="st-muted">준비 중 — 걸려 온 전화·문자를 누구에게서 받을지와 차단 목록이 이 자리에 들어옵니다.</p>
-      </Group>
+      <InboundBlock conn={conn} locked={locked} onChanged={onChanged} />
       {voice ?? (
         <Group title="AI 전화">
           <p className="st-muted">준비 중 — 음성 모델 키·음성·최대 통화 시간·시험 전화가 이 자리에 들어옵니다.</p>
@@ -279,7 +284,7 @@ export default function NotifyPolicy({ conn, locked = false, onChanged, voice, k
         <LimitsForm connectionId={conn.id} disabled={locked} onSaved={onChanged} />
       </details>
 
-      <LaterGroups conn={conn} voice={voice} kakao={kakao} />
+      <LaterGroups conn={conn} voice={voice} kakao={kakao} locked={locked} onChanged={onChanged} />
     </div>
   );
 }
