@@ -5,7 +5,7 @@ import { useWindows } from '../../os/windowStore';
 import { json } from '../../test-helpers';
 import DevConsole from './DevConsole';
 import manifest from './index';
-import { done, fetchCount, fetchMock, lastUrl, mockTurn, mockTurnSequence, mockUsage, running, setup, urls } from './testKit';
+import { done, fetchCount, fetchMock, lastUrl, mockHarness, mockTurn, mockTurnSequence, mockUsage, running, setup, urls } from './testKit';
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const structure = () => screen.findByRole('group', { name: '에이전트 구조' });
@@ -402,6 +402,26 @@ describe('Fix round 1', () => {
     await userEvent.type(maxSteps, '16');
     await userEvent.click(within(cfg).getByRole('button', { name: '에이전트 설정 저장' }));
     expect(await within(cfg).findByText('에이전트 설정을 저장했습니다.')).toBeVisible();
+  });
+
+  test('loop harness tests H-LOOP-01·H-LIM-01 run as live engine checks and show a broken guard', async () => {
+    render(<DevConsole windowId="w1" params={{ tab: 'harness' }} />);
+    const table = await screen.findByRole('table', { name: '하네스 규칙 목록' });
+    const row = (id: string) => within(table).getByText(id).closest('tr')!;
+    for (const id of ['H-LOOP-01', 'H-LIM-01']) {
+      await userEvent.click(within(row(id)).getByRole('button', { name: '차단 시험' }));
+      const res = await within(row(id)).findByRole('status');
+      expect(within(res).getByText('실엔진 검증')).toBeVisible();
+      expect(within(res).getByText('차단 시험 완료')).toBeVisible();
+      expect(urls()).toContain(`/api/devconsole/harness/${id}/test`);
+    }
+
+    mockHarness({ blocked: false, model_feedback: { llm_calls: 13, limit: 12 } });
+    await userEvent.click(within(row('H-LIM-01')).getByRole('button', { name: '차단 시험' }));
+    const res = within(row('H-LIM-01')).getByRole('status');
+    expect(await within(res).findByText('차단 안 됨')).toBeVisible();
+    expect(within(res).queryByText('차단 시험 완료')).toBeNull();
+    expect(within(res).getByText('실엔진 검증')).toBeVisible();
   });
 
   test('health tab renders diagnostics and stops an active turn', async () => {

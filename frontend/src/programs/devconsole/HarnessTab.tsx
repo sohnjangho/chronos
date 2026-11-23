@@ -222,7 +222,7 @@ function RuleRow({
         {tested && (
           <div className="dc-harness-test-res" role="status">
             <div className="dc-harness-test-head">
-              <Badge tone="danger">차단 시험 완료</Badge>
+              {tested.blocked ? <Badge tone="danger">차단 시험 완료</Badge> : <Badge tone="warning">차단 안 됨</Badge>}
               {tested.engine === 'live_harness' && <Badge tone="success">실엔진 검증</Badge>}
               {tested.elapsed_ms !== undefined && <Badge tone="neutral">{`${tested.elapsed_ms}ms`}</Badge>}
               <span>{`시뮬레이션 입력: ${tested.simulated_input}`}</span>

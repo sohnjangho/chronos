@@ -535,6 +535,84 @@ def test_live_harness_rules_execute_real_engines(client, admin):
             assert body["model_feedback"]["truncated"] is True
 
 
+def harness_test(client, admin, rule_id: str) -> dict:
+    r = client.post(f"/api/devconsole/harness/{rule_id}/test", headers=admin)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_loop_harness_runs_the_real_agent_loop_in_a_throwaway_db(client, admin, session):
+    body = harness_test(client, admin, "H-LOOP-01")
+    assert body["engine"] == "live_harness" and body["blocked"] is True
+    fb = body["model_feedback"]
+    assert fb["tool"] == "schedule.read" and fb["ok"] is False and fb["step_status"] == "failed"
+    assert fb["rollback_calls"] >= 1 and fb["db_rolled_back"] is True
+    assert fb["error"] == "대상 일정이 없습니다."
+    assert fb["reflection"] == "도구 `schedule.read` 실패 — 오류 원인을 확인해 인자를 고치거나 대안 도구를 사용하세요."
+    session.expire_all()  # 운영 DB 에는 아무것도 남지 않는다(대화·실행·LLM 호출 모두 임시 DB)
+    assert session.query(WorkflowRun).count() == 0 and session.query(LlmCall).count() == 0
+
+
+def test_limit_harness_runs_the_real_agent_loop_until_the_configured_limit(client, admin, session):
+    body = harness_test(client, admin, "H-LIM-01")
+    assert body["engine"] == "live_harness" and body["blocked"] is True
+    fb = body["model_feedback"]
+    assert fb["limit"] == 12 and fb["llm_calls"] == 12 and fb["tool_steps"] == 12
+    assert fb["status"] == "failed" and fb["error_code"] == "step_limit"
+    assert fb["error"] == "단계 한도에 닿아 멈췄습니다."
+
+    client.put("/api/devconsole/agent-config", headers=admin, json={"max_steps": 5})
+    fb5 = harness_test(client, admin, "H-LIM-01")["model_feedback"]
+    assert fb5["limit"] == 5 and fb5["llm_calls"] == 5 and fb5["error_code"] == "step_limit"
+    session.expire_all()
+    assert session.query(WorkflowRun).count() == 0 and session.query(LlmCall).count() == 0
+
+
+def test_limit_harness_fails_when_the_step_guard_is_broken(client, admin, monkeypatch):
+    with monkeypatch.context() as m:
+        m.setattr(loop, "STEP_LIMIT", loop.DONE)  # 한도에 닿아도 실패로 멈추지 않는 루프
+        body = harness_test(client, admin, "H-LIM-01")
+    assert body["blocked"] is False
+    assert body["model_feedback"]["error_code"] is None and body["model_feedback"]["status"] == "done"
+
+    real_begin = loop._Turn.begin
+
+    def begin_with_other_limit(self, *args, **kwargs):  # 설정과 다른 한도로 도는 루프(상수가 바뀐 경우)
+        real_begin(self, *args, **kwargs)
+        self.max_steps_cfg += 1
+
+    monkeypatch.setattr(loop._Turn, "begin", begin_with_other_limit)
+    body = harness_test(client, admin, "H-LIM-01")
+    assert body["blocked"] is False
+    assert body["model_feedback"]["limit"] == 12 and body["model_feedback"]["llm_calls"] == 13
+
+
+def test_loop_harness_fails_when_the_rollback_or_reflection_is_removed(client, admin, monkeypatch):
+    real_end_tool = loop._Turn.end_tool
+
+    def end_tool_without_rollback(self, call):
+        real = self.session.rollback
+        self.session.rollback = lambda: None
+        try:
+            return real_end_tool(self, call)
+        finally:
+            self.session.rollback = real
+
+    with monkeypatch.context() as m:
+        m.setattr(loop._Turn, "end_tool", end_tool_without_rollback)
+        body = harness_test(client, admin, "H-LOOP-01")
+    assert body["blocked"] is False
+    assert body["model_feedback"]["rollback_calls"] == 0 and body["model_feedback"]["db_rolled_back"] is False
+
+    def end_tool_without_reflection(self, call):
+        self.enable_self_reflection = False  # 설정은 켜져 있는데 주입하지 않는 루프
+        return real_end_tool(self, call)
+
+    monkeypatch.setattr(loop._Turn, "end_tool", end_tool_without_reflection)
+    body = harness_test(client, admin, "H-LOOP-01")
+    assert body["blocked"] is False and body["model_feedback"]["reflection"] is None
+
+
 def test_health_stop_turn_and_tool_toggle_roundtrip(client, admin, user, session, finished_turn):
     del finished_turn
     h_res = client.get("/api/devconsole/health", headers=admin)

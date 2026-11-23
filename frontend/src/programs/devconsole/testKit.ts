@@ -1,7 +1,7 @@
 // 개발 콘솔 시험 전용 도우미. 화면 코드는 이 파일을 import 하지 않는다. 사람·현장·모델 이름은 모두 가상이다.
 import { vi } from 'vitest';
 import { json, signInAsDemo } from '../../test-helpers';
-import type { NodeKey, NodeState, StructureNode, TraceItem, Turn, TurnDetail, UsageOut } from './devApi';
+import type { HarnessTestOut, NodeKey, NodeState, StructureNode, TraceItem, Turn, TurnDetail, UsageOut } from './devApi';
 
 const MODEL = 'claude-sonnet-5.5';
 const at = (base: number, ms: number) => new Date(base + ms).toISOString();
@@ -130,6 +130,8 @@ let list: Turn[] = [];
 /** 상세 응답 차례. 숫자는 그 상태 코드의 오류 응답. */
 let queue: (TurnDetail | number)[] = [];
 let usageBody: UsageOut = usage();
+/** 차단 시험 응답에 덮어쓸 칸(blocked 등). */
+let harnessPatch: Partial<HarnessTestOut> = {};
 const byId = new Map<number, TurnDetail>();
 export let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -141,6 +143,7 @@ export function setup(role: 'admin' | 'user' = 'admin') {
   byId.clear();
   byId.set(38, done({ turn_id: 38, request: OLDER.request, started_at: OLDER.started_at }, { unpaired: true }));
   usageBody = usage();
+  harnessPatch = {};
   const sampleCatalog = {
     principles: ['원칙 1'],
     harness: [
@@ -155,6 +158,8 @@ export function setup(role: 'admin' | 'user' = 'admin') {
         passed_count: 3,
         blocked_count: 0,
       },
+      { id: 'H-LOOP-01', area: '루프', title: '도구 실패 시 DB 롤백 및 자가 점검 지시 주입', description: '실패 도구 롤백',
+        code: 'app/agent/loop.py', mode: '자동 롤백', feedback_sample: '{}', passed_count: 2, blocked_count: 1 },
     ],
     agent_config: {
       approval_mode: 'important',
@@ -256,6 +261,8 @@ export function setup(role: 'admin' | 'user' = 'admin') {
       sampleCatalog.registry.skills = sampleCatalog.registry.skills.filter((s) => s.id !== id);
       return new Response(null, { status: 204 });
     }
+    const h = /^\/api\/devconsole\/harness\/([^/]+)\/test$/.exec(url);
+    if (h && init?.method === 'POST') return json(200, harnessOut(h[1]));
     if (url === '/api/devconsole/agent-config' && init?.method === 'PUT') return json(200, JSON.parse(String(init.body)));
     if (url === '/api/devconsole/agent-config') return json(200, sampleCatalog.agent_config);
     return json(404, { code: 'not_found', message: '찾을 수 없습니다.', detail: null });
@@ -268,9 +275,24 @@ function detailResponse(d: TurnDetail | number) {
   return typeof d === 'number' ? json(d, { code: 'error', message: ERRORS[d] ?? '오류', detail: null }) : json(200, d);
 }
 
+/** 차단 시험 응답: 실엔진(live_harness)으로 막았다. mockHarness 로 칸을 덮어쓴다. */
+function harnessOut(ruleId: string): HarnessTestOut {
+  return {
+    rule_id: ruleId,
+    title: ruleId,
+    blocked: true,
+    engine: 'live_harness',
+    elapsed_ms: 12,
+    simulated_input: '임시 DB 에서 에이전트 루프(loop.run_turn) 실실행',
+    model_feedback: { rule_id: ruleId, llm_calls: 12, limit: 12 },
+    ...harnessPatch,
+  };
+}
+
 export const mockTurn = (d: TurnDetail) => void (queue = [d]);
 export const mockTurnSequence = (ds: (TurnDetail | number)[]) => void (queue = [...ds]);
 export const mockUsage = (u: Partial<UsageOut>) => void (usageBody = usage(u));
+export const mockHarness = (patch: Partial<HarnessTestOut>) => void (harnessPatch = patch);
 export const urls = () => fetchMock.mock.calls.map(([u]) => String(u));
 export const fetchCount = () => urls().filter((u) => u === '/api/devconsole/turns/41').length;
 export const lastUrl = () => urls().at(-1) ?? '';

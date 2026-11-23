@@ -1,26 +1,42 @@
 """개발 콘솔 원천 카탈로그: 하네스 규칙·실엔진 차단 시험, 프롬프트/파이프라인/가이드/도메인 원문, 도구/스킬 등록부."""
 
+import asyncio
 import json
+import tempfile
 import time
 from datetime import date
+from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+import httpx
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from app.agent import context as agent_context
+from app.agent import loop
 from app.agent.approval import assess
+from app.agent.context import UiContext
 from app.agent.loop import MAX_STEPS
 from app.core.model import Activity, CalendarSpec, Relation, Resource, Schedule, WbsNode
 from app.domains.loader import domains, levels_prompt, load
 from app.errors import ApiError
 from app.harness.checks import check as check_schedule
 from app.harness.conditions import BASE_RULES, Condition
+from app.llm.client import LlmClient
+from app.llm.names import to_llm_name
 from app.programs.devconsole.service import APPROVAL_TOOLS, CHECK_TOOLS
+from app.security.crypto import encrypt
 from app.store import settings as settings_store
 from app.store import skills as skill_store
 from app.store.drafts import violation_json
-from app.store.tables import WorkflowStep
+from app.store.tables import (
+    Base,
+    ChatSession,
+    LlmConnection,
+    User,
+    WorkflowRun,
+    WorkflowStep,
+)
 from app.tools import registry
 from app.tools.registry import ToolResult
 
@@ -363,46 +379,150 @@ def _run_live_scenario(rule_id: str) -> tuple[str, dict[str, Any], str]:
         }
         return "5,000자 이상 도구 출력 → context.result_text(limit=4000) 실실행", fb, "live_harness"
 
+    raise ValueError(f"실엔진 시나리오가 없는 규칙: {rule_id}")
+
+
+# ── 루프 규칙(H-LOOP-01·H-LIM-01): 임시 DB 에서 진짜 에이전트 루프(loop.run_turn)를 대본 LLM 으로 돌린다 ──
+
+LOOP_TOOL = "schedule.read"  # 일정 없는 대화에서 부르면 늘 실패하는 읽기 도구("대상 일정이 없습니다.")
+HARNESS_CHAT_ID = 2**62  # 임시 DB 의 대화 id — 운영 대화의 멈춤 표시(app.agent.turns)와 겹치지 않게
+
+
+class _ScriptedLiner:
+    """네트워크 없이 대본대로 답하는 가짜 Liner. 앞의 tool_turns 번은 LOOP_TOOL 을 부르고, 그 뒤는 글로 답한다
+    (루프의 한도가 빠져도 시험이 끝나게)."""
+
+    def __init__(self, tool_turns: int) -> None:
+        self.tool_turns = tool_turns
+        self.bodies: list[dict] = []
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        self.bodies.append(json.loads(request.content))
+        n = len(self.bodies)
+        message: dict[str, Any] = {"role": "assistant", "content": "하네스 시험을 마칩니다."}
+        if n <= self.tool_turns:
+            call = {"id": f"call_{n}", "type": "function", "function": {"name": to_llm_name(LOOP_TOOL), "arguments": "{}"}}
+            message = {"role": "assistant", "content": None, "tool_calls": [call]}
+        body = {"model": "harness-script", "choices": [{"index": 0, "message": message}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
+        return httpx.Response(200, json=body)
+
+
+async def _drain(events: Any) -> list[Any]:
+    return [e async for e in events]
+
+
+def _run_isolated_turn(cfg: dict[str, Any], llm: _ScriptedLiner) -> dict[str, Any]:
+    """운영 DB 와 따로인 임시 SQLite 에 지금 에이전트 설정을 옮기고 loop.run_turn 한 턴을 끝까지 돌려 관측값을 돌려준다."""
+    with tempfile.TemporaryDirectory(prefix="chronos-harness-") as tmp:
+        engine = create_engine(f"sqlite:///{Path(tmp) / 'harness.db'}")
+        try:
+            Base.metadata.create_all(engine)
+            with Session(engine) as s:
+                settings_store.set_agent_config(s, cfg)
+                user = User(login_id="harness", name="하네스 시험", role="admin", password_hash="-")
+                s.add(user)
+                s.add(LlmConnection(name="하네스 대본", provider="liner", base_url="https://harness.invalid",
+                                    secret_ciphertext=encrypt("harness-not-sent"), secret_last4="sent",
+                                    is_default=True, status="ok"))
+                s.flush()
+                s.add(ChatSession(id=HARNESS_CHAT_ID, user_id=user.id, title=""))
+                s.commit()
+                rollbacks = [0]
+                real_rollback = s.rollback
+
+                def counted_rollback() -> None:  # 루프가 실패한 도구 뒤에 부르는 session.rollback 을 센다
+                    rollbacks[0] += 1
+                    real_rollback()
+
+                s.rollback = counted_rollback  # type: ignore[method-assign]
+                client = LlmClient(s, transport=httpx.MockTransport(llm.handle))
+                turn = loop.run_turn(s, user, HARNESS_CHAT_ID, "하네스 차단 시험", UiContext(), llm=client)
+                events = asyncio.run(_drain(turn))
+                error = next((e.data for e in events if e.type == "error"), None)
+                return {
+                    "rollback_calls": rollbacks[0],
+                    "run_status": s.scalar(select(WorkflowRun.status)),
+                    "step_statuses": list(s.scalars(select(WorkflowStep.status).order_by(WorkflowStep.n))),
+                    "step_count": s.scalar(select(func.count()).select_from(WorkflowStep)),
+                    "error": error,
+                }
+        finally:
+            engine.dispose()
+
+
+def _model_saw_tool_result(llm: _ScriptedLiner) -> dict[str, Any]:
+    """도구 실패 뒤 모델이 다음 호출에서 받은 tool 메시지(JSON)."""
+    if len(llm.bodies) < 2:
+        return {}
+    tool_msgs = [m for m in llm.bodies[1]["messages"] if m.get("role") == "tool"]
+    try:
+        return json.loads(tool_msgs[-1]["content"]) if tool_msgs else {}
+    except ValueError:
+        return {}
+
+
+def _run_loop_scenario(rule_id: str, cfg: dict[str, Any]) -> tuple[str, dict[str, Any], bool]:
+    """(시뮬레이션 입력, 관측값, 하네스가 실제로 막았는가)."""
     if rule_id == "H-LOOP-01":
-        return (
-            "존재하지 않는 일정(schedule_id=999)으로 `schedule.read` 호출 계약 검증",
-            {
-                "ok": False,
-                "rule_id": rule_id,
-                "db_rolled_back": True,
-                "error": "대상 일정이 없습니다.",
-                "reflection": "도구 `schedule.read` 실패 — 오류 원인을 확인해 인자를 고치거나 대안 도구를 사용하세요.",
-            },
-            "contract_check",
-        )
-
-    return (
-        f"ReAct 루프 {MAX_STEPS}바퀴 연속 도구 호출 상한 계약 검증",
-        {
-            "ok": False,
+        llm = _ScriptedLiner(tool_turns=1)
+        seen = _run_isolated_turn(cfg, llm)
+        sent = _model_saw_tool_result(llm)
+        step_status = seen["step_statuses"][0] if seen["step_statuses"] else None
+        reflection = sent.get("reflection")
+        fb = {
+            "ok": step_status != "failed",
             "rule_id": rule_id,
-            "status": "failed",
-            "loop_count": MAX_STEPS,
-            "limit": MAX_STEPS,
-            "error": "단계 한도에 닿아 멈췄습니다.",
-        },
-        "contract_check",
-    )
+            "tool": LOOP_TOOL,
+            "step_status": step_status,
+            "rollback_calls": seen["rollback_calls"],
+            "db_rolled_back": seen["rollback_calls"] >= 1,
+            "self_reflection_enabled": cfg["enable_self_reflection"],
+            "error": sent.get("error"),
+            "reflection": reflection,
+        }
+        held = (step_status == "failed" and fb["db_rolled_back"] and bool(fb["error"])
+                and (reflection is not None) == bool(cfg["enable_self_reflection"]))
+        sim = f"대본 LLM 이 일정 없는 대화에서 `{LOOP_TOOL}` 호출 → 임시 DB 에서 에이전트 루프(loop.run_turn) 실실행"
+        return sim, fb, held
+
+    limit = int(cfg["max_steps"])
+    llm = _ScriptedLiner(tool_turns=limit + 1)
+    seen = _run_isolated_turn(cfg, llm)
+    error = seen["error"] or {}
+    fb = {
+        "ok": False,
+        "rule_id": rule_id,
+        "status": seen["run_status"],
+        "limit": limit,
+        "llm_calls": len(llm.bodies),
+        "tool_steps": seen["step_count"],
+        "error_code": error.get("code"),
+        "error": error.get("message"),
+    }
+    held = fb["llm_calls"] == limit and fb["error_code"] == "step_limit" and fb["status"] == "failed"
+    sim = f"대본 LLM 이 바퀴마다 `{LOOP_TOOL}` 를 다시 호출(멈추지 않음) → 임시 DB 에서 에이전트 루프(loop.run_turn) 실실행, 한도 {limit}바퀴"
+    return sim, fb, held
 
 
-def run_harness_test(rule_id: str) -> dict[str, Any]:
+def run_harness_test(rule_id: str, session: Session) -> dict[str, Any]:
     """관리자가 [차단 시험]을 눌렀을 때 실엔진(하네스·승인·컨텍스트)으로 위반/차단 결과를 측정해 돌려준다."""
     rule = next((r for r in HARNESS_RULES if r["id"] == rule_id), None)
     if rule is None:
         raise ApiError(404, "not_found", f"하네스 규칙을 찾을 수 없습니다: {rule_id}")
 
     t0 = time.perf_counter()
-    sim_input, feedback, engine = _run_live_scenario(rule_id)
+    if rule_id in ("H-LOOP-01", "H-LIM-01"):
+        sim_input, feedback, blocked = _run_loop_scenario(rule_id, settings_store.get_agent_config(session))
+        engine = "live_harness"
+    else:
+        sim_input, feedback, engine = _run_live_scenario(rule_id)
+        blocked = True
     elapsed_ms = round((time.perf_counter() - t0) * 1000)
     return {
         "rule_id": rule_id,
         "title": rule["title"],
-        "blocked": True,
+        "blocked": blocked,
         "engine": engine,
         "elapsed_ms": elapsed_ms,
         "simulated_input": sim_input,

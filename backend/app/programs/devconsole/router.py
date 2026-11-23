@@ -49,8 +49,8 @@ def read_catalog(session: SessionDep) -> dict[str, Any]:
 
 
 @router.post("/harness/{rule_id}/test")
-def test_harness_rule(rule_id: str) -> dict[str, Any]:
-    return catalog.run_harness_test(rule_id)
+def test_harness_rule(rule_id: str, session: SessionDep) -> dict[str, Any]:
+    return catalog.run_harness_test(rule_id, session)
 
 
 @router.get("/agent-config")
