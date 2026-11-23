@@ -10,9 +10,11 @@ import sys
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import create_engine, insert, select, text
+from sqlalchemy import DateTime, create_engine, insert, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateTable
 
@@ -20,16 +22,18 @@ from app.core.model import CalendarSpec
 from app.db import close_db, init_db
 from app.store import contacts, outreach
 from app.store.contacts import NotFound
-from app.store.outreach import LIMIT_RANGES, Limits, limits
+from app.store.outreach import LIMIT_RANGES, Limits, limits, validate_limits
 from app.store.tables import Base
 from app.store.tables_outreach import (
     Contact,
     ContactCompany,
+    ContactProposal,
     ContactReport,
     NotifyConnection,
     OutreachCall,
     OutreachMessage,
     OutreachUsage,
+    UtcDateTime,
     VoiceSettings,
 )
 from tests import schedules
@@ -40,6 +44,7 @@ NEW_TABLES = {
 }
 PHONE = "01000000199"  # SENTINEL_PHONE 정리한 꼴
 OTHER_PHONE = "01000000000"
+KST = ZoneInfo("Asia/Seoul")
 BACKEND = Path(__file__).resolve().parents[2]
 
 
@@ -149,7 +154,87 @@ def test_message_without_contact_keeps_peer_number(session, sid):
         outreach.get_message(session, sid, row.id)
 
 
+def _raw(session: Session, sql: str):
+    return session.connection().exec_driver_sql(sql).scalar()
+
+
+def test_aware_times_are_stored_as_the_same_instant(session):
+    """KST 시각과 같은 순간의 UTC 시각은 같은 값으로 저장되고 같은 순간으로 읽힌다(읽으면 시간대 없는 UTC)."""
+    kst = _message(session, scheduled_at=datetime(2026, 11, 30, 8, 0, tzinfo=KST))
+    utc = _message(session, scheduled_at=datetime(2026, 11, 29, 23, 0, tzinfo=UTC))
+    session.commit()
+    session.expire_all()
+    stored = {_raw(session, f"SELECT scheduled_at FROM outreach_messages WHERE id = {row.id}") for row in (kst, utc)}
+    assert stored == {"2026-11-29 23:00:00.000000"}
+    assert session.get(OutreachMessage, kst.id).scheduled_at == session.get(OutreachMessage, utc.id).scheduled_at
+    assert session.get(OutreachMessage, kst.id).scheduled_at == datetime(2026, 11, 29, 23, 0)  # app.store.timeutil 규칙
+
+
+def test_naive_time_is_taken_as_utc(session):
+    row = _call(session, scheduled_at=datetime(2026, 11, 29, 23, 0))
+    session.commit()
+    session.expire_all()
+    assert _raw(session, f"SELECT scheduled_at FROM outreach_calls WHERE id = {row.id}") == "2026-11-29 23:00:00.000000"
+    assert session.get(OutreachCall, row.id).scheduled_at == datetime(2026, 11, 29, 23, 0)
+
+
+def test_every_outreach_time_column_stores_utc():
+    tables = [t for t in Base.metadata.sorted_tables if t.name in NEW_TABLES]
+    times = [c for t in tables for c in t.columns if isinstance(c.type, (DateTime, UtcDateTime))]
+    assert len(times) > 20
+    assert [f"{c.table.name}.{c.name}" for c in times if not isinstance(c.type, UtcDateTime)] == []
+
+
 # ── 격리 ────────────────────────────────────────────────────────────
+
+
+def _project_rows(session: Session, schedule_id: int) -> dict[str, int]:
+    company = _company(session, schedule_id)
+    person = _person(session, company, "김공정", phone=PHONE)
+    message = _message(session, schedule_id=schedule_id, contact_id=person.id)
+    call = _call(session, schedule_id=schedule_id, contact_id=person.id)
+    session.add(ContactProposal(schedule_id=schedule_id, kind="new", name="박새사람"))
+    outreach.add_report(session, schedule_id=schedule_id, medium="sms", kind="delay", text="늦습니다")
+    session.flush()
+    return {"company": company.id, "person": person.id, "message": message.id, "call": call.id}
+
+
+def _counts(session: Session, schedule_id: int | None) -> list[int]:
+    models = (ContactCompany, Contact, ContactProposal, OutreachMessage, OutreachCall, ContactReport)
+    where = (lambda m: m.schedule_id.is_(None)) if schedule_id is None else (lambda m: m.schedule_id == schedule_id)
+    return [len(list(session.scalars(select(m).where(where(m))))) for m in models]
+
+
+def test_purge_schedule_removes_only_that_schedules_rows(session, sid, sid2):
+    _project_rows(session, sid)
+    _project_rows(session, sid2)
+    _message(session, direction="in", status="received", origin="peer", peer_number=PHONE)
+    _call(session, direction="in", status="missed", origin="peer", peer_number=PHONE)
+    session.add(ContactProposal(kind="new", name="모르는 분"))
+    outreach.add_report(session, medium="call", kind="message", text="전화 주세요")
+    outreach.add_usage(session, "text_reply", ref=("message", 1))
+    session.commit()
+
+    outreach.purge_schedule(session, sid2)
+    session.commit()
+
+    assert _counts(session, sid2) == [0, 0, 0, 0, 0, 0]
+    assert _counts(session, sid) == [1, 1, 1, 1, 1, 1]
+    assert _counts(session, None) == [0, 0, 1, 1, 1, 1]  # 일정 없는 줄은 남는다
+    assert len(list(session.scalars(select(OutreachUsage)))) == 1
+
+
+def test_unknown_messages_and_calls_are_rows_without_a_schedule(session, sid):
+    _project_rows(session, sid)
+    messages = [_message(session, direction="in", status="received", origin="peer", peer_number=PHONE,
+                         body=f"글 {i}") for i in range(4)]
+    calls = [_call(session, direction="in", status="missed", origin="peer", peer_number=PHONE) for _ in range(3)]
+    newest_first = messages[::-1]
+    assert outreach.unknown_messages(session, limit=10) == newest_first
+    assert outreach.unknown_messages(session, limit=2) == newest_first[:2]
+    assert outreach.unknown_messages(session, limit=2, before=messages[2].id) == newest_first[2:]
+    assert outreach.unknown_calls(session, limit=10) == calls[::-1]
+    assert outreach.unknown_calls(session, limit=1, before=calls[1].id) == [calls[0]]
 
 
 def test_get_contact_of_other_project_is_not_found(session, sid, sid2):
@@ -178,6 +263,13 @@ def test_messages_calls_and_thread_of_other_project_are_not_found(session, sid, 
         outreach.get_call(session, sid, call.id)
     with pytest.raises(NotFound):
         outreach.thread(session, sid, person.id)
+
+
+def test_missing_message_or_call_is_not_found(session, sid):
+    with pytest.raises(NotFound):
+        outreach.get_message(session, sid, 9999)
+    with pytest.raises(NotFound):
+        outreach.get_call(session, sid, 9999)
 
 
 def test_search_stays_in_project_and_skips_hidden(session, sid, sid2):
@@ -225,6 +317,13 @@ def test_by_number_spans_projects_and_keeps_hidden(session, sid, sid2):
     _person(session, _company(session, sid), "이반장", phone=OTHER_PHONE)
     assert contacts.by_number(session, PHONE) == [here, there]
     assert contacts.by_number(session, "") == []
+
+
+def test_by_number_normalizes_input_and_bad_input_finds_nobody(session, sid):
+    here = _person(session, _company(session, sid), "김공정", phone=PHONE)
+    assert contacts.by_number(session, "010-0000-0199") == [here]
+    assert contacts.by_number(session, "+82 10-0000-0199") == [here]
+    assert contacts.by_number(session, "메모: 010-0000-0199") == []  # 정리되지 않는 값은 빈 결과(오류 아님)
 
 
 def test_by_name_is_exact_across_projects_without_hidden(session, sid, sid2):
@@ -286,51 +385,132 @@ def test_claim_from_two_sessions_is_won_once(session):
     assert session.get(OutreachMessage, row.id).status == "sending"
 
 
+def test_losing_claim_does_not_leave_a_stale_status_in_memory(session):
+    """진 쪽이 미리 읽어 둔 줄도 DB 의 참값을 보인다(진 claim 이 메모리의 상태를 바꾸지 않는다)."""
+    row = _message(session, status="scheduled")
+    session.commit()
+    other = Session(session.get_bind())
+    try:
+        mine = other.get(OutreachMessage, row.id)
+        assert mine.status == "scheduled"
+        assert outreach.claim(session, "message", row.id, ("scheduled",), "sending") is True
+        assert outreach.claim(session, "message", row.id, ("sending",), "accepted") is True
+        session.commit()
+        assert outreach.claim(other, "message", row.id, ("scheduled",), "sending") is False
+        assert mine.status == "accepted"
+    finally:
+        other.close()
+
+
+def test_claim_returns_false_when_the_database_is_locked(tmp_path):
+    """다른 일꾼이 쓰기를 쥐고 있어 「database is locked」 이면 False(그쪽이 가졌다). 다른 DB 오류는 그대로 올린다."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'lock.db'}", connect_args={"timeout": 0.1})
+    Base.metadata.create_all(engine, tables=[OutreachMessage.__table__])
+    with Session(engine) as setup:
+        setup.add(OutreachMessage(direction="out", channel="sms", origin="user", status="scheduled"))
+        setup.add(OutreachMessage(direction="out", channel="sms", origin="user", status="scheduled"))
+        setup.commit()
+    holder, late = Session(engine), Session(engine)
+    try:
+        assert outreach.claim(holder, "message", 1, ("scheduled",), "sending") is True  # 쓰기 잠금을 쥔 채 commit 전
+        assert outreach.claim(late, "message", 2, ("scheduled",), "sending") is False
+        holder.commit()  # late 는 claim 이 되돌려 두어 그대로 다시 쓸 수 있다
+        assert outreach.claim(late, "message", 2, ("scheduled",), "sending") is True
+        late.commit()
+    finally:
+        holder.close()
+        late.close()
+    with Session(create_engine(f"sqlite:///{tmp_path / 'empty.db'}")) as broken, pytest.raises(OperationalError):
+        outreach.claim(broken, "message", 1, ("scheduled",), "sending")  # 표가 없음 — 잠금이 아니면 숨기지 않는다
+
+
+def test_claim_stamps_claimed_at_when_a_row_starts_to_leave(session):
+    t1 = datetime(2026, 11, 24, 1, 0, tzinfo=UTC)
+    t2 = datetime(2026, 11, 24, 1, 5, tzinfo=UTC)
+    message = _message(session, status="scheduled")
+    call = _call(session, status="scheduled")
+    session.commit()
+    assert outreach.claim(session, "message", message.id, ("draft", "scheduled"), "sending", now=t1)
+    assert outreach.claim(session, "call", call.id, ("draft", "scheduled"), "queued", now=t1)
+    assert outreach.claim(session, "call", call.id, ("queued",), "dialing", now=t2)  # 이미 나가는 중 — 그대로
+    assert outreach.claim(session, "message", message.id, ("sending",), "accepted", now=t2)
+    session.commit()
+    session.expire_all()
+    assert session.get(OutreachMessage, message.id).claimed_at == datetime(2026, 11, 24, 1, 0)
+    assert session.get(OutreachCall, call.id).claimed_at == datetime(2026, 11, 24, 1, 0)
+    blocked = _call(session, status="draft")
+    session.commit()
+    assert outreach.claim(session, "call", blocked.id, ("draft",), "blocked_hours", now=t2)
+    session.commit()
+    session.expire_all()
+    assert session.get(OutreachCall, blocked.id).claimed_at is None  # 나가기 전에 막힌 것은 찍지 않는다
+
+
 def test_sent_count_uses_kst_day(session):
     utc_1530 = datetime(2026, 11, 23, 15, 30, tzinfo=UTC)  # 서울 11-24 00:30
-    _message(session, status="accepted", peer_number=PHONE, sent_at=utc_1530)
+    _message(session, status="accepted", peer_number=PHONE, claimed_at=utc_1530)
     assert outreach.sent_count(session, "sms", date(2026, 11, 24)) == 1
     assert outreach.sent_count(session, "sms", date(2026, 11, 23)) == 0
 
 
-def test_sent_count_counts_only_outgoing_states_by_channel_and_number(session, sid):
+def test_sent_count_puts_a_kst_2330_send_on_that_kst_day(session):
+    _message(session, status="accepted", peer_number=PHONE, claimed_at=datetime(2026, 11, 24, 23, 30, tzinfo=KST))
+    assert [outreach.sent_count(session, "sms", date(2026, 11, d)) for d in (23, 24, 25)] == [0, 1, 0]
+
+
+def test_sent_count_counts_claimed_rows_by_claim_time(session, sid):
+    """나가려고 차지한(claimed_at 이 있는) 것은 그 뒤 실패해도 센다. 나가기 전에 막힌 것은 세지 않는다."""
     day = date(2026, 11, 24)
     at = datetime(2026, 11, 24, 1, 0, tzinfo=UTC)
     person = _person(session, _company(session, sid), "김공정", phone=PHONE)
-    for status in ("sending", "accepted", "delivered", "unconfirmed"):
-        _message(session, schedule_id=sid, contact_id=person.id, status=status, sent_at=at)
-    for status in ("draft", "scheduled", "failed", "blocked_test"):
-        _message(session, schedule_id=sid, contact_id=person.id, status=status, sent_at=at)
-    _message(session, direction="in", status="received", peer_number=PHONE, sent_at=at)
-    _message(session, channel="kakao", status="accepted", peer_number=PHONE, sent_at=at)
-    _message(session, status="accepted", peer_number=OTHER_PHONE, sent_at=at)
-    _message(session, status="sending", peer_number=PHONE, created_at=at)  # 보낸 시각이 아직 없으면 만든 시각
-    _message(session, status="unconfirmed", peer_number=OTHER_PHONE, scheduled_at=at,  # 예약 시각이 만든 시각보다 먼저
-             created_at=at - timedelta(days=3))
+    for status in ("sending", "accepted", "delivered", "unconfirmed", "failed"):
+        _message(session, schedule_id=sid, contact_id=person.id, status=status, claimed_at=at)
+    for status in ("draft", "scheduled", "blocked_test"):
+        _message(session, schedule_id=sid, contact_id=person.id, status=status, sent_at=at, created_at=at)
+    _message(session, status="accepted", peer_number=PHONE, claimed_at=at - timedelta(days=1))  # 전날
+    _message(session, direction="in", status="received", peer_number=PHONE, claimed_at=at)
+    _message(session, channel="kakao", status="accepted", peer_number=PHONE, claimed_at=at)
+    _message(session, channel="kakao", status="delivered", peer_number=PHONE, claimed_at=at, fallback_sms=True)
+    _message(session, status="accepted", peer_number=OTHER_PHONE, claimed_at=at)
 
-    assert outreach.sent_count(session, "sms", day) == 7
-    assert outreach.sent_count(session, "sms", day, number=PHONE) == 5  # 연락처 번호로 간 것 + peer_number
-    assert outreach.sent_count(session, "sms", day, number=OTHER_PHONE) == 2
+    assert outreach.sent_count(session, "sms", day) == 7  # 문자 5 + 문자로 대신 나간 카카오톡 1 + 다른 번호 1
+    assert outreach.sent_count(session, "sms", day, number=PHONE) == 6  # 연락처 번호로 간 것 + peer_number
+    assert outreach.sent_count(session, "sms", day, number="010-0000-0199") == 6  # 번호는 정리해서 본다
+    assert outreach.sent_count(session, "sms", day, number="번호 아님") == 0
+    assert outreach.sent_count(session, "sms", day, number=OTHER_PHONE) == 1
     assert outreach.sent_count(session, "kakao", day, number=PHONE) == 1
 
+
+def test_sent_count_of_calls_by_number_is_exact(session, sid):
+    day = date(2026, 11, 24)
+    at = datetime(2026, 11, 24, 1, 0, tzinfo=UTC)
+    person = _person(session, _company(session, sid), "김공정", phone=PHONE)
+    other = _person(session, _company(session, sid), "이반장", phone=OTHER_PHONE)
     for status in ("queued", "dialing", "in_call", "completed", "no_answer", "busy", "failed"):
-        _call(session, schedule_id=sid, contact_id=person.id, status=status, started_at=at)
+        _call(session, schedule_id=sid, contact_id=person.id, status=status, claimed_at=at)
     for status in ("draft", "scheduled", "blocked_test", "blocked_hours"):
-        _call(session, schedule_id=sid, contact_id=person.id, status=status, started_at=at)
-    _call(session, direction="in", status="completed", peer_number=PHONE, started_at=at)
-    assert outreach.sent_count(session, "call", day) == 7
-    assert outreach.sent_count(session, "call", day, number=OTHER_PHONE) == 0
+        _call(session, schedule_id=sid, contact_id=person.id, status=status, created_at=at)
+    _call(session, direction="in", status="completed", peer_number=PHONE, claimed_at=at)
+    _call(session, schedule_id=sid, contact_id=other.id, status="completed", claimed_at=at)
+    _call(session, status="no_answer", peer_number=PHONE, claimed_at=at)  # 주소록 밖 번호로 건 것
+    assert outreach.sent_count(session, "call", day) == 9
+    assert outreach.sent_count(session, "call", day, number=PHONE) == 8
+    assert outreach.sent_count(session, "call", day, number=OTHER_PHONE) == 1
+    assert outreach.sent_count(session, "call", day + timedelta(days=1), number=PHONE) == 0
 
 
-def test_auto_replies_are_sent_ones_to_that_number(session):
+def test_auto_replies_are_claimed_ones_to_that_number(session):
     since = datetime(2026, 11, 24, 0, 0, tzinfo=UTC)
-    first = _message(session, kind="auto_reply", status="accepted", peer_number=PHONE, sent_at=since + timedelta(1 / 24))
-    notice = _message(session, kind="notice", status="delivered", peer_number=PHONE, sent_at=since + timedelta(2 / 24))
-    _message(session, kind="auto_reply", status="accepted", peer_number=PHONE, sent_at=since - timedelta(1 / 24))
+    hour = timedelta(hours=1)
+    first = _message(session, kind="auto_reply", status="accepted", peer_number=PHONE, claimed_at=since + hour)
+    notice = _message(session, kind="notice", status="failed", peer_number=PHONE, claimed_at=since + 2 * hour)
+    _message(session, kind="auto_reply", status="accepted", peer_number=PHONE, claimed_at=since - hour)
     _message(session, kind="auto_reply", status="draft", peer_number=PHONE)
-    _message(session, kind="normal", status="accepted", peer_number=PHONE, sent_at=since + timedelta(1 / 24))
-    _message(session, kind="auto_reply", status="accepted", peer_number=OTHER_PHONE, sent_at=since)
+    _message(session, kind="normal", status="accepted", peer_number=PHONE, claimed_at=since + hour)
+    _message(session, kind="auto_reply", status="accepted", peer_number=OTHER_PHONE, claimed_at=since)
     assert outreach.auto_replies(session, PHONE, since) == [first, notice]
+    assert outreach.auto_replies(session, "010-0000-0199", since) == [first, notice]
+    assert outreach.auto_replies(session, "번호 아님", since) == []
 
 
 def test_live_call(session, sid):
@@ -342,6 +522,15 @@ def test_live_call(session, sid):
         assert outreach.live_call(session, person.id) is True
         row.status = "completed"
         session.flush()
+
+
+def test_live_call_of_one_contact_does_not_make_another_live(session, sid):
+    company = _company(session, sid)
+    kim = _person(session, company, "김공정")
+    lee = _person(session, company, "이반장")
+    _call(session, schedule_id=sid, contact_id=kim.id, status="in_call")
+    assert outreach.live_call(session, kim.id) is True
+    assert outreach.live_call(session, lee.id) is False
 
 
 def test_connection_is_the_default_one(session):
@@ -383,6 +572,12 @@ def _conn(limits_json) -> NotifyConnection:
                             account_id="b", limits_json=limits_json)
 
 
+@pytest.fixture
+def fresh_warnings(monkeypatch):
+    """한도 경고는 칸마다 프로세스에 한 번 — 시험마다 새로 센다."""
+    monkeypatch.setattr(outreach, "_warned", set())
+
+
 def test_limits_defaults_when_nothing_stored():
     assert limits(None) == limits(_conn(None)) == limits(_conn({})) == Limits()
     assert vars(Limits()) == DEFAULTS
@@ -396,10 +591,11 @@ def test_limits_partial_override():
 
 @pytest.mark.parametrize("key,value", [
     ("daily_sms_total", -1), ("daily_sms_total", 10_001), ("daily_calls_total", 10_001),
-    ("max_call_seconds", 7_201), ("max_call_seconds", 0), ("max_call_seconds_unknown", 7_201),
+    ("max_call_seconds", 7_201), ("max_call_seconds", 29), ("max_call_seconds_unknown", 7_201),
+    ("inbound_burst_count", 0),
     ("auto_reply_hourly", "5"), ("auto_reply_daily", 2.5), ("inbound_burst_count", True), ("reply_grace_minutes", None),
 ])
-def test_limits_invalid_value_falls_back_to_default(key, value, caplog):
+def test_limits_invalid_value_falls_back_to_default(key, value, caplog, fresh_warnings):
     caplog.set_level(logging.WARNING, logger="app.store.outreach")
     got = limits(_conn({key: value, "per_contact_calls_daily": 1}))
     assert vars(got) == {**DEFAULTS, "per_contact_calls_daily": 1}
@@ -412,6 +608,54 @@ def test_limits_edges_are_allowed():
                         "reply_grace_minutes": 0}))
     assert (got.daily_sms_total, got.daily_calls_total, got.max_call_seconds, got.reply_grace_minutes) == (
         10_000, 0, 7_200, 0)
+
+
+def test_limits_warns_once_per_field(caplog, fresh_warnings):
+    caplog.set_level(logging.WARNING, logger="app.store.outreach")
+    for _ in range(3):
+        limits(_conn({"daily_sms_total": -1}))
+    limits(_conn({"daily_calls_total": -1}))
+    assert len(caplog.records) == 2
+
+
+def test_limits_keep_unknown_callers_no_longer_than_max_call(fresh_warnings):
+    assert limits(_conn({"max_call_seconds": 60})).max_call_seconds_unknown == 60  # 기본 120 → 60
+    got = limits(_conn({"max_call_seconds": 90, "max_call_seconds_unknown": 600}))
+    assert (got.max_call_seconds, got.max_call_seconds_unknown) == (90, 90)
+
+
+def test_validate_limits_accepts_good_values():
+    assert validate_limits({}) == {}
+    assert validate_limits(DEFAULTS) == {}
+    assert validate_limits({"daily_sms_total": 10_000, "max_call_seconds": 30, "max_call_seconds_unknown": 30}) == {}
+
+
+def test_validate_limits_checks_each_field():
+    errors = validate_limits({"nope": 1, "daily_sms_total": -1, "daily_calls_total": "3", "auto_reply_daily": True,
+                              "max_call_seconds": 7_201, "inbound_burst_count": 0})
+    assert set(errors) == {"nope", "daily_sms_total", "daily_calls_total", "auto_reply_daily", "max_call_seconds",
+                           "inbound_burst_count"}
+    assert errors["nope"] == "알 수 없는 한도입니다."
+    assert errors["daily_calls_total"] == errors["auto_reply_daily"] == "정수로 넣어 주세요."
+    assert errors["daily_sms_total"] == "0~10,000 사이로 넣어 주세요."
+    assert errors["max_call_seconds"] == "30~7,200 사이로 넣어 주세요."
+    assert errors["inbound_burst_count"] == "1~10,000 사이로 넣어 주세요."
+    assert validate_limits({"max_call_seconds": 29}) == {"max_call_seconds": "30~7,200 사이로 넣어 주세요."}
+
+
+@pytest.mark.parametrize("values,field", [
+    ({"max_call_seconds": 60, "max_call_seconds_unknown": 61}, "max_call_seconds_unknown"),
+    ({"max_call_seconds": 60}, "max_call_seconds_unknown"),  # 빠진 칸은 기본값(120)으로 견준다
+    ({"auto_reply_hourly": 21}, "auto_reply_hourly"),
+    ({"auto_reply_hourly": 3, "auto_reply_daily": 2}, "auto_reply_hourly"),
+    ({"per_contact_sms_daily": 51}, "per_contact_sms_daily"),
+    ({"per_contact_sms_daily": 5, "daily_sms_total": 4}, "per_contact_sms_daily"),
+    ({"per_contact_calls_daily": 11}, "per_contact_calls_daily"),
+    ({"per_contact_calls_daily": 2, "daily_calls_total": 1}, "per_contact_calls_daily"),
+])
+def test_validate_limits_checks_pairs(values, field):
+    errors = validate_limits(values)
+    assert list(errors) == [field] and errors[field]
 
 
 def test_limits_non_object_and_unknown_keys_fall_back():

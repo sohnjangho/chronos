@@ -3,7 +3,9 @@
 from sqlalchemy import func, select
 
 from app.core.model import Relation
+from app.store import contacts
 from app.store.tables import Approval, ChangeLog, ScheduleRecord, ScheduleVersion
+from app.store.tables_outreach import Contact, ContactCompany, OutreachMessage
 from app.store.versions import save_new_version
 from tests import schedules
 
@@ -108,3 +110,29 @@ def test_pending_approvals_of_a_deleted_schedule_are_closed_as_conflict(client, 
     assert session.get(Approval, auto).status == "auto"
     assert session.get(Approval, elsewhere).status == "pending"
     assert client.get("/api/approvals/count", headers=admin).json() == {"pending": 1}
+
+
+def test_a_deleted_schedules_contacts_do_not_reappear_when_its_id_is_reused(client, admin, sid, session,
+                                                                            sample_schedule):
+    """가장 나중 일정을 지우면 그 id 가 새 일정에 다시 쓰인다 — 지운 일정의 주소록·연락 기록은 함께 지워져야 한다."""
+    gone = schedules.store(session, sample_schedule)
+    company = ContactCompany(schedule_id=gone, name="가상건설")
+    session.add(company)
+    session.flush()
+    person = Contact(schedule_id=gone, company_id=company.id, name="김가상", phone="01000000199")
+    session.add(person)
+    session.flush()
+    session.add(OutreachMessage(schedule_id=gone, contact_id=person.id, direction="out", channel="sms",
+                                origin="user", body="내일 오시나요"))
+    session.add(OutreachMessage(direction="in", channel="sms", origin="peer", status="received",
+                                peer_number="01000000000", body="누구세요"))  # 일정 없는 줄은 남는다
+    session.commit()
+
+    assert client.delete(f"/api/schedules/{gone}", headers=admin).status_code == 200
+    reused = schedules.store(session, sample_schedule)
+
+    assert reused == gone
+    session.expire_all()
+    assert contacts.listed(session, reused, include_hidden=True) == []
+    assert session.scalars(select(OutreachMessage.schedule_id)).all() == [None]
+    assert contacts.listed(session, sid) == []

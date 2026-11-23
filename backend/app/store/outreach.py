@@ -1,43 +1,61 @@
-"""연락 기록 읽기·쓰기(Task 61): 알림 연결과 그 한도, 메시지·통화 줄, 차지하기(claim), 셈, 보고, 사용량.
+"""연락 기록 읽기·쓰기(Task 61): 알림 연결과 그 한도, 메시지·통화 줄, 차지하기(claim), 셈, 보고, 사용량, 일정 지우기.
 
 일정 id 를 받는 함수는 그 일정 것만 본다 — 다른 일정의 메시지·통화·연락처 id 는 없는 것과 같다(NotFound).
-번호(number)는 app.outreach.phone.normalize 한 꼴. 쓰는 함수는 flush 까지만 하고 commit 은 부른 쪽이 한다.
-시각은 DB 처럼 UTC 로 견준다(시간대 없는 값은 UTC 로 본다). 「하루」는 서울 날짜다.
+번호(number)를 받는 함수는 app.outreach.phone.normalize 로 정리해서 본다(정리되지 않으면 빈 결과).
+쓰는 함수는 flush 까지만 하고 commit 은 부른 쪽이 한다. 시각은 DB 처럼 UTC 로 견준다. 「하루」는 서울 날짜다.
 """
 
 import logging
-from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from dataclasses import asdict, dataclass, replace
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import ColumnElement, func, or_, select, update
+from sqlalchemy import (
+    ColumnElement,
+    and_,
+    case,
+    delete,
+    func,
+    literal,
+    or_,
+    select,
+    update,
+)
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.outreach.phone import normalize
 from app.store import contacts
 from app.store.schedules import NotFound
 from app.store.tables_outreach import (
     Contact,
+    ContactCompany,
+    ContactProposal,
     ContactReport,
     NotifyConnection,
     OutreachCall,
     OutreachMessage,
     OutreachUsage,
+    UtcDateTime,
 )
 from app.store.timeutil import as_utc
 
 __all__ = [
     "LIMIT_RANGES", "Limits", "NotFound", "add_report", "add_usage", "auto_replies", "claim", "connection",
-    "get_call", "get_message", "limits", "live_call", "sent_count", "thread",
+    "get_call", "get_message", "limits", "live_call", "purge_schedule", "sent_count", "thread", "unknown_calls",
+    "unknown_messages", "validate_limits",
 ]
 
 logger = logging.getLogger(__name__)
 
 KST = ZoneInfo("Asia/Seoul")
-SENT_MESSAGE = ("sending", "accepted", "delivered", "unconfirmed")  # 나갔거나 나가는 중인 메시지
+SENT_MESSAGE = ("sending", "accepted", "delivered", "unconfirmed")  # 나갔거나 나가는 중인 메시지(상태 묶음)
 SENT_CALL = ("queued", "dialing", "in_call", "completed", "no_answer", "busy", "failed")  # 줄에 넣은 뒤 상태 전부
 LIVE_CALL = ("queued", "dialing", "in_call")
 _ROWS: dict[str, type[OutreachMessage] | type[OutreachCall]] = {"message": OutreachMessage, "call": OutreachCall}
+# 이 상태로 들어오면 「나가려고 차지했다」 — claim 이 claimed_at 을 찍는다(이미 이 안에서 옮기면 그대로 둔다)
+_LEAVING: dict[str, tuple[str, ...]] = {"message": ("sending",), "call": LIVE_CALL}
 
 
 # ── 알림 연결과 한도 ────────────────────────────────────────────────
@@ -62,42 +80,78 @@ class Limits:
 
 
 _COUNT = (0, 10_000)
-_CALL_SECONDS = (1, 7_200)
 LIMIT_RANGES: dict[str, tuple[int, int]] = {  # 칸마다 받는 값(양 끝 포함). 설정 화면·콘솔의 입력 검사도 이것을 쓴다
     "daily_sms_total": _COUNT,
     "daily_calls_total": _COUNT,
     "per_contact_sms_daily": _COUNT,
     "per_contact_calls_daily": _COUNT,
-    "max_call_seconds": _CALL_SECONDS,
-    "max_call_seconds_unknown": _CALL_SECONDS,
+    "max_call_seconds": (30, 7_200),
+    "max_call_seconds_unknown": (1, 7_200),
     "auto_reply_hourly": _COUNT,
     "auto_reply_daily": _COUNT,
-    "inbound_burst_count": _COUNT,
+    "inbound_burst_count": (1, 10_000),
     "inbound_burst_minutes": (1, 1_440),
     "reply_grace_minutes": (0, 1_440),
     "unknown_notice_daily": _COUNT,
 }
+_PAIRS = (  # (작은 쪽, 큰 쪽, 작은 쪽 칸의 오류 글)
+    ("max_call_seconds_unknown", "max_call_seconds", "모르는 번호 통화 시간은 최대 통화 시간보다 길 수 없습니다."),
+    ("auto_reply_hourly", "auto_reply_daily", "한 시간 자동 답 수는 하루 자동 답 수보다 많을 수 없습니다."),
+    ("per_contact_sms_daily", "daily_sms_total", "한 사람 하루 문자 수는 하루 전체 문자 수보다 많을 수 없습니다."),
+    ("per_contact_calls_daily", "daily_calls_total", "한 사람 하루 전화 수는 하루 전체 전화 수보다 많을 수 없습니다."),
+)
+_warned: set[str] = set()  # 틀린 한도 경고는 칸마다 프로세스에 한 번만
+
+
+def _warn_once(key: str, message: str) -> None:
+    if key not in _warned:
+        _warned.add(key)
+        logger.warning(message, key)
+
+
+def _field_error(key: str, value: object) -> str | None:
+    if key not in LIMIT_RANGES:
+        return "알 수 없는 한도입니다."
+    if type(value) is not int:  # bool·실수·글·null 은 받지 않는다
+        return "정수로 넣어 주세요."
+    low, high = LIMIT_RANGES[key]
+    return None if low <= value <= high else f"{low:,}~{high:,} 사이로 넣어 주세요."
+
+
+def validate_limits(values: dict) -> dict[str, str]:
+    """한도 입력 검사(설정 API·개발 콘솔): {칸: 한국어 오류}, 맞으면 {}. 오류 글에 넣은 값을 싣지 않는다.
+    칸마다 LIMIT_RANGES(정수·범위)를 보고, 짝 규칙(모르는 번호 통화 ≤ 최대 통화, 한 시간 자동 답 ≤ 하루 자동 답,
+    사람당 ≤ 하루 전체)을 본다. 짝의 한쪽이 빠졌으면 기본값으로 견주므로 저장할 전체 값({**저장된 값, **바꿀 값})을 넘긴다."""
+    errors = {key: problem for key, value in values.items() if (problem := _field_error(key, value))}
+    merged = asdict(Limits()) | {k: v for k, v in values.items() if k in LIMIT_RANGES and k not in errors}
+    for small, big, message in _PAIRS:
+        if small not in errors and big not in errors and merged[small] > merged[big]:
+            errors[small] = message
+    return errors
 
 
 def limits(conn: NotifyConnection | None) -> Limits:
     """그 연결의 쓰이는 한도: limits_json 에 둔 값이 기본값을 덮는다. 없거나 틀린 값(정수가 아님·범위 밖)은 그 칸만
-    기본값(기록에는 칸 이름만). 연결이 없으면 모두 기본값. 한도는 이 함수로만 읽는다."""
+    기본값(경고는 칸 이름만, 칸마다 한 번). 모르는 번호 통화 시간은 최대 통화 시간을 넘지 않게 줄인다.
+    연결이 없으면 모두 기본값. 한도는 이 함수로만 읽는다."""
     stored = conn.limits_json if conn is not None else None
     if stored is None:
         return Limits()
     if not isinstance(stored, dict):
-        logger.warning("알림 연결 한도가 객체가 아니라 모두 기본값을 씁니다")
+        _warn_once("limits_json", "알림 연결 한도가 객체가 아니라 모두 기본값을 씁니다: %s")
         return Limits()
     good = {}
-    for key, (low, high) in LIMIT_RANGES.items():
+    for key in LIMIT_RANGES:
         if key not in stored:
             continue
-        value = stored[key]
-        if type(value) is int and low <= value <= high:  # bool·실수·글은 받지 않는다
-            good[key] = value
+        if _field_error(key, stored[key]) is None:
+            good[key] = stored[key]
         else:
-            logger.warning("알림 연결 한도 값이 틀려 기본값을 씁니다: %s", key)
-    return Limits(**good)
+            _warn_once(key, "알림 연결 한도 값이 틀려 기본값을 씁니다: %s")
+    result = Limits(**good)
+    if result.max_call_seconds_unknown > result.max_call_seconds:
+        result = replace(result, max_call_seconds_unknown=result.max_call_seconds)
+    return result
 
 
 def connection(session: Session) -> NotifyConnection | None:
@@ -140,16 +194,67 @@ def thread(
     return rows[::-1]
 
 
+def _unscheduled(session: Session, model, limit: int, before: int | None) -> list:
+    stmt = select(model).where(model.schedule_id.is_(None))
+    if before is not None:
+        stmt = stmt.where(model.id < before)
+    return list(session.scalars(stmt.order_by(model.id.desc()).limit(limit)))
+
+
+def unknown_messages(session: Session, *, limit: int, before: int | None = None) -> list[OutreachMessage]:
+    """어느 일정에도 들지 않은 메시지(주소록에 없는 번호와 주고받은 것), 새것부터(id 내림차순).
+    before(메시지 id)를 주면 그보다 앞 것만. 「모르는 번호」 화면이 읽는다(번호는 부른 쪽이 가려서 내보낸다)."""
+    return _unscheduled(session, OutreachMessage, limit, before)
+
+
+def unknown_calls(session: Session, *, limit: int, before: int | None = None) -> list[OutreachCall]:
+    """어느 일정에도 들지 않은 통화, 새것부터(id 내림차순). before(통화 id)를 주면 그보다 앞 것만."""
+    return _unscheduled(session, OutreachCall, limit, before)
+
+
 def claim(
-    session: Session, kind: Literal["message", "call"], row_id: int, from_states: tuple[str, ...], to_state: str
+    session: Session,
+    kind: Literal["message", "call"],
+    row_id: int,
+    from_states: tuple[str, ...],
+    to_state: str,
+    *,
+    now: datetime | None = None,
 ) -> bool:
     """줄의 상태가 from_states 가운데 하나일 때만 to_state 로 바꾼다(UPDATE … WHERE id=? AND status IN (…) 한 줄).
-    바꾼 줄이 1이면 True — 두 곳이 같은 줄을 차지하려 해도 한 곳만 이긴다. commit 은 부른 쪽."""
+    바꾼 줄이 1이면 True — 두 곳이 같은 줄을 차지하려 해도 한 곳만 이긴다. commit 은 부른 쪽.
+
+    부른 쪽은 **돌려받은 값만 믿는다**(미리 읽어 둔 줄의 상태로 판단하지 않는다). 이 세션에 올라 있던 그 줄의
+    status·claimed_at 은 비워 두어 다음에 읽을 때 DB 의 참값을 본다. 다른 일꾼이 쓰기를 쥐고 있어 SQLite 가
+    「database is locked」 이면 그쪽이 가진 것으로 보고 이 세션을 되돌린(rollback — 커밋 안 한 쓰기도 사라진다) 뒤
+    False. 그 밖의 DB 오류는 그대로 올린다.
+    나가는 상태(메시지 sending, 통화 queued·dialing·in_call)로 들어오면 claimed_at 을 now(없으면 지금)로 찍는다 —
+    이미 그 안에서 옮기는 것(queued → dialing)은 처음 찍은 시각을 둔다. 하루 셈(sent_count)은 이 시각으로 한다.
+    """
     model = _ROWS[kind]
-    result = session.execute(
-        update(model).where(model.id == row_id, model.status.in_(from_states)).values(status=to_state)
-    )
+    values: dict = {"status": to_state}
+    if to_state in _LEAVING[kind]:
+        stamp = literal(now or datetime.now(UTC), UtcDateTime())
+        values["claimed_at"] = case((model.status.in_(_LEAVING[kind]), model.claimed_at), else_=stamp)
+    stmt = update(model).where(model.id == row_id, model.status.in_(from_states)).values(**values)
+    try:
+        result = session.execute(stmt.execution_options(synchronize_session=False))
+    except OperationalError as exc:
+        if "locked" not in str(exc.orig):
+            raise
+        session.rollback()
+        return False
+    loaded = session.identity_map.get(session.identity_key(model, row_id))
+    if loaded is not None:
+        session.expire(loaded, ["status", "claimed_at"])
     return result.rowcount == 1
+
+
+def purge_schedule(session: Session, schedule_id: int) -> None:
+    """지우는 일정의 주소록과 연락 기록(협력사·연락처·연락처 제안·메시지·통화·보고)을 지운다 — 일정 id 가 다시 쓰여도
+    새 일정에 나타나지 않게. 일정 없는 줄·사용량·알림 연결·차단 목록은 남는다. commit 은 부른 쪽(일정 지우기와 한 트랜잭션)."""
+    for model in (ContactCompany, Contact, ContactProposal, OutreachMessage, OutreachCall, ContactReport):
+        session.execute(delete(model).where(model.schedule_id == schedule_id))
 
 
 # ── 셈 ─────────────────────────────────────────────────────────────
@@ -160,15 +265,6 @@ def _naive_utc(dt: datetime) -> datetime:
     return as_utc(dt).replace(tzinfo=None)
 
 
-def _message_time() -> ColumnElement[datetime]:
-    """메시지가 나간 때: 보낸 시각, 아직 없으면(보내는 중·확인 필요) 예약 시각, 그것도 없으면 만든 시각."""
-    return func.coalesce(OutreachMessage.sent_at, OutreachMessage.scheduled_at, OutreachMessage.created_at)
-
-
-def _call_time() -> ColumnElement[datetime]:
-    return func.coalesce(OutreachCall.started_at, OutreachCall.scheduled_at, OutreachCall.created_at)
-
-
 def _to_number(model: type[OutreachMessage] | type[OutreachCall], number: str) -> ColumnElement[bool]:
     """그 번호와 주고받은 줄: peer_number 가 그 번호이거나, 연락처(어느 일정이든)의 번호가 그 번호."""
     return or_(model.peer_number == number, model.contact_id.in_(select(Contact.id).where(Contact.phone == number)))
@@ -177,43 +273,41 @@ def _to_number(model: type[OutreachMessage] | type[OutreachCall], number: str) -
 def sent_count(
     session: Session, channel: Literal["sms", "kakao", "call"], day_kst: date, *, number: str | None = None
 ) -> int:
-    """그 서울 날짜에 우리가 내보낸 수. 'sms'·'kakao' 는 그 채널 메시지 가운데 sending·accepted·delivered·unconfirmed,
-    'call' 은 거는 통화 가운데 queued 뒤 상태 전부. number 를 주면 그 번호로 간 것만."""
+    """그 서울 날짜에 우리가 내보낸 수. **셈 규칙은 하나**: 거는 쪽(direction out) 줄 가운데 나가려고 차지한 것
+    (claim 이 claimed_at 을 찍은 것)을 claimed_at 의 서울 날짜로 센다. 그 뒤 실패·확인 필요가 되어도 세고, 나가기 전에
+    막힌 것(시험 모드·근무시간·상한 …으로 차지하지 않은 것)은 세지 않는다. 'sms' 에는 문자로 대신 나간 카카오톡
+    (fallback_sms)도 들고 'kakao' 에는 들지 않는다. number 를 주면 그 번호로 간 것만(정리되지 않는 번호면 0)."""
     start = _naive_utc(datetime.combine(day_kst, time(), tzinfo=KST))
-    end = start + timedelta(days=1)
-    if channel == "call":
-        when = _call_time()
-        stmt = select(func.count(OutreachCall.id)).where(
-            OutreachCall.direction == "out", OutreachCall.status.in_(SENT_CALL), when >= start, when < end
-        )
-        model = OutreachCall
-    else:
-        when = _message_time()
-        stmt = select(func.count(OutreachMessage.id)).where(
-            OutreachMessage.direction == "out",
-            OutreachMessage.channel == channel,
-            OutreachMessage.status.in_(SENT_MESSAGE),
-            when >= start,
-            when < end,
-        )
-        model = OutreachMessage
+    model = OutreachCall if channel == "call" else OutreachMessage
+    stmt = select(func.count(model.id)).where(
+        model.direction == "out", model.claimed_at >= start, model.claimed_at < start + timedelta(days=1)
+    )
+    if channel == "sms":
+        fell_back = and_(OutreachMessage.channel == "kakao", OutreachMessage.fallback_sms.is_(True))
+        stmt = stmt.where(or_(OutreachMessage.channel == "sms", fell_back))
+    elif channel == "kakao":
+        stmt = stmt.where(OutreachMessage.channel == "kakao", OutreachMessage.fallback_sms.is_(False))
     if number is not None:
-        stmt = stmt.where(_to_number(model, number))
+        target = normalize(number)
+        if target is None:
+            return 0
+        stmt = stmt.where(_to_number(model, target))
     return session.scalar(stmt) or 0
 
 
 def auto_replies(session: Session, number: str, since: datetime) -> list[OutreachMessage]:
-    """그 번호로 since 뒤에 나간(sending·accepted·delivered·unconfirmed) 자동 답·고정 안내(kind auto_reply·notice),
-    오래된 것부터. 되풀이 상한과 「같은 글 두 번 금지」가 읽는다."""
-    when = _message_time()
+    """그 번호로 since 뒤에 나간 자동 답·고정 안내(kind auto_reply·notice), 차지한 차례대로. 「나갔다」는 sent_count 와
+    같은 규칙(claimed_at 이 since 뒤). 정리되지 않는 번호면 []. 되풀이 상한과 「같은 글 두 번 금지」가 읽는다."""
+    target = normalize(number)
+    if target is None:
+        return []
     stmt = select(OutreachMessage).where(
         OutreachMessage.direction == "out",
         OutreachMessage.kind.in_(("auto_reply", "notice")),
-        OutreachMessage.status.in_(SENT_MESSAGE),
-        when >= _naive_utc(since),
-        _to_number(OutreachMessage, number),
+        OutreachMessage.claimed_at >= _naive_utc(since),
+        _to_number(OutreachMessage, target),
     )
-    return list(session.scalars(stmt.order_by(when, OutreachMessage.id)))
+    return list(session.scalars(stmt.order_by(OutreachMessage.claimed_at, OutreachMessage.id)))
 
 
 def live_call(session: Session, contact_id: int) -> bool:

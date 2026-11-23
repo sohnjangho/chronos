@@ -2,7 +2,7 @@
 
 일정 id 를 받는 함수는 그 일정 것만 본다 — 다른 일정의 연락처·협력사 id 는 없는 것과 같다(NotFound).
 모든 일정을 보는 함수는 코드 전용이다: by_number 는 하네스의 문·일꾼만(번호로 등급·수신 거부를 정할 때),
-by_name 은 신원 규칙만 부른다. 번호(number)는 app.outreach.phone.normalize 한 꼴로 받는다.
+by_name 은 신원 규칙만 부른다. 번호(number)는 app.outreach.phone.normalize 로 정리해서 본다.
 「숨김」은 숨긴 사람과 숨긴 협력사의 사람이다.
 """
 
@@ -12,6 +12,7 @@ from sqlalchemy import ColumnElement, Select, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.model import CalendarSpec
+from app.outreach.phone import normalize
 from app.store.schedules import NotFound, load
 from app.store.tables_outreach import Contact, ContactCompany
 
@@ -79,10 +80,12 @@ def search(
 
 
 def by_number(session: Session, number: str) -> list[Contact]:
-    """모든 일정에서 이 번호의 사람(숨긴 사람도 — 수신 거부가 번호를 따라가게), id 순. 코드 전용(문·일꾼)."""
-    if not number:
+    """모든 일정에서 이 번호의 사람(숨긴 사람도 — 수신 거부가 번호를 따라가게), id 순. 코드 전용(문·일꾼).
+    번호는 phone.normalize 로 정리해서 찾고, 정리되지 않으면(빈 글·메모 섞인 글 …) []."""
+    target = normalize(number)
+    if target is None:
         return []
-    return list(session.scalars(select(Contact).where(Contact.phone == number).order_by(Contact.id)))
+    return list(session.scalars(select(Contact).where(Contact.phone == target).order_by(Contact.id)))
 
 
 def by_name(session: Session, name: str) -> list[Contact]:

@@ -2,6 +2,8 @@
 
 app.db 가 import 해서 create_all 전에 Base 에 올린다. 이 표들은 계획 4 전 DB 에는 없어서 create_all 이 만들고,
 나중에 더하는 칸은 store.upgrade 가 기존 DB 에 더한다(NULL 가능이거나 글·숫자·참거짓 기본값이 있는 칸만).
+시각 칸은 모두 UtcDateTime: 시간대가 붙은 값(예: KST)은 같은 순간의 UTC 로 바꿔 저장한다. 읽으면 다른 표와 같이
+시간대 없는 UTC 값이다(내보낼 때 app.store.timeutil.as_utc 로 UTC 를 붙인다).
 
 일정(schedule_id)은 프로젝트다. 주소록에 없는 번호와 주고받은 줄은 schedule_id·contact_id 가 비고 peer_number 에 번호.
 전화번호(phone·peer_number·number·…_number)는 app.outreach.phone.normalize 한 꼴(숫자만, 예 01000000199).
@@ -11,10 +13,22 @@ app.db 가 import 해서 create_all 전에 Base 에 올린다. 이 표들은 계
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, String, Text
+from sqlalchemy import JSON, DateTime, Dialect, String, Text, TypeDecorator
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.store.tables import Base
+from app.store.timeutil import as_utc
+
+
+class UtcDateTime(TypeDecorator):
+    """시각 칸. 넣을 때 시간대가 있으면 UTC 로 바꾸고, 없으면 UTC 로 본다 — 어느 시간대로 넣어도 같은 순간이 같은 값.
+    읽으면 시간대 없는 UTC(SQLite 규칙, 다른 표와 같음)."""
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        return None if value is None else as_utc(value).replace(tzinfo=None)
 
 
 def _now() -> datetime:
@@ -32,7 +46,7 @@ class ContactCompany(Base):
     trade: Mapped[str] = mapped_column(String(100), default="")  # 공종
     note: Mapped[str] = mapped_column(Text, default="")
     hidden: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(default=_now)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class Contact(Base):
@@ -60,8 +74,8 @@ class Contact(Base):
     phone_invalid: Mapped[bool] = mapped_column(default=False)
     note: Mapped[str] = mapped_column(Text, default="")
     hidden: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(default=_now)
-    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, onupdate=_now)
 
 
 class ContactProposal(Base):
@@ -83,8 +97,8 @@ class ContactProposal(Base):
     language: Mapped[str | None] = mapped_column(String(10), default=None)
     status: Mapped[str] = mapped_column(String(10), default="pending")
     decided_by: Mapped[str | None] = mapped_column(String(100), default=None)
-    decided_at: Mapped[datetime | None] = mapped_column(default=None)
-    created_at: Mapped[datetime] = mapped_column(default=_now)
+    decided_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class OutreachMessage(Base):
@@ -129,13 +143,14 @@ class OutreachMessage(Base):
     chat_session_id: Mapped[int | None] = mapped_column(default=None)
     call_id: Mapped[int | None] = mapped_column(default=None)
     batch_id: Mapped[int | None] = mapped_column(default=None, index=True)
-    scheduled_at: Mapped[datetime | None] = mapped_column(default=None)
-    sent_at: Mapped[datetime | None] = mapped_column(default=None)
-    delivered_at: Mapped[datetime | None] = mapped_column(default=None)
-    read_at: Mapped[datetime | None] = mapped_column(default=None)
-    last_checked_at: Mapped[datetime | None] = mapped_column(default=None)
+    scheduled_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    claimed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)  # 나가려고 차지한 때(store.outreach.claim)
+    sent_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    delivered_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    read_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    last_checked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     checks: Mapped[int] = mapped_column(default=0)
-    created_at: Mapped[datetime] = mapped_column(default=_now)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class OutreachCall(Base):
@@ -180,10 +195,11 @@ class OutreachCall(Base):
     field_item_id: Mapped[int | None] = mapped_column(default=None)
     approval_id: Mapped[int | None] = mapped_column(default=None)
     chat_session_id: Mapped[int | None] = mapped_column(default=None)
-    scheduled_at: Mapped[datetime | None] = mapped_column(default=None)
-    started_at: Mapped[datetime | None] = mapped_column(default=None)
-    ended_at: Mapped[datetime | None] = mapped_column(default=None)
-    created_at: Mapped[datetime] = mapped_column(default=_now)
+    scheduled_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    claimed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)  # 줄에 넣은 때(store.outreach.claim)
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    ended_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class ContactReport(Base):
@@ -204,8 +220,8 @@ class ContactReport(Base):
     quote_found: Mapped[bool] = mapped_column(default=False)
     status: Mapped[str] = mapped_column(String(10), default="open")
     reviewed_by: Mapped[str | None] = mapped_column(String(100), default=None)
-    reviewed_at: Mapped[datetime | None] = mapped_column(default=None)
-    created_at: Mapped[datetime] = mapped_column(default=_now)
+    reviewed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class BlockedNumber(Base):
@@ -217,7 +233,7 @@ class BlockedNumber(Base):
     number: Mapped[str] = mapped_column(String(20), unique=True)
     reason: Mapped[str] = mapped_column(String(200), default="")
     created_by: Mapped[str] = mapped_column(String(100))
-    created_at: Mapped[datetime] = mapped_column(default=_now)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class OutreachUsage(Base):
@@ -227,7 +243,7 @@ class OutreachUsage(Base):
     __tablename__ = "outreach_usage"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    at: Mapped[datetime] = mapped_column(default=_now, index=True)
+    at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, index=True)
     kind: Mapped[str] = mapped_column(String(20))
     ref_kind: Mapped[str | None] = mapped_column(String(10), default=None)
     ref_id: Mapped[int | None] = mapped_column(default=None)
@@ -268,10 +284,10 @@ class NotifyConnection(Base):
     handoff_number: Mapped[str | None] = mapped_column(String(20), default=None)
     is_default: Mapped[bool] = mapped_column(default=False)
     status: Mapped[str] = mapped_column(String(10), default="unknown")  # ok | failed | unknown
-    checked_at: Mapped[datetime | None] = mapped_column(default=None)
+    checked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     latency_ms: Mapped[int | None] = mapped_column(default=None)
-    reply_cursor: Mapped[datetime | None] = mapped_column(default=None)  # 들어온 문자를 여기 뒤 것만 묻는다
-    created_at: Mapped[datetime] = mapped_column(default=_now)
+    reply_cursor: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)  # 들어온 문자를 여기 뒤 것만 묻는다
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class KakaoTemplate(Base):
@@ -289,7 +305,7 @@ class KakaoTemplate(Base):
     status: Mapped[str] = mapped_column(String(10))
     reply_line: Mapped[bool] = mapped_column(default=False)
     fallback_body: Mapped[str | None] = mapped_column(Text, default=None)
-    synced_at: Mapped[datetime] = mapped_column(default=_now)
+    synced_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class VoiceSettings(Base):
@@ -309,4 +325,4 @@ class VoiceSettings(Base):
     voices_by_language_json: Mapped[dict] = mapped_column(JSON, default=dict)
     dashboard_agent_id: Mapped[str | None] = mapped_column(String(100), default=None)
     status: Mapped[str] = mapped_column(String(10), default="unknown")
-    checked_at: Mapped[datetime | None] = mapped_column(default=None)
+    checked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
