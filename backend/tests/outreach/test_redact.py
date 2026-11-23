@@ -2,8 +2,9 @@
 
 import importlib
 import logging
+import random
 import time
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus
 
 import pytest
 from fastapi.testclient import TestClient
@@ -43,14 +44,14 @@ PHONE_FORMS = [
     f"010{ZW}0000{ZW}0199", "010\u200d0000\u200d0199", "010\u00ad0000\u00ad0199", "0\u206010-0000-0199",
     "\ufeff010-0000-0199", f"01{ZW}0-00{ZW}00-0199",
     # 휴대전화 11자리는 묶음을 어떻게 나눠도
-    "010-00-00-0199", "010 0000 01 99", "0 10 0000 01 99", "010 00 00 01 99",
+    "010-00-00-0199", "010 0000 01 99", "010 00 00 01 99", "010/00/00/01/99", "010·0000·01·99",
     # +82·82·0082
     "+82 10-0000-0199", "+82-10-0000-0199", "+821000000199", "+82 (0)10-0000-0199", "+82 010 0000 0199",
     "82-10-0000-0199", "821000000199", "0082-10-0000-0199", "+82 2-2000-0199",
     # 0xx 지역(국번 2~9)·070·그 밖의 0 으로 시작하는 번호
     "02-200-0199", "02-2000-0199", "(02) 2000-0199", "0220000199", "031-200-0199", "064-2000-0199", "051.900.0199",
     "070-0000-0199", "070 0000 0199", "07000000199", "080-000-0199", "060-000-0199", "0505-000-0199",
-    "0507-1234-0199",
+    "050712340199",
     # 전각 숫자·기호·빈칸
     "０１０－００００－０１９９", "".join(chr(0xFF10 + int(c)) for c in "01000000199"), "＋８２ １０ ００００ ０１９９",
     "010　0000　0199",
@@ -131,6 +132,7 @@ def test_hide_phones_inside_sentences(text, expected):
     "사업자 123-45-67890", "ID 120100000001995", "ID 0100000019", "A동 3층 302호 12명", "버전 1.2.3", "v0.10.0199",
     "층 02 03 04 05 06 07 08", "0 1 2 3 4 5 6 7 8 9", "점검 일정: 01 02 03 04 05 06",
     # 대표번호(자유 글에서는 남김 — 시각 범위와 모양이 같다)·짧은 조각
+    "0507-1234-0199",  # 4-4-4 로 나뉜 050x 는 호실 목록과 모양이 같아 남긴다(붙여 쓰면 지운다)
     "대표번호 1588-0199", "1600-0199", "뒷자리 0199", "0000-0199", "010", "010-0000",
     # 숫자처럼 읽히는 한글 낱말
     "공사 일정은 이 일 정도", "공사 일이 삼일 이상 걸립니다", "일일 공사 일지", "시공사 오일 사이", "이삼일 공사",
@@ -138,6 +140,11 @@ def test_hide_phones_inside_sentences(text, expected):
     "2026년 2월 1일에 02 회의", "공사 하고 이사 하고 오일", "삼사일 이내 공사",
     # 이미 가린 꼴
     "010-****-0199", "[번호]",
+    # 날짜 목록·작은 수 목록·호실 목록(이 제품의 주된 자료 — 11자리 휴대전화 나눔 규칙에 걸리면 안 된다)
+    "8/21~9/4, 10/15~11/2", "8/21 9/4 10/15 11/2", "8/21-9/4, 10/15-11/2", "1/8, 2/11, 5/5, 3/8, 11/27",
+    "인원 0, 1, 15, 12, 10, 9, 11명", "0, 17, 3, 15, 19, 11, 7", "0502·0503·0504호", "0502/0503/0504호", "0502~0503~0504호",
+    "0502_0503_0504호", "0502, 0503, 0504호 마감", "0502 0503 0504호", "1/8 2/11 5/5 3/8 11/27 7/18", "8/2, 1/15, 3/3, 8/21",
+    "8/21·10/9·10/20·11/28·8/6·1/27", "0 18 19 1 19 14 9", "0/1/7/15/18/11/17", "0·11·2·8·10·13·11",
 ])
 def test_hide_phones_keeps_dates_amounts_and_words(text):
     assert hide_phones(text) == text
@@ -273,6 +280,53 @@ def test_log_filter_cleans_stack_info(caplog, keys):
     assert_clean(caplog)
 
 
+@pytest.mark.parametrize("sep", [", ", " ", "/", "·", "~", "_", " / ", "-", "."])
+@pytest.mark.parametrize("pool", ["M/D", "small", "room", "HHMM"])
+def test_lists_of_dates_numbers_and_rooms_are_never_changed(pool, sep):
+    """무작위 목록(날짜 M/D·0~19·호실 4자리·시각 HHMM)을 구분마다 이어도 바뀌지 않는다."""
+    values = {
+        "M/D": [f"{m}/{d}" for m in range(1, 13) for d in range(1, 32)],
+        "small": [str(i) for i in range(20)],
+        "room": [f"{f:02d}{r:02d}" for f in range(1, 20) for r in range(1, 20)],
+        "HHMM": [f"{h:02d}{m:02d}" for h in range(24) for m in (0, 30)],
+    }[pool]
+    rng = random.Random(f"{pool}{sep}")
+    for _ in range(1500):
+        text = sep.join(rng.choice(values) for _ in range(rng.randint(2, 8)))
+        assert hide_phones(text) == text, text
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("공일공 일 공일공 공공공공 공일구구", "공일공 일 [번호]"),  # 고쳐 부른 받아쓰기 — 번호 전체를 덮는 쪽
+    ("010 1 010 0000 0199", "010 1 [번호]"),
+    ("공일공 일 공일공 일이삼사 오육칠팔", "공일공 일 [번호]"),
+])
+def test_corrected_dictation_masks_the_whole_number(text, expected):
+    assert hide_phones(text) == expected
+
+
+def test_log_filter_cleans_extra_fields_when_the_record_is_made(keys):
+    """extra 칸은 줄을 만들 때 지운다 — getMessage 를 부르지 않고 __dict__ 를 바로 읽는 손잡이도 깨끗한 값을 본다."""
+    seen = []
+
+    class Raw(logging.Handler):
+        def emit(self, record):
+            seen.append(dict(record.__dict__))
+
+    logger = logging.getLogger("app.outreach.t62.raw")
+    handler = Raw()
+    logger.addHandler(handler)
+    try:
+        logger.warning("sent", extra={"to": SENTINEL_PHONE, "deep": {"a": {"b": [SENTINEL_PHONE]}},
+                                      "mixed": [{"c": (SENTINEL_KEY,)}], "obj": object()})
+    finally:
+        logger.removeHandler(handler)
+    raw = seen[-1]
+    assert "0199" not in raw["to"]
+    assert "0199" not in raw["deep"]["a"]["b"][0] and SENTINEL_KEY not in raw["mixed"][0]["c"][0]  # 세 겹까지
+    assert isinstance(raw["obj"], object)  # 글이 아닌 물건은 그대로 둔다
+
+
 def test_log_filter_cleans_extra_fields(caplog, keys):
     logging.getLogger("app.outreach.t62").warning("sent", extra={
         "to": SENTINEL_PHONE, "body": f"key {SENTINEL_KEY}", "meta": {"to": SENTINEL_PHONE, "n": 3},
@@ -367,6 +421,31 @@ def test_phone_filter_is_on_without_install(caplog):
     """app.outreach 를 불러오기만 해도 번호 지우기는 켜져 있다(키 목록은 install 이 준다)."""
     logging.getLogger("app.outreach.t62").warning("to %s", SENTINEL_PHONE)
     assert caplog.records and "0199" not in caplog.text
+
+
+def _chain():
+    """다른 라이브러리처럼 지금 factory 를 감싸는 factory."""
+    inner = logging.getLogRecordFactory()
+
+    def chain(*args, **kwargs):
+        record = inner(*args, **kwargs)
+        record.chained = True
+        return record
+
+    logging.setLogRecordFactory(chain)
+
+
+@pytest.mark.parametrize("steps", [
+    ["wrap", "activate"], ["activate", "wrap", "activate"], ["wrap", "activate", "reload"],
+    ["activate", "wrap", "reload", "activate"],
+])
+def test_wrapping_factory_and_activate_never_recurse(caplog, factory, keys, steps):
+    for step in steps:
+        {"wrap": _chain, "activate": activate, "reload": lambda: importlib.reload(redact)}[step]()
+    logging.getLogger("app.outreach.t62").warning("to %s key %s", SENTINEL_PHONE, SENTINEL_KEY)
+    logging.getLogger("t62.plain").warning("plain")
+    assert len(caplog.records) == 2 and caplog.records[0].chained
+    assert_clean(caplog)
 
 
 def test_activate_is_idempotent(factory):
@@ -486,3 +565,9 @@ def test_forget_secrets_is_reset_between_tests_part2():
     add_secrets(KEY_A)
     forget_secrets()
     assert KEY_A not in secrets()
+
+
+def test_diagnostics_scrub_removes_quote_plus_form_of_a_key():
+    key = "kat test key ZZ9999"
+    out = diagnostics.scrub(f"k={quote_plus(key)} raw={key}", secrets=[key], numbers=[])
+    assert "kat+test+key" not in out and "ZZ9999" not in out

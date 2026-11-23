@@ -38,7 +38,7 @@ import uuid
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus
 
 import httpx
 
@@ -60,6 +60,7 @@ MAYBE_SENT = "보냈는지 알 수 없음 — 문자가 갔을 수도 안 갔을
 _SEP = r"(?:[\s.\-()+]|%20|%2D|%2E|%28|%29|%2B)*"  # 번호 사이 구분(%인코딩 꼴 포함)
 _DIGITS_RE = re.compile(r"\d{8,}")  # 7자리 넘는(8자리 이상) 숫자 묶음
 _TOKEN_RE = re.compile(r"[A-Za-z0-9%+/=_\-]{40,}")
+_BAD_URL_CHAR = re.compile(r"[\s%\\]")  # 기본 주소에 올 수 없는 글자
 
 RESOLVE_FAILED = "resolve_failed · 주소의 호스트 이름을 풀지 못했습니다(이름 풀이 실패 또는 시간 초과)"
 RESOLVED_INSIDE = "bad_base_url · 호스트가 내부망 IP 로 풀리거나 공인 IP 가 없어 부르지 않았습니다"
@@ -118,17 +119,25 @@ def make_client(*, transport: httpx.AsyncBaseTransport | None = None) -> httpx.A
 
 
 def base_url_problem(base_url: object) -> str | None:
-    """주소가 안 되는 까닭(한국어) 또는 None. 꼴만 본다(이름 풀이 없음). 호스트 목록으로 고정하지 않는다."""
+    """주소가 안 되는 까닭(한국어) 또는 None. 꼴만 본다(이름 풀이 없음). 호스트 목록으로 고정하지 않는다.
+
+    주소는 scheme·호스트·포트뿐이어야 한다(경로는 없거나 「/」). 질의(?)·조각(#)·경로가 있으면 뒤에 붙이는
+    `/v1/accounts/…` 가 그 속으로 들어가 다른 곳을 부르게 되므로 거절한다. 빈칸·%·역빗금도 거절(호스트 이름이 달라진다).
+    연결 진단과 제공사 호출(app.outreach.provider)이 이 함수 하나를 쓴다."""
     if not isinstance(base_url, str) or not base_url.strip():
         return "주소가 비어 있습니다."
     if "@" in base_url:
         return "주소에 사용자 정보(@)를 넣을 수 없습니다."
+    if _BAD_URL_CHAR.search(base_url):
+        return "주소에 빈칸·%·역빗금을 넣을 수 없습니다."
     try:
         url = httpx.URL(base_url)
     except httpx.InvalidURL:
         return "주소 꼴이 틀렸습니다."
     if url.scheme != "https" or not url.host:
         return "주소는 https:// 로 시작해야 합니다."
+    if "?" in base_url or "#" in base_url or url.path not in ("", "/"):
+        return "주소에는 경로·질의(?)·조각(#)을 넣을 수 없습니다(https://호스트 까지만)."
     if _info_url_problem(base_url) is not None:
         return "localhost 나 내부망(사설·루프백·링크로컬) 주소는 쓸 수 없습니다."
     return None
@@ -177,8 +186,9 @@ def _public(address: str) -> bool:
     return ip.is_global and not ip.is_multicast
 
 
-async def _resolve_problem(conn: DiagnosticConn, resolve: Resolver | None) -> str | None:
-    """호스트 이름을 풀어 모든 IP 가 공인일 때만 None. IP 꼴 호스트는 base_url_problem 이 이미 봤다."""
+async def resolve_problem(conn: DiagnosticConn, resolve: Resolver | None) -> str | None:
+    """호스트 이름을 풀어 모든 IP 가 공인일 때만 None. IP 꼴 호스트는 base_url_problem 이 이미 봤다.
+    conn 은 `.base_url` 만 읽는다(제공사 호출의 ProviderConn 도 받는다)."""
     try:
         url = httpx.URL(conn.base_url)
         if _ip_literal(url.host) is not None:
@@ -192,6 +202,9 @@ async def _resolve_problem(conn: DiagnosticConn, resolve: Resolver | None) -> st
     return None
 
 
+_resolve_problem = resolve_problem  # 예전 이름
+
+
 async def _check(conn: DiagnosticConn, http: object, resolve: Resolver | None) -> str | None:
     """요청 전 검사 전부: 클라이언트·주소 꼴·키 → 이름 풀이."""
     return _preflight(conn, http) or await _resolve_problem(conn, resolve)
@@ -201,10 +214,13 @@ def _digits(value: object) -> str:
     return re.sub(r"\D", "", str(value or ""))
 
 
-def _segment(value: object) -> str:
-    """경로 한 칸. 모두 %인코딩하고, 「.」·「..」 은 %2E 로(위로 올라가지 않게)."""
+def segment(value: object) -> str:
+    """경로 한 칸. 모두 %인코딩하고, 「.」·「..」 은 %2E 로(위로 올라가지 않게). 제공사 호출도 이것을 쓴다."""
     q = quote(str(value), safe="")
     return q.replace(".", "%2E") if q and set(q) <= {"."} else q
+
+
+_segment = segment  # 예전 이름
 
 
 def _number_patterns(number: str) -> list[re.Pattern[str]]:
@@ -222,7 +238,8 @@ def _number_patterns(number: str) -> list[re.Pattern[str]]:
 
 def scrub(text: object, *, secrets: list[str], numbers: list[str], limit: int = 200) -> str:
     """키·Account ID·번호(redact.scrub), 알려 준 번호·긴 숫자 묶음·긴 토큰을 지우고 한 줄로 자른다."""
-    out = redact.scrub(str(text), secrets)
+    plus_forms = [quote_plus(s) for s in secrets if isinstance(s, str) and " " in s]  # 빈칸이 + 로 바뀐 꼴
+    out = redact.scrub(str(text), [*secrets, *plus_forms])
     for rx in (rx for n in numbers if isinstance(n, str) and n for rx in _number_patterns(n)):
         out = rx.sub("…", out)
     for rx in (_DIGITS_RE, _TOKEN_RE):

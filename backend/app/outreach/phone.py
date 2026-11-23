@@ -1,7 +1,8 @@
 """전화번호 다루기: 정리(normalize)·종류(kind)·가능 채널(storable·can_sms·can_call)·가린 꼴·묶음 손잡이(peer_key).
 
 - normalize 는 「어느 번호인가」의 열쇠다. 국내 번호면 종류와 상관없이 숫자만 남긴 한 꼴(`01000000199`)을 돌려준다.
-  `+82`·`82`·`0082` 앞머리는 `0` 으로 바꾼다(`+82 (0)10…`·`(+82) 10…` 도). 같은 번호의 여러 꼴은 같은 열쇠가 되므로
+  `+82`·`82`·`0082` 앞머리는 `0` 으로 바꾼다(`+82 (0)10…`·`(+82) 10…` 도). 대표번호는 `+82 1588 0199`·`02-1588-0000`
+  (나라 앞머리·지역 번호를 붙인 꼴)도 8자리 그대로(`15880199`). 같은 번호의 여러 꼴은 같은 열쇠가 되므로
   차단·찾기·peer_key 가 꼴에 따라 갈리지 않는다.
 - 종류: 휴대전화 mobile(010 은 11자리, 011·016~019 는 10~11자리) · 지역 landline(02 9~10자리, 031~064 10~11자리 — 국번은
   2~9 로 시작) · 인터넷 internet(070, 11자리) · 대표번호 rep(15xx·16xx·18xx-xxxx, 8자리) · 안심번호 safe(0502~0508,
@@ -82,7 +83,12 @@ def normalize(raw: str | None) -> str | None:
     digits = _NOT_DIGIT.sub("", text)
     if m.group(1) and not digits.startswith("82"):
         return None
-    local, _ = _local(digits)
+    local, prefix = _local(digits)
+    if prefix and _REP.fullmatch(digits[prefix:]):
+        return digits[prefix:]  # +82 1588 0199 — 대표번호는 나라 앞머리 뒤에서도 8자리 그대로
+    area = AREA.match(local)
+    if area and _area_kind(area.group()) == "landline" and _REP.fullmatch(local[area.end():]):
+        return local[area.end():]  # 02-1588-0000 — 지역 번호를 붙여 써도 대표번호
     return local if _parts(local) is not None else None
 
 

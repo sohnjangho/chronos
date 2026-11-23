@@ -98,14 +98,21 @@ def _lengths(digits: str) -> list[int]:
     return [prefix - added + len(m.group()) + middle + 4 for middle in (4, 3)]
 
 
-def _phone_shaped(parts: list[str], free: list[bool]) -> bool:
-    """이어 붙인 숫자가 국내 번호 모양이고 조각 경계가 자리 경계에만 있는가. free[k] 는 k 뒤 경계를 보지 않는다(줄 바꿈)."""
+def _phone_shaped(parts: list[str], free: list[bool], *, relaxed: bool) -> bool:
+    """이어 붙인 숫자가 국내 번호 모양이고 조각 경계가 자리 경계에만 있는가. free[k] 는 k 뒤 경계를 보지 않는다(줄 바꿈).
+    relaxed 면 경계를 보지 않는 두 꼴도 받는다: 한 자씩 띄운 꼴(0 으로 시작), 첫 조각이 01x 를 다 품은 11자리 휴대전화
+    (010 0000 01 99). 맨 82(+ 없이)로 시작하면 받지 않는다 — 날짜 목록(8/21 …)이 그렇게 시작한다."""
     joined = "".join(parts)
     local, prefix = _local(joined)
     split = _parts(local, rep=False)
     if split is None:
         return False
-    if len(parts) == 1 or all(len(p) == 1 for p in parts) or (split[0].startswith("01") and len(local) == 11):
+    if len(parts) == 1:
+        return True
+    if split[0].startswith("050") and len(split[1]) == 4:
+        return False  # 4-4-4 로 나뉜 050x 는 호실 목록(0502·0503·0504호)과 모양이 같다 — 붙여 쓴 꼴만 지운다
+    if relaxed and not prefix and (all(len(p) == 1 for p in parts) or (
+            split[0].startswith("01") and len(local) == 11 and parts[0].startswith(split[0]))):
         return True
     offset = prefix - (len(local) - (len(joined) - prefix))  # 0 을 붙였으면 한 칸 당긴다
     allowed = {offset + len(split[0]), offset + len(split[0]) + len(split[1])}
@@ -138,12 +145,12 @@ class _Run:
             self.cum.append(self.cum[-1] + len(d))
         self.at = {c: k for k, c in enumerate(self.cum)}
 
-    def _shaped(self, i: int, j: int) -> bool:
+    def _shaped(self, i: int, j: int, relaxed: bool) -> bool:
         free = [bool(_LINE_BREAK.search(self.scan, self.ends[k], self.starts[k + 1])) for k in range(i, j)]
-        return _phone_shaped(self.digits[i:j + 1], free)
+        return _phone_shaped(self.digits[i:j + 1], free, relaxed=relaxed)
 
-    def window(self, i: int) -> int | None:
-        """조각 i 에서 시작해 지울 가장 긴 묶음의 끝 j. 없으면 None."""
+    def window(self, i: int, relaxed: bool, stop: int) -> int | None:
+        """조각 i 에서 시작해(조각 stop 앞까지) 지울 가장 긴 묶음의 끝 j. 없으면 None."""
         c = self.cum[i]
         plus = self.starts[i] > 0 and self.scan[self.starts[i] - 1] in _PLUS
         head = self.joined[c:c + MAX_DIGITS]
@@ -151,19 +158,23 @@ class _Run:
             return None  # 국내 번호는 0(00 은 0082 만), 나라 앞머리는 82 로 시작한다
         for length in _lengths(head):
             k = self.at.get(c + length)
-            if k is not None and k > i and self._shaped(i, k - 1):
+            if k is not None and i < k <= stop and self._shaped(i, k - 1, relaxed):
                 return k - 1
-        if plus:
+        if plus and not relaxed:
             for length in range(min(MAX_DIGITS, len(self.joined) - c), FOREIGN_MIN - 1, -1):
                 k = self.at.get(c + length)
-                if k is not None and k > i:
+                if k is not None and i < k <= stop:
                     return k - 1
         return None
 
-    def spans(self) -> list[tuple[int, int]]:
-        out, used, i, n = [], [False] * len(self.digits), 0, len(self.digits)
+    def _pass(self, out: list[tuple[int, int]], used: list[bool], relaxed: bool) -> None:
+        """남은 조각에서 앞에서부터 묶음을 찾아 지운다. 이미 지운 조각을 넘지 않는다."""
+        i, n = 0, len(self.digits)
+        nxt = [n] * (n + 1)  # nxt[k]: k 부터 처음 지운 조각(이 판에서 새로 지우는 것은 늘 i 뒤가 아니다)
+        for k in range(n - 1, -1, -1):
+            nxt[k] = k if used[k] else nxt[k + 1]
         while i < n:
-            j = self.window(i)
+            j = None if used[i] else self.window(i, relaxed, nxt[i])
             if j is None:
                 i += 1
                 continue
@@ -175,6 +186,13 @@ class _Run:
             out.append((start, self.ends[j]))
             used[i:j + 1] = [True] * (j + 1 - i)
             i = j + 1
+
+    def spans(self) -> list[tuple[int, int]]:
+        """자리 경계가 맞는 번호를 먼저(고쳐 부른 받아쓰기에서 번호 전체를 덮는 쪽), 그다음 경계를 보지 않는 꼴."""
+        out: list[tuple[int, int]] = []
+        used, n = [False] * len(self.digits), len(self.digits)
+        self._pass(out, used, relaxed=False)
+        self._pass(out, used, relaxed=True)
         group: list[int] = []
         for k in [*range(n), None]:  # 끝 표시로 마지막 묶음도 본다
             if k is not None and self.spoken[k] and not used[k]:
@@ -256,13 +274,16 @@ _READING: ContextVar[bool] = ContextVar("redact_reading_secrets", default=False)
 _STANDARD = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime", "_redacted"}
 
 
-def _clean_value(value: object, clean: Callable[[str], str]) -> object:
+def _clean_value(value: object, clean: Callable[[str], str], depth: int = 3) -> object:
+    """글은 지우고, dict·list·tuple 은 세 겹까지 들어간다. 그 밖의 물건은 그대로 둔다(__str__ 을 부르지 않는다)."""
     if isinstance(value, str):
         return clean(value)
+    if depth == 0:
+        return value
     if isinstance(value, dict):
-        return {k: clean(v) if isinstance(v, str) else v for k, v in value.items()}
+        return {k: _clean_value(v, clean, depth - 1) for k, v in value.items()}
     if type(value) in (list, tuple):
-        return type(value)(clean(v) if isinstance(v, str) else v for v in value)
+        return type(value)(_clean_value(v, clean, depth - 1) for v in value)
     return value
 
 
@@ -329,7 +350,10 @@ class HideSecrets(logging.Filter):
 
 
 _FILTER: HideSecrets | None = globals().get("_FILTER")  # 모듈을 다시 불러와도(reload) 비밀 목록을 잃지 않는다
-_BASE_FACTORY: Callable[..., logging.LogRecord] | None = None
+_BASE_FACTORY: Callable[..., logging.LogRecord] | None = globals().get("_BASE_FACTORY")
+_MAKING: ContextVar[bool] = globals().get("_MAKING") or ContextVar("redact_making_record", default=False)
+_PROBE: ContextVar[list | None] = globals().get("_PROBE") or ContextVar("redact_factory_probe", default=None)
+_ORIGINAL_MAKE = getattr(logging.Logger.makeRecord, "_redact_original", logging.Logger.makeRecord)
 
 
 def _covered(name: object) -> bool:
@@ -337,39 +361,77 @@ def _covered(name: object) -> bool:
 
 
 class _LateRecord(logging.LogRecord):
-    """만든 뒤에 칸이 붙는 줄 — 메시지를 꺼낼 때(Formatter 가 맨 먼저 부른다) 한 번 더 지운다.
-    logging.makeLogRecord 의 줄(이름·메시지가 뒤에 붙음)과, Logger.makeRecord 가 factory 뒤에 붙이는 extra 칸."""
+    """logging.makeLogRecord 의 줄(이름·메시지가 만든 뒤에 붙는다) — 메시지를 꺼낼 때 지운다."""
 
     def getMessage(self) -> str:
-        done = self.__dict__.get("_redacted")
-        if done != "all" and _FILTER is not None and _covered(self.name):
-            self._redacted = "all"
-            if done == "msg":
-                _FILTER.clean_extras(self)
-            else:
-                _FILTER.filter(self)
+        if not self.__dict__.get("_redacted") and _FILTER is not None and _covered(self.name):
+            self._redacted = True
+            _FILTER.filter(self)
         return super().getMessage()
 
 
 def _make_record(*args, **kwargs) -> logging.LogRecord:
+    probe = _PROBE.get()
+    if probe is not None:  # activate 가 지금 factory 가 우리를 거치는지 보는 중
+        probe.append(True)
+        return logging.LogRecord(*args, **kwargs)
     if (args[0] if args else kwargs.get("name")) is None:
         return _LateRecord(*args, **kwargs)
-    record = _BASE_FACTORY(*args, **kwargs)
+    base = _BASE_FACTORY
+    if _MAKING.get() or base is None:  # 남의 factory 가 우리를 감싸 다시 불렀다 — 고리를 끊고 맨 줄을 준다
+        return logging.LogRecord(*args, **kwargs)
+    token = _MAKING.set(True)
+    try:
+        record = base(*args, **kwargs)
+    finally:
+        _MAKING.reset(token)  # 지우는 동안(비밀 목록을 읽다 남긴 줄)은 다시 거른다
     if _FILTER is not None and _covered(record.name):
-        _FILTER.filter(record)  # 지금 지운다(msg 를 바로 읽는 손잡이도 있다)
-        if type(record) is logging.LogRecord:
-            record.__class__, record._redacted = _LateRecord, "msg"  # extra 칸은 꺼낼 때 지운다
+        _FILTER.filter(record)
     return record
 
 
+def _make_with_extras(self: logging.Logger, *args, **kwargs) -> logging.LogRecord:
+    """Logger.makeRecord 는 factory 뒤에 extra 칸을 붙인다 — 그 칸을 줄을 만들 때 지운다."""
+    record = _ORIGINAL_MAKE(self, *args, **kwargs)
+    if _FILTER is not None and _covered(record.name):
+        _FILTER.clean_extras(record)
+    return record
+
+
+_make_with_extras._redact_original = _ORIGINAL_MAKE
+
+
+def _leads_to_us(factory: Callable[..., logging.LogRecord]) -> bool:
+    """factory 가 (남이 감싸) 이미 우리 factory 를 거치는가 — 한 번 불러 본다."""
+    seen: list = []
+    token = _PROBE.set(seen)
+    try:
+        factory("app.outreach.redact.probe", logging.DEBUG, __file__, 0, "", (), None)
+    except Exception:  # noqa: BLE001 — 남의 factory 가 시험 호출을 못 받으면 거치지 않는다고 본다
+        return bool(seen)
+    finally:
+        _PROBE.reset(token)
+    return bool(seen)
+
+
 def activate() -> None:
-    """LogRecord factory 에 거르개를 건다. 여러 번 불러도, 모듈을 다시 불러와도(reload) 한 겹이다."""
+    """LogRecord factory(와 Logger.makeRecord)에 거르개를 건다. 여러 번 불러도, 모듈을 다시 불러와도(reload) 한 겹이고,
+    남의 factory 가 이미 우리를 감싸고 있으면 그대로 둔다(그것을 밑으로 삼으면 서로 부르다 RecursionError)."""
     global _BASE_FACTORY
+    current_make = logging.Logger.makeRecord
+    if current_make is not _make_with_extras and (
+            current_make is _ORIGINAL_MAKE or hasattr(current_make, "_redact_original")):
+        logging.Logger.makeRecord = _make_with_extras
     current = logging.getLogRecordFactory()
     if current is _make_record:
         return
-    _BASE_FACTORY = getattr(current, "_redact_base", current)  # 다시 불러온 이 모듈의 옛 factory 면 그 밑을 쓴다
-    _make_record._redact_base = _BASE_FACTORY
+    base = getattr(current, "_redact_base", None)  # 다시 불러온 이 모듈의 옛 factory 면 그 밑을 쓴다
+    if base is None:
+        if _leads_to_us(current):
+            return
+        base = current
+    _BASE_FACTORY = base
+    _make_record._redact_base = base
     logging.setLogRecordFactory(_make_record)
 
 
