@@ -554,4 +554,25 @@ describe('상단 진행 리본이 펼쳐지면 창 제목줄이 그 밑에 숨�
     expect(win(a).y).toBe(ribbonBottom);
     expect(workArea().y).toBe(MENUBAR_H);
   });
+
+  // 리뷰 U4: 내려간 창은 내려간 만큼 줄어 아래 끝(Dock 위)이 그대로이고, 정렬도 리본 아래에서 한다.
+  test('a window pushed down by the ribbon shrinks by the same amount so its bottom stays put', () => {
+    const a = s().open('a');
+    const bottom = win(a).y + win(a).h;
+    const pushed = ribbonBottom - win(a).y;
+    s().setInsetTop(RIBBON_H);
+    expect(win(a).y).toBe(ribbonBottom);
+    expect(win(a).y + win(a).h).toBe(bottom);
+    expect(pushed).toBeGreaterThan(0);
+  });
+
+  test('arranging with the ribbon open keeps every window below it and above the Dock', () => {
+    s().setInsetTop(RIBBON_H);
+    ['a', 'b', 'c'].forEach((p) => s().open(p));
+    s().arrange('grid');
+    for (const w of s().wins) {
+      expect(w.y).toBeGreaterThanOrEqual(ribbonBottom);
+      expect(w.y + w.h).toBeLessThanOrEqual(1080 - DOCK_RESERVE);
+    }
+  });
 });

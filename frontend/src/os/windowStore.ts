@@ -122,10 +122,10 @@ export function workArea(): Rect {
   return { x: 0, y: topY(), w: s.w, h: Math.max(MIN_H, s.h - topY()) };
 }
 
-/** 정렬 영역: 메뉴바 아래, Dock 몫을 뺀 곳. */
+/** 정렬 영역: 메뉴바(펼친 리본) 아래, Dock 몫을 뺀 곳. */
 function arrangeArea(): Rect {
   const s = screenSize();
-  return { x: 0, y: MENUBAR_H, w: s.w, h: Math.max(MIN_H, s.h - MENUBAR_H - DOCK_RESERVE) };
+  return { x: 0, y: topY(), w: s.w, h: Math.max(MIN_H, s.h - topY() - DOCK_RESERVE) };
 }
 
 /** 최소화하지 않은 창 가운데 맨 앞. */
@@ -345,12 +345,13 @@ function bulkActions(set: SetState, get: () => WindowState) {
     },
     setInsetTop(px: number) {
       set({ insetTop: Math.max(0, px) });
-      // 리본에 걸리는 창은 그 아래로 내린다(접힐 때는 되돌리지 않는다). 확대한 창은 다시 그려 workArea 를 따른다.
+      // 리본에 걸리는 창은 그 아래로 내리고 내린 만큼 줄인다 — 아래 끝이 Dock 밑으로 가지 않게(접힐 때는 되돌리지 않는다).
+      // 확대한 창은 다시 그려 workArea 를 따른다.
       const top = topY();
       const h = window.innerHeight;
       set((s) => ({
         wins: s.wins.map((w) =>
-          w.maximized ? { ...w } : w.y < top ? { ...w, y: top, h: clamp(w.h, MIN_H, h - top) } : w,
+          w.maximized ? { ...w } : w.y < top ? { ...w, y: top, h: clamp(w.h - (top - w.y), MIN_H, h - top) } : w,
         ),
       }));
     },
