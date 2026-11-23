@@ -155,6 +155,9 @@ async def test_fresh_searches_liner_again(ctx, session, web):
     assert r.ok and r.output["reused"] is False and len(web.requests) == 2
     # A7: 새로 찾은 결과가 같은 주소면 새 줄을 넣지 않고 그 근거 번호를 그대로 돌려준다(붙은 곳도 그대로)
     assert session.query(EvidenceItem).count() == 1 and r.output["results"][0]["evidence_id"] == evidence_id
+    # 새로 찾기는 늘 제 검색 줄을 남기고(근거 검색 수 3번 한도에 든다 — 아래 한도 시험), 다시 쓰기 줄(reuse)이 아니다
+    rows = session.query(EvidenceSearch).order_by(EvidenceSearch.id).all()
+    assert [(x.mode, x.result_count) for x in rows] == [("web", 1), ("web", 1)]
 
 
 async def test_any_reusable_mode_serves_any_other_and_says_its_own_mode(ctx, events, session, web):
