@@ -1,6 +1,8 @@
 import { ApiError } from '../../shared/api';
+import Badge, { type Tone } from '../../shared/ui/Badge';
 import Field from '../../shared/ui/Field';
 import type { LlmError } from './model';
+import type { DiagnosisStep } from './notifyApi';
 
 /** 잡은 오류를 서버 글과 코드로. ApiError 가 아니면 일반 글(오류 내용은 보이지도 기록하지도 않는다). */
 export function toProblem(e: unknown): LlmError {
@@ -59,5 +61,46 @@ export function SecretField({
         onChange={(e) => onChange(e.target.value)}
       />
     </Field>
+  );
+}
+
+/** 보내기 요청이 200 으로 끝나지 않았는데 분명한 거절도 아닌 것(끊김·5xx·읽을 수 없는 응답) — 갔는지 모른다. */
+export const uncertain = (e: unknown) => !(e instanceof ApiError) || e.status === 0 || e.status >= 500 || e.code === 'bad_response';
+
+/** 걸음 줄 하나(알림 연결 P1~P4 · 음성 P5~P14 가 같은 꼴). */
+export type StepRow = Omit<DiagnosisStep, 'id'> & { id: string };
+
+/** 판정은 칸으로만: 건너뜀 → 확인 필요(보냈는지·걸렸는지 모름) → 확인 중(아직 접수) → OK / FAIL. */
+function verdict(step: StepRow): { tone: Tone; text: string } {
+  if (step.skipped) return { tone: 'neutral', text: '건너뜀' };
+  if (step.maybe_sent) return { tone: 'warning', text: '확인 필요' };
+  if (step.pending) return { tone: 'warning', text: '확인 중' };
+  return step.ok ? { tone: 'success', text: 'OK' } : { tone: 'danger', text: 'FAIL' };
+}
+
+/** more = 접어 둘 기계 세부(코드·data). badge = 판정 대신 보일 것(아직 안 돌린 줄). */
+export function StepLine({ s, more = [], badge }: { s: StepRow; more?: string[]; badge?: { tone: Tone; text: string } }) {
+  const v = badge ?? verdict(s);
+  const folded = [...s.notes, ...more];
+  return (
+    <li>
+      <div className="st-nt-step">
+        <b className="st-nt-step-id">{s.id}</b>
+        <Badge tone={v.tone}>{v.text}</Badge>
+        <span className="st-nt-step-text">
+          <span className="st-muted">{s.label}</span>
+          {` — ${s.detail}`}
+        </span>
+        {s.latency_ms !== null && <span className="st-count">{`${s.latency_ms}ms`}</span>}
+      </div>
+      {folded.length > 0 && (
+        <details className="st-nt-notes">
+          <summary>{`메모 ${folded.length}줄`}</summary>
+          {folded.map((n, i) => (
+            <div key={i}>{n}</div>
+          ))}
+        </details>
+      )}
+    </li>
   );
 }
