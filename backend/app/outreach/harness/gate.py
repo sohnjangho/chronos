@@ -100,6 +100,11 @@ FAIL_TEXT: Mapping[str, str] = MappingProxyType({
     "bad_request": "제공사가 요청을 받아들이지 않았습니다",
     "server": "제공사 서버 오류입니다. 잠시 뒤 다시 해 주세요",
     "cancelled_before_send": "보내기 전에 취소돼 보내지 않았습니다",  # 문이 스스로 쓰는 코드(통로를 부르지 않았다)
+    # 문자 통로가 스스로 쓰는 코드(channels/sms.py) — 셋 다 제공사에 요청하기 전이라 나가지 않았다
+    "not_sendable": "지금 상태로는 보낼 수 있는 문자가 아니어서 보내지 않았습니다",
+    "not_reachable": "보내기 직전에 다시 보니 이 번호에는 연락할 수 없어 보내지 않았습니다. 그사이 시험 모드·허용 번호·"
+                     "차단·수신 거부나 연락처의 번호가 바뀌었을 수 있습니다",
+    "local_error": "보내기 전에 우리 서버에서 오류가 나 보내지 않았습니다. 잠시 뒤 다시 해 주세요",
 })
 
 _Row = OutreachMessage | OutreachCall
@@ -147,9 +152,18 @@ async def dispatch(kind: Literal["message", "call"], row_id: int, actor: Actor, 
 def may_reach(session: Session, number: str) -> bool:
     """그 번호에 닿아도 되는가 — 차례 1·2(시험 모드·차단·수신 거부)만 본다. 통화 중 전환이 묻고, 통로도 보내거나 걸기 바로 전에
     다시 묻는다. 기본 연결이 없으면 거짓."""
+    return reach_block(session, number) is None
+
+
+def reach_block(session: Session, number: str) -> str | None:
+    """may_reach 가 거짓인 까닭 — 지금 그 번호를 막는 차례의 GATE_RULES 이름(test_mode · blocked_or_dnc. 기본 연결이 없거나
+    번호가 틀리면 precheck), 닿아도 되면 None. may_reach 는 이것을 부를 뿐이라 둘은 어긋나지 않는다."""
     conn = outreach.connection(session)
     target = phone.normalize(number)
-    return conn is not None and target is not None and _barred(session, conn, target) is None
+    if conn is None or target is None:
+        return GATE_RULES[PRECHECK]
+    barred = _barred(session, conn, target)
+    return None if barred is None else GATE_RULES[barred.rule]
 
 
 def after_no_answer(call_id: int, *, now: datetime | None = None) -> int | None:

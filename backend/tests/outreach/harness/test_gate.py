@@ -428,6 +428,46 @@ async def test_unknown_failure_code_gets_the_generic_sentence(session, sid, fake
     assert RAW not in json.dumps(events.of(session, Ref("message", row.id)), ensure_ascii=False)
 
 
+def _sms_channel_codes() -> set[str]:
+    """문자 통로가 스스로 돌려주는 fail_code 전부 — 모듈을 불러오지 않고(불러오면 통로가 등록된다) 글을 읽는다:
+    `fail_code=` 에 준 글자·모듈 상수, 그리고 제공사 code 를 바꿔 주는 _CODES 의 값."""
+    tree = ast.parse((Path(app.__file__).parent / "outreach/channels/sms.py").read_text(encoding="utf-8"))
+    constants, codes = {}, set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            constants[node.targets[0].id] = ast.literal_eval(node.value) if isinstance(node.value, ast.Constant | ast.Dict) else None
+    codes.update(constants["_CODES"].values())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword) and node.arg == "fail_code":
+            if isinstance(node.value, ast.Constant):
+                codes.add(node.value.value)
+            elif isinstance(node.value, ast.Name):
+                codes.add(constants[node.value.id])
+    return codes
+
+
+def test_every_code_the_sms_channel_returns_has_a_sentence():
+    """통로가 스스로 쓰는 코드도 「보내지 못했습니다」 대신 무슨 일이 있었는지 말한다 — 번호·제공사의 글·숫자 없이."""
+    codes = _sms_channel_codes()
+    assert {"not_sendable", "not_reachable", "local_error", "bad_sender", "network"} <= codes
+    assert codes <= set(gate.FAIL_TEXT)
+    for code in ("not_sendable", "not_reachable", "local_error"):
+        sentence = gate.FAIL_TEXT[code]
+        assert sentence != gate.SEND_FAILED and "보내지 않았습니다" in sentence
+        assert not any(ch.isdigit() or ch.isascii() and ch.isalpha() for ch in sentence)  # 숫자·영문(코드·제공사 글) 없음
+
+
+@pytest.mark.parametrize("code", ["not_sendable", "not_reachable", "local_error"])
+async def test_channel_own_failure_codes_reach_the_row_as_sentences(session, sid, fake_channel, code):
+    row, actor, now = arrange(session, sid, "pass")
+    fake_channel.result = Delivered("failed", fail_code=code, fail_text=RAW)
+
+    out = await send(row, actor, now)
+
+    row = reread(session, row)
+    assert (out.code, row.status) == ("failed", "failed") and out.message == row.fail_reason == gate.FAIL_TEXT[code]
+
+
 async def test_failed_row_cannot_be_dispatched_again(session, sid, fake_channel):
     row, actor, now = arrange(session, sid, "pass")
     fake_channel.result = Delivered("failed", fail_text="보내지 못했습니다")

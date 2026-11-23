@@ -280,6 +280,32 @@ async def test_do_not_contact_is_decided_only_by_number_store(session, sid, fake
     assert asked == [PHONE]
 
 
+def test_reach_block_names_the_rule_that_bars_the_number(session, sid):
+    """reach_block 은 may_reach 가 거짓인 까닭(차례 이름)을 준다 — 같은 길을 타므로 둘은 어긋나지 않는다."""
+
+    def both(number):
+        rule = gate.reach_block(session, number)
+        assert gate.may_reach(session, number) is (rule is None)
+        return rule
+
+    assert both(PHONE) == "precheck"  # 기본 연결이 없다
+    conn = connect(session, status="failed")
+    assert both(PHONE) is None and both(SENTINEL_PHONE) is None
+    assert both("번호 아님") == "precheck"
+    conn.test_mode = True
+    assert both(PHONE) == "test_mode"
+    conn.allow_numbers_json = [SENTINEL_PHONE]
+    assert both(PHONE) is None and both(OTHER_PHONE) == "test_mode"
+    session.add(BlockedNumber(number=PHONE, reason="요청", created_by="관리자"))
+    session.flush()
+    assert both(PHONE) == "blocked_or_dnc"  # 허용 번호여도 차단이 막는다
+    conn.test_mode = False
+    session.add(DoNotContactNumber(number=OTHER_PHONE, reason="문자로 수신 거부"))
+    session.flush()
+    assert both(OTHER_PHONE) == "blocked_or_dnc" and both(LANDLINE) is None
+    assert {both(n) for n in (PHONE, OTHER_PHONE, "번호 아님")} <= set(gate.GATE_RULES.values())
+
+
 # ── 3 근무시간 ────────────────────────────────────────────────────────
 
 
@@ -474,20 +500,33 @@ async def test_approved_row_without_an_approver_does_not_leave(session, sid, fak
     assert (out.code, out.rule) == ("needs_approval", 5) and fake_channel.delivered == []
 
 
-SEND_MODE_WRITERS = {"outreach/harness/gate.py"}  # send_mode 를 적는 app 모듈 — 문 밖에서 예약 줄을 만드는 작업이 여기 이름을 더한다
+# send_mode 를 적는 app 모듈 — 문 밖에서 예약 줄을 만드는 작업이 여기 이름을 더한다.
+# tools: Toolbox.follow_row 가 위임된 후속 줄을 scheduled + send_mode "delegated" 로 만든다(dict 에 두었다가 ** 로 풀어 넣음).
+SEND_MODE_WRITERS = {"outreach/harness/gate.py", "outreach/harness/tools.py"}
 
 
 def _writes_send_mode(node: ast.AST) -> bool:
-    """그 자리가 연락 줄의 send_mode 에 값을 적는가: 속성에 넣기(`row.send_mode = …`), 또는 줄을 만들거나 고칠 때
-    (`OutreachMessage(…)`·`OutreachCall(…)`·`.values(…)`) 인자로 주기. 비우는 것(None)과 응답 모델에 옮겨 담는 것은 아니다."""
+    """그 자리가 연락 줄의 send_mode 에 값을 적는가: 속성에 넣기(`row.send_mode = …`), **어느 부름에든** 인자로 주기, 또는
+    dict 글자의 "send_mode" 열쇠에 값을 두기(나중에 `**` 로 풀어 넣는 꼴). 비우는 것(None)은 아니다. 있는 줄의 값을 그대로
+    옮겨 담는 것(`… = row.send_mode` — 응답 모델·보기 dict)도 아니다 — 단 줄을 만들거나 고치는 부름(`OutreachMessage(…)`·
+    `OutreachCall(…)`·`.values(…)`)에서는 옮겨 담기도 쓰기다."""
     if isinstance(node, ast.Attribute):
         return node.attr == "send_mode" and isinstance(node.ctx, ast.Store)
+    if isinstance(node, ast.Dict):
+        values = [value for key, value in zip(node.keys, node.values, strict=True)
+                  if isinstance(key, ast.Constant) and key.value == "send_mode"]
+        return any(_sets_value(value, copy_counts=False) for value in values)
     if not isinstance(node, ast.Call):
         return False
     called = getattr(node.func, "attr", getattr(node.func, "id", None))
-    return called in ("OutreachMessage", "OutreachCall", "values") and any(
-        keyword.arg == "send_mode" and not (isinstance(keyword.value, ast.Constant) and keyword.value.value is None)
-        for keyword in node.keywords)
+    row_call = called in ("OutreachMessage", "OutreachCall", "values")
+    return any(keyword.arg == "send_mode" and _sets_value(keyword.value, copy_counts=row_call) for keyword in node.keywords)
+
+
+def _sets_value(value: ast.AST, *, copy_counts: bool) -> bool:
+    if isinstance(value, ast.Constant) and value.value is None:
+        return False
+    return copy_counts or not (isinstance(value, ast.Attribute) and value.attr == "send_mode")
 
 
 def _send_mode_writes(source: str) -> int:
@@ -511,6 +550,16 @@ def test_send_mode_writes_are_recognised():
     assert _send_mode_writes("update(OutreachMessage).values(status='draft', send_mode=None)") == 0  # 비우기
     assert _send_mode_writes("MessageOut(id=row.id, send_mode=row.send_mode)") == 0  # 응답에 옮겨 담기
     assert _send_mode_writes("mode = row.send_mode") == 0
+    # dict 글자에 넣어 두었다가 ** 로 풀어 넣는 꼴(tools.Toolbox.follow_row)
+    assert _send_mode_writes("base = {'status': 'scheduled', 'send_mode': 'delegated'}") == 1
+    assert _send_mode_writes("base = {'send_mode': 'delegated' if at else None}") == 1
+    assert _send_mode_writes("base = {'status': 'draft', 'send_mode': None}") == 0  # 비우기
+    assert _send_mode_writes("view = {'id': row.id, 'send_mode': row.send_mode}") == 0  # 보기에 옮겨 담기
+    # 어느 부름이든 인자로 주기(이름이 OutreachMessage·OutreachCall·values 가 아니어도)
+    assert _send_mode_writes("make_row(session, status='scheduled', send_mode='manual')") == 1
+    assert _send_mode_writes("outreach.add_message(session, send_mode=mode)") == 1
+    assert _send_mode_writes("make_row(session, send_mode=None)") == 0
+    assert _send_mode_writes("OutreachMessage(send_mode=old.send_mode)") == 1  # 줄을 만드는 부름은 옮겨 담기도 쓰기다
 
 
 # ── 4 상한 ────────────────────────────────────────────────────────────
