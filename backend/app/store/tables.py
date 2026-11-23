@@ -655,17 +655,8 @@ event.listen(
     DDL("CREATE VIRTUAL TABLE IF NOT EXISTS file_chunks_fts USING fts5(text)").execute_if(dialect="sqlite"),
 )
 
-# 저장된 근거 낱말 검색(FTS5, app.store.evidence_reuse). rowid = evidence_items.id, 글 = 제목 + 요약 + 그때의 검색어.
-# 근거 줄을 넣고 지울 때 트리거가 맞추고, 트리거 전에 있던 근거는 create_all 때 채운다(없는 줄만).
-# 근거의 제목·요약과 검색어는 고치지 않으므로(설계: 근거 내용 고치기 없음) UPDATE 트리거는 두지 않는다.
-_EVIDENCE_TEXT = "i.title || ' ' || i.description || ' ' || coalesce((SELECT s.query FROM evidence_searches s WHERE s.id = i.search_id), '')"
-for _sql in (
-    "CREATE VIRTUAL TABLE IF NOT EXISTS evidence_items_fts USING fts5(text)",
-    ("CREATE TRIGGER IF NOT EXISTS evidence_items_fts_ai AFTER INSERT ON evidence_items BEGIN "
-     f"INSERT INTO evidence_items_fts(rowid, text) SELECT i.id, {_EVIDENCE_TEXT} FROM evidence_items i WHERE i.id = new.id; END"),
-    ("CREATE TRIGGER IF NOT EXISTS evidence_items_fts_ad AFTER DELETE ON evidence_items BEGIN "
-     "DELETE FROM evidence_items_fts WHERE rowid = old.id; END"),
-    (f"INSERT INTO evidence_items_fts(rowid, text) SELECT i.id, {_EVIDENCE_TEXT} FROM evidence_items i "
-     "WHERE i.id NOT IN (SELECT rowid FROM evidence_items_fts)"),
-):
+# 11-23 에 잠깐 두었던 근거 낱말 색인(evidence_items_fts)과 트리거를 치운다. 다시 쓸 근거는 적어
+# app.store.evidence_reuse 가 코드로 맞춘다. 없으면 아무것도 하지 않는다.
+for _sql in ("DROP TRIGGER IF EXISTS evidence_items_fts_ai", "DROP TRIGGER IF EXISTS evidence_items_fts_ad",
+             "DROP TABLE IF EXISTS evidence_items_fts"):
     event.listen(Base.metadata, "after_create", DDL(_sql).execute_if(dialect="sqlite"))

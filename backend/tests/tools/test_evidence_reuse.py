@@ -15,6 +15,7 @@ from app.agent import context
 from app.llm import search
 from app.llm.search import SearchHit
 from app.store import chats, evidence_reuse
+from app.store import settings as settings_store
 from app.store.evidence import WEATHER_MODE, link, record_search, searches_since
 from app.store.tables import EvidenceItem, EvidenceLink, EvidenceSearch, ScheduleDraft
 from app.tools.registry import ToolResult, call
@@ -106,11 +107,13 @@ async def test_unrelated_query_falls_through_to_liner(ctx, session, web, query):
 async def test_a_normal_search_keeps_its_fields_and_says_not_reused(ctx, events, session, web):
     r = await call("evidence.search", {"query": QUERY}, ctx)
     today = datetime.now(SEOUL).date().isoformat()
-    assert r.output == {"search_id": 1, "used": 1, "limit": 3, "reused": False, "hint": None, "note": None, "results": [{
+    assert r.output == {"search_id": 1, "used": 1, "limit": 3, "reused": False, "hint": None, "note": None, "omitted": 0,
+                        "descriptions_cut": False, "results": [{
         "evidence_id": 1, "title": "철근콘크리트 골조 공기 기준", "url": "https://example.com/a",
         "hostname": "example.com", "description": "층당 골조 8~12일", "date": "2026-03-01", "authors": [],
-        "journal": None, "searched_at": today, "age_days": 0, "mode": "web", "found_by": QUERY}]}
-    assert list(r.output) == ["search_id", "used", "limit", "reused", "hint", "note", "results"]  # 잘려도 앞 칸은 남게
+        "journal": None, "searched_at": today, "age_days": 0}]}  # mode·found_by 는 다시 쓴 결과에만
+    assert list(r.output) == ["search_id", "used", "limit", "reused", "hint", "note", "omitted", "descriptions_cut",
+                              "results"]  # 잘려도 앞 칸은 남게
     assert "reused" not in events[-1].data  # 새로 찾은 카드는 그대로
 
 
@@ -274,6 +277,23 @@ async def test_long_results_fit_the_tool_result_limit(ctx, session, monkeypatch,
     text = context.result_text(ToolResult(ok=True, output=r.output, error=None, ms=0))
     assert len(text) < context.RESULT_LIMIT - 200 and not text.endswith(context.CUT_NOTE)
     assert len(r.output["results"]) == 5 and all(x["url"].startswith(LAW_URL) for x in r.output["results"])
+    assert (r.output["descriptions_cut"], r.output["omitted"]) == (True, 0)  # 줄였다고 알린다
+    assert session.get(EvidenceSearch, r.output["search_id"]).result_count == 5
+
+
+async def test_the_size_budget_follows_the_tool_output_limit_setting(ctx, session, monkeypatch):
+    add_connection(session)
+    monkeypatch.setattr(search, "TRANSPORT", mock(200, web_body(*LONG)))
+    query = "건축법 착공신고 처리 기한"
+    r = await call("evidence.search", {"query": query}, ctx)
+    link(session, evidence_ids=[x["evidence_id"] for x in r.output["results"]], draft_id=1, assumption_label="a")
+    settings_store.set_agent_config(session, {"tool_output_limit": 2000})
+    session.commit()
+    r = await call("evidence.search", {"query": query}, ctx)
+    text = context.result_text(ToolResult(ok=True, output=r.output, error=None, ms=0), limit=2000)
+    assert r.output["reused"] is True and not text.endswith(context.CUT_NOTE)
+    assert r.output["omitted"] == 5 - len(r.output["results"]) > 0
+    assert session.get(EvidenceSearch, r.output["search_id"]).result_count == len(r.output["results"])  # 돌려준 수
 
 
 def test_results_that_cannot_fit_even_without_descriptions_drop_from_the_end():
@@ -286,3 +306,4 @@ def test_results_that_cannot_fit_even_without_descriptions_drop_from_the_end():
                                    results=[huge.model_copy(update={"evidence_id": n}) for n in range(5)]))
     assert tool._size(out) <= tool.RESULT_BUDGET and [r.evidence_id for r in out.results] == [0]  # 한 줄이 약 1,950자
     assert out.results[0].url == huge.url and out.reused is True
+    assert (out.omitted, out.descriptions_cut) == (4, True)

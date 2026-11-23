@@ -17,12 +17,13 @@ import logging
 import time
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 from sqlalchemy.orm import Session
 
 from app.agent.events import AgentEvent
 from app.llm import mcp_client, search
 from app.store import evidence_reuse
+from app.store import settings as settings_store
 from app.store.evidence import last_user_message_at, record_search, searches_since
 from app.store.tables import EvidenceItem, EvidenceSearch
 from app.tools.context import ToolContext, ToolError
@@ -42,9 +43,10 @@ FIELD_FALLBACK = "분야 검색 실패 → 웹 검색"
 # 키·크레딧 오류는 같은 계정의 웹 검색도 똑같이 실패하므로 대체하지 않는다.
 NO_FALLBACK_CODES = frozenset({"bad_key", "no_credit"})
 DESCRIPTION_MAX = 300  # 에이전트에게 보이는 요약 길이(표에는 받은 글 전체)
-# 결과 글(JSON, 이스케이프 포함) 길이. 루프가 도구 결과를 4000자(app.agent.context.RESULT_LIMIT 기본값)에서 자르므로
-# 여유를 두고 그 안에 들게 요약을 DESCRIPTION_CUTS 차례로 줄인다(그래도 넘으면 뒤 결과를 뺀다).
-RESULT_BUDGET = 3700
+# 결과 글(JSON, 이스케이프 포함) 길이. 루프가 도구 결과를 설정 tool_output_limit 자(기본 4000)에서 자르므로
+# 그보다 RESULT_MARGIN 적게 들게 요약을 DESCRIPTION_CUTS 차례로 줄인다(그래도 넘으면 뒤 결과를 뺀다).
+RESULT_MARGIN = 300
+RESULT_BUDGET = settings_store.DEFAULT_AGENT_CONFIG["tool_output_limit"] - RESULT_MARGIN
 DESCRIPTION_CUTS = (DESCRIPTION_MAX, 200, 100, 50, 0)
 
 
@@ -73,8 +75,14 @@ class HitOut(BaseModel):
     journal: str | None
     searched_at: str  # 찾은 날(서울, ISO 날짜)
     age_days: int  # 찾은 뒤 지난 날 수(서울 날짜)
-    mode: str  # 그 근거를 찾은 mode(다시 쓴 근거는 부른 mode 와 다를 수 있다)
-    found_by: str  # 그 근거를 찾은 검색어
+    mode: str | None = None  # 다시 쓴 결과만: 그 근거를 찾은 mode(부른 mode 와 다를 수 있다)
+    found_by: str | None = None  # 다시 쓴 결과만: 그 근거를 찾은 검색어
+
+    @model_serializer(mode="wrap")
+    def _only_when_reused(self, handler):
+        """mode·found_by 는 다시 쓴 결과에만 싣는다(새로 찾은 결과에는 칸을 두지 않아 길이를 아낀다)."""
+        data = handler(self)
+        return {k: v for k, v in data.items() if k not in ("mode", "found_by") or v is not None}
 
 
 class SearchOut(BaseModel):
@@ -86,6 +94,8 @@ class SearchOut(BaseModel):
     reused: bool = False  # 저장된 근거를 다시 썼다(Liner 를 부르지 않았다)
     hint: str | None = None  # 다시 썼으면 REUSE_HINT
     note: str | None = None  # 분야 검색이 실패해 웹으로 찾았으면 FIELD_FALLBACK
+    omitted: int = 0  # 결과 글 길이 때문에 뺀 결과 수
+    descriptions_cut: bool = False  # 결과 글 길이 때문에 요약(description)을 줄였다
     results: list[HitOut]
 
 
@@ -115,7 +125,8 @@ def _record_failure(ctx: ToolContext, args: SearchIn, mode: str, code: str, late
         logger.warning("근거 검색 실패 기록 저장 실패 (%s)", type(exc).__name__)
 
 
-def _hit(item: EvidenceItem, mode: str, found_by: str, searched_at: str, age_days: int) -> HitOut:
+def _hit(item: EvidenceItem, searched_at: str, age_days: int, mode: str | None = None,
+         found_by: str | None = None) -> HitOut:
     return HitOut(evidence_id=item.id, title=item.title, url=item.url, hostname=item.hostname,
                   description=item.description[:DESCRIPTION_MAX], date=item.published,
                   authors=item.extra_json.get("authors", []), journal=item.extra_json.get("journal"),
@@ -126,15 +137,21 @@ def _size(out: SearchOut) -> int:
     return len(json.dumps(out.model_dump(mode="json"), ensure_ascii=False))
 
 
-def _fit(out: SearchOut) -> SearchOut:
-    """결과 글이 RESULT_BUDGET 자 안에 들게 요약을 줄이고, 그래도 넘으면 뒤 결과를 뺀다(하나는 남긴다)."""
+def _budget(ctx: ToolContext) -> int:
+    return settings_store.get_agent_config(ctx.session)["tool_output_limit"] - RESULT_MARGIN
+
+
+def _fit(out: SearchOut, budget: int = RESULT_BUDGET) -> SearchOut:
+    """결과 글이 budget 자 안에 들게 요약을 줄이고, 그래도 넘으면 뒤 결과를 뺀다(하나는 남긴다).
+    줄였으면 descriptions_cut, 뺐으면 omitted 에 적는다."""
     for cut in DESCRIPTION_CUTS:
-        fitted = out.model_copy(update={"results": [r.model_copy(update={"description": r.description[:cut]})
-                                                    for r in out.results]})
-        if _size(fitted) <= RESULT_BUDGET:
+        fitted = out.model_copy(update={
+            "descriptions_cut": any(len(r.description) > cut for r in out.results),
+            "results": [r.model_copy(update={"description": r.description[:cut]}) for r in out.results]})
+        if _size(fitted) <= budget:
             return fitted
-    while len(fitted.results) > 1 and _size(fitted) > RESULT_BUDGET:
-        fitted = fitted.model_copy(update={"results": fitted.results[:-1]})
+    while len(fitted.results) > 1 and _size(fitted) > budget:
+        fitted = fitted.model_copy(update={"results": fitted.results[:-1], "omitted": fitted.omitted + 1})
     return fitted
 
 
@@ -154,13 +171,14 @@ def _reuse(ctx: ToolContext, args: SearchIn) -> SearchOut | None:
         return None
     if _reused_before(ctx) >= REUSE_LIMIT:
         raise ToolError(REUSE_LIMIT_MESSAGE)
+    out = _fit(SearchOut(search_id=0, used=_used_before(ctx), limit=LIMIT, reused=True, hint=REUSE_HINT,
+                         results=[_hit(s.item, s.searched_at, s.age_days, s.mode, s.found_by) for s in found]),
+               _budget(ctx))  # search_id 는 몇 자뿐이라 RESULT_MARGIN 안에 든다
     search_id = evidence_reuse.record_reuse(ctx.session, chat_session_id=ctx.chat_session_id, query=args.query,
-                                            result_count=len(found),
+                                            result_count=len(out.results),
                                             latency_ms=int((time.perf_counter() - start) * 1000))
-    out = _fit(SearchOut(search_id=search_id, used=_used_before(ctx), limit=LIMIT, reused=True, hint=REUSE_HINT,
-                         results=[_hit(s.item, s.mode, s.found_by, s.searched_at, s.age_days) for s in found]))
     ctx.emit(_card(search_id, args, args.mode, out.results, None, reused=True))
-    return out
+    return out.model_copy(update={"search_id": search_id})
 
 
 class _Failed(Exception):
@@ -219,6 +237,6 @@ async def search_evidence(args: SearchIn, ctx: ToolContext) -> SearchOut:
                                      hits=result.hits)
     now = datetime.now(UTC)
     out = _fit(SearchOut(search_id=search_id, used=used + 1, limit=LIMIT, note=note, results=[
-        _hit(i, mode, args.query, evidence_reuse.searched_at(i), evidence_reuse.age_days(i, now)) for i in items]))
+        _hit(i, evidence_reuse.searched_at(i), evidence_reuse.age_days(i, now)) for i in items]), _budget(ctx))
     ctx.emit(_card(search_id, args, mode, out.results, note))
     return out

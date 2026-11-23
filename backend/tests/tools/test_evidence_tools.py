@@ -75,7 +75,7 @@ async def test_tool_records_and_emits_card(ctx, events, session, web):
     assert r.output["results"][0]["evidence_id"] == 1 and events[-1].data["kind"] == "evidence"
     assert session.query(EvidenceItem).count() == 1
     # 다시 쓰기 칸(reused·hint·searched_at·age_days·mode·found_by)은 test_evidence_reuse 가 본다. 있던 칸은 그대로다.
-    out = {k: v for k, v in r.output.items() if k not in ("reused", "hint")}
+    out = {k: v for k, v in r.output.items() if k not in ("reused", "hint", "omitted", "descriptions_cut")}
     new = ("searched_at", "age_days", "mode", "found_by")
     out["results"] = [{k: v for k, v in x.items() if k not in new} for x in out["results"]]
     assert out == {"search_id": 1, "used": 1, "limit": 3, "results": [{
