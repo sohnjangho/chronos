@@ -66,6 +66,8 @@ RING_TIMEOUT_S = 20  # 벨 울리는 시간. SDK 에는 아래 한계가 없다 
 WRAP_UP_S = 8  # 목표(도구 호출·첫 응답)를 본 뒤 끊기까지 — 에이전트가 문장을 끝낼 시간
 CONNECT_TIMEOUT_S, DIAL_TIMEOUT_S, HANGUP_TIMEOUT_S = 20, 15, 5  # SDK 의 연결·발신 요청·끊기를 기다리는 시간
 END_GRACE_S = 5  # 끊은 뒤 끝났다는 사건을 기다리는 시간
+SDK_HANGUP_S = 8.0  # SDK 의 끊기를 기다리는 끝 — 끊기는 보낸 소리가 다 나갈 때까지(mark) 5초까지 기다린다(자르지 않게, 어댑터와 같다)
+REST_END_S = 10.0  # 끝이 확인되지 않은 통화를 REST(calls.update)로 끝내는 요청을 기다리는 끝(어댑터와 같다)
 INBOUND_START_S, INBOUND_HOLD_S = 15, 20  # 받은 통화가 시작되기를 기다리는 시간 · 붙들고 있는 가장 긴 시간
 REJECT_GRACE_S = 3  # 거절한 통화가 그래도 시작되는지 보는 시간
 MAX_WAIT_INBOUND_S, TICK_S = 180, 0.1
@@ -224,6 +226,28 @@ def _picked(steps: object) -> list[int] | None:
     return sorted(set(steps)) if ok else None
 
 
+async def end_by_rest(rest: object, call_id: object, *, key: str, account_id: str, base_url: str,
+                      bounded: Callable[[Awaitable, float], Awaitable[object]]) -> str:
+    """끝이 확인되지 않은 통화를 SDK 의 공개 REST(`AsyncClawOps(...).calls.update(call_id, status="completed")`)로 끝낸다 — 한 번,
+    REST_END_S, 프록시 환경을 믿지 않는 클라이언트, 다시 시도 없음. 던지지 않는다: 성공이면 "", 아니면 예외의 종류 이름(글은 버린다 —
+    계정·번호가 든다). 진단(우리가 건 통화만)과 SDK 어댑터(kat_sdk)가 같이 쓴다. 결과(모름)는 부르는 쪽이 바꾸지 않는다."""
+    if not isinstance(call_id, str) or not call_id:
+        return "no_call_id"
+    http = diagnostics.make_client()
+    try:
+        client = rest.AsyncClawOps(api_key=key, account_id=account_id, base_url=base_url.rstrip("/"), max_retries=0,
+                                   http_client=http)
+        await bounded(client.calls.update(call_id, status="completed"), REST_END_S)
+        return ""
+    except Exception as e:  # noqa: BLE001
+        return type(e).__name__
+    finally:
+        try:
+            await http.aclose()
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+
 def _call_id(obj: object) -> str:
     call_id = getattr(obj, "call_id", None)
     return call_id if isinstance(call_id, str) and call_id else f"?{id(obj)}"
@@ -242,6 +266,7 @@ class _Call:
         self.tools = 0
         self.ended = self.cut = self.hung = self.maybe = False  # 끝남 · 60초에 우리가 끊음 · 끊기를 불러 봄 · 결과를 모름
         self.failed = ""  # call_failed 의 사유 낱말
+        self.rest_tried = False  # 끝이 확인되지 않아 REST 로 끝내 봤다(한 번만)
         self.error: _Fail | None = None  # 걸지 못한 까닭
 
 
@@ -256,6 +281,7 @@ class _Run:
         self.numbers = [n for n in (agent_number, call_to, getattr(conn, "sender", None), getattr(conn, "test_to", None))
                         if isinstance(n, str)]
         self.sdk = self.agent = None  # SDK(또는 가짜) · 만든 에이전트
+        self.rest: object | None = None  # REST 클라이언트가 든 모듈(clawops — 가짜면 같은 객체)
         self.version, self.connect_ms = "?", None
         self.refused_number = False  # 연결이 번호 때문에 거절됐다(플랫폼까지는 갔다)
         self.spec = ("ko", "")  # 다음 통화의 (언어, 지시문) — 세션 팩토리가 읽는다
@@ -349,6 +375,7 @@ class _Run:
         if worker_connected is not False:  # 참이 아닌 값(글·None)도 연결하지 않는 쪽으로
             raise _Fail("worker_connected", WORKER_CONNECTED)
         self.sdk = sdk if sdk is not None else load_sdk()
+        self.rest = sdk if sdk is not None else sys.modules.get(SDK_MODULE.split(".")[0])  # load_sdk 가 이미 불러왔다
         version = getattr(self.sdk, "__version__", None) or getattr(sys.modules.get("clawops"), "__version__", None)
         self.version = version if isinstance(version, str) and _MODEL.fullmatch(version) else "?"
         found = self.preflight()
@@ -457,7 +484,7 @@ class _Run:
                 call.started = self.clock()
                 if not call.wanted:  # 거절했거나 창 밖인데 시작됐다(SDK 는 훅이 늦으면 받는다) — 곧바로 끊는다
                     call.hung = True
-                    await self.bounded(sdk_call.hangup(), HANGUP_TIMEOUT_S)
+                    await self.bounded(sdk_call.hangup(), SDK_HANGUP_S)
         except Exception:  # noqa: BLE001, S110
             pass
 
@@ -510,17 +537,23 @@ class _Run:
     # ── P6~P8·P10: 거는 통화 ──────────────────────────────────────────────────
 
     async def hang_up(self, call: _Call) -> None:
-        """끊고, 끝났다는 사건을 잠깐 기다린다. 끝난 것이 확인되지 않으면 진단을 멈춘다."""
+        """끊고, 끝났다는 사건을 잠깐 기다린다. 끝난 것이 확인되지 않으면 진단을 멈추고, **우리가 건 통화면**(받은 통화는 아니다)
+        REST 로 끝낸다(벨이 울리는 중이면 SDK 의 끊기는 아무 일도 하지 않고, 연결을 닫아도 미디어·모델 세션은 남는다). 결과는 그대로
+        「끝났는지 모름」이다."""
         if call.session is not None and not call.ended and not call.hung:
             call.hung = True
             try:
-                await self.bounded(call.session.hangup(), HANGUP_TIMEOUT_S)
+                await self.bounded(call.session.hangup(), SDK_HANGUP_S)
             except Exception:  # noqa: BLE001, S110 — 아래에서 끝났는지로 판단한다
                 pass
         until = self.clock() + END_GRACE_S
         while not call.ended and self.clock() < until:
             await self.sleep(TICK_S)
         self.dead = self.dead or not call.ended
+        if not call.ended and not call.rest_tried and call in self.dials and self.rest is not None:
+            call.rest_tried = True
+            await end_by_rest(self.rest, getattr(call.session, "call_id", None), key=self.conn.key,
+                              account_id=self.conn.account_id, base_url=self.conn.base_url, bounded=self.bounded)
 
     async def watch(self, call: _Call, deadline: float, done: Callable[[], float | None]) -> None:
         """통화가 끝나거나, done() 이 준 때에서 WRAP_UP_S 가 지나거나, deadline 이 될 때까지 본 뒤 살아 있으면 끊는다."""

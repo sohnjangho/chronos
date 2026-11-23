@@ -171,6 +171,8 @@ class FakeCall:
         outcome, world = self.agent.sdk.transfer, self.agent.sdk.world
         if outcome == "refused":
             raise RuntimeError(f"transfer not available {to}")
+        if outcome == "bridging":  # 넘기는 중 — 결과도 AI 쪽 끝도 아직 없다
+            await World.hang()
         world.at(world.ms + 1000, partial(self.agent.emit, self, "call_end"))
         done = asyncio.Event()
 
@@ -884,3 +886,27 @@ def test_runner_status_reads_the_voice_settings(session):
                               secret_last4="7777", model="", agent_number=OUR_NUMBER, voices_by_language_json={}))
     session.commit()
     assert runner.status()["backend"] == "ok"
+
+
+async def test_close_while_transferring_does_not_end_the_call_by_rest(world):
+    """넘기는 중이면(담당자와 이어지는 중일 수 있다) 닫을 때 끊지도 REST 로 끝내지도 않는다(고침 3)."""
+    async def hand_off(control, name, args):
+        return {"ok": await control.transfer(STAFF_NUMBER)}
+
+    sdk = FakeSdk(world, (*TALK, (3500, "tool", "record_answer", ANSWER)), transfer="bridging")  # 끝 사건 없음
+    task = asyncio.ensure_future(kat(world, sdk).place(_spec(), Rec(on_tool=hand_off)))
+    async with asyncio.timeout(10):
+        while not (sdk.agents and sdk.agent.calls and sdk.call.transfers and world.ms > 3700 + 2500):
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        while not sdk.agent.disconnects:
+            await asyncio.sleep(0)
+    assert sdk.rest_ends == [] and sdk.call.hangups == 0
+
+
+def test_shutdown_waits_long_enough_for_the_sdk_hangup():
+    from app.outreach.voice import runner
+
+    assert runner.STOP_WAIT_S > kat_sdk.SDK_HANGUP_S + 2  # 끊기(소리를 마저 보냄 5초 + 여유) + SDK 종료 프레임(2초)

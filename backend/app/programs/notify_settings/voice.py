@@ -120,7 +120,8 @@ def worker_connected(agent_number: str | None) -> bool:
 
 def _ceiling(steps: tuple[int, ...], wait: int) -> float:
     """덩어리 하나의 시간 상한(초): 진단 모듈이 스스로 지키는 상한(연결·통화·기다림·끊기·닫기)을 더한 값 + 여유."""
-    cut = diagnostics_voice.HANGUP_TIMEOUT_S + diagnostics_voice.END_GRACE_S
+    # 끊기(SDK 는 5초까지 소리를 마저 보낸다) · 끝 사건 · 그래도 끝이 확인되지 않으면 REST 로 끝내기
+    cut = diagnostics_voice.SDK_HANGUP_S + diagnostics_voice.END_GRACE_S + diagnostics_voice.REST_END_S
     total = diagnostics.RESOLVE_TIMEOUT_S + diagnostics_voice.CONNECT_TIMEOUT_S  # 이름 풀이 + 연결
     total += cut + diagnostics_voice.HANGUP_TIMEOUT_S + MARGIN_S  # 닫기(살아 있는 통화 끊기 + 연결 끊기) + 여유
     wanted = set(steps)

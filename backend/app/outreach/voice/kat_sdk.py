@@ -49,9 +49,11 @@ from app.notify.diagnostics_voice import (
     DIAL_TIMEOUT_S,
     READY_ENV,
     RING_TIMEOUT_S,
+    SDK_HANGUP_S,
     SDK_LOGGERS,
     SDK_MODULE,
     SESSIONS,
+    end_by_rest,
 )
 from app.notify.voice_sdk_logs import _quiet_sdk, session_failure
 from app.outreach import phone, redact
@@ -84,9 +86,7 @@ TICK_S = 1.0  # on_tick 간격
 FRAGMENT_GAP_S = 1.2  # 받아쓰기 조각이 이만큼 끊기면 한 발화가 끝났다고 본다
 OPENING_GAP_S = 2.0  # 첫 발화는 더 길게 기다린다 — 일꾼은 첫 발화 하나로 AI·기록 안내를 보므로 자르면 잘못 끊는다
 ANSWER_WAIT_S = RING_TIMEOUT_S + 20  # 건 뒤 받았다·안 받았다는 사건을 기다리는 끝
-SDK_HANGUP_S = 8.0  # SDK 의 끊기·연결 닫기를 기다리는 끝. 끊기는 보낸 소리가 다 나갈 때까지(mark) 5초까지 기다린다 — 자르지 않게
 END_GRACE_S = 11.0  # 끊기를 건 뒤 끝 사건을 기다리는 끝(끊기 8초 + SDK 의 종료 프레임 2초 + 여유) — call_run.HANGUP_WAIT_S 보다 짧게
-REST_END_S = 10.0  # 끝이 확인되지 않은 통화를 REST(calls.update)로 끝내는 요청을 기다리는 끝
 OVERALL_MARGIN_S = 10  # 통화 전체 상한 = ANSWER_WAIT_S + max_seconds + 이만큼(일꾼의 실제 시간 상한 max_seconds+60 안)
 TOOL_WAIT_S = 30.0  # SDK 의 도구 호출이 손잡이의 답을 기다리는 끝(실제 시간)
 TRANSFER_START_S = 2.0  # 넘기기를 건 뒤 곧바로 실패하는지 보는 시간
@@ -717,8 +717,9 @@ class _Line:
         task = self.dialing
         if self.ours is None and task is not None and task.done() and not task.cancelled() and task.exception() is None:
             self.ours = task.result()  # 걸고 나서 바로 취소됐다 — 그 통화도 끝낸다
-        if self.ours is not None and not self.confirmed():
-            if self.answered() and self.hung_at is None and self.transferring is None:
+        # 넘기는 중이면(담당자와 이어지는 중일 수 있다) 끊지도 REST 로 끝내지도 않는다
+        if self.ours is not None and not self.confirmed() and self.transferring is None:
+            if self.answered() and self.hung_at is None:
                 self.hung_at = self.clock()
                 try:
                     await self.bounded(self.ours.hangup(), SDK_HANGUP_S)
@@ -739,18 +740,8 @@ class _Line:
 
     async def end_by_rest(self) -> None:
         """SDK 의 공개 REST(`AsyncClawOps.calls.update`)로 통화를 끝낸다 — 한 번, 상한 REST_END_S, 오류는 종류만 로그."""
-        call_id, s = _call_id(self.ours), self.kat._s
-        if call_id is None:
-            return
-        http = diagnostics.make_client()  # 프록시 환경을 믿지 않는 클라이언트
-        try:
-            client = self.rest.AsyncClawOps(api_key=s.key, account_id=s.account_id, base_url=s.base_url.rstrip("/"),
-                                            max_retries=0, http_client=http)
-            await self.bounded(client.calls.update(call_id, status="completed"), REST_END_S)
-        except Exception as e:  # noqa: BLE001 — 예외 글에는 계정·번호가 든다
-            logger.warning("음성 통화: 끝이 확인되지 않은 통화를 끝내지 못했습니다 (%s)", type(e).__name__)
-        finally:
-            try:
-                await http.aclose()
-            except Exception:  # noqa: BLE001, S110
-                pass
+        s = self.kat._s
+        failure = await end_by_rest(self.rest, _call_id(self.ours), key=s.key or "", account_id=s.account_id,
+                                    base_url=s.base_url, bounded=self.bounded)
+        if failure:
+            logger.warning("음성 통화: 끝이 확인되지 않은 통화를 끝내지 못했습니다 (%s)", failure)

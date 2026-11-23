@@ -84,7 +84,7 @@ DUE_PER_TICK = 3  # 한 바퀴에 문에 넣는 예약 통화
 QUEUE_MAX = 50  # 줄의 길이
 CHECK_WAIT_S = 10.0  # 백엔드 check 를 기다리는 실제 시간
 PLACE_GRACE_S = 60.0  # 실제 시간 상한 = max_call_seconds + 이만큼(백엔드가 돌아오지 않을 때)
-STOP_WAIT_S = 5.0  # stop 이 도는 바퀴를 기다리는 시간
+STOP_WAIT_S = 20.0  # stop 이 도는 바퀴를 기다리는 시간 — 통화 중이면 SDK 의 끊기(kat_sdk.SDK_HANGUP_S 8초) · 끝 프레임 · 끝 적기까지
 SWEEP_ROWS = 50  # recover 가 한 번에 옮기는 줄(상태마다)
 MIN_PASS_S, MAX_FAST_PASSES = 1.0, 60  # 이보다 빠른 바퀴가 이만큼 이어지면 스스로 멈춘다(줄에 넣어 깬 바퀴도 센다)
 SDK_LOGGERS = ("clawops", "aiohttp", "google_genai", "google.genai", "websockets", "livekit")  # 가리개가 덮어야 걸 수 있다

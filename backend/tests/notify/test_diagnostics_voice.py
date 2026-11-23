@@ -127,7 +127,15 @@ class FakeCall:
         self.hangups += 1
         if self.agent.sdk.hangup == "hang":
             await World.hang()
-        if self.agent.sdk.hangup == "works" and self.started and not self.over:  # 실제 SDK 도 받기 전에는 끊지 못한다
+        if self.agent.sdk.hangup == "slow":  # 실제 SDK 의 끊기: 보낸 소리가 다 나갈 때까지(mark) 5초까지 기다린다
+            done, world = asyncio.Event(), self.agent.sdk.world
+
+            async def played() -> None:
+                done.set()
+
+            world.at(world.ms + 6000, played)
+            await asyncio.wait_for(done.wait(), REAL_GUARD_S)
+        if self.agent.sdk.hangup in ("works", "slow") and self.started and not self.over:  # 받기 전에는 끊지 못한다
             await self.agent.emit(self, "call_end")
 
 
@@ -252,7 +260,18 @@ class FakeSdk:
         self.marker_env: list[str | None] = []
         self.hook_errors = 0
         self.BuiltinTool = SimpleNamespace(HANG_UP="hang_up", TRANSFER_CALL="transfer_call", ALL="all", NONE="none")
+        self.rest_ends: list[tuple[str, str]] = []  # REST calls.update — 끝이 확인되지 않은 통화를 끝냄(고침 3)
         sdk = self
+
+        class AsyncClawOps:  # 실제 `clawops.AsyncClawOps` 의 꼴 — calls.update 만
+            def __init__(self, **kw) -> None:
+                self.calls, self.kw = self, kw
+
+            async def update(self, call_id: str, *, status: str = "completed") -> dict:
+                sdk.rest_ends.append((call_id, status))
+                return {}
+
+        self.AsyncClawOps = AsyncClawOps
 
         class GeminiRealtime:
             def __init__(self, *, api_key=None, system_prompt="", model="fake-live", voice="Kore", language="ko",
@@ -564,6 +583,7 @@ async def test_call_that_cannot_be_cut_stops_everything_after_it(world, hangup):
     assert out["P6"].ok is False and out["P6"].code == "cut_unconfirmed" and out["P6"].maybe_sent
     assert codes(out, "P10", "P12", "P14") == ["skipped_stopped"] * 3
     assert sdk.agent.disconnects == 1 and world.clock() < 80 and budget.maybe_live
+    assert sdk.rest_ends == [("CA0000", "completed")]  # 끝이 확인되지 않은 우리 통화는 REST 로 끝낸다(결과는 그대로 「모름」)
     assert sdk.accepted == []  # 그 사이 걸려 온 통화는 받지 않는다
 
 
@@ -573,6 +593,15 @@ async def test_unanswered_call_without_any_event_is_given_up_at_60_seconds(world
     assert out["P6"].code == "cut_unconfirmed" and out["P6"].maybe_sent
     assert codes(out, "P7", "P8") == ["skipped_no_call"] * 2 and out["P7"].maybe_sent and out["P8"].maybe_sent
     assert out["P10"].code == "skipped_stopped" and len(sdk.dialed) == 1 and sdk.agent.calls[0].hangups == 1
+    assert sdk.rest_ends == [("CA0000", "completed")]  # 벨이 울리는 중이면 끊기를 SDK 가 무시한다 — REST 로 끝낸다
+
+
+async def test_slow_sdk_hangup_is_not_cut_and_needs_no_rest_end(world):
+    """실제 SDK 의 끊기는 5초까지 걸린다 — 6초가 걸려도 자르지 않고 끝 사건을 받는다(고침 3)."""
+    sdk = FakeSdk(world, calls=[NEVER_ENDS], hangup="slow")
+    out = await run(world, sdk, steps=(6, 7), call_to=SENTINEL_PHONE)
+    assert out["P6"].ok and not out["P6"].maybe_sent and sdk.agent.calls[0].over and sdk.rest_ends == []
+    assert dv.SDK_HANGUP_S > 5
 
 
 async def test_dial_that_hangs_times_out(world):
