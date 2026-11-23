@@ -19,7 +19,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.cpm import ScheduleError
-from app.domains.loader import domains, general_pack, is_specialty_domain, levels_prompt, load, resolve_pack
+from app.domains.loader import (
+    domains,
+    general_pack,
+    is_specialty_domain,
+    levels_prompt,
+    load,
+    resolve_pack,
+)
 from app.harness.conditions import read_conditions
 from app.store import files as file_store
 from app.store import my_rules
@@ -27,7 +34,7 @@ from app.store.chats import recent_messages
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound, get_record
 from app.store.schedules import load as load_schedule
-from app.store.tables import ChatMessage, FileRow, User
+from app.store.tables import Approval, ChatMessage, FileRow, User
 from app.store.view import view_data
 from app.tools.context import SCHEDULE_NOT_FOUND_MESSAGE
 from app.tools.registry import ToolResult
@@ -46,6 +53,9 @@ FILES_SHOWN, SUMMARY_LIMIT = 20, 120  # 「이 대화에 붙인 파일」 줄의
 NAME_LIMIT = REASON_LIMIT = 60  # 그 줄의 파일 이름·까닭 길이
 AXIS_ORDER = ("종류", "공종", "현장", "시기", "출처")  # 분류 축 차례(설계 5-2). 그 밖의 축은 뒤에
 FILE_STATUS = {"received": "읽는 중", "extracted": "읽음", "indexed": "저장됨", "classified": "분류됨", "failed": "실패"}
+APPROVALS_SHOWN = 5  # 「이 대화의 승인 건」 줄의 건 수(최근 것)
+APPROVAL_STATUS = {"pending": "대기", "approved": "승인됨", "rejected": "거부됨", "conflict": "충돌(그 사이 일정이 바뀜)",
+                   "auto": "자동 적용"}
 RULE_TITLE_PREFIX = "내 규칙 저장 — "  # rules.propose 가 만드는 승인 건 제목의 앞(tools/out/propose_rule.TITLE_PREFIX)
 SEOUL = ZoneInfo("Asia/Seoul")
 _WEEKDAYS = "월화수목금토일"
@@ -258,7 +268,7 @@ def build_context(
     last_text = " ".join(_date_texts(rows))
     guides = select_guides(last_text, ui, has_files=attached is not None)
     active_domains = detect_active_domains(session, ui, rows)
-    now = situation(session, user, ui) + (f"\n{attached}" if attached else "") + (f"\n\n{older}" if older else "")
+    now = situation(session, user, ui, chat_session_id=chat_session_id) + (f"\n{attached}" if attached else "") + (f"\n\n{older}" if older else "")
     system = f"{system_prompt(guides, active_domains=active_domains)}\n\n{now}\n\n{helper}"
     return [{"role": "system", "content": system}, *history(rows)]
 
@@ -266,10 +276,27 @@ def build_context(
 # ── 지금 상황 ───────────────────────────────────────────────────────
 
 
-def situation(session: Session, user: User, ui: UiContext) -> str:
+def situation(session: Session, user: User, ui: UiContext, *, chat_session_id: int | None = None) -> str:
     role = {"admin": "관리자", "field": "현장 관리자"}.get(user.role, "일반 사용자")
     lines = ["## 지금 상황", f"- 사용자: {user.name} ({role})", f"- 열린 프로그램: {ui.program or '없음'}"]
-    return "\n".join(lines + _schedule_lines(session, ui))
+    approvals = _approvals_line(session, chat_session_id) if chat_session_id is not None else None
+    return "\n".join(lines + _schedule_lines(session, ui) + ([approvals] if approvals else []))
+
+
+def _approvals_line(session: Session, chat_session_id: int) -> str | None:
+    """'- 이 대화의 승인 건: 승인 10 승인됨(버전 3) · 승인 11 거부됨 · 승인 12 대기'. 이 대화가 낸 최근
+    APPROVALS_SHOWN 건, 오래된 것부터. 승인 건이 없으면 None. 대화 기록의 옛 상태 대신 지금 상태를 보게 한다."""
+    rows = list(session.scalars(
+        select(Approval).where(Approval.chat_session_id == chat_session_id)
+        .order_by(Approval.id.desc()).limit(APPROVALS_SHOWN)
+    ))
+    if not rows:
+        return None
+    parts = []
+    for a in reversed(rows):
+        state = APPROVAL_STATUS.get(a.status, a.status)
+        parts.append(f"승인 {a.id} {state}" + (f"(버전 {a.version})" if a.version is not None else ""))
+    return "- 이 대화의 승인 건: " + " · ".join(parts)
 
 
 def _schedule_lines(session: Session, ui: UiContext) -> list[str]:
