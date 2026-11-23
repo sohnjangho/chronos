@@ -433,13 +433,25 @@ async def test_repair_asks_only_for_blank_rows(ctx, llm, session):
     assert schedule_import.REPAIR_NOTE not in user_text(llm, 1)  # 처음 초안에는 요청 글의 규칙만
 
 
-async def test_import_repairs_at_most_twice(ctx, llm, session):
-    """I3: 가져오기는 max_rounds=2 — 두 번 깨지면 멈춘다(LLM: 열 대응 1 + 초안 2)."""
+async def test_import_repairs_at_most_twice(ctx, events, llm, session):
+    """I3: 가져오기는 max_rounds=2 — 두 번 깨지면 멈춘다(LLM: 열 대응 1 + 초안 2).
+    A2(리뷰): 초안이 하나도 없으면 generate.run 처럼 실패한 단계로 끝난다(결과 카드는 그대로 띄운다)."""
     fid = put(session, PRED_CSV.encode(), "기초_공정.csv", "table")
     llm.push(csv_plan(), *(estimate(est("B", 4)) for _ in range(4)))
     r = await call("schedule.import", importing(fid), ctx)
+    assert not r.ok and r.error
+    card = next(e.data for e in events if e.data.get("kind") == "generation_result")
+    assert (card["ok"], card["draft_id"]) == (False, None) and len(llm.bodies) == 3
+    assert session.scalars(select(Approval)).all() == []
+
+
+async def test_answers_mean_the_import_was_confirmed(ctx, events, llm, session):
+    """I1(리뷰): 질문지 답(answers·assumed)을 넣어 부르면 confirmed 를 빠뜨려도 가져오기다(확인 단계로 되돌아가지 않는다)."""
+    fid = put(session, PRED_CSV.encode(), "기초_공정.csv", "table")
+    llm.push(csv_plan(), estimate(est("B", 4), est("D", 2)))
+    r = await call("schedule.import", importing(fid, confirmed=False, answers=[{"question": "B 기간", "answer": "4일"}]), ctx)
     assert r.ok, r.error
-    assert [x["violations"] for x in r.output["draft"]["rounds"]] == [-1, -1] and len(llm.bodies) == 3
+    assert r.output["step"] == "drafted" and r.output["draft"]["draft_id"] is not None
 
 
 async def test_more_than_400_rows_is_refused_before_any_judgment(ctx, events, llm, session):

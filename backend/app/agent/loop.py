@@ -60,6 +60,9 @@ _MAX_SQL_INT = 2**63 - 1
 # 모델이 confirmed 를 빼도 가져오기로 부른다(I1). 한 턴에 같은 파일은 한 번만 가져오고, 같은 확인은 한 번만 한다(I1·I2).
 IMPORT_BUTTON = re.compile(r"네, 확인했으니 이 파일\(#(\d+)\)을 일정 초안으로 가져와 줘\.?")
 IMPORT_AGAIN = "이번 턴에 이 파일(#{})은 이미 가져왔습니다. 다시 부르지 말고 받은 결과를 사용자에게 알리세요."
+ASKED_AGAIN = ("이번 턴에 이 파일(#{})은 빈 칸을 물을 질문지를 열었습니다(아직 가져오지 않았습니다). 다시 부르지 말고 "
+               "질문지에 답해 달라고 말한 뒤 턴을 끝내세요 — 제출되면 answers·assumed 를 넣어 다시 부릅니다.")
+NO_DRAFT_AGAIN = "이번 턴에 이 파일(#{})은 초안을 만들지 못했습니다. 다시 부르지 말고 그 까닭을 사용자에게 알리세요."
 CHECK_AGAIN = (
     "이번 턴에 이 파일(#{})은 이미 확인해 결과를 받았습니다(공정표면 요약 카드도 떴습니다). 다시 부르지 말고 그 결과를 "
     "사용자에게 말한 뒤 턴을 끝내세요 — 가져오기는 사용자가 [일정 초안으로 가져오기]를 누르거나 가져오라고 한 뒤입니다."
@@ -186,7 +189,8 @@ class _Turn:
         self.asked_questionnaire = False
         self.waiting_for_user = False
         self.import_file: str | None = None  # 이 턴이 가져오기 단추로 온 파일 id(IMPORT_BUTTON)
-        self.import_seen: set[tuple] = set()  # 이 턴에 성공한 schedule.import: ("checked", 파일, 시트) | ("imported", 파일)
+        # 이 턴에 성공한 schedule.import: ("checked", 파일, 시트) | ("imported"·"asked"·"no_draft", 파일)
+        self.import_seen: set[tuple] = set()
         self.refused: str | None = None  # 지금 도구를 실행하지 않은 까닭(같은 가져오기·확인 되풀이)
 
     # ── 시작·끝 ──
@@ -424,10 +428,7 @@ class _Turn:
                 self.waiting_for_user = False
         elif call.name in ("generate.run", "generate.extract_conditions", "schedule.create_project") and result.ok:
             self.waiting_for_user = False
-        if call.name == "schedule.import" and result.ok and isinstance(call.arguments, dict) and isinstance(result.output, dict):
-            fid = str(call.arguments.get("file_id"))
-            checked = result.output.get("step") == "checked"
-            self.import_seen.add(("checked", fid, call.arguments.get("sheet")) if checked else ("imported", fid))
+        self.note_import(call, result)
         stopped = result.ok and turns.stop_requested(self.chat_id)  # 도는 동안 멈춤을 눌렀다
         self.log.step_finished(self.step_n, result, stopped)
         for event in self.collected:
@@ -464,6 +465,21 @@ class _Turn:
         return (self.import_file is not None and name == "schedule.import" and isinstance(arguments, dict)
                 and str(arguments.get("file_id")) == self.import_file and arguments.get("confirmed") is not True)
 
+    def note_import(self, call: _Call, result: registry.ToolResult) -> None:
+        """성공한 schedule.import 가 무엇을 했는지 적는다: 확인 · 질문지만 엶 · 초안 없음 · 가져옴(초안을 만듦)."""
+        if call.name != "schedule.import" or not result.ok or not isinstance(call.arguments, dict):
+            return
+        if not isinstance(result.output, dict):
+            return
+        fid, step = str(call.arguments.get("file_id")), result.output.get("step")
+        if step == "checked":
+            self.import_seen.add(("checked", fid, call.arguments.get("sheet")))
+        elif step == "asked":
+            self.import_seen.add(("asked", fid))
+        else:
+            draft = result.output.get("draft") or {}
+            self.import_seen.add(("imported" if draft.get("draft_id") is not None else "no_draft", fid))
+
     def _import_again(self, call: _Call) -> str | None:
         """이 턴에 이미 가져온 파일을 다시 가져오거나 같은 확인을 다시 하면 실행하지 않을 까닭(I1·I2). 아니면 None."""
         if call.name != "schedule.import" or not isinstance(call.arguments, dict):
@@ -471,6 +487,10 @@ class _Turn:
         fid = str(call.arguments.get("file_id"))
         if ("imported", fid) in self.import_seen:
             return IMPORT_AGAIN.format(fid)
+        if ("asked", fid) in self.import_seen:
+            return ASKED_AGAIN.format(fid)
+        if ("no_draft", fid) in self.import_seen:
+            return NO_DRAFT_AGAIN.format(fid)
         if call.arguments.get("confirmed") is not True and ("checked", fid, call.arguments.get("sheet")) in self.import_seen:
             return CHECK_AGAIN.format(fid)
         return None

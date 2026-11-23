@@ -254,6 +254,8 @@ async def _import(ctx: ToolContext, llm: LlmClient, table: Table, args: ImportIn
     if rows.blanks and plan.blanks == "ask" and plan.questions and not answered:
         return _out("asked", table, True, plan.reason, card, questionnaire=await _ask(ctx, args, plan, rows))
     draft = await _draft(ctx, llm, args, rows)
+    if draft.draft_id is None and not ctx.stop_requested():  # 초안이 하나도 없다 — generate.run 처럼 실패한 단계로(A2)
+        raise ToolError(draft.reason or "일정 초안을 만들지 못했습니다.")
     approval = None
     if draft.draft_id is not None:  # 기존 첫 저장 길(승인함)
         sent = await call("out.submit_change", {"title": f"{table.name} 가져오기"[:100], "draft_id": draft.draft_id}, ctx)
@@ -274,14 +276,16 @@ async def _import(ctx: ToolContext, llm: LlmClient, table: Table, args: ImportIn
     mutates=True,
 )
 async def import_schedule(args: ImportIn, ctx: ToolContext) -> ImportOut:
-    if args.confirmed and (args.domain is None or args.level is None):
+    # 질문지 답(answers·assumed)을 넣어 다시 부른 것은 가져오기다 — confirmed 를 빠뜨려도 확인 단계로 되돌아가지 않는다(I1).
+    confirmed = args.confirmed or bool(args.answers or args.assumed)
+    if confirmed and (args.domain is None or args.level is None):
         raise ToolError(NEED_LEVEL)
     llm = package.client_for(ctx)
     try:
         table = await asyncio.to_thread(imports.read_table, ctx.session, args.file_id, args.sheet)  # 원본 전체 — 루프를 막지 않게
         if len(table.rows) > imports.MAX_ACTIVITIES:  # 코드가 센다 — 판단(LLM)을 부르기 전에
             raise ImportProblem(imports.TOO_MANY_ROWS.format(len(table.rows)))
-        return await (_import(ctx, llm, table, args) if args.confirmed else _check(ctx, llm, table))
+        return await (_import(ctx, llm, table, args) if confirmed else _check(ctx, llm, table))
     except ImportProblem as e:
         raise ToolError(e.message) from None
     except LlmNotReady as e:

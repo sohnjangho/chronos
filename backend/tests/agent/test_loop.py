@@ -991,6 +991,23 @@ async def test_import_button_runs_the_import_only_once_per_turn(run, session, mo
     assert "이미 가져왔습니다" in last_tool["reflection"] and "인자를 고치" not in last_tool["reflection"]
 
 
+@pytest.mark.parametrize(("output", "says", "never"), [
+    ({"step": "drafted", "draft": {"draft_id": 7}}, "이미 가져왔습니다", None),
+    ({"step": "asked", "draft": None, "questionnaire": {"id": 3}}, "질문지", "가져왔습니다"),
+    ({"step": "drafted", "draft": {"draft_id": None}}, "초안을 만들지 못했습니다", "가져왔습니다"),
+])
+def test_repeat_import_refusal_says_what_really_happened(session, admin_user, chat_id, output, says, never):
+    """I1(리뷰): 「이미 가져왔습니다」는 초안을 정말 만들었을 때만. 질문지만 열었거나 초안이 없으면 그대로 말한다."""
+    turn = loop._Turn(session, admin_user, chat_id, NO_UI, None)
+    args = {"file_id": 5, "confirmed": True, "domain": "construction", "level": "L2"}
+    call = loop._Call("c1", "schedule.import", args, json.dumps(args))
+    turn.note_import(call, registry.ToolResult(ok=True, output=output, error=None, ms=1))
+    why = turn._import_again(call)
+    assert why is not None and says in why
+    if never:
+        assert never not in why
+
+
 async def test_repeated_check_in_a_turn_shows_one_card_and_never_imports(run, session, monkeypatch):
     """I2: 단추 글이 아닌 턴에서 확인을 되풀이하면 두 번째부터는 실행하지 않는다 — 카드 하나, 판단 LLM 두 번(첫 확인)뿐,
     가져오지 않는다(confirmed 를 채우지 않는다). 되돌려 주는 글은 「다시 부르지 말라」이고 「인자를 고치라」가 아니다."""
