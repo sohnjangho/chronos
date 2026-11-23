@@ -215,6 +215,27 @@ class Check:
     latency_ms: int
 
 
+# 카카오 채널·문안 목록(Task 101 — 읽기만). 경로(`GET …/kakao/channels?status=connected`, `GET …/kakao/templates?channelId=…`)는
+# Task 69 보고에 적혀 있지만 응답 칸(문안 본문·상태 말·쪽 나눔)은 저장소의 문서 기록에 없다 → 짐작하지 않고 「확인하지 못함」.
+# 확인되면 이 값을 참으로 하고 KatClient.kakao_* 둘만 채운다(쪽 상한을 두고, 상태 말은 approved|reviewing|rejected 로 바꿔서).
+KAKAO_LISTING_CONFIRMED = False
+KAKAO_NOT_CONFIRMED = "채널·문안 목록을 읽는 길을 확인하지 못했습니다."
+
+
+@dataclass(frozen=True)
+class KakaoChannelInfo:
+    id: str
+    name: str
+    status: str  # 제공사 말 그대로(예: connected)
+
+
+@dataclass(frozen=True)
+class KakaoTemplateInfo:
+    id: str  # 제공사의 문안 id(보낼 때의 template_code)
+    body: str = field(repr=False)
+    status: str  # approved | reviewing | rejected
+
+
 class Provider(Protocol):
     """제공사가 하는 일 다섯. 실패는 모두 ProviderFailed."""
 
@@ -533,6 +554,14 @@ class KatClient:
             value = data.get(name)
             out[name] = value if isinstance(value, str) and _TIME.fullmatch(value) and _when(value) is not None else None
         return out
+
+    async def kakao_channels(self) -> list[KakaoChannelInfo]:
+        """연결된 카카오 채널. 응답 칸을 확인하기 전에는 부르지 않는다 — ProviderFailed("not_confirmed")."""
+        raise ProviderFailed("not_confirmed", KAKAO_NOT_CONFIRMED)
+
+    async def kakao_templates(self, channel: str) -> list[KakaoTemplateInfo]:
+        """그 채널의 알림톡 문안. 위와 같다(확인 전에는 요청 0번)."""
+        raise ProviderFailed("not_confirmed", KAKAO_NOT_CONFIRMED)
 
 
 def client_for(row: NotifyConnection) -> Provider:
