@@ -33,6 +33,7 @@ from app.store.tables_outreach import (
     ContactCompany,
     ContactProposal,
     ContactReport,
+    DoNotContactNumber,
     NotifyConnection,
     OutreachCall,
     OutreachMessage,
@@ -42,9 +43,10 @@ from app.store.tables_outreach import (
 from app.store.timeutil import as_utc
 
 __all__ = [
-    "LIMIT_RANGES", "Limits", "NotFound", "add_report", "add_usage", "auto_replies", "claim", "connection",
-    "get_call", "get_message", "limits", "live_call", "purge_schedule", "sent_count", "thread", "unknown_calls",
-    "unknown_messages", "validate_limits",
+    "LIMIT_RANGES", "Limits", "NotFound", "add_report", "add_usage", "auto_replies", "claim", "clear_do_not_contact",
+    "connection", "get_call", "get_message", "is_do_not_contact", "limits", "live_call",
+    "mark_do_not_contact", "purge_schedule", "sent_count", "thread", "unknown_calls", "unknown_messages",
+    "validate_limits",
 ]
 
 logger = logging.getLogger(__name__)
@@ -227,7 +229,7 @@ def claim(
     부른 쪽은 **돌려받은 값만 믿는다**(미리 읽어 둔 줄의 상태로 판단하지 않는다). 이 세션에 올라 있던 그 줄의
     status·claimed_at 은 비워 두어 다음에 읽을 때 DB 의 참값을 본다. 다른 일꾼이 쓰기를 쥐고 있어 SQLite 가
     「database is locked」 이면 그쪽이 가진 것으로 보고 이 세션을 되돌린(rollback — 커밋 안 한 쓰기도 사라진다) 뒤
-    False. 그 밖의 DB 오류는 그대로 올린다.
+    False. 그 밖의 DB 오류는 그대로 올린다. **그러니 부를 때 같은 세션에 커밋 안 한 다른 쓰기를 쥐고 있지 않는다.**
     나가는 상태(메시지 sending, 통화 queued·dialing·in_call)로 들어오면 claimed_at 을 now(없으면 지금)로 찍는다 —
     이미 그 안에서 옮기는 것(queued → dialing)은 처음 찍은 시각을 둔다. 하루 셈(sent_count)은 이 시각으로 한다.
     """
@@ -252,9 +254,50 @@ def claim(
 
 def purge_schedule(session: Session, schedule_id: int) -> None:
     """지우는 일정의 주소록과 연락 기록(협력사·연락처·연락처 제안·메시지·통화·보고)을 지운다 — 일정 id 가 다시 쓰여도
-    새 일정에 나타나지 않게. 일정 없는 줄·사용량·알림 연결·차단 목록은 남는다. commit 은 부른 쪽(일정 지우기와 한 트랜잭션)."""
+    새 일정에 나타나지 않게. 지우기 전에 수신 거부한 연락처의 번호를 번호 기준 수신 거부로 옮겨 둔다(번호 기준이라 남는다).
+    일정 없는 줄·사용량·알림 연결·차단 목록은 남는다. commit 은 부른 쪽(일정 지우기와 한 트랜잭션)."""
+    refused = select(Contact.phone, Contact.dnc_reason).where(
+        Contact.schedule_id == schedule_id, Contact.do_not_contact.is_(True), Contact.phone.is_not(None)
+    )
+    for number, reason in session.execute(refused).all():
+        mark_do_not_contact(session, number, reason=reason or "")
     for model in (ContactCompany, Contact, ContactProposal, OutreachMessage, OutreachCall, ContactReport):
         session.execute(delete(model).where(model.schedule_id == schedule_id))
+
+
+# ── 수신 거부(번호 기준) ──────────────────────────────────────────────
+
+
+def is_do_not_contact(session: Session, number: str) -> bool:
+    """그 번호가 수신 거부인가 — 나가는 문·들어오는 문·도구는 이 함수로만 본다. 어느 일정이든 그 번호의 연락처(숨긴 사람도)에
+    수신 거부 표시가 있거나 번호 기준 수신 거부(do_not_contact_numbers)가 있으면 참. 관리자 차단(blocked_numbers)은 따로다.
+    번호는 phone.normalize 로 정리하고, 정리되지 않으면 거짓."""
+    target = normalize(number)
+    if target is None:
+        return False
+    flagged = select(Contact.id).where(Contact.phone == target, Contact.do_not_contact.is_(True)).limit(1)
+    recorded = select(DoNotContactNumber.id).where(DoNotContactNumber.number == target)
+    return session.scalar(flagged) is not None or session.scalar(recorded) is not None
+
+
+def mark_do_not_contact(session: Session, number: str, *, reason: str) -> None:
+    """번호 기준 수신 거부를 남긴다(이미 있으면 그대로). 정리되지 않는 번호면 ValueError(글에 번호를 싣지 않음). flush 까지."""
+    target = normalize(number)
+    if target is None:
+        raise ValueError("번호 형식이 맞지 않습니다.")
+    if session.scalar(select(DoNotContactNumber.id).where(DoNotContactNumber.number == target)) is None:
+        session.add(DoNotContactNumber(number=target, reason=reason))
+        session.flush()
+
+
+def clear_do_not_contact(session: Session, number: str) -> None:
+    """그 번호의 수신 거부를 모든 곳에서 푼다: 번호 기준 줄을 지우고, 어느 일정이든 그 번호 연락처의 표시·까닭을 지운다.
+    관리자 차단은 건드리지 않는다. 정리되지 않는 번호면 아무것도 하지 않는다. commit 은 부른 쪽."""
+    target = normalize(number)
+    if target is None:
+        return
+    session.execute(delete(DoNotContactNumber).where(DoNotContactNumber.number == target))
+    session.execute(update(Contact).where(Contact.phone == target).values(do_not_contact=False, dnc_reason=None))
 
 
 # ── 셈 ─────────────────────────────────────────────────────────────

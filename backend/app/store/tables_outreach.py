@@ -225,7 +225,7 @@ class ContactReport(Base):
 
 
 class BlockedNumber(Base):
-    """차단한 번호 하나(모든 일정)."""
+    """관리자가 차단한 번호 하나(모든 일정). 걸려 오는 전화·문자를 받지 않고 거절한다. 수신 거부와는 다르다."""
 
     __tablename__ = "blocked_numbers"
 
@@ -233,6 +233,19 @@ class BlockedNumber(Base):
     number: Mapped[str] = mapped_column(String(20), unique=True)
     reason: Mapped[str] = mapped_column(String(200), default="")
     created_by: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+
+class DoNotContactNumber(Base):
+    """수신 거부한 번호 하나(PM 11-23: 수신 거부는 번호 기준 전체 — 일정을 지워도 남는다). 받는 사람이 연락하지 말라고 한 것이라
+    우리가 보내거나 걸지 않을 뿐, 그 번호가 걸어 오거나 보내 오면 메모는 남길 수 있다(차단 blocked_numbers 와 다름).
+    판단은 store.outreach.is_do_not_contact 로만 한다(연락처 줄의 do_not_contact 표시와 함께 본다)."""
+
+    __tablename__ = "do_not_contact_numbers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(20), unique=True)
+    reason: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 

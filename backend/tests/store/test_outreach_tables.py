@@ -1,4 +1,4 @@
-"""계획 4 표와 저장소(Task 61): 새 표 11개, 기존 DB 올리기, 일정(프로젝트) 격리, 차지하기·셈, 알림 연결 한도.
+"""계획 4 표와 저장소(Task 61): 새 표 12개, 기존 DB 올리기, 일정(프로젝트) 격리, 차지하기·셈, 알림 연결 한도.
 
 번호·이름은 모두 가상이다(이름표의 010-0000-0199 = 정리한 꼴 01000000199).
 """
@@ -25,6 +25,7 @@ from app.store.contacts import NotFound
 from app.store.outreach import LIMIT_RANGES, Limits, limits, validate_limits
 from app.store.tables import Base
 from app.store.tables_outreach import (
+    BlockedNumber,
     Contact,
     ContactCompany,
     ContactProposal,
@@ -40,7 +41,8 @@ from tests import schedules
 
 NEW_TABLES = {
     "contact_companies", "contacts", "contact_proposals", "outreach_messages", "outreach_calls", "contact_reports",
-    "blocked_numbers", "outreach_usage", "notify_connections", "kakao_templates", "voice_settings",
+    "blocked_numbers", "do_not_contact_numbers", "outreach_usage", "notify_connections", "kakao_templates",
+    "voice_settings",
 }
 PHONE = "01000000199"  # SENTINEL_PHONE 정리한 꼴
 OTHER_PHONE = "01000000000"
@@ -93,7 +95,7 @@ def _tables(path: Path) -> set[str]:
 
 
 def test_existing_db_gets_new_tables(tmp_path):
-    """계획 3 모양 DB(새 표 없음) → init_db → 새 표 11개가 생기고 있던 줄은 그대로."""
+    """계획 3 모양 DB(새 표 없음) → init_db → 새 표 12개가 생기고 있던 줄은 그대로."""
     path = tmp_path / "data" / "chronos.db"  # 시험 환경의 CHRONOS_DATA_DIR(tests/conftest.py)
     path.parent.mkdir(parents=True)
     engine = create_engine(f"sqlite:///{path}")
@@ -222,6 +224,54 @@ def test_purge_schedule_removes_only_that_schedules_rows(session, sid, sid2):
     assert _counts(session, sid) == [1, 1, 1, 1, 1, 1]
     assert _counts(session, None) == [0, 0, 1, 1, 1, 1]  # 일정 없는 줄은 남는다
     assert len(list(session.scalars(select(OutreachUsage)))) == 1
+
+
+# ── 수신 거부는 번호 기준(PM 11-23) ─────────────────────────────────
+
+
+def test_do_not_contact_survives_schedule_deletion(session, sid, sid2):
+    _person(session, _company(session, sid2), "김공정", phone=PHONE, do_not_contact=True, dnc_reason="문자 그만")
+    session.commit()
+    outreach.purge_schedule(session, sid2)
+    session.commit()
+    assert contacts.by_number(session, PHONE) == []
+    assert outreach.is_do_not_contact(session, PHONE) is True
+
+
+def test_do_not_contact_follows_the_number_into_other_schedules(session, sid, sid2):
+    _person(session, _company(session, sid), "김공정", phone=PHONE)  # 이 일정에는 표시가 없다
+    _person(session, _company(session, sid2), "김공정", phone=PHONE, do_not_contact=True, hidden=True)
+    _person(session, _company(session, sid), "이반장", phone=OTHER_PHONE)
+    assert outreach.is_do_not_contact(session, "010-0000-0199") is True  # 번호는 정리해서 본다
+    assert outreach.is_do_not_contact(session, OTHER_PHONE) is False
+    outreach.mark_do_not_contact(session, OTHER_PHONE, reason="전화로 요청")  # 연락처 줄과 상관없이 번호에
+    outreach.mark_do_not_contact(session, "010-0000-0000", reason="두 번째")  # 이미 있으면 그대로
+    assert outreach.is_do_not_contact(session, OTHER_PHONE) is True
+    assert outreach.is_do_not_contact(session, "번호 아님") is False
+
+
+def test_clear_do_not_contact_removes_it_everywhere(session, sid, sid2):
+    here = _person(session, _company(session, sid), "김공정", phone=PHONE, do_not_contact=True, dnc_reason="요청")
+    there = _person(session, _company(session, sid2), "김공정", phone=PHONE, do_not_contact=True)
+    outreach.mark_do_not_contact(session, PHONE, reason="요청")
+    session.commit()
+    outreach.clear_do_not_contact(session, "010-0000-0199")
+    session.commit()
+    session.expire_all()
+    assert outreach.is_do_not_contact(session, PHONE) is False
+    assert (here.do_not_contact, here.dnc_reason, there.do_not_contact) == (False, None, False)
+
+
+def test_admin_block_is_not_do_not_contact(session):
+    session.add(BlockedNumber(number=PHONE, reason="광고 전화", created_by="관리자"))
+    session.flush()
+    assert outreach.is_do_not_contact(session, PHONE) is False
+
+
+def test_mark_do_not_contact_refuses_a_bad_number_without_echoing_it(session):
+    with pytest.raises(ValueError) as err:
+        outreach.mark_do_not_contact(session, "010-12-3456", reason="")
+    assert "3456" not in str(err.value)
 
 
 def test_unknown_messages_and_calls_are_rows_without_a_schedule(session, sid):
