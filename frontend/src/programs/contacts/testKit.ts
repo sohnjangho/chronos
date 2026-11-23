@@ -93,6 +93,12 @@ function route(method: string, url: string): Reply {
     const d = details.get(Number(one[1]));
     return d ? { status: 200, body: d } : { status: 404, body: { code: 'not_found', message: '찾을 수 없습니다.' } };
   }
+  // 대화 칸(Task 78)이 읽는 대화 — 이 가짜에서는 늘 비어 있다(아래 쓰기 응답 줄을 먹지 않게 여기서 답한다). 대화 시험은 threadKit.
+  const thread = /\/outreach\/threads\/(\d+)/.exec(url);
+  if (method === 'GET' && thread) {
+    const contact = BOOK.companies.flatMap((c) => c.people).find((p) => p.id === Number(thread[1])) ?? person({ id: Number(thread[1]) });
+    return { status: 200, body: { contact: { ...contact, unread: 0 }, messages: [], has_more: false } };
+  }
   const queued = writeQueue.shift();
   if (queued) return queued;
   if (one) return { status: 200, body: details.get(Number(one[1])) };

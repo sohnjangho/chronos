@@ -1,0 +1,106 @@
+/* 연락처 창의 대화 칸(Task 78, 시안 ①). 색·글꼴은 tokens.css 변수만(두 테마).
+   세로로 세 층 — 머리 줄(근무시간·언어·번호 보기) · 대화(여기만 스크롤) · 입력창 자리 — 이라 대화가 300줄이어도 머리와 입력창은 늘 보인다.
+   말풍선·이름표·상태 글은 어디서든 줄을 바꾼다(가로로 밀지 않는다). */
+.th-pane { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.th-head {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; min-width: 0; padding: 5px 16px;
+  border-bottom: 1px solid var(--border); color: var(--fg-muted); font-size: var(--fs-12);
+}
+.th-head-item { min-width: 0; overflow-wrap: anywhere; }
+.th-head-num { color: var(--fg); font-weight: 600; }
+.th-tab { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+
+/* 대화 */
+.th-scroll {
+  flex: 1; min-height: 96px; min-width: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 16px 14px; box-sizing: border-box;
+}
+.th-scroll:focus-visible { outline-offset: -2px; }
+.th-center { margin: auto; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.th-older { align-self: center; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.th-day {
+  flex: none; display: flex; align-items: center; gap: 10px; margin: 4px 0 0; color: var(--fg-muted); font-size: var(--fs-11); font-weight: 600;
+}
+.th-day::before, .th-day::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+/* 말풍선 한 건 */
+.th-b { flex: none; min-width: 0; max-width: min(560px, 84%); display: flex; flex-direction: column; gap: 3px; }
+.th-b.is-me { align-self: flex-end; align-items: flex-end; }
+.th-b.is-them { align-self: flex-start; align-items: flex-start; }
+.th-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; max-width: 100%; color: var(--fg-muted); font-size: var(--fs-11);
+}
+.th-b.is-me .th-meta { justify-content: flex-end; }
+.th-who { min-width: 0; overflow-wrap: anywhere; color: var(--fg); font-weight: 700; }
+.th-who.is-ai { color: color-mix(in srgb, var(--tile-violet-from) 55%, var(--fg)); }
+.th-bub {
+  margin: 0; min-width: 0; max-width: 100%; box-sizing: border-box; padding: 8px 11px; border-radius: var(--radius-4);
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; line-height: 1.5;
+}
+.th-b.is-me .th-bub { background: var(--bg-selected); border-bottom-right-radius: 4px; }
+.th-b.is-me.is-ai .th-bub { background: color-mix(in srgb, var(--tile-violet-from) 16%, var(--bg-panel)); }
+.th-b.is-them .th-bub { background: var(--bg-panel-alt); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.th-ko {
+  margin: 0; min-width: 0; max-width: 100%; display: flex; gap: 6px; align-items: baseline; color: var(--fg-muted); font-size: var(--fs-12);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.th-ko-tag { flex: none; font-size: var(--fs-11); font-weight: 700; }
+.th-reply { margin: 0; min-width: 0; max-width: 100%; overflow-wrap: anywhere; color: var(--fg-muted); font-size: var(--fs-11); }
+.th-why { margin: 0; min-width: 0; max-width: 100%; overflow-wrap: anywhere; color: var(--warning-text); font-size: var(--fs-12); }
+
+/* 이름표: 채널·상태·연결된 작업 */
+.th-chip {
+  display: inline-block; min-width: 0; max-width: 100%; box-sizing: border-box; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg-panel); color: var(--fg-muted); font: inherit; font-size: var(--fs-11); line-height: 1.5; overflow-wrap: anywhere; text-align: left;
+}
+.th-chip.is-kakao { background: color-mix(in srgb, var(--tile-amber-from) 28%, var(--bg-panel)); color: var(--fg); border-color: transparent; }
+.th-chip.is-ok { background: var(--tone-success-bg); color: var(--success-text); border-color: transparent; }
+.th-chip.is-info { background: var(--tone-info-bg); color: var(--tone-info-fg); border-color: transparent; }
+.th-chip.is-warn { background: var(--tone-warning-bg); color: var(--warning-text); border-color: transparent; font-weight: 700; }
+.th-chip.is-bad { background: var(--tone-danger-bg); color: var(--danger-text); border-color: transparent; }
+button.th-chip { cursor: pointer; color: var(--accent-text); border-color: var(--border-strong); }
+button.th-chip:hover { background: var(--bg-selected); }
+
+/* 하네스 사건: 접힌 한 줄 */
+.th-events { min-width: 0; max-width: 100%; color: var(--fg-muted); font-size: var(--fs-11); }
+.th-events summary { cursor: pointer; overflow-wrap: anywhere; border-radius: var(--radius-2); }
+.th-events ul { margin: 4px 0 0; padding: 6px 10px 6px 24px; border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--bg-panel-alt); text-align: left; }
+.th-events li { overflow-wrap: anywhere; }
+.th-events li + li { margin-top: 2px; }
+.th-verdict { font-weight: 700; margin-right: 4px; }
+
+/* 단추 줄·결과 줄 */
+.th-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
+.th-acts .ui-btn { min-height: 26px; padding: 2px 10px; }
+.th-note { margin: 0; min-width: 0; max-width: 100%; overflow-wrap: anywhere; font-size: var(--fs-12); font-weight: 600; color: var(--fg-muted); }
+.th-note.is-ok { color: var(--success-text); }
+.th-note.is-info { color: var(--tone-info-fg); }
+.th-note.is-warn { color: var(--warning-text); }
+.th-note.is-bad { color: var(--danger-text); }
+
+/* 초안: 점선 말풍선 */
+.th-b.is-draft {
+  box-sizing: border-box; gap: 6px; padding: 9px 11px; border-radius: var(--radius-4); background: var(--bg-panel);
+  border: 1.5px dashed color-mix(in srgb, var(--tile-violet-from) 70%, var(--fg-muted)); align-items: stretch;
+}
+.th-b.is-draft .th-meta { justify-content: flex-start; }
+.th-b.is-draft .th-bub { padding: 0; background: none; border-radius: 0; }
+.th-edit { width: 100%; min-height: 84px; }
+
+/* 아래 띠·입력창 자리·통화 탭 자리 */
+.th-strip {
+  flex: none; margin: 0; padding: 6px 16px; border-top: 1px solid var(--border); font-size: var(--fs-12); overflow-wrap: anywhere;
+  color: var(--fg-muted); background: var(--bg-panel-alt);
+}
+.th-strip.is-bad { color: var(--danger-text); background: var(--tone-danger-bg); font-weight: 600; }
+.th-strip.is-warn { color: var(--warning-text); background: var(--tone-warning-bg); }
+.th-composer { flex: none; min-width: 0; border-top: 1px solid var(--border); background: var(--bg-panel-alt); }
+.th-soon { margin: 0; padding: 10px 16px; }
+.th-dialog-text { margin: 0; padding: 12px 20px 16px; line-height: 1.6; overflow-wrap: anywhere; }
+.th-dialog-text strong { color: var(--warning-text); }
+
+@container (max-width: 480px) {
+  .th-b { max-width: 94%; }
+  .th-scroll { padding: 10px 12px 12px; }
+  .th-head { padding: 5px 12px; }
+}

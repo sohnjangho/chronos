@@ -15,6 +15,7 @@ import CopyFromProject from './CopyFromProject';
 import CsvImport from './CsvImport';
 import { getBook, getNotifyStatus, KIND_LABEL, type AddressBook as Book, type Company, type NotifyStatus, type PersonBrief } from './contactsApi';
 import PersonForm from './PersonForm';
+import ThreadPane from './ThreadPane';
 import './contacts.css';
 
 const NAME = '연락처';
@@ -35,16 +36,8 @@ export interface ThreadSlotProps {
   onChanged: () => void;
 }
 
-function EmptyThread({ person, tab }: ThreadSlotProps) {
-  return (
-    <p className="ct-muted ct-pad">
-      {tab === 'calls' ? `${person.name} 님과의 통화 기록이 여기에 보입니다.` : `${person.name} 님과 주고받은 문자가 여기에 보입니다.`}
-    </p>
-  );
-}
-
-/** 대화 칸 자리. Task 78 이 이 한 줄을 ThreadPane 으로 바꾼다. */
-const ThreadSlot: ComponentType<ThreadSlotProps> = EmptyThread;
+/** 대화 칸 자리 — 문자·카카오톡 대화와 통화 탭(Task 78 ThreadPane). */
+const ThreadSlot: ComponentType<ThreadSlotProps> = ThreadPane;
 
 type Mode = { kind: 'none' } | { kind: 'person'; id: number | null; companyId: number | null } | { kind: 'company'; company: Company | null };
 
