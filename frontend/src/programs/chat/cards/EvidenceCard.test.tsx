@@ -31,7 +31,33 @@ test('a row found by another mode shows its own mode chip', () => {
   const items = screen.getAllByRole('listitem');
   expect(items[0]).not.toHaveTextContent('웹');
   expect(within(items[1]).getByText('웹')).toBeVisible();
-  expect(screen.getAllByText('법령')).toHaveLength(1); // 카드 머리의 배지만
+  expect(screen.getAllByText('법령 검색')).toHaveLength(1); // 카드 머리의 배지만
+});
+
+// A8: 「법령」 이름표는 출처 종류가 아니라 검색 방식이다 — 줄마다 정부 누리집(*.go.kr)이면 공식, 아니면 일반 글
+const LEGAL = {
+  kind: 'evidence', search_id: 3, query: '착공신고 처리 기한', mode: 'legal',
+  results: [
+    { ...row(1, ''), url: 'https://www.law.go.kr/법령/건축법', hostname: 'law.go.kr' },
+    { ...row(2, ''), url: 'https://blog.naver.com/x/1', hostname: 'blog.naver.com' },
+    { ...row(3, ''), url: 'https://www.youtube.com/watch?v=1', hostname: 'youtube.com' },
+  ],
+};
+
+test('a legal card is labelled as a legal search and marks official and general rows', () => {
+  render(<CardView event="card" data={LEGAL} ctx={ctx} />);
+  expect(screen.getByText('법령 검색')).toBeVisible();
+  const items = screen.getAllByRole('listitem');
+  expect(within(items[0]).getByText('공식')).toBeVisible();
+  expect(within(items[1]).getByText('일반 글')).toBeVisible();
+  expect(within(items[2]).getByText('일반 글')).toBeVisible();
+  expect(within(items[0]).queryByText('일반 글')).toBeNull();
+});
+
+test('a web card has no official or general marks', () => {
+  render(<CardView event="card" data={{ ...LEGAL, mode: 'web' }} ctx={ctx} />);
+  expect(screen.queryByText('공식')).toBeNull();
+  expect(screen.queryByText('일반 글')).toBeNull();
 });
 
 test('a new search card has no saved-evidence line or retire button', () => {

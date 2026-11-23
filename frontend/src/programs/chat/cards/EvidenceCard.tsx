@@ -7,8 +7,21 @@ import type { Json } from '../thread';
 import { asList, asNum, asObj, asText, Card, type CardProps } from './Card';
 import './cards2.css';
 
-const MODES: Record<string, string> = { web: '웹', scholar: '학술', legal: '법령', business: '기업', weather: '날씨', info: '정보 API' };
+// 이름표는 검색 방식이다(출처 종류가 아니다 — 법령 검색도 블로그·영상을 돌려준다)
+const MODES: Record<string, string> = { web: '웹', scholar: '학술', legal: '법령 검색', business: '기업', weather: '날씨', info: '정보 API' };
 const linkable = (url: string) => /^https?:\/\//i.test(url);
+
+/** 주소의 호스트(읽지 못하면 받은 hostname). 정부 누리집(go.kr·*.go.kr)이면 공식. */
+function official(url: string, hostname: string): boolean {
+  let host = hostname;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    // 주소가 아니면 받은 hostname 으로
+  }
+  host = host.toLowerCase();
+  return host === 'go.kr' || host.endsWith('.go.kr');
+}
 const monthDay = (iso: string) => iso.replace(/^\d{4}-(\d{2})-(\d{2})$/, '$1-$2');
 
 /** 다시 쓴 결과의 머리 줄. 찾은 날(searched_at)이 여러 날이면 가장 이른 날~늦은 날. */
@@ -59,6 +72,7 @@ function RetireControl({ id }: { id: number }) {
  * 분야 검색이 실패해 웹으로 대신 찾았으면 note 를 작은 줄로 보인다. 결과의 날짜는 근거의 날짜일 뿐이다.
  * 저장된 근거를 다시 쓴 결과(reused, 설계 2026-11-23)는 머리에 「저장된 근거 · MM-DD 검색」, 줄마다 [다시 쓰지 않기].
  * 다시 쓴 근거를 다른 mode 로 찾았으면 그 줄에 mode 칩.
+ * 법령 검색 줄에는 출처 종류: 정부 누리집(*.go.kr)이면 「공식」, 아니면 「일반 글」.
  */
 export default function EvidenceCard({ data }: CardProps) {
   const mode = asText(data.mode);
@@ -80,6 +94,8 @@ export default function EvidenceCard({ data }: CardProps) {
             const title = asText(r.title) || url || '제목 없음';
             const meta = [asText(r.hostname), dotDate(r.date)].filter(Boolean).join(' · ');
             const rowMode = asText(r.mode); // 다시 쓴 근거를 찾은 mode — 카드의 mode 와 다를 때만 보인다
+            const legal = (rowMode || mode) === 'legal';
+            const isOfficial = legal && official(url, asText(r.hostname));
             return (
               <li key={id ?? `i${i}`}>
                 {id !== null && <span className="ch-cite">{`[근거 ${id}]`}</span>}
@@ -91,6 +107,7 @@ export default function EvidenceCard({ data }: CardProps) {
                   <span className="ch-wrap">{title}</span>
                 )}
                 {reused && rowMode && rowMode !== mode && <Badge>{MODES[rowMode] ?? rowMode}</Badge>}
+                {legal && <Badge tone={isOfficial ? 'success' : 'neutral'}>{isOfficial ? '공식' : '일반 글'}</Badge>}
                 {(meta || (reused && id !== null)) && (
                   <span className="ch-meta ch-wrap">
                     {meta}

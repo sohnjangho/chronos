@@ -44,7 +44,7 @@ describe('evidence', () => {
 
   test('field search badge and the fallback note', () => {
     renderCard('card', { kind: 'evidence', query: '건축법 공사기간', mode: 'legal', results: [], note: '분야 검색 실패 → 웹 검색' });
-    expect(screen.getByText('법령')).toBeVisible();
+    expect(screen.getByText('법령 검색')).toBeVisible(); // 검색 방식 이름표(A8)
     expect(screen.getByText('분야 검색 실패 → 웹 검색')).toBeVisible();
   });
 
