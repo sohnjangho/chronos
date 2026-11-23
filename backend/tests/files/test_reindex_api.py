@@ -49,7 +49,7 @@ async def test_restart_after_a_failed_reindex(client, admin, user, session, read
     assert done.status_code == 409 and done.json()["code"] == "nothing_to_do"  # 배정 = 지금 모델, 마지막 작업 done
 
 
-@pytest.mark.real_http  # 꺼진 Qdrant 를 흉내 내려 127.0.0.1:1(아무도 듣지 않는 곳)에 실제로 붙어 본다
+@pytest.mark.usefixtures("http_refused")  # 꺼진 Qdrant: httpx 전송이 연결 거절로 끝난다(소켓에 닿지 않는다)
 def test_restart_needs_qdrant(client, admin, session, ready, monkeypatch):
     _assign(session, ready, LARGE)
     monkeypatch.setattr(vectors, "STORE", vectors.Store("http://127.0.0.1:1", "t"))

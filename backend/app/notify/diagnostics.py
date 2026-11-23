@@ -13,8 +13,9 @@
   순번·상태만 남긴다.
 - 실제 문자는 `send_test_sms is True`(글 "true"·1 은 아님)이고 공유 상한에 2번(POST + 상태 조회 1번)이 남았을 때만 1건.
   기본 「연결 테스트」는 보내지 않는다.
-- 요청 상한 8번(`Calls`; P1 1 + P2 1 + P3 4 + P4 1 = 7). 요청마다 15초(연결 5초) 제한·리다이렉트 안 따름. 응답 본문은 1MB
-  까지만 읽고 압축된 응답은 풀지 않는다. 단계를 돌리면 키·Account ID 가 로그 거르개에 오른다(redact.add_secrets). 경로에 넣는 Account ID·
+- 요청 상한 8번(`Calls`; P1 1 + P2 1 + P3 4 + P4 1 = 7). 요청마다 15초(연결 5초) 제한 — 보내고 본문을 다 읽기까지 합쳐서도
+  15초(본문을 조금씩 흘리는 서버에 붙잡히지 않는다)·리다이렉트 안 따름. 응답 본문은 1MB 까지만 읽고 압축된 응답은 풀지 않는다.
+  시험 문자가 2xx 로 접수됐는데 본문을 읽지 못했으면 그냥 실패가 아니라 `MAYBE_SENT`(보냈는지 알 수 없음)로 알린다. 단계를 돌리면 키·Account ID 가 로그 거르개에 오른다(redact.add_secrets). 경로에 넣는 Account ID·
   messageId 는 %인코딩한다. DB 에 쓰지 않는다.
 - 한국 밖 IP 에서 문자를 보내면 403 `overseas_ip_blocked` 가 온다고 문서에 있다.
 
@@ -126,10 +127,15 @@ def make_client(*, transport: httpx.AsyncBaseTransport | None = None) -> httpx.A
     return httpx.AsyncClient(timeout=timeouts(), trust_env=False, follow_redirects=False, transport=transport)
 
 
+def encoded(response: httpx.Response) -> bool:
+    """압축(Content-Encoding)돼 온 응답인가."""
+    return response.headers.get("content-encoding", "").strip().lower() not in ("", "identity")
+
+
 async def read_body(response: httpx.Response, limit: int) -> bytes | None:
     """흘려 받는 응답의 본문을 limit 바이트까지 읽는다. 넘으면 그만 읽고 None. 압축(Content-Encoding)돼 있으면 읽지도 풀지도
     않고 None — 작은 압축 조각 하나가 수십 MB 로 풀릴 수 있다(요청에 `Accept-Encoding: identity` 를 싣는다)."""
-    if response.headers.get("content-encoding", "").strip().lower() not in ("", "identity"):
+    if encoded(response):
         return None
     raw = bytearray()
     async for chunk in response.aiter_bytes():
@@ -306,16 +312,22 @@ class _Run:
         start = time.perf_counter()
         request = self.http.build_request(method, self.base + path, timeout=timeouts(), headers={
             "Authorization": f"Bearer {self.conn.key}", "Accept": "application/json", "Accept-Encoding": "identity"}, **kw)
-        response = await self.http.send(request, stream=True, follow_redirects=False)
         try:
-            raw = await read_body(response, MAX_BODY_BYTES)
-        finally:
-            await response.aclose()
+            async with asyncio.timeout(TIMEOUT_S):  # 보내기 + 본문 읽기 전체의 상한(읽기 제한은 조각마다 다시 센다)
+                response = await self.http.send(request, stream=True, follow_redirects=False)
+                try:
+                    raw = await read_body(response, MAX_BODY_BYTES)
+                finally:
+                    await response.aclose()
+        except TimeoutError:
+            raise httpx.ReadTimeout("요청 하나의 시간 제한을 넘겼습니다") from None
         ms = int((time.perf_counter() - start) * 1000)
         self.ms += ms
         size = "읽지 않음(상한 초과 또는 압축)" if raw is None else f"{len(raw)}B"
         self.note(f"[{self.calls.sent}] {method} {label}: HTTP {response.status_code} · {ms}ms · {size}")
         if raw is None and response.is_success:
+            if method == "POST":  # 접수됐을 수 있다 — 설정 길(notify_settings)이 이 글로 sent_unknown 을 정한다
+                raise _Fail(f"body_unreadable · {MAYBE_SENT}")
             raise _Fail("body_unreadable · 응답 본문이 너무 크거나 압축돼 있어 읽지 않았습니다")
         retry_after = response.headers.get("retry-after")
         return httpx.Response(response.status_code, content=raw or b"",

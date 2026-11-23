@@ -7,8 +7,11 @@ import asyncio
 import gzip
 import json
 import logging
+import signal
+import socket
 import time
 import traceback
+import urllib.request
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
@@ -33,6 +36,7 @@ from app.outreach.provider import (
 )
 from app.security import crypto
 from app.store.tables_outreach import NotifyConnection
+from tests import provider_doubles
 from tests.outreach_doubles import (
     SENTINEL_DIGITS,
     SENTINEL_KEY,
@@ -328,10 +332,9 @@ async def test_reply_that_breaks_off_in_the_body_is_judged_by_its_status(status,
     assert (asked.http_status, asked.maybe_sent) == (status, False) and leaks(*everything_in(sent)) == []
 
 
-@pytest.mark.real_http
 async def test_httpx_reads_the_request_body_only_after_it_has_connected():
     """「나갔는가」를 요청 본문을 읽기 시작했는가로 정하는 근거를 httpx 실제 전송으로 확인한다(내 컴퓨터 안 127.0.0.1 만 —
-    그래서 real_http 표시). 연결이 안 되면 본문에 손대지 않고, 연결된 뒤에야 본문을 읽는다."""
+    그곳은 표시 없이도 열려 있다). 연결이 안 되면 본문에 손대지 않고, 연결된 뒤에야 본문을 읽는다."""
     pulled: list[str] = []
 
     async def body(label: str):
@@ -611,11 +614,113 @@ async def test_diagnostics_dns_is_faked_under_tests(no_provider_dns):
     assert steps[0].ok and no_provider_dns == ["api.koreaaitel.com"]  # resolve= 를 주지 않아도 시스템 DNS 가 아니다
 
 
-@pytest.mark.real_http
-def test_marked_test_gets_the_real_transport_back():
-    """실제 HTTP 가 꼭 필요한 시험은 표시(real_http)로 푼다. 이 시험은 아무것도 보내지 않는다."""
-    assert httpx.AsyncHTTPTransport.handle_async_request.__module__.startswith("httpx")
-    assert httpx.HTTPTransport.handle_request.__module__.startswith("httpx")
+OUTSIDE = "192.0.2.1"  # 문서용 주소(TEST-NET-1)
+
+
+@pytest.fixture
+def real_sockets_marked(monkeypatch) -> list:
+    """막이 아래의 진짜 소켓 함수 자리에 표식을 둔다 — 막이가 듣지 않아도 아무것도 나가지 않고, 닿은 것이 적힌다."""
+    assert socket.socket.connect is provider_doubles.guarded_connect  # 막이가 걸려 있을 때만 아래를 해 본다
+    assert socket.socket.connect_ex is provider_doubles.guarded_connect_ex
+    assert socket.getaddrinfo is provider_doubles.guarded_getaddrinfo
+    reached: list = []
+
+    def marker(*args, **kwargs):
+        reached.append(args)
+        raise OSError("표식: 막이를 지나 진짜 소켓 함수에 닿았다")
+
+    for name in ("connect", "connect_ex", "getaddrinfo"):
+        monkeypatch.setitem(provider_doubles.REAL_SOCKET, name, marker)
+    return reached
+
+
+def test_no_library_can_reach_beyond_this_computer_under_tests(real_sockets_marked):
+    """소켓 층의 막이: 어떤 라이브러리로든 내 컴퓨터 밖으로 붙거나 이름을 풀 수 없다(표시로도 풀 수 없다)."""
+    def raw(method: str):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            getattr(s, method)((OUTSIDE, 80))
+
+    attempts = {
+        "connect": lambda: raw("connect"), "connect_ex": lambda: raw("connect_ex"),
+        "create_connection": lambda: socket.create_connection((OUTSIDE, 80), timeout=1),
+        "getaddrinfo": lambda: socket.getaddrinfo("example.invalid", 443),
+        "getaddrinfo bytes": lambda: socket.getaddrinfo(b"example.invalid", 443),
+        "urllib": lambda: urllib.request.build_opener(urllib.request.ProxyHandler({})).open(f"http://{OUTSIDE}/", timeout=1),
+        "httpcore": lambda: httpcore.ConnectionPool().request("GET", f"http://{OUTSIDE}/"),
+    }
+    for name, attempt in attempts.items():
+        with pytest.raises(RealProviderCall):
+            attempt()
+        assert real_sockets_marked == [], name
+    with pytest.raises(OSError, match="표식"):  # 내 컴퓨터 안은 막이를 지나간다(여기서는 표식에 닿는다)
+        socket.create_connection(("127.0.0.1", 9), timeout=1)
+    with pytest.raises(OSError, match="표식"):
+        socket.getaddrinfo("localhost", 80)
+    assert len(real_sockets_marked) == 2
+
+
+async def test_async_libraries_cannot_reach_beyond_this_computer_either(real_sockets_marked):
+    """음성 SDK 가 쓰는 aiohttp, asyncio 스트림, 실제 전송을 물려받아 고친 httpx 전송 — httpx 막이가 못 덮는 길들."""
+    aiohttp = pytest.importorskip("aiohttp")
+
+    async def with_aiohttp():
+        async with aiohttp.ClientSession(trust_env=False, timeout=aiohttp.ClientTimeout(total=1)) as http:
+            await http.get(f"http://{OUTSIDE}/")
+
+    class Reworked(httpx.AsyncHTTPTransport):  # 막이가 바꿔 둔 메서드를 다시 정의한 전송
+        async def handle_async_request(self, request):
+            return await self._pool.handle_async_request(httpcore.Request(request.method, str(request.url)))
+
+    async def with_subclass():
+        async with httpx.AsyncClient(transport=Reworked(), trust_env=False) as http:
+            await http.get(f"http://{OUTSIDE}/")
+
+    for attempt in (with_aiohttp, with_subclass, lambda: asyncio.open_connection(OUTSIDE, 80),
+                    lambda: asyncio.get_running_loop().getaddrinfo("example.invalid", 443)):
+        with pytest.raises(BaseException) as caught:
+            await asyncio.wait_for(attempt(), 5)
+        stopped = caught.value  # anyio(httpcore)는 태스크 묶음의 예외로 싸서 올린다 — 그래도 Exception 은 아니다
+        assert isinstance(stopped, RealProviderCall) or stopped.subgroup(RealProviderCall) is not None
+        assert not isinstance(stopped, Exception)
+    assert real_sockets_marked == []
+
+
+_AT_IMPORT: list = []
+try:  # 시험 몸통 밖(모듈을 불러올 때)에도 막이가 걸려 있는가 — 걸려 있지 않으면 해 보지 않는다
+    if socket.getaddrinfo is provider_doubles.guarded_getaddrinfo:
+        socket.getaddrinfo("example.invalid", 443)
+except RealProviderCall:
+    _AT_IMPORT.append("refused")
+
+
+@pytest.fixture(scope="module")
+def outside_a_test_body() -> list:
+    seen = list(_AT_IMPORT)
+    try:
+        if socket.getaddrinfo is provider_doubles.guarded_getaddrinfo:
+            socket.getaddrinfo("example.invalid", 443)
+    except RealProviderCall:
+        seen.append("refused")
+    return seen
+
+
+def test_socket_guard_is_on_for_the_whole_run_not_per_test(outside_a_test_body, request):
+    assert outside_a_test_body == ["refused", "refused"]  # 불러올 때 · 모듈 범위 고정물에서
+    assert not any(line.startswith("real_http") for line in request.config.getini("markers"))  # 푸는 표시는 없다
+
+
+async def test_loopback_passes_both_guards_without_a_marker():
+    """내 컴퓨터 안(127.0.0.1)의 시험 서버에는 표시 없이 닿는다 — httpx 실제 전송으로도."""
+    async def hello(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        await reader.read(1024)
+        writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(hello, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    async with server, httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(2)) as http:
+        assert (await http.get(f"http://127.0.0.1:{port}/")).text == "ok"
 
 
 def test_no_transport_means_the_real_one_and_only_the_guard_stops_it():
@@ -684,6 +789,7 @@ async def test_traceback_with_local_variables_has_no_key():
         e = await failure(KatClient(CONN, transport=KatMock(override=override)).send_message(sms()))
         text = "".join(traceback.TracebackException.from_exception(e, capture_locals=True).format())
         assert "send_message" in text and not key_survives(text, SENTINEL_KEY)
+        assert SENTINEL_DIGITS not in text and "타설" not in text  # 보낼 본문(받는 번호·글)도 남지 않는다
 
 
 async def test_vendor_echo_never_reaches_a_return_value():
@@ -791,6 +897,10 @@ async def test_compressed_reply_is_refused_without_being_unpacked():
     assert ((await failure(client.send_message(sms()))).code, len(pulled)) == ("bad_request", 0)  # 본문을 당기지도 않았다
     plain = KatMock(override=lambda r: httpx.Response(200, json={"senderNumbers": []}, headers={"content-encoding": "identity"}))
     assert (await KatClient(CONN, transport=plain).check()).senders == []
+
+    mock = KatMock(override=encoded(200), limit=3)  # 받은 문자 쪽이 압축돼 오면 절반 크기로 다시 묻지 않는다(다시 물어도 같다)
+    e = await failure(KatClient(CONN, transport=mock).received(T0))
+    assert (e.code, e.http_status, len(mock.requests), len(pulled)) == ("unknown", 200, 1, 0)
 
 
 async def test_inbound_body_is_capped_and_cleaned():
@@ -995,19 +1105,69 @@ def test_time_limit_cuts_a_loop_that_does_not_end():
     assert cut and time.monotonic() < end
 
 
+@pytest.mark.parametrize("sigint", ["as it is", signal.SIG_IGN])
+def test_time_limit_cuts_a_test_that_only_waits(sigint):
+    """기다리기만 하는 시험(막힌 시스템 호출)도 끊는다 — 진짜 신호를 보낸다. SIGINT 를 무시하게 띄운 실행(셸의 배경 작업)에서도.
+    기다림은 3초로 묶여 있다."""
+    before = signal.getsignal(signal.SIGINT)
+    if sigint is signal.SIG_IGN:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+    started, cut = time.monotonic(), False
+    try:
+        with time_limit(0.1):
+            time.sleep(3)
+    except KeyboardInterrupt:
+        cut = True
+    finally:
+        after = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, before)
+    assert cut and time.monotonic() - started < 2
+    assert after is (signal.SIG_IGN if sigint is signal.SIG_IGN else before)  # 신호 처리기를 제자리에 돌려놓는다
+
+
+async def test_time_limit_cuts_an_await_nobody_resolves():
+    """아무도 풀어 주지 않는 await 도 끊는다(asyncio 는 신호를 받으면 그 태스크를 취소한다). 3초 뒤에는 스스로 풀린다."""
+    never = asyncio.Event()
+    release = asyncio.get_running_loop().call_later(3, never.set)
+    started, cut = time.monotonic(), False
+    try:
+        with time_limit(0.1):
+            await never.wait()
+    except asyncio.CancelledError:
+        asyncio.current_task().uncancel()  # 이 시험은 끊긴 것을 확인하고 이어 간다
+        cut = True
+    finally:
+        release.cancel()
+    assert cut and time.monotonic() - started < 2
+
+
+async def test_reply_with_more_rows_than_asked_is_cut_to_the_page_size():
+    """pageSize 를 듣지 않는 제공사가 한 응답에 몇 쪽 분량을 실어 보내도 청한 만큼만 읽고, 버린 줄이 있음을 알린다."""
+    rows = [{**GOOD, "messageId": f"M{i}", "dateCreated": (T0 + timedelta(hours=1, seconds=-i)).isoformat().replace("+00:00", "Z")}
+            for i in range(RECEIVED_PAGE_SIZE * 3)]  # 최신순
+    mock = KatMock(override=page(rows), limit=RECEIVED_MAX_REQUESTS)
+    got = await KatClient(CONN, transport=mock).received(None)
+    assert [m.provider_id for m in got.items] == [f"M{i}" for i in range(RECEIVED_PAGE_SIZE)][::-1]  # 앞(최신) 한 쪽만
+    assert (got.truncated, got.skipped, len(mock.requests)) == (True, 0, 1)
+
+    exact = KatMock(override=page(rows[:RECEIVED_PAGE_SIZE]), limit=3)
+    assert (await KatClient(CONN, transport=exact).received(None)).truncated is False  # 딱 한 쪽이면 버린 것이 없다
+
+
 async def test_paging_stops_on_the_last_row_of_a_page_not_on_any_older_row():
     """쪽이 꼭 최신순이 아니어도(오래된 줄 하나가 앞에 끼어도) 다음 쪽의 새 줄을 놓치지 않는다."""
     since = datetime(2026, 11, 23, 2, 0, tzinfo=UTC)
+    full = RECEIVED_PAGE_SIZE - 1  # 오래된 줄 하나와 함께 한 쪽을 꼭 채운다(청한 쪽 크기를 넘는 줄은 버려진다)
     first = [{**GOOD, "messageId": "OLD", "dateCreated": "2026-11-20T00:00:00Z"}] + [
-        {**GOOD, "messageId": f"N{i}", "dateCreated": f"2026-11-23T03:{i // 60:02d}:{i % 60:02d}Z"} for i in range(99)]
+        {**GOOD, "messageId": f"N{i}", "dateCreated": f"2026-11-23T03:{i // 60:02d}:{i % 60:02d}Z"} for i in range(full)]
     second = [{**GOOD, "messageId": f"P{i}", "dateCreated": "2026-11-23T02:59:00Z"} for i in range(10)]
     mock = KatMock(override=lambda r: page(first if r.url.params["page"] == "0" else second)(r))
     got = await KatClient(CONN, transport=mock).received(since)
     assert [r.url.params["page"] for r in mock.requests] == ["0", "1"]
-    assert len(got.items) == 109 and "OLD" not in {m.provider_id for m in got.items} and got.truncated is False
+    assert len(got.items) == full + 10 and "OLD" not in {m.provider_id for m in got.items} and got.truncated is False
 
     # 끝 줄을 읽을 수 없으면 그 쪽에서 읽힌 마지막 줄로 정한다
-    tail_broken = [{**GOOD, "messageId": f"Q{i}", "dateCreated": "2026-11-20T00:00:00Z"} for i in range(99)] + ["junk"]
+    tail_broken = [{**GOOD, "messageId": f"Q{i}", "dateCreated": "2026-11-20T00:00:00Z"} for i in range(full)] + ["junk"]
     mock = KatMock(override=page(tail_broken))
     got = await KatClient(CONN, transport=mock).received(since)
     assert len(mock.requests) == 1 and got.items == [] and got.skipped == 1

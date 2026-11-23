@@ -18,6 +18,8 @@ from tests.notify.test_diagnostics import (
     KatFake,
 )
 
+pytestmark = pytest.mark.usefixtures("time_guard")  # 같은 가짜를 쓴다 — 시험 하나가 20초를 넘기면 끊는다
+
 ENV = {"KAT_API_KEY": SENTINEL_KEY, "KAT_ACCOUNT_ID": ACCOUNT, "KAT_FROM": FROM, "PROBE_TO": TO}
 
 

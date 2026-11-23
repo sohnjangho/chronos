@@ -6,21 +6,26 @@
   (그래서 쓰는 쪽은 `from app.outreach import provider` 뒤 `provider.client_for(row)` 로 불러야 한다).
 - autouse `no_provider_dns` — `provider.RESOLVE` 와 `diagnostics.RESOLVE` 를 공인 IP 하나로 답하는 가짜로 바꾼다(시험이 DNS 를
   쓰지 않게). 돌려주는 값은 물은 호스트 목록.
-- autouse `no_real_http` — **모든 backend 시험에 걸린다**(conftest 의 pytest_plugins 로 이 파일이 올라가므로). httpx 의 실제
-  전송(`httpx.AsyncHTTPTransport.handle_async_request`·`httpx.HTTPTransport.handle_request`)이 불리면 `RealProviderCall` 이
-  난다 — 클라이언트를 어떻게 만들었든(transport 없는 `KatClient`·`client_for`, `make_client()`, 손으로 만든 `httpx.AsyncClient`,
-  모듈을 불러올 때 만들어 둔 것) 같다. `RealProviderCall` 은 `BaseException` 이라 `except Exception` 이 삼켜 다른 오류로
-  바꾸지 못한다. 실제 HTTP 가 꼭 필요한 시험만 `@pytest.mark.real_http` 로 푼다. 지금 표시한 것은 일곱, 모두 127.0.0.1 로만 간다:
-  tests/files 의 다섯(꺼진 Qdrant 를 흉내 내려 127.0.0.1:1 에 붙어 보는 것 — test_file_search·test_jobs 둘·
-  test_reindex_api·test_vectors)과 tests/outreach/test_provider.py 의 둘(표시가 듣는지, httpx 가 요청 본문을 언제 읽는지).
+- **소켓 막이** — 이 파일이 올라올 때 한 번 걸리고 실행이 끝날 때까지 그대로다(**모든 backend 시험**, 시험 몸통 밖 — 모듈을
+  불러올 때·모듈/세션 범위 고정물 — 도 같다). `socket.socket.connect`·`connect_ex`·`socket.getaddrinfo` 가 내 컴퓨터
+  (127.0.0.0/8·::1·localhost) 밖을 향하면 `RealProviderCall` 이 난다 — httpx·urllib·requests·aiohttp(음성 SDK)·asyncio 스트림·
+  websockets·httpcore 어느 것으로 나가든 같다. **푸는 표시는 없다.** 내 컴퓨터 안(시험이 띄운 서버)은 표시 없이 열려 있다.
+  `RealProviderCall` 은 `BaseException` 이라 `except Exception` 이 삼켜 다른 오류로 바꾸지 못한다.
+- autouse `no_real_http` — 둘째 겹. httpx 의 실제 전송(`httpx.AsyncHTTPTransport.handle_async_request`·
+  `httpx.HTTPTransport.handle_request`)이 내 컴퓨터 밖을 향해 불리면 소켓에 닿기 전에 `RealProviderCall` — 클라이언트를 어떻게
+  만들었든(transport 없는 `KatClient`·`client_for`, `make_client()`, 손으로 만든 `httpx.AsyncClient`) 같다.
+- fixture `http_refused` — httpx 로 나가는 모든 요청이 연결 거절(`httpx.ConnectError`)로 끝난다. 꺼진 서버(Qdrant 등)를
+  소켓에 닿지 않고 흉내 낸다.
 - 끝나지 않는 시험 막이 둘(2026-11-23 밤, 끝없이 다시 묻는 고리가 가짜를 붙잡고 메모리 5GB 를 잡았다): 가짜 서버는 요청을
   `limit` 번(기본 `MAX_FAKE_REQUESTS`)까지만 받고 그 뒤는 `RunawayFake`(BaseException) 를 올린다. fixture `time_guard` 는
-  시험 하나가 `GUARD_S` 초 안에 끝나지 않으면 끊는다(`time_limit`) — 「멈춤·끝없음·아주 큼」을 흉내 내는 시험 파일은
-  `pytestmark = pytest.mark.usefixtures("time_guard")` 로 건다.
+  시험 하나가 `GUARD_S` 초 안에 끝나지 않으면 끊는다(`time_limit` — 도는 고리도, 기다리기만 하는 시험도). 어느 시험 파일이든
+  `pytestmark = pytest.mark.usefixtures("time_guard")` 로 건다(「멈춤·끝없음·아주 큼」을 흉내 내는 파일은 꼭).
 """
 
-import _thread
+import ipaddress
 import json
+import signal
+import socket
 import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -47,7 +52,8 @@ KAT_SENDER = "07000000123"
 PUBLIC_IP = "93.184.216.34"
 _T0 = datetime(2026, 11, 2, 0, 0, 0, tzinfo=UTC)  # 지난 날짜(제공사 호출은 5분 넘게 앞선 시각을 조회 시각으로 바꾼다)
 NO_TRANSPORT = ("시험에서 실제 HTTP 로 나가려 했습니다({method} {host}) — KatClient(conn, transport=KatMock()) 로 만들거나 "
-                "fixture fake_provider 를 쓰세요(진단은 make_client(transport=…)). 꼭 필요하면 @pytest.mark.real_http.")
+                "fixture fake_provider 를 쓰세요(진단은 make_client(transport=…)). 내 컴퓨터 밖은 풀 수 없습니다.")
+NO_NETWORK = "시험에서 내 컴퓨터 밖으로 {what} 했습니다({host}) — 가짜를 끼워 넣으세요. 풀 수 있는 표시는 없습니다."
 
 
 MAX_FAKE_REQUESTS = 200  # 가짜 서버 하나가 받는 요청 수의 상한(시험 하나가 가짜를 부르는 것은 많아야 수십 번이다)
@@ -62,8 +68,44 @@ class RunawayFake(BaseException):
     """가짜 서버가 상한보다 많이 불렸다 — 부르는 쪽이 끝없이 돌고 있다. Exception 이 아니다(삼켜져 고리가 이어지지 않게)."""
 
 
-def pytest_configure(config) -> None:
-    config.addinivalue_line("markers", "real_http: 이 시험은 httpx 의 실제 전송을 쓴다(no_real_http 막이를 푼다)")
+def is_loopback(host: object) -> bool:
+    """내 컴퓨터 안을 가리키는가(127.0.0.0/8 · ::1 · localhost)."""
+    text = host.decode(errors="replace") if isinstance(host, bytes) else str(host)
+    try:
+        return ipaddress.ip_address(text.split("%")[0]).is_loopback
+    except ValueError:
+        return text.lower() == "localhost"
+
+
+# ── 소켓 막이(이 파일이 올라올 때 한 번) ────────────────────────────
+REAL_SOCKET = {"connect": socket.socket.connect, "connect_ex": socket.socket.connect_ex, "getaddrinfo": socket.getaddrinfo}
+
+
+def _refuse_outside(sock: socket.socket, address: object) -> None:
+    if sock.family not in (socket.AF_INET, socket.AF_INET6):
+        return
+    host = address[0] if isinstance(address, tuple) and address else address
+    if not is_loopback(host):
+        raise RealProviderCall(NO_NETWORK.format(what="연결하려", host=host))
+
+
+def guarded_connect(self: socket.socket, address: object) -> None:
+    _refuse_outside(self, address)
+    return REAL_SOCKET["connect"](self, address)
+
+
+def guarded_connect_ex(self: socket.socket, address: object) -> int:
+    _refuse_outside(self, address)
+    return REAL_SOCKET["connect_ex"](self, address)
+
+
+def guarded_getaddrinfo(host: object, *args: object, **kwargs: object) -> list:
+    if host is not None and not is_loopback(host):
+        raise RealProviderCall(NO_NETWORK.format(what="이름을 풀려", host=host))
+    return REAL_SOCKET["getaddrinfo"](host, *args, **kwargs)
+
+
+socket.socket.connect, socket.socket.connect_ex, socket.getaddrinfo = guarded_connect, guarded_connect_ex, guarded_getaddrinfo
 
 
 def _iso(at: datetime) -> str:
@@ -251,32 +293,54 @@ def no_provider_dns(monkeypatch) -> list[str]:
 
 
 @pytest.fixture(autouse=True)
-def no_real_http(request, monkeypatch) -> None:
-    """시험에서는 httpx 의 실제 전송으로 나갈 수 없다(모듈 머리 글). 가짜 transport 를 준 클라이언트는 그대로 지나간다."""
-    if request.node.get_closest_marker("real_http") is not None:
-        return
+def no_real_http(monkeypatch) -> None:
+    """시험에서는 httpx 의 실제 전송으로 내 컴퓨터 밖에 나갈 수 없다(모듈 머리 글). 가짜 transport 를 준 클라이언트와
+    내 컴퓨터 안(127.0.0.1 의 시험 서버)으로 가는 요청은 그대로 지나간다."""
+    real_async, real = httpx.AsyncHTTPTransport.handle_async_request, httpx.HTTPTransport.handle_request
 
     async def refuse_async(self, outgoing: httpx.Request) -> httpx.Response:
+        if is_loopback(outgoing.url.host):
+            return await real_async(self, outgoing)
         raise RealProviderCall(NO_TRANSPORT.format(method=outgoing.method, host=outgoing.url.host))
 
     def refuse(self, outgoing: httpx.Request) -> httpx.Response:
+        if is_loopback(outgoing.url.host):
+            return real(self, outgoing)
         raise RealProviderCall(NO_TRANSPORT.format(method=outgoing.method, host=outgoing.url.host))
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse_async)
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
 
 
+@pytest.fixture
+def http_refused(monkeypatch) -> None:
+    """httpx 로 나가는 모든 요청이 연결 거절로 끝난다 — 꺼진 서버를 소켓에 닿지 않고 흉내 낸다."""
+    async def refused_async(self, outgoing: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("연결 거절(시험이 끼운 것)")
+
+    def refused(self, outgoing: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("연결 거절(시험이 끼운 것)")
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refused_async)
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refused)
+
+
 @contextmanager
 def time_limit(seconds: float):
     """안의 일이 seconds 초 안에 끝나지 않으면 끊는다(KeyboardInterrupt — pytest 가 멈춘 줄을 보이고 실행을 끝낸다).
-    이벤트 루프에 돌아오지 않는 고리도 끊긴다. SIGALRM 은 쓰지 않는다(실행 전체에 건 `alarm` 을 지우지 않게)."""
-    done = threading.Event()
+    주 스레드에 진짜 SIGINT 를 보내므로 이벤트 루프에 돌아오지 않는 고리도, 막힌 시스템 호출(sleep·소켓)도, 아무도 풀어 주지
+    않는 await 도 끊긴다. SIGALRM 은 쓰지 않는다(실행 전체에 건 `alarm` 을 지우지 않게). 주 스레드에서만 쓴다."""
+    done, main = threading.Event(), threading.main_thread().ident
+    before = signal.getsignal(signal.SIGINT)
+    deaf = before in (signal.SIG_IGN, signal.SIG_DFL)  # 셸의 배경 작업으로 띄우면 SIGINT 를 무시한 채 시작한다
+    if deaf:
+        signal.signal(signal.SIGINT, signal.default_int_handler)
 
     def watch() -> None:
         if done.wait(seconds):
             return
         for _ in range(5):  # asyncio 는 첫 번째에 태스크 취소만 청한다 — 그래도 안 끝나면 다시
-            _thread.interrupt_main()
+            signal.pthread_kill(main, signal.SIGINT)
             if done.wait(1.0):
                 return
 
@@ -285,6 +349,8 @@ def time_limit(seconds: float):
         yield
     finally:
         done.set()
+        if deaf:
+            signal.signal(signal.SIGINT, before)
 
 
 @pytest.fixture

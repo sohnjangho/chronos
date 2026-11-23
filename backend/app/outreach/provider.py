@@ -232,7 +232,7 @@ class Inbound:
 @dataclass(frozen=True)
 class Received:
     """받은 문자 조회 한 번. items 는 오래된 것부터, fetched_at 은 조회를 시작한 시각. truncated 면 쪽 상한 뒤에 더 오래된
-    줄이 남았다(다시 읽어도 같은 줄만 온다 — 사람에게 알릴 것). skipped 는 읽을 수 없어 건너뛴 줄 수, redated 는 시각이
+    줄이 남았거나 한 응답이 청한 쪽 크기보다 많은 줄을 실어 와 뒤를 버렸다(다시 읽어도 같은 줄만 온다 — 사람에게 알릴 것). skipped 는 읽을 수 없어 건너뛴 줄 수, redated 는 시각이
     앞서 있어 조회 시각으로 바꾼 줄 수."""
 
     items: list[Inbound]
@@ -326,7 +326,8 @@ def _retry_after(value: object) -> int | None:
 
 
 class _BodyNotRead(ProviderFailed):
-    """2xx 인데 본문을 읽지 않았다(응답 상한을 넘었거나 압축돼 왔다). 받은 문자 조회가 쪽을 줄여 한 번 다시 읽는 데 쓴다."""
+    """2xx 인데 본문이 응답 상한을 넘어 읽지 않았다. 받은 문자 조회가 쪽을 줄여 한 번 다시 읽는 데 쓴다(압축돼 와서 읽지 않은
+    것은 여기 들지 않는다 — 쪽을 줄여도 같다)."""
 
 
 def _failed(code: str, label: str, *, message: str | None = None, status: int | None = None, maybe_sent: bool = False,
@@ -472,7 +473,7 @@ class KatClient:
         url, headers, content = self._request_parts(resource, item_id, on_item, body)
         sends = method == "POST"
         code = problem = status = raw = retry_after = request = None
-        wrote = unsent = False  # wrote: 전송이 요청 본문을 읽기 시작했다 — 연결을 마치고 쓰기에 들어갔다는 뜻
+        wrote = unsent = packed = False  # wrote: 전송이 요청 본문을 읽기 시작했다 — 연결을 마치고 쓰기에 들어갔다는 뜻
 
         async def payload(data: bytes):
             nonlocal wrote
@@ -489,6 +490,7 @@ class KatClient:
                         response = await http.send(request, stream=True)
                         try:
                             status, retry_after = response.status_code, response.headers.get("retry-after")
+                            packed = diagnostics.encoded(response)
                             raw = await diagnostics.read_body(response, MAX_BYTES)
                         finally:
                             await response.aclose()
@@ -498,7 +500,7 @@ class KatClient:
             code, unsent = "network", isinstance(e, _NOT_SENT)
         except Exception:  # noqa: BLE001 — 어떤 예외 글도 밖으로 내지 않는다(끊김 CancelledError 는 그대로 올라간다)
             code = "unknown"
-        del url, headers, content, request  # 키·번호가 든 것은 여기서 버린다(지역 변수까지 찍는 traceback 에 남지 않게)
+        del url, headers, content, request, body  # 키·번호가 든 것은 여기서 버린다(지역 변수까지 찍는 traceback 에 남지 않게)
         if code is not None and status is None:  # except 밖에서 올린다 — 원래 예외(주소·키가 든)를 이어 붙이지 않으려고
             raise _failed(code, resource, maybe_sent=sends and wrote and not unsent)
         if problem is not None:
@@ -516,7 +518,7 @@ class KatClient:
             raise _failed(code, resource, status=status, maybe_sent=sends)
         if not isinstance(data, dict):  # 읽을 수 없거나 읽지 않은(상한·압축) 2xx
             raise _failed("unknown", resource, status=status, maybe_sent=sends,
-                          kind=_BodyNotRead if raw is None else ProviderFailed)
+                          kind=_BodyNotRead if raw is None and not packed else ProviderFailed)
         return status, data
 
     async def check(self) -> Check:
@@ -551,7 +553,7 @@ class KatClient:
         fetched_at = _now()
         floor = since.replace(tzinfo=UTC) if since is not None and since.tzinfo is None else since
         found: dict[str, Inbound] = {}
-        size, offset, skipped, redated, more, asked = RECEIVED_PAGE_SIZE, 0, 0, 0, False, 0
+        size, offset, skipped, redated, more, asked, cut = RECEIVED_PAGE_SIZE, 0, 0, 0, False, 0, False
         while offset < RECEIVED_PAGE_SIZE * RECEIVED_MAX_PAGES:
             if asked >= RECEIVED_MAX_REQUESTS:  # 굳은 상한 — 아래 멈춤 조건이 어긋나도 끝없이 묻지 않는다
                 raise _failed("unknown", "messages")
@@ -567,6 +569,8 @@ class KatClient:
             rows = data.get("data")
             if not isinstance(rows, list):
                 raise _failed("unknown", "messages", status=status)
+            if len(rows) > size:  # pageSize 를 듣지 않은 응답 — 청한 만큼만 읽고 버린 것이 있음을 알린다
+                rows, cut = rows[:size], True
             last: datetime | None = None  # 이 쪽에서 읽힌 마지막 줄의 시각
             for row in rows:
                 try:
@@ -587,9 +591,9 @@ class KatClient:
             more = floor is not None and len(rows) >= size and (last is None or last >= floor)
             if not more:
                 break
-        if more or skipped or redated:
-            logger.warning("받은 문자 조회: 쪽 상한 뒤에도 남음=%s 건너뜀=%d 시각 바꿈=%d", more, skipped, redated)
-        return Received(items=sorted(found.values(), key=lambda m: m.at), fetched_at=fetched_at, truncated=more,
+        if more or cut or skipped or redated:
+            logger.warning("받은 문자 조회: 쪽 상한 뒤에도 남음=%s 건너뜀=%d 시각 바꿈=%d", more or cut, skipped, redated)
+        return Received(items=sorted(found.values(), key=lambda m: m.at), fetched_at=fetched_at, truncated=more or cut,
                         skipped=skipped, redated=redated)
 
     async def call_info(self, provider_call_id: str) -> dict:

@@ -3,8 +3,11 @@
 응답 모양은 한국AI통신 공개 문서(api-reference/claw-ops-api/…)의 칸 이름을 따른 가상 값이다.
 """
 
+import asyncio
 import json
+import time
 from dataclasses import asdict
+from datetime import UTC, datetime
 from urllib.parse import quote, quote_plus
 
 import httpx
@@ -330,6 +333,53 @@ async def test_reply_body_is_read_only_up_to_the_cap_and_never_unpacked(monkeypa
     fake = KatFake(override=lambda r: httpx.Response(200, content=fits))
     async with client(fake) as http:
         assert (await check_senders(CONN, http, calls=Calls())).ok
+
+
+def trickle(pieces: int = 40):
+    """본문을 0.05초마다 한 조각씩 주는 응답(읽기 제한에는 걸리지 않는다). pieces 조각(2초)에서 스스로 끝난다."""
+    async def chunks():
+        yield b'{"senderNumbers": ['
+        for _ in range(pieces):
+            await asyncio.sleep(0.05)
+            yield b" "
+        yield b"]}"
+
+    return chunks()
+
+
+async def test_one_step_is_bounded_in_total_when_the_body_trickles_in(monkeypatch):
+    monkeypatch.setattr(diagnostics, "TIMEOUT_S", 0.2)
+    started = time.monotonic()
+    fake = KatFake(override=lambda r: httpx.Response(200, content=trickle()))
+    async with client(fake) as http:
+        result = await check_senders(CONN, http, calls=Calls())
+        assert not result.ok and result.detail == "ReadTimeout" and time.monotonic() - started < 1
+        fake.override = lambda r: httpx.Response(201, content=trickle())
+        sent, mid = await check_send_sms(CONN, http, send_test_sms=True, calls=Calls())
+    assert not sent.ok and mid is None and sent.detail == f"ReadTimeout · {diagnostics.MAYBE_SENT}"  # 요청은 나갔다
+    assert time.monotonic() - started < 2
+
+
+async def test_test_sms_accepted_with_an_unreadable_reply_is_sent_with_outcome_unknown(monkeypatch):
+    """201 을 받았는데 본문을 읽지 못하면(압축·상한 초과) 그냥 실패가 아니다 — 문자는 접수됐을 수 있다. 설정 길이
+    `sent_unknown` 을 정하는 글(diagnostics.MAYBE_SENT)을 그대로 쓴다."""
+    import gzip
+
+    from app.programs.notify_settings import diagnose
+
+    monkeypatch.setattr(diagnostics, "MAX_BODY_BYTES", 2000)
+    replies = (httpx.Response(201, content=gzip.compress(json.dumps(msg("queued")).encode()), headers={"content-encoding": "gzip"}),
+               httpx.Response(201, content=b'{"messageId": "' + b"a" * 3000 + b'"}'))
+    for reply in replies:
+        fake = KatFake(override=lambda r, reply=reply: reply)
+        async with client(fake) as http:
+            results = await run_checks(CONN, http, send_test_sms=True, sleep=no_sleep, steps=(2, 3))
+        p2, p3 = results
+        assert not p2.ok and not p2.skipped and p2.detail == f"body_unreadable · {diagnostics.MAYBE_SENT}"
+        assert p3.skipped and len(fake.requests) == 1  # 다시 보내지도, 모르는 id 로 조회하지도 않는다
+        out = diagnose._result(datetime.now(UTC), results, True, False, [])
+        assert (out.sent_real, out.sent_unknown) == (False, True)
+        assert_clean(results)
 
 
 async def test_client_that_trusts_env_sends_nothing():
