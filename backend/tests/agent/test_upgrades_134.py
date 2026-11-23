@@ -66,8 +66,9 @@ async def test_skill_save_match_replay_and_devconsole(run, session, admin_user):
     assert saved.steps_json[0]["tool"] == "schedule.read"
 
     # 3) 유사 요청 시 자동 매칭 + notice + 시스템 프롬프트 주입 + DevConsole skill_matched
+    # (A6: 기준 3점, 흔한 말 「지연」은 점수에 들지 않는다 — 원래 요청과 거의 같은 말이어야 붙는다)
     llm2 = ScriptedLlm([calls("schedule.read", {}), reply("스킬대로 확인했습니다")])
-    events = await run(llm2, "골조가 또 지연됐어 만회안 잡아줘")
+    events = await run(llm2, "골조 지연 만회 분석 다시 해 줘")
 
     notices = [e.data["text"] for e in events if e.type == "notice"]
     assert any("골조 지연 만회" in m for m in notices)
