@@ -7,6 +7,7 @@ import type { NotifyConnection } from './notifyApi';
 import type { VoiceDiagnosis, VoiceModels, VoiceSettings, VoiceStep, VoiceStepId } from './voiceApi';
 import { renderAs, resetAll, sent } from './testKit';
 import { voiceStatus } from './VoiceBlock';
+import { limitMs } from './VoiceDiagnosis';
 
 const SENTINEL_KEY = 'gemini-test-key-QQQQ7777';
 const LIST = '/api/notify/connections';
@@ -778,4 +779,16 @@ test('a key whose project has no Live model makes the card 실패 with the reaso
   const select = within(await editForm(b)).getByRole('combobox', { name: '모델' });
   expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['gemini-3.8-live', '직접 입력']);
   expect(within(b).getByText('이 키로 쓸 수 있는 실시간 음성 모델이 없습니다')).toBeVisible();
+});
+
+// ── 요청 시간 제한 = 서버 덩어리 상한(voice.py `_ceiling`) + 덩어리마다 닫기 28초 + 여유 30초 ──
+
+test('the client time limit covers the server ceilings of every chunk plus the shielded close and a margin', () => {
+  expect(limitMs('connection', {}, 90)).toBe((63 + 28 + 30) * 1000);
+  expect(limitMs('call', { call: true }, 90)).toBe((146 + 28 + 30) * 1000);
+  expect(limitMs('call', { steps: ['P6', 'P7', 'P8', 'P10'], call: true }, 90)).toBe((2 * (146 + 28) + 30) * 1000); // 두 덩어리
+  expect(limitMs('inbound', { steps: ['P12', 'P13'], inbound: true }, 90)).toBe((121 + 90 + 28 + 30) * 1000);
+  expect(limitMs('inbound', { steps: ['P14'], inbound: true }, 90)).toBe((89 + 90 + 28 + 30) * 1000);
+  expect(limitMs('inbound', { steps: ['P12', 'P13'], inbound: true }, 10)).toBe((121 + 10 + 28 + 30) * 1000);
+  expect(limitMs('inbound', { inbound: true }, 90)).toBe((121 + 90 + 28 + 89 + 90 + 28 + 30) * 1000); // 셋을 한 번에
 });

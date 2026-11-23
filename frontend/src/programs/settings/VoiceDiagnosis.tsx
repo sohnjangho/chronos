@@ -54,11 +54,24 @@ const OUTCOME: Record<CallRecord['outcome'], string> = {
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 const stepOf = (d: VoiceDiagnosis, id: VoiceStepId) => d.steps.find((s) => s.id === id);
 
-/** 요청 시간 제한 — 계약 표의 가장 긴 시간 + 30초. */
-function limitMs(part: VoicePart, body: VoiceDiagnoseIn, wait: number): number {
-  if (part === 'connection') return 80_000;
-  if (part === 'call') return ((body.steps ?? []).includes('P10') ? 240 : 120) * 1000 + 30_000;
-  return (wait + ((body.steps ?? []).includes('P12') ? 95 : 63)) * 1000 + 30_000;
+/**
+ * 서버의 덩어리(한 번의 연결)마다 시간 상한(초) — backend/app/programs/notify_settings/voice.py:121 `_ceiling` 을 그대로 옮긴 값.
+ * 받는 통화는 여기에 기다림(wait)을 더한다. 서버 쪽 시험(test_chunk_ceilings_match_what_the_screen_mirrors)이 같은 값을 고정한다 — 바뀌면 함께 고친다.
+ */
+const SERVER_CHUNK_S = { connection: 63, call: 146, answer: 121, reject: 89 };
+/** 상한에 걸린 뒤에도 덩어리마다 끝까지 기다리는 닫기(살아 있는 통화 끊기·연결 끊기, shield) — 서버 6e8fb04. */
+const CLOSE_S = 28;
+const MARGIN_S = 30;
+
+/** 요청 시간 제한 = 이 요청이 도는 덩어리마다 (서버 상한 + 닫기) 의 합 + 여유. */
+export function limitMs(part: VoicePart, body: VoiceDiagnoseIn, wait: number): number {
+  const ids = body.steps ?? DEFAULT_IDS[part];
+  const has = (...want: VoiceStepId[]) => want.some((id) => ids.includes(id));
+  let chunks: number[];
+  if (part === 'connection') chunks = [SERVER_CHUNK_S.connection];
+  else if (part === 'call') chunks = [has('P6', 'P7', 'P8') || !has('P10') ? 1 : 0, has('P10') ? 1 : 0].filter(Boolean).map(() => SERVER_CHUNK_S.call);
+  else chunks = [...(has('P12', 'P13') ? [SERVER_CHUNK_S.answer + wait] : []), ...(has('P14') ? [SERVER_CHUNK_S.reject + wait] : [])];
+  return (chunks.reduce((sum, s) => sum + s + CLOSE_S, 0) + MARGIN_S) * 1000;
 }
 
 const DEFAULT_IDS: Record<VoicePart, VoiceStepId[]> = { connection: ['P5', 'P9', 'P11'], call: ['P6', 'P7', 'P8'], inbound: ['P12', 'P13', 'P14'] };

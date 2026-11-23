@@ -1,6 +1,8 @@
 services:
   backend:
     build: ./backend
+    # 끌 때 통화 일꾼이 살아 있는 통화를 끝내기까지 20초를 기다린다 — Docker 기본 10초면 그 전에 SIGKILL 된다
+    stop_grace_period: 40s
     ports:
       - "0.0.0.0:8210:8210"
     env_file:

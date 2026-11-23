@@ -567,3 +567,14 @@ def test_unreadable_lists_still_let_the_call_go_ahead(client, admin, fake_provid
     google.error = error
     conn = ready(client, admin)
     assert diag(client, admin, conn["id"], call_body(conn)).status_code == 200 and len(spy.calls) == 1
+
+
+def test_chunk_ceilings_match_what_the_screen_mirrors():
+    """화면(VoiceDiagnosis.tsx `SERVER_CHUNK_S`)이 이 값을 그대로 옮겨 쓴다 — 바뀌면 화면도 함께 고친다."""
+    from app.programs.notify_settings import voice as voice_mod
+
+    for wait in (10, 90, 180):
+        assert voice_mod._ceiling((5, 9, 11), wait) == 63
+        assert voice_mod._ceiling((5, 6, 7, 8, 11), wait) == voice_mod._ceiling((10,), wait) == 146
+        assert voice_mod._ceiling((5, 11, 12, 13), wait) == 121 + wait
+        assert voice_mod._ceiling((14,), wait) == 89 + wait
