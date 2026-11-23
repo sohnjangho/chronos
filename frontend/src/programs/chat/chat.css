@@ -168,6 +168,20 @@
   gap: 4px 8px;
 }
 .ch-notice > .ch-wrap { flex: 1; }
+/* 다른 사람이 거부하고 다시 짜게 한 건: 대화 위쪽 띠(B4) */
+.ch-retry-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  flex: none;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--warning);
+  background: var(--tone-warning-bg);
+  color: var(--warning-text);
+  font-size: var(--fs-13);
+}
+.ch-retry-banner > .ch-wrap { flex: 1; min-width: 0; }
 .ch-notice-btn { flex: none; }
 .ch-compose {
   width: 100%;

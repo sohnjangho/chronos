@@ -194,6 +194,27 @@ describe('R5 · approvals and re-plan requests', () => {
     expect(screen.getByText(/승인 거부 · 5층 사무동 신축 일정/)).toBeVisible();
   });
 
+  test('B4 · someone else\'s reject-and-replan shows a 거부 재작성 대기 banner on top and a badge on the small-window picker', async () => {
+    routes['/api/chat/sessions'] = [{ ...SESSION, title: '공정표', pending_retries: 1 }];
+    routes[`/api/chat/sessions/${SID}`] = {
+      ...SESSION,
+      title: '공정표',
+      running: false,
+      messages: [],
+      pending_retries: [{ approval_id: 5, title: '5층 사무동 신축 일정', note: '준공은 그대로 두고 다시', decided_by_name: '이도윤', decided_at: '2026-11-20T02:00:00Z' }],
+    };
+    renderAt(480, { session: String(SID) });
+    expect(await screen.findByRole('button', { name: /대화 고르기.*다시 짜기 대기 1건/ })).toBeVisible();
+    const banner = await screen.findByRole('status', { name: '거부 재작성 대기' });
+    expect(banner).toHaveTextContent('거부 재작성 대기 1건');
+    expect(banner).toHaveTextContent('이도윤님이 「5층 사무동 신축 일정」을 거부하고 다시 짜게 했습니다');
+    feed([['text', { text: '다시 짜겠습니다.' }], ['done', {}]]);
+    await userEvent.click(within(banner).getByRole('button', { name: '다시 짜기 시작' }));
+    expect(await screen.findByText('다시 짜겠습니다.')).toBeVisible();
+    expect(lastBody()).toMatchObject({ approval_id: 5 });
+    expect(screen.queryByRole('status', { name: '거부 재작성 대기' })).toBeNull();
+  });
+
   test('m1 · a refused re-plan resume gives the 「다시 짜기 요청」 card back', async () => {
     const retry = { approval_id: 5, title: '5층 사무동 신축 일정', note: '준공은 그대로', decided_by_name: '이도윤', decided_at: '2026-11-20T02:00:00Z' };
     routes[`/api/chat/sessions/${SID}`] = { ...SESSION, running: false, messages: [], pending_retries: [retry] };

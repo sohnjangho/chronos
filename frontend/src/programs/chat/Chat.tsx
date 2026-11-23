@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ProgramProps } from '../../os/registry';
 import { useWindows, workArea } from '../../os/windowStore';
 import { useZoom, zoomOf } from '../../os/zoom';
+import Badge from '../../shared/ui/Badge';
 import Composer from './Composer';
 import ContextPanel from './ContextPanel';
 import Conversation from './Conversation';
@@ -75,6 +76,7 @@ function SessionBar() {
   const [filesOpen, setFilesOpen] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
   const title = useChat((s) => sessionTitle(s.sessions, s.currentId));
+  const retries = useChat((s) => s.sessions.reduce((n, x) => n + (x.pending_retries ?? 0), 0));
   const fileCount = useChat((s) => (s.currentId === null ? 0 : (s.threads[s.currentId]?.files ?? []).filter((f) => !f.deleted).length));
   useEffect(() => {
     if (!filesOpen) return;
@@ -98,13 +100,18 @@ function SessionBar() {
         type="button"
         className="ch-pill ch-picker"
         aria-expanded={open}
-        aria-label={title ? `대화 고르기: ${title}` : '대화 고르기'}
+        aria-label={`${title ? `대화 고르기: ${title}` : '대화 고르기'}${retries > 0 ? `, 다시 짜기 대기 ${retries}건` : ''}`}
         onClick={() => {
           setOpen(!open);
           setFilesOpen(false);
         }}
       >
         <span className="ch-ellipsis">{title || '대화 고르기'}</span>
+        {retries > 0 && (
+          <Badge tone="warning" className="ch-th-badge">
+            다시 짜기 {retries}
+          </Badge>
+        )}
         <span aria-hidden="true">▾</span>
       </button>
       <span className="ch-gap" />

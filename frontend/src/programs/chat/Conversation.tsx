@@ -129,6 +129,20 @@ function RetryCard({ retry, sessionId }: { retry: Retry; sessionId: number }) {
   );
 }
 
+/** 다른 사람이 '거부하고 다시 짜기'로 돌려보낸 건이 있으면 대화 위쪽에 늘 보이는 띠(B4). 가장 오래된 건부터 시작한다. */
+function RetryBanner({ retries, sessionId }: { retries: Retry[]; sessionId: number }) {
+  const first = retries[0];
+  return (
+    <div className="ch-retry-banner" role="status" aria-label="거부 재작성 대기">
+      <b>{`거부 재작성 대기 ${retries.length}건`}</b>
+      <span className="ch-wrap">{`${first.decided_by_name}님이 「${first.title}」을 거부하고 다시 짜게 했습니다.`}</span>
+      <Button variant="primary" onClick={() => void useChat.getState().resume(sessionId, { approval_id: first.approval_id })}>
+        다시 짜기 시작
+      </Button>
+    </div>
+  );
+}
+
 /** 아래 끝 가까이 있을 때만 새 내용으로 따라 내려간다(위를 읽는 중이면 두기). */
 function useStickToBottom(dep: unknown, sessionId: number | null) {
   const ref = useRef<HTMLDivElement>(null);
@@ -166,34 +180,37 @@ export default function Conversation() {
   const retries = thread?.retries ?? [];
   const waiting = thread?.streaming && items[items.length - 1]?.kind !== 'agent';
   return (
-    <div className="ch-scroll" ref={ref} onScroll={onScroll}>
-      <div className="ch-thread" role="log" aria-label="대화 내용">
-        {items.length === 0 && retries.length === 0 && !thread?.notice && (
-          <p className="ch-empty">일정을 만들거나, 지연 영향을 묻거나, 고른 액티비티에 대해 물어보세요.</p>
-        )}
-        {items.map((it) =>
-          it.kind === 'user' ? (
-            <div key={it.key} className="ch-me ch-wrap">
-              {it.fileNames && it.fileNames.length > 0 && (
-                <div className="ch-me-files">
-                  {it.fileNames.map((n, i) => (
-                    <span key={i} className="ch-mini-chip">
-                      📎 {n}
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div>{it.text}</div>
-            </div>
-          ) : it.kind === 'system' ? (
-            <SystemCard key={it.key} content={it.content} />
-          ) : (
-            <AgentBlock key={it.key} item={it} ctx={ctx} />
-          ),
-        )}
-        {waiting && <p className="ch-muted">답을 기다리는 중…</p>}
-        {currentId !== null && retries.map((r) => <RetryCard key={r.approval_id} retry={r} sessionId={currentId} />)}
+    <>
+      {currentId !== null && retries.length > 0 && <RetryBanner retries={retries} sessionId={currentId} />}
+      <div className="ch-scroll" ref={ref} onScroll={onScroll}>
+        <div className="ch-thread" role="log" aria-label="대화 내용">
+          {items.length === 0 && retries.length === 0 && !thread?.notice && (
+            <p className="ch-empty">일정을 만들거나, 지연 영향을 묻거나, 고른 액티비티에 대해 물어보세요.</p>
+          )}
+          {items.map((it) =>
+            it.kind === 'user' ? (
+              <div key={it.key} className="ch-me ch-wrap">
+                {it.fileNames && it.fileNames.length > 0 && (
+                  <div className="ch-me-files">
+                    {it.fileNames.map((n, i) => (
+                      <span key={i} className="ch-mini-chip">
+                        📎 {n}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div>{it.text}</div>
+              </div>
+            ) : it.kind === 'system' ? (
+              <SystemCard key={it.key} content={it.content} />
+            ) : (
+              <AgentBlock key={it.key} item={it} ctx={ctx} />
+            ),
+          )}
+          {waiting && <p className="ch-muted">답을 기다리는 중…</p>}
+          {currentId !== null && retries.map((r) => <RetryCard key={r.approval_id} retry={r} sessionId={currentId} />)}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
