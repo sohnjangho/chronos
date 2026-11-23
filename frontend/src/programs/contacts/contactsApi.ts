@@ -46,6 +46,8 @@ export interface PersonDetail extends PersonBrief {
   hours: Hours | null;
   working_now: boolean;
   hours_label: string;
+  /** 다음 근무 시작(KST ISO, 근무 중이면 지금) — 근무시간을 찾지 못하면 null. 통화 예약이 쓴다. */
+  next_start: string | null;
   gender: Gender;
   language: string;
   voice_mode: VoiceMode;

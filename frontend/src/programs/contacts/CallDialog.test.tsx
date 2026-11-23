@@ -1,14 +1,15 @@
 // 「전화 걸기」 창(Task 92, 시안 ③): 받는 사람 · 통화 목적 · 물어볼 것 · 말하지 않을 것 · 연결 · 언어 · 음성(고른 까닭) · 근무시간 줄,
 // [에이전트에게 다시 쓰게][고치기][전화 걸기]. 근무시간 밖이면 [전화 걸기] 대신 「지금은 근무시간 밖입니다 — [<다음 근무 시작>에 예약]」.
 // [전화 걸기]는 진짜 전화로 이어진다 — 두 번 눌러도 요청은 하나, 걸기 직전에 다시 읽어 바뀐 내용은 걸지 않는다.
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
-import { call, callGets, callPosts, callReqs, change, draftCall, failCall, holdCall, nextPlace, rowOf, stubCalls } from './callKit';
-import { nextStartFromLabel } from './CallDialog';
+import { CALL_UNKNOWN, SCHEDULE_UNKNOWN } from '../../shared/outreach/labels';
+import { CALL_TIMEOUT_MS } from '../../shared/outreach/outreachApi';
+import { call, callGets, callPosts, callReqs, change, draftCall, failCall, failPerson, holdCall, nextPlace, rowOf, stubCalls } from './callKit';
 import Contacts from './Contacts';
 import { detail, mockDetail, PARK } from './testKit';
 import ThreadPane from './ThreadPane';
@@ -38,7 +39,7 @@ const DRAFT = draftCall({
 const showWith = (callId?: string) => render(<ThreadPane scheduleId={1} person={PARK} tab="calls" call={callId} onChanged={onChanged} />);
 const dialog = () => screen.getByRole('dialog', { name: '전화 걸기' });
 const inDialog = (name: string | RegExp) => within(dialog()).getByRole('button', { name });
-const FRIDAY_EVENING = new Date('2026-11-27T11:00:00Z'); // 11/27(금) 20:00 KST
+const OFF = { working_now: false, hours_label: '근무 밖 · 월 08:00 부터', next_start: '2026-11-30T08:00:00+09:00' };
 
 describe('opening', () => {
   test('params.call opens the window on that draft (시안 ③ rows)', async () => {
@@ -166,10 +167,9 @@ describe('[전화 걸기]', () => {
 });
 
 describe('outside working hours', () => {
-  test('only the schedule button, at the next working start', async () => {
-    vi.useFakeTimers({ now: FRIDAY_EVENING, toFake: ['Date'] });
+  test('only the schedule button, at the next working start the server gives', async () => {
     stubCalls([DRAFT]);
-    mockDetailOf({ working_now: false, hours_label: '근무 밖 · 월 08:00 부터' });
+    mockDetailOf(OFF);
     showWith('7');
     const d = await screen.findByRole('dialog', { name: '전화 걸기' });
     await within(d).findByText(/지금은 근무시간 밖입니다 —/);
@@ -185,37 +185,100 @@ describe('outside working hours', () => {
 
   test('a call the gate held outside hours offers the gate’s suggested time', async () => {
     stubCalls([DRAFT]);
-    nextPlace({ code: 'blocked_hours', message: '근무시간 밖입니다', scheduled_at: '2026-11-30T08:00:00+09:00' }, { status: 'blocked_hours', scheduled_at: '2026-11-29T23:00:00Z' });
+    nextPlace({ code: 'blocked_hours', message: '근무시간 밖입니다', scheduled_at: '2099-11-30T08:00:00+09:00' }, { status: 'blocked_hours', scheduled_at: '2099-11-29T23:00:00Z' });
     showWith('7');
     await screen.findByRole('dialog', { name: '전화 걸기' });
     await waitFor(() => expect(inDialog('전화 걸기')).toBeEnabled());
+    mockDetailOf(OFF); // 문이 막은 뒤에는 근무 밖(다음 읽기부터)
     await userEvent.click(inDialog('전화 걸기'));
-    await userEvent.click(await within(dialog()).findByRole('button', { name: '11/30(월) 08:00에 예약' }));
-    await waitFor(() => expect(callPosts('schedule')[0]?.body).toEqual({ at: '2026-11-29T23:00:00Z' }));
+    await userEvent.click(await within(dialog()).findByRole('button', { name: /에 예약$/ }));
+    await waitFor(() => expect(callPosts('schedule')[0]?.body).toEqual({ at: '2099-11-29T23:00:00Z' }));
   });
 
-  test('a schedule the server refuses shows its words (a call that could never go out)', async () => {
-    vi.useFakeTimers({ now: FRIDAY_EVENING, toFake: ['Date'] });
+  test('a held call whose suggested time has passed: working now → [전화 걸기]; still outside → the next working start', async () => {
+    const held = draftCall({ ...DRAFT, status: 'blocked_hours', scheduled_at: '2020-01-01T00:00:00Z' });
+    stubCalls([held]);
+    showWith('7'); // 지금 근무 중(기본)
+    await screen.findByRole('dialog', { name: '전화 걸기' });
+    await waitFor(() => expect(inDialog('전화 걸기')).toBeEnabled());
+    expect(within(dialog()).queryByText(/지금은 근무시간 밖입니다/)).toBeNull();
+    await userEvent.click(inDialog('전화 걸기'));
+    await waitFor(() => expect(callPosts('place')).toHaveLength(1));
+    cleanup();
+
+    stubCalls([held]);
+    mockDetailOf(OFF);
+    showWith('7');
+    const d = await screen.findByRole('dialog', { name: '전화 걸기' });
+    await userEvent.click(await within(d).findByRole('button', { name: '11/30(월) 08:00에 예약' }));
+    await waitFor(() => expect(callPosts('schedule')[0]?.body).toEqual({ at: '2026-11-30T08:00:00+09:00' }));
+  });
+
+  test('a time the server refuses (past · holiday) shows its words and a picker for another start', async () => {
     stubCalls([DRAFT]);
-    mockDetailOf({ working_now: false, hours_label: '근무 밖 · 월 08:00 부터' });
+    mockDetailOf(OFF);
+    failCall((r) => r.url.endsWith('/schedule'), 422, { code: 'outside_hours', message: '근무시간 안의 시각을 골라 주세요' });
+    showWith('7');
+    const d = await screen.findByRole('dialog', { name: '전화 걸기' });
+    await userEvent.click(await within(d).findByRole('button', { name: '11/30(월) 08:00에 예약' }));
+    expect(await within(d).findByText('근무시간 안의 시각을 골라 주세요')).toHaveClass('is-bad');
+    const pick = within(d).getByLabelText('다른 시각(한국 시각)');
+    expect(pick).toHaveValue('2026-11-30T08:00');
+    fireEvent.change(pick, { target: { value: '2026-12-01T09:30' } });
+    await userEvent.click(within(d).getByRole('button', { name: '이 시각에 예약' }));
+    await waitFor(() => expect(callPosts('schedule')).toHaveLength(2));
+    expect(callPosts('schedule')[1].body).toEqual({ at: '2026-12-01T09:30:00+09:00' });
+  });
+
+  test('a schedule the server refuses for good shows its words (a call that could never go out)', async () => {
+    stubCalls([DRAFT]);
+    mockDetailOf(OFF);
     failCall((r) => r.url.endsWith('/schedule'), 409, { code: 'not_schedulable', message: '시험 모드라 허용한 번호에만 연락합니다' });
     showWith('7');
     const d = await screen.findByRole('dialog', { name: '전화 걸기' });
     await userEvent.click(await within(d).findByRole('button', { name: '11/30(월) 08:00에 예약' }));
     expect(await within(d).findByText('시험 모드라 허용한 번호에만 연락합니다')).toHaveClass('is-bad');
   });
+
+  test('a schedule with no answer is 「not known」 (warning), and the row is read again', async () => {
+    stubCalls([DRAFT]);
+    mockDetailOf(OFF);
+    failCall((r) => r.url.endsWith('/schedule'), 0);
+    showWith('7');
+    const d = await screen.findByRole('dialog', { name: '전화 걸기' });
+    await userEvent.click(await within(d).findByRole('button', { name: '11/30(월) 08:00에 예약' }));
+    expect(await within(d).findByText(SCHEDULE_UNKNOWN)).toHaveClass('is-warn');
+    await waitFor(() => expect(callGets(7).length).toBeGreaterThanOrEqual(2));
+  });
+
+  test('working hours that cannot be read say so, and the server still decides', async () => {
+    stubCalls([DRAFT]);
+    failPerson();
+    showWith('7');
+    const d = await screen.findByRole('dialog', { name: '전화 걸기' });
+    await waitFor(() => expect(within(d).getByText('근무시간', { selector: 'dt' }).nextElementSibling?.textContent).toBe('근무시간을 읽지 못했습니다'));
+    expect(inDialog('전화 걸기')).toBeEnabled();
+  });
 });
 
-test('the next working start is read from the server’s hours line (KST, whatever the browser zone)', () => {
-  const fri = new Date('2026-11-27T11:00:00Z'); // 금 20:00 KST
-  expect(nextStartFromLabel('근무 밖 · 월 08:00 부터', fri)).toBe('2026-11-30T08:00:00+09:00');
-  const monEarly = new Date('2026-11-29T21:30:00Z'); // 월 06:30 KST — 같은 날 아침
-  expect(nextStartFromLabel('근무 밖 · 월 08:00 부터', monEarly)).toBe('2026-11-30T08:00:00+09:00');
-  const monLate = new Date('2026-11-30T10:00:00Z'); // 월 19:00 KST — 다음 주 월요일
-  expect(nextStartFromLabel('근무 밖 · 월 08:00 부터', monLate)).toBe('2026-12-07T08:00:00+09:00');
-  expect(nextStartFromLabel('근무 밖 · 화 22:00 부터', monLate)).toBe('2026-12-01T22:00:00+09:00');
-  expect(nextStartFromLabel('근무시간 없음', fri)).toBeNull();
-  expect(nextStartFromLabel('근무 중 · 18:00 까지', fri)).toBeNull();
+describe('a request that never answers', () => {
+  test('stops waiting after the time limit: 「not known」, and [닫기] works again', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    stubCalls([DRAFT]);
+    showWith('7');
+    await screen.findByRole('dialog', { name: '전화 걸기' });
+    await waitFor(() => expect(inDialog('전화 걸기')).toBeEnabled());
+    holdCall((r) => r.url.endsWith('/place')); // 끝내 답하지 않는다
+    await user.click(inDialog('전화 걸기'));
+    await waitFor(() => expect(callPosts('place')).toHaveLength(1));
+    expect(inDialog('닫기')).toBeDisabled();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(CALL_TIMEOUT_MS)));
+    expect(await within(dialog()).findByText(CALL_UNKNOWN)).toHaveClass('is-warn');
+    await waitFor(() => expect(inDialog('닫기')).toBeEnabled());
+    await user.click(inDialog('닫기'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });
 
 describe('writing and rewriting', () => {
@@ -240,14 +303,16 @@ describe('writing and rewriting', () => {
     await waitFor(() => expect(callPosts('place')).toHaveLength(1));
   });
 
-  test('a phone number in the call text is refused before it is saved', async () => {
+  test('a phone number in the call text is refused by the server (422 has_phone) and the text stays to fix', async () => {
     stubCalls([]);
     showWith();
     await userEvent.click(await screen.findByRole('button', { name: '전화 걸기' }));
     await userEvent.type(within(dialog()).getByRole('textbox', { name: '통화 목적' }), '010-0000-0199 로 확인');
     await userEvent.click(inDialog('저장'));
-    expect(within(dialog()).getByText('통화 목적·물어볼 것·말하지 않을 것에는 전화번호를 적을 수 없습니다 — 번호는 앱이 붙입니다.')).toBeVisible();
-    expect(callPosts()).toHaveLength(0);
+    expect(await within(dialog()).findByText('전화번호는 넣을 수 없습니다 — 연락처에서 고릅니다')).toHaveClass('is-bad');
+    expect(callPosts()).toHaveLength(1);
+    expect(rowOf(900)).toBeUndefined();
+    expect(within(dialog()).getByRole('textbox', { name: '통화 목적' })).toBeVisible();
   });
 
   test('[고치기] edits the draft (PATCH, not an approval) and shows what the server saved', async () => {

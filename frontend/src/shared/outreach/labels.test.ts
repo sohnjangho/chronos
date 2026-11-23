@@ -1,8 +1,8 @@
 // 발신 글 네 가지 · 상태 글(셋으로 갈린 결과가 셋으로 남는지) · 보내기 판정 글 · 하네스 사건 한 줄 · KST 시각.
 import { describe, expect, test } from 'vitest';
 import {
-  callOutcomeLabel, callResultLine, callStatusLabel, CODE_LABEL, channelLabel, durationText, eventLine, eventSummary, hasPhone, kstDay, kstShort, kstTime,
-  maskPhones, outcomeLabel, RULE_LABEL, senderTag, statusLabel, VERDICT_LABEL,
+  callOutcomeLabel, callResultLine, callStatusLabel, CODE_LABEL, channelLabel, durationText, eventLine, eventSummary, kstDay, kstShort, kstTime,
+  outcomeLabel, RULE_LABEL, senderTag, statusLabel, VERDICT_LABEL,
 } from './labels';
 import type { Message } from './outreachApi';
 
@@ -161,16 +161,12 @@ describe('calls (Task 92)', () => {
     expect(callResultLine({ result_proposed: '가능', result_confirmed: '토요일만', confirmed_by: '김공정' })).toBe('결과: 토요일만 (김공정 확정 · 에이전트 제안 「가능」)');
     expect(callResultLine({ result_proposed: '', result_confirmed: '토요일만', confirmed_by: '김공정' })).toBe('결과: 토요일만 (김공정 확정)');
   });
-  test('phone-like numbers in a person’s text are hidden in the middle; dates and short numbers are left alone', () => {
-    expect(maskPhones('010-0000-0199 · 010 0000 0198 · 01000000197 · 02-123-4567 · 0311234567')).toBe(
-      '010-****-0199 · 010-****-0198 · 010-****-0197 · 02-****-4567 · 031-****-4567',
-    );
-    expect(maskPhones('11/30 08:00 · 2026-11-24 · A1210 · 6명')).toBe('11/30 08:00 · 2026-11-24 · A1210 · 6명');
-    expect([hasPhone('010-0000-0199 로'), hasPhone('A1210 6명'), hasPhone('010-****-0199')]).toEqual([true, false, false]);
-  });
   test('call events read with the console words for the call codes', () => {
     expect(eventLine({ rule: 'call_result', verdict: 'noted', detail: 'busy' })).toBe('통화 결과 — 통화 중');
     expect(eventLine({ rule: 'hangup_by_person', verdict: 'noted', detail: null })).toBe('사람이 끊음');
+    expect(['limits', 'permission', 'duplicate'].map((d) => eventLine({ rule: 'recheck_before_dial', verdict: 'blocked', detail: d }))).toEqual([
+      '걸기 직전 다시 확인 — 상한', '걸기 직전 다시 확인 — 권한', '걸기 직전 다시 확인 — 중복',
+    ]);
   });
 });
 

@@ -26,6 +26,8 @@ interface Req {
   method: string;
   url: string;
   body: unknown;
+  /** 받은 때(Date.now — 가짜 시계면 그 시각) */
+  at: number;
 }
 type Reply = { status: number; body?: unknown };
 
@@ -38,7 +40,14 @@ const ERR = {
   notSchedulable: { code: 'not_schedulable', message: '초안이거나 근무시간 밖이라 멈춘 통화만 예약할 수 있습니다.' },
   notRedialable: { code: 'not_redialable', message: '받지 않았거나 통화 중이었거나 실패한 통화만 다시 걸 수 있습니다.' },
   notCompleted: { code: 'not_completed', message: '통화가 끝난 뒤에만 결과를 확정할 수 있습니다.' },
+  hasPhone: (field: string) => ({ code: 'has_phone', message: '전화번호는 넣을 수 없습니다 — 연락처에서 고릅니다', detail: { field } }),
 };
+/** 서버(hide_phones)처럼 번호가 든 글을 알아본다 — 이 가짜에서는 숫자 9자리 넘게 이어진 꼴만. */
+const PHONE = /0\d{1,2}[-. )]?\d{3,4}[-. ]?\d{4}/;
+function phoneField(body: Record<string, unknown> | undefined): string | null {
+  for (const [field, v] of Object.entries(body ?? {})) if ((Array.isArray(v) ? v : [v]).some((x) => typeof x === 'string' && PHONE.test(x))) return field;
+  return null;
+}
 const LIVE = ['queued', 'dialing', 'in_call'];
 
 let rows: Call[];
@@ -48,6 +57,7 @@ let placeQueue: { outcome: Outcome; row: Partial<Call> }[];
 let failQueue: { test: (r: Req) => boolean; status: number; body: unknown }[];
 let holds: { test: (r: Req) => boolean; gate: Promise<void> }[];
 let onDetail: ((c: Call) => void) | null;
+let personFails: boolean;
 let nextId: number;
 let userName: string;
 
@@ -90,6 +100,7 @@ function act(method: string, c: Call, verb: string | undefined, body: Record<str
       return { status: 200, body: { ...fresh } };
     }
     case 'confirm':
+      if (phoneField(body)) return { status: 422, body: ERR.hasPhone('result') };
       if (c.status !== 'completed') return { status: 409, body: ERR.notCompleted };
       Object.assign(c, { result_confirmed: String(body?.result), confirmed_by: userName });
       return { status: 200, body: { ...c } };
@@ -101,6 +112,7 @@ function act(method: string, c: Call, verb: string | undefined, body: Record<str
     const detail: CallDetail = { ...c, transcript: [...(transcripts.get(c.id) ?? [])], reports: [] };
     return { status: 200, body: detail };
   }
+  if (method === 'PATCH' && phoneField(body)) return { status: 422, body: ERR.hasPhone(phoneField(body)!) };
   if (c.status !== 'draft') return { status: 409, body: ERR.notDraft };
   if (method === 'DELETE') {
     rows.splice(rows.indexOf(c), 1);
@@ -115,6 +127,8 @@ function route(r: Req): Reply | null {
   if (path === '/api/schedules/1/outreach/calls') {
     if (r.method === 'POST') {
       const b = r.body as { contact_id: number; purpose: string; questions?: string[]; avoid?: string[]; activity_id?: string; language?: string };
+      const bad = phoneField(r.body as Record<string, unknown>);
+      if (bad) return { status: 422, body: ERR.hasPhone(bad) };
       const p = people().find((x) => x.id === b.contact_id);
       if (!p) return { status: 404, body: ERR.person };
       const made = draftCall({
@@ -145,12 +159,14 @@ export function stubCalls(list: Call[] = [], role: Role = 'admin', name = '김�
   failQueue = [];
   holds = [];
   onDetail = null;
+  personFails = false;
   nextId = 900;
   userName = name;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const r: Req = { method: init?.method ?? 'GET', url: String(input), body: init?.body ? JSON.parse(String(init.body)) : undefined };
+      const r: Req = { method: init?.method ?? 'GET', url: String(input), body: init?.body ? JSON.parse(String(init.body)) : undefined, at: Date.now() };
+      if (personFails && (init?.method ?? 'GET') === 'GET' && /\/contacts\/people\/\d+$/.test(r.url)) return json(500, { code: 'http_error', message: '요청을 처리할 수 없습니다.' });
       if (!r.url.includes('/outreach/calls')) return inner(input, init);
       reqs.push(r);
       const hold = holds.find((h) => h.test(r));
@@ -181,6 +197,8 @@ export const setTranscript = (id: number, lines: TranscriptLine[]) => void trans
 export const speak = (id: number, line: TranscriptLine) => void (transcripts.get(id) ?? transcripts.set(id, []).get(id)!).push({ ...line });
 /** 자세히 읽기마다 부른다(그때 줄을 바꿔 통화가 흘러가게). */
 export const onEveryDetail = (f: ((c: Call) => void) | null) => void (onDetail = f);
+/** 사람 자세히(근무시간·음성) 읽기가 실패한다. */
+export const failPerson = () => void (personFails = true);
 /** 다음 [전화 걸기] 하나의 판정과 줄의 새 칸. */
 export const nextPlace = (outcome: Outcome, row: Partial<Call>) => void placeQueue.push({ outcome, row });
 /** 조건에 맞는 다음 요청 하나를 그 상태로 실패시킨다(0 = 연결 끊김). */

@@ -33,6 +33,8 @@ export interface CallsSlotProps {
   /** 열 통화 id(다른 프로그램이 넘김) */
   call?: string;
   onChanged: () => void;
+  /** 읽은 통화 수(탭 글 「통화 n」) */
+  onCount?: (n: number) => void;
 }
 
 /** 입력창 자리(Task 79 Composer). */
@@ -56,13 +58,13 @@ function MessagesTab({ scheduleId, person, compose, activity, onChanged }: Omit<
   );
 }
 
-export default function ThreadPane({ scheduleId, person, tab, compose, activity, call, onChanged }: ThreadSlotProps) {
+export default function ThreadPane({ scheduleId, person, tab, compose, activity, call, onChanged, onCallCount }: ThreadSlotProps) {
   return (
     <div className="th-pane">
       <ThreadHeader key={`head-${person.id}`} scheduleId={scheduleId} person={person} />
       {tab === 'calls' ? (
         <div className="th-tab" data-slot="calls">
-          <CallsSlot key={`calls-${person.id}`} scheduleId={scheduleId} person={person} call={call} onChanged={onChanged} />
+          <CallsSlot key={`calls-${person.id}`} scheduleId={scheduleId} person={person} call={call} onChanged={onChanged} onCount={onCallCount} />
         </div>
       ) : (
         <MessagesTab key={`messages-${person.id}`} scheduleId={scheduleId} person={person} compose={compose} activity={activity} onChanged={onChanged} />

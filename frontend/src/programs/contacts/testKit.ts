@@ -56,7 +56,7 @@ export function bigBook(): AddressBook {
 
 export function detail(p: PersonBrief, over: Partial<PersonDetail> = {}): PersonDetail {
   return {
-    ...p, hours: null, working_now: true, hours_label: '근무 중 · 18:00 까지', gender: 'unknown', language: 'ko', voice_mode: 'auto',
+    ...p, hours: null, working_now: true, hours_label: '근무 중 · 18:00 까지', next_start: '2026-11-24T05:00:00Z', gender: 'unknown', language: 'ko', voice_mode: 'auto',
     voice_id: null, dnc_reason: null, note: '', linked_activities: [], ...over,
   };
 }

@@ -5,6 +5,7 @@
 """
 
 import unicodedata
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -163,6 +164,7 @@ class PersonDetail(PersonBrief):
     hours: HoursOut | None  # null = 프로젝트 기본(달력의 근무일 08:00~18:00)
     working_now: bool
     hours_label: str  # 「근무 중 · 18:00 까지」 / 「근무 밖 · 월 08:00 부터」 / 「근무시간 없음」
+    next_start: datetime | None  # 다음 근무 시작(KST, 근무 중이면 지금) — 근무시간을 찾지 못하면 null. 통화 예약이 쓴다(Task 92)
     gender: Gender
     language: str
     voice_mode: VoiceMode

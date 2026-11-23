@@ -13,7 +13,9 @@
   manual, 에이전트 초안 approved + 누른 사람)을 적는다 — **send_mode 는 문만 적는다**. 때가 되면 일꾼이 그 방식으로 문을 처음부터
   다시 지난다. 취소는 초안으로 돌리며 시각·방식·승인한 사람을 비운다. **PATCH 는 승인이 아니다**(approved_by 를 적지 않는다).
 - 상태를 바꾸는 쓰기는 `UPDATE/DELETE … WHERE status …` 한 문장 — 그 사이 문이나 일꾼이 줄을 가져갔으면 아무것도 바꾸지 않고 409.
-- 번호: 응답에 번호 칸이 없다. 받아쓰기·답·사건·보고·요약·제안된 결과는 hide_phones 를 거친다. 오류 글에 받은 값을 싣지 않는다.
+- 번호: 응답에 번호 칸이 없다. 받아쓰기·답·사건·보고·요약·결과(제안·확정)와 사람이 쓴 목적·물어볼 것·말하지 않을 것도 모두
+  hide_phones 를 거친다(Task 92 고침 1 — 화면이 가리기를 따로 갖지 않게). 쓰기(만들기·고치기·확정)의 글에 번호가 있으면
+  (`hide_phones(글) != 글`) 422 `has_phone` — 번호는 연락처에서 고른다. 오류 글에 받은 값을 싣지 않는다.
 - 녹음: 그 일정의 녹음 폴더(`<data_dir>/recordings/<일정 id>/`) 안에 있는 파일만, 이름은 `call-<id>.<확장자>`. 없으면 「통화를 찾을
   수 없습니다」와 같은 404.
 """
@@ -69,6 +71,7 @@ NOT_LIVE = "진행 중인 통화가 아닙니다."
 RUNNER_NOT_READY = "통화 일꾼이 아직 준비되지 않았습니다."
 NOT_REDIALABLE = "받지 않았거나 통화 중이었거나 실패한 통화만 다시 걸 수 있습니다."
 NOT_COMPLETED = "통화가 끝난 뒤에만 결과를 확정할 수 있습니다."
+HAS_PHONE = "전화번호는 넣을 수 없습니다 — 연락처에서 고릅니다"
 PLACEABLE = ("draft", "scheduled", "blocked_hours", *outreach.LIVE_CALL)  # 문에 넘기는 상태(나가는 중이면 문이 「잠시 뒤 다시」)
 REDIALABLE = ("no_answer", "busy", "failed")
 SCHEDULABLE = ("draft", "blocked_hours", "scheduled")
@@ -112,9 +115,12 @@ def _contact(session: Session, schedule_id: int, contact_id: int) -> Contact:
 
 
 def _check_text(field: str, *texts: str | None) -> None:
-    """음성 에이전트에게 갈 글(목적·물어볼 것·말하지 않을 것)과 확정 결과에 보이지 않는 글자가 있으면 422. 값은 싣지 않는다."""
+    """음성 에이전트에게 갈 글(목적·물어볼 것·말하지 않을 것)과 확정 결과: 보이지 않는 글자가 있으면 422 invalid_text,
+    번호처럼 보이는 것이 있으면(가리개가 바꾸는 글) 422 has_phone. 값은 싣지 않는다."""
     if any(text and any(service._bad_char(char) for char in text) for text in texts):
         raise ApiError(422, "invalid_text", BAD_TEXT, detail={"field": field})
+    if any(text and hide_phones(text) != text for text in texts):
+        raise ApiError(422, "has_phone", HAS_PHONE, detail={"field": field})
 
 
 def _check_draft(session: Session, schedule_id: int, body: CallIn | CallPatch) -> None:
@@ -173,7 +179,8 @@ def _events(log: object) -> list[CallEventOut]:
 
 
 def _lines(value: object) -> list[str]:
-    return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+    """사람이 쓴 물어볼 것·말하지 않을 것 — 번호처럼 보이는 것은 가린다."""
+    return [hide_phones(v) for v in value if isinstance(v, str)] if isinstance(value, list) else []
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -197,10 +204,10 @@ def _out(session: Session, schedule_id: int, rows: list[OutreachCall]) -> list[C
             contact=None if who is None else CallContact(id=who.id, name=who.name, role_title=who.role_title,
                                                          company=companies.get(who.company_id, "")),
             origin=row.origin, origin_name=row.origin_name, send_mode=row.send_mode, approved_by=row.approved_by,
-            status=row.status, fail_reason=row.fail_reason, purpose=row.purpose, questions=_lines(row.questions_json),
+            status=row.status, fail_reason=row.fail_reason, purpose=_text(row.purpose), questions=_lines(row.questions_json),
             avoid=_lines(row.avoid_json), language=row.language, voice_id=row.voice_id, duration_s=row.duration_s,
             summary_ko=_text(row.summary_ko), result_proposed=_text(row.result_proposed),
-            result_confirmed=row.result_confirmed, confirmed_by=row.confirmed_by, answers=_answers(row.answers_json),
+            result_confirmed=None if row.result_confirmed is None else _text(row.result_confirmed), confirmed_by=row.confirmed_by, answers=_answers(row.answers_json),
             events=_events(row.harness_json), has_recording=recording_file(row) is not None,
             prev_call_id=row.prev_call_id,
             activity=ActivityOut(id=row.activity_id, name=names.get(row.activity_id)) if row.activity_id else None,

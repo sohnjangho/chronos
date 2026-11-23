@@ -39,6 +39,8 @@ export interface ThreadSlotProps {
   call?: string;
   /** 대화가 읽음 수·마지막 줄을 바꿨을 때 주소록을 다시 읽게 한다. */
   onChanged: () => void;
+  /** 통화 탭이 읽은 통화 수(탭 글 「통화 n」) */
+  onCallCount?: (n: number) => void;
 }
 
 /** 대화 칸 자리 — 문자·카카오톡 대화와 통화 탭(Task 78 ThreadPane). */
@@ -189,11 +191,13 @@ function useBook(scheduleId: number, showHidden: boolean) {
   return { book, error, reload };
 }
 
-/** 고른 사람의 통화 수(Task 92). 주소록을 다시 읽을 때(통화 탭의 동작 뒤 포함) 다시 센다. 못 읽으면 null(탭 글은 「통화」). */
-function useCallCount(scheduleId: number, contactId: number | null, book: Book | null) {
+/** 고른 사람의 통화 수(Task 92). 통화 탭이 열려 있으면 그 탭이 읽은 목록의 수(report), 아니면 여기서 센다 — 주소록을 다시 읽을 때
+ *  다시. 못 읽으면 null(탭 글은 「통화」). */
+function useCallCount(scheduleId: number, contactId: number | null, book: Book | null, tab: ThreadTab) {
   const [count, setCount] = useState<{ id: number; n: number } | null>(null);
+  const report = useCallback((n: number) => contactId !== null && setCount({ id: contactId, n }), [contactId]);
   useEffect(() => {
-    if (contactId === null) return;
+    if (contactId === null || tab === 'calls') return;
     let live = true;
     outreachApi.listCalls(scheduleId, contactId).then(
       (rows) => live && setCount({ id: contactId, n: rows.length }),
@@ -202,8 +206,8 @@ function useCallCount(scheduleId: number, contactId: number | null, book: Book |
     return () => {
       live = false;
     };
-  }, [scheduleId, contactId, book]);
-  return count && count.id === contactId ? count.n : null;
+  }, [scheduleId, contactId, book, tab]);
+  return { calls: count && count.id === contactId ? count.n : null, report };
 }
 
 function useNotifyStatus() {
@@ -256,7 +260,7 @@ function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projec
   useEffect(() => {
     if (handingCall && tab === 'calls') setUsedCall(params);
   }, [handingCall, tab, params]);
-  const callCount = useCallCount(scheduleId, selected?.id ?? null, book);
+  const callCount = useCallCount(scheduleId, selected?.id ?? null, book, tab);
   if (isInbox(mode))
     return <InboxPane mode={mode} scheduleId={scheduleId} book={book} isAdmin={isAdmin} inbox={inbox} setMode={setMode} openPerson={openPerson} reload={reload} />;
   if (mode.kind === 'person')
@@ -301,13 +305,13 @@ function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projec
         company={company}
         kakaoReady={kakaoReady}
         tab={tab}
-        calls={callCount}
+        calls={callCount.calls}
         onTab={setTab}
         onEdit={() => setMode({ kind: 'person', id: selected.id, companyId: null })}
         onBack={() => setSelectedId(null)}
       />
       <section className="ct-slot" aria-label="대화" data-tab={tab}>
-        <ThreadSlot key={selected.id} scheduleId={scheduleId} person={selected} tab={tab} compose={handing ? params?.compose : undefined} activity={handing ? params?.activity : undefined} call={handingCall ? params?.call : undefined} onChanged={reload} />
+        <ThreadSlot key={selected.id} scheduleId={scheduleId} person={selected} tab={tab} compose={handing ? params?.compose : undefined} activity={handing ? params?.activity : undefined} call={handingCall ? params?.call : undefined} onChanged={reload} onCallCount={callCount.report} />
       </section>
     </>
   );

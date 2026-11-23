@@ -891,3 +891,63 @@ def test_errors_carry_no_number_or_key(client, user, session, sid, conn, fake_ch
                                        "avoid": [SENTINEL_KEY * 20]}, headers=user)
     assert bad.status_code == 422
     _no_secret(json.dumps(bad.json(), ensure_ascii=False))
+
+
+# ── 사람이 쓴 글의 번호(Task 92 고침 1) ────────────────────────────────────────
+# 화면이 가리개를 따로 갖지 않게: 쓰기는 번호가 든 글을 422 has_phone 로 막고, 읽기는 사람이 쓴 글도 hide_phones 를 거친다.
+PHONE_FORMS = [SENTINEL_PHONE, "+82 10-0000-0199", "(010)0000-0199", "０１０-００００-０１９９", "010 0000 0199", "01000000199"]
+
+
+@pytest.mark.parametrize("form", PHONE_FORMS)
+@pytest.mark.parametrize("field", ["purpose", "questions", "avoid"])
+def test_a_draft_with_a_phone_number_is_refused(client, user, session, sid, form, field):
+    pid = _person(session, sid)
+    before = _count(session)
+    text = f"{form} 로 다시 연락"
+    body = {"purpose": text} if field == "purpose" else {field: [text]}
+
+    made = _create(client, user, sid, pid, **body)
+    draft = _call(session, sid, pid)
+    patched = client.patch(_url(sid, f"/{draft.id}"), json=body, headers=user)
+
+    for r in (made, patched):
+        assert (r.status_code, r.json()["code"], r.json()["detail"]) == (422, "has_phone", {"field": field}), r.json()
+        assert r.json()["message"] == "전화번호는 넣을 수 없습니다 — 연락처에서 고릅니다"
+        _no_secret(json.dumps(r.json(), ensure_ascii=False))
+    assert _count(session) == before + 1  # 만들기는 줄을 남기지 않았다(고치기용 초안 하나뿐)
+    assert (_reread(session, draft.id).purpose, _reread(session, draft.id).questions_json) == (PURPOSE, QUESTIONS)
+
+
+@pytest.mark.parametrize("form", PHONE_FORMS)
+def test_a_confirmed_result_with_a_phone_number_is_refused(client, user, session, sid, form):
+    pid = _person(session, sid)
+    row = _call(session, sid, pid, status="completed")
+
+    r = client.post(_url(sid, f"/{row.id}/confirm"), json={"result": f"회신은 {form}"}, headers=user)
+
+    assert (r.status_code, r.json()["code"], r.json()["detail"]) == (422, "has_phone", {"field": "result"})
+    assert _reread(session, row.id).result_confirmed is None
+
+
+def test_dates_times_and_counts_are_not_phone_numbers(client, user, session, sid):
+    pid = _person(session, sid)
+    r = _create(client, user, sid, pid, purpose="A1210 11/30 08:00 6명 확인", questions=["2026-11-24 반입분 120톤?"])
+    assert r.status_code == 200, r.json()
+    assert (r.json()["purpose"], r.json()["questions"]) == ("A1210 11/30 08:00 6명 확인", ["2026-11-24 반입분 120톤?"])
+
+
+def test_stored_text_written_by_people_is_masked_in_every_answer(client, user, session, sid):
+    """고침 전에 저장된 줄(또는 에이전트 도구가 쓴 초안)에 번호가 있어도 응답에는 가린 꼴만."""
+    pid = _person(session, sid)
+    row = _call(session, sid, pid, status="completed", purpose=f"{SENTINEL_PHONE} 로 확인",
+                questions_json=["+82 10-0000-0199 는 누구?"], avoid_json=["０１０-００００-０１９９"],
+                result_proposed=f"회신 {SENTINEL_PHONE}", result_confirmed="확정 (010)0000-0199")
+
+    for r in (client.get(_url(sid), params={"contact_id": pid}, headers=user), client.get(_url(sid, f"/{row.id}"), headers=user)):
+        assert r.status_code == 200
+        text = json.dumps(r.json(), ensure_ascii=False)
+        _no_secret(text)
+        assert "０１０" not in text
+    got = client.get(_url(sid, f"/{row.id}"), headers=user).json()
+    assert (got["purpose"], got["questions"], got["avoid"], got["result_proposed"], got["result_confirmed"]) == (
+        "[번호] 로 확인", ["[번호] 는 누구?"], ["[번호]"], "회신 [번호]", "확정 [번호]")

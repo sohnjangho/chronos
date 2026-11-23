@@ -271,6 +271,14 @@ def _linked(session: Session, schedule_id: int, contact_id: int) -> list[Activit
     return [ActivityRef(id=a.id, name=a.name) for a in schedule.activities if a.id in ids]
 
 
+def _next_start(hours: dict | None, calendar, now: datetime) -> datetime | None:
+    """다음 근무 시작(근무 중이면 지금). 근무 시간대를 찾지 못하면 None."""
+    try:
+        return work_hours.next_start(hours, calendar, now)
+    except work_hours.NoWorkingTime:
+        return None
+
+
 def _detail(session: Session, schedule_id: int, row: Contact) -> PersonDetail:
     unread, last = _threads(session, schedule_id, row.id)
     calendar, now = contacts.calendar_of(session, schedule_id), _now()
@@ -279,6 +287,7 @@ def _detail(session: Session, schedule_id: int, row: Contact) -> PersonDetail:
         hours=row.hours_json,
         working_now=work_hours.is_working(row.hours_json, calendar, now),
         hours_label=work_hours.label(row.hours_json, calendar, now),
+        next_start=_next_start(row.hours_json, calendar, now),
         gender=row.gender, language=row.language, voice_mode=row.voice_mode, voice_id=row.voice_id,
         dnc_reason=row.dnc_reason, note=row.note, linked_activities=_linked(session, schedule_id, row.id),
     )

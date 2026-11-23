@@ -51,7 +51,7 @@ LANDLINE = "02-2000-0199"  # 유선(가상) — 문자 불가, 전화 가능
 SAT_10 = datetime(2027, 3, 6, 10, 0, tzinfo=KST)  # 토요일 오전
 BRIEF_KEYS = {"id", "name", "role_title", "company_id", "phone_masked", "has_phone", "phone_kind", "channels", "unread",
               "do_not_contact", "phone_invalid", "last_line", "hidden"}
-DETAIL_KEYS = BRIEF_KEYS | {"hours", "working_now", "hours_label", "gender", "language", "voice_mode", "voice_id",
+DETAIL_KEYS = BRIEF_KEYS | {"hours", "working_now", "hours_label", "next_start", "gender", "language", "voice_mode", "voice_id",
                             "dnc_reason", "note", "linked_activities"}
 
 
@@ -727,6 +727,24 @@ def test_working_now_uses_project_calendar_when_hours_empty(client, user, sessio
     assert (got[five]["working_now"], got[five]["hours_label"]) == (False, "근무 밖 · 월 08:00 부터")
     assert (got[six]["working_now"], got[six]["hours_label"]) == (True, "근무 중 · 18:00 까지")
     assert (got[weekend]["working_now"], got[weekend]["hours_label"]) == (True, "근무 중 · 12:00 까지")
+
+
+def test_next_start_is_the_servers_next_working_start(client, user, session, sid, monkeypatch):
+    """Task 92 고침 1: 통화 창이 「근무 밖 · 월 08:00 부터」 글을 풀지 않게 다음 근무 시작을 시각으로 준다(KST, 근무 중이면 지금)."""
+    monkeypatch.setattr(service, "_now", lambda: SAT_10)
+    sid6 = schedules.store(session, schedules.make([schedules.task("A", 3)], cal=CalendarSpec(days_per_week=6)))
+    five = _person(client, user, sid, _company(client, user, sid))["id"]
+    six = _person(client, user, sid6, _company(client, user, sid6))["id"]
+
+    assert client.get(_url(sid, f"/people/{five}"), headers=user).json()["next_start"] == "2027-03-08T08:00:00+09:00"
+    assert client.get(_url(sid6, f"/people/{six}"), headers=user).json()["next_start"] == "2027-03-06T10:00:00+09:00"
+
+    def never(*_a, **_k):
+        raise service.work_hours.NoWorkingTime("근무 시간대를 찾지 못했습니다")
+
+    monkeypatch.setattr(service.work_hours, "next_start", never)
+    got = client.get(_url(sid, f"/people/{five}"), headers=user).json()
+    assert (got["next_start"], got["hours_label"]) == (None, "근무시간 없음")
 
 
 # ── 맡은 작업 ───────────────────────────────────────────────────────────────────

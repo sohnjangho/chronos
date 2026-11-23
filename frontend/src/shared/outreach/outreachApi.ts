@@ -222,6 +222,26 @@ export interface CallResult {
 const base = (sid: number) => `/api/schedules/${sid}/outreach`;
 const post = (body?: unknown) => ({ method: 'POST', ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
+/** 통화 요청을 기다리는 한도. 넘으면 기다림을 그만두고 「모름」(status 0)으로 던진다 — 서버가 받아 처리했을 수 있으므로 화면은 실패가
+ *  아니라 「확인하지 못했습니다」를 보이고 그 줄을 다시 읽는다. 창의 [닫기]·Esc 가 영원히 잠기지 않게. */
+export const CALL_TIMEOUT_MS = 20_000;
+async function timed<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const ac = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      ac.abort();
+      reject(new ApiError(0, 'timeout', '서버의 답이 늦어 기다리지 않았습니다.'));
+    }, CALL_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([run(ac.signal), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+const call = <T,>(path: string, init: RequestInit = {}) => timed((signal) => api<T>(path, { ...init, signal }));
+
 /** 녹음 파일(로그인 머리글이 필요해 <audio src> 로 바로 읽을 수 없다 — 받아서 Blob 으로). */
 async function fetchBlob(path: string): Promise<Blob> {
   const { headers, token } = requestHeaders({}, true);
@@ -263,24 +283,24 @@ export const outreachApi = {
 
   // 통화 — 줄을 건드리는 길은 모두 그 일정의 줄인지 먼저 본다(아니면 404 「통화를 찾을 수 없습니다.」).
   /** 최근 것부터. */
-  listCalls: (sid: number, contactId: number) => api<Call[]>(`${base(sid)}/calls?contact_id=${contactId}`, { cache: 'no-store' }),
-  getCall: (sid: number, id: number) => api<CallDetail>(`${base(sid)}/calls/${id}`, { cache: 'no-store' }),
+  listCalls: (sid: number, contactId: number) => call<Call[]>(`${base(sid)}/calls?contact_id=${contactId}`, { cache: 'no-store' }),
+  getCall: (sid: number, id: number) => call<CallDetail>(`${base(sid)}/calls/${id}`, { cache: 'no-store' }),
   /** 초안만 만든다(걸지 않음). */
-  createCall: (sid: number, body: CallIn) => api<Call>(`${base(sid)}/calls`, post(body)),
+  createCall: (sid: number, body: CallIn) => call<Call>(`${base(sid)}/calls`, post(body)),
   /** 초안만(아니면 409 not_draft). */
-  patchCall: (sid: number, id: number, body: CallPatch) => api<Call>(`${base(sid)}/calls/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  removeCall: (sid: number, id: number) => api<void>(`${base(sid)}/calls/${id}`, { method: 'DELETE' }),
+  patchCall: (sid: number, id: number, body: CallPatch) => call<Call>(`${base(sid)}/calls/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  removeCall: (sid: number, id: number) => call<void>(`${base(sid)}/calls/${id}`, { method: 'DELETE' }),
   /** 문에 넣는다 — 막힌 것도 200. 끝난 줄은 409 not_sendable. */
-  placeCall: (sid: number, id: number) => api<CallResult>(`${base(sid)}/calls/${id}/place`, post()),
+  placeCall: (sid: number, id: number) => call<CallResult>(`${base(sid)}/calls/${id}/place`, post()),
   /** at 은 시간대가 붙은 ISO. 근무시간 밖 422 outside_hours · 지난 시각 422 past_time · 걸 수 없는 통화 409 not_schedulable(문의 글). */
-  scheduleCall: (sid: number, id: number, at: string) => api<Call>(`${base(sid)}/calls/${id}/schedule`, post({ at })),
+  scheduleCall: (sid: number, id: number, at: string) => call<Call>(`${base(sid)}/calls/${id}/schedule`, post({ at })),
   /** 예약 → 초안. 예약이 아니면 409 not_scheduled. */
-  cancelCall: (sid: number, id: number) => api<Call>(`${base(sid)}/calls/${id}/cancel`, post()),
+  cancelCall: (sid: number, id: number) => call<Call>(`${base(sid)}/calls/${id}/cancel`, post()),
   /** 진행 중인 통화만(아니면 409 not_live). 상태는 일꾼이 곧 적는다. */
-  hangupCall: (sid: number, id: number) => api<Call>(`${base(sid)}/calls/${id}/hangup`, post()),
+  hangupCall: (sid: number, id: number) => call<Call>(`${base(sid)}/calls/${id}/hangup`, post()),
   /** 받지 않음·통화 중·실패 줄에서 같은 내용의 새 초안 — 걸지 않는다. 그 밖은 409 not_redialable. */
-  redialCall: (sid: number, id: number) => api<Call>(`${base(sid)}/calls/${id}/redial`, post()),
+  redialCall: (sid: number, id: number) => call<Call>(`${base(sid)}/calls/${id}/redial`, post()),
   /** 끝난(completed) 통화의 결과를 사람이 확정한다(다시 확정하면 덮음). 아니면 409 not_completed. */
-  confirmCall: (sid: number, id: number, result: string) => api<Call>(`${base(sid)}/calls/${id}/confirm`, post({ result })),
+  confirmCall: (sid: number, id: number, result: string) => call<Call>(`${base(sid)}/calls/${id}/confirm`, post({ result })),
   callRecording: (sid: number, id: number) => fetchBlob(`${base(sid)}/calls/${id}/recording`),
 };

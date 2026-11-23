@@ -128,7 +128,7 @@ export const CODE_LABEL: Readonly<Record<string, Readonly<Record<string, string>
   // 걸기 직전 다시 본 문(Task 88 runner — detail 은 걸린 차례 이름 또는 ok·local_error)
   recheck_before_dial: {
     ok: '이상 없음', test_mode: '시험 모드·허용 번호', blocked_or_dnc: '차단·수신 거부', precheck: '앞 확인', working_hours: '근무시간',
-    not_ready: '음성 통화 준비 전', local_error: '걸 준비 중 오류',
+    limits: '상한', permission: '권한', duplicate: '중복', not_ready: '음성 통화 준비 전', local_error: '걸 준비 중 오류',
   },
 };
 
@@ -168,8 +168,11 @@ export function eventSummary(m: { events: OutreachEvent[]; status: string; sched
 // 결과는 셋이다 — 통화됨(받지 않음·통화 중 포함, 끝이 분명함) / 실패 / 「확인 필요 — 걸렸는지 알 수 없음」. 셋째는 일꾼이 결과를 모르고 닫은
 // 줄(delivery 사건 판정 noted — 문이 그 번호를 120초 막는다)이고, 실패도 성공도 아니며 자동으로 다시 걸지 않는다.
 export const CALL_UNSURE_TEXT = '확인 필요 — 걸렸는지 알 수 없음';
-/** [전화 걸기]·[통화 끊기] 요청이 나갔는지 모름(답 없음·5xx·읽지 못한 200 — outreachApi.sendOutcomeUnknown). 다시 읽은 줄이 상태를 말한다. */
+/** 요청이 서버에 닿았는지 모름(답 없음·시간 초과·5xx·읽지 못한 200 — outreachApi.sendOutcomeUnknown). 실패가 아니다 — 화면은 그 줄을
+ *  다시 읽어 지금 상태를 보인다. [전화 걸기] · [예약] · [통화 끊기] 마다 하나. */
 export const CALL_UNKNOWN = '걸었는지 확인하지 못했습니다 — 다시 읽은 뒤 상태를 확인해 주세요';
+export const SCHEDULE_UNKNOWN = '예약했는지 확인하지 못했습니다 — 아래 지금 상태를 확인해 주세요';
+export const HANGUP_UNKNOWN = '끊기를 전했는지 확인하지 못했습니다 — 아래 지금 상태를 확인해 주세요';
 /** 걸고 있는 중(내부 상태) — 이 동안 받아쓰기를 2초마다 읽고 [통화 끊기]를 보인다. */
 export const LIVE_CALL: ReadonlySet<string> = new Set(['queued', 'dialing', 'in_call']);
 
@@ -245,8 +248,3 @@ export function callResultLine(c: Pick<Call, 'result_proposed' | 'result_confirm
   }
   return proposed ? `결과: ${proposed} (에이전트 제안 · 확정 전)` : null;
 }
-
-/** 사람이 쓴 글(통화 목적·질문·확정 결과)은 서버가 저장한 그대로 온다 — 화면에는 전화번호처럼 보이는 숫자의 가운데를 가려 보인다. */
-const PHONE_LIKE = /(?<!\d)(0\d{1,2})[-. ]?(\d{3,4})[-. ]?(\d{4})(?!\d)/g;
-export const maskPhones = (text: string) => text.replace(PHONE_LIKE, '$1-****-$3');
-export const hasPhone = (text: string) => new RegExp(PHONE_LIKE.source).test(text);

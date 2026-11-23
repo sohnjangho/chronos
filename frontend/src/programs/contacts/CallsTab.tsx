@@ -4,10 +4,10 @@
 // 단추는 줄마다 한 번에 요청 하나(두 번 눌러도 하나) — 끝나면 목록을 다시 읽은 뒤에 잠금을 푼다. [다시 걸기]는 새 초안을 만들고(걸지 않음)
 // 그 초안으로 창을 연다. 결과를 모르는 통화(「확인 필요」)의 [다시 걸기]는 먼저 묻는다 — 문이 그 번호를 잠깐 막을 수 있다.
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { callStatusLabel, callUnknown, kstDay, type Label } from '../../shared/outreach/labels';
-import { outreachApi, type Call } from '../../shared/outreach/outreachApi';
+import { callStatusLabel, callUnknown, HANGUP_UNKNOWN, kstDay, SCHEDULE_UNKNOWN, type Label } from '../../shared/outreach/labels';
+import { outreachApi, sendOutcomeUnknown, type Call } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
-import CallCard from './CallCard';
+import CallCard, { HANGUP_ASKED } from './CallCard';
 import CallDialog from './CallDialog';
 import type { PersonBrief } from './contactsApi';
 import type { CallsSlotProps } from './ThreadPane';
@@ -15,7 +15,7 @@ import { POLL_MS } from './useThread';
 import XferDialog from './XferDialog';
 import './calls.css';
 
-export { LIVE_POLL_MS } from './TranscriptPanel';
+export { LIVE_POLL_MS, QUEUED_GIVE_UP_MS } from './TranscriptPanel';
 /** 통화가 이만큼 넘으면 찾기 칸을 보인다. */
 export const SEARCH_FROM = 6;
 export const CALL_FOOT = '통화는 AI 음성 에이전트가 겁니다. 걸기 전에 목적과 물어볼 것을 확인합니다.';
@@ -170,7 +170,7 @@ function ListBody({ calls, shown, error, reload, card }: { calls: Call[] | null;
   );
 }
 
-export default function CallsTab({ scheduleId, person, call, onChanged }: CallsSlotProps) {
+export default function CallsTab({ scheduleId, person, call, onChanged, onCount }: CallsSlotProps) {
   const root = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -190,6 +190,9 @@ export default function CallsTab({ scheduleId, person, call, onChanged }: CallsS
     const id = positiveInt(call);
     if (id !== null) setDialog({ id });
   }, [call]);
+  useEffect(() => {
+    if (calls) onCount?.(calls.length); // 탭 글 「통화 n」 — 이 탭이 열려 있는 동안 Contacts 는 따로 읽지 않는다
+  }, [calls, onCount]);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && calls && stick.current) el.scrollTop = el.scrollHeight;
@@ -205,6 +208,15 @@ export default function CallsTab({ scheduleId, person, call, onChanged }: CallsS
       return { text: '같은 내용의 새 초안을 만들었습니다 — 아직 걸지 않았습니다.', tone: 'info' };
     });
   const say = (text: string): Label => ({ text, tone: 'info' });
+  /** 서버에 닿았는지 모르는 실패(답 없음·시간 초과·5xx)는 실패가 아니라 경고 — 끝나면 run 이 목록을 다시 읽어 지금 상태를 보인다. */
+  const unsure = async (work: () => Promise<Label | void>, unknown: string): Promise<Label | void> => {
+    try {
+      return await work();
+    } catch (e) {
+      if (sendOutcomeUnknown(e)) return { text: unknown, tone: 'warn' };
+      throw e;
+    }
+  };
   const card = (c: Call) => (
     <CallCard
       key={c.id}
@@ -214,13 +226,13 @@ export default function CallsTab({ scheduleId, person, call, onChanged }: CallsS
       busy={busy[c.id] ?? null}
       note={notes[c.id] ?? null}
       blocked={blocked}
-      onHangup={() => void run(c.id, 'hangup', async () => (apply(await outreachApi.hangupCall(scheduleId, c.id)), say('끊기를 요청했습니다 — 곧 통화가 끝납니다.')))}
+      onHangup={() => void run(c.id, 'hangup', () => unsure(async () => (apply(await outreachApi.hangupCall(scheduleId, c.id)), say(HANGUP_ASKED)), HANGUP_UNKNOWN))}
       onRedial={() => (callUnknown(c) ? setAsk(c) : redial(c))}
       onConfirm={(result) => run(c.id, 'confirm', async () => void apply(await outreachApi.confirmCall(scheduleId, c.id, result)))}
       onCancel={() => void run(c.id, 'cancel', async () => (apply(await outreachApi.cancelCall(scheduleId, c.id)), say('예약을 취소했습니다 — 초안으로 돌아왔습니다.')))}
       onDiscard={() => void run(c.id, 'discard', () => outreachApi.removeCall(scheduleId, c.id))}
       onOpen={() => setDialog({ id: c.id })}
-      onSchedule={(at) => void run(c.id, 'schedule', async () => void apply(await outreachApi.scheduleCall(scheduleId, c.id, at)))}
+      onSchedule={(at) => void run(c.id, 'schedule', () => unsure(async () => void apply(await outreachApi.scheduleCall(scheduleId, c.id, at)), SCHEDULE_UNKNOWN))}
       onRow={apply}
     />
   );

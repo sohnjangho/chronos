@@ -8,12 +8,14 @@ import { useCurrentSchedule } from '../../os/currentSchedule';
 import { register, type ProgramManifest } from '../../os/registry';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
+import { HANGUP_UNKNOWN, SCHEDULE_UNKNOWN } from '../../shared/outreach/labels';
 import type { Call } from '../../shared/outreach/outreachApi';
 import css from './calls.css?raw';
 import {
   call, callGets, callPosts, change, draftCall, failCall, holdCall, nextPlace, onEveryDetail, rowOf, setTranscript, speak, stubCalls,
 } from './callKit';
-import { LIVE_POLL_MS } from './CallsTab';
+import CallCard from './CallCard';
+import { LIVE_POLL_MS, QUEUED_GIVE_UP_MS } from './CallsTab';
 import Contacts from './Contacts';
 import { JUNG, PARK } from './testKit';
 import ThreadPane from './ThreadPane';
@@ -29,6 +31,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   vi.restoreAllMocks();
   useCurrentSchedule.setState({ current: null });
   useUiContext.getState().reset();
@@ -203,9 +206,17 @@ describe('call cards (시안 ②)', () => {
 });
 
 describe('live call', () => {
+  /** setTimeout·Date 만 가짜(목록의 15초 setInterval 은 진짜) — 시험이 시간을 직접 민다. */
+  const fake = () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true });
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+  const pass = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+  const inCall = (over: Partial<Call> = {}) => call({ id: 5, status: 'in_call', duration_s: null, summary_ko: '', result_proposed: '', ended_at: null, purpose: '지금 통화', ...over });
+
   test('the transcript continues every 2 s while the call is live, [통화 끊기] asks once, and reading stops when it ends', async () => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-    stubCalls([call({ id: 5, status: 'in_call', duration_s: null, summary_ko: '', result_proposed: '', ended_at: null, purpose: '지금 통화' })]);
+    const user = fake();
+    stubCalls([inCall()]);
     setTranscript(5, [
       { role: 'agent', text: '안녕하세요, ChronOS AI 비서입니다. 이 통화는 기록됩니다.', t: 0 },
       { role: 'peer', text: '네 말씀하세요', t: 3 },
@@ -216,38 +227,123 @@ describe('live call', () => {
     await waitFor(() => expect(within(tr).getAllByRole('listitem')).toHaveLength(2));
     expect(within(tr).getAllByRole('listitem')[1].textContent).toContain('박현장');
     speak(5, { role: 'peer', text: '토요일 6명 가능합니다', t: 9 });
-    await act(async () => void vi.advanceTimersByTime(LIVE_POLL_MS));
+    await pass(LIVE_POLL_MS);
     await waitFor(() => expect(within(tr).getAllByRole('listitem')).toHaveLength(3));
     expect(within(tr).getByText('토요일 6명 가능합니다')).toBeVisible();
 
     const release = holdCall((r) => r.url.endsWith('/hangup'));
     const hang = btn(c, '통화 끊기');
-    await userEvent.dblClick(hang);
-    await userEvent.click(hang);
+    await user.dblClick(hang);
+    await user.click(hang);
     expect(hang).toBeDisabled();
     release();
     await waitFor(() => expect(callPosts('hangup')).toHaveLength(1));
+    expect(await within(c).findByText('끊기를 요청했습니다 — 곧 통화가 끝납니다.')).toBeVisible();
 
     change(5, { status: 'completed', duration_s: 40, ended_at: '2026-11-24T05:16:00Z' });
-    await act(async () => void vi.advanceTimersByTime(LIVE_POLL_MS));
+    await pass(LIVE_POLL_MS);
     await waitFor(() => expect(card('지금 통화').textContent).toContain('통화 40초'));
     noBtn(card('지금 통화'), '통화 끊기');
+    // 끝난 뒤: 받아쓰기는 남고, 「끊기를 요청했습니다」는 사라지고, 더 읽지 않는다
+    expect(within(card('지금 통화')).getByRole('log', { name: '받아쓰기' })).toBeVisible();
+    expect(card('지금 통화').textContent).not.toContain('끊기를 요청했습니다');
     const n = callGets(5).length;
-    await act(async () => void vi.advanceTimersByTime(LIVE_POLL_MS * 3));
+    await pass(LIVE_POLL_MS * 5);
     expect(callGets(5)).toHaveLength(n);
   });
 
-  test('a hang-up the server refuses shows its words', async () => {
+  test('one read at a time: a slow read is not overlapped by the next tick', async () => {
+    fake();
+    stubCalls([inCall()]);
+    show();
+    await findCard('지금 통화');
+    await waitFor(() => expect(callGets(5)).toHaveLength(1));
+    const release = holdCall((r) => r.method === 'GET' && r.url.endsWith('/calls/5'));
+    await pass(LIVE_POLL_MS);
+    expect(callGets(5)).toHaveLength(2);
+    await pass(LIVE_POLL_MS * 5); // 붙잡힌 읽기가 끝나기 전에는 다음 읽기를 보내지 않는다
+    expect(callGets(5)).toHaveLength(2);
+    release();
+    await pass(LIVE_POLL_MS);
+    await waitFor(() => expect(callGets(5)).toHaveLength(3));
+  });
+
+  test('read errors back off 2 → 4 → 8 → 16 → 30 s and come back to 2 s after a good read', async () => {
+    fake();
+    stubCalls([inCall()]);
+    for (let i = 0; i < 6; i++) failCall((r) => r.method === 'GET' && r.url.endsWith('/calls/5'), 500);
+    show();
+    await findCard('지금 통화');
+    await waitFor(() => expect(callGets(5)).toHaveLength(1)); // 첫 읽기 실패
+    for (let t = 0; t < 130; t++) await pass(1_000);
+    const at = callGets(5).map((r) => r.at);
+    const gaps = at.slice(1, 8).map((x, k) => x - at[k]);
+    // 실패 여섯 번: 4 · 8 · 16 · 30(상한) · 30 · 30초, 일곱째가 읽히면 다시 2초
+    expect(gaps).toEqual([4_000, 8_000, 16_000, 30_000, 30_000, 30_000, LIVE_POLL_MS]);
+  });
+
+  test('reading pauses while the browser tab is hidden and resumes at once when it is shown', async () => {
+    fake();
+    stubCalls([inCall()]);
+    show();
+    await findCard('지금 통화');
+    await waitFor(() => expect(callGets(5)).toHaveLength(1));
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await pass(LIVE_POLL_MS * 10);
+    expect(callGets(5)).toHaveLength(1);
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(() => expect(callGets(5)).toHaveLength(2));
+  });
+
+  test('a call that sits queued for more than 2 minutes stops being read until a person asks again', async () => {
+    const user = fake();
+    stubCalls([inCall({ status: 'queued', purpose: '줄의 통화' })]);
+    show();
+    const c = await findCard('줄의 통화');
+    await waitFor(() => expect(callGets(5)).toHaveLength(1));
+    await pass(QUEUED_GIVE_UP_MS + LIVE_POLL_MS * 2);
+    expect(await within(c).findByText(/아직 걸리지 않았습니다/)).toBeVisible();
+    const n = callGets(5).length;
+    expect(n).toBeLessThanOrEqual(QUEUED_GIVE_UP_MS / LIVE_POLL_MS + 3);
+    await pass(LIVE_POLL_MS * 10);
+    expect(callGets(5)).toHaveLength(n);
+    change(5, { status: 'in_call' });
+    await user.click(btn(c, '새로 고침'));
+    await waitFor(() => expect(card('줄의 통화').textContent).toContain('통화 중'));
+    expect(within(c).queryByText(/아직 걸리지 않았습니다/)).toBeNull();
+    await pass(LIVE_POLL_MS);
+    await waitFor(() => expect(callGets(5).length).toBeGreaterThan(n + 1));
+  });
+
+  test('reading stops when the pane goes away', async () => {
+    fake();
+    stubCalls([inCall()]);
+    const view = show();
+    await findCard('지금 통화');
+    await waitFor(() => expect(callGets(5)).toHaveLength(1));
+    view.unmount();
+    await pass(LIVE_POLL_MS * 5);
+    expect(callGets(5)).toHaveLength(1);
+  });
+
+  test('a hang-up the server refuses shows its words; one with no answer is 「not known」, not a failure', async () => {
     stubCalls([call({ id: 5, status: 'dialing', duration_s: null, purpose: '거는 통화' })]);
     failCall((r) => r.url.endsWith('/hangup'), 409, { code: 'not_live', message: '진행 중인 통화가 아닙니다.' });
     show();
     const c = await findCard('거는 통화');
     await userEvent.click(btn(c, '통화 끊기'));
-    expect(await within(c).findByText('진행 중인 통화가 아닙니다.')).toBeVisible();
+    expect(await within(c).findByText('진행 중인 통화가 아닙니다.')).toHaveClass('is-bad');
+    failCall((r) => r.url.endsWith('/hangup'), 0);
+    const lists = callGets().filter((r) => r.url.includes('?contact_id=')).length;
+    await userEvent.click(btn(c, '통화 끊기'));
+    expect(await within(c).findByText(HANGUP_UNKNOWN)).toHaveClass('is-warn');
+    expect(callGets().filter((r) => r.url.includes('?contact_id=')).length).toBeGreaterThan(lists); // 다시 읽음
   });
 
   test('the live card follows the state the worker writes (queued → dialing → in call)', async () => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    fake();
     stubCalls([call({ id: 5, status: 'queued', duration_s: null, purpose: '줄의 통화' })]);
     let step = 0;
     onEveryDetail((c) => {
@@ -257,10 +353,23 @@ describe('live call', () => {
     });
     show();
     await findCard('걸 차례를 기다리는 중');
-    await act(async () => void vi.advanceTimersByTime(LIVE_POLL_MS));
+    await pass(LIVE_POLL_MS);
     await findCard('거는 중');
-    await act(async () => void vi.advanceTimersByTime(LIVE_POLL_MS));
+    await pass(LIVE_POLL_MS);
     await waitFor(() => expect(card('줄의 통화').textContent).toContain('통화 중'));
+  });
+
+  test('a card that becomes live and ends keeps its transcript open', async () => {
+    stubCalls([call({ id: 5, status: 'in_call' })]);
+    setTranscript(5, [{ role: 'peer', text: '여보세요', t: 1 }]);
+    const props = { scheduleId: 1, peerName: '박현장', busy: null, note: null, blocked: null, onHangup: vi.fn(), onRedial: vi.fn(),
+      onConfirm: vi.fn(), onCancel: vi.fn(), onDiscard: vi.fn(), onOpen: vi.fn(), onSchedule: vi.fn(), onRow: vi.fn() };
+    const view = render(<CallCard {...props} c={call({ id: 5, status: 'scheduled', scheduled_at: '2026-11-30T00:00:00Z' })} />);
+    expect(screen.queryByRole('log', { name: '받아쓰기' })).toBeNull();
+    view.rerender(<CallCard {...props} c={call({ id: 5, status: 'in_call' })} />);
+    expect(await screen.findByText('여보세요')).toBeVisible();
+    view.rerender(<CallCard {...props} c={call({ id: 5, status: 'completed' })} />);
+    expect(screen.getByRole('log', { name: '받아쓰기' })).toBeVisible();
   });
 });
 
@@ -352,6 +461,23 @@ describe('redial and recording', () => {
     expect(callGets().some((r) => r.url.endsWith('/calls/2/recording'))).toBe(true);
   });
 
+  test('a held call: [<제안 시각>에 예약] while the suggestion is ahead; an unknown answer is a warning and the list is read again', async () => {
+    stubCalls([
+      call({ id: 4, status: 'blocked_hours', duration_s: null, scheduled_at: '2099-11-29T23:00:00Z', purpose: '앞의 제안' }),
+      call({ id: 6, status: 'blocked_hours', duration_s: null, scheduled_at: '2020-01-01T00:00:00Z', purpose: '지난 제안' }),
+    ]);
+    show();
+    const ahead = await findCard('앞의 제안');
+    // 제안 시각이 지났으면 카드에서는 예약하지 않는다 — 창이 지금 근무 중인지·다음 근무 시작을 보고 정한다
+    noBtn(card('지난 제안'), /에 예약$/);
+    expect(btn(card('지난 제안'), '전화 걸기 창 열기')).toBeEnabled();
+    failCall((r) => r.url.endsWith('/schedule'), 0);
+    const lists = callGets().filter((r) => r.url.includes('?contact_id=')).length;
+    await userEvent.click(btn(ahead, /에 예약$/));
+    expect(await within(ahead).findByText(SCHEDULE_UNKNOWN)).toHaveClass('is-warn');
+    expect(callGets().filter((r) => r.url.includes('?contact_id=')).length).toBeGreaterThan(lists);
+  });
+
   test('a scheduled call can be cancelled, a draft discarded or opened in the call window', async () => {
     stubCalls([
       call({ id: 9, status: 'scheduled', duration_s: null, scheduled_at: '2026-11-29T23:00:00Z', purpose: '예약한 목적' }),
@@ -390,20 +516,30 @@ describe('the pane around the cards', () => {
     expect(await screen.findByRole('tab', { name: '통화 2' })).toBeVisible();
   });
 
-  test('no full phone number anywhere on the screen', async () => {
+  test('no full phone number anywhere on the screen — the server masks, the screen adds none', async () => {
+    // 서버(Task 91 고침 — hide_phones)가 가린 꼴로 준다: 사람이 쓴 목적·질문·말하지 않을 것도
     stubCalls([
-      call({ id: 2, summary_ko: '박현장 010-****-0199 로 회신 요청', answers: [{ question: '연락처', answer: '010-****-0199', quote: '공일공 별표', quote_found: true }] }),
-      draftCall({ id: 3, purpose: '010-0000-0199 로 걸어 확인', questions: ['010 0000 0198 은 누구 번호인지'], avoid: ['01000000197'] }),
+      call({ id: 2, summary_ko: '박현장 [번호] 로 회신 요청', answers: [{ question: '연락처', answer: '[번호]', quote: '공일공 별표', quote_found: true }] }),
+      draftCall({ id: 3, purpose: '[번호] 로 걸어 확인', questions: ['[번호] 은 누구 번호인지'], avoid: ['[번호]'] }),
     ]);
-    setTranscript(2, [{ role: 'peer', text: '제 번호는 010-****-0199 입니다', t: 1 }]);
+    setTranscript(2, [{ role: 'peer', text: '제 번호는 [번호] 입니다', t: 1 }]);
     show();
     const c = await findCard('회신 요청');
     await userEvent.click(btn(c, '받아쓰기 보기'));
-    await within(c).findByText('제 번호는 010-****-0199 입니다');
+    await within(c).findByText('제 번호는 [번호] 입니다');
     await userEvent.click(btn(card('걸어 확인'), '전화 걸기 창 열기'));
     await screen.findByRole('dialog', { name: '전화 걸기' });
     await screen.findAllByText(/로 걸어 확인/);
     expect(document.body.innerHTML).not.toMatch(FULL_NUMBER);
     expect(document.body.textContent).not.toMatch(FULL_NUMBER);
   });
+
+  test('while the call tab is open the tab count comes from its own list (no second read)', async () => {
+    stubCalls([call({ id: 1 }), call({ id: 2, status: 'no_answer' })]);
+    render(<Contacts windowId="w" params={{ id: '1', contact: '1', tab: 'calls' }} />);
+    expect(await screen.findByRole('tab', { name: '통화 2' })).toBeVisible();
+    await screen.findByRole('log', { name: '통화 기록' });
+    expect(callGets().filter((r) => r.url.endsWith('/calls?contact_id=1'))).toHaveLength(1);
+  });
+
 });

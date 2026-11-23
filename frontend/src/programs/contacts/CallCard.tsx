@@ -1,12 +1,12 @@
 // 통화 카드 한 장(Task 92, 시안 ②). 위: 누가 걸었나 · 「AI 전화」 · 상태 · 시각 · 승인한 사람 / 목적(받지 않았으면 「자동으로 다시 걸지
 // 않습니다」) · 요약 · 결과(에이전트 제안 · 사람이 확정) · 질문별 답과 근거(근거 없는 답은 「확인 필요」) · 연결된 작업 · 하네스 사건 접힌 줄 /
 // 단추: [받아쓰기 보기][녹음 듣기][결과 확정][다시 걸기] · 걸고 있으면 [통화 끊기] · 초안 [버리기][전화 걸기 창 열기] · 예약 [예약 취소].
-// 상태는 서버가 준 줄에서만 읽는다 — 누른 뒤의 모습은 다시 읽은 줄이 정한다. 사람이 쓴 글의 번호처럼 보이는 숫자는 가려 보인다.
+// 상태는 서버가 준 줄에서만 읽는다 — 누른 뒤의 모습은 다시 읽은 줄이 정한다. 번호는 서버가 모든 글(사람이 쓴 목적·결과 포함)에서 가려 준다.
 import { useEffect, useState } from 'react';
 import { getProgram } from '../../os/registry';
 import { useWindows } from '../../os/windowStore';
 import {
-  callResultLine, callSender, callStatusLabel, callUnknown, eventLine, eventSummary, kstShort, kstTime, LIVE_CALL, maskPhones, verdictLabel, type Label,
+  callResultLine, callSender, callStatusLabel, callUnknown, eventLine, eventSummary, kstShort, kstTime, LIVE_CALL, verdictLabel, type Label,
 } from '../../shared/outreach/labels';
 import { outreachApi, type Call } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
@@ -15,6 +15,10 @@ import TranscriptPanel from './TranscriptPanel';
 
 export const REDIALABLE: ReadonlySet<string> = new Set(['no_answer', 'busy', 'failed']);
 export const RESULT_MAX = 2000; // 서버의 확정 결과 길이(Task 91)
+/** [통화 끊기]를 서버가 받았다 — 통화가 끝나면(live 가 아니면) 이 글은 내린다. */
+export const HANGUP_ASKED = '끊기를 요청했습니다 — 곧 통화가 끝납니다.';
+/** 문이 제안한 시각이 아직 앞이면 그 시각(지났으면 null — 창이 지금 근무 중인지·다음 근무 시작을 보고 정한다). */
+export const aheadOf = (at: string | null) => (at && new Date(at).getTime() > Date.now() ? at : null);
 
 export interface CallCardProps {
   c: Call;
@@ -60,7 +64,7 @@ function Answers({ c }: { c: Call }) {
     <ul className="cl-answers" aria-label="질문별 답">
       {c.answers.map((a, i) => (
         <li key={i}>
-          <span className="cl-q">{maskPhones(a.question)}</span>
+          <span className="cl-q">{a.question}</span>
           <span className="cl-a">{a.answer}</span>
           {a.quote_found && a.quote ? (
             <span className="cl-quote">{`근거 「${a.quote}」`}</span>
@@ -161,8 +165,8 @@ function Actions({ p, transcript, onTranscript, onRecording, recordingBusy, onEd
     buttons.push(<Button key="open" variant="primary" disabled={locked} onClick={p.onOpen}>전화 걸기 창 열기</Button>);
   }
   if (c.status === 'blocked_hours') {
-    if (c.scheduled_at) {
-      const at = c.scheduled_at;
+    const at = aheadOf(c.scheduled_at);
+    if (at) {
       buttons.push(<Button key="sched" disabled={locked || blocked !== null} title={blocked ?? undefined} onClick={() => p.onSchedule(at)}>{`${kstShort(at)}에 예약`}</Button>);
     }
     buttons.push(<Button key="open" disabled={locked} onClick={p.onOpen}>전화 걸기 창 열기</Button>);
@@ -180,11 +184,14 @@ export default function CallCard(p: CallCardProps) {
   const { c } = p;
   const live = LIVE_CALL.has(c.status);
   const [transcript, setTranscript] = useState(live); // 걸고 있는 통화는 받아쓰기를 펼친 채로(끝나도 그대로)
+  useEffect(() => {
+    if (live) setTranscript(true); // 나중에 걸린 통화도 — 끝난 뒤 상자가 사라지지 않게
+  }, [live]);
   const [editing, setEditing] = useState(false);
   const rec = useRecording(p.scheduleId, c.id);
   const status = callStatusLabel(c);
-  const result = callResultLine({ ...c, result_confirmed: c.result_confirmed && maskPhones(c.result_confirmed) });
-  const note = p.note && p.note.text !== status.text ? p.note : null;
+  const result = callResultLine(c);
+  const note = p.note && p.note.text !== status.text && !(p.note.text === HANGUP_ASKED && !live) ? p.note : null;
   const draft = c.status === 'draft';
   const cls = ['cl-card', draft && 'is-draft', c.origin === 'agent' && 'is-ai', live && 'is-live'].filter(Boolean).join(' ');
   const showTranscript = live || (transcript && c.status !== 'draft');
@@ -193,14 +200,14 @@ export default function CallCard(p: CallCardProps) {
       <Head c={c} />
       <p className="cl-text">
         <b>목적</b>
-        {maskPhones(c.purpose)}
+        {c.purpose}
       </p>
       {c.status === 'no_answer' && <p className="cl-small">자동으로 다시 걸지 않습니다 — 다시 걸려면 [다시 걸기]를 눌러 주세요.</p>}
       {callUnknown(c) && (
         <p className="th-why">{`${c.fail_reason ? `${c.fail_reason} · ` : ''}자동으로 다시 걸지 않습니다. 상대가 받았을 수 있으니 확인한 뒤 다시 걸어 주세요.`}</p>
       )}
       {(draft || c.status === 'blocked_hours') && c.fail_reason && <p className="th-why">{`걸지 않은 까닭: ${c.fail_reason}`}</p>}
-      {c.status === 'blocked_hours' && c.scheduled_at && <p className="cl-small">{`다음 근무 시작 ${kstShort(c.scheduled_at)}`}</p>}
+      {c.status === 'blocked_hours' && aheadOf(c.scheduled_at) && <p className="cl-small">{`다음 근무 시작 ${kstShort(c.scheduled_at!)}`}</p>}
       {c.summary_ko && (
         <p className="cl-text">
           <b>요약</b>

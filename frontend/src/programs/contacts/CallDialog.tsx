@@ -1,61 +1,33 @@
-// 「전화 걸기」 창(Task 92, 시안 ③): 받는 사람 · 통화 목적 · 물어볼 것 · 말하지 않을 것 · 연결 · 언어 · 음성(고른 까닭) · 근무시간 줄,
-// [에이전트에게 다시 쓰게](대화로 보냄) [고치기] [전화 걸기]. 근무시간 밖이면 [전화 걸기] 대신 「지금은 근무시간 밖입니다 — [<다음 근무 시작>에 예약]」.
+// 「전화 걸기」 창(Task 92, 시안 ③): 받는 사람 · 통화 목적 · 물어볼 것 · 말하지 않을 것 · 연결 · 언어 · 음성(고른 까닭) · 근무시간 줄(CallForm),
+// [에이전트에게 다시 쓰게](대화로 보냄) [고치기] [전화 걸기]. 근무시간 밖이면 [전화 걸기] 대신 「지금은 근무시간 밖입니다 — [<다음 근무 시작>에 예약]」
+// — 다음 근무 시작은 서버가 준 시각(주소록 자세히의 next_start, 문이 막아 둔 줄이면 그 제안이 아직 앞일 때 그것). 서버가 그 시각을 거절하면
+// (지난 시각·공휴일) 그 글과 함께 다른 시각을 고르는 칸을 보인다. 근무시간을 읽지 못하면 그렇게 말하고 [전화 걸기]를 둔다(문이 정한다).
 // 새 통화는 먼저 쓰고 [저장](초안 — 걸지 않음)한 뒤 그 초안을 확인하고 건다. [전화 걸기]는 진짜 전화로 이어진다: 한 번에 요청 하나(두 번 눌러도),
 // 걸기 바로 전에 그 줄을 다시 읽어 보인 것과 다르면 걸지 않고 새 내용을 보인다(승인한 내용 = 거는 내용). 결과는 문의 판정 글 그대로이고,
-// 답을 못 받으면 「걸었는지 확인하지 못했습니다」(실패가 아니다) 뒤 다시 읽는다. 전화번호는 이 창 어디에도 없다(사람이 쓴 글도 가려 보인다).
+// 답을 못 받으면(시간 초과 포함) 「…확인하지 못했습니다」(실패가 아니다) 뒤 다시 읽는다. 번호는 서버가 가려 주고 번호가 든 글은 서버가 막는다.
 import { useEffect, useRef, useState } from 'react';
 import { useWindows } from '../../os/windowStore';
+import { ApiError } from '../../shared/api';
 import {
-  CALL_UNKNOWN, callOutcomeLabel, callSender, callStatusLabel, hasPhone, kstShort, maskPhones, outcomeLabel, type Label,
+  CALL_UNKNOWN, callOutcomeLabel, callSender, callStatusLabel, kstShort, outcomeLabel, SCHEDULE_UNKNOWN, type Label,
 } from '../../shared/outreach/labels';
 import { outreachApi, sendOutcomeUnknown, type Call, type CallLanguage, type CallResult } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
-import ActivityPicker from './ActivityPicker';
-import { getPerson, LANGUAGES, type PersonBrief, type PersonDetail } from './contactsApi';
-import { activityLabel } from './thread';
+import { aheadOf } from './CallCard';
+import { EditForm, formOf, formProblem, lines, Rows, type Form, HOURS_UNREAD } from './CallForm';
+import { getPerson, type PersonBrief, type PersonDetail } from './contactsApi';
 import XferDialog from './XferDialog';
 
 export const TITLE = '전화 걸기';
 export const CHANGED = '내용이 바뀌었습니다 — 확인한 뒤 다시 눌러 주세요';
 export const UNREAD = '지금 상태를 읽지 못해 걸지 않았습니다 — 다시 눌러 주세요';
-export const PHONE_IN_TEXT = '통화 목적·물어볼 것·말하지 않을 것에는 전화번호를 적을 수 없습니다 — 번호는 앱이 붙입니다.';
-const PURPOSE_MAX = 500; // 서버(Task 91)와 같은 값
-const LINE_MAX = 200;
-const LINES_MAX = 10;
 const PLACEABLE = new Set(['draft', 'blocked_hours']);
-const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
-const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+const RETRY_TIME = new Set(['past_time', 'outside_hours']); // 다른 시각을 고르면 되는 거절
 const KST_MS = 9 * 3_600_000;
-const two = (n: number) => String(n).padStart(2, '0');
 const errText = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
+/** 시간대 붙은 ISO → datetime-local 칸의 값(한국 시각). */
+const kstLocal = (iso: string) => new Date(new Date(iso).getTime() + KST_MS).toISOString().slice(0, 16);
 
-/** 「근무 밖 · 월 08:00 부터」(주소록 API 의 hours_label — 서버가 근무시간·공휴일을 보고 고른 다음 근무 시작) → 그 시각(KST, 시간대 붙은 ISO).
- *  글에는 요일과 시각만 있으므로 지금부터 가장 가까운 그 요일·시각으로 읽는다. 서버가 예약할 때 근무시간을 다시 보고 틀리면 422 로 막는다. */
-export function nextStartFromLabel(label: string, now: Date = new Date()): string | null {
-  const m = /근무 밖 · ([일월화수목금토]) (\d{2}):(\d{2}) 부터/.exec(label);
-  if (!m) return null;
-  const want = WEEKDAYS.indexOf(m[1]);
-  const [h, min] = [Number(m[2]), Number(m[3])];
-  const k = new Date(now.getTime() + KST_MS);
-  for (let i = 0; i < 8; i++) {
-    const wall = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate() + i, h, min));
-    if (wall.getUTCDay() !== want || wall.getTime() - KST_MS <= now.getTime()) continue;
-    return `${wall.getUTCFullYear()}-${two(wall.getUTCMonth() + 1)}-${two(wall.getUTCDate())}T${two(h)}:${two(min)}:00+09:00`;
-  }
-  return null;
-}
-
-/** 음성 줄: 이 통화에 고른 음성 → 연락처에서 직접 고른 음성 → 설정의 성별 칸(일꾼이 voices.pick 으로 고르는 차례 그대로). */
-function voiceLine(row: Call | null, d: PersonDetail | null): string {
-  if (row?.voice_id) return `${row.voice_id} · 이 통화에 고른 음성`;
-  if (d?.voice_mode === 'manual' && d.voice_id) return `${d.voice_id} · 연락처에서 직접 고른 음성`;
-  if (!d) return '설정의 음성 칸에서 고릅니다';
-  const slot = d.gender === 'male' ? '남성 연락처에게 걸 때' : d.gender === 'female' ? '여성 연락처에게 걸 때' : '성별 모름';
-  return `설정의 「${slot}」 칸에서 고릅니다`;
-}
-
-const lines = (text: string) => text.split('\n').map((l) => l.trim()).filter(Boolean);
-const langLabel = (code: string) => LANGUAGES.find((l) => l.key === code)?.label ?? code;
 /** 보인 내용과 다시 읽은 내용이 같은가(걸기 전 확인). */
 const same = (a: Call, b: Call) =>
   a.purpose === b.purpose && a.questions.join('\n') === b.questions.join('\n') && a.avoid.join('\n') === b.avoid.join('\n') &&
@@ -69,24 +41,10 @@ function placeResult(r: CallResult): Label {
   return r.call.status === 'draft' ? { text: o.message, tone } : { text: `${callStatusLabel(r.call).text} — ${o.message}`, tone };
 }
 
-interface Form {
-  purpose: string;
-  questions: string;
-  avoid: string;
-  language: string;
-  activity: string | null;
-}
-const formOf = (row: Call | null, language: string): Form =>
-  row
-    ? { purpose: row.purpose, questions: row.questions.join('\n'), avoid: row.avoid.join('\n'), language: row.language, activity: row.activity?.id ?? null }
-    : { purpose: '', questions: '', avoid: '', language, activity: null };
-
-function formProblem(f: Form): string | null {
-  const all = [f.purpose, ...lines(f.questions), ...lines(f.avoid)];
-  if (all.some(hasPhone)) return PHONE_IN_TEXT;
-  if (lines(f.questions).length > LINES_MAX || lines(f.avoid).length > LINES_MAX) return `물어볼 것·말하지 않을 것은 ${LINES_MAX}줄까지 적을 수 있습니다.`;
-  if ([...lines(f.questions), ...lines(f.avoid)].some((l) => l.length > LINE_MAX)) return `한 줄은 ${LINE_MAX}자까지 적을 수 있습니다.`;
-  return null;
+/** 근무 밖이면 예약할 시각(찾지 못했으면 null). 근무 중이거나 근무시간을 아직·끝내 모르면 undefined — [전화 걸기], 문이 정한다. */
+function scheduleAt(row: Call, detail: PersonDetail | null): string | null | undefined {
+  if (!detail || detail.working_now) return undefined;
+  return (row.status === 'blocked_hours' ? aheadOf(row.scheduled_at) : null) ?? detail.next_start;
 }
 
 interface Props {
@@ -101,89 +59,7 @@ interface Props {
   onChanged(): void;
 }
 
-/** 시안 ③의 줄들. 쓰는 중(editing)에는 쓰지 않는 줄(받는 사람·음성·근무시간)만. */
-function Rows({ row, person, detail, editing = false }: { row: Call | null; person: PersonBrief; detail: PersonDetail | null; editing?: boolean }) {
-  const c = row?.contact;
-  const who = c ? `${c.name} ${c.role_title}${c.company ? ` (${c.company})` : ''}` : `${person.name} ${person.role_title}`;
-  if (editing)
-    return (
-      <dl className="cl-kv">
-        <dt>받는 사람</dt>
-        <dd>{who.trim()}</dd>
-        <dt>음성</dt>
-        <dd>{voiceLine(row, detail)}</dd>
-        <dt>근무시간</dt>
-        <dd>{detail?.hours_label ?? '읽는 중…'}</dd>
-      </dl>
-    );
-  return (
-    <dl className="cl-kv">
-      <dt>받는 사람</dt>
-      <dd>{who.trim()}</dd>
-      <dt>통화 목적</dt>
-      <dd>{row ? maskPhones(row.purpose) : ''}</dd>
-      <dt>물어볼 것</dt>
-      <dd>
-        {row && row.questions.length > 0 ? (
-          <ol>
-            {row.questions.map((q, i) => (
-              <li key={i}>{`${CIRCLED[i] ?? `${i + 1}.`} ${maskPhones(q)}`}</li>
-            ))}
-          </ol>
-        ) : (
-          '없음'
-        )}
-      </dd>
-      <dt>말하지 않을 것</dt>
-      <dd>{row && row.avoid.length > 0 ? row.avoid.map(maskPhones).join(', ') : '없음'}</dd>
-      <dt>연결</dt>
-      <dd>{row?.activity ? activityLabel(row.activity) : '없음'}</dd>
-      <dt>언어</dt>
-      <dd>{langLabel(row?.language ?? detail?.language ?? 'ko')}</dd>
-      <dt>음성</dt>
-      <dd>{voiceLine(row, detail)}</dd>
-      <dt>근무시간</dt>
-      <dd>{detail?.hours_label ?? '읽는 중…'}</dd>
-    </dl>
-  );
-}
-
-function EditForm({ scheduleId, form, setForm, locked }: { scheduleId: number; form: Form; setForm(f: Form): void; locked: boolean }) {
-  const put = (k: keyof Form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
-  return (
-    <div className="cl-form">
-      <label>
-        통화 목적
-        <textarea className="ct-input ct-textarea" aria-label="통화 목적" maxLength={PURPOSE_MAX} value={form.purpose} readOnly={locked} onChange={put('purpose')} />
-      </label>
-      <label>
-        <span>
-          물어볼 것 <span className="cl-hint">— 한 줄에 하나, {LINES_MAX}개까지</span>
-        </span>
-        <textarea className="ct-input ct-textarea" aria-label="물어볼 것" value={form.questions} readOnly={locked} onChange={put('questions')} />
-      </label>
-      <label>
-        <span>
-          말하지 않을 것 <span className="cl-hint">— 한 줄에 하나</span>
-        </span>
-        <textarea className="ct-input ct-textarea" aria-label="말하지 않을 것" value={form.avoid} readOnly={locked} onChange={put('avoid')} />
-      </label>
-      <label>
-        언어
-        <select className="ct-input" value={form.language} disabled={locked} onChange={put('language')}>
-          {LANGUAGES.map((l) => (
-            <option key={l.key} value={l.key}>
-              {l.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <ActivityPicker scheduleId={scheduleId} value={form.activity} onChange={(id) => setForm({ ...form, activity: id })} disabled={locked} />
-    </div>
-  );
-}
-
-/** 지금 이 창의 동작 하나(두 번 눌러도 하나). */
+/** 지금 이 창의 동작 하나(두 번 눌러도 하나). 요청마다 시간 한도가 있어(outreachApi) 잠금이 영원하지 않다. */
 function useLock() {
   const [busy, setBusy] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -204,16 +80,19 @@ function useLock() {
 /** 사람 자세히(근무시간·음성)와 그 통화 줄. reread·show 는 순번을 올려 늦게 온 옛 읽기가 새 모습을 덮지 못하게 한다. */
 function useCallData(scheduleId: number, personId: number, callId: number | null) {
   const [detail, setDetail] = useState<PersonDetail | null>(null);
+  const [detailFailed, setDetailFailed] = useState(false);
   const [row, setRow] = useState<Call | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const seq = useRef(0);
   const alive = useRef(true);
+  const readPerson = () =>
+    getPerson(scheduleId, personId).then(
+      (d) => alive.current && (setDetail(d), setDetailFailed(false)),
+      () => alive.current && setDetailFailed(true), // 근무시간 줄은 「읽지 못했습니다」 — 걸지 말지는 문이 정한다
+    );
   useEffect(() => {
     alive.current = true;
-    getPerson(scheduleId, personId).then(
-      (d) => alive.current && setDetail(d),
-      () => undefined, // 근무시간·음성 줄 없이 둔다
-    );
+    void readPerson();
     if (callId !== null) {
       const mine = ++seq.current;
       outreachApi.getCall(scheduleId, callId).then(
@@ -225,24 +104,23 @@ function useCallData(scheduleId: number, personId: number, callId: number | null
       alive.current = false;
     };
   }, [scheduleId, personId, callId]);
-  /** 그 줄을 다시 읽어 보인다. */
   const reread = async (id: number) => {
     const mine = ++seq.current;
     const fresh = await outreachApi.getCall(scheduleId, id);
     if (alive.current && mine === seq.current) setRow(fresh);
     return fresh;
   };
-  /** 동작의 답이 준 줄을 보인다. */
   const show = (r: Call) => {
     seq.current += 1;
     if (alive.current) setRow(r);
   };
-  return { detail, row, loadError, reread, show };
+  return { detail, detailFailed, row, loadError, reread, show, readPerson };
 }
 type CallData = ReturnType<typeof useCallData>;
 
 /** [전화 걸기]·[예약]. 걸기는 바로 전에 그 줄을 다시 읽어 보인 것과 같을 때만 문에 넣는다. 끝나면 목록을 다시 읽게 한다. */
 function useCallActions(scheduleId: number, data: CallData, run: ReturnType<typeof useLock>['run'], setNote: (n: Label | null) => void, onChanged: () => void) {
+  const [pick, setPick] = useState<string | null>(null); // 서버가 시각을 거절했을 때 고를 다른 시각(datetime-local 값)
   const place = (shown: Call) =>
     run('place', async () => {
       setNote(null);
@@ -258,6 +136,7 @@ function useCallActions(scheduleId: number, data: CallData, run: ReturnType<type
         const r = await outreachApi.placeCall(scheduleId, shown.id);
         data.show(r.call);
         setNote(placeResult(r));
+        if (r.call.status === 'blocked_hours') await data.readPerson(); // 문이 근무 밖이라 했다 — 근무시간을 다시 읽는다
       } catch (e) {
         // 답이 오지 않았다: 서버가 받아 걸었을 수도 있다 — 「실패」가 아니라 「모름」, 다시 읽은 줄이 상태를 말한다.
         setNote(sendOutcomeUnknown(e) ? { text: CALL_UNKNOWN, tone: 'warn' } : { text: errText(e, '요청을 처리할 수 없습니다.'), tone: 'bad' });
@@ -270,66 +149,75 @@ function useCallActions(scheduleId: number, data: CallData, run: ReturnType<type
       setNote(null);
       try {
         data.show(await outreachApi.scheduleCall(scheduleId, shown.id, at));
+        setPick(null);
         setNote({ text: '예약했습니다 — 그 시각에 근무시간·시험 모드를 다시 확인한 뒤 겁니다.', tone: 'info' });
       } catch (e) {
-        setNote({ text: errText(e, '예약할 수 없습니다.'), tone: 'bad' });
+        if (sendOutcomeUnknown(e)) setNote({ text: SCHEDULE_UNKNOWN, tone: 'warn' });
+        else {
+          setNote({ text: errText(e, '예약할 수 없습니다.'), tone: 'bad' });
+          if (e instanceof ApiError && RETRY_TIME.has(e.code)) setPick(kstLocal(at));
+        }
         await data.reread(shown.id).catch(() => undefined);
       }
       onChanged();
     });
-  return { place, schedule };
+  return { place, schedule, pick, setPick };
 }
 
-/** [에이전트에게 다시 쓰게]: 대화에 요청 글을 보낸다(이름·담당·협력사·초안 번호와 목적 — 전화번호는 넣지 않는다). */
+/** [에이전트에게 다시 쓰게]: 대화에 요청 글을 보낸다(이름·담당·협력사·초안 번호와 목적 — 서버가 번호를 가린 글). */
 function rewrite(r: Call, person: PersonBrief) {
   const c = r.contact;
   const who = c ? `${c.name}(${[c.role_title, c.company].filter(Boolean).join(' · ')})` : person.name;
-  const asked = r.questions.length ? ` 물어볼 것: ${r.questions.map(maskPhones).join(' / ')}.` : '';
-  const ask = `${who}에게 걸 전화 초안 #${r.id}의 목적과 물어볼 것을 다시 써 주세요. 지금 통화 목적: ${maskPhones(r.purpose)}.${asked}`;
-  useWindows.getState().open('chat', { ask });
+  const asked = r.questions.length ? ` 물어볼 것: ${r.questions.join(' / ')}.` : '';
+  useWindows.getState().open('chat', { ask: `${who}에게 걸 전화 초안 #${r.id}의 목적과 물어볼 것을 다시 써 주세요. 지금 통화 목적: ${r.purpose}.${asked}` });
 }
 
 interface ViewProps {
   row: Call;
-  person: PersonBrief;
-  detail: PersonDetail | null;
   /** 아직 걸 수 있는 줄(초안·근무시간 밖으로 막힘) */
   draftLike: boolean;
-  /** 근무시간 밖이면 예약할 시각(찾지 못했으면 null), 근무 중이면 undefined */
+  /** 근무시간 밖이면 예약할 시각(찾지 못했으면 null), 아니면 undefined */
   at: string | null | undefined;
+  hoursUnread: boolean;
   blocked: string | null;
   busy: string | null;
+  pick: string | null;
+  setPick(v: string): void;
   onSchedule(at: string): void;
 }
 
-/** 확인 보기: 시안 ③의 줄 · 지금 상태(이미 걸었거나 막혔으면) · 근무시간 밖 예약 줄 · 걸 수 없는 까닭. */
-function View({ row, person, detail, draftLike, at, blocked, busy, onSchedule }: ViewProps) {
+/** 확인 보기의 아래: 지금 상태(이미 걸었거나 막혔으면) · 근무 밖 예약 줄 · 다른 시각 고르기 · 걸 수 없는 까닭. */
+function ViewFoot({ row, draftLike, at, hoursUnread, blocked, busy, pick, setPick, onSchedule }: ViewProps) {
   const status = callStatusLabel(row);
   const sender = callSender(row);
+  const off = busy !== null || blocked !== null;
   return (
     <>
-      <Rows row={row} person={person} detail={detail} />
       {!draftLike && <p className={`cl-state is-${status.tone}`}>{`지금 상태: ${status.text} · ${sender.tag}${sender.approver ? ` · ${sender.approver} 승인` : ''}`}</p>}
       {draftLike && row.status === 'blocked_hours' && <p className={`cl-state is-${status.tone}`}>{`지금 상태: ${status.text}`}</p>}
+      {draftLike && hoursUnread && <p className="th-note is-warn">{`${HOURS_UNREAD} — [전화 걸기]를 누르면 근무시간은 서버가 다시 봅니다.`}</p>}
       {at !== undefined && (
         <p className="cl-off">
           {at ? '지금은 근무시간 밖입니다 — ' : '지금은 근무시간 밖이고 다음 근무 시작을 찾지 못했습니다 — 연락처의 근무시간을 확인해 주세요.'}
           {at && (
-            <Button variant="primary" disabled={busy !== null || blocked !== null} title={blocked ?? undefined} onClick={() => onSchedule(at)}>
+            <Button variant="primary" disabled={off} title={blocked ?? undefined} onClick={() => onSchedule(at)}>
               {busy === 'schedule' ? '예약하는 중…' : `${kstShort(at)}에 예약`}
             </Button>
           )}
         </p>
       )}
+      {draftLike && pick !== null && (
+        <p className="cl-off cl-pick">
+          <label>
+            다른 시각(한국 시각)
+            <input type="datetime-local" className="ct-input" value={pick} disabled={off} onChange={(e) => setPick(e.target.value)} />
+          </label>
+          <Button disabled={off || pick === ''} onClick={() => onSchedule(`${pick}:00+09:00`)}>이 시각에 예약</Button>
+        </p>
+      )}
       {blocked && draftLike && <p className="th-note is-bad">{blocked}</p>}
     </>
   );
-}
-
-/** 근무시간 밖이면 예약할 시각: 문이 막아 둔 줄이면 문이 제안한 시각, 아니면 머리 줄의 「다음 근무 시작」. 근무 중이면 undefined. */
-function scheduleAt(row: Call, detail: PersonDetail | null): string | null | undefined {
-  if (row.status === 'blocked_hours') return row.scheduled_at ?? nextStartFromLabel(detail?.hours_label ?? '');
-  return detail?.working_now === false ? nextStartFromLabel(detail.hours_label) : undefined;
 }
 
 export default function CallDialog({ scheduleId, person, callId, blocked, onClose, onChanged }: Props) {
@@ -340,7 +228,7 @@ export default function CallDialog({ scheduleId, person, callId, blocked, onClos
   const [formError, setFormError] = useState<string | null>(null);
   const [note, setNote] = useState<Label | null>(null);
   const { busy, run } = useLock();
-  const { place, schedule } = useCallActions(scheduleId, data, run, setNote, onChanged);
+  const { place, schedule, pick, setPick } = useCallActions(scheduleId, data, run, setNote, onChanged);
   // 새 통화의 언어는 그 사람의 언어로 시작한다(아직 아무것도 쓰지 않았을 때만).
   useEffect(() => {
     if (callId === null && detail) setForm((f) => (f.purpose || f.questions || f.avoid ? f : { ...f, language: detail.language }));
@@ -359,7 +247,7 @@ export default function CallDialog({ scheduleId, person, callId, blocked, onClos
         setNote(null);
         onChanged();
       } catch (e) {
-        setFormError(errText(e, '저장할 수 없습니다.'));
+        setFormError(errText(e, '저장할 수 없습니다.')); // 번호가 든 글은 서버가 422 has_phone 으로 막는다 — 그 글 그대로
       }
     });
 
@@ -400,12 +288,16 @@ export default function CallDialog({ scheduleId, person, callId, blocked, onClos
           <p role="alert" className="ct-error">이 사람의 통화가 아닙니다 — 그 통화의 연락처에서 열어 주세요.</p>
         ) : editing || row === null ? (
           <>
-            <Rows row={row} person={person} detail={detail} editing />
+            <Rows row={row} person={person} detail={detail} detailFailed={data.detailFailed} editing />
             <EditForm scheduleId={scheduleId} form={form} setForm={setForm} locked={locked} />
             {formError && <p role="alert" className="th-note is-bad">{formError}</p>}
           </>
         ) : (
-          <View row={row} person={person} detail={detail} draftLike={draftLike} at={at} blocked={blocked} busy={busy} onSchedule={(when) => void schedule(row, when)} />
+          <>
+            <Rows row={row} person={person} detail={detail} detailFailed={data.detailFailed} />
+            <ViewFoot row={row} draftLike={draftLike} at={at} hoursUnread={data.detailFailed} blocked={blocked} busy={busy} pick={pick} setPick={setPick}
+              onSchedule={(when) => void schedule(row, when)} />
+          </>
         )}
         {shownNote && (
           <p role="status" className={`th-note is-${shownNote.tone}`}>
