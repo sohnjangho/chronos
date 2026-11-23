@@ -88,6 +88,7 @@ const REASONS: Record<string, string> = {
   condition_violated: '조건 위반',
   plan_reset: 'Plan 다시 잡기',
   rule_save: '내 규칙 저장',
+  field_report: '현장 보고',
 };
 export const reasonLabel = (r: string) => REASONS[r] ?? r;
 

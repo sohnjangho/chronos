@@ -39,7 +39,6 @@ SCENARIO_LOCKED_MESSAGE = "승인을 기다리거나 반영되었거나 버린 �
 # 실적 날짜 규칙(재확인 2): 실제 시작·종료는 Data Date 뒤일 수 없고, 실제 시작은 착공일 앞일 수 없다.
 ACTUALS_INVALID = "실제 날짜가 Data Date({})·착공일({})과 맞지 않아 넣을 수 없습니다: {}"
 ACTUALS_BLOCKED = "실제 날짜가 Data Date({})와 맞지 않아 반영할 수 없습니다 — 현장에서 다시 올려 주세요. ({})"
-FIELD_WAITS_NOTE = "현장 관리자가 올린 건이라 승인 수준과 상관없이 승인을 기다립니다 — 승인되기 전에는 일정이 바뀌지 않습니다."
 
 
 @dataclass(frozen=True)
@@ -155,13 +154,12 @@ def propose(session: Session, p: Proposal, *, chat_session_id: int | None, reque
     """승인 건을 만들고 승인이 필요하면 approval 사건을, 바로 반영하면 card auto_applied 사건을 낸다(emit 이 있을 때)."""
     emit = emit or (lambda _: None)
     result, changes, mode = _assess(session, p)
-    found = {*result.decision.reasons, *extra_reasons}
+    field = p.requested_role == "field"  # 현장 관리자가 낸 것은 늘 기다린다 — 승인 사유 「현장 보고」(field_report)
+    found = {*result.decision.reasons, *extra_reasons, *(["field_report"] if field else [])}
     reasons = [r for r in REASONS if r in found]
-    field = p.requested_role == "field"  # 현장 관리자가 낸 것은 늘 기다린다 — 승인함 요약(알릴 것)에 그렇게 적는다
-    summary = {**result.summary, "notes": [FIELD_WAITS_NOTE]} if field else result.summary
     row = approvals.create(
         session, kind=p.kind, title=p.title, reasons_json=reasons, schedule_id=p.schedule_id, draft_id=p.draft_id,
-        base_version=p.base_version, summary_json=summary, diff_json=result.diff, snapshot_json=to_json(p.after),
+        base_version=p.base_version, summary_json=result.summary, diff_json=result.diff, snapshot_json=to_json(p.after),
         conditions_json=p.after_conditions, changes_json=changes, status="pending",
         request=approvals.last_request(session, chat_session_id), chat_session_id=chat_session_id,
         requested_by=requested_by, requested_kind=p.requested_kind, link_kind=p.link_kind, link_id=p.link_id,

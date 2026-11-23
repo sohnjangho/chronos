@@ -91,10 +91,10 @@ describe('R2 승인이 필요한 이유·숫자·차이 표', () => {
   });
 
   test('a later finish says 늦어짐 and every reason has a Korean label', () => {
-    const all = ['finish_changed', 'critical_path_changed', 'condition_changed', 'first_save', 'structure_changed', 'milestone_changed', 'condition_violated', 'plan_reset', 'rule_save'];
+    const all = ['finish_changed', 'critical_path_changed', 'condition_changed', 'first_save', 'structure_changed', 'milestone_changed', 'condition_violated', 'plan_reset', 'rule_save', 'field_report'];
     render(detail({ reasons: all, summary: { finish: { before: '2027-03-10', after: '2027-03-16', delta_days: 6 } } }));
     const why = screen.getByRole('region', { name: '승인이 필요한 이유' });
-    for (const label of ['준공일', '크리티컬 패스', '조건 변경', '새 일정의 첫 저장', '구조 변경', '주요 날짜', '조건 위반', 'Plan 다시 잡기', '내 규칙 저장']) {
+    for (const label of ['준공일', '크리티컬 패스', '조건 변경', '새 일정의 첫 저장', '구조 변경', '주요 날짜', '조건 위반', 'Plan 다시 잡기', '내 규칙 저장', '현장 보고']) {
       expect(within(why).getByText(label)).toBeVisible();
     }
     expect(within(why).getByText('2027.03.10 → 2027.03.16 (6일 늦어짐)')).toBeVisible();
@@ -421,5 +421,18 @@ describe('반영할 수 없는 건', () => {
     await renderApprovals();
     expect(screen.queryByText(OLD)).toBeNull();
     expect(screen.getByRole('button', { name: '승인하고 반영' })).toBeEnabled();
+  });
+});
+
+// 재확인 2: 현장 관리자가 올려 기다리는 건은 사유 「현장 보고」 — 승인이 필요한 이유와 목록 꼬리표에 보인다.
+describe('현장 보고 사유', () => {
+  test('the reason explains why it waits and the list shows its tag', async () => {
+    setup([item({ id: 3, title: '[현장 반영] A1110 기초 콘크리트 타설 (10%)', reasons: ['field_report'] })]);
+    render(<Approvals windowId="w1" />);
+    await screen.findByRole('heading', { name: '[현장 반영] A1110 기초 콘크리트 타설 (10%)' });
+    const why = screen.getByRole('region', { name: '승인이 필요한 이유' });
+    expect(within(why).getByText('현장 보고')).toBeVisible();
+    expect(within(why).getByText('현장 관리자가 올린 건이라 승인 수준과 상관없이 승인을 기다립니다 — 승인되기 전에는 일정이 바뀌지 않습니다.')).toBeVisible();
+    expect(within(screen.getByRole('list', { name: '승인 건 목록' })).getByText('현장 보고')).toBeVisible();
   });
 });

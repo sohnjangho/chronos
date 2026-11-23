@@ -348,10 +348,12 @@ def test_field_reports_by_the_field_role_wait_for_approval_even_at_the_auto_leve
     after = client.get(f"/api/schedules/{sid}", headers=admin).json()["version"]
     if applied:
         assert (row.status, after) == ("auto", before + 1)  # 사용자·관리자는 예전처럼 바로 반영
-        assert FIELD_WAITS not in (row.summary_json.get("notes") or [])
+        assert "field_report" not in row.reasons_json
     else:
         assert (row.status, after) == ("pending", before)
-        assert FIELD_WAITS in row.summary_json["notes"]
+        # 재확인 2: 기다리는 까닭은 승인 사유 「현장 보고」(목록 꼬리표·승인이 필요한 이유) — 알릴 것에 따로 적지 않는다
+        assert row.reasons_json[-1] == "field_report"
+        assert FIELD_WAITS not in (row.summary_json.get("notes") or [])
 
 
 def test_a_photo_reading_applied_by_the_field_role_also_waits(client, admin, session, sid):

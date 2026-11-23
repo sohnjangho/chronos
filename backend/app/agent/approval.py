@@ -32,7 +32,8 @@ from app.store.drafts import violation_json
 from app.store.schedules import activity_json, run
 
 Reason = Literal["first_save", "finish_changed", "milestone_changed", "critical_path_changed",
-                 "condition_violated", "condition_changed", "structure_changed", "plan_reset", "rule_save"]
+                 "condition_violated", "condition_changed", "structure_changed", "plan_reset", "rule_save",
+                 "field_report"]  # field_report: 현장 관리자가 올린 건(승인 수준과 상관없이 기다린다, proposals.propose)
 Mode = Literal["all", "important", "auto"]
 REASONS: tuple[str, ...] = get_args(Reason)  # 사유는 이 차례로 낸다
 MODES: tuple[str, ...] = get_args(Mode)
