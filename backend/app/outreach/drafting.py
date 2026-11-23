@@ -2,16 +2,18 @@
 
 - 모델은 **초안 글만** 쓴다. 이 모듈은 줄을 만들지 않고 아무것도 쓰지 않는다 — 글을 돌려줄 뿐이다(줄은
   `programs.outreach.service.create_agent_draft`, 보내기는 사람이 [보내기]를 누를 때 나가는 문).
-- 모델이 받는 것(지시문 `app/agent/prompts/outreach_draft.md` + `<자료>` JSON 하나 + 담당자 요청): 현장 이름, 연락처
+- 모델이 받는 것(지시문 `app/agent/prompts/outreach_draft.md` + `<자료>` JSON 하나 + 담당자 요청): 오늘(한국 시각 날짜·요일),
+  현장 이름, 연락처
   이름·담당·협력사·공종·언어, 고른 작업의 id·이름·**코드가 일정 계산에서 읽은** 시작·종료일·상태, 그 사람이 알아도 되는 작업
-  (`facts.allowed_for` — 하네스 도구와 같은 규칙, 날짜는 같은 계산), 최근 대화 6줄(보낸·받은 줄만, 초안·막힌 줄은 빼고),
+  (`facts.allowed_for` — 하네스 도구와 같은 규칙, 날짜는 같은 계산), 최근 대화 6줄(보낸·받은 줄만, 초안·막힌 줄은 빼고,
+  날짜는 해를 붙여 「2027년 1월 1일」),
   힌트. **번호는 없다**(연락처 번호 칸을 읽지 않는다). 자유 글(이름·담당·협력사·현장·대화·힌트)은 `hide_phones` 를 거친다.
   메모(note)·수신 거부 까닭(dnc_reason)은 싣지 않는다.
 - 상대 글은 자료로만: `<자료>` 안 JSON 의 글 값이고, `<`·`>` 는 JSON 이스케이프(\\u003c·\\u003e)로 바꿔 자료 밖으로 나올 수 없다.
 - 고른 작업은 알아도 되는 작업에 없어도 싣는다: 담당자가 이 초안에 그 작업을 연결했고, 연결된 작업은 하네스 규칙
   (`facts.linked`)으로도 그 사람에게 알아도 되는 작업이 된다.
 - 부르기는 한 번: `LlmClient.chat("normal", …, json_schema={body, body_ko})`, 시간 TIMEOUT_S·답 길이 MAX_TOKENS.
-  연결 없음·실패·시간 초과·쓸 수 없는 답은 모두 DraftFailed(글·답 내용은 남기지 않는다).
+  연결 없음은 DraftNotReady, 실패·시간 초과·쓸 수 없는 답은 DraftFailed(글·답 내용은 남기지 않는다).
 - 한국어(`ko`)가 아닌 사람은 body(그 언어)와 body_ko(한국어 번역)가 둘 다 있어야 한다. `ko` 면 body_ko 는 None.
 """
 
@@ -19,6 +21,7 @@ import json
 import logging
 import unicodedata
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -49,6 +52,7 @@ SCHEMA = {
     "required": ["body", "body_ko"],
     "additionalProperties": False,
 }
+_WEEKDAYS = "월화수목금토일"
 _CHANNEL = {"sms": "문자", "kakao": "카카오톡 알림톡(쓸 수 없으면 같은 글이 문자로 나감)"}
 
 
@@ -59,7 +63,15 @@ class Drafted:
 
 
 class DraftFailed(Exception):
-    """초안을 얻지 못함(연결 없음·호출 실패·시간 초과·쓸 수 없는 답). 까닭 글에 받은 값은 없다."""
+    """초안을 얻지 못함(호출 실패·시간 초과·쓸 수 없는 답). 까닭 글에 받은 값은 없다."""
+
+
+class DraftNotReady(DraftFailed):
+    """LLM 연결이 없거나 키를 읽을 수 없어 부르지 못함(LlmNotReady)."""
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 def client_for(session: Session) -> LlmClient:
@@ -99,7 +111,7 @@ def _recent(session: Session, schedule_id: int, contact_id: int) -> list[dict]:
     out = []
     for row in said:
         day = as_utc(row.sent_at or row.created_at).astimezone(hours.KST)
-        out.append({"날짜": f"{day.month}월 {day.day}일", "쓴 쪽": "상대" if row.direction == "in" else "우리",
+        out.append({"날짜": f"{day.year}년 {day.month}월 {day.day}일", "쓴 쪽": "상대" if row.direction == "in" else "우리",
                     "글": _hide(row.body)[:LINE_CHARS]})
     return out
 
@@ -113,7 +125,9 @@ def material(session: Session, schedule_id: int, who: Contact, channel: str, act
     except contacts.NotFound:
         firm_name, trade = "", ""
     picked, known = _facts(session, schedule_id, who, activity_id)
+    today = _now().astimezone(hours.KST).date()
     return {
+        "오늘": f"{today.isoformat()} ({_WEEKDAYS[today.weekday()]})",
         "현장": _hide(record.name if record is not None else ""),
         "채널": _CHANNEL.get(channel, "문자"),
         "상대": {"이름": _hide(who.name), "담당": _hide(who.role_title), "협력사": _hide(firm_name),
@@ -156,7 +170,8 @@ def _drafted(parsed: object, language: str) -> Drafted:
 async def draft_message(session: Session, schedule_id: int, contact_id: int, channel: str, *,
                         activity_id: str | None = None, hint: str = "") -> Drafted:
     """그 일정의 그 연락처에게 보낼 초안 글(모델 한 번). 쓰지 않는다. 부르는 쪽은 수신 거부·번호·채널을 먼저 본다
-    (service.check_agent_draft). 그 일정 연락처가 아니면 contacts.NotFound, 모델 쪽 실패는 DraftFailed."""
+    (service.check_agent_draft). 그 일정 연락처가 아니면(그 사이 지워졌으면) contacts.NotFound, 연결 없음은 DraftNotReady,
+    그 밖의 모델 쪽 실패는 DraftFailed."""
     who = contacts.get_contact(session, schedule_id, contact_id)
     messages = [
         {"role": "system", "content": PROMPT.read_text(encoding="utf-8")},
@@ -165,6 +180,8 @@ async def draft_message(session: Session, schedule_id: int, contact_id: int, cha
     try:
         reply = await client_for(session).chat("normal", messages, json_schema=SCHEMA, timeout_s=TIMEOUT_S,
                                                max_tokens=MAX_TOKENS)
-    except (LlmNotReady, LlmFailed):
+    except LlmNotReady:
+        raise DraftNotReady from None
+    except LlmFailed:
         raise DraftFailed from None  # 실패 종류는 LlmClient 가 이미 남겼다(내용 없이)
     return _drafted(reply.parsed, who.language)

@@ -9,6 +9,7 @@
 
 import asyncio
 import json
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import func, select
@@ -37,7 +38,8 @@ MESSAGE_KEYS = {"id", "direction", "channel", "kind", "body", "body_ko", "has_me
                 "approved_by", "status", "fail_reason", "fallback_sms", "template_id", "reply_to_id", "activity",
                 "field_item_id", "approval_id", "chat", "batch", "events", "scheduled_at", "sent_at", "delivered_at",
                 "created_at"}
-FAILED = ("draft_failed", "초안을 만들지 못했습니다.")
+FAILED = ("draft_failed", "초안을 만들지 못했습니다 — 잠시 뒤 다시 눌러 주세요.")
+NOT_READY = ("llm_not_ready", "LLM 연결이 필요합니다. 설정에서 연결해 주세요.")  # 대화 에이전트와 같은 글
 OTHER_SITE, OTHER_FIRM, OTHER_PERSON, OTHER_TASK = "옆동네 물류센터", "옆동네건설", "옆사람", "옆동네 철골 세우기"
 LANDLINE = phone.normalize("02-2345-0177")
 
@@ -212,10 +214,49 @@ def test_non_korean_draft_without_translation_fails(client, user, session, sid, 
     assert r.status_code == 503 and _rows(session) == 0
 
 
-def test_no_llm_connection_is_the_same_failure(client, user, session, sid, monkeypatch):
+def test_no_llm_connection_says_the_connection_is_not_set_up(client, user, session, sid):
+    """LLM 연결이 없으면 「다시 눌러」가 아니라 연결이 필요하다는 글(대화 에이전트와 같은 글·code)."""
     pid = _person(session, sid)
     r = _draft(client, user, sid, pid)
-    assert r.status_code == 503 and (r.json()["code"], r.json()["message"]) == FAILED
+    assert r.status_code == 503 and (r.json()["code"], r.json()["message"]) == NOT_READY
+    assert _rows(session) == 0
+
+
+def test_today_and_thread_dates_are_given_in_korea_time_with_the_year(client, user, session, sid, llm, monkeypatch):
+    """모델에게 오늘(한국 시각, 요일)을 준다. 대화 줄의 날짜는 해를 붙여 해가 바뀌는 때도 헷갈리지 않는다."""
+    monkeypatch.setattr(drafting, "_now", lambda: datetime(2026, 12, 31, 16, 0, tzinfo=UTC))  # KST 2027-01-01(금) 01시
+    pid = _person(session, sid)
+    session.add(OutreachMessage(schedule_id=sid, contact_id=pid, direction="in", channel="sms", origin="peer",
+                                origin_name="", body="네 확인했습니다", status="received",
+                                created_at=datetime(2026, 12, 30, 15, 30, tzinfo=UTC)))  # KST 12월 31일 00시 30분
+    session.commit()
+    llm.push(_answer())
+
+    assert _draft(client, user, sid, pid).status_code == 200
+    data = _data(llm)
+    assert data["오늘"] == "2027-01-01 (금)"
+    assert [line["날짜"] for line in data["최근 대화"]] == ["2026년 12월 31일"]
+    system = llm.last_body["messages"][0]["content"]
+    assert "「내일」" in system and "오늘" in system
+
+
+async def test_contact_deleted_during_the_draft_is_404(client, user, session, sid, monkeypatch):
+    """확인한 뒤 초안을 쓰기 전에 연락처가 지워지면 500 이 아니라 없는 연락처와 같은 404, 줄 없음."""
+    pid = _person(session, sid)
+    me = session.scalars(select(User).where(User.login_id == "user1")).one()
+    real = drafting.draft_message
+
+    async def delete_first(s, schedule_id, contact_id, channel, **kw):
+        with Session(session.get_bind()) as other:
+            other.delete(other.get(Contact, contact_id))
+            other.commit()
+        return await real(s, schedule_id, contact_id, channel, **kw)
+
+    monkeypatch.setattr(drafting, "draft_message", delete_first)
+    with Session(session.get_bind()) as mine, pytest.raises(ApiError) as caught:
+        await service.agent_draft(mine, sid, AgentDraftIn(contact_id=pid, channel="sms"), me)
+    assert (caught.value.status_code, caught.value.code, caught.value.message) == (404, "not_found",
+                                                                                    "연락처를 찾을 수 없습니다.")
     assert _rows(session) == 0
 
 

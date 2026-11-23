@@ -70,7 +70,8 @@ KAKAO_LOCKED = "카카오톡은 채널·문안 승인 뒤 쓸 수 있습니다 �
 NO_SMS = "이 연락처는 문자를 받을 수 없습니다(휴대전화 번호가 아니거나 문자 받기가 꺼져 있음)."
 NO_KAKAO = "이 연락처는 카카오톡 받기가 꺼져 있습니다 — 문자로 초안을 만드세요."
 BAD_LENGTH = f"글은 1~{BODY_MAX}자여야 합니다."
-DRAFT_FAILED = "초안을 만들지 못했습니다."
+DRAFT_FAILED = "초안을 만들지 못했습니다 — 잠시 뒤 다시 눌러 주세요."
+LLM_NOT_READY = "LLM 연결이 필요합니다. 설정에서 연결해 주세요."  # 대화 에이전트(agent.loop.NOT_READY)와 같은 글
 DRAFT_BUSY = "이 사람의 초안을 이미 만드는 중입니다. 끝난 뒤 다시 눌러 주세요."
 SENDABLE = ("draft", "scheduled", "sending")  # 문에 넘기는 상태(sending 은 문이 「잠시 뒤 다시」로 답한다)
 RESENDABLE = ("failed", "unconfirmed")
@@ -402,7 +403,8 @@ def create_agent_draft(session: Session, schedule_id: int, *, contact_id: int, c
 async def agent_draft(session: Session, schedule_id: int, body: AgentDraftIn, user: User) -> MessageOut:
     """[에이전트에게 초안 맡기기]: 거절할 것은 모델을 부르기 전에 거절하고(쓰기 없음), 모델을 한 번 불러 초안 글을 얻은 뒤
     그때의 상태로 다시 확인해 에이전트 초안 줄을 만든다. 같은 사람의 초안을 만드는 중이면 409 draft_busy. 모델 실패·쓸 수
-    없는 답은 503 draft_failed, 줄 없음. 보내지 않는다."""
+    없는 답은 503 draft_failed(「잠시 뒤 다시」), LLM 연결이 없으면 503 llm_not_ready, 줄 없음. 그 사이 지워진 연락처는 404.
+    보내지 않는다."""
     check_agent_draft(session, schedule_id, body.contact_id, body.channel)
     check_body(body.hint, field="hint")
     _check_links(session, schedule_id, activity_id=body.activity_id)
@@ -415,6 +417,10 @@ async def agent_draft(session: Session, schedule_id: int, body: AgentDraftIn, us
             drafted = await drafting.draft_message(session, schedule_id, body.contact_id, body.channel,
                                                    activity_id=body.activity_id, hint=body.hint)
             _check_text(drafted.body, drafted.body_ko)
+        except contacts.NotFound:  # 확인한 뒤 그 사이 지워짐 — 없는 연락처와 같은 404
+            raise ApiError(404, "not_found", PERSON_NOT_FOUND) from None
+        except drafting.DraftNotReady:
+            raise ApiError(503, "llm_not_ready", LLM_NOT_READY) from None
         except (drafting.DraftFailed, ApiError):
             raise ApiError(503, "draft_failed", DRAFT_FAILED) from None
         session.expire_all()  # 모델을 부르는 동안 바뀐 것(수신 거부·번호·작업)을 다시 읽는다
