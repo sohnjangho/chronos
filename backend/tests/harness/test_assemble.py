@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from app.core.calendar import KOREA_HOLIDAYS_2027
+from app.core.calendar import KOREA_HOLIDAYS
 from app.core.model import (
     Activity,
     BlockedPeriod,
@@ -305,7 +305,7 @@ def test_calendar_sets_days_and_adds_holidays_and_keeps_blocked_periods():
     own_day = date(2027, 3, 2)
     s = make([task("A", 1)], cal=CalendarSpec(5, (own_day,), (winter,)))
     kr = apply_to_schedule(s, [cnd("c", "input", "calendar", {"days_per_week": 6, "holidays": "KR"})])
-    assert kr.calendar == CalendarSpec(6, tuple(sorted({*KOREA_HOLIDAYS_2027, own_day})), (winter,))
+    assert kr.calendar == CalendarSpec(6, tuple(sorted({*KOREA_HOLIDAYS, own_day})), (winter,))  # I3: 2026~2028
     none = apply_to_schedule(s, [cnd("c", "input", "calendar", {"days_per_week": 7, "holidays": []})])
     assert none.calendar == CalendarSpec(7, (own_day,), (winter,))
     listed = apply_to_schedule(s, [cnd("c", "input", "calendar", {"days_per_week": 5, "holidays": ["2027-03-03"]})])

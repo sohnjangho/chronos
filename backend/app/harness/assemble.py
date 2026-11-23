@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import date, timedelta
 
-from app.core.calendar import KOREA_HOLIDAYS_2027, WorkCalendar
+from app.core.calendar import KOREA_HOLIDAYS, WorkCalendar
 from app.core.model import Activity, BlockedPeriod, CalendarSpec, Constraint, Schedule
 from app.harness.conditions import (
     BASE_IDS,
@@ -136,9 +136,9 @@ def assemble_all(conditions: Sequence[Condition]) -> list[Condition]:
 
 
 def holidays_of(value: str | list) -> tuple[date, ...]:
-    """calendar 조건의 holidays 값 → 공휴일. "KR" 은 대한민국 공휴일(지금은 2027년 자료만 있다)."""
+    """calendar 조건의 holidays 값 → 공휴일. "KR" 은 대한민국 공휴일(2026~2028년 자료가 있다)."""
     if value == "KR":
-        return KOREA_HOLIDAYS_2027
+        return KOREA_HOLIDAYS
     return tuple(date.fromisoformat(d) for d in value)
 
 
@@ -198,7 +198,7 @@ def apply_to_schedule(schedule: Schedule, conditions: Sequence[Condition]) -> Sc
 
     finish_by → FNLT(종료 마일스톤, 없으면 후행 없는 액티비티. 더 늦은 FNLT 만 바꾸고 SNET 은 그대로)
     · start_after → Schedule.start(늦어지기만) · resource_cap → Resource.capacity
-    · calendar → 근무 요일, 공휴일은 합침("KR" 은 2027년 자료만 있다)
+    · calendar → 근무 요일, 공휴일은 합침("KR" 은 2026~2028년 자료가 있다)
     · blocked_period → CalendarSpec.blocked 에 덧붙임(같은 것이 있으면 그대로).
     꺼진 조건, 기본 규칙 id 인 조건, 형식이 틀린 조건, 뒤에 같은 id 가 다시 있는 조건은 넣지 않는다.
     min_gap·max_duration·milestone_by·text_only·duration_per_unit 은 점검만 하고 넣지 않는다.
