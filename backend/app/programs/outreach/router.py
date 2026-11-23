@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.programs.outreach import service
 from app.programs.outreach.schemas import (
+    AgentDraftIn,
     MessageIn,
     MessageOut,
     MessagePatch,
@@ -37,6 +38,12 @@ def thread(
 async def create_message(schedule_id: int, body: MessageIn, session: SessionDep, user: UserDep) -> MessageResult:
     """초안을 만들고, send 면 나가는 문에 넣는다 → {message, outcome | null}. 막힌 것도 200."""
     return await service.create(session, schedule_id, body, user)
+
+
+@router.post("/{schedule_id}/outreach/messages/agent-draft")
+async def agent_draft(schedule_id: int, body: AgentDraftIn, session: SessionDep, user: UserDep) -> MessageOut:
+    """[에이전트에게 초안 맡기기] → 모델이 쓴 초안 줄(origin agent, 보내지 않음). 거절 409, 모델 실패 503 draft_failed."""
+    return await service.agent_draft(session, schedule_id, body, user)
 
 
 @router.patch("/{schedule_id}/outreach/messages/{message_id}")

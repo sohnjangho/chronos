@@ -22,12 +22,15 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.outreach import phone
+from app.outreach import drafting, phone
 from app.outreach.harness import gate
+from app.outreach.harness import registry as channels
 from app.outreach.harness.types import Actor, Outcome
 from app.outreach.redact import hide_phones
 from app.programs.outreach.schemas import (
+    BODY_MAX,
     ActivityOut,
+    AgentDraftIn,
     BatchOut,
     ChatOut,
     ContactBrief,
@@ -59,6 +62,16 @@ USE_RESEND = "이미 처리된 메시지입니다. 다시 보내려면 [다시 �
 DONE = "이미 처리된 메시지입니다."
 NOT_RESENDABLE = "실패했거나 확인이 필요한 메시지만 다시 보낼 수 있습니다."
 MAY_HAVE_GONE = "이미 나갔을 수 있습니다"
+# 에이전트 초안(대화 에이전트 도구와 [에이전트에게 초안 맡기기]가 같이 쓴다 — create_agent_draft)
+AGENT_NAME = "에이전트"
+DO_NOT_CONTACT = "이 사람은 수신 거부라 연락 초안을 만들 수 없습니다."
+NO_NUMBER = "이 연락처에는 쓸 수 있는 전화번호가 없어 초안을 만들 수 없습니다. 번호는 사람이 연락처 창에서 넣습니다."
+KAKAO_LOCKED = "카카오톡은 채널·문안 승인 뒤 쓸 수 있습니다 — 문자로 초안을 만드세요."
+NO_SMS = "이 연락처는 문자를 받을 수 없습니다(휴대전화 번호가 아니거나 문자 받기가 꺼져 있음)."
+NO_KAKAO = "이 연락처는 카카오톡 받기가 꺼져 있습니다 — 문자로 초안을 만드세요."
+BAD_LENGTH = f"글은 1~{BODY_MAX}자여야 합니다."
+DRAFT_FAILED = "초안을 만들지 못했습니다."
+DRAFT_BUSY = "이 사람의 초안을 이미 만드는 중입니다. 끝난 뒤 다시 눌러 주세요."
 SENDABLE = ("draft", "scheduled", "sending")  # 문에 넘기는 상태(sending 은 문이 「잠시 뒤 다시」로 답한다)
 RESENDABLE = ("failed", "unconfirmed")
 AUTO_KINDS = ("auto_reply", "notice")  # 사람이 고치거나 보내면 normal 이 된다
@@ -100,10 +113,10 @@ def _bad_char(char: str) -> bool:
     return ord(char) in _HIDDEN or (unicodedata.category(char) == "Cc" and char not in "\n\t")
 
 
-def check_body(*texts: str | None) -> None:
+def check_body(*texts: str | None, field: str = "body") -> None:
     """보낼 글(본문·문안 값)에 보이지 않는 글자가 있으면 422 invalid_text. 값은 싣지 않는다."""
     if any(text and any(_bad_char(char) for char in text) for text in texts):
-        raise ApiError(422, "invalid_text", BAD_TEXT, detail={"field": "body"})
+        raise ApiError(422, "invalid_text", BAD_TEXT, detail={"field": field})
 
 
 def _activity_names(session: Session, schedule_id: int) -> dict[str, str]:
@@ -328,3 +341,86 @@ def resend(session: Session, schedule_id: int, message_id: int, user: User) -> R
     session.add(row)
     session.commit()
     return ResendOut(message=_one(session, schedule_id, row, user), warning=warning)
+
+
+# ── 에이전트 초안 ─────────────────────────────────────────────────────────────
+
+_drafting: set[tuple[int, int]] = set()  # 지금 초안을 만드는 (일정, 연락처) — 도는 동안 또 누르면 거절(이 프로세스 안)
+
+
+def check_agent_draft(session: Session, schedule_id: int, contact_id: int, channel: str) -> Contact:
+    """에이전트 초안을 만들 수 있는 사람·채널인지. 이 차례로 거절(줄을 만들지 않음, 글에 번호·까닭 없음):
+    그 일정 연락처가 아님 404 → 수신 거부(줄 표시 또는 번호 기준) 409 do_not_contact → 쓸 번호 없음 409 no_number →
+    카카오톡 통로가 등록돼 있지 않음 409 channel_locked → 문자를 받을 수 없음(깃발 꺼짐·휴대전화 아님 — 카카오톡도 문이
+    문자로 바꿔 보낼 수 있어야 함) 409 no_sms → 카카오톡 받기 꺼짐 409 no_kakao."""
+    who = _contact(session, schedule_id, contact_id)
+    if who.do_not_contact or (who.phone is not None and outreach.is_do_not_contact(session, who.phone)):
+        raise ApiError(409, "do_not_contact", DO_NOT_CONTACT)
+    number = phone.normalize(who.phone)
+    if number is None or who.phone_invalid:
+        raise ApiError(409, "no_number", NO_NUMBER)
+    kakao = channel == "kakao"
+    if kakao and "kakao" not in channels.registered():
+        raise ApiError(409, "channel_locked", KAKAO_LOCKED)
+    if not (who.can_sms and phone.can_sms(number)):
+        raise ApiError(409, "no_sms", NO_SMS)
+    if kakao and not who.can_kakao:
+        raise ApiError(409, "no_kakao", NO_KAKAO)
+    return who
+
+
+def _check_text(body: object, body_ko: object) -> None:
+    """초안 글: body 는 1~BODY_MAX 자 글, body_ko 는 None 이거나 같은 꼴(앞뒤 빈칸을 지운 길이), 보이지 않는 글자 없음."""
+    for text in (body,) if body_ko is None else (body, body_ko):
+        if not isinstance(text, str) or not 1 <= len(text.strip()) <= BODY_MAX:
+            raise ApiError(422, "invalid_text", BAD_LENGTH, detail={"field": "body"})
+    check_body(body, body_ko)
+
+
+def create_agent_draft(session: Session, schedule_id: int, *, contact_id: int, channel: str, body: str,
+                       body_ko: str | None = None, activity_id: str | None = None, template_id: int | None = None,
+                       template_vars: dict[str, str] | None = None,
+                       chat_session_id: int | None = None) -> OutreachMessage:
+    """에이전트가 쓴 초안 줄 하나(보내지 않음). 대화 에이전트 도구(Task 80)와 [에이전트에게 초안 맡기기]가 같이 쓴다.
+    check_agent_draft → 글(_check_text·check_body, 문안 값 포함) → 연결 id(작업·문안 — create 와 같은 404) 를 본 뒤
+    origin "agent"·origin_name AGENT_NAME·status draft·kind normal·direction out 으로 만든다. send_mode·approved_by·
+    peer_number 는 비운다(문이 보낼 때 정한다). flush 까지만 — commit 은 부른 쪽."""
+    check_agent_draft(session, schedule_id, contact_id, channel)
+    _check_text(body, body_ko)
+    check_body(*(template_vars or {}).values())
+    _check_links(session, schedule_id, activity_id=activity_id, template_id=template_id)
+    row = OutreachMessage(
+        schedule_id=schedule_id, contact_id=contact_id, direction="out", channel=channel, kind="normal", body=body,
+        body_ko=body_ko, template_id=template_id, template_vars_json=dict(template_vars or {}), origin="agent",
+        origin_name=AGENT_NAME, status="draft", activity_id=activity_id, chat_session_id=chat_session_id,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+async def agent_draft(session: Session, schedule_id: int, body: AgentDraftIn, user: User) -> MessageOut:
+    """[에이전트에게 초안 맡기기]: 거절할 것은 모델을 부르기 전에 거절하고(쓰기 없음), 모델을 한 번 불러 초안 글을 얻은 뒤
+    그때의 상태로 다시 확인해 에이전트 초안 줄을 만든다. 같은 사람의 초안을 만드는 중이면 409 draft_busy. 모델 실패·쓸 수
+    없는 답은 503 draft_failed, 줄 없음. 보내지 않는다."""
+    check_agent_draft(session, schedule_id, body.contact_id, body.channel)
+    check_body(body.hint, field="hint")
+    _check_links(session, schedule_id, activity_id=body.activity_id)
+    key = (schedule_id, body.contact_id)
+    if key in _drafting:
+        raise ApiError(409, "draft_busy", DRAFT_BUSY)
+    _drafting.add(key)
+    try:
+        try:
+            drafted = await drafting.draft_message(session, schedule_id, body.contact_id, body.channel,
+                                                   activity_id=body.activity_id, hint=body.hint)
+            _check_text(drafted.body, drafted.body_ko)
+        except (drafting.DraftFailed, ApiError):
+            raise ApiError(503, "draft_failed", DRAFT_FAILED) from None
+        session.expire_all()  # 모델을 부르는 동안 바뀐 것(수신 거부·번호·작업)을 다시 읽는다
+        row = create_agent_draft(session, schedule_id, contact_id=body.contact_id, channel=body.channel,
+                                 body=drafted.body, body_ko=drafted.body_ko, activity_id=body.activity_id)
+        session.commit()
+    finally:
+        _drafting.discard(key)
+    return _one(session, schedule_id, row, user)

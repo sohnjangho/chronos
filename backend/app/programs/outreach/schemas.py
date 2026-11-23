@@ -50,6 +50,18 @@ class MessageIn(Strict):
     send: bool = False
 
 
+HINT_MAX = 500  # [에이전트에게 초안 맡기기]의 힌트 길이
+
+
+class AgentDraftIn(Strict):
+    """[에이전트에게 초안 맡기기]: 모델이 쓴 초안 줄(origin agent)을 만든다. 보내지 않는다."""
+
+    contact_id: StrictInt
+    channel: Channel
+    activity_id: ActivityId | None = None
+    hint: Annotated[str, Nfc, Field(max_length=HINT_MAX)] = ""
+
+
 class MessagePatch(Strict):
     """초안만. 보낸 칸만 바꾼다 — null 로 비울 수 있는 것은 activity_id 뿐."""
 
