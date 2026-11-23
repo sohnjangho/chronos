@@ -29,6 +29,7 @@ logging.makeLogRecord 로 만든 줄(이름이 뒤에 붙음)은 메시지를 �
 올라가지 않고 그 줄을 HIDDEN_LINE 으로 바꾼다. secrets_provider 는 줄마다 불리므로 가벼워야 한다(메모리에 둔 값).
 """
 
+import functools
 import logging
 import re
 import threading
@@ -98,7 +99,15 @@ def _lengths(digits: str) -> list[int]:
     return [prefix - added + len(m.group()) + middle + 4 for middle in (4, 3)]
 
 
-def _phone_shaped(parts: list[str], free: list[bool], *, relaxed: bool) -> bool:
+def _join_spelled_prefix(parts: list[str], free: list[bool], size: int) -> tuple[list[str], list[bool]]:
+    """앞자리(01x)를 한 자씩 부른 꼴(0 1 0 1234 5678)이면 그 조각들을 한 조각으로 합친다. 앞자리를 덮는 조각이 모두
+    한 자일 때만 — 나머지 경계는 그대로 본다."""
+    if len(parts) > size and all(len(p) == 1 for p in parts[:size]):
+        return ["".join(parts[:size]), *parts[size:]], free[size - 1:]
+    return parts, free
+
+
+def _phone_shaped(parts: list[str], free: list[bool], *, relaxed: bool, spaced: bool = True) -> bool:
     """이어 붙인 숫자가 국내 번호 모양이고 조각 경계가 자리 경계에만 있는가. free[k] 는 k 뒤 경계를 보지 않는다(줄 바꿈).
     relaxed 면 경계를 보지 않는 두 꼴도 받는다: 한 자씩 띄운 꼴(0 으로 시작), 첫 조각이 01x 를 다 품은 11자리 휴대전화
     (010 0000 01 99). 맨 82(+ 없이)로 시작하면 받지 않는다 — 날짜 목록(8/21 …)이 그렇게 시작한다."""
@@ -109,10 +118,19 @@ def _phone_shaped(parts: list[str], free: list[bool], *, relaxed: bool) -> bool:
         return False
     if len(parts) == 1:
         return True
+    all_single = all(len(p) == 1 for p in parts)
+    spelled = False
+    if not prefix and split[0].startswith("01") and not all_single:
+        before = len(parts)
+        parts, free = _join_spelled_prefix(parts, free, len(split[0]))
+        spelled = len(parts) < before
     if split[0].startswith("050") and len(split[1]) == 4:
         return False  # 4-4-4 로 나뉜 050x 는 호실 목록(0502·0503·0504호)과 모양이 같다 — 붙여 쓴 꼴만 지운다
-    if relaxed and not prefix and (all(len(p) == 1 for p in parts) or (
-            split[0].startswith("01") and len(local) == 11 and parts[0].startswith(split[0]))):
+    # 앞자리를 한 자씩 부른 뒤 나머지를 둘씩 나눈 꼴은 010 이고 빈칸으로만 나뉠 때만(받아쓰기 꼴) —
+    # 0·1·0·12·16·19·16, 0, 1, 0, 12, 16 … 같은 수 목록과 갈린다
+    if relaxed and not prefix and (all_single or (
+            split[0].startswith("01") and len(local) == 11 and parts[0].startswith(split[0])
+            and (not spelled or (split[0] == "010" and spaced)))):
         return True
     offset = prefix - (len(local) - (len(joined) - prefix))  # 0 을 붙였으면 한 칸 당긴다
     allowed = {offset + len(split[0]), offset + len(split[0]) + len(split[1])}
@@ -146,8 +164,10 @@ class _Run:
         self.at = {c: k for k, c in enumerate(self.cum)}
 
     def _shaped(self, i: int, j: int, relaxed: bool) -> bool:
-        free = [bool(_LINE_BREAK.search(self.scan, self.ends[k], self.starts[k + 1])) for k in range(i, j)]
-        return _phone_shaped(self.digits[i:j + 1], free, relaxed=relaxed)
+        gaps = [self.scan[self.ends[k]:self.starts[k + 1]] for k in range(i, j)]
+        free = [bool(_LINE_BREAK.search(gap)) for gap in gaps]
+        spaced = all(gap.isspace() for gap in gaps)
+        return _phone_shaped(self.digits[i:j + 1], free, relaxed=relaxed, spaced=spaced)
 
     def window(self, i: int, relaxed: bool, stop: int) -> int | None:
         """조각 i 에서 시작해(조각 stop 앞까지) 지울 가장 긴 묶음의 끝 j. 없으면 None."""
@@ -233,40 +253,72 @@ _REGISTERED: set[str] = globals().get("_REGISTERED", set())
 _REGISTERED_LOCK: threading.Lock = globals().get("_REGISTERED_LOCK", threading.Lock())
 
 
+def _ordered(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(sorted(set(values), key=lambda v: (-len(v), v)))  # 긴 것부터(겹치는 값이 덜 남게)
+
+
+_REGISTERED_ORDERED: tuple[str, ...] = _ordered(_REGISTERED)  # 바뀔 때만 다시 만든다(줄마다 정렬하지 않게)
+
+
+def _changed() -> None:
+    global _REGISTERED_ORDERED
+    _REGISTERED_ORDERED = _ordered(_REGISTERED)
+
+
 def add_secrets(*values: object) -> None:
     """비밀(키·Account ID …)을 더한다. 글·SecretStr 만, 8자보다 짧은 값은 버린다(scrub 과 같은 규칙). 같은 값은 한 번."""
     usable = _usable(values)
     with _REGISTERED_LOCK:
-        _REGISTERED.update(usable)
+        if not set(usable) <= _REGISTERED:
+            _REGISTERED.update(usable)
+            _changed()
+
+
+def drop_secrets(*values: object) -> None:
+    """등록한 비밀을 뺀다(관리자가 키를 바꿨을 때 옛 키). 등록하지 않은 값·글이 아닌 값은 그냥 넘어간다."""
+    usable = _usable(values)
+    with _REGISTERED_LOCK:
+        if _REGISTERED & set(usable):
+            _REGISTERED.difference_update(usable)
+            _changed()
 
 
 def forget_secrets() -> None:
     """등록한 비밀을 모두 비운다 — 시험 전용(tests/outreach_doubles 의 autouse 고정물이 시험마다 부른다)."""
     with _REGISTERED_LOCK:
         _REGISTERED.clear()
+        _changed()
 
 
-def _registered() -> list[str]:
-    with _REGISTERED_LOCK:
-        return list(_REGISTERED)
-
-
-def _ordered(values: Iterable[str]) -> tuple[str, ...]:
-    return tuple(sorted(set(values), key=lambda v: (-len(v), v)))  # 긴 것부터(겹치는 값이 덜 남게)
+def _registered() -> tuple[str, ...]:
+    return _REGISTERED_ORDERED
 
 
 def secrets() -> tuple[str, ...]:
-    """지금 쓰는 비밀 전체: add_secrets 로 등록한 값 + install 원천이 주는 값. 다른 모듈이 비밀 목록을 읽는 단 하나의 길.
-    install 원천이 실패하면 그 예외가 그대로 올라간다(부르는 쪽이 「읽지 못함」으로 다룬다)."""
+    """지금 쓰는 비밀 전체: add_secrets 로 등록한 값 + install 원천이 주는 값(긴 것부터). 다른 모듈이 비밀 목록을 읽는
+    단 하나의 길. **install 원천이 실패하면 그 예외가 그대로 올라간다** — 부르는 쪽은 잡아서 그 글을 안전하지 않은 것으로
+    다뤄야 한다(내보내지 않거나 통째로 가린다 — harness/events.py 가 그렇게 한다)."""
     source = _FILTER._secrets_provider() if _FILTER is not None else []
     return _ordered([*_registered(), *_usable(source)])
+
+
+@functools.lru_cache(maxsize=16)
+def _pattern(values: tuple[str, ...]) -> re.Pattern[str] | None:
+    """비밀 묶음 하나를 한 정규식으로(원문·%XX·%25XX·&#..;·\\u00XX 섞인 꼴, 대소문자 무시 — app.info.generic 의 꼴).
+    묶음이 바뀔 때만 새로 만든다."""
+    if not values:
+        return None
+    return re.compile("|".join(f"(?:{generic._key_pattern(v)})" for v in values), re.IGNORECASE)
 
 
 def scrub(text: str, secrets: Iterable[str]) -> str:
     """비밀(주어진 것 + add_secrets 로 등록한 것 — 원문·URL 인코딩·섞인 꼴)과 번호를 지운다.
     8자보다 짧거나 글이 아닌 비밀은 건너뛴다."""
-    for secret in _ordered([*_registered(), *_usable(secrets)]):
-        text = generic.scrub(text, secret)
+    given = _usable(secrets)
+    values = _registered() if not given else _ordered([*_registered(), *given])
+    pattern = _pattern(values)
+    if pattern is not None:
+        text = pattern.sub(generic.MASK, text)
     return hide_phones(text)
 
 

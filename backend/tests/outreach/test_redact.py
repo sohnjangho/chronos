@@ -21,6 +21,7 @@ from app.outreach.redact import (
     HideSecrets,
     activate,
     add_secrets,
+    drop_secrets,
     forget_secrets,
     hide_phones,
     install,
@@ -45,6 +46,9 @@ PHONE_FORMS = [
     "\ufeff010-0000-0199", f"01{ZW}0-00{ZW}00-0199",
     # 휴대전화 11자리는 묶음을 어떻게 나눠도
     "010-00-00-0199", "010 0000 01 99", "010 00 00 01 99", "010/00/00/01/99", "010·0000·01·99",
+    # 앞자리를 한 자씩 부르고 나머지는 묶어 부른 꼴(받아쓰기 「공, 일, 공」)
+    "0 1 0 0000 0199", "0 1 0-0000-0199", "0 1 0, 0000, 0199", "0 1 0 00 00 01 99", "0 1 1 000 0199",
+    "공 일 공 공공공공 공일구구", "0 1 6-000-0199",
     # +82·82·0082
     "+82 10-0000-0199", "+82-10-0000-0199", "+821000000199", "+82 (0)10-0000-0199", "+82 010 0000 0199",
     "82-10-0000-0199", "821000000199", "0082-10-0000-0199", "+82 2-2000-0199",
@@ -145,6 +149,8 @@ def test_hide_phones_inside_sentences(text, expected):
     "인원 0, 1, 15, 12, 10, 9, 11명", "0, 17, 3, 15, 19, 11, 7", "0502·0503·0504호", "0502/0503/0504호", "0502~0503~0504호",
     "0502_0503_0504호", "0502, 0503, 0504호 마감", "0502 0503 0504호", "1/8 2/11 5/5 3/8 11/27 7/18", "8/2, 1/15, 3/3, 8/21",
     "8/21·10/9·10/20·11/28·8/6·1/27", "0 18 19 1 19 14 9", "0/1/7/15/18/11/17", "0·11·2·8·10·13·11",
+    "인원 0, 1, 0, 12, 34명", "1 0 1 1234 5678", "0 1 0 1234", "점수 0 1 0 1 1 0 1", "0, 1, 0, 1, 2, 3명",
+    "0·1·0·12·16·19·16", "0/1/0/12/16/19/16", "0, 1, 0, 12, 16, 19, 16", "0-1-0-12-16-19-16",
 ])
 def test_hide_phones_keeps_dates_amounts_and_words(text):
     assert hide_phones(text) == text
@@ -294,6 +300,13 @@ def test_lists_of_dates_numbers_and_rooms_are_never_changed(pool, sep):
     for _ in range(1500):
         text = sep.join(rng.choice(values) for _ in range(rng.randint(2, 8)))
         assert hide_phones(text) == text, text
+
+
+def test_count_list_that_spells_a_mobile_number_is_masked():
+    """「0, 1, 0, 0000, 0199」는 받아쓰기 「공, 일, 공, …」과 같은 모양 — 가리는 쪽을 고른다(수 목록에 4자리 두 개가
+    이어 오는 일은 드물고, 번호가 새는 쪽이 더 나쁘다). 1 로 시작하면 번호가 아니라 남긴다."""
+    assert hide_phones("0, 1, 0, 0000, 0199명") == "[번호]명"
+    assert hide_phones("1, 0, 1, 0000, 0199명") == "1, 0, 1, 0000, 0199명"
 
 
 @pytest.mark.parametrize(("text", "expected"), [
@@ -571,3 +584,42 @@ def test_diagnostics_scrub_removes_quote_plus_form_of_a_key():
     key = "kat test key ZZ9999"
     out = diagnostics.scrub(f"k={quote_plus(key)} raw={key}", secrets=[key], numbers=[])
     assert "kat+test+key" not in out and "ZZ9999" not in out
+
+
+def test_drop_secrets_removes_a_replaced_key(source):
+    install(list)
+    add_secrets(KEY_A, KEY_B)
+    drop_secrets(KEY_A, SecretStr(KEY_B), "never-added-key-1234", None)
+    assert secrets() == ()
+    assert scrub(f"a={KEY_A}", []) == f"a={KEY_A}"  # 바뀐 묶음으로 다시 만든다
+
+
+def test_compiled_secrets_follow_the_set(source):
+    install(list)
+    add_secrets(KEY_A)
+    assert not key_survives(scrub(f"a={KEY_A} b={KEY_B}", []), KEY_A)
+    add_secrets(KEY_B)
+    out = scrub(f"a={KEY_A} b={quote(KEY_B, safe='')} c={KEY_B.upper()}", [])
+    assert not key_survives(out, KEY_A) and not key_survives(out, KEY_B)
+
+
+def test_many_secrets_stay_cheap_per_log_line(caplog, source):
+    """키를 갈아 끼워 50개가 쌓여도 걸린 로그 줄 하나에 100µs 안팎(시험은 여유를 둔 상한)."""
+    install(list)
+    keys = [f"rotated-key-{i:04d}-xxxx" for i in range(50)]
+    add_secrets(*keys)
+    logger = logging.getLogger("app.outreach.t62.cost")
+    logger.warning("key %s and %s", keys[0], keys[-1])
+    assert_clean(caplog, keys[0], keys[-1])
+    null = logging.NullHandler()
+    logger.addHandler(null)
+    logger.propagate = False  # 손잡이 쓰기는 빼고 줄 만들기(거르기)만 잰다
+    try:
+        started = time.perf_counter()
+        for _ in range(2000):
+            logger.warning("plain line no digits")
+        per_line = (time.perf_counter() - started) / 2000
+    finally:
+        logger.removeHandler(null)
+        logger.propagate = True
+    assert per_line < 250e-6, per_line
