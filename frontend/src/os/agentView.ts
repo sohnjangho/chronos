@@ -303,7 +303,8 @@ function inferWaitReason(steps: RibbonStep[]): 'answer' | 'approval' | null {
   for (let i = steps.length - 1; i >= 0; i -= 1) {
     const tool = steps[i].tool;
     if (tool === 'ask.questionnaire') return 'answer';
-    if (tool === 'out.submit_change' || tool === 'scenario.submit' || tool === 'rules.propose') {
+    // schedule.import 는 만든 초안을 승인함에 낸다(서버 loop 가 승인을 기다릴 때만 waiting 으로 둔다).
+    if (tool === 'out.submit_change' || tool === 'scenario.submit' || tool === 'rules.propose' || tool === 'schedule.import') {
       return 'approval';
     }
   }

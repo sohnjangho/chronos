@@ -1053,6 +1053,18 @@ async def test_import_button_fills_what_the_check_step_found(run, session, monke
     assert (args["confirmed"], args["domain"], args["level"], args["columns"]) == (True, "general", "L1", IMPORT_COLUMNS)
 
 
+async def test_an_import_waiting_in_the_approval_box_leaves_the_run_waiting(run, session, monkeypatch):
+    """재확인 2(#49): 가져오기가 초안을 승인함에 냈고 승인을 기다리면 실행은 「완료」가 아니라 승인 대기(waiting)다 —
+    생성 흐름(out.submit_change)과 같다."""
+    _gen_client(monkeypatch, FakeLiner())
+    fid = _put_csv(session, IMPORT_CSV)
+    importing = {"file_id": fid, "confirmed": True, "domain": "construction", "level": "L2", "columns": IMPORT_COLUMNS}
+    ev = await run(ScriptedLlm([calls("schedule.import", importing), reply("승인함에서 승인을 기다립니다.")]), _button_text(fid))
+    assert [e.type for e in ev].count("approval") == 1
+    assert session.scalars(select(WorkflowRun)).one().status == "waiting"
+    assert [e.data for e in ev if e.type == "workflow"][-1]["status"] == "waiting"
+
+
 async def test_import_button_keeps_what_the_model_did_give(run, session, monkeypatch):
     """I1(재확인): 모델이 넣은 값은 그대로 두고 빠진 칸만 채운다."""
     gen = FakeLiner()

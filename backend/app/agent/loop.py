@@ -454,6 +454,10 @@ class _Turn:
                 self.waiting_for_user = False
         elif call.name in ("generate.run", "generate.extract_conditions", "schedule.create_project") and result.ok:
             self.waiting_for_user = False
+        elif call.name == "schedule.import" and result.ok and isinstance(result.output, dict):
+            approval = result.output.get("approval")  # 초안을 승인함에 냈다(out.submit_change 결과) — 같은 기준으로
+            if isinstance(approval, dict) and approval.get("applied") is not None:
+                self.waiting_for_user = approval.get("applied") is False
         self.note_import(call, result)
         if self.ran:
             self.note_failure(call, result)

@@ -58,3 +58,12 @@ describe('onToolEnd delay signal', () => {
     expect(token()).toBe(before + 1);
   });
 });
+
+// 재확인 2(#49): 가져오기가 승인함에 낸 초안을 기다리는 실행은 생성 흐름처럼 「승인 대기 중」이다.
+describe('import waiting for approval', () => {
+  it('a waiting run whose last step is schedule.import waits for approval', () => {
+    useAgentView.getState().reset();
+    useAgentView.getState().onWorkflowEvent({ run_id: 49, status: 'waiting', steps: [{ n: 1, tool: 'schedule.import', program: null, status: 'done' }] });
+    expect(useAgentView.getState().ribbon.waitReason).toBe('approval');
+  });
+});
