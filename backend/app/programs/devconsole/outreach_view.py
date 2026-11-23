@@ -147,7 +147,7 @@ def _mark(event: dict) -> tuple[HarnessMark, str]:
     """알아볼 수 있는 사건 하나의 표지와 보일 이름."""
     rule, verdict, detail = event["rule"], event["verdict"], event.get("detail")
     group = EVENT_GROUPS[rule]
-    code = detail if rule in FIXED_DETAILS and detail in FIXED_DETAILS[rule] else None
+    code = detail if rule in FIXED_DETAILS and isinstance(detail, str) and detail in FIXED_DETAILS[rule] else None
     order = _RULE_ORDER.get(rule)
     needs_check = rule == DELIVERY_RULE and _DELIVERY_STATE.get(verdict) == "unsure"
     verdict_label = VERDICT_LABELS[verdict]
@@ -175,7 +175,7 @@ def _unknown() -> tuple[HarnessMark, str]:
 
 def _known(event: object) -> bool:
     return (isinstance(event, dict) and group_of(event.get("rule")) is not None
-            and event.get("verdict") in VERDICT_LABELS)
+            and isinstance(event.get("verdict"), str) and event.get("verdict") in VERDICT_LABELS)
 
 
 def _omitted(event: object) -> int | None:
@@ -218,14 +218,24 @@ def _attempts(marks: list[HarnessMark]) -> int:
     return current
 
 
+def _line(event: object, fallback: datetime) -> tuple[HarnessMark, str, datetime]:
+    """저장된 사건 하나 → (표지, 보일 이름, 시각). 어떤 꼴이든 여기서 예외가 나가지 않는다 — 만들다 무엇으로 실패하든 그 사건
+    하나만 「알 수 없는 사건」이 된다(사건 내용은 남기지도 찍지도 않는다)."""
+    try:
+        mark, label = _mark(event) if _known(event) else _unknown()
+        return mark, label, _when(event.get("at"), fallback) if isinstance(event, dict) else fallback
+    except Exception:  # noqa: BLE001 — 모양이 틀린 사건 하나가 응답 전체를 500 으로 만들지 않게
+        mark, label = _unknown()
+        return mark, label, fallback
+
+
 def timeline(value: object, fallback: datetime) -> tuple[list[HarnessItem], int, int]:
     """그 줄의 하네스 사건 → (시간표, 시도 수, 보이지 않는 앞선 사건 수). 남긴 차례 그대로(시각으로 다시 늘어놓지 않음)."""
     shown, omitted = _stored_events(value)
-    rows = [(_mark(e) if _known(e) else _unknown(), e) for e in shown]
-    attempts = _attempts([mark for (mark, _label), _e in rows])
+    lines = [_line(e, fallback) for e in shown]
+    attempts = _attempts([mark for mark, _label, _at in lines])
     items = []
-    for seq, ((mark, label), event) in enumerate(rows, 1):
-        at = _when(event.get("at"), fallback) if isinstance(event, dict) else fallback
+    for seq, (mark, label, at) in enumerate(lines, 1):
         items.append(HarnessItem(
             seq=seq, kind="harness", label=label, started_at=at, ms=None, model=None, input_tokens=0, output_tokens=0,
             cost=None, ok=mark.verdict != "blocked", error=mark.verdict_label if mark.verdict == "blocked" else None,

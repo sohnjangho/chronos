@@ -364,6 +364,59 @@ def test_malformed_events_are_unknown_lines_not_500(client, admin, session, book
     assert _list(client, admin)["items"][0]["events"] >= 1
 
 
+def _plant(session, book, stored) -> int:
+    sid, _company_id, contact = book
+    row = _message(session, schedule_id=sid, contact_id=contact)
+    session.execute(OutreachMessage.__table__.update().where(OutreachMessage.id == row.id).values(harness_json=stored))
+    session.commit()
+    return row.id
+
+
+@pytest.mark.parametrize("event", [
+    {"rule": "channel_choice", "verdict": []},
+    {"rule": "channel_choice", "verdict": ["allowed"]},
+    {"rule": "channel_choice", "verdict": {"a": 1}},
+    {"rule": ["channel_choice"], "verdict": "allowed"},
+    {"rule": {"x": 1}, "verdict": "allowed"},
+    {"verdict": "allowed"},
+    None,
+    3.5,
+    ["channel_choice", "allowed"],
+])
+def test_unhashable_or_odd_events_are_unknown_lines_not_500(client, admin, session, book, event):
+    body = _detail(client, admin, "message", _plant(session, book, [event]))
+    [line] = body["timeline"]
+    assert line["harness"]["unknown"] is True and line["label"] == "알 수 없는 사건"
+
+
+@pytest.mark.parametrize("detail", [{}, ["sms"], {"a": 1}, 7, None])
+def test_odd_detail_of_a_known_event_is_shown_without_code(client, admin, session, book, detail):
+    stored = [{"rule": "admission", "verdict": "allowed", "detail": detail},
+              {"rule": "channel_choice", "verdict": "allowed", "detail": detail},
+              {"rule": "delivery_update", "verdict": "noted", "detail": detail},
+              {"rule": "scope_denied", "verdict": "blocked", "detail": detail}]
+    body = _detail(client, admin, "message", _plant(session, book, stored))
+    assert len(body["timeline"]) == 4
+    assert all(t["harness"]["code"] is None for t in body["timeline"])
+
+
+def test_any_failure_building_one_line_makes_only_that_line_unknown(client, admin, session, book, monkeypatch,
+                                                                    caplog):
+    real = outreach_view._mark
+
+    def broken(event):
+        if event.get("rule") == "channel_choice":
+            raise RuntimeError(FREE_TEXT)
+        return real(event)
+
+    monkeypatch.setattr(outreach_view, "_mark", broken)
+    stored = [{"rule": "channel_choice", "verdict": "allowed", "detail": "sms", "at": NOW.isoformat()},
+              {"rule": "delivery", "verdict": "allowed", "detail": "보냄", "at": NOW.isoformat()}]
+    body = _detail(client, admin, "message", _plant(session, book, stored))
+    assert [t["harness"]["unknown"] for t in body["timeline"]] == [True, False]
+    assert "FREE-TEXT-SENTINEL" not in caplog.text
+
+
 def test_omitted_marker_and_event_cap(client, admin, session, book):
     sid, _company_id, contact = book
     stored = [{"rule": events.OMITTED, "verdict": "noted", "detail": "앞선 사건 40개 생략됨", "at": NOW.isoformat()}]
