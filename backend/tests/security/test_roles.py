@@ -215,3 +215,28 @@ async def test_user_role_agent_tools_are_unaffected(session, sid):
     ctx = _ctx(session, sid, "user")
     r = await registry.call("schedule.create_project", {"name": "새 현장"}, ctx)
     assert r.ok, r.error
+
+
+# ── 연락처(계획 4 Task 72, require_contacts): 현장 관리자는 주소록을 열 수 없다. 역할을 먼저 보므로 없는 id 도 403 ─────
+
+CONTACTS_NO = "현장 관리자는 연락처를 열 수 없습니다."
+CONTACT_ROUTES = [
+    ("GET", "/api/schedules/{sid}/contacts", None),
+    ("POST", "/api/schedules/{sid}/contacts/companies", {"name": "가람건설"}),
+    ("POST", "/api/schedules/{sid}/contacts/people", {"name": "김공정", "company_id": 1}),
+    ("GET", "/api/schedules/{sid}/contacts/people/1", None),
+    ("POST", "/api/schedules/{sid}/contacts/people/1/reveal", None),
+]
+
+
+@pytest.mark.parametrize(("method", "path", "body"), CONTACT_ROUTES, ids=[f"{m} {p}" for m, p, _ in CONTACT_ROUTES])
+def test_field_role_cannot_open_contacts(client, field_user, sid, method, path, body):
+    r = client.request(method, path.format(sid=sid), json=body, headers=field_user)
+
+    assert r.status_code == 403, r.json()
+    assert (r.json()["code"], r.json()["message"]) == ("field_no_contacts", CONTACTS_NO)
+
+
+@pytest.mark.parametrize("who", ["user", "admin"])
+def test_user_and_admin_open_contacts(client, request, sid, who):
+    assert client.get(f"/api/schedules/{sid}/contacts", headers=request.getfixturevalue(who)).status_code == 200

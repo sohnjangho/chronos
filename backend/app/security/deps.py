@@ -13,6 +13,7 @@ from app.store.messages import FIELD_READ_ONLY_MESSAGE
 from app.store.tables import User
 
 _bearer = HTTPBearer(auto_error=False)
+FIELD_NO_CONTACTS_MESSAGE = "현장 관리자는 연락처를 열 수 없습니다."
 
 
 def current_user(
@@ -36,4 +37,11 @@ def require_editor(user: Annotated[User, Depends(current_user)]) -> User:
     """일정 쓰기·승인 결정·상신. 현장 관리자(field)는 읽고 현장 회신·지연 기록만 남긴다(F4). 사용자·관리자는 그대로."""
     if user.role == "field":
         raise ApiError(403, "field_read_only", FIELD_READ_ONLY_MESSAGE)
+    return user
+
+
+def require_contacts(user: Annotated[User, Depends(current_user)]) -> User:
+    """연락처·연락 기록(계획 4). 현장 관리자(field)는 주소록을 열 수 없다. 관리자·사용자는 그대로."""
+    if user.role == "field":
+        raise ApiError(403, "field_no_contacts", FIELD_NO_CONTACTS_MESSAGE)
     return user
