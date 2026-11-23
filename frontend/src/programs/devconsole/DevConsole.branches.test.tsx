@@ -42,6 +42,20 @@ describe('에이전트 구조 — 연락 가지', () => {
     expect(within(svg).queryByRole('list', { name: '도구 실행 신호' })).toBeNull();
   });
 
+  test('an unknown result reads 결과 확인 필요 and a channel failure 보내지 못함 — neither is 문이 막음', async () => {
+    const d = done();
+    d.structure.edges_lit = ['outreach_unsure', 'outreach_failed'];
+    mockTurn(d);
+    show();
+    const svg = await structure();
+    const box = within(svg).getByRole('group', { name: /^연락 가지/ });
+    expect(box).toHaveAccessibleName('연락 가지, 결과 확인 필요 · 보내지 못함');
+    expect(box).not.toHaveAccessibleName(/문이 막음/);
+    const row = screen.getByLabelText('실행된 분기 및 하네스 요약');
+    expect(within(row).getByText('위임 발송 — 결과 확인 필요')).toBeVisible();
+    expect(within(row).getByText('위임 발송 — 통로가 보내지 못함')).toBeVisible();
+  });
+
   test('the turn flow puts the outreach outcome beside its tool step', async () => {
     const d = done();
     d.timeline = d.timeline.map((t) => (t.label === 'shorten.make' ? { ...t, label: 'notify.send_message', signals: ['outreach_delegated'] } : t));
@@ -89,6 +103,15 @@ describe('연락 하나 — 다섯 마디 흐름도', () => {
     const branch = within(flow).getByRole('listitem', { name: /^받은 문자 응대/ });
     expect(branch).toHaveAccessibleName('받은 문자 응대, 답 줄로 이어짐');
     expect(branch).toHaveClass('is-lit');
+  });
+
+  test('a refused inbound message with a linked notice reads 막고 안내함, not 응대', async () => {
+    mockOutreach('message', 501, outreachDetail({ branches_lit: ['inbound_refused'] }));
+    const flow = await openContact();
+    const branch = within(flow).getByRole('listitem', { name: /^받은 문자/ });
+    expect(branch).toHaveAccessibleName('받은 문자 — 막고 안내함, 안내 답 줄로 이어짐');
+    expect(branch).toHaveClass('is-lit', 'is-warn');
+    expect(within(flow).queryByRole('listitem', { name: /^받은 문자 응대/ })).toBeNull();
   });
 
   test('a harness tool line shows the shared Korean tool name', async () => {

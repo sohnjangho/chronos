@@ -40,12 +40,14 @@ from app.store.tables_outreach import OutreachMessage
 LOOKUP_TOOL = "contacts.list"
 DRAFT_TOOLS = frozenset({"notify.draft_message", "notify.draft_call"})
 SEND_TOOLS = frozenset({"notify.send_message", "notify.place_call"})  # 위임 도구(Task 81)
-PASSED = frozenset({"accepted", "queued", "scheduled"})  # 위임 발송이 문을 지나간 판정 코드 — 그 밖의 코드는 막힘
+PASSED = frozenset({"accepted", "queued", "scheduled"})  # 위임 발송이 문을 지나간 판정 코드
+UNSURE, FAILED = "unsure", "failed"  # 문은 지나갔는데 결과를 모름 · 통로가 보내지 못함 — 「막음」이 아니다(그 밖의 코드가 막음)
+_SENT_FLAGS = {UNSURE: "outreach_unsure", FAILED: "outreach_failed"}
 
 
 def step_flags(tool: str, status: str, out: dict) -> list[str]:
     """실행 걸음 하나가 보여 주는 연락 가지. 연락처 조회는 걸음이 있으면, 초안은 끝났으면, 위임 발송은 끝났고 결과에
-    판정 코드(outcome)가 있으면."""
+    판정 코드(outcome)가 있으면 — 지나감 · 결과 모름 · 통로 실패 · 문이 막음 넷으로 가른다."""
     if tool == LOOKUP_TOOL:
         return ["contact_lookup"]
     if status != "done":
@@ -54,7 +56,7 @@ def step_flags(tool: str, status: str, out: dict) -> list[str]:
         return ["outreach_draft"]
     outcome = out.get("outcome")
     if tool in SEND_TOOLS and isinstance(outcome, str):
-        return ["outreach_delegated" if outcome in PASSED else "outreach_blocked"]
+        return ["outreach_delegated" if outcome in PASSED else _SENT_FLAGS.get(outcome, "outreach_blocked")]
     return []
 
 
@@ -70,6 +72,7 @@ FLOW: tuple[tuple[str, str, frozenset[str]], ...] = (
     ("channel", "통로", frozenset({EVENT_GROUPS[UPDATE_RULE]})),
 )
 INBOUND_HANDLED = "inbound_handled"
+INBOUND_REFUSED = "inbound_refused"  # 받기 판정이 응대가 아님(막음·수신 거부 말)인데 고정 안내 답이 걸림
 
 
 def flow(items: list[HarnessItem]) -> list[OutreachFlowNode]:
@@ -85,13 +88,15 @@ def flow(items: list[HarnessItem]) -> list[OutreachFlowNode]:
     return nodes
 
 
-def _admitted(value: object) -> bool:
-    return isinstance(value, list) and any(isinstance(e, dict) and e.get("rule") == ADMIT_RULE for e in value)
+def _admission(value: object) -> str | None:
+    """그 줄의 마지막 받기 판정 사건의 판정. 없으면 None."""
+    found = [e for e in value if isinstance(e, dict) and e.get("rule") == ADMIT_RULE] if isinstance(value, list) else []
+    return str(found[-1].get("verdict")) if found else None
 
 
 def branches(session: Session, kind: str, row: Any) -> list[str]:
-    """받은 문자 줄에 받기 판정 사건이 있고 답 줄이 reply_to_id 로 걸려 있으면(어느 쪽 줄을 보든) inbound_handled.
-    통화 가지는 Task 110·98."""
+    """받은 문자 줄에 받기 판정 사건이 있고 답 줄이 reply_to_id 로 걸려 있으면(어느 쪽 줄을 보든): 판정이 응대
+    (allowed)면 inbound_handled, 그 밖(막음·수신 거부 말)이면 inbound_refused. 통화 가지는 Task 110·98."""
     if kind != "message":
         return []
     if row.direction == "in":
@@ -102,7 +107,10 @@ def branches(session: Session, kind: str, row: Any) -> list[str]:
         linked = inbound is not None and inbound.direction == "in"
     else:
         return []
-    return [INBOUND_HANDLED] if linked and _admitted(inbound.harness_json) else []
+    verdict = _admission(inbound.harness_json) if linked else None
+    if verdict is None:
+        return []
+    return [INBOUND_HANDLED if verdict == "allowed" else INBOUND_REFUSED]
 
 
 # ── 도구 목록 ───────────────────────────────────────────────────────

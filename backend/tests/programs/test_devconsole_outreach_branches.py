@@ -16,7 +16,8 @@ from tests.outreach_doubles import SENTINEL_DIGITS, SENTINEL_KEY
 from tests.programs.test_devconsole_api import get_turn, out, signal_turn
 
 NOW = datetime.now(UTC)
-OUTREACH_FLAGS = {"contact_lookup", "outreach_draft", "outreach_delegated", "outreach_blocked"}
+OUTREACH_FLAGS = {"contact_lookup", "outreach_draft", "outreach_delegated", "outreach_unsure", "outreach_failed",
+                  "outreach_blocked"}
 
 
 def _lit(body: dict) -> set[str]:
@@ -89,6 +90,17 @@ def test_delegated_vs_blocked_follow_the_recorded_outcome(client, admin, session
     assert _step_flags(blocked) == [["outreach_blocked"], ["outreach_blocked"], [], []]
 
 
+def test_unknown_and_failed_results_are_not_shown_as_blocked(client, admin, session):
+    """문을 지나간 뒤 결과를 모름(unsure)·통로가 보내지 못함(failed)은 「문이 막음」이 아니다. 중복은 문이 막은 것."""
+    body = get_turn(client, admin, signal_turn(session, [
+        {"tool": "notify.send_message", "output_json": out(outcome="unsure", message="보냈는지 확인 필요", scheduled_at=None)},
+        {"tool": "notify.place_call", "output_json": out(outcome="failed", message="보내지 못했습니다", scheduled_at=None)},
+        {"tool": "notify.send_message", "output_json": out(outcome="duplicate", message="같은 연락", scheduled_at=None)},
+    ]))
+    assert _step_flags(body) == [["outreach_unsure"], ["outreach_failed"], ["outreach_blocked"]]
+    assert _lit(body) == {"outreach_unsure", "outreach_failed", "outreach_blocked"}
+
+
 def test_passing_outcomes_are_outcome_codes():
     from app.programs.devconsole import outreach_branches
 
@@ -132,6 +144,13 @@ def test_inbound_handled_needs_admit_event_and_linked_reply(client, admin, sessi
     assert by_key["gate"]["count"] == 1 and by_key["channel"]["verdicts"] == [
         {"verdict": "noted", "label": "확인 필요", "count": 1}]
 
+    # 받기 판정이 막음이고 고정 안내가 걸린 줄은 「응대」가 아니라 「막고 안내함」
+    refused = _message(session, direction="in", origin="peer", origin_name="", peer_number=SENTINEL_DIGITS,
+                       status="received")
+    _record(session, Ref("message", refused.id), "admission", "blocked", "unknown_not_accepted")
+    notice = _message(session, kind="notice", reply_to_id=refused.id, status="accepted")
+    assert _detail(client, admin, "message", refused.id)["branches_lit"] == ["inbound_refused"]
+    assert _detail(client, admin, "message", notice.id)["branches_lit"] == ["inbound_refused"]
     # 받기 판정 사건이 없는 받은 줄은 답이 걸려 있어도 켜지지 않는다
     bare = _message(session, direction="in", origin="peer", origin_name="", peer_number=SENTINEL_DIGITS,
                     status="received")

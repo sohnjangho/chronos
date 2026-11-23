@@ -815,6 +815,9 @@
 /* Task 109: 연락 가지(구조 그림의 곁 칸) · 연락 하나의 다섯 마디 흐름도 · 도구 목록의 등급 */
 .dc-tag.is-danger { background: var(--tone-danger-bg); color: var(--danger); }
 .dc-side.dc-o-side.is-dim { opacity: 0.55; }
+/* 연락 가지 칸: 켜진 이름이 셋이면 두 줄로(말줄임으로 결과를 감추지 않게) */
+.dc-side.dc-o-side { gap: 1px; padding: 3px 10px; }
+.dc-side.dc-o-side small { display: -webkit-box; white-space: normal; line-height: 1.25; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .dc-side.dc-o-side.is-lit { border-style: solid; border-color: var(--success); background: var(--tone-success-bg); }
 .dc-side.dc-o-side.is-lit.is-warn { border-color: var(--warning); background: var(--tone-warning-bg); }
 .dc-edge.is-outreach.is-todo path { opacity: 0.6; }
@@ -854,4 +857,5 @@
 }
 .dc-o-branch.is-dim { opacity: 0.55; }
 .dc-o-branch.is-lit { border-style: solid; border-color: var(--accent); background: var(--tone-info-bg); }
+.dc-o-branch.is-lit.is-warn { border-color: var(--warning); background: var(--tone-warning-bg); }
 .dc-tool-classes { display: block; margin-top: 4px; color: var(--fg-muted); font-size: var(--fs-11); overflow-wrap: anywhere; }

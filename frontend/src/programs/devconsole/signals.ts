@@ -23,6 +23,9 @@ export const STEP_SIGNALS: Record<string, SignalInfo> = {
   contact_lookup: { label: '연락처 조회', short: '연락처 조회', place: 'outreach' },
   outreach_draft: { label: '연락 초안 만듦', short: '초안', place: 'outreach' },
   outreach_delegated: { label: '위임 발송 — 문을 지나감', short: '위임 발송', place: 'outreach' },
+  // 결과 모름(unsure)·통로 실패(failed)는 문을 지나간 것 — 「문이 막음」과 따로(나갔을 수 있다).
+  outreach_unsure: { label: '위임 발송 — 결과 확인 필요', short: '결과 확인 필요', place: 'outreach', warn: true },
+  outreach_failed: { label: '위임 발송 — 통로가 보내지 못함', short: '보내지 못함', place: 'outreach', warn: true },
   outreach_blocked: { label: '위임 발송 — 문이 막음', short: '문이 막음', place: 'outreach', warn: true },
 };
 

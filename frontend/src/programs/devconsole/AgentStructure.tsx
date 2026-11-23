@@ -1,7 +1,7 @@
 // 에이전트 구조 그림(SVG, 시안 A안): 흐름 칸 아홉 + 곁 칸(컨텍스트 재료 다섯, 스킬 실행·승인함).
 // 칸 모양: past 채움 · now 강조 테두리와 빛 · todo 점선 · skipped 회색 + "묶음 3". 칸은 폭에 맞춰 자리를 다시 잡는다.
 // 연락 가지(Task 109): 도구 실행 → 「연락」 곁 칸. 기록된 연락 신호가 있을 때만 켜고, 없으면 흐리게 둔다.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { HarnessSummary, NodeKey, StructureNode, Turn } from './devApi';
 import { hourMinute, seconds, tokens } from './format';
 import { contextParts, STATE } from './NodeDetail';
@@ -141,7 +141,16 @@ function OutreachBox({ boxes, lit }: { boxes: ReturnType<typeof nodeBoxes>; lit:
       <foreignObject {...fo(boxes.outreach)}>
         <div className={`dc-side dc-o-side ${flags.length ? 'is-lit' : 'is-dim'}${warn ? ' is-warn' : ''}`} title={flags.map((f) => STEP_SIGNALS[f].label).join(' · ') || '이 턴에는 연락 도구 기록이 없습니다.'}>
           <b>연락 · 나가는 문</b>
-          <small>{sub}</small>
+          <small>
+            {flags.length
+              ? flags.map((f, i) => (
+                  <Fragment key={f}>
+                    {i ? ' · ' : ''}
+                    <span className="dc-nowrap">{STEP_SIGNALS[f].short}</span>
+                  </Fragment>
+                ))
+              : sub}
+          </small>
         </div>
       </foreignObject>
     </g>

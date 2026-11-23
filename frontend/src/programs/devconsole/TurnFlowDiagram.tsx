@@ -184,8 +184,10 @@ export default function TurnFlowDiagram({ detail, selected, onSelect }: Props) {
   );
 }
 
-/** 연락 하나의 가지(서버가 기록으로 켠 것만): 받은 문자 줄에 받기 판정 사건이 있고 답 줄이 걸려 있음. 통화 가지는 Task 110·98. */
-const OUTREACH_BRANCHES = [{ key: 'inbound_handled', label: '받은 문자 응대', on: '답 줄로 이어짐' }];
+/** 연락 하나의 가지(서버가 기록으로 켠 것만): 받은 문자 줄에 받기 판정 사건이 있고 답 줄이 걸려 있음 — 응대했으면
+ * inbound_handled, 막고 고정 안내만 했으면 inbound_refused(한 칸에 하나만 보인다). 통화 가지는 Task 110·98. */
+const INBOUND_HANDLED = { key: 'inbound_handled', label: '받은 문자 응대', on: '답 줄로 이어짐', warn: false };
+const INBOUND_REFUSED = { key: 'inbound_refused', label: '받은 문자 — 막고 안내함', on: '안내 답 줄로 이어짐', warn: true };
 
 /** 연락 하나의 흐름도: 다섯 마디(차례는 서버가 준 대로)마다 그 줄의 사건 수와 판정(서버의 판정 글). 사건이 없는 마디와 꺼진 가지는
  * 흐리다. 넓으면 한 줄, 좁은 창에서는 다음 줄로 접혀 가로로 넘치지 않는다. */
@@ -207,10 +209,10 @@ export function OutreachFlow({ flow, lit }: { flow: OutreachFlowNode[]; lit: str
           )}
         </li>
       ))}
-      {OUTREACH_BRANCHES.map((b) => {
+      {[lit.includes(INBOUND_REFUSED.key) ? INBOUND_REFUSED : INBOUND_HANDLED].map((b) => {
         const on = lit.includes(b.key);
         return (
-          <li key={b.key} className={`dc-o-branch ${on ? 'is-lit' : 'is-dim'}`} aria-label={`${b.label}, ${on ? b.on : '기록 없음'}`} title={b.key}>
+          <li key={b.key} className={`dc-o-branch ${on ? 'is-lit' : 'is-dim'}${b.warn ? ' is-warn' : ''}`} aria-label={`${b.label}, ${on ? b.on : '기록 없음'}`} title={b.key}>
             <b>{b.label}</b>
             <small>{`가지 · ${on ? b.on : '기록 없음'}`}</small>
           </li>
