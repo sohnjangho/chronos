@@ -10,18 +10,22 @@ import inspect
 import json
 import logging
 import sqlite3
+import threading
+import time
 from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import get_args
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, delete
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 import app
 from app import db
 from app.config import Settings
-from app.outreach import hours, redact
+from app.outreach import hours
 from app.outreach.harness import events, gate
 from app.outreach.harness.types import (
     GATE_NOTES,
@@ -58,6 +62,7 @@ LANDLINE = "0220000199"
 MARK = "QX71"  # 보낼 글·통화 목적에만 있는 표식 — 판정 글·사건·로그에 나오면 안 된다
 BODY = f"내일 3층 타설 가능하신가요 {MARK}"
 BUSY = "이미 보내는 중이거나 잠시 뒤 다시 해 보세요"
+RAW = "RAWTXT7"  # 통로가 돌려준 글에만 있는 표식 — 판정 글·줄·사건 어디에도 남으면 안 된다
 USER = Actor("user", 1, "김공정", "user")
 AGENT = Actor("agent", 1, "에이전트", "user")
 SYSTEM = Actor("system", None, "일꾼", None)
@@ -393,22 +398,34 @@ async def test_missing_or_inbound_row_is_not_sendable(session, sid, fake_channel
 
 
 async def test_delivery_failure_marks_failed_with_clean_reason(session, sid, fake_channel, caplog):
+    """통로가 준 글은 판정 글·줄·사건에 흘리지 않는다 — fail_code 를 문이 정해 둔 한국어 문장으로 옮긴다."""
     caplog.set_level(logging.DEBUG)
-    redact.add_secrets(SENTINEL_KEY)
     row, actor, now = arrange(session, sid, "pass")
-    fake_channel.result = Delivered("failed", fail_code="sender_not_registered",
-                                    fail_text=f"발신번호가 등록되지 않았습니다 {SENTINEL_PHONE} {SENTINEL_KEY}")
+    fake_channel.result = Delivered("failed", fail_code="bad_sender",
+                                    fail_text=f"{RAW} to={SENTINEL_PHONE} 010-0000 key={SENTINEL_KEY} kat-test-key")
 
     out = await send(row, actor, now)
 
     row = reread(session, row)
     assert (out.code, out.rule) == ("failed", None)  # 문은 지나갔고 통로가 보내지 못함 — 「보내기를 거절함」(not_sendable)이 아니다
-    assert row.status == "failed" and row.fail_reason.startswith("발신번호가 등록되지 않았습니다")
-    assert out.message == row.fail_reason  # 통로가 준 한국어 까닭 그대로(비밀·번호는 지운 것)
+    assert row.status == "failed" and out.message == row.fail_reason == gate.FAIL_TEXT["bad_sender"]
     assert trail(session, row) == [("channel_choice", "allowed"), ("delivery", "blocked")]
     stored = json.dumps(events.of(session, Ref("message", row.id)), ensure_ascii=False)
-    assert not any(leaks(text) for text in (out.message, row.fail_reason, stored))
+    for text in (out.message, row.fail_reason, stored):
+        assert not leaks(text) and RAW not in text and "kat-test" not in text and "0000" not in text
     assert_clean(caplog)
+
+
+@pytest.mark.parametrize("code", [None, "", "no_such_code", f"bad_sender {RAW}"])
+async def test_unknown_failure_code_gets_the_generic_sentence(session, sid, fake_channel, code):
+    row, actor, now = arrange(session, sid, "pass")
+    fake_channel.result = Delivered("failed", fail_code=code, fail_text=RAW)
+
+    out = await send(row, actor, now)
+
+    row = reread(session, row)
+    assert out.code == "failed" and out.message == row.fail_reason == gate.SEND_FAILED
+    assert RAW not in json.dumps(events.of(session, Ref("message", row.id)), ensure_ascii=False)
 
 
 async def test_failed_row_cannot_be_dispatched_again(session, sid, fake_channel):
@@ -437,12 +454,13 @@ async def test_retry_row_after_a_failure_goes_out_at_once(session, sid, fake_cha
 
 async def test_unsure_delivery_is_unconfirmed_and_never_resent(session, sid, fake_channel):
     row, actor, now = arrange(session, sid, "pass")
-    fake_channel.result = Delivered("unsure", fail_code="timeout", fail_text="결과를 알 수 없습니다")
+    fake_channel.result = Delivered("unsure", fail_code="timeout", fail_text=f"결과를 알 수 없습니다 {RAW}")
 
     out = await send(row, actor, now)
 
     assert (out.code, out.message) == ("unsure", "보냈는지 확인 필요")
-    assert reread(session, row).status == "unconfirmed"
+    assert (reread(session, row).status, reread(session, row).fail_reason) == ("unconfirmed", gate.UNSURE)
+    assert RAW not in json.dumps(events.of(session, Ref("message", row.id)), ensure_ascii=False)
     assert trail(session, row) == [("channel_choice", "allowed"), ("delivery", "noted")]
     fake_channel.result = None
     for actor in (USER, SYSTEM):
@@ -499,18 +517,77 @@ async def test_channel_that_raises_cancelled_gives_unsure_outcome(session, sid, 
     assert out.code == "unsure" and reread(session, row).status == "unconfirmed"
 
 
-@pytest.mark.parametrize("result", [Delivered("failed", fail_text="통화 일꾼이 꺼져 있습니다"), RuntimeError("boom")])
-async def test_call_that_could_not_be_queued_is_failed(session, sid, fake_channel, result):
-    """통화 통로가 줄에 넣지 못했다 → queued 로 남기지 않는다(걸리지도 않을 통화가 「진행 중」으로 남아 다음 걸기를 막지 않게)."""
+async def test_call_that_could_not_be_queued_is_failed(session, sid, fake_channel):
+    """통화 통로가 줄에 넣지 못했다고 분명히 알렸다 → failed(queued 로 남아 다음 걸기를 막지 않는다). 곧바로 다시 걸 수 있다."""
     row, actor, now = arrange(session, sid, "pass", "call")
-    fake_channel.result = result
+    fake_channel.result = Delivered("failed", fail_code="network", fail_text=RAW)
 
     out = await send(row, actor, now)
 
-    assert (out.code, out.rule) == ("failed", None)
+    assert (out.code, out.rule, out.message) == ("failed", None, gate.FAIL_TEXT["network"])
     row = reread(session, row)
-    assert row.status == "failed" and row.fail_reason
-    assert trail(session, row)[0] == ("channel_choice", "allowed") and trail(session, row)[1][0] == "delivery"
+    assert (row.status, row.fail_reason) == ("failed", gate.FAIL_TEXT["network"])
+    assert trail(session, row) == [("channel_choice", "allowed"), ("delivery", "blocked")]
+    fake_channel.result = None
+    redial = call(session, session.get(Contact, row.contact_id), purpose_key="pour-3f")
+    session.commit()
+    assert (await send(redial, actor, now + timedelta(seconds=10))).code == "queued"
+
+
+def _raise_cancelled(_row_id):
+    raise asyncio.CancelledError
+
+
+@pytest.mark.parametrize("ending", ["exception", "unsure", "cancelled_inside"])
+async def test_call_closed_without_a_clear_answer_is_unsure_and_blocks_a_redial(session, sid, fake_channel, ending):
+    """통화 통로가 예외·모름·취소로 끝났다(걸렸을 수도 있다) → 부른 쪽에는 「확인 필요」, 줄은 failed 로 닫되 그 번호로의 다음
+    전화는 DUPLICATE_WINDOW_S 동안 막는다(같은 사람에게 두 번 거는 일이 없게)."""
+    row, actor, now = arrange(session, sid, "pass", "call")
+    if ending == "exception":
+        fake_channel.result = RuntimeError(f"boom {SENTINEL_PHONE}")
+    elif ending == "unsure":
+        fake_channel.result = Delivered("unsure", fail_text=RAW)
+    else:
+        fake_channel.during = _raise_cancelled
+
+    out = await send(row, actor, now)
+
+    assert (out.code, out.rule, out.message) == ("unsure", None, gate.UNSURE)
+    row = reread(session, row)
+    assert (row.status, row.fail_reason) == ("failed", gate.UNSURE)
+    assert trail(session, row) == [("channel_choice", "allowed"), ("delivery", "noted")]
+    fake_channel.result = fake_channel.during = None
+    who = session.get(Contact, row.contact_id)
+    soon, later = call(session, who, purpose_key="another-purpose"), call(session, who, purpose_key="another-purpose")
+    session.commit()
+    blocked = await send(soon, actor, now + timedelta(seconds=10))
+    assert (blocked.code, blocked.rule) == ("duplicate", 6) and len(fake_channel.delivered) == 1
+    assert (await send(later, actor, now + timedelta(seconds=gate.DUPLICATE_WINDOW_S + 1))).code == "queued"
+
+
+@pytest.mark.parametrize("result", [RuntimeError("boom"), Delivered("failed", fail_code="network"), Delivered("unsure")])
+async def test_call_the_worker_already_took_is_not_closed_as_failed(session, sid, fake_channel, result):
+    """통로가 줄에 넣은 뒤 일꾼이 벌써 걸기 시작했는데(queued → dialing) 통로 호출이 실패로 끝났다 → 그 줄을 failed 로 덮지
+    않는다(덮으면 「진행 중 통화」 검사가 풀려 같은 사람에게 한 통이 더 나간다)."""
+    row, actor, now = arrange(session, sid, "pass", "call")
+
+    def worker_takes_it(row_id):
+        with Session(db._engine) as other:
+            assert outreach.claim(other, "call", row_id, ("queued",), "dialing")
+            other.commit()
+
+    fake_channel.during, fake_channel.result = worker_takes_it, result
+
+    out = await send(row, actor, now)
+
+    assert out.code == "unsure"
+    row = reread(session, row)
+    assert (row.status, row.fail_reason) == ("dialing", None)
+    fake_channel.during = fake_channel.result = None
+    redial = call(session, session.get(Contact, row.contact_id), purpose_key="pour-3f")
+    session.commit()
+    assert (await send(redial, actor, now + timedelta(seconds=10))).code == "duplicate"
+    assert len(fake_channel.delivered) == 1
 
 
 # ── 동시성·잠금 ──────────────────────────────────────────────────────
@@ -685,6 +762,257 @@ async def test_codes_rules_and_event_names_are_the_shared_constants(session, sid
     assert {e["rule"] for e in log} <= DECISIONS | GATE_NOTES | {"delivery"} <= events.KNOWN_RULES
     row = reread(session, row)
     assert not any(leaks(text) for text in (out.message, row.fail_reason or "", json.dumps(log, ensure_ascii=False)))
+
+
+# ── 잠금 실패·결과 적기·스레드(고침 1) ────────────────────────────────
+
+
+@pytest.fixture
+def impatient(monkeypatch):
+    """기다림이 짧은 엔진으로 바꿔 끼운다(잠긴 DB 를 0.1초만 기다린다 — 나머지는 앱의 엔진과 같다)."""
+    engine = create_engine(f"sqlite:///{db_path()}", connect_args={"timeout": 0.1}, hide_parameters=True)
+    monkeypatch.setattr(db, "_engine", engine)
+    yield engine
+    engine.dispose()
+
+
+def assert_released(engine=None):
+    """문이 쓴 연결이 트랜잭션을 쥔 채 풀에 돌아가 있지 않고, 다른 연결이 곧바로 쓸 수 있다."""
+    with (engine or db._engine).connect() as pooled:
+        assert pooled.connection.driver_connection.in_transaction is False
+    with closing(sqlite3.connect(db_path(), timeout=0)) as other:
+        other.execute("BEGIN IMMEDIATE")
+        other.rollback()
+
+
+async def test_commit_that_cannot_get_the_lock_is_busy_and_leaves_nothing_behind(session, sid, fake_channel, impatient):
+    """다른 연결이 읽기 잠금을 쥐고 있으면 BEGIN IMMEDIATE 는 되는데 commit 이 실패한다 → 예외 없이 「잠시 뒤 다시」,
+    되돌려서 차지한 것도 사건도 남지 않고, 그 연결은 트랜잭션을 놓은 채 풀로 돌아간다."""
+    row, actor, now = arrange(session, sid, "pass")
+    row_id = row.id
+    session.rollback()
+    with closing(sqlite3.connect(db_path(), isolation_level=None)) as reader:
+        reader.execute("BEGIN")
+        reader.execute("SELECT count(*) FROM outreach_messages").fetchone()
+        out = await gate.dispatch("message", row_id, actor, now=now)
+        reader.execute("ROLLBACK")
+
+    assert (out.code, out.rule, out.message) == ("duplicate", 6, BUSY) and fake_channel.delivered == []
+    assert_released(impatient)
+    row = reread(session, row)
+    assert (row.status, row.claimed_at, row.send_mode) == ("draft", None, None) and trail(session, row) == []
+    assert (await send(row, actor, now)).code == "accepted"  # 잠금이 풀리면 그대로 나간다(딱 한 번)
+    assert len(fake_channel.delivered) == 1
+
+
+async def test_result_that_cannot_be_written_is_unsure_not_an_error(session, sid, fake_channel, impatient, caplog):
+    """통로는 보냈는데 결과를 적지 못한다(DB 가 잠김) → 예외가 아니라 「보냈는지 확인 필요」. 줄은 sending 으로 남고, 남아 있는
+    동안은 시간이 얼마나 지나든 같은 글의 새 줄을 막는다."""
+    caplog.set_level(logging.DEBUG)
+    row, actor, now = arrange(session, sid, "pass")
+    who_id = row.contact_id
+    session.rollback()
+    holder = sqlite3.connect(db_path(), isolation_level=None)
+    fake_channel.during = lambda _row_id: holder.execute("BEGIN IMMEDIATE")
+    try:
+        out = await gate.dispatch("message", row.id, actor, now=now)
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+
+    assert (out.code, out.rule, out.message) == ("unsure", None, gate.UNSURE)
+    assert len(fake_channel.delivered) == 1 and reread(session, row).status == "sending"
+    assert "OperationalError" in caplog.text
+    assert_clean(caplog)
+    assert_released(impatient)
+    fake_channel.during = None
+    twin = message(session, session.get(Contact, who_id))
+    session.commit()
+    again = await send(twin, actor, now + timedelta(hours=3))
+    assert (again.code, again.rule) == ("duplicate", 6) and len(fake_channel.delivered) == 1
+
+
+async def test_result_write_is_retried(session, sid, fake_channel, monkeypatch):
+    """결과 적기가 한 번 실패해도 다시 해 본다 — 적히면 보통 때와 같다(제공사 id 를 잃지 않는다)."""
+    row, actor, now = arrange(session, sid, "pass")
+    fake_channel.result = Delivered("sent", provider_id="kat-msg-9")
+    real, failed = events.record, []
+
+    def flaky(session_, ref, rule, *args, **kwargs):
+        if rule == "delivery" and not failed:
+            failed.append(rule)
+            raise OperationalError("UPDATE", {}, sqlite3.OperationalError("database is locked"))
+        return real(session_, ref, rule, *args, **kwargs)
+
+    monkeypatch.setattr(events, "record", flaky)
+
+    out = await send(row, actor, now)
+
+    row = reread(session, row)
+    assert out.code == "accepted" and failed == ["delivery"]
+    assert (row.status, row.provider_message_id) == ("accepted", "kat-msg-9")
+    assert trail(session, row) == [("channel_choice", "allowed"), ("delivery", "allowed")]
+
+
+@pytest.mark.parametrize("channel,code", [("sms", "accepted"), ("call", "queued")])
+async def test_row_deleted_while_the_channel_was_busy_does_not_raise(session, sid, fake_channel, channel, code):
+    """통로를 부르는 동안 줄이 지워졌다(일정 지우기) → 적을 곳이 없을 뿐, 예외를 올리지 않는다."""
+    row, actor, now = arrange(session, sid, "pass", channel)
+    model = type(row)
+
+    def gone(row_id):
+        with Session(db._engine) as other:
+            other.execute(delete(model).where(model.id == row_id))
+            other.commit()
+
+    fake_channel.during = gone
+
+    assert (await send(row, actor, now)).code == code
+
+
+async def test_loop_stays_responsive_while_the_gate_waits_for_the_database(session, sid, fake_channel):
+    """문이 DB 를 기다리는 동안 이벤트 루프는 돈다 — 잠금을 푸는 일이 같은 루프에서 돌아야 문이 지나간다."""
+    row, actor, now = arrange(session, sid, "pass")
+    row_id = row.id
+    session.rollback()
+    with closing(sqlite3.connect(db_path(), isolation_level=None)) as holder:
+        holder.execute("BEGIN IMMEDIATE")
+
+        async def release():
+            await asyncio.sleep(0.3)  # 문이 루프를 막고 있으면 여기가 돌지 못해 문은 「잠시 뒤 다시」로 끝난다
+            holder.execute("ROLLBACK")
+
+        started = time.monotonic()
+        out, _ = await asyncio.gather(gate.dispatch("message", row_id, actor, now=now), release())
+
+    assert out.code == "accepted" and time.monotonic() - started >= 0.3
+
+
+async def test_settle_does_not_block_the_loop(session, sid, fake_channel):
+    """통로가 돌아온 뒤 결과를 적으려고 DB 를 기다리는 동안에도 이벤트 루프는 돈다."""
+    row, actor, now = arrange(session, sid, "pass")
+    row_id = row.id
+    session.rollback()
+    with closing(sqlite3.connect(db_path(), isolation_level=None)) as holder:
+        releasing = []
+
+        async def release():
+            await asyncio.sleep(0.3)  # 결과 적기가 루프를 막고 있으면 여기가 돌지 못해 끝내 적지 못한다(unsure)
+            holder.execute("ROLLBACK")
+
+        def grab(_row_id):
+            holder.execute("BEGIN IMMEDIATE")
+            releasing.append(asyncio.ensure_future(release()))
+
+        fake_channel.during = grab
+        out = await gate.dispatch("message", row_id, actor, now=now)
+        await asyncio.gather(*releasing)
+
+    assert out.code == "accepted" and reread(session, row).status == "accepted"
+
+
+async def test_gate_waits_about_a_second_not_the_engines_timeout(session, sid, fake_channel):
+    """문은 잠긴 DB 를 BUSY_WAIT_MS 만 기다린다(엔진의 5초가 아니라). 풀로 돌려준 연결의 기다림은 원래대로다."""
+    row, actor, now = arrange(session, sid, "pass")
+    row_id = row.id
+    session.rollback()
+    with closing(sqlite3.connect(db_path(), isolation_level=None)) as holder:
+        holder.execute("BEGIN IMMEDIATE")
+        started = time.monotonic()
+        out = await gate.dispatch("message", row_id, actor, now=now)
+        waited = time.monotonic() - started
+        holder.execute("ROLLBACK")
+
+    assert (out.code, out.message) == ("duplicate", BUSY) and fake_channel.delivered == []
+    assert gate.BUSY_WAIT_MS / 1000 * 0.8 <= waited < 3
+    with db._engine.connect() as pooled:
+        assert pooled.exec_driver_sql("PRAGMA busy_timeout").scalar() == 5000
+
+
+async def test_cancel_while_deciding_does_not_leave_a_claimed_row(session, sid, fake_channel):
+    """판정이 (스레드에서) 도는 동안 부른 쪽이 취소됐다 → 차지한 줄이 통로 호출도 결과도 없이 sending 으로 남지 않는다:
+    통로를 부르지 않았으니 failed(가지 않았음이 확실)로 닫고 취소를 다시 올린다."""
+    row, actor, now = arrange(session, sid, "pass")
+    row_id = row.id
+    session.rollback()
+    with closing(sqlite3.connect(db_path(), isolation_level=None)) as holder:
+        holder.execute("BEGIN IMMEDIATE")
+        task = asyncio.create_task(gate.dispatch("message", row_id, actor, now=now))
+        await asyncio.sleep(0.1)  # 문은 지금 스레드에서 쓰기 잠금을 기다린다
+        task.cancel()
+        holder.execute("ROLLBACK")
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    row = reread(session, row)
+    assert fake_channel.delivered == []
+    assert (row.status, row.fail_reason) == ("failed", gate.FAIL_TEXT["cancelled_before_send"])
+    assert trail(session, row) == [("channel_choice", "allowed"), ("delivery", "blocked")]
+    assert_released()
+
+
+def storm(rows, actor: Actor = USER, now: datetime = WORK) -> list[str]:
+    """줄마다 진짜 스레드 하나(저마다 자기 이벤트 루프)에서 한꺼번에 문에 넣는다 → 판정 코드들."""
+    gate_open = threading.Barrier(len(rows))
+    codes: list[str | None] = [None] * len(rows)
+
+    def one(index: int, kind: str, row_id: int) -> None:
+        gate_open.wait(10)
+        codes[index] = asyncio.run(gate.dispatch(kind, row_id, actor, now=now)).code
+
+    threads = [threading.Thread(target=one, args=(i, kind_of(row), row.id)) for i, row in enumerate(rows)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30)
+    assert None not in codes, codes
+    return codes
+
+
+@pytest.mark.parametrize("channel", ["sms", "call"])
+def test_threads_racing_for_one_row_deliver_once(session, sid, fake_channel, channel):
+    row, actor, now = arrange(session, sid, "pass", channel)
+    session.rollback()
+
+    codes = storm([row] * 6, actor, now)
+
+    assert len(fake_channel.delivered) == 1 and codes.count("accepted" if channel == "sms" else "queued") == 1
+    assert set(codes) <= {"accepted", "queued", "duplicate", "not_sendable"}
+    assert_released()
+
+
+def test_threads_racing_with_the_same_text_send_one(session, sid, fake_channel):
+    connect(session)
+    who = person(session, sid)
+    rows = [message(session, who) for _ in range(6)]
+    session.commit()
+
+    codes = storm(rows)
+
+    assert len(fake_channel.delivered) == 1 and sorted(codes) == ["accepted"] + ["duplicate"] * 5
+
+
+def test_threads_racing_for_the_last_slot_send_one(session, sid, fake_channel):
+    connect(session, limits_json={"per_contact_sms_daily": 1})
+    who = person(session, sid)
+    rows = [message(session, who, body=f"물음 {i}") for i in range(6)]
+    session.commit()
+
+    codes = storm(rows)
+
+    assert len(fake_channel.delivered) == 1 and codes.count("accepted") == 1
+    assert set(codes) <= {"accepted", "limit_person", "duplicate"}  # duplicate 는 DB 를 기다리다 「잠시 뒤 다시」
+
+
+def test_threads_racing_calls_to_one_person_place_one(session, sid, fake_channel):
+    connect(session)
+    who = person(session, sid)
+    rows = [call(session, who, purpose_key=f"purpose-{i}") for i in range(6)]
+    session.commit()
+
+    codes = storm(rows)
+
+    assert len(fake_channel.delivered) == 1 and sorted(codes) == ["duplicate"] * 5 + ["queued"]
 
 
 # ── 구조 ────────────────────────────────────────────────────────────

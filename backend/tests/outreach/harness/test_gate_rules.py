@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import app
 from app.outreach.harness import events, gate, registry
 from app.outreach.harness.types import Ref
 from app.store import outreach
@@ -42,6 +43,7 @@ from tests.outreach.harness.test_gate import (
     send,
     trail,
 )
+from tests.outreach_doubles import SENTINEL_PHONE
 
 DELEGATED = {"agent_sms": "delegate", "agent_kakao": "delegate", "agent_call": "delegate"}
 
@@ -109,6 +111,46 @@ async def test_number_must_be_present_valid_and_reachable(session, sid, fake_cha
     assert (out.code, out.rule) == ("not_sendable", 0) and fake_channel.delivered == []
     row = reread(session, row)
     assert row.status == "draft" and row.fail_reason and PHONE[-4:] not in row.fail_reason
+
+
+@pytest.mark.parametrize("stored", [SENTINEL_PHONE, "+82 10 0000 0199", " 01000000199"])
+async def test_contact_number_not_in_stored_form_is_not_sendable(session, sid, fake_channel, stored):
+    """정리되지 않은 꼴로 저장된 번호(옛 입력·가져오기)는 수신 거부·사람당 상한·중복 검사가 못 찾는다 → 보내지 않고 다시
+    저장하게 한다. 수신 거부로 표시된 사람이어도, 주소록에 없는 번호(peer_number)여도 같다."""
+    connect(session, limits_json={"per_contact_sms_daily": 1})
+    who = person(session, sid, stored, do_not_contact=True)
+    rows = [message(session, who), call(session, who), message(session, peer_number=stored)]
+    session.commit()
+
+    for row in rows:
+        out = await send(row)
+        assert (out.code, out.rule, out.message) == ("not_sendable", 0, "연락처 번호를 다시 저장해 주세요")
+        assert reread(session, row).status == "draft"
+    assert fake_channel.delivered == []
+
+
+async def test_message_channel_outside_the_vocabulary_is_not_sendable(session, sid, fake_channel):
+    connect(session)
+    row = message(session, person(session, sid), channel="fax")
+    session.commit()
+
+    out = await send(row)
+
+    assert (out.code, out.rule) == ("not_sendable", 0) and fake_channel.delivered == []
+
+
+@pytest.mark.parametrize("channel,status", [("sms", "draft"), ("call", "draft"), ("call", "blocked_hours")])
+async def test_system_worker_takes_only_scheduled_rows(session, sid, fake_channel, channel, status):
+    """일꾼(system)은 예약된 줄만 보낸다 — 초안에 send_mode 를 적어 일꾼 이름으로 넣어도 나가지 않고, 줄은 그대로다."""
+    connect(session)
+    row = row_for(session, channel, person(session, sid), status=status, send_mode="manual")
+    session.commit()
+
+    out = await send(row, SYSTEM)
+
+    assert (out.code, out.rule) == ("not_sendable", 0) and fake_channel.delivered == []
+    row = reread(session, row)
+    assert (row.status, row.send_mode) == (status, "manual") and trail(session, row) == [("precheck", "blocked")]
 
 
 async def test_peer_number_row_needs_a_real_number(session, sid, fake_channel):
@@ -179,6 +221,18 @@ async def test_row_already_on_its_way_is_a_duplicate_not_already_sent(session, s
     assert (out.code, out.rule, out.message) == ("duplicate", 6, BUSY)
     assert reread(session, row).status == status and fake_channel.delivered == []
     assert trail(session, row) == [("duplicate", "blocked")]
+
+
+@pytest.mark.parametrize("stored", [[None, 123, {"a": 1}, ["x"], SENTINEL_PHONE], "01000000199", 7, {"a": 1}])
+async def test_allow_list_with_non_text_values_does_not_raise(session, sid, fake_channel, stored):
+    """저장된 허용 번호 목록에 글이 아닌 값이 섞였거나 목록이 아니어도 예외가 아니다 — 글인 번호만 본다."""
+    connect(session, test_mode=True, allow_numbers_json=stored)
+    row = message(session, person(session, sid))
+    session.commit()
+
+    out = await send(row)
+
+    assert out.code == ("accepted" if isinstance(stored, list) else "blocked_test")
 
 
 # ── 2 차단·수신 거부 ──────────────────────────────────────────────────
@@ -285,6 +339,21 @@ async def test_no_working_time_is_blocked_by_hours_not_an_error(session, sid, fa
     assert trail(session, row) == [("working_hours", "blocked")]
 
 
+@pytest.mark.parametrize("channel", ["sms", "call"])
+@pytest.mark.parametrize("stored", [{"days": [0, 1], "start": "9시", "end": "18:00"}, {"start": "09:00", "end": "18:00"},
+                                    {"days": 4, "start": "09:00", "end": "18:00"}, "always", [1, 2]])
+async def test_malformed_working_hours_block_instead_of_raising(session, sid, fake_channel, channel, stored):
+    """저장된 근무시간이 틀린 꼴이면 예외가 아니라 「근무시간으로 막힘」 — 판정 사건 하나."""
+    connect(session)
+    row = row_for(session, channel, person(session, sid, hours_json=stored))
+    session.commit()
+
+    out = await send(row)
+
+    assert (out.code, out.rule, out.scheduled_at) == ("blocked_hours", 3, None) and fake_channel.delivered == []
+    assert trail(session, row) == [("working_hours", "blocked")]
+
+
 @pytest.mark.parametrize("change,code", [("delegation_off", "needs_approval"), ("dnc", "do_not_contact"),
                                          ("test_mode", "blocked_test"), ("none", "accepted")])
 async def test_scheduled_row_is_rechecked_from_the_top_when_due(session, sid, fake_channel, change, code):
@@ -325,6 +394,53 @@ async def test_unapproved_agent_message_scheduled_off_hours_never_leaves(session
     assert reread(session, row).status == "draft"
 
 
+@pytest.mark.parametrize("channel", ["sms", "call"])
+@pytest.mark.parametrize("when", ["working", "off_hours"])
+@pytest.mark.parametrize("mode,by", [("manual", None), ("approved", "김공정")])
+async def test_agent_without_permission_cannot_disturb_a_persons_schedule(session, sid, fake_channel, channel, when, mode, by):
+    """사람이 예약해 둔 줄(scheduled + send_mode)을 「승인 받기」인 에이전트가 다시 넣어도 예약 시각·보낸 방식·승인이 그대로다
+    (근무 중이면 권한에서, 근무 밖이면 다시 예약하려다 — 어느 쪽이든 needs_approval 이고 판정 사건은 하나)."""
+    connect(session)
+    row = row_for(session, channel, person(session, sid), origin="agent", status="scheduled", scheduled_at=MONDAY,
+                  send_mode=mode, approved_by=by)
+    session.commit()
+
+    out = await send(row, AGENT, WORK if when == "working" else OFF)
+
+    assert (out.code, out.rule) == ("needs_approval", 5) and fake_channel.delivered == []
+    row = reread(session, row)
+    assert (row.status, row.send_mode, row.approved_by, row.fail_reason) == ("scheduled", mode, by, None)
+    assert as_utc(row.scheduled_at) == MONDAY and trail(session, row) == [("permission", "blocked")]
+    assert (await send(row, SYSTEM, MONDAY)).code in ("accepted", "queued")  # 사람의 예약은 제때 그대로 나간다
+    assert len(fake_channel.delivered) == 1
+
+
+async def test_approved_row_without_an_approver_does_not_leave(session, sid, fake_channel):
+    """일꾼은 「approved」 라고만 적힌 줄을 믿지 않는다 — 승인한 사람(approved_by)이 있어야 한다."""
+    connect(session)
+    row = message(session, person(session, sid), origin="agent", status="scheduled", scheduled_at=WORK, send_mode="approved")
+    session.commit()
+
+    out = await send(row, SYSTEM)
+
+    assert (out.code, out.rule) == ("needs_approval", 5) and fake_channel.delivered == []
+
+
+SEND_MODE_WRITERS = {"outreach/harness/gate.py"}  # send_mode 를 적는 app 모듈 — 문 밖에서 예약 줄을 만드는 작업이 여기 이름을 더한다
+
+
+def test_only_named_modules_write_send_mode():
+    """일꾼은 줄의 send_mode 를 믿는다 — 그래서 그 칸을 적는 코드(속성에 넣기·만들 때 인자로 주기)는 이름을 밝힌 모듈뿐이다."""
+    root = Path(app.__file__).parent
+    found = set()
+    for path in root.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            stored = isinstance(node, ast.Attribute) and node.attr == "send_mode" and isinstance(node.ctx, ast.Store)
+            if stored or (isinstance(node, ast.keyword) and node.arg == "send_mode"):
+                found.add(path.relative_to(root).as_posix())
+    assert found == SEND_MODE_WRITERS
+
+
 # ── 4 상한 ────────────────────────────────────────────────────────────
 
 
@@ -347,9 +463,27 @@ async def test_limits_come_from_accessor(session, sid, fake_channel):
     assert (await send(late)).code == "accepted"  # 기본값으로 돌아가면 지나간다
 
 
+GATE_NUMBERS = {"DUPLICATE_WINDOW_S": 120, "BUSY_WAIT_MS": 1000, "SETTLE_TRIES": 3, "SETTLE_PAUSE_S": 0.2}  # 상한이 아닌 값
+
+
+def _numeric_names(tree: ast.AST) -> dict[str, float]:
+    """이름에 숫자를 넣는 자리 전부(모듈·함수·클래스 안, 형 표기가 붙은 것도) → {이름: 값}."""
+    found = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, ast.AnnAssign | ast.AugAssign | ast.NamedExpr):
+            targets, value = [node.target], node.value
+        else:
+            continue
+        if isinstance(value, ast.Constant) and type(value.value) in (int, float):
+            found.update({target.id: value.value for target in targets if isinstance(target, ast.Name)})
+    return found
+
+
 def test_gate_holds_no_limit_numbers():
-    """gate.py·door.py 에 상한 숫자 상수가 없다. gate.py 의 숫자 상수는 DUPLICATE_WINDOW_S 하나뿐이고 그 밖에 상한 값 글자를
-    쓰지 않는다. door.py 는 설정으로 바꾸는 상한 값(Limits 의 기본값)을 모듈 상수로 두지 않는다(동시 통화 한도 같은 다른 상수는 둔다)."""
+    """gate.py·door.py 에 상한 숫자가 없다. gate.py 가 이름 붙인 숫자는 GATE_NUMBERS 뿐(어디에 두든)이고 그 밖에 상한 값 글자를
+    쓰지 않는다. door.py 는 설정으로 바꾸는 상한 값(Limits 의 기본값)을 이름 붙여 두지 않는다(동시 통화 한도 같은 다른 상수는 둔다)."""
     limit_values = {50, 10, 5, 2, 20, 30, 300, 120}
     assert gate.DUPLICATE_WINDOW_S == 120
     for name in ("gate.py", "door.py"):
@@ -357,18 +491,18 @@ def test_gate_holds_no_limit_numbers():
         if not path.exists():  # door.py 는 Task 66 — 아직 없으면 건너뛴다
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        constants = {
-            target.id: node.value.value
-            for node in tree.body if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
-            for target in node.targets if isinstance(target, ast.Name)
-            if type(node.value.value) in (int, float)
-        }
-        assert {key: value for key, value in constants.items() if value in limit_values} == (
+        named = _numeric_names(tree)
+        assert {key: value for key, value in named.items() if value in limit_values} == (
             {"DUPLICATE_WINDOW_S": 120} if name == "gate.py" else {}), name
         if name == "gate.py":
-            assert constants == {"DUPLICATE_WINDOW_S": 120}
+            assert named == GATE_NUMBERS
             literals = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and type(n.value) in (int, float)]
             assert sorted(v for v in literals if v in limit_values) == [120]
+
+
+def test_numeric_names_are_found_wherever_they_are_put():
+    source = "A = 5\nB: int = 10\ndef f():\n    c = 20\n    d: float = 0.5\n    e = 'x'\nclass K:\n    g = 30\n"
+    assert _numeric_names(ast.parse(source)) == {"A": 5, "B": 10, "c": 20, "d": 0.5, "g": 30}
 
 
 async def test_yesterdays_sends_do_not_count_today(session, sid, fake_channel):
@@ -536,7 +670,7 @@ async def test_scheduled_twins_do_not_both_leave(session, sid, fake_channel):
     much_later = await send(rows[1], SYSTEM, MONDAY + timedelta(minutes=10))
 
     assert [o.code for o in outs] == ["accepted", "duplicate"]
-    assert reread(session, rows[1]).status == "draft" and much_later.code == "needs_approval"
+    assert reread(session, rows[1]).status == "draft" and much_later.code == "not_sendable"  # 일꾼은 예약된 줄만 보낸다
     assert len(fake_channel.delivered) == 1
 
 

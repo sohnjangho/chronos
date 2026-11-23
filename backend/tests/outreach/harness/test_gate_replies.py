@@ -5,17 +5,27 @@
 """
 
 import inspect
+import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import create_engine
 
+from app import db
 from app.outreach.harness import events, gate
 from app.outreach.harness.types import Ref
-from app.store.tables_outreach import BlockedNumber, DoNotContactNumber, OutreachCall
+from app.store.tables_outreach import (
+    BlockedNumber,
+    Contact,
+    DoNotContactNumber,
+    OutreachCall,
+)
 from app.store.timeutil import as_utc
 from tests import schedules
 from tests.outreach.harness.test_gate import (
     AGENT,
+    BODY,
     KST,
     MONDAY,
     OFF,
@@ -26,6 +36,7 @@ from tests.outreach.harness.test_gate import (
     WORK,
     call,
     connect,
+    db_path,
     message,
     person,
     reread,
@@ -110,12 +121,12 @@ async def test_grace_needs_a_recent_inbound_from_that_very_number(session, sid, 
 
 async def test_reply_to_an_unknown_number_gets_the_same_grace(session, sid, fake_channel):
     """주소록에 없는 번호의 문자에 가는 고정 안내 — 번호로 견준다(연락처가 없어도 같다)."""
-    connect(session)
+    connect(session, **DELEGATED)
     asked = inbound(session, None, ago=timedelta(minutes=3), peer_number=PHONE)
     notice = message(session, peer_number=PHONE, kind="notice", origin="agent", reply_to_id=asked.id)
     session.commit()
 
-    assert (await send(notice, USER, OFF)).code == "accepted"
+    assert (await send(notice, AGENT, OFF)).code == "accepted"
 
 
 async def test_grace_skips_only_working_hours(session, sid, fake_channel):
@@ -144,7 +155,7 @@ async def test_grace_skips_only_working_hours(session, sid, fake_channel):
 ])
 async def test_auto_reply_caps(session, sid, fake_channel, case, code):
     """한 번호에 자동 답은 한 시간 5번·하루 20번까지(6번째·21번째는 limit_person), 고정 안내(notice)는 하루 한 번."""
-    connect(session)
+    connect(session, **DELEGATED)
     who = person(session, sid)
     kind = "notice" if case.startswith("notice") else "auto_reply"
     dawn = datetime(2026, 11, 27, 1, 0, tzinfo=KST)  # 오늘이지만 한 시간보다 앞
@@ -162,7 +173,7 @@ async def test_auto_reply_caps(session, sid, fake_channel, case, code):
     row = message(session, who, kind=kind, origin="agent", body="새 자동 답")
     session.commit()
 
-    out = await send(row, USER, WORK)
+    out = await send(row, AGENT, WORK)
 
     assert out.code == code and out.rule == (4 if code == "limit_person" else None)
     assert len(fake_channel.delivered) == (code == "accepted")
@@ -170,7 +181,7 @@ async def test_auto_reply_caps(session, sid, fake_channel, case, code):
 
 async def test_auto_replies_use_their_own_caps_not_the_per_person_cap(session, sid, fake_channel):
     """자동 답은 자동 답 상한을 따른다(한 사람 하루 문자 상한 5가 아니라). 사람이 보내는 보통 문자는 그 상한을 그대로 받는다."""
-    connect(session, limits_json={"auto_reply_hourly": 9})
+    connect(session, limits_json={"auto_reply_hourly": 9}, **DELEGATED)
     who = person(session, sid)
     for i in range(5):
         auto(session, who, WORK - timedelta(minutes=50 - i), f"자동 답 {i}")
@@ -178,13 +189,13 @@ async def test_auto_replies_use_their_own_caps_not_the_per_person_cap(session, s
     normal = message(session, who, body="사람이 보내는 글")
     session.commit()
 
-    assert (await send(sixth, USER, WORK)).code == "accepted"
+    assert (await send(sixth, AGENT, WORK)).code == "accepted"
     assert (await send(normal, USER, WORK)).code == "limit_person"
 
 
 async def test_same_reply_twice_is_blocked(session, sid, fake_channel):
     """자동 답의 글이 그 번호에 마지막으로 나간 자동 답과 같으면 보내지 않는다(기계끼리 주고받기)."""
-    connect(session)
+    connect(session, **DELEGATED)
     who = person(session, sid)
     auto(session, who, WORK - timedelta(minutes=40), "먼저 나간 답")
     auto(session, who, WORK - timedelta(minutes=30), "타설은 11월 30일입니다.")
@@ -193,12 +204,26 @@ async def test_same_reply_twice_is_blocked(session, sid, fake_channel):
     by_person = message(session, who, body="타설은 11월 30일입니다.")
     session.commit()
 
-    out = await send(same, USER, WORK)
+    out = await send(same, AGENT, WORK)
 
     assert (out.code, out.rule) == ("duplicate", 6)
     assert reread(session, same).status == "draft" and fake_channel.delivered == []
     assert (await send(by_person, USER, WORK)).code == "accepted"  # 사람이 쓴 보통 문자에는 이 규칙이 없다
-    assert (await send(older, USER, WORK)).code == "accepted"  # 마지막 것과만 견준다
+    assert (await send(older, AGENT, WORK)).code == "accepted"  # 마지막 것과만 견준다
+
+
+@pytest.mark.parametrize("kind", ["auto_reply", "notice"])
+async def test_a_person_cannot_send_a_row_marked_as_an_automatic_reply(session, sid, fake_channel, kind):
+    """kind 는 상한을 바꾼다(자동 답은 사람당 상한 대신 자동 답 상한) — 그래서 자동 답·고정 안내 줄은 에이전트·일꾼의 길로만
+    나간다. 사람이 보내거나 승인할 글은 보통 글(kind normal)로 만든다."""
+    connect(session, **DELEGATED)
+    row = message(session, person(session, sid), kind=kind, origin="agent")
+    session.commit()
+
+    out = await send(row, USER)
+
+    assert (out.code, out.rule) == ("not_sendable", 0) and fake_channel.delivered == []
+    assert (await send(row, AGENT)).code == "accepted"
 
 
 # ── 수신 거부 확인 ────────────────────────────────────────────────────
@@ -208,8 +233,8 @@ async def test_dnc_confirm_passes_once(session, sid, fake_channel):
     """수신 거부로 표시한 뒤의 확인 문자(kind dnc_confirm)는 한 번만 지나간다. 그 밖의 글은 막힌다."""
     connect(session)
     session.add(DoNotContactNumber(number=PHONE, reason="문자로 수신 거부", created_at=WORK - timedelta(minutes=1)))
-    confirm = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body="수신 거부로 처리했습니다.")
-    again = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body="수신 거부로 처리했습니다. (다시)")
+    confirm = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body=gate.DNC_CONFIRM_TEXT)
+    again = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body=gate.DNC_CONFIRM_TEXT)
     normal = message(session, peer_number=PHONE, body="그래도 보내는 글")
     session.commit()
 
@@ -224,9 +249,9 @@ async def test_dnc_confirm_passes_again_only_after_a_new_mark(session, sid, fake
     """관리자가 풀었다가 다시 수신 거부가 되면 그 표시에 대한 확인이 한 번 더 나간다(앞 표시 때의 확인은 세지 않는다)."""
     connect(session)
     message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", status="accepted",
-            claimed_at=WORK - timedelta(days=3), body="수신 거부로 처리했습니다.")
+            claimed_at=WORK - timedelta(days=3), body=gate.DNC_CONFIRM_TEXT)
     session.add(DoNotContactNumber(number=PHONE, reason="다시 수신 거부", created_at=WORK - timedelta(minutes=1)))
-    confirm = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body="수신 거부로 처리했습니다.")
+    confirm = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body=gate.DNC_CONFIRM_TEXT)
     session.commit()
 
     assert (await send(confirm)).code == "accepted"
@@ -236,10 +261,25 @@ async def test_dnc_confirm_for_a_contact_mark_passes_once(session, sid, fake_cha
     """연락처 줄의 표시만 있는(번호 기준 줄이 없는) 수신 거부 — 확인은 그 번호에 한 번."""
     connect(session)
     who = person(session, sid, do_not_contact=True)
-    rows = [message(session, who, kind="dnc_confirm", origin="agent", body=f"수신 거부로 처리했습니다. {i}") for i in range(2)]
+    rows = [message(session, who, kind="dnc_confirm", origin="agent", body=gate.DNC_CONFIRM_TEXT) for i in range(2)]
     session.commit()
 
     assert [(await send(row)).code for row in rows] == ["accepted", "do_not_contact"]
+
+
+@pytest.mark.parametrize("text", [BODY, "수신 거부로 처리했습니다. 그런데 내일 타설은 가능하신가요", ""])
+async def test_dnc_confirm_must_be_the_fixed_text(session, sid, fake_channel, text):
+    """kind dnc_confirm 이라고 적었다고 아무 글이나 수신 거부한 번호에 가지 않는다 — 문이 정해 둔 확인 글과 같아야 한다."""
+    connect(session)
+    session.add(DoNotContactNumber(number=PHONE, reason="문자로 수신 거부", created_at=WORK - timedelta(minutes=1)))
+    row = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body=text)
+    proper = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body=f" {gate.DNC_CONFIRM_TEXT}\n")
+    session.commit()
+
+    out = await send(row)
+
+    assert (out.code, out.rule) == ("not_sendable", 0) and fake_channel.delivered == []
+    assert (await send(proper)).code == "accepted"  # 막힌 시도는 「한 번」을 쓰지 않는다
 
 
 async def test_dnc_confirm_takes_every_other_check(session, sid, fake_channel):
@@ -247,12 +287,12 @@ async def test_dnc_confirm_takes_every_other_check(session, sid, fake_channel):
     conn = connect(session)
     session.add(DoNotContactNumber(number=PHONE, reason="문자로 수신 거부", created_at=WORK - timedelta(minutes=1)))
     session.add(BlockedNumber(number=PHONE, reason="요청", created_by="관리자"))
-    blocked = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body="수신 거부로 처리했습니다.")
+    blocked = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body=gate.DNC_CONFIRM_TEXT)
     session.commit()
     assert (await send(blocked)).code == "blocked_number"
 
     conn.test_mode = True
-    tested = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body="수신 거부로 처리했습니다.")
+    tested = message(session, peer_number=PHONE, kind="dnc_confirm", origin="agent", body=gate.DNC_CONFIRM_TEXT)
     session.commit()
     assert (await send(tested)).code == "blocked_test" and fake_channel.delivered == []
 
@@ -280,6 +320,12 @@ def test_may_reach_covers_only_rules_1_and_2(session, sid):
     session.add(BlockedNumber(number=OTHER_PHONE, reason="요청", created_by="관리자"))
     session.flush()
     assert gate.may_reach(session, OTHER_PHONE) is False
+
+
+def test_may_reach_ignores_non_text_values_in_the_allow_list(session, sid):
+    connect(session, test_mode=True, allow_numbers_json=[None, 7, {"a": 1}, SENTINEL_PHONE])
+
+    assert gate.may_reach(session, PHONE) is True and gate.may_reach(session, OTHER_PHONE) is False
 
 
 def test_may_reach_follows_do_not_contact_by_number(session, sid):
@@ -381,3 +427,70 @@ def test_retry_after_an_off_hours_miss_waits_for_the_next_start(session, sid):
     retry = session.get(OutreachCall, gate.after_no_answer(first.id, now=OFF))
 
     assert as_utc(retry.scheduled_at) == MONDAY
+
+
+def test_automatic_redial_of_a_persons_call_is_recorded_as_automatic(session, sid):
+    """사람이 건 통화의 자동 다시 걸기를 「사람이 건 것」으로 적지 않는다 — 시작한 쪽은 에이전트, 이름은 정해 둔 것."""
+    connect(session, agent_call="delegate")
+    first = _unanswered(session, sid, origin="user", origin_name="김공정", send_mode="manual")
+    session.commit()
+
+    retry = session.get(OutreachCall, gate.after_no_answer(first.id, now=WORK))
+
+    assert (retry.origin, retry.origin_name, retry.send_mode, retry.approved_by) == (
+        "agent", gate.AUTO_REDIAL_NAME, "delegated", None)
+    assert as_utc(retry.created_at) == WORK
+
+
+@pytest.mark.parametrize("meanwhile", ["person_redialled", "redial_did_not_connect", "nothing"])
+async def test_due_automatic_redial_is_dropped_when_that_number_was_called_meanwhile(session, sid, fake_channel, meanwhile):
+    """자동 다시 걸기를 예약한 뒤 그 번호로 전화가 한 번이라도 나갔으면(목적 손잡이가 달라도, 받지 않았어도) 때가 돼도 걸지
+    않는다 — 기록만 남긴다."""
+    connect(session, agent_call="delegate")
+    first = _unanswered(session, sid)
+    session.commit()
+    retry = session.get(OutreachCall, gate.after_no_answer(first.id, now=WORK))
+    who = session.get(Contact, first.contact_id)
+    if meanwhile != "nothing":
+        call(session, who, purpose_key="", claimed_at=WORK + timedelta(minutes=5),
+             status="completed" if meanwhile == "person_redialled" else "no_answer")
+    session.commit()
+
+    out = await send(retry, SYSTEM, MONDAY)
+
+    if meanwhile == "nothing":
+        assert out.code == "queued" and len(fake_channel.delivered) == 1
+    else:
+        assert (out.code, out.rule) == ("duplicate", 6) and fake_channel.delivered == []
+        retry = reread(session, retry)
+        assert retry.status == "draft" and retry.fail_reason and trail(session, retry) == [("duplicate", "blocked")]
+
+
+def test_no_retry_when_the_stored_hours_are_malformed(session, sid):
+    connect(session, agent_call="delegate")
+    who = person(session, sid, hours_json={"days": [0], "start": "아홉 시", "end": "18:00"})
+    row = call(session, who, status="no_answer", send_mode="delegated")
+    session.commit()
+
+    assert gate.after_no_answer(row.id, now=WORK) is None
+    assert reread(session, row).auto_retry_used is False
+
+
+def test_no_retry_and_no_error_when_the_database_is_busy(session, sid, monkeypatch):
+    """다른 쓰기가 DB 를 쥐고 있으면 예외 없이 None — 「한 번」을 쓰지 않았으므로 뒤에 다시 부르면 된다."""
+    connect(session, agent_call="delegate")
+    first = _unanswered(session, sid)
+    session.commit()
+    first_id = first.id
+    session.rollback()
+    engine = create_engine(f"sqlite:///{db_path()}", connect_args={"timeout": 0.1}, hide_parameters=True)
+    monkeypatch.setattr(db, "_engine", engine)
+    try:
+        with closing(sqlite3.connect(db_path(), isolation_level=None)) as holder:
+            holder.execute("BEGIN IMMEDIATE")
+            assert gate.after_no_answer(first_id, now=WORK) is None
+            holder.execute("ROLLBACK")
+        retry_id = gate.after_no_answer(first_id, now=WORK)
+    finally:
+        engine.dispose()
+    assert retry_id is not None and session.query(OutreachCall).count() == 2
