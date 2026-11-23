@@ -788,3 +788,6 @@
 .dc-tool-name code { font-size: var(--fs-11); color: var(--fg-muted); }
 .dc-tool-roles { min-width: 9em; }
 .dc-tool-roles .dc-tag { margin: 4px 0 0; }
+.dc-health-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow-y: auto; font-size: var(--fs-12); }
+.dc-health-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 6px; }
+.dc-health-list .dc-tag { margin-left: 0; }

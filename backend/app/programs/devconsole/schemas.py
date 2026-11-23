@@ -11,10 +11,14 @@ __all__ = [
     "AgentConfigPatch",
     "DbHealthOut",
     "HealthOut",
+    "HolidayHealthOut",
+    "InfoApiHealthOut",
+    "InfoConnOut",
     "LlmHealthOut",
     "NodeDetail",
     "NodeOut",
     "QdrantHealthOut",
+    "ReuseHealthOut",
     "SearchHealthOut",
     "StopTurnOut",
     "StructureOut",
@@ -25,6 +29,7 @@ __all__ = [
     "TurnOut",
     "UsageGroup",
     "UsageOut",
+    "VisionHealthOut",
 ]
 
 TurnStatus = Literal["running", "done", "failed", "stopped"]
@@ -155,6 +160,46 @@ class DbHealthOut(BaseModel):
     counts: dict[str, int]
 
 
+class InfoConnOut(BaseModel):
+    """정보 API 연결 한 줄. 주소·키·끝 4자리는 내보내지 않는다(이름은 그 연결의 키로 한 번 더 지운다)."""
+
+    id: int
+    name: str
+    kind: str  # kma(기상청 전용) | generic(범용)
+    status: str  # ok | failed | unknown — 마지막 연결 시험
+    checked_at: datetime | None
+
+
+class InfoApiHealthOut(BaseModel):
+    status: Literal["ok", "warn", "off"]  # off = 연결 없음, warn = 마지막 시험이 실패한 연결이 있다
+    count: int
+    connections: list[InfoConnOut]
+    message: str
+
+
+class ReuseHealthOut(BaseModel):
+    reusable: int  # 지금 다시 쓸 수 있는 근거(붙은 것·days 일 안·다시 쓰지 않기 아님·웹/학술/법령/업체)
+    reused_7d: int  # 최근 7일 저장된 근거를 다시 쓴 호출(Liner 를 부르지 않은 수)
+    searches_7d: int  # 최근 7일 Liner 근거 검색(실패 포함, 날씨·정보 API·다시 쓰기 빼고)
+    days: int  # 다시 쓰는 기간(evidence_reuse.REUSE_DAYS)
+
+
+class HolidayHealthOut(BaseModel):
+    status: Literal["ok", "warn"]  # warn = 올해나 내년 표가 없다
+    years: list[int]
+    counts: dict[int, int]  # 해마다 공휴일 수
+    message: str
+
+
+class VisionHealthOut(BaseModel):
+    status: Literal["ok", "warn", "error"]  # warn = 연결 없음, error = 키를 읽을 수 없음
+    model: str
+    connection_name: str | None
+    stored: bool  # 설정에 저장한 배정인가(아니면 기본 연결 + 기본 모델)
+    key_ready: bool
+    message: str
+
+
 class ActiveTurnOut(BaseModel):
     chat_session_id: int
     title: str
@@ -167,6 +212,11 @@ class HealthOut(BaseModel):
     search: SearchHealthOut
     db: DbHealthOut
     active_turns: list[ActiveTurnOut]
+    # 11-23: 예전 화면은 이 칸을 모른다(읽지 않을 뿐)
+    info_api: InfoApiHealthOut | None = None
+    evidence_reuse: ReuseHealthOut | None = None
+    holidays: HolidayHealthOut | None = None
+    vision: VisionHealthOut | None = None
 
 
 class StopTurnOut(BaseModel):

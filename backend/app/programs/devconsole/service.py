@@ -21,7 +21,9 @@ detail = {in, out, ms, model, settings}:
 
 import json
 import time
+from collections import Counter
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -31,18 +33,25 @@ from app.agent.context import wire
 from app.agent.generation import REPEAT_REASON
 from app.agent.loop import MAX_STEPS
 from app.config import Settings
+from app.core.calendar import KOREA_HOLIDAYS
 from app.errors import ApiError
 from app.files import vectors
+from app.info import generic
+from app.llm import assignments
 from app.llm.assignments import default_connection
 from app.llm.connections import secret_is_sendable
 from app.programs.devconsole.schemas import (
     ActiveTurnOut,
     DbHealthOut,
     HealthOut,
+    HolidayHealthOut,
+    InfoApiHealthOut,
+    InfoConnOut,
     LlmHealthOut,
     NodeDetail,
     NodeOut,
     QdrantHealthOut,
+    ReuseHealthOut,
     SearchHealthOut,
     StopTurnOut,
     StructureOut,
@@ -52,18 +61,23 @@ from app.programs.devconsole.schemas import (
     TurnOut,
     UsageGroup,
     UsageOut,
+    VisionHealthOut,
 )
 from app.security.crypto import SecretUnreadable, decrypt
+from app.store import evidence_reuse
 from app.store import settings as settings_store
 from app.store import traces as store
-from app.store.evidence import NOT_SEARCH_MODES
+from app.store.evidence import NOT_SEARCH_MODES, REUSE_MODE
 from app.store.messages import FIELD_READ_ONLY_MESSAGE
 from app.store.settings import get_agent_config
 from app.store.tables import (
     Approval,
     ChatSession,
+    EvidenceItem,
+    EvidenceLink,
     EvidenceSearch,
     FileRow,
+    InfoConnection,
     LlmAssignment,
     LlmCall,
     LlmConnection,
@@ -92,6 +106,7 @@ MODE_LABELS = {"all": "모두 승인", "important": "중요한 것만", "auto": 
 REQUEST_LIMIT = 60
 NOT_FOUND_MESSAGE = "실행 추적을 찾을 수 없습니다."
 _ERROR_LIMIT = 200
+SEOUL = ZoneInfo("Asia/Seoul")
 # 루프가 같은 가져오기·확인 되풀이를 실행하지 않고 돌려준 글(loop.IMPORT_AGAIN 등)의 앞부분 — 「거절」로 보인다.
 IMPORT_REFUSALS = tuple(
     t.split("{}")[0] for t in (loop.IMPORT_AGAIN, loop.ASKED_AGAIN, loop.NO_DRAFT_AGAIN, loop.CHECK_AGAIN)
@@ -546,6 +561,72 @@ def _db_health(session: Session) -> DbHealthOut:
     return DbHealthOut(status="ok", size_bytes=size, counts=counts)
 
 
+def _info_api_health(session: Session) -> InfoApiHealthOut:
+    """정보 API 연결: 이름·종류·마지막 시험·시각만(주소·키·끝 4자리 없음). 이름은 그 연결의 키로 한 번 더 지운다."""
+    rows = list(session.scalars(select(InfoConnection).order_by(InfoConnection.id)))
+    if not rows:
+        return InfoApiHealthOut(status="off", count=0, connections=[], message="연결한 정보 API 가 없습니다(설정 → 정보 API).")
+    conns = []
+    for r in rows:
+        try:
+            name = generic.scrub(r.name, decrypt(r.secret_ciphertext), key_name=r.key_name)
+        except SecretUnreadable:
+            name = r.name
+        checked = as_utc(r.checked_at) if r.checked_at is not None else None
+        conns.append(InfoConnOut(id=r.id, name=name, kind=r.preset, status=r.status, checked_at=checked))
+    failed = sum(c.status == "failed" for c in conns)
+    message = f"연결 {len(conns)}개" + (f" · 마지막 연결 시험 실패 {failed}개" if failed else " · 마지막 연결 시험 실패 없음")
+    return InfoApiHealthOut(status="warn" if failed else "ok", count=len(conns), connections=conns, message=message)
+
+
+def _reuse_health(session: Session) -> ReuseHealthOut:
+    """다시 쓸 수 있는 근거 수(evidence_reuse.find 와 같은 조건, 낱말 맞추기만 빼고)와 최근 7일 다시 쓰기·Liner 검색 수."""
+    now = datetime.now(UTC)
+    window = (now - timedelta(days=evidence_reuse.REUSE_DAYS)).replace(tzinfo=None)
+    week = (now - timedelta(days=7)).replace(tzinfo=None)
+    linked = select(EvidenceLink.id).where(EvidenceLink.evidence_id == EvidenceItem.id).exists()
+    reusable = session.scalar(
+        select(func.count()).select_from(EvidenceItem).join(EvidenceSearch, EvidenceSearch.id == EvidenceItem.search_id)
+        .where(EvidenceSearch.mode.in_(evidence_reuse.REUSE_MODES), linked, EvidenceItem.created_at >= window,
+               EvidenceItem.retired.is_(False))
+    ) or 0
+    in_week = (EvidenceSearch.created_at >= week,)
+    reused = session.scalar(select(func.count()).select_from(EvidenceSearch)
+                            .where(EvidenceSearch.mode == REUSE_MODE, *in_week)) or 0
+    searched = session.scalar(select(func.count()).select_from(EvidenceSearch)
+                              .where(EvidenceSearch.mode.notin_(NOT_SEARCH_MODES), *in_week)) or 0
+    return ReuseHealthOut(reusable=reusable, reused_7d=reused, searches_7d=searched, days=evidence_reuse.REUSE_DAYS)
+
+
+def _holiday_health() -> HolidayHealthOut:
+    """달력 "KR" 공휴일 표(app.core.calendar.KOREA_HOLIDAYS)에 있는 해. 올해·내년이 없으면 warn."""
+    counts = Counter(d.year for d in KOREA_HOLIDAYS)
+    years = sorted(counts)
+    this = datetime.now(SEOUL).year
+    missing = [y for y in (this, this + 1) if y not in counts]
+    message = f"달력 KR 공휴일 표: {'·'.join(map(str, years))}년"
+    if missing:
+        message += f" — {'·'.join(map(str, missing))}년 표가 없어 그 해 공휴일은 일하는 날로 셉니다"
+    return HolidayHealthOut(status="warn" if missing else "ok", years=years, counts=dict(counts), message=message)
+
+
+def _vision_health(session: Session) -> VisionHealthOut:
+    """그림 읽기(vision) 배정: 모델·연결·키(사진 판독·그림 턴이 쓴다)."""
+    found = assignments.resolve(session, "vision")
+    stored = session.get(LlmAssignment, "vision") is not None
+    conn = session.get(LlmConnection, found.connection_id) if found.connection_id is not None else None
+    if conn is None:
+        return VisionHealthOut(status="warn", model=found.model, connection_name=None, stored=stored, key_ready=False,
+                               message="그림 읽기 배정에 연결이 없습니다 — 사진 판독은 「판독하지 않음」으로 남습니다.")
+    try:
+        key_ready = secret_is_sendable(decrypt(conn.secret_ciphertext))
+    except SecretUnreadable:
+        key_ready = False
+    message = ("그림 읽기 모델 준비됨" if key_ready else "저장된 키를 읽을 수 없습니다 — 설정에서 키를 다시 넣어 주세요.")
+    return VisionHealthOut(status="ok" if key_ready else "error", model=found.model, connection_name=conn.name,
+                           stored=stored, key_ready=key_ready, message=message)
+
+
 def health(session: Session) -> HealthOut:
     llm_h = _llm_health(session)
     qdrant_h = _qdrant_health()
@@ -565,7 +646,9 @@ def health(session: Session) -> HealthOut:
         )
         for t in running
     ]
-    return HealthOut(llm=llm_h, qdrant=qdrant_h, search=search_h, db=db_h, active_turns=active)
+    return HealthOut(llm=llm_h, qdrant=qdrant_h, search=search_h, db=db_h, active_turns=active,
+                     info_api=_info_api_health(session), evidence_reuse=_reuse_health(session),
+                     holidays=_holiday_health(), vision=_vision_health(session))
 
 
 def stop_turn(chat_session_id: int) -> StopTurnOut:

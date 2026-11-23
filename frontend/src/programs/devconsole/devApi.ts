@@ -256,6 +256,42 @@ export interface HealthOut {
     title: string;
     stop_requested: boolean;
   }[];
+  /** 11-23 칸 — 예전 서버는 보내지 않는다. */
+  info_api?: InfoApiHealth | null;
+  evidence_reuse?: ReuseHealth | null;
+  holidays?: HolidayHealth | null;
+  vision?: VisionHealth | null;
+}
+
+/** 정보 API 연결(주소·키 없음). */
+export interface InfoApiHealth {
+  status: 'ok' | 'warn' | 'off';
+  count: number;
+  connections: { id: number; name: string; kind: string; status: string; checked_at: string | null }[];
+  message: string;
+}
+
+export interface ReuseHealth {
+  reusable: number;
+  reused_7d: number;
+  searches_7d: number;
+  days: number;
+}
+
+export interface HolidayHealth {
+  status: 'ok' | 'warn';
+  years: number[];
+  counts: Record<string, number>;
+  message: string;
+}
+
+export interface VisionHealth {
+  status: 'ok' | 'warn' | 'error';
+  model: string;
+  connection_name: string | null;
+  stored: boolean;
+  key_ready: boolean;
+  message: string;
 }
 
 export const RECENT = 30;

@@ -720,6 +720,79 @@ def test_vision_by_a_tool_lights_vision_tool_but_an_image_turn_does_not(client, 
     assert "vision_turn" in lit and "vision_tool" not in lit
 
 
+# ── 시스템 진단: 정보 API 연결 · 근거 다시 쓰기 · 공휴일 표 · 그림 읽기 배정 ─────────────
+
+
+def test_health_lists_info_api_connections_without_key_material(client, admin, session):
+    from app.security.crypto import encrypt
+    from app.store.tables import InfoConnection
+
+    checked = datetime(2026, 11, 23, 3, 0)
+    session.add_all([
+        InfoConnection(name="공휴일 API", preset="generic", base_url="https://apis.data.go.kr/B090041/x?serviceKey=PASTED",
+                       secret_ciphertext=encrypt("SECRETkey123"), secret_last4="y123", status="ok", checked_at=checked),
+        InfoConnection(name="기상청", preset="kma", base_url="https://apis.data.go.kr/1360000",
+                       secret_ciphertext=encrypt("KMAkey456"), secret_last4="y456", status="failed"),
+    ])
+    session.commit()
+    r = client.get("/api/devconsole/health", headers=admin)
+    info = r.json()["info_api"]
+    assert info["status"] == "warn" and info["count"] == 2
+    assert [(c["name"], c["kind"], c["status"]) for c in info["connections"]] == [
+        ("공휴일 API", "generic", "ok"), ("기상청", "kma", "failed")]
+    assert info["connections"][0]["checked_at"].startswith("2026-11-23T03:00") and info["connections"][1]["checked_at"] is None
+    for leaked in ("SECRETkey123", "KMAkey456", "y123", "y456", "PASTED", "apis.data.go.kr"):
+        assert leaked not in r.text
+
+
+def test_health_without_info_connections_says_off(client, admin):
+    info = client.get("/api/devconsole/health", headers=admin).json()["info_api"]
+    assert (info["status"], info["count"], info["connections"]) == ("off", 0, [])
+
+
+def test_health_counts_reusable_evidence_and_reuses_against_liner_searches(client, admin, session):
+    from app.store.tables import EvidenceItem, EvidenceLink
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    web = EvidenceSearch(query="골조 공기", mode="web", ok=True)
+    weather = EvidenceSearch(query="날씨", mode="weather", ok=True)
+    session.add_all([web, weather])
+    session.flush()
+
+    def item(search, days=1, linked=True, retired=False):
+        row = EvidenceItem(search_id=search.id, title="t", url="https://example.org", created_at=now - timedelta(days=days),
+                           retired=retired)
+        session.add(row)
+        session.flush()
+        if linked:
+            session.add(EvidenceLink(evidence_id=row.id, schedule_id=1))
+
+    item(web)  # 다시 쓸 수 있다
+    item(web, linked=False)
+    item(web, days=31)
+    item(web, retired=True)
+    item(weather)  # 날씨 결과는 다시 쓰지 않는다
+    session.add_all([EvidenceSearch(query="q", mode="reuse", ok=True), EvidenceSearch(query="q", mode="reuse", ok=True),
+                     EvidenceSearch(query="q", mode="reuse", ok=True, created_at=now - timedelta(days=10)),
+                     EvidenceSearch(query="q", mode="legal", ok=False)])
+    session.commit()
+    reuse = client.get("/api/devconsole/health", headers=admin).json()["evidence_reuse"]
+    assert reuse == {"reusable": 1, "reused_7d": 2, "searches_7d": 2, "days": 30}
+
+
+def test_health_shows_holiday_years_and_the_vision_assignment(client, admin, session):
+    from app.core.calendar import KOREA_HOLIDAYS
+
+    h = client.get("/api/devconsole/health", headers=admin).json()
+    years = sorted({d.year for d in KOREA_HOLIDAYS})
+    assert h["holidays"]["years"] == years and h["holidays"]["counts"][str(years[0])] > 10
+    assert (h["vision"]["status"], h["vision"]["connection_name"]) == ("warn", None)
+    add_connection(session)
+    v = client.get("/api/devconsole/health", headers=admin).json()["vision"]
+    assert (v["status"], v["model"], v["connection_name"], v["stored"], v["key_ready"]) == (
+        "ok", "liner-claude-router", "Liner 기본", False, True)
+
+
 def test_sources_list_every_guide_and_prompt_file_as_it_is_on_disk(client, admin):
     """프롬프트·지식 탭은 손으로 쓴 목록이 아니다: 가이드·파이프라인 프롬프트 폴더를 그대로 읽는다(11-23 info.md 포함)."""
     from app.agent import context as agent_context

@@ -4,7 +4,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import DevConsole from './DevConsole';
-import { done, mockCatalog, mockTurn, setup } from './testKit';
+import { done, mockCatalog, mockHealth, mockTurn, setup } from './testKit';
 
 const structure = () => screen.findByRole('group', { name: '에이전트 구조' });
 const show = (tab?: string) => render(<DevConsole windowId="w1" params={tab ? { tab } : undefined} />);
@@ -140,6 +140,45 @@ describe('도구·스킬 — 한글 이름·묶음·쓰기·역할', () => {
     const r = row(await table(), 'progress.read');
     expect(within(r).getByText('공정률 조회')).toBeVisible();
     expect(within(r).getAllByText('—')).toHaveLength(2);
+  });
+});
+
+describe('시스템 진단 — 정보 API·근거 다시 쓰기·공휴일 표·그림 읽기', () => {
+  const NEW = {
+    info_api: {
+      status: 'warn', count: 2, message: '연결 2개 · 마지막 연결 시험 실패 1개',
+      connections: [
+        { id: 1, name: '공휴일 API', kind: 'generic', status: 'ok', checked_at: '2026-11-23T03:00:00Z' },
+        { id: 2, name: '기상청', kind: 'kma', status: 'failed', checked_at: null },
+      ],
+    },
+    evidence_reuse: { reusable: 4, reused_7d: 6, searches_7d: 9, days: 30 },
+    holidays: { status: 'ok', years: [2026, 2027, 2028], counts: { 2026: 21, 2027: 20, 2028: 19 }, message: '달력 KR 공휴일 표: 2026·2027·2028년' },
+    vision: { status: 'ok', model: 'liner-claude-router', connection_name: 'Liner 기본', stored: false, key_ready: true, message: '그림 읽기 모델 준비됨' },
+  };
+
+  test('new cards show info connections, reuse against searches, holiday years and the vision assignment', async () => {
+    mockHealth(NEW);
+    show('health');
+    const info = await screen.findByRole('article', { name: '정보 API 연결' });
+    expect(within(info).getByText('공휴일 API')).toBeVisible();
+    expect(within(info).getByText('범용')).toBeVisible();
+    expect(within(info).getByText('기상청 전용')).toBeVisible();
+    expect(within(info).getByText('시험 안 함')).toBeVisible();
+    const reuse = screen.getByRole('article', { name: '근거 다시 쓰기' });
+    expect(within(reuse).getByText('4건')).toBeVisible();
+    expect(within(reuse).getByText('6회 / 9회')).toBeVisible();
+    expect(within(screen.getByRole('article', { name: '공휴일 표' })).getByText('2026 · 2027 · 2028')).toBeVisible();
+    const vision = screen.getByRole('article', { name: '그림 읽기 배정' });
+    expect(within(vision).getByText('liner-claude-router')).toBeVisible();
+    expect(within(vision).getByText('기본값')).toBeVisible();
+  });
+
+  test('an older server without the new fields shows only the old cards', async () => {
+    show('health');
+    await screen.findByText('기본 연결 및 인증 키 준비됨');
+    expect(screen.queryByRole('article', { name: '정보 API 연결' })).toBeNull();
+    expect(screen.queryByRole('article', { name: '공휴일 표' })).toBeNull();
   });
 });
 
