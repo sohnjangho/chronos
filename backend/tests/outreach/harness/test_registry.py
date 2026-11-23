@@ -19,9 +19,9 @@ BACKEND = Path(__file__).resolve().parents[3]
 HARNESS = BACKEND / "app" / "outreach" / "harness"
 PACKAGE = "app.outreach.harness"
 # 하네스는 코드만 — 통로·제공사·음성·글 세션(계획)과 HTTP·모델 SDK·음성 SDK(제공사·모델 호출 없음)를 import 하지 않는다.
-# 음성 SDK 의 import 이름은 0단계 확인 전이라 계획이 적은 설치 이름(koreaaitel)으로 둔다.
+# 음성 SDK 의 import 이름은 clawops(배포 이름 koreaaitel — 둘 다 막는다).
 FORBIDDEN = ("app.outreach.channels", "app.outreach.provider", "app.outreach.voice", "app.outreach.text", "app.llm",
-             "httpx", "openai", "google.genai", "anthropic", "koreaaitel")
+             "httpx", "openai", "google.genai", "anthropic", "koreaaitel", "clawops")
 DYNAMIC = "<동적 import>"
 
 
@@ -75,14 +75,28 @@ def test_harness_package_imports_no_channel_or_provider():
         import importlib
         importlib.import_module("app.outreach.voice.kat_sdk")
         __import__("koreaaitel")
+        import clawops
+        from clawops.agent import ClawOpsAgent
         from importlib import import_module
         import_module(name)
     """)
     assert _forbidden(_imports(planted, f"{PACKAGE}.gate")) == {
         "app.outreach.provider", "app.outreach.channels", "app.outreach.channels.sms", "app.outreach.text.session",
         "app.outreach.text.session.x", "httpx", "openai", "google.genai", "anthropic.types",
-        "app.outreach.voice.kat_sdk", "koreaaitel", DYNAMIC,
+        "app.outreach.voice.kat_sdk", "koreaaitel", "clawops", "clawops.agent", "clawops.agent.ClawOpsAgent", DYNAMIC,
     }  # 훑는 함수가 이런 꼴을 놓치지 않는다
+
+
+@pytest.mark.parametrize("source", [
+    "import clawops",  # 음성 SDK 의 실제 import 이름(배포 이름은 koreaaitel)
+    "from clawops.agent import ClawOpsAgent",
+    "import koreaaitel",
+    "from google import genai",
+    "import google.genai as genai",
+    "from google.genai import types",
+])
+def test_model_and_voice_sdk_imports_are_forbidden_in_harness(source):
+    assert _forbidden(_imports(source, f"{PACKAGE}.door")), source
 
 
 def test_importing_every_harness_module_loads_no_channel_provider_or_model():
@@ -94,7 +108,7 @@ def test_importing_every_harness_module_loads_no_channel_provider_or_model():
         for info in pkgutil.walk_packages(harness.__path__, harness.__name__ + "."):
             importlib.import_module(info.name)
         bad = ("app.outreach.channels", "app.outreach.provider", "app.outreach.voice", "app.outreach.text", "app.llm",
-               "openai", "google.genai", "anthropic", "koreaaitel")
+               "openai", "google.genai", "anthropic", "koreaaitel", "clawops")
         loaded = sorted(n for n in sys.modules if any(n == b or n.startswith(b + ".") for b in bad))
         print("LOADED", loaded)
         print("COUNT", len([n for n in sys.modules if n.startswith("app.outreach.harness.")]))
