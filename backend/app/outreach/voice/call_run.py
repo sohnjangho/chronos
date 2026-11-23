@@ -41,7 +41,8 @@ WRAP_UP_S = 20  # 최대 시간 이만큼 전에 정리 말
 MAX_TURNS = 400  # 한 통화의 받아쓰기 줄(우리 말·상대 말 합쳐)
 MAX_TOOL_CALLS = 40  # 한 통화의 도구 호출
 HANGUP_WAIT_S = 5.0  # 고장 뒤 끊기를 기다리는 시간 · 일꾼이 끊기를 건넨 뒤 끝 사건을 기다리는 시간
-END_WRITE_WAIT_S = 30.0  # 끝 사건이 온 뒤 끝을 적는 쓰기(_tries — WRITE_TRIES 번, SQLite 기다림 포함)를 기다리는 시간
+END_WRITE_WAIT_S = 30.0  # 끝 사건이 온 뒤: 끝을 적는 쓰기(_tries — WRITE_TRIES 번, SQLite 기다림 포함)와 백엔드가 place 에서
+#                         돌아오기까지를 함께 기다리는 시간(넘으면 place 를 끊되 끝은 그대로 — runner._place)
 AFTER_WAIT_S = 90.0  # 통화 뒤 일(뒤 확인 + 요약 — 요약 부름은 after.TIMEOUT_S)을 기다리는 시간
 WRITE_TRIES, WRITE_PAUSE_S = 3, 0.2  # 통화 끝을 적는 시도
 HELLO = "여보세요, 들리시나요?"

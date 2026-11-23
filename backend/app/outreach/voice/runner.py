@@ -268,7 +268,8 @@ async def _call(call_id: int, base: datetime) -> str | None:
     try:
         await _place(backend, plan.spec, run)
     except asyncio.CancelledError:
-        run.stopped()
+        if not run.ended:  # 끝 사건이 왔으면 끝은 정해졌다(끝 쓰기는 스레드에서 마친다) — 멈춤이 실패로 덮지 않는다
+            run.stopped()
         raise
     except Exception as exc:  # noqa: BLE001 — 백엔드 고장·손잡이 예외·실제 시간 넘김: 이 통화만 failed
         state.last_error_kind = _kind(exc)

@@ -17,7 +17,7 @@
 - **실패**(연결 없음·호출 실패·시간 초과·쓸 수 없는 답): summary_ko 는 빈 글 그대로, 결과 제안도 없고 통화 기록은 바뀌지 않는다.
   사용량 `add_usage(session, "summary", ref=("call", id), model, input_tokens, output_tokens, cost)` 은 **답이 온 때만**(쓸 수
   없는 답도 토큰을 썼으므로 센다. 연결 없음·호출 실패·시간 초과는 받은 토큰이 없어 세지 않는다 — llm_calls 에는 LlmClient 가 남긴다).
-- **④ 결과 제안**: `result_proposed`(가린 글)만 쓴다 — `result_confirmed`·`confirmed_by` 는 사람이 확정하는 칸이라 건드리지 않는다.
+- **④ 결과 제안**: `result_proposed`(가린 글 — 모델이 결과를 비우면 NO_RESULT 「결과 확인 필요」)만 쓴다 — `result_confirmed`·`confirmed_by` 는 사람이 확정하는 칸이라 건드리지 않는다.
 - DB 일은 짧은 세션을 스레드에서. 모델을 부르는 동안 쥔 쓰기가 없다. 로그에는 예외의 종류만.
 """
 
@@ -57,6 +57,7 @@ MAX_QUESTIONS = MAX_ANSWERS = 20
 FIELD_CHARS = 300  # 목적·질문·답·근거 말 한 칸
 SUMMARY_CHARS, RESULT_CHARS = 2000, 300  # 모델 답의 상한 — 넘으면 쓸 수 없는 답
 UNVERIFIED, VERIFIED = "확인 필요", "근거 확인됨"
+NO_RESULT = "결과 확인 필요"  # 모델이 결과를 비워 두었을 때 저장하는 제안
 SCHEMA = {
     "type": "object",
     "properties": {"summary_ko": {"type": "string"}, "result": {"type": "string"}},
@@ -251,7 +252,7 @@ def _usable(reply: LlmReply) -> tuple[str, str] | None:
     summary, result = _text(parsed.get("summary_ko"), SUMMARY_CHARS), _text(parsed.get("result"), RESULT_CHARS)
     if not summary or result is None:
         return None
-    return summary, result
+    return summary, result or NO_RESULT
 
 
 def _store(call_id: int, reply: LlmReply) -> None:

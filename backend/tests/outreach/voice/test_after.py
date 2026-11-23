@@ -560,3 +560,74 @@ def test_transcript_in_the_prompt_is_capped_in_total(monkeypatch):
     monkeypatch.setattr(after, "TEXT_CHARS", 10)
     lines, cut = after._transcript([{"role": "peer", "text": "가나다라마", "t": 1.0}] * 5)
     assert [line["말"] for line in lines] == ["가나다라마"] * 2 and cut is True
+
+
+# ── 후속(리뷰): 멈춤·취소가 끝난 통화를 덮지 않음 · 빈 결과 ───────────────────────
+
+
+async def _until(check, limit_s: float = 3.0) -> None:
+    """check() 가 참이 될 때까지(실제 시간 limit_s 까지) 기다린다."""
+    began = time.monotonic()
+    while not check():
+        assert time.monotonic() - began < limit_s, "기다린 일이 오지 않았습니다"
+        await asyncio.sleep(0.01)
+
+
+async def test_stop_during_the_end_write_does_not_overwrite_a_completed_call(session, world, monkeypatch):
+    """끝 사건이 온 뒤 끝을 적는 동안 일꾼이 멈춰(stop → 취소) 도 「서버가 다시 시작돼 끊겼습니다」로 덮지 않는다."""
+    for name in ("CHRONOS_OUTREACH_WORKER", "CHRONOS_HARNESS_SANDBOX"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(runner, "STOP_WAIT_S", 0.1)
+    monkeypatch.setattr(runner, "_now", lambda: WORK)
+    monkeypatch.setattr(runner, "recover", lambda now=None, *, before=None: 0)
+    ran = []
+    monkeypatch.setattr(call_run, "after_call", lambda call_id, box=None: ran.append(call_id) or asyncio.sleep(0))
+    real = call_run._finish
+
+    def slow(*args):
+        time.sleep(0.6)
+        return real(*args)
+
+    monkeypatch.setattr(call_run, "_finish", slow)
+    row = queued(session, world.who)
+    with voice_session.pinned(SimulatedVoice([Say("peer", "네", t=2), Hangup("peer")])):
+        runner.start.__wrapped__()
+        try:
+            assert runner.enqueue(row.id) is True
+            await _until(lambda: any(run.ended for run in runner._state.live.values()))
+        finally:
+            await runner.stop()
+    await asyncio.sleep(0.8)  # 스레드의 끝 쓰기가 마치기를 기다린다(끝이 있다)
+    back = reread(session, row)
+    assert (back.status, back.fail_reason) == ("completed", None)
+    assert "server_restart" not in [r for r, _, _ in rules(session, row)] and ran == []
+
+
+async def test_cancel_during_the_after_work_leaves_the_call_completed(session, world, monkeypatch):
+    started = asyncio.Event()
+
+    async def hook(call_id, box=None):
+        started.set()
+        await asyncio.sleep(5)  # 취소가 끊는다
+
+    monkeypatch.setattr(call_run, "after_call", hook)
+    row = queued(session, world.who)
+    with voice_session.pinned(SimulatedVoice([Say("peer", "네", t=2), Hangup("peer")])):
+        task = asyncio.create_task(runner.run_one(row.id, now=WORK))
+        await asyncio.wait_for(started.wait(), 3)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    back = reread(session, row)
+    assert (back.status, back.fail_reason, back.duration_s) == ("completed", None, 2)
+    assert "server_restart" not in [r for r, _, _ in rules(session, row)]
+    assert runner._state.holding is None and runner.live() == 0
+
+
+@pytest.mark.parametrize("empty", ["", "   "])
+async def test_empty_result_is_stored_as_needing_a_check(session, world, llm, empty):
+    row = finished(session, world.who)
+    llm.push(_answer(result=empty))
+    await after.finish(row.id)
+    back = reread(session, row)
+    assert (back.summary_ko, back.result_proposed) == (SUMMARY, "결과 확인 필요") and after.NO_RESULT == "결과 확인 필요"
