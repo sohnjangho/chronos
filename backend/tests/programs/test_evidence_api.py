@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.harness.conditions import Condition
 from app.llm import search
 from app.store import chats
-from app.store.tables import ScheduleDraft, User
+from app.store.tables import EvidenceItem, ScheduleDraft, User
 from app.tools.context import ToolContext
 from app.tools.registry import call
 from tests.llm_doubles import add_connection
@@ -122,3 +122,33 @@ def test_unknown_schedule_or_chat_is_404(client, admin):
     r = client.get("/api/evidence?schedule_id=99", headers=admin)
     assert r.status_code == 404 and r.json()["message"] == "일정을 찾을 수 없습니다."
     assert client.get("/api/evidence?chat_session_id=99", headers=admin).status_code == 404
+
+
+# ── 다시 쓰지 않기(설계 2026-11-23): POST /api/evidence/{id}/retire · /restore ─────────────
+
+
+async def test_retire_and_restore(client, user, ctx_sid, session, sid):
+    ids = await _search(ctx_sid)
+    await _attach(ctx_sid, schedule_id=sid, items=[{"evidence_id": ids[0], "condition_id": "in.finish_by"}])
+    r = client.post(f"/api/evidence/{ids[0]}/retire", headers=user)  # 로그인한 누구나
+    assert r.status_code == 200 and r.json() == {"id": ids[0], "retired": True}
+    session.expire_all()
+    assert session.get(EvidenceItem, ids[0]).retired is True
+    # 이미 붙은 곳에는 그대로 보인다
+    assert [x["id"] for x in client.get(f"/api/evidence?schedule_id={sid}", headers=user).json()] == [ids[0]]
+    assert _conditions(client, user, sid)["in.finish_by"]["evidence"][0]["id"] == ids[0]
+    r = client.post(f"/api/evidence/{ids[0]}/restore", headers=user)
+    assert r.status_code == 200 and r.json() == {"id": ids[0], "retired": False}
+    session.expire_all()
+    assert session.get(EvidenceItem, ids[0]).retired is False
+
+
+@pytest.mark.parametrize("action", ["retire", "restore"])
+def test_retire_unknown_evidence_is_404(client, admin, action):
+    r = client.post(f"/api/evidence/99/{action}", headers=admin)
+    assert r.status_code == 404 and r.json()["message"] == "근거를 찾을 수 없습니다."
+
+
+@pytest.mark.parametrize("action", ["retire", "restore"])
+def test_retire_needs_login(client, action):
+    assert client.post(f"/api/evidence/1/{action}").status_code == 401

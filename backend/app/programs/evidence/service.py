@@ -2,13 +2,14 @@
 
 거르기는 schedule_id 와 chat_session_id 가운데 정확히 하나(아니면 422 invalid_request).
 일정은 로그인한 누구나, 대화는 만든 사용자만 본다(다른 사람에게는 404).
+다시 쓰지 않기(retired)는 로그인한 누구나 켜고 끈다(app.store.evidence_reuse).
 """
 
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.programs.evidence.schemas import EvidenceOut, LinkOut
-from app.store import chats
+from app.programs.evidence.schemas import EvidenceOut, LinkOut, RetiredOut
+from app.store import chats, evidence_reuse
 from app.store.evidence import Found, for_chat, for_schedule
 from app.store.schedules import NotFound, get_record
 from app.store.tables import User
@@ -16,6 +17,7 @@ from app.store.tables import User
 ONE_FILTER_MESSAGE = "schedule_id 와 chat_session_id 가운데 하나만 주세요."
 SCHEDULE_NOT_FOUND = "일정을 찾을 수 없습니다."
 CHAT_NOT_FOUND = "대화를 찾을 수 없습니다."
+EVIDENCE_NOT_FOUND = "근거를 찾을 수 없습니다."
 
 
 def _out(f: Found) -> EvidenceOut:
@@ -50,3 +52,10 @@ def list_evidence(session: Session, user: User, schedule_id: int | None, chat_se
         raise ApiError(422, "invalid_request", ONE_FILTER_MESSAGE)
     found = _schedule(session, schedule_id) if schedule_id is not None else _chat(session, user, chat_session_id)
     return [_out(f) for f in found]
+
+
+def set_retired(session: Session, evidence_id: int, retired: bool) -> RetiredOut:
+    if not evidence_reuse.set_retired(session, evidence_id, retired):
+        raise ApiError(404, "not_found", EVIDENCE_NOT_FOUND)
+    session.commit()
+    return RetiredOut(id=evidence_id, retired=retired)

@@ -22,7 +22,8 @@ if TYPE_CHECKING:
 
 WEATHER_MODE = "weather"  # info.weather 가 남기는 줄(근거 검색 한도와 따로 센다)
 INFO_MODE = "info"  # info.call 이 남기는 줄(근거 검색·날씨 한도와 따로 센다)
-NOT_SEARCH_MODES = (WEATHER_MODE, INFO_MODE)  # 근거 검색 수에 들지 않는 줄
+REUSE_MODE = "reuse"  # evidence.search 가 저장된 근거를 다시 쓴 줄(Liner 를 부르지 않았다. app.store.evidence_reuse)
+NOT_SEARCH_MODES = (WEATHER_MODE, INFO_MODE, REUSE_MODE)  # 근거 검색 수에 들지 않는 줄
 
 
 @dataclass(frozen=True)

@@ -397,6 +397,7 @@ class EvidenceItem(Base):
     published: Mapped[str | None] = mapped_column(String(20), default=None)
     extra_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    retired: Mapped[bool] = mapped_column(default=False)  # 「다시 쓰지 않기」: 다시 쓰지 않는다(붙은 곳에는 그대로 보인다)
 
 
 class EvidenceLink(Base):
@@ -653,3 +654,17 @@ event.listen(
     "after_create",
     DDL("CREATE VIRTUAL TABLE IF NOT EXISTS file_chunks_fts USING fts5(text)").execute_if(dialect="sqlite"),
 )
+
+# 저장된 근거 낱말 검색(FTS5, app.store.evidence_reuse). rowid = evidence_items.id, 글 = 제목 + 요약 + 그때의 검색어.
+# 근거 줄을 넣고 지울 때 트리거가 맞추고, 트리거 전에 있던 근거는 create_all 때 채운다(없는 줄만).
+_EVIDENCE_TEXT = "i.title || ' ' || i.description || ' ' || coalesce((SELECT s.query FROM evidence_searches s WHERE s.id = i.search_id), '')"
+for _sql in (
+    "CREATE VIRTUAL TABLE IF NOT EXISTS evidence_items_fts USING fts5(text)",
+    ("CREATE TRIGGER IF NOT EXISTS evidence_items_fts_ai AFTER INSERT ON evidence_items BEGIN "
+     f"INSERT INTO evidence_items_fts(rowid, text) SELECT i.id, {_EVIDENCE_TEXT} FROM evidence_items i WHERE i.id = new.id; END"),
+    ("CREATE TRIGGER IF NOT EXISTS evidence_items_fts_ad AFTER DELETE ON evidence_items BEGIN "
+     "DELETE FROM evidence_items_fts WHERE rowid = old.id; END"),
+    (f"INSERT INTO evidence_items_fts(rowid, text) SELECT i.id, {_EVIDENCE_TEXT} FROM evidence_items i "
+     "WHERE i.id NOT IN (SELECT rowid FROM evidence_items_fts)"),
+):
+    event.listen(Base.metadata, "after_create", DDL(_sql).execute_if(dialect="sqlite"))

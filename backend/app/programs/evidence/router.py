@@ -5,11 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.programs.evidence import service
-from app.programs.evidence.schemas import EvidenceOut
+from app.programs.evidence.schemas import EvidenceOut, RetiredOut
 from app.security.deps import current_user
 from app.store.tables import User
 
-# 로그인한 누구나. 대화로 거르면 그 대화를 만든 사용자만(service 가 404).
+# 로그인한 누구나. 대화로 거르면 그 대화를 만든 사용자만(service 가 404). 다시 쓰지 않기·되돌리기도 로그인한 누구나.
 router = APIRouter(prefix="/api/evidence", tags=["evidence"], dependencies=[Depends(current_user)])
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -21,3 +21,13 @@ def list_evidence(
     session: SessionDep, user: UserDep, schedule_id: int | None = None, chat_session_id: int | None = None
 ) -> list[EvidenceOut]:
     return service.list_evidence(session, user, schedule_id, chat_session_id)
+
+
+@router.post("/{evidence_id}/retire")
+def retire_evidence(evidence_id: int, session: SessionDep) -> RetiredOut:
+    return service.set_retired(session, evidence_id, True)
+
+
+@router.post("/{evidence_id}/restore")
+def restore_evidence(evidence_id: int, session: SessionDep) -> RetiredOut:
+    return service.set_retired(session, evidence_id, False)
