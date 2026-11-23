@@ -310,6 +310,15 @@ def test_claims_still_need_support_when_every_peer_line_is_a_hedge(session):
     ("철근 배근이 끝났는데 다시 하래요", True),
     ("6명 가능했는데 지금은 3명", True),
     ("반듯하게 6명 가능합니다", False),
+    # 전해 들은 말(「~다는데·~라는데·~대요·~래요」)은 근거가 아니다 — 「있는데」·「할 거예요」는 그대로 근거
+    ("6명 가능하다는데요", True),
+    ("6명 있다는데요", True),
+    ("반장님이 6명이라는데", True),
+    ("내일 된대요", True),
+    ("내일 6명 온대요", True),
+    ("6명 간다래요", True),
+    ("6명 있는데 내일 갑니다", False),
+    ("6명 갈 거예요", False),
 ])
 def test_hedge_stems_match_anywhere_except_listed_compounds(line, hedge):
     assert (review._line(line) is None) is hedge
