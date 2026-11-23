@@ -49,6 +49,7 @@ OutcomeCode = Literal[  # 이름표의 판정 코드
     "accepted", "queued", "scheduled", "blocked_test", "blocked_hours", "blocked_number", "do_not_contact", "limit_daily",
     "limit_person", "needs_approval", "duplicate", "held_for_review", "not_ready", "not_sendable",
     "unsure",  # 이름표 밖(제공사 리뷰 11-23): 보내기 요청은 나갔는데 결과를 모름 — 「보냈는지 확인 필요」, 줄은 unconfirmed
+    "failed",  # 이름표 밖(Task 65): 문은 지나갔는데 통로가 보내지 못함(가지 않았음이 확실) — 줄은 failed, rule 은 None
 ]
 DeliveryState = Literal["sent", "failed", "unsure"]
 EventVerdict = Literal["blocked", "allowed", "noted"]

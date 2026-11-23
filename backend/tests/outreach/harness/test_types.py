@@ -84,8 +84,9 @@ def test_words_have_the_plan_shapes():
 
 def test_outcome_codes_equal_the_plan_list():
     # 이름표 14개 + unsure(보내기 요청은 나갔는데 결과를 모름 — 「보냈는지 확인 필요」, 제공사 리뷰 11-23 더함)
-    assert set(get_args(OutcomeCode)) == {code.strip() for code in PLAN_OUTCOME_CODES.split("|")} | {"unsure"}
-    assert len(get_args(OutcomeCode)) == 15
+    # + failed(문은 지나갔는데 통로가 보내지 못함 — 「보내기를 거절함」인 not_sendable 과 가른다, Task 65 더함)
+    assert set(get_args(OutcomeCode)) == {code.strip() for code in PLAN_OUTCOME_CODES.split("|")} | {"unsure", "failed"}
+    assert len(get_args(OutcomeCode)) == 16
 
 
 def test_outcome_checks_code_and_rule():
