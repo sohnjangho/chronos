@@ -1,6 +1,6 @@
 // 연락처 프로그램(Task 75): 협력사별 묶음·찾기 / 50명 넘침 없음 / 사람 추가 본문 / 가린 번호·눌러서 보기·닫으면 다시 가림 /
 // 번호 종류·잠긴 채널 / 수신 거부 풀기 403·번호 바꾸기 안내와 확인 / 보기 한도 / 현장 관리자 / params.contact / 시험 모드 띠.
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { programs, register } from '../../os/registry';
@@ -126,6 +126,14 @@ describe('address book', () => {
     expect(screen.queryByRole('button', { name: /다른 프로젝트에서 복사/ })).toBeNull();
   });
 
+  test('the head of a do-not-contact person says 연락할 수 없음(수신 거부), not the channels', async () => {
+    show({ contact: String(JUNG.id) });
+    const head = await screen.findByRole('heading', { name: '정배선' });
+    const pane = head.closest('section')!;
+    expect(within(pane).getByText('연락할 수 없음(수신 거부)')).toBeVisible();
+    expect(within(pane).queryByText(/가능$/)).toBeNull();
+  });
+
   test('params.contact selects that person and shows the masked number with its kind', async () => {
     show({ contact: String(LEE.id), tab: 'calls' });
     const head = await screen.findByRole('heading', { name: '이전기' });
@@ -134,6 +142,33 @@ describe('address book', () => {
     expect(within(pane).getByText('유선')).toBeVisible();
     expect(row('이전기')).toHaveAttribute('aria-current', 'true');
     expect(within(pane).getByRole('region', { name: '대화' })).toHaveAttribute('data-tab', 'calls');
+  });
+});
+
+describe('project switch', () => {
+  /** 창 저장소의 params 를 그대로 받는 창 — 메뉴바에서 프로젝트를 바꾸면 syncSchedule 이 params 를 바꾼다. */
+  function Hosted() {
+    const params = useWindows((s) => s.wins.find((w) => w.id === 'w1')?.params);
+    return <Contacts windowId="w1" params={params ?? {}} />;
+  }
+
+  test('a window opened with params.id follows the menu-bar project: new book, no open form, no revealed number', async () => {
+    useWindows.setState({ wins: [{ id: 'w1', programId: 'contacts', params: { id: '1', contact: String(PARK.id), tab: 'calls' } }] } as never);
+    render(<Hosted />);
+    await screen.findByRole('heading', { name: '박현장' });
+    await userEvent.click(screen.getByRole('button', { name: '고치기' }));
+    await userEvent.click(within(await screen.findByRole('form')).getByRole('button', { name: '눌러서 보기' }));
+    expect(await screen.findByDisplayValue('010-0000-0000')).toBeVisible();
+
+    act(() => useCurrentSchedule.getState().setCurrent({ id: 2, name: '가상 부품 공장' }));
+
+    expect(useWindows.getState().wins[0].params).toEqual({ id: '2' });
+    expect(await screen.findByText(/아직 주소록이 비어 있습니다/)).toBeVisible();
+    expect(contactCalls().some((c) => c.method === 'GET' && c.url.startsWith('/api/schedules/2/contacts'))).toBe(true);
+    expect(screen.getByText('가상 부품 공장의 주소록')).toBeVisible();
+    expect(screen.queryByRole('form')).toBeNull();
+    expect(screen.queryByDisplayValue('010-0000-0000')).toBeNull();
+    expect(screen.queryByText('박현장')).toBeNull();
   });
 });
 

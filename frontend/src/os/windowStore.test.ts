@@ -493,6 +493,20 @@ describe('프로젝트 격리 · 일정 동기화 · 2단 스테이지 배치', 
     expect(win(chatId).params).toEqual({ session: '9' });
   });
 
+  test('a contacts window opened with params.id follows the project and drops what pointed into the old one', () => {
+    useCurrentSchedule.setState({ userId: 1, current: { id: 1, name: '5층 사무동' } });
+    const full = { id: '1', contact: '4', tab: 'calls', compose: '내일 7시 타설', activity: 'A2020', call: '12' };
+    const id = s().open('contacts', full);
+    useCurrentSchedule.getState().setCurrent({ id: 5, name: '전해질 R&D' });
+    expect(win(id).params).toEqual({ id: '5' });
+
+    s().close(id);
+    const again = s().open('contacts', { ...full, id: '5' });
+    useCurrentSchedule.getState().enterNewProjectMode();
+    expect(win(again).params).toBeUndefined();
+    expect(win(again).minimized).toBe(true);
+  });
+
   test('enterNewProjectMode minimizes open schedule windows and clears schedule ids', () => {
     useCurrentSchedule.setState({ userId: 1, current: { id: 1, name: '5층 사무동' } });
     const ganttId = s().open('gantt', { id: '1' });

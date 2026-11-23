@@ -62,6 +62,8 @@ function StatusStrip({ status, projectName }: { status: NotifyStatus | null | un
 }
 
 function channelText(p: PersonBrief, kakaoReady: boolean): string {
+  // channels 는 번호 종류만 보고 정해진다 — 수신 거부가 먼저다.
+  if (p.do_not_contact) return '연락할 수 없음(수신 거부)';
   const names = p.channels.filter((c) => c !== 'kakao' || kakaoReady).map((c) => ({ sms: '문자', kakao: '카카오톡', call: '전화' })[c]);
   return names.length ? `${names.join('·')} 가능` : '연락할 수 없음';
 }

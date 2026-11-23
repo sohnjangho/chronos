@@ -84,6 +84,8 @@ const SID = '/api/schedules/1/contacts';
 function route(method: string, url: string): Reply {
   if (url === '/api/notify/status') return status;
   if (method === 'GET' && (url === SID || url.startsWith(`${SID}?`))) return book;
+  // 다른 일정(프로젝트를 바꾼 뒤)의 주소록은 비어 있다.
+  if (method === 'GET' && /^\/api\/schedules\/\d+\/contacts(\?.*)?$/.test(url)) return { status: 200, body: EMPTY };
   const reveal = /\/people\/(\d+)\/reveal$/.exec(url);
   if (reveal) return revealReply;
   const one = /\/people\/(\d+)$/.exec(url);

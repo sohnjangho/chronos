@@ -46,6 +46,7 @@ export const SCHEDULE_BOUND_PROGRAMS = new Set([
   'conditions',
   'delays',
   'compare',
+  'contacts',
 ]);
 const CASCADE = 32;
 const START = { x: 24, y: MENUBAR_H + 20 };
@@ -222,6 +223,11 @@ function stripScheduleParams(params?: Params): Params | undefined {
   delete next.event;
   delete next.base;
   delete next.other;
+  // 연락처: 고른 사람·탭·보낼 글·통화는 그 일정 안의 것이다.
+  delete next.contact;
+  delete next.tab;
+  delete next.compose;
+  delete next.call;
   return Object.keys(next).length ? next : undefined;
 }
 
