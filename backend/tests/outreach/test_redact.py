@@ -21,6 +21,7 @@ from app.outreach.redact import (
     HideSecrets,
     activate,
     add_secrets,
+    covers,
     drop_secrets,
     forget_secrets,
     hide_phones,
@@ -623,3 +624,65 @@ def test_many_secrets_stay_cheap_per_log_line(caplog, source):
         logger.removeHandler(null)
         logger.propagate = True
     assert per_line < 250e-6, per_line
+
+
+# ── 음성 SDK 로거(이름으로만 — SDK 는 불러오지 않는다) ─────────────────────
+
+
+@pytest.mark.parametrize("name", [
+    "clawops", "clawops.agent", "clawops.agent._recorder", "aiohttp", "aiohttp.client", "aiohttp.access",
+    "google_genai", "google_genai.live", "google.genai", "google.genai.live",
+])
+def test_covers_voice_sdk_loggers_and_their_children(name):
+    assert covers(name)
+
+
+@pytest.mark.parametrize("name", [
+    "app.t62_other", "clawopsx", "aiohttpx.client", "google", "google.auth", "google_genaix", "", "root",
+])
+def test_covers_is_false_for_unrelated_names(name):
+    assert not covers(name)
+
+
+def test_covers_matches_the_existing_loggers():
+    assert all(covers(name) for name in redact.LOGGERS)
+    assert covers("app.outreach.harness.gate") and not covers("app.outreachx")
+    assert not covers(None)
+
+
+@pytest.mark.parametrize("name", ["clawops.agent._recorder", "aiohttp.client", "google_genai.live", "google.genai.models"])
+def test_voice_sdk_records_are_scrubbed(caplog, name):
+    """SDK 가 거는·받은 번호를 INFO 로, 연결 거절 때 Account ID 와 번호를 ERROR 로 남긴다고 한다 — 자식 로거까지 지운다."""
+    add_secrets(ACCOUNT)
+    caplog.set_level(logging.DEBUG, logger=name)
+    logger = logging.getLogger(name)
+    logger.info("dialing %s from %s", SENTINEL_PHONE, "+821000000199", extra={"to": SENTINEL_PHONE})
+    logger.error("connection refused account=%s number=%s", ACCOUNT, SENTINEL_PHONE)
+    assert len(caplog.records) == 2 and "0199" not in caplog.records[0].to
+    assert_clean(caplog, ACCOUNT)
+
+
+def test_uncovered_logger_cost_is_unchanged(source):
+    """걸리지 않은 로거의 줄은 이름 한 번 보는 값만 든다(가리는 함수를 부르지 않는다)."""
+    install(list)
+    calls = []
+    real = redact.HideSecrets.filter
+    redact.HideSecrets.filter = lambda self, record: calls.append(record.name) or real(self, record)
+    try:
+        logging.getLogger("t62.uncovered").warning("to %s", SENTINEL_PHONE)
+    finally:
+        redact.HideSecrets.filter = real
+    assert calls == []
+
+
+def test_exception_type_stays_for_later_filters_but_not_its_value(caplog, keys):
+    """뒤에 걸린 거르개(음성 진단의 SDK 거르개처럼 예외를 종류로 줄이는 것)가 종류는 볼 수 있게 남기고, 값·traceback 은 뺀다."""
+    try:
+        raise ValueError(f"bad {SENTINEL_PHONE} {SENTINEL_KEY}")
+    except ValueError:
+        logging.getLogger("clawops.agent").exception("에이전트를 만들지 못함")
+    record = caplog.records[-1]
+    assert record.exc_info is not None and record.exc_info[0] is ValueError
+    assert record.exc_info[1] is None and record.exc_info[2] is None
+    assert "ValueError" in caplog.text
+    assert_clean(caplog)

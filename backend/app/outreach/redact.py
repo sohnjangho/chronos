@@ -42,7 +42,11 @@ from app.outreach.phone import AREA, FORMAT_CHARS, _local, _parts
 PHONE_MASK = "[번호]"
 HIDDEN_LINE = "(비밀 목록을 읽지 못해 이 로그 줄을 숨겼습니다)"
 LOGGERS = ("app.outreach", "app.programs.contacts", "app.programs.outreach", "app.programs.notify_settings",
-           "app.tools.notify", "app.notify", "app.errors", "uvicorn.error", "httpx", "httpcore")
+           "app.tools.notify", "app.notify", "app.errors", "uvicorn.error", "httpx", "httpcore",
+           # 음성 SDK(clawops)와 그것이 쓰는 aiohttp·google genai — 거는·받은 번호, 연결 거절 때 Account ID 를 남긴다
+           "clawops", "aiohttp", "google_genai", "google.genai")
+_LOGGER_NAMES = frozenset(LOGGERS)
+_LOGGER_PREFIXES = tuple(f"{name}." for name in LOGGERS)
 MIN_SECRET = 8
 SPOKEN_MIN = 7  # 한글로 읽은 숫자는 이만큼 이어지면 지운다
 FOREIGN_MIN, MAX_DIGITS = 8, 15  # E.164 는 15자리까지
@@ -394,7 +398,9 @@ class HideSecrets(logging.Filter):
         record.msg, record.args = clean(text), ()
         if record.exc_info:
             record.exc_text = record.exc_text or logging.Formatter().formatException(record.exc_info)
-            record.exc_info = None
+            # 값·traceback 은 버리고 종류만 남긴다 — 뒤의 거르개(예외를 종류로 줄이는 것)가 볼 수 있게. 글은 지운 exc_text 로 나간다
+            kind = record.exc_info[0] if isinstance(record.exc_info, tuple) else None
+            record.exc_info = (kind, None, None) if isinstance(kind, type) else None
         if record.exc_text:
             record.exc_text = clean(record.exc_text)
         if record.stack_info:
@@ -409,7 +415,13 @@ _ORIGINAL_MAKE = getattr(logging.Logger.makeRecord, "_redact_original", logging.
 
 
 def _covered(name: object) -> bool:
-    return isinstance(name, str) and any(name == p or name.startswith(p + ".") for p in LOGGERS)
+    return isinstance(name, str) and (name in _LOGGER_NAMES or name.startswith(_LOGGER_PREFIXES))
+
+
+def covers(name: str) -> bool:
+    """이 이름의 로거(LOGGERS 의 것과 그 아래 모든 자식)의 줄을 거르개가 지우는가. 음성 어댑터가 시작할 때 SDK 로거마다
+    확인하고, 아니면 돌지 않는다."""
+    return _covered(name)
 
 
 class _LateRecord(logging.LogRecord):
