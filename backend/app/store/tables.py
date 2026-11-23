@@ -544,7 +544,11 @@ class ChatSessionFile(Base):
 
 
 class InfoConnection(Base):
-    """정보 API 연결(첫 프리셋 kma_datagokr). 키는 암호문과 끝 4자리만 둔다."""
+    """정보 API 연결. 키는 암호문과 끝 4자리만 둔다.
+
+    preset 'kma'(기상청 전용, info.weather) | 'generic'(범용, info.call). 범용 칸은 기본값이 있어서 기존 DB 에는
+    시작할 때 더해진다(store.upgrade, 있던 줄은 kma 그대로).
+    """
 
     __tablename__ = "info_connections"
 
@@ -556,6 +560,11 @@ class InfoConnection(Base):
     secret_last4: Mapped[str] = mapped_column(String(4))
     status: Mapped[str] = mapped_column(String(10), default="unknown")  # 'ok' | 'failed' | 'unknown'
     checked_at: Mapped[datetime | None] = mapped_column(default=None)
+    description: Mapped[str] = mapped_column(String(500), default="")  # 무엇을 주는지(에이전트가 읽고 고른다)
+    usage: Mapped[str] = mapped_column(Text, default="")  # 쓰는 법 메모(경로·필수 파라미터·예시)
+    key_in: Mapped[str] = mapped_column(String(10), default="query")  # 'query' | 'header'
+    key_name: Mapped[str] = mapped_column(String(60), default="serviceKey")  # 질의 이름 또는 머리글 이름(대소문자 그대로)
+    test_path: Mapped[str] = mapped_column(String(500), default="")  # 연결 시험 경로+질의(없으면 시험 못 함)
 
 
 class ReindexJob(Base):
