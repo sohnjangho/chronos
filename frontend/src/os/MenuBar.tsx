@@ -143,15 +143,18 @@ function ComputerUseBadge() {
   }
 
   if (ribbon.collapsed && ribbon.steps.length > 0 && lastRunId !== null) {
+    const failed = ribbon.status === 'failed';
+    const endLabel = failed ? '실패' : ribbon.status === 'stopped' ? '멈춤' : '완료';
     return (
       <button
         type="button"
         className="os-menubar-cu is-done"
-        aria-label={`워크플로우 #${lastRunId} 완료`}
-        data-tip="완료된 워크플로우 다시 펼치기"
+        aria-label={`워크플로우 #${lastRunId} ${endLabel}`}
+        data-tip={`${failed ? '실패한' : ribbon.status === 'stopped' ? '멈춘' : '완료된'} 워크플로우 다시 펼치기`}
         onClick={toggleRibbon}
       >
-        <span>{`워크플로우 #${lastRunId} 완료 ▾`}</span>
+        {failed && <span className="os-menubar-cu-wait-dot" style={{ background: 'var(--danger)' }} aria-hidden="true" />}
+        <span>{`워크플로우 #${lastRunId} ${endLabel} ▾`}</span>
       </button>
     );
   }

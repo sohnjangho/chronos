@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
 import { json, signInAsDemo, stubFetch } from '../test-helpers';
+import { useAgentView } from './agentView';
 import { useApprovals } from './approvals';
 import { useCurrentSchedule } from './currentSchedule';
 import Desktop from './Desktop';
@@ -171,4 +172,29 @@ test('a current schedule that no longer exists is cleared', async () => {
   render(<Desktop />);
   await flush();
   expect(useCurrentSchedule.getState().current).toBeNull();
+});
+
+test.each([
+  ['failed', '실패'],
+  ['stopped', '멈춤'],
+  ['done', '완료'],
+] as const)('a collapsed ribbon with status %s reads 워크플로우 #n %s (U1)', async (status, word) => {
+  stubFetch({ '/api/approvals/count': { pending: 0 }, '/api/schedules': [] });
+  useAgentView.setState({
+    lastRunId: 24,
+    ribbon: {
+      visible: true,
+      collapsed: true,
+      runId: 24,
+      status,
+      waitReason: null,
+      steps: [{ n: 1, tool: 'schedule.import', label: '공정표 가져오기', program: null, status: status === 'done' ? 'done' : status }],
+      genStage: null,
+      creatingNewProject: false,
+    },
+  });
+  render(<Desktop />);
+  await flush();
+  expect(within(menubar()).getByRole('button', { name: `워크플로우 #24 ${word}` })).toHaveTextContent(`워크플로우 #24 ${word} ▾`);
+  act(() => useAgentView.getState().reset());
 });
