@@ -15,7 +15,7 @@ id 를 다시 쓰지 않는다(SQLite 는 가장 큰 id 를 지우면 그 id 를
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Dialect, String, Text, TypeDecorator
+from sqlalchemy import JSON, DateTime, Dialect, Index, String, Text, TypeDecorator
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.store.tables import Base
@@ -257,6 +257,21 @@ class DoNotContactNumber(Base):
     number: Mapped[str] = mapped_column(String(20), unique=True)
     reason: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+
+class ContactReveal(Base):
+    """전체 번호를 본 기록 한 줄(Task 72 — 감사: 누가 언제 어느 일정·연락처의 번호를 봤나). 번호는 어떤 꼴로도(가린 꼴도)
+    두지 않는다. 일정을 지워도 남는다(purge_schedule 이 지우지 않음). 번호 보기 상한(사용자마다 10분에 30번)도 이 표로 센다
+    — store.outreach.record_reveal·count_reveals."""
+
+    __tablename__ = "contact_reveals"
+    __table_args__ = (Index("ix_contact_reveals_user_at", "user_id", "at"), _NO_ID_REUSE)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(index=True)
+    contact_id: Mapped[int]
+    user_id: Mapped[int]
+    at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class OutreachUsage(Base):

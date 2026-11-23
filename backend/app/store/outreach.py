@@ -6,6 +6,7 @@
 """
 
 import logging
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
@@ -22,6 +23,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -33,6 +35,7 @@ from app.store.tables_outreach import (
     ContactCompany,
     ContactProposal,
     ContactReport,
+    ContactReveal,
     DoNotContactNumber,
     NotifyConnection,
     OutreachCall,
@@ -44,9 +47,9 @@ from app.store.timeutil import as_utc
 
 __all__ = [
     "LIMIT_RANGES", "Limits", "NotFound", "add_report", "add_usage", "auto_replies", "claim", "clear_do_not_contact",
-    "connection", "get_call", "get_message", "is_do_not_contact", "limits", "live_call",
-    "mark_do_not_contact", "purge_schedule", "sent_count", "thread", "unknown_calls", "unknown_messages",
-    "validate_limits",
+    "connection", "count_reveals", "do_not_contact_numbers", "get_call", "get_message", "is_do_not_contact", "limits",
+    "live_call", "mark_do_not_contact", "purge_schedule", "record_reveal", "sent_count", "thread", "unknown_calls",
+    "unknown_messages", "validate_limits",
 ]
 
 logger = logging.getLogger(__name__)
@@ -289,14 +292,47 @@ def is_do_not_contact(session: Session, number: str) -> bool:
     return session.scalar(flagged) is not None or session.scalar(recorded) is not None
 
 
+def do_not_contact_numbers(session: Session, numbers: Iterable[str]) -> set[str]:
+    """여러 번호를 한 번에(쿼리 둘) — is_do_not_contact 와 같은 규칙. 받은 번호를 정리하고(정리되지 않는 것은 뺀다) 그 가운데
+    수신 거부인 것의 정리된 꼴. is_do_not_contact(s, n) == (normalize(n) in do_not_contact_numbers(s, [n]))."""
+    targets = {target for number in numbers if (target := normalize(number)) is not None}
+    if not targets:
+        return set()
+    flagged = select(Contact.phone).where(Contact.phone.in_(targets), Contact.do_not_contact.is_(True))
+    recorded = select(DoNotContactNumber.number).where(DoNotContactNumber.number.in_(targets))
+    return set(session.scalars(flagged)) | set(session.scalars(recorded))
+
+
 def mark_do_not_contact(session: Session, number: str, *, reason: str) -> None:
-    """번호 기준 수신 거부를 남긴다(이미 있으면 그대로). 정리되지 않는 번호면 ValueError(글에 번호를 싣지 않음). flush 까지."""
+    """번호 기준 수신 거부를 남긴다(이미 있으면 그대로 — 먼저 남긴 까닭을 둔다). 정리되지 않는 번호면 ValueError(글에 번호를
+    싣지 않음). 두 요청이 같은 번호를 동시에 남겨도 오류가 아니다: 한 문장 INSERT … ON CONFLICT DO NOTHING(확인한 뒤 넣는
+    사이가 없다. pysqlite 기본 설정에서는 SAVEPOINT 를 믿을 수 없어 쓰지 않는다). commit 은 부른 쪽."""
     target = normalize(number)
     if target is None:
         raise ValueError("번호 형식이 맞지 않습니다.")
-    if session.scalar(select(DoNotContactNumber.id).where(DoNotContactNumber.number == target)) is None:
-        session.add(DoNotContactNumber(number=target, reason=reason))
-        session.flush()
+    session.execute(
+        sqlite_insert(DoNotContactNumber).values(number=target, reason=reason, created_at=datetime.now(UTC))
+        .on_conflict_do_nothing(index_elements=[DoNotContactNumber.number])
+    )
+
+
+# ── 번호 보기 기록(감사) ──────────────────────────────────────────────
+
+
+def record_reveal(
+    session: Session, *, schedule_id: int, contact_id: int, user_id: int, at: datetime | None = None
+) -> ContactReveal:
+    """전체 번호를 본 기록 한 줄(번호는 두지 않는다). flush 까지, commit 은 부른 쪽."""
+    row = ContactReveal(schedule_id=schedule_id, contact_id=contact_id, user_id=user_id, at=at or datetime.now(UTC))
+    session.add(row)
+    session.flush()
+    return row
+
+
+def count_reveals(session: Session, user_id: int, *, since: datetime) -> int:
+    """그 사용자가 since 뒤(같은 시각 포함)에 번호를 본 횟수 — 번호 보기 상한용."""
+    return session.scalar(select(func.count()).select_from(ContactReveal).where(
+        ContactReveal.user_id == user_id, ContactReveal.at >= since)) or 0
 
 
 def clear_do_not_contact(session: Session, number: str) -> None:

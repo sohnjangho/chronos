@@ -60,15 +60,15 @@ class CompanyPatch(Strict):
 
 class PersonIn(Strict):
     """hours 가 null 이면 프로젝트 달력의 기본 근무시간. phone 이 null·빈 글이면 번호 없음.
-    can_sms·can_call 을 보내지 않으면(null) 번호 종류가 정한다(phone.can_sms·phone.can_call). 참으로 보냈는데 그 번호로
-    안 되면 422 channel_not_possible."""
+    can_sms·can_kakao·can_call 을 보내지 않으면(null) 번호 종류가 정한다(문자·카카오톡 phone.can_sms, 전화 phone.can_call).
+    참으로 보냈는데 그 번호로 안 되면 422 channel_not_possible. 이름·담당·메모의 글자 검사는 service.check_texts."""
 
     name: Name
     role_title: Short = ""  # 담당
     company_id: int
     phone: PhoneText | None = None
     can_sms: bool | None = None
-    can_kakao: bool = True
+    can_kakao: bool | None = None
     can_call: bool | None = None
     hours: HoursIn | None = None
     gender: Gender = "unknown"

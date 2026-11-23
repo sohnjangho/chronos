@@ -48,9 +48,13 @@ async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
 
 
 async def _invalid_request(_: Request, exc: RequestValidationError) -> JSONResponse:
-    # 보낸 값(input)은 돌려주지 않는다 — 비밀번호가 섞일 수 있다.
+    # 보낸 값(input)은 돌려주지 않는다 — 비밀번호가 섞일 수 있다. 모르는 칸의 이름은 loc 에 실리므로 번호 꼴은 가린다.
+    # 여기서 불러온다(이 모듈을 불러올 때 연락 모듈을 같이 올리지 않게).
+    from app.outreach.redact import hide_phones
+
     detail = [
-        {"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]}
+        {"loc": [hide_phones(part) if isinstance(part, str) else part for part in e["loc"]], "msg": e["msg"],
+         "type": e["type"]}
         for e in exc.errors()
     ]
     return error_response(422, "invalid_request", "요청 형식이 올바르지 않습니다.", detail)

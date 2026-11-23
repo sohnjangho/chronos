@@ -1,16 +1,21 @@
 """주소록(일정 = 프로젝트마다 따로): 목록·협력사·사람 쓰기·상세·번호 보기·읽음.
 
 - 격리: 모든 함수가 일정 id 를 받는다. 다른 일정의 협력사·사람 id(본문의 company_id 도)는 없는 id 와 같은 404·같은 글이다.
-- 번호: 응답은 가린 꼴(phone.mask)만. 전체 번호는 reveal 한 곳이고, 부를 때마다 로그 한 줄(사용자·연락처 id — 번호 없이).
+- 번호: 응답은 가린 꼴(phone.mask)만. 전체 번호는 reveal 한 곳 — 부를 때마다 DB 에 한 줄(store.outreach.record_reveal:
+  일정·연락처·사용자·시각, 번호 없음)과 로그 한 줄. 사용자마다 10분에 30번까지(넘으면 429 too_many_reveals, 기록하지 않음).
 - 번호 입력: 번호인지는 phone.normalize, 주소록에 둘 수 있는지는 phone.storable 이 정한다(여기에 번호 규칙을 두지 않는다 —
   그 모듈의 규칙이 바뀌면 이 API 도 따라간다). 아니면 422 invalid_phone, 오류 글에 값을 싣지 않는다. 비우면(null·빈 글) 번호 없음.
   번호가 바뀌면 「번호 오류」 표시(phone_invalid)를 내린다 — 새 번호는 아직 틀린 번호로 확인되지 않았다.
-- 채널(check_channels): can_sms·can_call 은 같은 이름의 phone 함수가 정한다. 만들 때·번호가 바뀔 때 보내지 않은 칸은 그 함수의
-  값, 참으로 보냈는데 그 번호로 안 되면 422 channel_not_possible. can_kakao 는 손대지 않는다.
-- 수신 거부는 번호 기준(store.outreach): 보이는 값은 이 연락처의 표시 또는 is_do_not_contact(번호). 켜면 mark_do_not_contact + 이
-  연락처 표시, 끄면 clear_do_not_contact(그 번호가 있는 모든 일정에서 풀림) — 그래서 끄기는 관리자만(403 admin_only).
-  목록은 번호 묶음으로 한 번에 본다(_do_not_contact_numbers — is_do_not_contact 와 같은 규칙, 쿼리 둘).
-- 근무시간 입력(check_hours 한 곳): 요일 0~6 하나 이상, 시각 HH:MM(00:00~23:59), 시작 ≠ 끝. 끝이 시작보다 이르면 자정을 넘는
+- 채널(check_channels): 문자·카카오톡은 phone.can_sms, 전화는 phone.can_call 이 정한다. 만들 때·번호가 바뀔 때 보내지 않은 칸은
+  그 함수의 값, 참으로 보냈는데 그 번호로 안 되면 422 channel_not_possible.
+- 수신 거부는 번호 기록으로(store.outreach, _settle_do_not_contact): 보이는 값은 이 연락처의 표시 또는 그 번호의 수신 거부.
+  번호가 걸리면 늘 번호 기록이 있다 — 켜면 그 번호에 mark, 표시가 있는 줄에 번호가 들어오면 mark, 보이던 수신 거부의 번호를
+  바꾸거나 빼면 옛 번호에 mark 하고 이 줄 표시는(이번에 켜지 않았으면) 내린다(새 번호로 따라가지 않는다). 번호 기록을 지우는
+  것은 끄기(clear_do_not_contact — 그 번호가 있는 모든 일정에서 풀림)뿐이고 관리자만(403 admin_only).
+- 글자(check_texts): 이름·담당·공종에는 제어·형식·줄·문단 구분 글자(Cc·Cf·Zl·Zp)를, 메모·까닭에는 줄 바꿈·탭 밖의 제어 글자와
+  글 방향 바꾸기(U+202A~202E·U+2066~2069)를 받지 않는다(422 invalid_text, 값 없이). 앞뒤 빈칸은 지운다.
+- 음성: 직접 지정(manual)이면 voice_id 가 있어야 한다(422 invalid_voice) — 음성 칸을 보낸 요청만 본다.
+- 근무시간 입력(check_hours 한 곳): 요일 0~6 하나 이상 겹치지 않게, 시각 HH:MM(00:00~23:59), 시작 ≠ 끝. 끝이 시작보다 이르면 자정을 넘는
   근무(app.outreach.hours). **시작 == 끝은 받지 않는다**: hours 모듈은 그것을 꼭 하루(24시간) 근무로 읽는데, 같은 시각을 잘못
   넣으면 한밤 전화가 열린다(근무시간 밖 전화는 실패로 본다). 24시간 근무를 받기로 하면 check_hours 의 그 줄만 지운다.
 - 입력 검사는 모두 줄을 고치기 전에 끝낸다(검사에 걸리면 아무것도 바뀌지 않는다).
@@ -18,7 +23,8 @@
 
 import logging
 import re
-from datetime import UTC, datetime
+import unicodedata
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -50,7 +56,6 @@ from app.store.tables_outreach import (
     ContactCompany,
     ContactProposal,
     ContactReport,
-    DoNotContactNumber,
     OutreachCall,
     OutreachMessage,
 )
@@ -62,11 +67,21 @@ PERSON_NOT_FOUND = "연락처를 찾을 수 없습니다."
 COMPANY_NOT_FOUND = "협력사를 찾을 수 없습니다."
 BAD_PHONE = "전화번호 형식이 맞지 않습니다."
 NOT_STORABLE = "주소록에 둘 수 없는 번호입니다."
-NUMBER_CHANNELS = {  # 칸 이름 = 그것을 정하는 phone 함수 이름 → 안 될 때의 까닭
-    "can_sms": "문자는 휴대전화 번호로만 보낼 수 있습니다.",
-    "can_call": "이 번호로는 전화를 걸 수 없습니다.",
+NUMBER_CHANNELS = {  # 칸 → (그 칸을 정하는 phone 함수, 안 될 때의 까닭)
+    "can_sms": ("can_sms", "문자는 휴대전화 번호로만 보낼 수 있습니다."),
+    "can_kakao": ("can_sms", "카카오톡 알림은 휴대전화 번호로만 보낼 수 있습니다."),
+    "can_call": ("can_call", "이 번호로는 전화를 걸 수 없습니다."),
 }
 ADMIN_CLEARS = "수신 거부는 관리자만 풀 수 있습니다(이 번호가 있는 모든 프로젝트에서 풀립니다)."
+TOO_MANY_REVEALS = "번호 보기는 10분에 30번까지입니다. 잠시 뒤에 다시 해 주세요."
+REVEAL_LIMIT, REVEAL_WINDOW = 30, timedelta(minutes=10)  # 리뷰 판정(감사·남용 막기) — 연락 한도(limits)와 따로
+LINE_FIELDS = ("name", "role_title", "trade")  # 화면 머리·프롬프트·첫마디에 한 줄로 들어가는 글
+FREE_FIELDS = ("note", "dnc_reason")
+LINE_TEXT = "이름·담당·공종에는 줄 바꿈이나 보이지 않는 제어 글자를 쓸 수 없습니다."
+FREE_TEXT = "메모·까닭에는 보이지 않는 제어 글자나 글 방향을 바꾸는 글자를 쓸 수 없습니다."
+NO_VOICE = "음성을 직접 지정하려면 음성을 골라 주세요."
+_LINE_BAD = frozenset({"Cc", "Cf", "Zl", "Zp"})
+_BIDI = frozenset(range(0x202A, 0x202F)) | frozenset(range(0x2066, 0x206A))
 BAD_DAYS = "근무 요일을 하나 이상 골라 주세요."
 BAD_TIME = "시각은 HH:MM 으로 넣어 주세요."
 SAME_TIME = "시작과 끝 시각이 같습니다. 끝나는 시각을 다르게 넣어 주세요."
@@ -117,11 +132,11 @@ def check_phone(raw: str | None) -> str | None:
 
 
 def check_channels(number: str | None, sent: dict[str, bool], renumbered: bool) -> dict[str, bool]:
-    """can_sms·can_call 의 새 값(바꿀 칸만). sent = 요청이 보낸 칸. 참으로 보냈는데 phone.<칸>(번호) 가 거짓이면 422.
-    번호가 새로 정해지면(만들기·번호 바뀜) 보내지 않은 칸은 phone.<칸>(번호) 값. 번호가 없으면 둘 다 거짓."""
+    """can_sms·can_kakao·can_call 의 새 값(바꿀 칸만). sent = 요청이 보낸 칸. 참으로 보냈는데 그 칸의 phone 함수(번호)가
+    거짓이면 422. 번호가 새로 정해지면(만들기·번호 바뀜) 보내지 않은 칸은 그 함수의 값. 번호가 없으면 모두 거짓."""
     out: dict[str, bool] = {}
-    for column, why in NUMBER_CHANNELS.items():
-        possible = getattr(phone, column)(number)
+    for column, (predicate, why) in NUMBER_CHANNELS.items():
+        possible = getattr(phone, predicate)(number)
         if sent.get(column) and not possible:
             raise ApiError(422, "channel_not_possible", why)
         if column in sent:
@@ -135,13 +150,34 @@ def check_hours(given: HoursIn | None) -> dict | None:
     """근무시간 입력 → hours_json. None 은 프로젝트 기본. 규칙은 모듈 머리 글(시작 == 끝은 받지 않음)."""
     if given is None:
         return None
-    if not given.days or any(day < 0 or day > 6 for day in given.days):
+    days = given.days
+    if not days or len(set(days)) != len(days) or any(day < 0 or day > 6 for day in days):
         raise ApiError(422, "invalid_hours", BAD_DAYS)
     if not (_HHMM.fullmatch(given.start) and _HHMM.fullmatch(given.end)):
         raise ApiError(422, "invalid_hours", BAD_TIME)
     if given.start == given.end:
         raise ApiError(422, "invalid_hours", SAME_TIME)
-    return {"days": sorted(set(given.days)), "start": given.start, "end": given.end}
+    return {"days": sorted(days), "start": given.start, "end": given.end}
+
+
+def _free_bad(char: str) -> bool:
+    return ord(char) in _BIDI or (unicodedata.category(char) == "Cc" and char not in "\n\t")
+
+
+def check_texts(values: dict) -> None:
+    """이름·담당·공종(한 줄 글)과 메모·까닭(자유 글)의 글자 검사(모듈 머리 글). 걸리면 422 invalid_text, 값은 싣지 않는다."""
+    for field, value in values.items():
+        if not isinstance(value, str):
+            continue
+        if field in LINE_FIELDS and any(unicodedata.category(char) in _LINE_BAD for char in value):
+            raise ApiError(422, "invalid_text", LINE_TEXT, detail={"field": field})
+        if field in FREE_FIELDS and any(_free_bad(char) for char in value):
+            raise ApiError(422, "invalid_text", FREE_TEXT, detail={"field": field})
+
+
+def check_voice(voice_mode: str, voice_id: str | None) -> None:
+    if voice_mode == "manual" and not voice_id:
+        raise ApiError(422, "invalid_voice", NO_VOICE)
 
 
 # ── 응답 만들기 ─────────────────────────────────────────────────────────────────
@@ -177,19 +213,38 @@ def _dashed(number: str | None) -> str | None:
     return "-".join(part for part in (head, number[len(head):-4], number[-4:]) if part)
 
 
-def _do_not_contact_numbers(session: Session, numbers: set[str]) -> set[str]:
-    """번호 묶음 가운데 수신 거부인 것을 쿼리 둘로 — store.outreach.is_do_not_contact 와 같은 규칙(어느 일정이든 그 번호
-    연락처의 표시, 또는 번호 기준 줄). 저장된 번호는 이미 정리된 꼴이다. store 에 여러 번호를 받는 함수가 생기면 그것으로."""
-    if not numbers:
-        return set()
-    flagged = select(Contact.phone).where(Contact.phone.in_(numbers), Contact.do_not_contact.is_(True))
-    recorded = select(DoNotContactNumber.number).where(DoNotContactNumber.number.in_(numbers))
-    return set(session.scalars(flagged)) | set(session.scalars(recorded))
-
-
 def _shows_do_not_contact(session: Session, row: Contact) -> bool:
     """이 연락처의 표시 또는 그 번호의 수신 거부(store.outreach.is_do_not_contact)."""
-    return row.do_not_contact or (row.phone is not None and outreach.is_do_not_contact(session, row.phone))
+    return bool(row.do_not_contact) or (row.phone is not None and outreach.is_do_not_contact(session, row.phone))
+
+
+def _mark(session: Session, number: str | None, reason: str | None) -> None:
+    """번호 기록을 남긴다(번호가 없거나 정리되지 않으면 — 예전 입력 — 넘어간다. purge_schedule 과 같은 규칙)."""
+    if number and phone.normalize(number) is not None:
+        outreach.mark_do_not_contact(session, number, reason=reason or "")
+
+
+def _settle_do_not_contact(session: Session, row: Contact, old: str | None, shown: bool, wanted: bool | None) -> None:
+    """요청을 줄에 옮긴 뒤(row.phone 은 새 번호) 수신 거부를 번호 기록으로 맞춘다 — 번호가 걸리면 늘 번호 기록이 있다.
+    shown = 요청 전에 보이던 값, wanted = 요청의 do_not_contact(보내지 않았으면 None). 관리자 확인은 부른 쪽이 먼저 한다.
+    - 끄기(wanted False 이고 보이던 것): 옛 번호의 기록·표시를 모든 곳에서 지우고 이 줄 표시·까닭을 지운다.
+    - 번호를 바꾸거나 뺌: 보이던(또는 이번에 켠) 수신 거부는 옛 번호의 기록으로 남긴다. 이번에 켜지 않았으면 이 줄 표시는
+      내린다 — 새 번호로 따라가지 않는다(옛 번호는 기록으로 막힌 채).
+    - 그 뒤 이 줄에 표시가 있고 번호가 있으면 그 번호의 기록을 남긴다(번호 없이 막아 둔 사람에게 번호가 들어온 때 포함)."""
+    if wanted is False and shown:
+        if old:
+            outreach.clear_do_not_contact(session, old)
+        row.do_not_contact, row.dnc_reason = False, None
+        return
+    if old is not None and row.phone != old:
+        if shown or wanted:
+            _mark(session, old, row.dnc_reason)
+        if not wanted:
+            row.do_not_contact, row.dnc_reason = False, None
+    if wanted:
+        row.do_not_contact = True
+    if row.do_not_contact:
+        _mark(session, row.phone, row.dnc_reason)
 
 
 def _company_out(row: ContactCompany) -> CompanyOut:
@@ -238,10 +293,10 @@ def address_book(session: Session, schedule_id: int, include_hidden: bool) -> Ad
     _schedule(session, schedule_id)
     unread, last = _threads(session, schedule_id)
     listed = contacts.listed(session, schedule_id, include_hidden=include_hidden)
-    refused = _do_not_contact_numbers(session, {p.phone for _, people in listed for p in people if p.phone})
+    refused = outreach.do_not_contact_numbers(session, [p.phone for _, people in listed for p in people if p.phone])
     groups = [
-        CompanyGroup(**_company_out(company).model_dump(),
-                     people=[_brief(p, unread, last, p.do_not_contact or p.phone in refused) for p in people])
+        CompanyGroup(**_company_out(company).model_dump(), people=[
+            _brief(p, unread, last, p.do_not_contact or phone.normalize(p.phone) in refused) for p in people])
         for company, people in listed
     ]
     pending = session.scalar(select(func.count()).select_from(ContactProposal).where(
@@ -252,6 +307,7 @@ def address_book(session: Session, schedule_id: int, include_hidden: bool) -> Ad
 
 
 def create_company(session: Session, schedule_id: int, body: CompanyIn) -> CompanyOut:
+    check_texts(body.model_dump())
     _schedule(session, schedule_id)
     row = ContactCompany(schedule_id=schedule_id, **body.model_dump())
     session.add(row)
@@ -260,24 +316,27 @@ def create_company(session: Session, schedule_id: int, body: CompanyIn) -> Compa
 
 
 def patch_company(session: Session, schedule_id: int, company_id: int, body: CompanyPatch) -> CompanyOut:
+    fields = body.model_dump(exclude_unset=True)
+    check_texts(fields)
     row = _company(session, schedule_id, company_id)
-    for column, value in body.model_dump(exclude_unset=True).items():
+    for column, value in fields.items():
         setattr(row, column, value)
     session.commit()
     return _company_out(row)
 
 
 def create_person(session: Session, schedule_id: int, body: PersonIn) -> PersonDetail:
-    """번호 종류로 채널을 정하고, 수신 거부로 만들면 그 번호에 mark_do_not_contact."""
+    """번호 종류로 채널을 정하고, 수신 거부로 만들면 그 번호에 mark_do_not_contact(_settle_do_not_contact)."""
+    given = body.model_dump()
+    check_texts(given)
     number, hours_json = check_phone(body.phone), check_hours(body.hours)
-    sent = {column: value for column in NUMBER_CHANNELS if (value := getattr(body, column)) is not None}
-    channels = check_channels(number, sent, renumbered=True)
+    channels = check_channels(number, {c: given[c] for c in NUMBER_CHANNELS if given[c] is not None}, renumbered=True)
+    check_voice(body.voice_mode, body.voice_id)
     _company(session, schedule_id, body.company_id)
     row = Contact(schedule_id=schedule_id, phone=number, hours_json=hours_json, **channels,
-                  **body.model_dump(exclude={"phone", "hours", *NUMBER_CHANNELS}))
+                  **body.model_dump(exclude={"phone", "hours", "do_not_contact", *NUMBER_CHANNELS}))
     session.add(row)
-    if body.do_not_contact and number:
-        outreach.mark_do_not_contact(session, number, reason=body.dnc_reason or "")
+    _settle_do_not_contact(session, row, None, False, body.do_not_contact)
     session.commit()
     return _detail(session, schedule_id, row)
 
@@ -285,33 +344,29 @@ def create_person(session: Session, schedule_id: int, body: PersonIn) -> PersonD
 def patch_person(
     session: Session, schedule_id: int, contact_id: int, body: PersonPatch, user: User
 ) -> PersonDetail:
-    """보낸 칸만. 숨기기는 hidden. 검사(번호·근무시간·채널·협력사·수신 거부 풀기 권한)를 모두 마친 뒤에 고친다.
-    수신 거부를 켜면 그 번호에 mark_do_not_contact, 보이던 수신 거부를 끄면 clear_do_not_contact(관리자만)."""
+    """보낸 칸만. 숨기기는 hidden. 검사(글자·번호·근무시간·채널·음성·협력사·수신 거부 풀기 권한)를 모두 마친 뒤에 고치고,
+    수신 거부를 번호 기록으로 맞춘다(_settle_do_not_contact). 보이던 수신 거부를 끄는 것은 관리자만."""
     row = _person(session, schedule_id, contact_id)
-    sent = body.model_fields_set
-    fields = body.model_dump(exclude_unset=True, exclude={"phone", "hours", "do_not_contact", *NUMBER_CHANNELS})
-    number = check_phone(body.phone) if "phone" in sent else row.phone
-    if "hours" in sent:
+    given = body.model_dump(exclude_unset=True)
+    check_texts(given)
+    old = row.phone
+    number = check_phone(body.phone) if "phone" in given else old
+    fields = {k: v for k, v in given.items() if k not in {"phone", "hours", "do_not_contact", *NUMBER_CHANNELS}}
+    if "hours" in given:
         fields["hours_json"] = check_hours(body.hours)
-    fields.update(check_channels(number, {c: getattr(body, c) for c in NUMBER_CHANNELS if c in sent},
-                                 renumbered=number != row.phone))
+    fields.update(check_channels(number, {c: given[c] for c in NUMBER_CHANNELS if c in given}, renumbered=number != old))
+    if given.keys() & {"voice_mode", "voice_id"}:
+        check_voice(fields.get("voice_mode", row.voice_mode), fields.get("voice_id", row.voice_id))
     if "company_id" in fields:
         _company(session, schedule_id, fields["company_id"])
-    clearing = body.do_not_contact is False and _shows_do_not_contact(session, row)
-    if clearing and user.role != "admin":
+    shown = _shows_do_not_contact(session, row)
+    if body.do_not_contact is False and shown and user.role != "admin":
         raise ApiError(403, "admin_only", ADMIN_CLEARS)
-    if clearing:  # 지금 번호의 수신 거부를 모든 곳에서 푼다
-        if row.phone:
-            outreach.clear_do_not_contact(session, row.phone)
-        row.do_not_contact, row.dnc_reason = False, None
-    if number != row.phone:
+    if number != old:
         fields.update(phone=number, phone_invalid=False)
     for column, value in fields.items():
         setattr(row, column, value)
-    if body.do_not_contact:
-        row.do_not_contact = True
-        if row.phone:
-            outreach.mark_do_not_contact(session, row.phone, reason=row.dnc_reason or "")
+    _settle_do_not_contact(session, row, old, shown, body.do_not_contact)
     session.commit()
     return _detail(session, schedule_id, row)
 
@@ -321,8 +376,14 @@ def person(session: Session, schedule_id: int, contact_id: int) -> PersonDetail:
 
 
 def reveal(session: Session, schedule_id: int, contact_id: int, user: User) -> RevealOut:
-    """전체 번호를 보이는 단 한 곳. 누가 어느 연락처를 봤는지 로그 한 줄(번호 없이)."""
+    """전체 번호를 보이는 단 한 곳. 사용자마다 10분에 30번까지(넘으면 429, 기록하지 않음). 볼 때마다 DB 에 한 줄
+    (record_reveal — 번호 없이)과 로그 한 줄."""
     row = _person(session, schedule_id, contact_id)
+    now = _now()
+    if outreach.count_reveals(session, user.id, since=now - REVEAL_WINDOW) >= REVEAL_LIMIT:
+        raise ApiError(429, "too_many_reveals", TOO_MANY_REVEALS)
+    outreach.record_reveal(session, schedule_id=schedule_id, contact_id=row.id, user_id=user.id, at=now)
+    session.commit()
     logger.info("번호 보기: 사용자 %s · 연락처 %s", user.id, row.id)
     return RevealOut(phone=_dashed(row.phone))
 
