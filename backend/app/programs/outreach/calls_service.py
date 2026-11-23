@@ -123,6 +123,18 @@ def _check_text(field: str, *texts: str | None) -> None:
         raise ApiError(422, "has_phone", HAS_PHONE, detail={"field": field})
 
 
+def _check_stored(row: OutreachCall) -> None:
+    """걸기·예약 전: 저장된 목적·물어볼 것·말하지 않을 것에 번호가 남아 있으면(고침 전에 저장된 옛 줄) 422 has_phone — 사람은 가린
+    글을 보고 승인하는데 음성 에이전트가 진짜 번호를 받는 일이 없게, 먼저 고치게 한다."""
+    for field, texts in (("purpose", [row.purpose]), ("questions", _raw(row.questions_json)), ("avoid", _raw(row.avoid_json))):
+        if any(text and hide_phones(text) != text for text in texts):
+            raise ApiError(422, "has_phone", HAS_PHONE, detail={"field": field})
+
+
+def _raw(value: object) -> list[str]:
+    return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+
 def _check_draft(session: Session, schedule_id: int, body: CallIn | CallPatch) -> None:
     sent = body.model_fields_set
     for field in ("purpose", "questions", "avoid"):
@@ -310,6 +322,7 @@ async def place(session: Session, schedule_id: int, call_id: int, user: User) ->
     row = _call(session, schedule_id, call_id)
     if row.direction != "out" or row.status not in PLACEABLE:
         raise ApiError(409, "not_sendable", USE_REDIAL if row.status in REDIALABLE else DONE)
+    _check_stored(row)
     session.commit()  # 읽기 트랜잭션을 닫는다 — 문은 자기 연결로 쓰기 잠금을 잡는다
     outcome = await gate.dispatch("call", row.id, _actor(user), now=_now())
     session.expire_all()
@@ -324,6 +337,7 @@ def schedule(session: Session, schedule_id: int, call_id: int, body: ScheduleIn,
     row = _call(session, schedule_id, call_id)
     if row.direction != "out" or row.status not in SCHEDULABLE:
         raise ApiError(409, "not_schedulable", NOT_SCHEDULABLE)
+    _check_stored(row)
     if body.at <= _now():
         raise ApiError(422, "past_time", PAST_TIME)
     who = session.get(Contact, row.contact_id) if row.contact_id is not None else None

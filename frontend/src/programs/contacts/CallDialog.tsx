@@ -11,7 +11,7 @@ import { ApiError } from '../../shared/api';
 import {
   CALL_UNKNOWN, callOutcomeLabel, callSender, callStatusLabel, kstShort, outcomeLabel, SCHEDULE_UNKNOWN, type Label,
 } from '../../shared/outreach/labels';
-import { outreachApi, sendOutcomeUnknown, type Call, type CallLanguage, type CallResult } from '../../shared/outreach/outreachApi';
+import { outreachApi, sendOutcomeUnknown, type Call, type CallLanguage, type CallPatch, type CallResult } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import { aheadOf } from './CallCard';
 import { EditForm, formOf, formProblem, lines, Rows, type Form, HOURS_UNREAD } from './CallForm';
@@ -39,6 +39,17 @@ function placeResult(r: CallResult): Label {
   if (['queued', 'failed', 'unsure'].includes(o.code)) return callOutcomeLabel(o);
   const tone = outcomeLabel(o).tone;
   return r.call.status === 'draft' ? { text: o.message, tone } : { text: `${callStatusLabel(r.call).text} — ${o.message}`, tone };
+}
+
+/** [고치기]의 PATCH: 바꾼 칸만 — 서버가 가린 글([번호])이 다른 칸을 고칠 때 되써지지 않게(바꾸지 않은 칸은 보내지 않는다). */
+function changedFields(row: Call, body: { purpose: string; questions: string[]; avoid: string[]; language: CallLanguage }, activity: string | null): CallPatch {
+  const patch: CallPatch = {};
+  if (body.purpose !== row.purpose) patch.purpose = body.purpose;
+  if (body.questions.join('\n') !== row.questions.join('\n')) patch.questions = body.questions;
+  if (body.avoid.join('\n') !== row.avoid.join('\n')) patch.avoid = body.avoid;
+  if (body.language !== row.language) patch.language = body.language;
+  if (activity !== (row.activity?.id ?? null)) patch.activity_id = activity;
+  return patch;
 }
 
 /** 근무 밖이면 예약할 시각(찾지 못했으면 null). 근무 중이거나 근무시간을 아직·끝내 모르면 undefined — [전화 걸기], 문이 정한다. */
@@ -242,7 +253,10 @@ export default function CallDialog({ scheduleId, person, callId, blocked, onClos
       const body = { purpose: form.purpose.trim(), questions: lines(form.questions), avoid: lines(form.avoid), language: form.language as CallLanguage };
       try {
         if (row === null) data.show(await outreachApi.createCall(scheduleId, { contact_id: person.id, ...body, ...(form.activity ? { activity_id: form.activity } : {}) }));
-        else data.show(await outreachApi.patchCall(scheduleId, row.id, { ...body, ...(form.activity !== (row.activity?.id ?? null) ? { activity_id: form.activity } : {}) }));
+        else {
+          const patch = changedFields(row, body, form.activity);
+          if (Object.keys(patch).length > 0) data.show(await outreachApi.patchCall(scheduleId, row.id, patch));
+        }
         setEditing(false);
         setNote(null);
         onChanged();

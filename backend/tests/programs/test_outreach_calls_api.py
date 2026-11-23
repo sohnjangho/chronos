@@ -951,3 +951,23 @@ def test_stored_text_written_by_people_is_masked_in_every_answer(client, user, s
     got = client.get(_url(sid, f"/{row.id}"), headers=user).json()
     assert (got["purpose"], got["questions"], got["avoid"], got["result_proposed"], got["result_confirmed"]) == (
         "[번호] 로 확인", ["[번호] 는 누구?"], ["[번호]"], "회신 [번호]", "확정 [번호]")
+
+
+# ── 후속: 번호가 남은 옛 줄은 걸기·예약 전에 고치게 ─────────────────────────────
+@pytest.mark.parametrize("field", ["purpose", "questions_json", "avoid_json"])
+@pytest.mark.parametrize("verb", ["place", "schedule"])
+def test_an_old_row_with_a_number_must_be_edited_before_it_is_placed_or_scheduled(client, user, session, sid, no_gate, field,
+                                                                                    verb):
+    """사람은 가린 글([번호])을 승인하는데 음성 에이전트는 진짜 번호를 받는 일이 없게 — 걸기·예약 모두 422 has_phone, 문을 부르지 않음."""
+    pid = _person(session, sid)
+    stored = f"{SENTINEL_PHONE} 로 확인"
+    row = _call(session, sid, pid, **{field: stored if field == "purpose" else [stored]})
+    body = {"at": "2099-01-05T10:00:00+09:00"} if verb == "schedule" else None
+
+    r = client.post(_url(sid, f"/{row.id}/{verb}"), json=body, headers=user)
+
+    assert (r.status_code, r.json()["code"], r.json()["message"]) == (422, "has_phone", "전화번호는 넣을 수 없습니다 — 연락처에서 고릅니다")
+    field_name = field.removesuffix("_json")
+    assert r.json()["detail"] == {"field": field_name}
+    _no_secret(json.dumps(r.json(), ensure_ascii=False))
+    assert no_gate == [] and _reread(session, row.id).status == "draft"

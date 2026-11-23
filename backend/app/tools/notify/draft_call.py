@@ -3,7 +3,8 @@
 줄: origin "agent" · origin_name "에이전트" · status "draft" · language 는 연락처의 언어 · chat_session_id 는 이 대화 ·
 send_mode·approved_by 는 비움. 나가는 문을 부르지 않는다. 만들기 전에 거절하는 것(줄을 만들지 않음): 수신 거부 · 쓸 번호
 없음 · 전화를 받을 수 없음(걸 수 없는 번호 또는 전화 받기 꺼짐) — 이 셋은 문자 초안과 같은 하나뿐인 검사
-`service.check_reachable(…, "call")` — · 글의 보이지 않는 글자(`service.check_body`) · 없는 작업.
+`service.check_reachable(…, "call")` — · 글의 보이지 않는 글자(`service.check_body`) · 글에 든 번호(통화 API 와 같은 검사
+`hide_phones(글) != 글` · 같은 글 — 사람은 가린 글을 승인하는데 음성 에이전트가 번호를 받는 일이 없게) · 없는 작업.
 AI 전화 설정(음성 설정 — Task 90)이 아직 없거나 상태가 ok 가 아니면 초안은 만들되 note 에 그렇다고 적는다.
 결과·카드에 번호가 없다. 카드 card{kind:"outreach_call_draft", …}.
 """
@@ -15,7 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.agent.events import AgentEvent
 from app.errors import ApiError
 from app.outreach import policy
-from app.programs.outreach import service
+from app.outreach.redact import hide_phones
+from app.programs.outreach import calls_service, service
 from app.programs.outreach.schemas import ActivityId, Nfc
 from app.store import outreach
 from app.store.tables_outreach import OutreachCall, VoiceSettings
@@ -76,6 +78,8 @@ def draft_call(args: DraftCallIn, ctx: ToolContext) -> DraftCallOut:
     try:
         who = service.check_reachable(session, schedule_id, args.contact_id, "call")
         service.check_body(args.purpose, *args.questions, *args.avoid)
+        if any(hide_phones(text) != text for text in (args.purpose, *args.questions, *args.avoid)):
+            raise ApiError(422, "has_phone", calls_service.HAS_PHONE)
     except ApiError as e:
         raise refusal(e) from None
     check_activity(session, schedule_id, args.activity_id)
@@ -91,8 +95,8 @@ def draft_call(args: DraftCallIn, ctx: ToolContext) -> DraftCallOut:
     needs_approval = rules.call != "delegate"
     ctx.emit(AgentEvent("card", {
         "kind": "outreach_call_draft", "schedule_id": schedule_id, "call_id": row.id,
-        "contact": card_contact(session, who), "purpose": row.purpose, "questions": row.questions_json,
-        "avoid": row.avoid_json, "language": row.language, "needs_approval": needs_approval,
+        "contact": card_contact(session, who), "purpose": hide_phones(row.purpose),
+        "questions": [hide_phones(q) for q in row.questions_json], "avoid": [hide_phones(a) for a in row.avoid_json], "language": row.language, "needs_approval": needs_approval,
     }))
     parts = [NOT_PLACED, ASK_TO_PRESS if needs_approval else DELEGATED]
     parts += [] if rules.ready else [NOT_READY]

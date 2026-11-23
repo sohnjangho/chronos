@@ -423,6 +423,20 @@ async def test_bad_call_drafts_are_refused_without_a_row(session, sid, tctx, eve
     assert _count(session, OutreachCall) == 0 and events == []
 
 
+@pytest.mark.parametrize("form", [SENTINEL_PHONE, "+82 10-0000-0199", "(010)0000-0199", "０１０-００００-０１９９"])
+@pytest.mark.parametrize("field", ["purpose", "questions", "avoid"])
+async def test_call_draft_with_a_phone_number_is_refused_like_the_call_api(session, sid, tctx, events, field, form):
+    """사람이 가린 글을 승인하는 동안 음성 에이전트가 번호를 받는 일이 없게 — 통화 API 와 같은 has_phone 검사·같은 글."""
+    who = _person(session, sid)
+    args = {"purpose": "확인", "questions": ["가능?"], "avoid": []}
+    text = f"{form} 로 회신"
+    args[field] = text if field == "purpose" else [text]
+    result = await _call("notify.draft_call", {"contact_id": who.id, **args}, tctx)
+    assert not result.ok
+    assert result.error == "전화번호는 넣을 수 없습니다 — 연락처에서 고릅니다"
+    assert _count(session, OutreachCall) == 0 and events == []
+
+
 # ── notify.status ───────────────────────────────────────────────────────
 
 

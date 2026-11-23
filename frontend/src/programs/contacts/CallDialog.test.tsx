@@ -316,7 +316,7 @@ describe('writing and rewriting', () => {
   });
 
   test('[고치기] edits the draft (PATCH, not an approval) and shows what the server saved', async () => {
-    stubCalls([DRAFT]);
+    stubCalls([{ ...DRAFT, activity: null }]); // 이 가짜 일정에는 작업이 없다(연결 칸이 연결을 풀지 않게)
     showWith('7');
     await screen.findByRole('dialog', { name: '전화 걸기' });
     await userEvent.click(await within(dialog()).findByRole('button', { name: '고치기' }));
@@ -328,7 +328,8 @@ describe('writing and rewriting', () => {
     await userEvent.click(inDialog('저장'));
     await waitFor(() => expect(callPosts()).toHaveLength(1));
     expect(callPosts()[0]).toMatchObject({ method: 'PATCH', url: '/api/schedules/1/outreach/calls/7' });
-    expect((callPosts()[0].body as Record<string, unknown>).purpose).toBe('주말 작업 가능 여부');
+    // 바꾼 칸만 보낸다 — 서버가 가린 글([번호])이 다른 칸을 고칠 때 되써지지 않게
+    expect(callPosts()[0].body).toEqual({ purpose: '주말 작업 가능 여부' });
     await waitFor(() => expect(within(dialog()).getByText('통화 목적', { selector: 'dt' }).nextElementSibling?.textContent).toBe('주말 작업 가능 여부'));
     expect(rowOf(7)?.approved_by).toBeNull();
   });
