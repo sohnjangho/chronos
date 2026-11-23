@@ -188,3 +188,81 @@ class RevealOut(BaseModel):
 
 class ReadOut(BaseModel):
     read: int  # 이번에 읽음으로 바꾼 받은 메시지 수
+
+
+# ── CSV 가져오기·다른 프로젝트에서 복사(Task 76) ─────────────────────────────────────
+
+ImportResult = Literal["new", "exists", "no_phone", "bad_phone", "bad_row"]
+
+
+class ImportRowOut(BaseModel):
+    """CSV 한 행의 판정. 글(협력사·이름·담당)은 번호를 가린 꼴(hide_phones), 걸린 칸의 글은 null(되돌려 보이지 않음)."""
+
+    n: int  # 파일의 행 번호(머리줄 = 1, 첫 자료 행 = 2 — 스프레드시트의 행 번호)
+    company: str | None
+    name: str | None
+    role_title: str | None
+    phone_shown: str  # 맞는 번호 010-****-0199 · 틀린 번호 phone.mask_bad · 빈칸 「번호 없음」
+    phone_kind: str | None
+    do_not_contact: bool  # 그 번호가 어디서든 수신 거부(store.outreach)
+    result: ImportResult
+    reason: str | None  # bad_*·exists 의 한국어 까닭(값 없이)
+    code: str | None  # bad_* 의 검사 코드(invalid_phone·invalid_text·missing_value …)
+    column: str | None  # bad_row 가 걸린 CSV 열 이름(협력사·이름·공종·담당·성별·언어·메모)
+    skipped: bool  # 요청의 skip 에 든 행(넣지 않음)
+
+
+class ImportSummary(BaseModel):
+    """건너뛴 행(skipped)은 다른 셈에 들지 않는다. bad = bad_phone + bad_row. 넣는(넣은) 사람 = new + no_phone."""
+
+    new: int
+    exists: int
+    no_phone: int
+    bad: int
+    skipped: int
+
+
+class ImportOut(BaseModel):
+    rows: list[ImportRowOut]
+    summary: ImportSummary
+
+
+class CopySourceOut(BaseModel):
+    schedule_id: int
+    name: str
+    people: int  # 숨기지 않은 사람 수
+
+
+class CopyPersonOut(BaseModel):
+    id: int
+    name: str
+    role_title: str
+    phone_masked: str
+    phone_kind: str | None
+    has_phone: bool
+    do_not_contact: bool
+    already_here: bool  # 같은 번호(또는 번호 없이 같은 협력사·이름)가 이 일정에 이미 있다 — 복사하면 건너뜀
+
+
+class CopyCompanyOut(BaseModel):
+    id: int
+    name: str
+    trade: str
+    people: list[CopyPersonOut]
+
+
+class CopySourceDetail(BaseModel):
+    schedule_id: int
+    name: str
+    companies: list[CopyCompanyOut]
+
+
+class CopyIn(Strict):
+    from_schedule_id: int
+    contact_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class CopyOut(BaseModel):
+    copied: int
+    skipped: int  # 이미 있음(같은 번호, 번호가 없으면 같은 협력사·이름)
+    refused: int  # 주소록 입력 검사를 지나지 못한 예전 줄(복사하지 않음)
