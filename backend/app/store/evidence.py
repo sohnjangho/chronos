@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from app.llm.search import SearchHit
 
 WEATHER_MODE = "weather"  # info.weather 가 남기는 줄(근거 검색 한도와 따로 센다)
+INFO_MODE = "info"  # info.call 이 남기는 줄(근거 검색·날씨 한도와 따로 센다)
+NOT_SEARCH_MODES = (WEATHER_MODE, INFO_MODE)  # 근거 검색 수에 들지 않는 줄
 
 
 @dataclass(frozen=True)
@@ -75,12 +77,19 @@ def last_user_message_at(session: Session, chat_session_id: int) -> datetime | N
     return found[-1] if found else None
 
 
-def searches_since(session: Session, chat_session_id: int, since: datetime | None, *, weather: bool = False) -> int:
+def searches_since(session: Session, chat_session_id: int, since: datetime | None, *, weather: bool = False,
+                   info: bool = False) -> int:
     """그 대화에서 since 뒤(같은 때 포함)에 한 검색 수(실패 포함). since 가 None 이면 그 대화의 모든 검색.
 
-    날씨 조회(mode WEATHER_MODE, info.weather)는 근거 검색과 따로 센다: weather=True 면 날씨 조회만, 아니면 그 밖만.
+    날씨 조회(mode WEATHER_MODE, info.weather)와 정보 API 조회(mode INFO_MODE, info.call)는 근거 검색과 따로 센다:
+    weather=True 면 날씨 조회만, info=True 면 정보 API 조회만, 아니면 둘을 뺀 근거 검색만.
     """
-    mode = EvidenceSearch.mode == WEATHER_MODE if weather else EvidenceSearch.mode != WEATHER_MODE
+    if weather:
+        mode = EvidenceSearch.mode == WEATHER_MODE
+    elif info:
+        mode = EvidenceSearch.mode == INFO_MODE
+    else:
+        mode = EvidenceSearch.mode.notin_(NOT_SEARCH_MODES)
     query = select(func.count()).select_from(EvidenceSearch).where(EvidenceSearch.chat_session_id == chat_session_id,
                                                                     mode)
     if since is not None:

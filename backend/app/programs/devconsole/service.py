@@ -55,6 +55,7 @@ from app.programs.devconsole.schemas import (
 from app.security.crypto import SecretUnreadable, decrypt
 from app.store import settings as settings_store
 from app.store import traces as store
+from app.store.evidence import NOT_SEARCH_MODES
 from app.store.settings import approval_mode, get_agent_config
 from app.store.tables import (
     Approval,
@@ -462,12 +463,12 @@ def _search_health(session: Session, llm_health: LlmHealthOut) -> SearchHealthOu
     since = (datetime.now(UTC) - timedelta(days=7)).replace(tzinfo=None)
     calls = session.scalar(
         select(func.count()).select_from(EvidenceSearch).where(
-            EvidenceSearch.mode != "weather", EvidenceSearch.created_at >= since
+            EvidenceSearch.mode.notin_(NOT_SEARCH_MODES), EvidenceSearch.created_at >= since
         )
     ) or 0
     failed = session.scalar(
         select(func.count()).select_from(EvidenceSearch).where(
-            EvidenceSearch.mode != "weather",
+            EvidenceSearch.mode.notin_(NOT_SEARCH_MODES),
             EvidenceSearch.created_at >= since,
             EvidenceSearch.ok.is_(False),
         )

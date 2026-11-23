@@ -438,11 +438,21 @@ def test_usage_window_and_searches(client, admin, session):
     add_calls(session, [("m", 1, 1, None, True)])
     session.add_all([EvidenceSearch(query="q", mode="web", ok=True), EvidenceSearch(query="q", mode="web", ok=False),
                      EvidenceSearch(query="q", mode="web", ok=True, created_at=old),
-                     EvidenceSearch(query="q", mode="weather", ok=False)])  # 날씨 조회는 근거 검색 수에 들지 않는다
+                     EvidenceSearch(query="q", mode="weather", ok=False),  # 날씨 조회는 근거 검색 수에 들지 않는다
+                     EvidenceSearch(query="q", mode="info", ok=False)])  # 정보 API 조회도
     session.commit()
     u = client.get("/api/devconsole/usage", headers=admin).json()  # 기본 14일, 모델별
     assert u["totals"]["calls"] == 1 and u["searches"] == {"calls": 2, "failed": 1}
     assert client.get("/api/devconsole/usage?days=30", headers=admin).json()["totals"]["calls"] == 2
+
+
+def test_health_search_counts_leave_out_weather_and_info_api_calls(client, admin, session):
+    session.add_all([EvidenceSearch(query="q", mode="web", ok=True), EvidenceSearch(query="q", mode="legal", ok=False),
+                     EvidenceSearch(query="q", mode="weather", ok=False), EvidenceSearch(query="q", mode="info", ok=False),
+                     EvidenceSearch(query="q", mode="info", ok=True)])
+    session.commit()
+    search = client.get("/api/devconsole/health", headers=admin).json()["search"]
+    assert (search["calls_7d"], search["failed_7d"]) == (2, 1)
 
 
 @pytest.mark.parametrize("query", ["days=0", "days=91", "group=team"])
