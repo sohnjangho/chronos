@@ -59,13 +59,14 @@ def _fmt_signed(val: float, precision: int) -> str:
     return f"{sign}{val:.{precision}f}"
 
 
-# 표 종류마다 기본 열(순서대로)의 값을 넣을 양식 열 이름에 들어 있을 낱말.
+# 표 종류마다 기본 열(순서대로)의 값을 넣을 양식 열 이름에 들어 있을 낱말. 뜻이 넓은 낱말(비율·지연·내용·일수)은
+# 넣지 않는다 — 「실적 비율」이 가중치로, 「지연 사유」가 차이로, 「조치 내용」이 사건 이름으로 가지 않게(리뷰 I-4).
 _COL_WORDS: dict[str, list[tuple[str, ...]]] = {
-    "wbs_table": [("wbs", "공종", "구분", "작업", "항목", "분류"), ("가중", "비중", "비율"), ("계획",), ("실적",),
+    "wbs_table": [("wbs", "공종", "구분", "작업", "항목", "분류"), ("가중", "비중"), ("계획",), ("실적",),
                   ("차이", "편차", "증감")],
     "milestone_table": [("마일스톤", "구분", "이름", "항목", "공종"), ("계획", "plan", "기준"), ("예측", "실적", "전망", "예상"),
-                        ("차이", "편차", "지연"), ("상태", "특기", "비고", "결과")],
-    "delay_table": [("사건", "작업", "공종", "원인", "내용", "항목"), ("책임", "귀책"), ("영향", "준공", "지연일", "일수"),
+                        ("차이", "편차"), ("상태", "특기", "비고", "결과")],
+    "delay_table": [("사건", "작업", "공종", "원인", "항목"), ("책임", "귀책"), ("영향", "준공"),
                     ("상태", "대책", "조치", "결과")],
     "lookahead_3w": [("일자", "날짜", "기간", "일정", "예정", "시기"), ("구분", "상태"), ("작업", "공종", "액티비티", "항목"),
                      ("선행", "유의", "조치", "점검", "비고")],
@@ -74,28 +75,32 @@ _COL_WORDS: dict[str, list[tuple[str, ...]]] = {
 }
 
 
+def _candidates(binding: str, name: str, std: list[str]) -> set[int]:
+    """양식 열 이름이 뜻할 수 있는 기본 열 번호들. 기본 열 이름과 똑같으면 그 열 하나."""
+    if name in std:
+        return {std.index(name)}
+    low = name.lower()
+    return {i for i, ws in enumerate(_COL_WORDS[binding]) if any(w in low for w in ws)}
+
+
 def _fit_columns(binding: str, custom: list[str], std: list[str]) -> tuple[list[str], list[int | None]]:
-    """양식 열마다 뜻이 맞는 기본 열 번호(없으면 None). 이름 끝 쪽 낱말이 뜻을 정한다(「준공 차이」 → 차이).
+    """양식 열마다 뜻이 맞는 기본 열 번호(없으면 None). 뜻이 하나인 열만 값을 받는다 — 두 기본 열에 걸치면
+    (「계획 대비 실적」·「선행 작업」) 「—」. 같은 기본 열을 뜻하는 양식 열이 여럿이면 앞의 것만.
     양식 열이 없거나 기본 열의 절반도 못 맞추면 기본 열을 그대로 쓴다(틀린 칸보다 낫다)."""
     same: list[int | None] = list(range(len(std)))
     plain = (list(std), same)
     if not custom:
         return plain
-    words = _COL_WORDS[binding]
     used: set[int] = set()
     picks: list[int | None] = []
     for col in custom:
-        name = col.lower()
-        best: tuple[int, int] | None = None  # (낱말이 끝나는 자리, 기본 열 번호)
-        for i, ws in enumerate(words):
-            if i in used:
-                continue
-            ends = [name.rfind(w) + len(w) for w in ws if w in name]
-            if ends and (best is None or max(ends) > best[0]):
-                best = (max(ends), i)
-        if best is not None:
-            used.add(best[1])
-        picks.append(None if best is None else best[1])
+        found = _candidates(binding, col, std)
+        only = next(iter(found)) if len(found) == 1 else None
+        if only is not None and only in used:
+            only = None
+        if only is not None:
+            used.add(only)
+        picks.append(only)
     if len(used) * 2 < len(std):
         return plain
     return list(custom), picks

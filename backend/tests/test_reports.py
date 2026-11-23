@@ -3,6 +3,7 @@
 import io
 import zipfile
 
+import pytest
 from sqlalchemy import select
 
 from app.files.extract import extract
@@ -427,6 +428,43 @@ async def test_learned_table_columns_get_values_by_meaning(session):
     std_ms = ["마일스톤", "Plan", "실적·예측", "차이(일)", "상태"]
     assert generator._fit_columns("milestone_table", ms_cols, std_ms) == (ms_cols, [0, 1, 2, 3, 4])
     assert generator._fit_columns("milestone_table", std_ms, std_ms) == (std_ms, [0, 1, 2, 3, 4])
+
+
+# 리뷰 I-4: 뜻이 둘인 양식 열 이름은 「—」, 지나치게 넓은 낱말은 빼서 엉뚱한 값을 넣지 않는다.
+STD = {
+    "wbs_table": ["WBS", "가중치", "계획(%)", "실적(%)", "차이(%p)"],
+    "milestone_table": ["마일스톤", "Plan", "실적·예측", "차이(일)", "상태"],
+    "delay_table": ["사건", "책임", "준공 영향", "상태·대책"],
+    "lookahead_3w": ["일자", "구분", "작업명", "선행·유의사항"],
+}
+
+
+@pytest.mark.parametrize(("binding", "header", "expected"), [
+    ("delay_table", "지연 일수", "—"),             # 준공 영향이 아니다
+    ("delay_table", "조치 내용", "상태·대책"),      # 사건 이름이 아니다
+    ("lookahead_3w", "선행 작업", "—"),             # 선행·작업 두 뜻 — 그 작업 이름이 아니다
+    ("milestone_table", "지연 사유", "—"),          # +8(차이)이 아니다
+    ("wbs_table", "실적 비율", "실적(%)"),          # 가중치가 아니다
+    ("wbs_table", "계획 대비 실적", "—"),           # 계획·실적 두 뜻 — 실적 % 가 아니다
+])
+def test_a_header_with_two_meanings_or_a_loose_word_gets_no_wrong_value(binding, header, expected):
+    from app.programs.reports import generator
+
+    std = STD[binding]
+    others = [c for c in std if c != expected][:3]  # 나머지 열은 기본 이름 그대로(절반 넘게 맞게)
+    cols, picks = generator._fit_columns(binding, [header, *others], std)
+    assert cols == [header, *others]
+    assert generator._pick(std, picks)[0] == expected
+
+
+def test_default_columns_keep_their_own_place():
+    """기본 열 이름 그대로면 그 자리(「준공 차이(만들 때 일정 대비)」는 준공·차이 두 낱말이어도 차이 열)."""
+    from app.programs.reports import generator
+
+    std = ["시나리오", "예상 준공", "준공 차이(만들 때 일정 대비)", "크리티컬 수", "상태"]
+    assert generator._fit_columns("scenario_compare", std, std) == (std, [0, 1, 2, 3, 4])
+    for binding, cols in STD.items():
+        assert generator._fit_columns(binding, cols, cols) == (cols, list(range(len(cols))))
 
 
 async def test_scenario_table_keeps_only_current_round(session):
