@@ -7,6 +7,7 @@
 결정과 같은 commit).
 """
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
@@ -21,7 +22,7 @@ from app.programs.approvals.schemas import (
 )
 from app.store import approvals, chats, links
 from app.store.settings import approval_mode, set_approval_mode
-from app.store.tables import Approval, User
+from app.store.tables import Approval, FieldItem, User
 from app.store.versions import VersionConflict
 
 NOT_FOUND_MESSAGE = "승인 건을 찾을 수 없습니다."
@@ -29,6 +30,7 @@ CONFLICT_MESSAGE = "그 사이 일정이 바뀌었습니다. 에이전트에게 
 ALREADY_DECIDED_MESSAGE = "이미 결정된 건입니다."
 NOTE_REQUIRED_MESSAGE = "다시 짜게 하려면 이유를 적어 주세요."
 DRAFT_USED_MESSAGE = "이미 저장한 초안입니다."
+OLD_PHOTO_MESSAGE = "이전 방식으로 만든 판독이라 반영할 수 없습니다 — 사진을 다시 올려 주세요"
 
 
 def _get(session: Session, approval_id: int) -> Approval:
@@ -53,9 +55,18 @@ def list_approvals(session: Session, status: str) -> ApprovalList:
     return ApprovalList(mode=approval_mode(session), items=items)
 
 
+def _blocked(session: Session, row: Approval) -> str | None:
+    """반영할 수 없는 까닭. 이 건을 낸 사진 항목에 실제 판독(ai_reason)이 없으면 — F1 이전에 지어낸 숫자다(재확인 #14).
+    저장된 줄은 바꾸지 않는다."""
+    photo = session.scalars(select(FieldItem).where(FieldItem.approval_id == row.id, FieldItem.kind == "photo")).first()
+    if photo is None or "ai_reason" in (photo.payload_json or {}):
+        return None
+    return OLD_PHOTO_MESSAGE
+
+
 def detail(session: Session, approval_id: int) -> ApprovalDetail:
     row = _get(session, approval_id)
-    return ApprovalDetail(**_out(row), mode=approval_mode(session), diff=row.diff_json)
+    return ApprovalDetail(**_out(row), mode=approval_mode(session), diff=row.diff_json, blocked=_blocked(session, row))
 
 
 def count(session: Session) -> CountOut:
@@ -120,6 +131,8 @@ def decide(session: Session, approval_id: int, body: DecideIn, user: User) -> De
         raise ApiError(409, "already_decided", ALREADY_DECIDED_MESSAGE)
     if body.decision == "reject_retry" and not body.note:
         raise ApiError(422, "note_required", NOTE_REQUIRED_MESSAGE)
+    if body.decision == "approve" and (blocked := _blocked(session, row)) is not None:
+        raise ApiError(422, "photo_unread", blocked)
     if body.decision == "approve":
         _approve(session, row, user, body.note)
     else:

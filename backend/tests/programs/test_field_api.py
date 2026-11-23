@@ -242,3 +242,44 @@ def test_an_old_made_up_photo_reading_is_shown_as_unread_without_changing_the_ro
     row = session.get(FieldItem, item_id)
     assert (row.response_choice, row.reported_progress, row.payload_json["ai_progress"]) == ("verified", 62, 62)
     assert "unread_reason" not in row.payload_json
+
+
+# ── 재확인 #14: 예전 방식(판독 없이 지어낸 숫자)의 사진 항목에서 나온 승인 건은 반영할 수 없다 ──────────────
+OLD_READING = "이전 방식으로 만든 판독이라 반영할 수 없습니다 — 사진을 다시 올려 주세요"
+
+
+def _photo_approval(client, admin, session, sid, payload: dict) -> tuple[int, int]:
+    """사진 항목 하나와 그 항목이 낸 승인 대기 건(예전 상신을 흉내 낸다: 체크인으로 승인 건을 만들고 사진 항목에 단다)."""
+    approval_id = _checkin_approval(client, admin, session, sid, "B", 50).id
+    row = FieldItem(schedule_id=sid, kind="photo", activity_id="B", activity_name="작업 B", trade="골조팀", status="applied",
+                    title="[AI 사진 판독] B 작업 B", prompt_text="", response_choice="verified", reported_progress=95,
+                    reported_rd=1, response_note="", payload_json=payload, approval_id=approval_id)
+    session.add(row)
+    session.commit()
+    return approval_id, row.id
+
+
+def test_an_approval_from_an_old_photo_reading_cannot_be_applied(client, admin, session, sid):
+    approval_id, item_id = _photo_approval(client, admin, session, sid, {"photo_name": "old.jpg", "ai_progress": 95})
+    version = client.get(f"/api/schedules/{sid}", headers=admin).json()["version"]
+
+    detail = client.get(f"/api/approvals/{approval_id}", headers=admin).json()
+    assert detail["blocked"] == OLD_READING
+    r = client.post(f"/api/approvals/{approval_id}/decide", json={"decision": "approve"}, headers=admin)
+    assert r.status_code == 422 and (r.json()["code"], r.json()["message"]) == ("photo_unread", OLD_READING)
+    assert client.get(f"/api/approvals/{approval_id}", headers=admin).json()["status"] == "pending"
+    assert client.get(f"/api/schedules/{sid}", headers=admin).json()["version"] == version  # 95% 가 들어가지 않았다
+
+    r = client.post(f"/api/approvals/{approval_id}/decide", json={"decision": "reject"}, headers=admin)
+    assert r.status_code == 200 and r.json()["status"] == "rejected"  # 거부는 그대로 된다
+    session.expire_all()
+    row = session.get(FieldItem, item_id)
+    assert (row.reported_progress, row.payload_json) == (95, {"photo_name": "old.jpg", "ai_progress": 95})  # 저장된 줄 그대로
+
+
+def test_an_approval_from_a_real_photo_reading_is_applied_as_before(client, admin, session, sid):
+    payload = {"photo_name": "new.jpg", "ai_progress": 50, "ai_reason": "철근 배근이 절반쯤 끝났다.", "ai_risks": []}
+    approval_id, _ = _photo_approval(client, admin, session, sid, payload)
+    assert client.get(f"/api/approvals/{approval_id}", headers=admin).json()["blocked"] is None
+    r = client.post(f"/api/approvals/{approval_id}/decide", json={"decision": "approve"}, headers=admin)
+    assert r.status_code == 200 and r.json()["status"] == "approved"

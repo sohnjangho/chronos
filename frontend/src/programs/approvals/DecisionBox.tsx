@@ -28,7 +28,7 @@ const hintOf = (item: ApprovalDetail) => {
   return `승인하면 버전 ${ro(item.base_version + 1)} 저장되고, 탐색기에서 되돌릴 수 있습니다.`;
 };
 
-function Actions({ hint, busy, decide }: { hint: string; busy: boolean; decide(d: Decision): void }) {
+function Actions({ hint, busy, blocked, decide }: { hint: string; busy: boolean; blocked: boolean; decide(d: Decision): void }) {
   return (
     <div className="apv-decide-row">
       <span className="apv-muted apv-wrap">{hint}</span>
@@ -38,7 +38,7 @@ function Actions({ hint, busy, decide }: { hint: string; busy: boolean; decide(d
       <Button disabled={busy} onClick={() => decide('reject_retry')}>
         거부하고 다시 짜게 하기
       </Button>
-      <Button variant="primary" disabled={busy} onClick={() => decide('approve')}>
+      <Button variant="primary" disabled={busy || blocked} onClick={() => decide('approve')}>
         승인하고 반영
       </Button>
     </div>
@@ -91,7 +91,8 @@ export default function DecisionBox({ item, onDecide }: Props) {
           {error}
         </p>
       )}
-      <Actions hint={hintOf(item)} busy={busy} decide={(d) => void decide(d)} />
+      {item.blocked && <p className="apv-error apv-wrap">{item.blocked}</p>}
+      <Actions hint={hintOf(item)} busy={busy} blocked={Boolean(item.blocked)} decide={(d) => void decide(d)} />
     </section>
   );
 }

@@ -400,3 +400,26 @@ describe('승인 요약의 알릴 것', () => {
     expect(screen.queryByRole('region', { name: '알릴 것' })).toBeNull();
   });
 });
+
+// 재확인 #14: 예전 방식(판독 없이 지어낸 숫자)의 사진 항목에서 나온 건 — 서버가 blocked 로 알린다. 승인은 막고 거부는 된다.
+describe('반영할 수 없는 건', () => {
+  const OLD = '이전 방식으로 만든 판독이라 반영할 수 없습니다 — 사진을 다시 올려 주세요';
+
+  test('a blocked approval shows why and cannot be approved, but can be rejected', async () => {
+    setup([item({ title: '[현장 반영] A1210 1층 철근 배근 (95%)' })], {
+      '/api/approvals/3': () => json(200, { ...detailOf({ title: '[현장 반영] A1210 1층 철근 배근 (95%)' }), blocked: OLD }),
+    });
+    render(<Approvals windowId="w1" />);
+    expect(await screen.findByText(OLD)).toBeVisible();
+    expect(screen.getByRole('button', { name: '승인하고 반영' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: '거부' }));
+    await waitFor(() => expect(lastBody()).toEqual({ decision: 'reject', note: '' }));
+  });
+
+  test('an approval without the mark decides as before', async () => {
+    setup();
+    await renderApprovals();
+    expect(screen.queryByText(OLD)).toBeNull();
+    expect(screen.getByRole('button', { name: '승인하고 반영' })).toBeEnabled();
+  });
+});

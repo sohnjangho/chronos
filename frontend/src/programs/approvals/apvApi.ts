@@ -47,6 +47,8 @@ export interface DiffRow {
 export interface ApprovalDetail extends ApprovalItem {
   mode: Mode;
   diff: DiffRow[];
+  /** 반영할 수 없는 까닭(예전 방식 사진 판독에서 나온 건). 있으면 서버가 승인을 막는다(422) — 거부는 된다. */
+  blocked?: string | null;
 }
 
 export interface DecideOut {
