@@ -136,9 +136,7 @@ _SOFT = frozenset("은는이을를에의도로요다니습합함입임네죠해�
 _FINAL_L = "".join(chr(0xAC00 + 28 * i + 8) for i in range(399))  # 받침이 ㄹ 인 글자(할·될·갈 …)
 _FINAL_SS = "".join(chr(0xAC00 + 28 * i + 20) for i in range(399))  # 받침이 ㅆ 인 글자(했·었·았·였 …)
 _HEDGE = re.compile(  # 이 말이 든 상대 줄은 근거가 아니다(흐린 말·전해 들은 말·우리 말 되받기·지난 일·뒤집음)
-    # 낱말인 것(아마·혹시·무리·거짓·원래)은 낱말 첫머리에서만 — 「마무리」「아마추어」 속의 조각은 흐린 말이 아니다(Task 86 고침)
-    r"수도\s*있|수도\s*없|지도\s*몰|지도\s*모르|(?<!\w)아마(?!추)|(?<!\w)혹시|(?<!반)듯|것\s*같|거\s*같|아닐|아니면"
-    r"|(?<!\w)무리|(?<!\w)거짓"
+    r"수도\s*있|수도\s*없|지도\s*몰|지도\s*모르|아마|혹시|듯|것\s*같|거\s*같|아닐|아니면|무리|거짓"
     r"|(?:다|라|냐)고|대요|(?<!그)래요|다더|라더|다던|라던|던데|더라|답니다|(?<!바)랍니다|다네|라네|다며|라며"
     r"|었었|았었|였었|했었|확인해\s*보|알아보|여쭤보|물어보"
     # 고침 2 — 「고」 없이 전한 말(가능하다 했어요·하셨어요·들었어요, 가능하대 — 「2대」「최대」「교대」는 뺌, 답디다·더군)
@@ -148,7 +146,9 @@ _HEDGE = re.compile(  # 이 말이 든 상대 줄은 근거가 아니다(흐린 
     r"|(?:가능할|될|일)\s*수\s*있"
     # 지난 일·바뀜(했는데·었는데·이었는데·원래)
     # 「있는데」는 잇는 말(지금 있음)이라 지난 일이 아니다 — 「있었는데」는 「었는데」로 잡힌다
-    rf"|[{_FINAL_SS.replace('있', '')}]는데|(?<!\w)원래")
+    rf"|[{_FINAL_SS.replace('있', '')}]는데|원래")
+# 흐린 말 조각이 든 낱말 가운데 흐린 말이 아닌 것 — 이것만 지운 뒤 _HEDGE 를 본다(조각은 붙여 써도 잡고, 기본은 「흐린 말」 쪽)
+_NOT_HEDGE = re.compile(r"마무리|아마추어|반듯")
 
 
 @dataclass(frozen=True)
@@ -167,7 +167,7 @@ def _line(raw: str) -> _Line | None:
     """상대 말 한 줄. 낱말이 없거나 흐린 말(_HEDGE)이 든 줄은 None — 근거가 아니다."""
     text = _norm(redact.hide_phones(raw))
     found = list(_WORD.finditer(text))
-    if not found or _HEDGE.search(text):
+    if not found or _HEDGE.search(_NOT_HEDGE.sub(" ", text)):
         return None
     words = tuple(m.group() for m in found)
     gaps = tuple(text[m.end(): after.start()] for m, after in pairwise(found)) + (text[found[-1].end():],)

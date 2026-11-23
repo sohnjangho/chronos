@@ -115,10 +115,12 @@ async def test_grace_is_for_conversations_they_started_not_for_answers_to_our_re
         assert trail(session, reply)[0] == ("reply_within_grace", "noted")
 
 
-@pytest.mark.parametrize("ours_kind", ["auto_reply", "notice", "dnc_confirm", "normal_reply"])
-async def test_their_conversation_keeps_grace_through_our_own_replies(session, sid, fake_channel, ours_kind):
-    """판정(11-24): 상대가 19:00 에 먼저 보냄 → 우리 답 19:02 → 상대가 19:05 에 다시 → 우리 19:07 답도 유예로 나간다. 우리 답(자동 답·
-    고정 안내·확인 문자, 그리고 상대 글에 사람이 단 보통 답)은 「우리 요청」이 아니다 — 요청은 대화를 여는 kind normal 글뿐."""
+@pytest.mark.parametrize(("ours_kind", "code"), [("auto_reply", "accepted"), ("notice", "accepted"),
+                                               ("dnc_confirm", "accepted"), ("normal_reply", "scheduled")])
+async def test_their_conversation_keeps_grace_through_our_own_replies(session, sid, fake_channel, ours_kind, code):
+    """판정(11-24): 상대가 19:00 에 먼저 보냄 → 우리 답 19:02 → 상대가 19:05 에 다시 → 우리 19:07 답도 유예로 나간다 — 우리 자동 답·고정
+    안내·확인 문자는 「우리 요청」이 아니다(만들 때 적힌 kind 로 가린다). 사람이 쓰거나 고친 보통 글(kind normal)은 만든 길을 알 표시가
+    없어 요청으로 본다(닫힌 쪽 — 예약)."""
     connect(session)
     who = person(session, sid)
     first = inbound(session, who, ago=timedelta(minutes=7), now=OFF + timedelta(minutes=7))
@@ -133,7 +135,29 @@ async def test_their_conversation_keeps_grace_through_our_own_replies(session, s
 
     out = await send(reply, USER, OFF + timedelta(minutes=7))
 
-    assert out.code == "accepted" and trail(session, reply)[0] == ("reply_within_grace", "noted")
+    assert out.code == code
+    assert (trail(session, reply)[0] == ("reply_within_grace", "noted")) is (code == "accepted")
+
+
+async def test_answer_to_our_callback_is_an_answer_to_our_request(session, sid, fake_channel):
+    """금 09:00 우리 요청 → 「월요일에 다시 연락 주세요」 → 월 08:00 다시 연락 줄(우리 요청 글을 물려받음, reply_to_id 는 상대 글) →
+    월 19:00 상대 답 → 우리 19:10 답은 유예 없이 다음 근무 시작(화 08:00)으로 예약."""
+    connect(session)
+    who = person(session, sid)
+    friday = OFF.replace(hour=9)
+    request = message(session, who, status="accepted", body="토요일 6명 가능하신가요", claimed_at=friday, created_at=friday)
+    later = inbound(session, who, ago=timedelta(minutes=0), now=friday + timedelta(minutes=30), body="월요일에 다시 연락 주세요",
+                    reply_to_id=request.id)
+    callback = message(session, who, status="accepted", origin="agent", origin_name="AI 비서", body=request.body,
+                       reply_to_id=later.id, claimed_at=MONDAY, created_at=friday + timedelta(minutes=31))
+    answer = inbound(session, who, ago=timedelta(minutes=10), now=MONDAY.replace(hour=19, minute=10), body="네 6명 갑니다",
+                     reply_to_id=callback.id)
+    reply = message(session, who, body="확인했습니다", reply_to_id=answer.id)
+    session.commit()
+
+    out = await send(reply, USER, MONDAY.replace(hour=19, minute=10))
+
+    assert (out.code, out.scheduled_at) == ("scheduled", MONDAY + timedelta(days=1)) and fake_channel.delivered == []
 
 
 @pytest.mark.parametrize("request_kind", ["empty_body", "other_schedule", "inbound"])

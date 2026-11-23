@@ -300,7 +300,10 @@ def test_claims_still_need_support_when_every_peer_line_is_a_hedge(session):
 
 
 @pytest.mark.parametrize(("line", "hedge"), [
-    ("마무리 작업 언제예요?", False),  # 「무리」가 낱말 안에 있을 뿐
+    ("내일은아마 6명 갑니다", True),  # 붙여 쓴 흐린 말도 잡는다(조각 그대로 — 기본은 「흐린 말」 쪽)
+    ("저희는원래 6명 가능합니다", True),
+    ("혹시나 6명 가능합니다", True),
+    ("마무리 작업 언제예요?", False),  # 「무리」가 든 낱말 가운데 목록에 둔 것(마무리)만 뺀다
     ("내일 작업 있는데 몇 시에 가요?", False),  # 「있는데」는 잇는 말(지난 일이 아님)
     ("오늘은 무리입니다", True),
     ("혹시 내일 작업 있나요?", True),
@@ -308,7 +311,7 @@ def test_claims_still_need_support_when_every_peer_line_is_a_hedge(session):
     ("6명 가능했는데 지금은 3명", True),
     ("반듯하게 6명 가능합니다", False),
 ])
-def test_hedge_words_are_whole_words_not_pieces_of_words(line, hedge):
+def test_hedge_stems_match_anywhere_except_listed_compounds(line, hedge):
     assert (review._line(line) is None) is hedge
 
 

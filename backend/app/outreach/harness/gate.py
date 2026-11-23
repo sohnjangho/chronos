@@ -523,24 +523,16 @@ def _within_grace(session: Session, row: OutreachMessage, number: str, now: date
         return False
     ours = session.get(OutreachMessage, asked.reply_to_id) if asked.reply_to_id is not None else None
     if (ours is not None and ours.direction == "out" and ours.kind == "normal" and ours.schedule_id == asked.schedule_id
-            and ours.body.strip() and not _answers_their_text(session, ours)):
-        return False  # 「우리 요청」은 대화를 여는 보통 글뿐 — 우리 자동 답·고정 안내·확인 문자·상대 글에 단 답은 아니다(판정 11-24)
+            and ours.body.strip()):
+        # 「우리 요청」에서 빼는 것은 만들 때 적힌 kind 로 가린 우리 자동 답·고정 안내·확인 문자(auto_reply·notice·dnc_confirm)뿐이다
+        # (판정 11-24). 다시 연락·넘기기 줄처럼 우리 요청 글을 물려받은 보통 글은 reply_to_id 가 상대 글이어도 요청이다. 사람이 고쳐
+        # 보낸 자동 답은 normal 로 바뀌어(programs/outreach/service.py) 만든 길을 알 표시가 없다 — 요청으로 본다(닫힌 쪽).
+        return False
     sender = session.get(Contact, asked.contact_id) if asked.contact_id is not None else None
     if phone.normalize(sender.phone if sender is not None else asked.peer_number) != number:
         return False
     ages = [now - as_utc(at) for at in (asked.sent_at, asked.created_at) if at is not None]
     return bool(ages) and all(timedelta() <= age < timedelta(minutes=minutes) for age in ages)
-
-
-def _answers_their_text(session: Session, ours: OutreachMessage) -> bool:
-    """그 나간 글이 같은 사람이 보낸 받은 문자에 단 답인가(그러면 대화를 연 요청이 아니다). 다른 사람의 글에서 이어진 후속 줄
-    (넘기기 — 담당자에게 새로 보냄)은 그 사람에게는 요청이다."""
-    prior = session.get(OutreachMessage, ours.reply_to_id) if ours.reply_to_id is not None else None
-    if prior is None or prior.direction != "in":
-        return False
-    if prior.contact_id is not None or ours.contact_id is not None:
-        return prior.contact_id == ours.contact_id
-    return prior.peer_number == ours.peer_number
 
 
 def _working(person_hours: dict | None, calendar: CalendarSpec, now: datetime) -> tuple[bool, datetime | None]:
