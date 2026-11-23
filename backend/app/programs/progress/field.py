@@ -35,6 +35,7 @@ FieldKind = Literal["checkin", "photo", "poll", "handoff"]
 UNREAD = "unread"
 NO_PHOTO = "사진이 없어 판독하지 않았습니다."
 BAD_ANSWER = "모델 답을 읽지 못해 판독하지 않았습니다."
+LEGACY_PHOTO = "이전 방식으로 만든 항목입니다. 사진을 다시 올려 주세요"  # F1 이전 항목(숫자를 지어냈다, 리뷰 I-3)
 VISION_PROMPT = (
     "너는 건설·제조 현장 사진을 보고 한 작업의 진도를 판독한다. 사진에 보이는 것만 근거로 삼고, 보이지 않는 것은 짐작하지 않는다. "
     "progress: 이 작업의 진도율(0~100 정수). reason: 그 진도로 본 까닭 한 문장(한국어). "
@@ -302,8 +303,19 @@ def ensure_seeded(session: Session, schedule_id: int, view: dict[str, Any]) -> N
     session.commit()
 
 
+def _legacy_photo(row: FieldItem) -> bool:
+    """F1 이전에 만든 사진 항목: 판독 까닭(ai_reason)도 못 읽은 까닭(unread_reason)도 없다 — 숫자는 모델이 읽은 것이 아니다."""
+    payload = row.payload_json or {}
+    return row.kind == "photo" and "ai_reason" not in payload and "unread_reason" not in payload
+
+
 def _item_out(row: FieldItem) -> FieldItemOut:
-    return FieldItemOut.model_validate(row)
+    """예전 방식의 사진 항목은 판독하지 않음으로 내보낸다(저장된 줄은 바꾸지 않는다, 리뷰 I-3)."""
+    out = FieldItemOut.model_validate(row)
+    if not _legacy_photo(row):
+        return out
+    payload = {**out.payload_json, "ai_progress": None, "unread_reason": LEGACY_PHOTO}
+    return out.model_copy(update={"response_choice": "unread", "reported_progress": None, "payload_json": payload})
 
 
 def _list_out(session: Session, schedule_id: int, view: dict[str, Any]) -> FieldListOut:
@@ -519,7 +531,7 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
     item = _get_item(session, schedule_id, item_id)
     if item.approval_id is not None:
         return _list_out(session, schedule_id, view)
-    if item.kind == "photo" and item.reported_progress is None:
+    if item.kind == "photo" and (item.reported_progress is None or _legacy_photo(item)):
         raise ApiError(422, "photo_unread", "판독하지 않은 사진은 승인함에 올릴 수 없습니다.")
 
     record = get_record(session, schedule_id)

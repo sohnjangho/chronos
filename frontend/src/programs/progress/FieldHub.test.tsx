@@ -50,6 +50,16 @@ test('a photo that was not read shows 판독하지 않음 with its reason, no nu
   expect(within(card).getByRole('button', { name: '승인함 상신 · 증빙 확정' })).toBeDisabled();
 });
 
+// 리뷰 I-3: 예전 방식(숫자를 지어낸) 사진 항목은 서버가 판독하지 않음으로 내보낸다 — 숫자 없이 다시 올리라고 말한다.
+test('an old made-up photo reading shows as unread and asks for the photo again (I-3)', async () => {
+  const card = await photoCard(
+    item({ response_choice: 'unread', reported_progress: null, payload_json: { photo_name: 'old.jpg', ai_progress: null, ai_stage: '거푸집 조립 단계', unread_reason: '이전 방식으로 만든 항목입니다. 사진을 다시 올려 주세요' } }),
+  );
+  expect(within(card).getByText('판독하지 않음 — 이전 방식으로 만든 항목입니다. 사진을 다시 올려 주세요')).toBeVisible();
+  expect(within(card).queryByText(/\d+%/)).toBeNull();
+  expect(within(card).getByRole('button', { name: '승인함 상신 · 증빙 확정' })).toBeDisabled();
+});
+
 test('a photo read by the vision model shows its percentage and one-sentence reason (F1)', async () => {
   const card = await photoCard(
     item({ reported_progress: 40, payload_json: { photo_name: 'rebar.jpg', ai_progress: 40, ai_reason: '철근 배근은 끝났고 거푸집은 절반쯤 섰다.', ai_risks: [] } }),

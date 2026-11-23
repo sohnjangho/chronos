@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.llm.client import LlmClient
 from app.programs.progress import field
-from app.store.tables import Approval, DelayEvent, LlmCall, User
+from app.store.tables import Approval, DelayEvent, FieldItem, LlmCall, User
 from tests.llm_doubles import FakeLiner, add_connection, chat_body
 
 PHOTO = "data:image/png;base64,iVBORw0KGgo="
@@ -158,3 +158,34 @@ def test_approval_requester_is_the_signed_in_person(client, admin, session, sid)
     session.expire_all()
     me = session.scalars(select(User).where(User.login_id == "admin")).one()
     assert session.get(Approval, approval_id).requested_by == me.name
+
+
+LEGACY = "판독하지 않음 — 이전 방식으로 만든 항목입니다. 사진을 다시 올려 주세요"
+
+
+def _legacy_photo(session, sid) -> int:
+    """F1 이전에 만든 사진 항목: 판독 까닭(ai_reason)도 못 읽은 까닭(unread_reason)도 없고 숫자는 지어낸 것."""
+    row = FieldItem(schedule_id=sid, kind="photo", activity_id="A", activity_name="작업 A", trade="골조팀", status="responded",
+                    title="[AI 사진 판독] A 작업 A", prompt_text="", response_choice="verified", reported_progress=62,
+                    reported_rd=3, response_note="거푸집 조립 단계", payload_json={"photo_name": "old.jpg", "ai_progress": 62,
+                                                                               "ai_stage": "거푸집 조립 단계"})
+    session.add(row)
+    session.commit()
+    return row.id
+
+
+def test_an_old_made_up_photo_reading_is_shown_as_unread_without_changing_the_row(client, admin, session, sid):
+    """리뷰 I-3: 예전 방식의 사진 항목은 판독하지 않음으로 보이고(숫자 없음) 상신할 수 없다. 저장된 줄은 그대로."""
+    client.get(f"/api/schedules/{sid}/field", headers=admin)  # 예시 항목을 먼저 채운다
+    item_id = _legacy_photo(session, sid)
+    r = client.get(f"/api/schedules/{sid}/field", headers=admin)
+    item = next(i for i in r.json()["items"] if i["id"] == item_id)
+    assert (item["response_choice"], item["reported_progress"]) == ("unread", None)
+    assert item["payload_json"]["ai_progress"] is None
+    assert "판독하지 않음 — " + item["payload_json"]["unread_reason"] == LEGACY
+    r = client.post(f"/api/schedules/{sid}/field/{item_id}/apply", headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "photo_unread"
+    session.expire_all()
+    row = session.get(FieldItem, item_id)
+    assert (row.response_choice, row.reported_progress, row.payload_json["ai_progress"]) == ("verified", 62, 62)
+    assert "unread_reason" not in row.payload_json
