@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { NodeKey, NodeState } from './devApi';
-import { edgesFor, nodeBoxes, type Box } from './structureLayout';
+import { edgesFor, nodeBoxes, signalBoxes, type Box } from './structureLayout';
 
 const overlap = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 const MAIN: NodeKey[] = ['request', 'context', 'skill', 'plan', 'judge', 'check', 'approval', 'respond'];
@@ -21,6 +21,18 @@ describe.each([1160, 900, 560, 420, 330])('nodeBoxes(%i)', (width) => {
       expect(b.x + b.w, k).toBeLessThanOrEqual(width);
     }
     for (const [i, [ka, a]] of all.entries()) for (const [kb, b] of all.slice(i + 1)) expect(overlap(a, b), `${ka}·${kb}`).toBe(false);
+  });
+
+  test('the 11-23 signal boxes sit in the empty side-column rows: fit, overlap nothing, and stay by their node', () => {
+    const sig = signalBoxes(boxes);
+    for (const [k, s] of Object.entries(sig)) {
+      expect(s.x, k).toBeGreaterThanOrEqual(0);
+      expect(s.x + s.w, k).toBeLessThanOrEqual(width);
+      for (const [kb, b] of all) expect(overlap(s, b), `${k}·${kb}`).toBe(false);
+    }
+    expect(overlap(sig.toolSig, sig.checkSig)).toBe(false);
+    expect(boxes.tool.y - (sig.toolSig.y + sig.toolSig.h)).toBeLessThanOrEqual(10); // 도구 실행 바로 위
+    expect(sig.checkSig.y + sig.checkSig.h / 2).toBe(boxes.check.y + boxes.check.h / 2); // 조건 점검과 같은 높이
   });
 
   test('the main flow runs top to bottom in one column with the side boxes beside it', () => {

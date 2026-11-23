@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { HarnessSummary, NodeKey, StructureNode, Turn } from './devApi';
 import { hourMinute, seconds, tokens } from './format';
 import { contextParts, STATE } from './NodeDetail';
-import { edgeShape, edgesFor, nodeBoxes, SOURCES, type Box, type Edge } from './structureLayout';
+import { signalsAt, STEP_SIGNALS } from './signals';
+import { edgeShape, edgesFor, nodeBoxes, signalBoxes, SOURCES, type Box, type Edge } from './structureLayout';
 
 /** 그림 칸의 폭(창 크기를 바꾸면 다시). ResizeObserver 가 없으면(시험 환경) 처음 값을 쓴다. */
 function useWidth(fallback: number) {
@@ -98,6 +99,36 @@ const BRANCH_LABELS: Record<string, string> = {
   approval_inbox: '승인함 대기',
   approval_auto: '자동 반영',
 };
+const branchLabel = (flag: string) => BRANCH_LABELS[flag] ?? STEP_SIGNALS[flag]?.label ?? flag;
+
+/** 11-23 신호 배지 칸: 도구 실행 바로 위 · 조건 점검 옆. 그 칸의 신호가 없으면 그리지 않는다. */
+function SignalBoxes({ boxes, lit }: { boxes: ReturnType<typeof nodeBoxes>; lit: string[] }) {
+  const at = signalBoxes(boxes);
+  const groups = [
+    { key: 'toolSig' as const, place: 'tool' as const, name: '도구 실행 신호', node: boxes.tool },
+    { key: 'checkSig' as const, place: 'check' as const, name: '조건 점검 신호', node: boxes.check },
+  ];
+  return groups.map(({ key, place, name, node }) => {
+    const flags = signalsAt(lit, place);
+    if (!flags.length) return null;
+    const b = at[key];
+    const link = place === 'tool'
+      ? `M${b.x + b.w / 2},${b.y + b.h} V${node.y}`
+      : `M${node.x + node.w},${node.y + node.h / 2} H${b.x}`;
+    return (
+      <g key={key}>
+        <path d={link} className="dc-sigbox-link" />
+        <foreignObject x={b.x} y={b.y} width={b.w} height={b.h}>
+          <ul className="dc-sigbox" aria-label={name} title={flags.map((f) => STEP_SIGNALS[f].label).join(' · ')}>
+            {flags.map((f) => (
+              <li key={f} className={`dc-sigbadge${STEP_SIGNALS[f].warn ? ' is-warn' : ''}`}>{STEP_SIGNALS[f].short}</li>
+            ))}
+          </ul>
+        </foreignObject>
+      </g>
+    );
+  });
+}
 
 interface Props {
   nodes: StructureNode[];
@@ -126,7 +157,7 @@ export default function AgentStructure({ nodes, turn, selected, edgesLit = [], h
         <div className="dc-signals" aria-label="실행된 분기 및 하네스 요약">
           {edgesLit.map((flag) => (
             <span key={flag} className={`dc-sig is-${flag}`}>
-              {BRANCH_LABELS[flag] ?? flag}
+              {branchLabel(flag)}
             </span>
           ))}
           {harnessSummary && (
@@ -148,6 +179,7 @@ export default function AgentStructure({ nodes, turn, selected, edgesLit = [], h
           <EdgeLine key={`${e.from}-${e.to}`} edge={e} boxes={boxes} />
         ))}
         <Sources boxes={boxes} node={context} />
+        <SignalBoxes boxes={boxes} lit={edgesLit} />
         {SIDE.map((s) => (
           <foreignObject key={s.key} {...fo(boxes[s.key])}>
             <div className="dc-side">

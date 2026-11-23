@@ -2,6 +2,7 @@
 // 각 노드를 누르면 해당 구조 칸의 상세(NodeDetail)로 연결된다.
 import type { NodeKey, TraceItem, TurnDetail } from './devApi';
 import { seconds, tokens } from './format';
+import { REFUSAL_SIGNALS, STEP_SIGNALS } from './signals';
 
 interface FlowNode {
   id: string;
@@ -10,6 +11,8 @@ interface FlowNode {
   title: string;
   sub: string;
   ok: boolean;
+  /** 도구 단계의 11-23 신호(signals.ts). 예전 서버는 없다. */
+  signals?: string[];
 }
 
 const CHECK_SET = new Set(['harness.check', 'generate.run', 'schedule.import']);
@@ -75,14 +78,34 @@ function fromTimeline(item: TraceItem, llmNum: number): FlowNode {
     };
   }
   const { kind, targetKey } = toolTarget(item.label);
+  const signals = (item.signals ?? []).filter((f) => STEP_SIGNALS[f]);
+  const refused = signals.some((f) => REFUSAL_SIGNALS.has(f));
   return {
     id: `t-${item.seq}`,
     kind,
     targetKey,
     title: item.label,
-    sub: item.ok ? dur : `실패 · ${item.error ?? ''}`,
+    sub: item.ok ? dur : `${refused ? '거절' : '실패'} · ${item.error ?? ''}`,
     ok: item.ok,
+    signals,
   };
+}
+
+/** 노드 오른쪽 빈 칸(SIDE_W)에 그 단계의 신호 배지. 둘이 넘으면 「+n」. */
+function FlowSignals({ n, y }: { n: FlowNode; y: number }) {
+  const flags = n.signals ?? [];
+  if (!flags.length) return null;
+  const shown = flags.slice(0, 2);
+  return (
+    <foreignObject x={PAD_X + NODE_W + 8} y={y} width={SIDE_W - 8} height={NODE_H}>
+      <ul className="dc-sigbox is-flow" aria-label={`${n.title} 신호`} title={flags.map((f) => STEP_SIGNALS[f].label).join(' · ')}>
+        {shown.map((f) => (
+          <li key={f} className={`dc-sigbadge${STEP_SIGNALS[f].warn ? ' is-warn' : ''}`}>{STEP_SIGNALS[f].short}</li>
+        ))}
+        {flags.length > shown.length && <li className="dc-sigbadge">{`+${flags.length - shown.length}`}</li>}
+      </ul>
+    </foreignObject>
+  );
 }
 
 interface Props {
@@ -96,10 +119,11 @@ const NODE_H = 48;
 const GAP_Y = 26;
 const PAD_X = 24;
 const PAD_Y = 16;
+const SIDE_W = 120;
 
 export default function TurnFlowDiagram({ detail, selected, onSelect }: Props) {
   const nodes = buildFlow(detail);
-  const svgW = NODE_W + PAD_X * 2 + 120;
+  const svgW = NODE_W + PAD_X * 2 + SIDE_W;
   const svgH = PAD_Y * 2 + nodes.length * NODE_H + Math.max(0, nodes.length - 1) * GAP_Y;
   const cx = PAD_X + NODE_W / 2;
 
@@ -138,17 +162,20 @@ export default function TurnFlowDiagram({ detail, selected, onSelect }: Props) {
           const x = n.kind === 'inner_llm' ? PAD_X + 36 : PAD_X;
           const w = n.kind === 'inner_llm' ? NODE_W - 36 : NODE_W;
           return (
-            <foreignObject key={n.id} x={x - 2} y={y - 2} width={w + 4} height={NODE_H + 4}>
-              <button
-                type="button"
-                className={`dc-node dc-flow-node is-${n.kind}${n.ok ? '' : ' is-fail'}`}
-                aria-pressed={selected === n.targetKey}
-                onClick={() => onSelect(n.targetKey)}
-              >
-                <b className="dc-flow-title" title={n.title}>{n.title}</b>
-                <small className="dc-flow-sub" title={n.sub}>{n.sub}</small>
-              </button>
-            </foreignObject>
+            <g key={n.id}>
+              <foreignObject x={x - 2} y={y - 2} width={w + 4} height={NODE_H + 4}>
+                <button
+                  type="button"
+                  className={`dc-node dc-flow-node is-${n.kind}${n.ok ? '' : ' is-fail'}`}
+                  aria-pressed={selected === n.targetKey}
+                  onClick={() => onSelect(n.targetKey)}
+                >
+                  <b className="dc-flow-title" title={n.title}>{n.title}</b>
+                  <small className="dc-flow-sub" title={n.sub}>{n.sub}</small>
+                </button>
+              </foreignObject>
+              <FlowSignals n={n} y={y} />
+            </g>
           );
         })}
       </svg>

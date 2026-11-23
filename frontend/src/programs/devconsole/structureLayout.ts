@@ -69,6 +69,19 @@ export function nodeBoxes(width: number): Record<BoxKey, Box> {
   return { ...flow, tool: side(4), skillrun: side(2), inbox: side(6), ...sourceBoxes(c) };
 }
 
+const SIG_H = 64;
+const SIG_GAP = 8;
+
+/** 11-23 신호 배지 자리(곁 칸 줄): 도구 실행 신호는 도구 실행 바로 위, 조건 점검 신호는 조건 점검과 같은 높이.
+ * 두 자리 모두 곁 칸 줄의 빈 줄(스킬 실행 아래 · 승인함 위)이라 다른 칸과 겹치지 않는다. */
+export function signalBoxes(boxes: Record<BoxKey, Box>): Record<'toolSig' | 'checkSig', Box> {
+  const { tool, check } = boxes;
+  return {
+    toolSig: { x: tool.x, y: tool.y - SIG_GAP - SIG_H, w: tool.w, h: SIG_H },
+    checkSig: { x: tool.x, y: check.y + check.h / 2 - SIG_H / 2, w: tool.w, h: SIG_H },
+  };
+}
+
 export interface Edge {
   from: BoxKey;
   to: BoxKey;

@@ -6,6 +6,7 @@ import type { TraceItem } from './devApi';
 import { clock, count, seconds } from './format';
 import { CONTEXT_MS_NOTE } from './NodeDetail';
 import RawBlock from './RawBlock';
+import { REFUSAL_SIGNALS, STEP_SIGNALS } from './signals';
 
 const KIND: Record<TraceItem['kind'], { label: string; tone: Tone }> = {
   context: { label: '컨텍스트', tone: 'neutral' },
@@ -17,12 +18,25 @@ const ESTIMATE_NOTE = '단계 기록에는 시각이 없어, 이 도구를 부�
 const UNPAIRED_NOTE = '이 도구를 부른 답이 길어서 잘려 어느 답이 불렀는지 읽을 수 없습니다. 시각은 앞 단계 뒤에 둔 어림입니다.';
 const INNER_NOTE = '도구 안 모델 호출은 글을 남기지 않습니다(모델·토큰·시간만).';
 
-/** 시간이 없는(끝 기록이 없는) 호출은 턴이 실행 중일 때만 「진행 중」, 아니면 「끝나지 않음」. */
+/** 시간이 없는(끝 기록이 없는) 호출은 턴이 실행 중일 때만 「진행 중」, 아니면 「끝나지 않음」.
+ * 규칙이 막은 도구(역할 규칙·가져오기 되풀이)는 「거절: 까닭」. */
 function result(t: TraceItem, running: boolean): { text: string; danger: boolean } {
   if (t.ok && t.ms === null && (t.kind === 'llm' || t.kind === 'tool')) return { text: running ? '진행 중' : '끝나지 않음', danger: false };
   if (t.ok) return { text: '성공', danger: false };
   if (t.error === 'stopped') return { text: '멈춤', danger: false };
-  return { text: t.error ? `실패: ${t.error}` : '실패', danger: true };
+  const head = (t.signals ?? []).some((f) => REFUSAL_SIGNALS.has(f)) ? '거절' : '실패';
+  return { text: t.error ? `${head}: ${t.error}` : head, danger: true };
+}
+
+/** 그 단계의 신호 태그(저장된 근거 · 정보 API · 역할 거절 …). 예전 서버는 signals 가 없다. */
+function SignalTags({ t }: { t: TraceItem }) {
+  return (t.signals ?? [])
+    .filter((f) => STEP_SIGNALS[f])
+    .map((f) => (
+      <span key={f} className={`dc-tag ${STEP_SIGNALS[f].warn ? 'is-warn' : 'is-info'}`} title={STEP_SIGNALS[f].label}>
+        {STEP_SIGNALS[f].short}
+      </span>
+    ));
 }
 
 interface RowProps {
@@ -51,6 +65,7 @@ function Row({ t, running, loop, group, open, onToggle }: RowProps) {
           {loop !== null && <span className="dc-tag">{`${loop}바퀴`}</span>}
           {group > 1 && <span className="dc-tag is-info" title="한 답이 함께 부른 도구입니다.">{`동시 ${group}`}</span>}
           {unpaired && <span className="dc-tag is-warn" title={UNPAIRED_NOTE}>짝 없음</span>}
+          <SignalTags t={t} />
         </span>
         <span className="dc-c-time">
           {clock(t.started_at)}

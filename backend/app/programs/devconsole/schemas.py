@@ -68,7 +68,9 @@ class StructureOut(BaseModel):
     nodes: list[NodeOut]
     loop_count: int  # llm 사건 수
     limit: int  # MAX_STEPS
-    edges_lit: list[str] = Field(default_factory=list)  # 실제 실행된 분기: check_repair·approval_inbox·approval_auto·vision_turn·files_used·weather_used
+    # 실제 실행된 분기: check_repair·approval_inbox·approval_auto·vision_turn·files_used·weather_used·skill_matched·
+    # self_corrected, 11-23: vision_tool(도구가 그림 읽기 모델을 부름)·단계 신호(TimelineItem.signals)의 합
+    edges_lit: list[str] = Field(default_factory=list)
     harness_summary: dict[str, Any] | None = None  # 하네스 점검 요약(rounds·passed·violations·uncheckable·tools)
 
 
@@ -87,6 +89,9 @@ class TimelineItem(BaseModel):
     input_text: str
     output_text: str
     parallel_group: int | None  # tool: 그 도구를 부른 llm 사건의 seq(한 답이 함께 부른 도구는 같다). 그 밖은 null
+    # tool: 그 단계 기록이 보여 주는 신호(info_used·evidence_reused·evidence_fresh·import_confirmed·import_refused·
+    # repair_stopped·role_blocked). 그 밖은 빈 목록
+    signals: list[str] = Field(default_factory=list)
 
 
 class TurnDetail(BaseModel):

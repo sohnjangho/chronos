@@ -9,9 +9,11 @@ from sqlalchemy import select
 
 import app.tools.generate as generate_tools
 from app.agent import loop, turns
+from app.agent.generation import LIMIT_REASON, REPEAT_REASON
 from app.agent.trace import CONTEXT_PARTS
 from app.llm.client import LlmClient
 from app.store import chats
+from app.store.messages import FIELD_READ_ONLY_MESSAGE
 from app.store.settings import set_approval_mode
 from app.store.tables import (
     ChatMessage,
@@ -336,7 +338,7 @@ def test_timeline_puts_steps_and_inner_calls_in_time_order(client, admin, sessio
         (4, "inner_llm", "도구 안 모델 호출 (hard)"), (5, "tool", "calc.cpm"), (6, "llm", "모델 호출 (normal)"),
     ]
     assert set(timeline[0]) == {"seq", "kind", "label", "started_at", "ms", "model", "input_tokens", "output_tokens",
-                                "cost", "ok", "error", "input_text", "output_text", "parallel_group"}
+                                "cost", "ok", "error", "input_text", "output_text", "parallel_group", "signals"}
     tool1, inner_call, tool2 = timeline[2], timeline[3], timeline[4]
     assert tool1["started_at"] == "2027-03-01T09:00:01.500000Z" and tool2["started_at"] == "2027-03-01T09:00:01.600000Z"
     assert inner_call["started_at"] == "2027-03-01T09:00:01.550000Z" and inner_call["ms"] == 50
@@ -622,6 +624,100 @@ def test_loop_harness_fails_when_the_rollback_or_reflection_is_removed(client, a
     monkeypatch.setattr(loop._Turn, "end_tool", end_tool_without_reflection)
     body = harness_test(client, admin, "H-LOOP-01")
     assert body["blocked"] is False and body["model_feedback"]["reflection"] is None
+
+
+# ── 오늘(11-23) 더한 분기 신호: 기록된 단계·호출로만 켠다 ─────────────────────────
+
+
+def signal_turn(session, steps: list[dict], *, text: str = "요청") -> int:
+    names = [s["tool"] for s in steps]
+    return made_turn(session, text=text, events=[ctx_ev(), llm_ev(1, calls_=names), llm_ev(3), end_ev(4)],
+                     steps=steps, run_status="done")[1]
+
+
+def tool_signals(body: dict) -> list[list[str]]:
+    return [t.get("signals") for t in body["timeline"] if t["kind"] == "tool"]
+
+
+def out(**kw) -> str:
+    return json.dumps(kw, ensure_ascii=False)
+
+
+def test_info_api_and_evidence_signals_come_from_the_recorded_step_output(client, admin, session):
+    turn = signal_turn(session, [
+        {"tool": "info.call", "output_json": out(ok=True, http_status=200, evidence_id=3, truncated=False, body="{}")},
+        {"tool": "evidence.search", "output_json": out(search_id=9, used=0, limit=3, reused=True, results=[])},
+        {"tool": "evidence.search", "output_json": out(search_id=10, used=1, limit=3, results=[])},
+    ])
+    body = get_turn(client, admin, turn)
+    assert tool_signals(body) == [["info_used"], ["evidence_reused"], ["evidence_fresh"]]
+    assert {"info_used", "evidence_reused", "evidence_fresh"} <= set(body["structure"]["edges_lit"])
+
+
+def test_failed_info_calls_and_searches_light_nothing(client, admin, session):
+    turn = signal_turn(session, [
+        {"tool": "info.call", "status": "failed", "output_json": out(error="path 에 「..」는 쓸 수 없습니다")},
+        {"tool": "evidence.search", "status": "failed", "output_json": out(error="근거 검색 실패")},
+    ])
+    body = get_turn(client, admin, turn)
+    assert tool_signals(body) == [[], []] and body["structure"]["edges_lit"] == []
+
+
+def test_import_confirmed_lights_only_for_the_button_sentence_of_that_file(client, admin, session):
+    button = "네, 확인했으니 이 파일(#12)을 일정 초안으로 가져와 줘."
+    step = {"tool": "schedule.import", "input_json": out(file_id=12, confirmed=True),
+            "output_json": out(step="imported", draft={"draft_id": 4, "reason": None})}
+    assert "import_confirmed" in get_turn(client, admin, signal_turn(session, [step], text=button))["structure"]["edges_lit"]
+    other = get_turn(client, admin, signal_turn(session, [step], text="이 파일 가져와 줘"))
+    assert "import_confirmed" not in other["structure"]["edges_lit"]  # 모델이 스스로 confirmed 를 넣은 것
+    other_file = {**step, "input_json": out(file_id=13, confirmed=True)}
+    assert tool_signals(get_turn(client, admin, signal_turn(session, [other_file], text=button))) == [[]]
+
+
+def test_a_repeated_import_is_marked_refused_with_the_loops_reason(client, admin, session):
+    why = loop.IMPORT_AGAIN.format("12")
+    turn = signal_turn(session, [{"tool": "schedule.import", "status": "failed", "output_json": out(error=why)}])
+    body = get_turn(client, admin, turn)
+    tool = next(t for t in body["timeline"] if t["kind"] == "tool")
+    assert (tool["signals"], tool["ok"], tool["error"]) == (["import_refused"], False, why)
+
+
+def test_repair_stopped_lights_when_generation_stopped_on_repeated_violations(client, admin, session):
+    repeat = out(ok=False, reason=REPEAT_REASON)
+    turn = signal_turn(session, [
+        {"tool": "generate.run", "output_json": repeat},
+        {"tool": "schedule.import", "output_json": out(step="imported", draft={"draft_id": 1, "reason": REPEAT_REASON})},
+        {"tool": "generate.run", "output_json": out(ok=False, reason=LIMIT_REASON)},
+    ])
+    body = get_turn(client, admin, turn)
+    assert tool_signals(body) == [["repair_stopped"], ["repair_stopped"], []]
+    assert "repair_stopped" in body["structure"]["edges_lit"]
+
+
+def test_role_blocked_lights_when_a_tool_is_refused_by_the_role_rule(client, admin, session):
+    turn = signal_turn(session, [
+        {"tool": "out.submit_change", "status": "failed", "output_json": out(error=FIELD_READ_ONLY_MESSAGE)},
+        {"tool": "calc.cpm", "status": "failed", "output_json": out(error="대상 일정이 없습니다.")},
+    ])
+    body = get_turn(client, admin, turn)
+    assert tool_signals(body) == [["role_blocked"], []]
+    assert "role_blocked" in body["structure"]["edges_lit"]
+
+
+def test_vision_by_a_tool_lights_vision_tool_but_an_image_turn_does_not(client, admin, session):
+    chat, turn = made_turn(session, events=[ctx_ev(), llm_ev(1, calls_=["report.learn_template"]), llm_ev(3), end_ev(4)],
+                           steps=[{"tool": "report.learn_template"}], run_status="done")
+    session.add(LlmCall(chat_session_id=chat, purpose="vision", model="v", requested_model="v", latency_ms=5, ok=True,
+                        created_at=T0 + timedelta(seconds=2)))
+    session.commit()
+    assert "vision_tool" in get_turn(client, admin, turn)["structure"]["edges_lit"]
+    # 그림 턴: 루프 자신의 호출이 vision — 같은 수의 vision 호출 기록은 도구가 한 것이 아니다
+    chat, turn = made_turn(session, events=[ctx_ev(), llm_ev(1, label="vision"), end_ev(2)])
+    session.add(LlmCall(chat_session_id=chat, purpose="vision", model="v", requested_model="v", latency_ms=5, ok=True,
+                        created_at=T0 + timedelta(seconds=1.5)))
+    session.commit()
+    lit = get_turn(client, admin, turn)["structure"]["edges_lit"]
+    assert "vision_turn" in lit and "vision_tool" not in lit
 
 
 def test_health_stop_turn_and_tool_toggle_roundtrip(client, admin, user, session, finished_turn):

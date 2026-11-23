@@ -54,7 +54,7 @@ export interface Structure {
   /** llm 사건 수. */
   loop_count: number;
   limit: number;
-  /** 실제 실행된 분기: check_repair·approval_inbox·approval_auto·vision_turn·files_used·weather_used. */
+  /** 실제 실행된 분기: check_repair·approval_inbox·approval_auto·vision_turn·files_used·weather_used, 11-23 신호(signals.ts). */
   edges_lit?: string[];
   /** 하네스 점검 요약. */
   harness_summary?: HarnessSummary | null;
@@ -85,6 +85,8 @@ export interface TraceItem {
   output_text: string;
   /** tool: 그 도구를 부른 답(같은 값 = 한 답이 함께 부름). 짝을 읽지 못한 단계와 그 밖의 줄은 null. */
   parallel_group: number | null;
+  /** tool: 그 단계 기록이 보여 주는 신호(signals.ts). 예전 서버는 보내지 않는다. */
+  signals?: string[];
 }
 
 export interface TurnDetail {

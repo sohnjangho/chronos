@@ -468,6 +468,40 @@
 .dc-sig.is-approval_inbox {
   border-color: var(--warn, #d97706);
 }
+.dc-sig.is-role_blocked,
+.dc-sig.is-import_refused,
+.dc-sig.is-repair_stopped { border-color: var(--warning); }
+
+/* 11-23 신호 배지 칸(구조 그림의 곁 칸 줄 · 흐름도 노드 오른쪽) */
+.dc-sigbox {
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-end;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+.dc-sigbox.is-flow { align-content: center; }
+.dc-sigbadge {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 7px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  font-size: var(--fs-11);
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dc-sigbadge.is-warn { border-color: var(--warning); background: var(--tone-warning-bg); color: var(--warning-text); }
+.dc-sigbox-link { fill: none; stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 3; }
 
 .dc-flow-wrap {
   overflow-y: auto;

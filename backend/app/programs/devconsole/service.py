@@ -26,8 +26,9 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.agent import turns
+from app.agent import loop, turns
 from app.agent.context import wire
+from app.agent.generation import REPEAT_REASON
 from app.agent.loop import MAX_STEPS
 from app.config import Settings
 from app.errors import ApiError
@@ -56,7 +57,8 @@ from app.security.crypto import SecretUnreadable, decrypt
 from app.store import settings as settings_store
 from app.store import traces as store
 from app.store.evidence import NOT_SEARCH_MODES
-from app.store.settings import approval_mode, get_agent_config
+from app.store.messages import FIELD_READ_ONLY_MESSAGE
+from app.store.settings import get_agent_config
 from app.store.tables import (
     Approval,
     ChatSession,
@@ -90,6 +92,10 @@ MODE_LABELS = {"all": "모두 승인", "important": "중요한 것만", "auto": 
 REQUEST_LIMIT = 60
 NOT_FOUND_MESSAGE = "실행 추적을 찾을 수 없습니다."
 _ERROR_LIMIT = 200
+# 루프가 같은 가져오기·확인 되풀이를 실행하지 않고 돌려준 글(loop.IMPORT_AGAIN 등)의 앞부분 — 「거절」로 보인다.
+IMPORT_REFUSALS = tuple(
+    t.split("{}")[0] for t in (loop.IMPORT_AGAIN, loop.ASKED_AGAIN, loop.NO_DRAFT_AGAIN, loop.CHECK_AGAIN)
+)
 
 
 def _cell(tool: str) -> str:
@@ -131,9 +137,10 @@ def get_turn(session: Session, turn_id: int) -> TurnDetail:
     cfg = get_agent_config(session)
     structure = _structure(
         row, events, steps, running=turn.status == "running", mode=cfg["approval_mode"],
-        max_steps=cfg["max_steps"], check_retries=cfg["max_check_retries"],
+        max_steps=cfg["max_steps"], check_retries=cfg["max_check_retries"], inner=inner,
     )
-    return TurnDetail(turn=turn, structure=structure, timeline=_timeline(events, steps, inner, row.started_at))
+    timeline = _timeline(events, steps, inner, row.started_at, _request(row))
+    return TurnDetail(turn=turn, structure=structure, timeline=timeline)
 
 
 def usage(session: Session, *, days: int, group: UsageGroup) -> UsageOut:
@@ -202,13 +209,63 @@ def _parsed_output(step: WorkflowStep) -> dict:
         return {}
 
 
-def _branch_signals(llms: list[TraceEvent], steps: list[WorkflowStep], skill_ev: TraceEvent | None = None) -> tuple[list[str], dict | None]:
+def _step_error(step: WorkflowStep) -> str:
+    if step.status != "failed":
+        return step.status
+    try:
+        return str(json.loads(step.output_json or "")["error"])[:_ERROR_LIMIT]
+    except (ValueError, KeyError, TypeError):
+        return step.status
+
+
+def _button_file(request: str) -> str | None:
+    """가져오기 단추 글(loop.IMPORT_BUTTON)로 온 턴이면 그 파일 id."""
+    found = loop.IMPORT_BUTTON.fullmatch(request.strip())
+    return found.group(1) if found else None
+
+
+def _step_signals(step: WorkflowStep, button_file: str | None) -> list[str]:
+    """단계 하나의 기록(입력·출력·오류)이 보여 주는 오늘(11-23) 더한 신호. 기록에 없으면 켜지 않는다."""
+    signals: list[str] = []
+    out = _parsed_output(step)
+    done = step.status == "done"
+    if step.tool == "info.call" and done:
+        signals.append("info_used")
+    if step.tool == "evidence.search" and done:
+        signals.append("evidence_reused" if out.get("reused") is True else "evidence_fresh")
+    if step.tool == "schedule.import" and button_file is not None:
+        try:
+            args = json.loads(step.input_json or "")
+        except ValueError:
+            args = None
+        if isinstance(args, dict) and args.get("confirmed") is True and str(args.get("file_id")) == button_file:
+            signals.append("import_confirmed")
+    error = _step_error(step) if step.status == "failed" else ""
+    if step.tool == "schedule.import" and error.startswith(IMPORT_REFUSALS):
+        signals.append("import_refused")
+    draft = out.get("draft")
+    reasons = (out.get("reason"), draft.get("reason") if isinstance(draft, dict) else None)
+    if step.tool in ("generate.run", "schedule.import") and REPEAT_REASON in reasons:
+        signals.append("repair_stopped")
+    if error == FIELD_READ_ONLY_MESSAGE:
+        signals.append("role_blocked")
+    return signals
+
+
+def _branch_signals(llms: list[TraceEvent], steps: list[WorkflowStep], skill_ev: TraceEvent | None = None,
+                    *, request: str = "", inner: list[LlmCall] = ()) -> tuple[list[str], dict | None]:
     """실제 실행 기록에서 분기 플래그와 하네스 점검 요약을 뽑는다."""
     lit: list[str] = []
     if skill_ev is not None and skill_ev.output_text:
         lit.append("skill_matched")
-    if any(e.label == "vision" for e in llms):
+    loop_vision = sum(e.label == "vision" for e in llms)
+    if loop_vision:
         lit.append("vision_turn")
+    if sum(c.purpose == "vision" for c in inner) > loop_vision:  # 루프 자신의 그림 읽기 호출보다 많으면 도구가 부른 것
+        lit.append("vision_tool")
+    button_file = _button_file(request)
+    for s in steps:
+        lit += [flag for flag in _step_signals(s, button_file) if flag not in lit]
     if any(s.tool.startswith("files.") or s.tool == "schedule.import" for s in steps):
         lit.append("files_used")
     if any(s.tool == "info.weather" for s in steps):
@@ -257,14 +314,13 @@ def _branch_signals(llms: list[TraceEvent], steps: list[WorkflowStep], skill_ev:
         if out.get("applied") is False or (out.get("approval_id") and out.get("applied") is not True):
             if "approval_inbox" not in lit:
                 lit.append("approval_inbox")
-        elif out.get("applied") is True:
-            if "approval_auto" not in lit:
-                lit.append("approval_auto")
+        elif out.get("applied") is True and "approval_auto" not in lit:
+            lit.append("approval_auto")
     return lit, harness_summary
 
 
 def _structure(row: store.TurnRow, events: list[TraceEvent], steps: list[WorkflowStep], *, running: bool,
-               mode: str, max_steps: int = MAX_STEPS, check_retries: int = 5) -> StructureOut:
+               mode: str, max_steps: int = MAX_STEPS, check_retries: int = 5, inner: list[LlmCall] = ()) -> StructureOut:
     llms = [e for e in events if e.kind == "llm"]
     ctx = next((e for e in events if e.kind == "context"), None)
     skill_ev = next((e for e in events if e.kind == "skill"), None)
@@ -297,7 +353,7 @@ def _structure(row: store.TurnRow, events: list[TraceEvent], steps: list[Workflo
         else:
             state = "now" if key == now else "past" if count else "todo"
         nodes.append(NodeOut(key=key, label=label, state=state, count=count, detail=detail))
-    edges_lit, harness_summary = _branch_signals(llms, steps, skill_ev)
+    edges_lit, harness_summary = _branch_signals(llms, steps, skill_ev, request=_request(row), inner=inner)
     return StructureOut(
         nodes=nodes, loop_count=len(llms), limit=max_steps,
         edges_lit=edges_lit, harness_summary=harness_summary,
@@ -326,25 +382,17 @@ def _event_item(e: TraceEvent) -> TimelineItem:
     )
 
 
-def _step_error(step: WorkflowStep) -> str:
-    if step.status != "failed":
-        return step.status
-    try:
-        return str(json.loads(step.output_json or "")["error"])[:_ERROR_LIMIT]
-    except (ValueError, KeyError, TypeError):
-        return step.status
-
-
-def _step_item(step: WorkflowStep, start: datetime, group: int | None) -> TimelineItem:
+def _step_item(step: WorkflowStep, start: datetime, group: int | None, button_file: str | None) -> TimelineItem:
     ok = step.status in ("done", "running")
     return TimelineItem(
         seq=0, kind="tool", label=step.tool, started_at=start, ms=step.ms, model=None, input_tokens=0,
         output_tokens=0, cost=None, ok=ok, error=None if ok else _step_error(step), input_text=step.input_json,
-        output_text=step.output_json or "", parallel_group=group,
+        output_text=step.output_json or "", parallel_group=group, signals=_step_signals(step, button_file),
     )
 
 
-def _step_items(llms: list[TraceEvent], steps: list[WorkflowStep], turn_start: datetime) -> list[TimelineItem]:
+def _step_items(llms: list[TraceEvent], steps: list[WorkflowStep], turn_start: datetime,
+                button_file: str | None = None) -> list[TimelineItem]:
     """단계를 그것을 부른 llm 사건(답의 tool_calls 수만큼 차례대로)에 잇는다. 시작은 그 답이 끝난 때부터
     앞 단계 시간을 더한 어림이다. 읽을 수 없는 답(잘림)을 만나면 그 뒤 단계는 모두 짝 없이(null)
     앞 단계 뒤에(앞 단계가 없으면 그 답 뒤에) 차례로 둔다."""
@@ -353,7 +401,7 @@ def _step_items(llms: list[TraceEvent], steps: list[WorkflowStep], turn_start: d
 
     def place(step: WorkflowStep, group: int | None) -> None:
         nonlocal cursor
-        items.append(_step_item(step, cursor, group))
+        items.append(_step_item(step, cursor, group, button_file))
         cursor += timedelta(milliseconds=step.ms or 0)
 
     for llm in llms:
@@ -384,11 +432,11 @@ def _inner_item(call: LlmCall) -> TimelineItem:
 
 
 def _timeline(events: list[TraceEvent], steps: list[WorkflowStep], inner: list[LlmCall],
-              turn_start: datetime) -> list[TimelineItem]:
+              turn_start: datetime, request: str = "") -> list[TimelineItem]:
     """context·llm·tool(단계)·inner_llm 을 시각 순으로(같은 시각은 이 차례). seq 는 1부터 다시 매긴다."""
     llms = [e for e in events if e.kind == "llm"]
     items = [_event_item(e) for e in events if e.kind in ("context", "llm")]
-    items += _step_items(llms, steps, turn_start)
+    items += _step_items(llms, steps, turn_start, _button_file(request))
     items += [_inner_item(c) for c in inner]
     items.sort(key=lambda t: t.started_at)
     for seq, item in enumerate(items, 1):
@@ -448,7 +496,7 @@ def _qdrant_health() -> QdrantHealthOut:
         for name in cols:
             info = store_obj.client.get_collection(name)
             points += int(getattr(info, "points_count", 0) or 0)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001, S110 — 점 수를 못 읽어도 연결 상태는 그대로 보인다
         pass
     return QdrantHealthOut(
         status="ok",
