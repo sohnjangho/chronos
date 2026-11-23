@@ -17,9 +17,9 @@ from app.llm.search import SearchHit
 from app.store import chats, evidence_reuse
 from app.store.evidence import WEATHER_MODE, link, record_search, searches_since
 from app.store.tables import EvidenceItem, EvidenceLink, EvidenceSearch, ScheduleDraft
-from app.tools.registry import call
+from app.tools.registry import ToolResult, call
 from tests.llm_doubles import add_connection
-from tests.search_doubles import hit, mock, web_body
+from tests.search_doubles import hit, mock, mock_json, route, web_body
 
 SEOUL = ZoneInfo("Asia/Seoul")
 QUERY = "철근콘크리트 층당 골조 공기"
@@ -36,6 +36,15 @@ def web(monkeypatch, session):
     t = mock(200, web_body(SAVED))
     monkeypatch.setattr(search, "TRANSPORT", t)
     return t
+
+
+@pytest.fixture
+def liner_routes(monkeypatch, session):
+    """분야 검색(MCP)은 늘 실패(500)하고 웹 검색은 근거 한 줄을 주는 가짜 Liner. (mcp, web)."""
+    add_connection(session)
+    mcp, web = mock_json(call=500), mock(200, web_body(SAVED))
+    monkeypatch.setattr(search, "TRANSPORT", route(mcp, web))
+    return mcp, web
 
 
 @pytest.fixture
@@ -72,20 +81,21 @@ async def test_related_saved_evidence_is_reused_without_calling_liner(ctx, event
     today = datetime.now(SEOUL).date().isoformat()
     assert r.output["reused"] is True and r.output["hint"] == HINT
     [item] = r.output["results"]
-    assert (item["evidence_id"], item["title"], item["searched_at"], item["age_days"]) == (
-        evidence_id, "철근콘크리트 골조 공기 기준", today, 0)
+    assert (item["evidence_id"], item["title"], item["searched_at"], item["age_days"], item["mode"], item["found_by"]) == (
+        evidence_id, "철근콘크리트 골조 공기 기준", today, 0, "web", QUERY)
     assert events[-1].data == {
         "kind": "evidence", "search_id": r.output["search_id"], "query": "층당 골조 공기 철근콘크리트", "mode": "web",
         "reused": True, "results": [{"evidence_id": evidence_id, "title": "철근콘크리트 골조 공기 기준",
                                      "url": "https://example.com/a", "hostname": "example.com",
-                                     "date": "2026-03-01", "searched_at": today}]}
+                                     "date": "2026-03-01", "searched_at": today, "mode": "web"}]}
     row = session.get(EvidenceSearch, r.output["search_id"])
     assert (row.mode, row.ok, row.result_count) == ("reuse", True, 1)  # 다시 쓰기 표시가 있는 줄
     assert session.query(EvidenceItem).count() == 1  # 근거를 새로 만들지 않는다
 
 
-# 맞는 낱말 없음 · 하나만 맞음 · 둘 맞지만 몫이 모자람(2/5)
-@pytest.mark.parametrize("query", ["타워크레인 임대료 시세", "철근 공급업체 납기", "골조 양생", "골조 공기 타워크레인 임대료 시세"])
+# 맞는 낱말 없음 · 일부만 맞음(낱말은 모두 맞아야 한다) · 낱말 하나뿐
+@pytest.mark.parametrize("query", ["타워크레인 임대료 시세", "철근 공급업체 납기", "골조 양생", "골조 공기 타워크레인 임대료 시세",
+                                   "철골 층당 골조 공기", "터널 골조 공기", "공기", "골조"])
 async def test_unrelated_query_falls_through_to_liner(ctx, session, web, query):
     await _saved(ctx)
     r = await call("evidence.search", {"query": query}, ctx)
@@ -99,7 +109,8 @@ async def test_a_normal_search_keeps_its_fields_and_says_not_reused(ctx, events,
     assert r.output == {"search_id": 1, "used": 1, "limit": 3, "reused": False, "hint": None, "note": None, "results": [{
         "evidence_id": 1, "title": "철근콘크리트 골조 공기 기준", "url": "https://example.com/a",
         "hostname": "example.com", "description": "층당 골조 8~12일", "date": "2026-03-01", "authors": [],
-        "journal": None, "searched_at": today, "age_days": 0}]}
+        "journal": None, "searched_at": today, "age_days": 0, "mode": "web", "found_by": QUERY}]}
+    assert list(r.output) == ["search_id", "used", "limit", "reused", "hint", "note", "results"]  # 잘려도 앞 칸은 남게
     assert "reused" not in events[-1].data  # 새로 찾은 카드는 그대로
 
 
@@ -142,10 +153,23 @@ async def test_fresh_searches_liner_again(ctx, session, web):
     assert session.query(EvidenceItem).count() == 2
 
 
-async def test_only_the_same_mode_is_reused(ctx, session, web):
+async def test_any_reusable_mode_serves_any_other_and_says_its_own_mode(ctx, events, session, web):
     await _saved(ctx, mode="scholar")
-    r = await call("evidence.search", {"query": QUERY, "mode": "web"}, ctx)
-    assert r.output["reused"] is False and len(web.requests) == 2
+    r = await call("evidence.search", {"query": QUERY, "mode": "legal"}, ctx)
+    assert r.output["reused"] is True and len(web.requests) == 1
+    assert r.output["results"][0]["mode"] == "scholar"
+    assert events[-1].data["mode"] == "legal" and events[-1].data["results"][0]["mode"] == "scholar"
+
+
+async def test_web_fallback_of_a_failed_legal_search_is_found_by_legal_later(ctx, session, liner_routes):
+    mcp, web = liner_routes
+    r = await call("evidence.search", {"query": QUERY, "mode": "legal"}, ctx)
+    assert r.ok and r.output["note"] == "분야 검색 실패 → 웹 검색"
+    link(session, evidence_ids=[r.output["results"][0]["evidence_id"]], draft_id=1, assumption_label="층당 골조 기간")
+    session.commit()
+    r = await call("evidence.search", {"query": QUERY, "mode": "legal"}, ctx)
+    assert r.output["reused"] is True and r.output["results"][0]["mode"] == "web"
+    assert len(mcp.bodies("tools/call")) == 1 and len(web.requests) == 1
 
 
 async def test_weather_and_info_rows_are_never_reused(ctx, session, web):
@@ -155,7 +179,7 @@ async def test_weather_and_info_rows_are_never_reused(ctx, session, web):
                                   latency_ms=0, hits=[found])
         link(session, evidence_ids=[item.id], draft_id=1, assumption_label="동절기")
         session.commit()
-        assert evidence_reuse.find(session, QUERY, mode, 5) == []
+        assert evidence_reuse.find(session, QUERY, 5) == []
     r = await call("evidence.search", {"query": QUERY}, ctx)
     assert r.output["reused"] is False and len(web.requests) == 1
 
@@ -221,3 +245,44 @@ def test_guides_say_when_to_reuse_and_when_to_ask_the_info_apis():
         assert words in guide, words
     info = (context.GUIDES_DIR / "info.md").read_text(encoding="utf-8")
     assert "evidence__search" in info
+
+
+# 「철근 콘크리트」처럼 띄어 쓰거나 조사가 붙어도 같은 근거를 찾는다
+@pytest.mark.parametrize("query", ["철근 콘크리트 골조 공기", "철근콘크리트의 층당 골조 공기"])
+async def test_spacing_and_particles_still_reuse(ctx, session, web, query):
+    evidence_id = await _saved(ctx)
+    r = await call("evidence.search", {"query": query}, ctx)
+    assert r.output["reused"] is True and r.output["results"][0]["evidence_id"] == evidence_id
+
+
+LAW_URL = "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=" + "%EA%B1%B4%EC%B6%95" * 20
+LONG = [hit("건축법 시행령 제14조 착공신고 처리 기한 " * 2, f"{LAW_URL}&n={n}", hostname="www.law.go.kr",
+            description="가" * 300) for n in range(5)]
+
+
+@pytest.mark.parametrize("reuse", [False, True])
+async def test_long_results_fit_the_tool_result_limit(ctx, session, monkeypatch, reuse):
+    add_connection(session)
+    monkeypatch.setattr(search, "TRANSPORT", mock(200, web_body(*LONG)))
+    query = "건축법 착공신고 처리 기한"
+    r = await call("evidence.search", {"query": query}, ctx)
+    if reuse:
+        link(session, evidence_ids=[x["evidence_id"] for x in r.output["results"]], draft_id=1, assumption_label="a")
+        session.commit()
+        r = await call("evidence.search", {"query": query}, ctx)
+    assert r.output["reused"] is reuse
+    text = context.result_text(ToolResult(ok=True, output=r.output, error=None, ms=0))
+    assert len(text) < context.RESULT_LIMIT - 200 and not text.endswith(context.CUT_NOTE)
+    assert len(r.output["results"]) == 5 and all(x["url"].startswith(LAW_URL) for x in r.output["results"])
+
+
+def test_results_that_cannot_fit_even_without_descriptions_drop_from_the_end():
+    from app.tools.data import search_evidence as tool
+
+    huge = tool.HitOut(evidence_id=1, title="가" * 300, url="https://example.com/" + "a" * 980, hostname="example.com",
+                       description="나" * 300, date=None, authors=[], journal=None, searched_at="2026-11-20",
+                       age_days=3, mode="web", found_by="다" * 300)
+    out = tool._fit(tool.SearchOut(search_id=1, used=0, limit=3, reused=True, hint=HINT,
+                                   results=[huge.model_copy(update={"evidence_id": n}) for n in range(5)]))
+    assert tool._size(out) <= tool.RESULT_BUDGET and [r.evidence_id for r in out.results] == [0]  # 한 줄이 약 1,950자
+    assert out.results[0].url == huge.url and out.reused is True

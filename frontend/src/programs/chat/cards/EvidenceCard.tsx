@@ -58,6 +58,7 @@ function RetireControl({ id }: { id: number }) {
  * 근거 검색(evidence.search 의 evidence 카드, Task 27·27b): 찾은 말·모드 배지, 결과마다 [근거 n](n = evidence_id)·제목 링크(새 탭)·사이트·날짜.
  * 분야 검색이 실패해 웹으로 대신 찾았으면 note 를 작은 줄로 보인다. 결과의 날짜는 근거의 날짜일 뿐이다.
  * 저장된 근거를 다시 쓴 결과(reused, 설계 2026-11-23)는 머리에 「저장된 근거 · MM-DD 검색」, 줄마다 [다시 쓰지 않기].
+ * 다시 쓴 근거를 다른 mode 로 찾았으면 그 줄에 mode 칩.
  */
 export default function EvidenceCard({ data }: CardProps) {
   const mode = asText(data.mode);
@@ -78,6 +79,7 @@ export default function EvidenceCard({ data }: CardProps) {
             const url = asText(r.url);
             const title = asText(r.title) || url || '제목 없음';
             const meta = [asText(r.hostname), dotDate(r.date)].filter(Boolean).join(' · ');
+            const rowMode = asText(r.mode); // 다시 쓴 근거를 찾은 mode — 카드의 mode 와 다를 때만 보인다
             return (
               <li key={id ?? `i${i}`}>
                 {id !== null && <span className="ch-cite">{`[근거 ${id}]`}</span>}
@@ -88,6 +90,7 @@ export default function EvidenceCard({ data }: CardProps) {
                 ) : (
                   <span className="ch-wrap">{title}</span>
                 )}
+                {reused && rowMode && rowMode !== mode && <Badge>{MODES[rowMode] ?? rowMode}</Badge>}
                 {(meta || (reused && id !== null)) && (
                   <span className="ch-meta ch-wrap">
                     {meta}

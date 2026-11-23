@@ -1,5 +1,5 @@
 // 근거 카드의 저장된 근거(설계 2026-11-23): evidence.search 가 다시 쓴 결과의 card 사건 모양 그대로. 사람·현장은 가상.
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { json, signInAsDemo, stubFetch } from '../../../test-helpers';
@@ -23,6 +23,15 @@ test('a reused card says it is saved evidence and when it was searched', () => {
 test('items searched on different days show the range', () => {
   render(<CardView event="card" data={{ ...REUSED, results: [row(1, '2026-11-20'), row(2, '2026-11-02')] }} ctx={ctx} />);
   expect(screen.getByText('저장된 근거 · 11-02~11-20 검색')).toBeVisible();
+});
+
+test('a row found by another mode shows its own mode chip', () => {
+  const rows = [{ ...row(1, '2026-11-20'), mode: 'legal' }, { ...row(2, '2026-11-20'), mode: 'web' }];
+  render(<CardView event="card" data={{ ...REUSED, mode: 'legal', results: rows }} ctx={ctx} />);
+  const items = screen.getAllByRole('listitem');
+  expect(items[0]).not.toHaveTextContent('웹');
+  expect(within(items[1]).getByText('웹')).toBeVisible();
+  expect(screen.getAllByText('법령')).toHaveLength(1); // 카드 머리의 배지만
 });
 
 test('a new search card has no saved-evidence line or retire button', () => {
