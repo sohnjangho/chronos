@@ -371,6 +371,8 @@ class VoiceSettings(Base):
     voice_unknown: Mapped[str | None] = mapped_column(String(100), default=None)
     voices_by_language_json: Mapped[dict] = mapped_column(JSON, default=dict)
     dashboard_agent_id: Mapped[str | None] = mapped_column(String(100), default=None)
+    # AI 전화 번호 — 플랫폼에서 받은, 음성 에이전트에 묶는 번호(문자 발신번호와 다를 수 있다). 정리한 숫자 꼴(Task 90).
+    agent_number: Mapped[str | None] = mapped_column(String(20), default=None)
     status: Mapped[str] = mapped_column(String(10), default="unknown")
     checked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     # 마지막 음성 진단 {ran_at, steps: [DiagnosticStep 을 dict 로], real: bool}(Task 112, NULL 이면 아직 안 돌림).

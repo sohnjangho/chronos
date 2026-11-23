@@ -89,6 +89,31 @@ def test_db_made_by_task_61_gets_the_two_diagnosis_columns(tmp_path):
         assert db.execute("SELECT provider, last_diagnosis_json FROM voice_settings").fetchone() == ("openai", None)
 
 
+def test_db_made_before_the_agent_number_column_gains_it_and_keeps_its_rows(tmp_path):
+    """Task 112 까지의 voice_settings(agent_number 칸 없음, 줄 하나) → init_db → 칸이 더해지고 줄은 그대로, 값은 NULL(Task 90)."""
+    path = tmp_path / "data" / "chronos.db"
+    path.parent.mkdir(parents=True)
+    engine = create_engine(f"sqlite:///{path}")
+    ddl = str(CreateTable(VoiceSettings.__table__).compile(dialect=engine.dialect))
+    old = "\n".join(line for line in ddl.splitlines() if not line.strip().startswith("agent_number "))
+    assert "agent_number" not in old and "dashboard_agent_id" in old
+    with engine.begin() as conn:
+        conn.exec_driver_sql(old)
+        conn.execute(insert(VoiceSettings.__table__).values(connection_id=1, provider="google", secret_last4="7777",
+                                                            model="m", last_diagnosis_json={"ran_at": "x"}))
+    engine.dispose()
+
+    init_db()
+    close_db()
+
+    with closing(sqlite3.connect(path)) as db:
+        columns = [row[1] for row in db.execute("PRAGMA table_info(voice_settings)")]
+        assert "agent_number" in columns and len(columns) == len(VoiceSettings.__table__.columns)
+        assert db.execute("SELECT provider, secret_last4, model, agent_number FROM voice_settings").fetchall() == [
+            ("google", "7777", "m", None)]
+        assert db.execute("SELECT last_diagnosis_json FROM voice_settings").fetchone()[0] == '{"ran_at": "x"}'
+
+
 def test_diagnosis_columns_store_and_read_back_a_dict(session):
     diagnosis = {"ran_at": "2026-11-24T01:00:00+00:00", "real": False,
                  "steps": [{"id": "P1", "label": "발신번호", "ok": True, "skipped": False, "detail": "승인 1개",

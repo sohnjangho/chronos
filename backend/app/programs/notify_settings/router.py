@@ -23,6 +23,7 @@ from app.programs.notify_settings.schemas import (
     ProbeOut,
     StatusOut,
 )
+from app.programs.notify_settings.voice import router as voice_router  # noqa: F401 — 음성 설정·음성 진단 길(Task 90)
 from app.security.deps import require_admin, require_contacts
 from app.store.tables import User
 

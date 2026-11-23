@@ -1,0 +1,725 @@
+"""음성 설정 API와 음성 진단 길(계획 4 Task 90). 계약: .superpowers/sdd/2026-11-23-chronos-plan-4-contacts/task-90-contract.md.
+
+- 음성 모델 키는 암호문과 끝 4자리만 저장하고, 저장한 뒤와 진단에서 풀어 쓰기 전에 로그 거르개에 올린다. 키를 바꾸거나 지우면
+  옛 키는 다른 음성 설정·알림 연결이 쓰지 않을 때만 내린다. AI 전화 번호는 정리한 꼴로 저장하고 가린 꼴로만 내보낸다.
+- 진단은 Task 60 의 `diagnostics_voice.run_voice_checks` 를 **저장된** 값으로 부른다(모듈 속성으로 — 시험이 바꿔 끼운다).
+  한 요청은 한 종류만: 연결(P5·P9·P11) / 통화(P6~P8·P10) / 받는 통화(P12~P14). 통화·받는 통화는 P5·P11 을 같은 연결에서 함께 돌린다.
+- **실제 전화는** `call` 이 진짜 참일 때만, 이 연결의 첫 허용 번호로만(요청에 번호 칸이 없다), 그 번호가 걸 수 있고 확인한 목록 판이
+  지금 목록과 같을 때만 건다. 걸기 전에 `last_diagnosis_json` 에 「거는 중」 기록(state "calling")과 통화 기록(`calls`, 최근 20개,
+  번호 없음)을 남기고 끝나면 결과로 바꾼다. 마지막 통화의 결과를 모르고 10분이 안 됐으면 `confirm_recall` 없이는 다시 걸지 않는다.
+- 연결마다 진단 하나 — 연결 진단(P1~P4)과도 겹치지 않게 같은 표시(`diagnose._RUNNING`)를 쓴다. 표시는 끝·실패·끊김 모두에서 지운다.
+- 걸음은 덩어리마다 따로 부르고 덩어리마다 시간 상한(`_ceiling` — 진단 모듈의 상한을 더한 값)을 건다. 상한에 걸려도 끝난 걸음은
+  실제 결과로 남고, 건 통화의 끝이 확인되지 않았으면 「모름」으로 남긴다. 다시 걸어 보지 않는다.
+- SDK 를 부르는 동안 DB 트랜잭션을 쥐지 않는다(부르기 전에 끝내고, 부른 뒤 줄을 다시 읽어 쓴다). DB 일은 스레드에서 한다.
+- 결과 글은 한 번 더 지운다(키·Account ID·번호). 아무것도 설치하지 않는다 — SDK 가 없으면 진단 모듈의 P5 가 그 까닭을 낸다.
+"""
+
+import asyncio
+import importlib.util
+import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from functools import partial
+from typing import Annotated, Any, Literal
+
+from fastapi import APIRouter, Depends
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    StrictBool,
+    StrictInt,
+    ValidationError,
+)
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
+
+from app.db import get_session
+from app.errors import ApiError
+from app.notify import diagnostics, diagnostics_voice
+from app.outreach import phone, provider, redact
+from app.outreach.voice.voices import SLOTS
+from app.programs.notify_settings import diagnose, service
+from app.programs.notify_settings.schemas import StepOut, UtcDatetime
+from app.security import crypto
+from app.security.deps import require_admin
+from app.store.tables import User
+from app.store.tables_outreach import NotifyConnection, VoiceSettings
+
+router = APIRouter(prefix="/api/notify", tags=["notify"])
+SessionDep = Annotated[Session, Depends(get_session)]
+AdminOnly = Depends(require_admin)
+
+Provider = Literal["google", "openai", "dashboard"]
+StepId = Literal["P5", "P6", "P7", "P8", "P9", "P10", "P11", "P12", "P13", "P14"]
+Part = Literal["connection", "call", "inbound"]
+PARTS = {"connection": frozenset({5, 9, 11}), "call": frozenset({6, 7, 8, 10}), "inbound": frozenset({12, 13, 14})}
+DEFAULT_STEPS = {"connection": (5, 9, 11), "call": (6, 7, 8), "inbound": (12, 13, 14)}
+FIRST_CHUNK = {"call": frozenset({6, 7, 8}), "inbound": frozenset({12, 13})}  # 나머지(P10 · P14)는 둘째 덩어리
+LINK = frozenset({5, 11})  # 통화·받는 통화 요청의 첫 덩어리에 함께 도는 걸음
+RANG = frozenset(code for code, _ in diagnostics_voice.REASONS.values())  # 걸렸고 끝난 통화(받지 않음·통화 중 …)
+HALTED = ("cut_unconfirmed", "accepted_not_started")  # 앞 통화의 끝이 확인되지 않음 — 다음 덩어리를 돌리지 않는다
+SLOT_FIELDS = tuple(SLOTS.values())
+MAX_CHARS = {"secret": service.MAX_SECRET_CHARS, "model": 80, "agent_number": 40, **dict.fromkeys(SLOT_FIELDS, 100)}
+MAX_LANGUAGES = 20
+WAIT_MIN, WAIT_DEFAULT = 10, 90
+RECALL_WINDOW = timedelta(minutes=10)
+CALLS_KEPT = 20
+MARGIN_S = 10
+SDK_TOP = diagnostics_voice.SDK_MODULE.split(".")[0]
+FREE_TIER_NOTICE = ("무료 등급 키로 한 통화의 내용은 구글의 제품 개선에 쓰일 수 있습니다. 실제 협력사와 통화하기 전에 유료 등급 키로 "
+                    "바꿔 주세요.")
+RUNNING = "이 연결의 진단이 이미 돌고 있습니다. 끝난 뒤 다시 해 주세요."
+RECALL = ("앞서 건 시험 전화가 걸렸는지·끊겼는지 아직 모릅니다. 휴대전화를 먼저 확인해 주세요(통화 중이면 끊어 주세요). "
+          "확인한 뒤에도 다시 걸려면 다시 걸기를 골라 주세요.")
+VERSION_NEEDED = "시험 전화와 받는 통화 확인에는 허용 번호 목록 판(allow_numbers_version)을 함께 보내 주세요."
+INVALID_VOICE = "음성 이름은 영문으로 시작하고 영문·숫자·점(.)·줄표(-)·밑줄(_)만 쓸 수 있습니다."
+TIMED_OUT = "진단 시간이 상한을 넘겨 이 걸음을 끝내지 못했습니다."
+NOT_FINISHED = ("전화가 걸렸는지·끊겼는지 알 수 없음 — 요청이 끝나지 않은 채 남았습니다. 휴대전화를 확인해 주세요"
+                "(통화 중이면 끊어 주세요).")
+_MODEL = re.compile(r"[A-Za-z0-9._\-]{1,80}")  # 진단 모듈이 받는 꼴과 같다
+_VOICE = re.compile(r"[A-Za-z][A-Za-z0-9._\-]{0,99}")
+_LANGUAGE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})?")
+_WORD = re.compile(r"[a-z_]{1,40}")
+_VOICE_RUNNING: dict[int, dict] = {}  # 음성 진단이 도는 연결 id → {part, at, by}(이 프로세스)
+
+
+# ── 요청·응답 꼴 ─────────────────────────────────────────────────────
+
+
+class _In(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class VoiceUpdate(_In):
+    """보낸 칸만 바꾼다. 번호·음성 칸은 null 도 「보냄」(비움) — model_fields_set 으로 가른다."""
+
+    provider: Provider | None = None
+    secret: SecretStr | None = None
+    model: str | None = None
+    agent_number: str | None = None
+    voice_male_contact: str | None = None
+    voice_female_contact: str | None = None
+    voice_unknown: str | None = None
+    voices_by_language: dict[str, Any] | None = None  # 안쪽은 손으로 검사한다(검증 오류에 열쇠가 되돌아가지 않게)
+
+
+class VoiceDiagnoseIn(_In):
+    """번호를 받는 칸이 없다 — 거는 번호는 저장된 첫 허용 번호뿐이다."""
+
+    steps: Annotated[list[StepId], Field(min_length=1, max_length=10)] | None = None
+    call: StrictBool = False
+    inbound: StrictBool = False
+    allow_numbers_version: str | None = None  # call·inbound 가 참이면 꼭
+    confirm_recall: StrictBool = False
+    wait_inbound_s: StrictInt = WAIT_DEFAULT
+
+
+class KeyNotice(BaseModel):
+    code: str
+    message: str
+
+
+class VoiceOut(BaseModel):
+    connection_id: int
+    provider: str
+    has_secret: bool
+    secret_last4: str
+    model: str
+    agent_number_masked: str | None
+    agent_number_kind: str
+    voice_male_contact: str | None
+    voice_female_contact: str | None
+    voice_unknown: str | None
+    voices_by_language: dict[str, dict[str, str]]
+    status: str
+    checked_at: UtcDatetime | None
+    sdk_installed: bool
+    test_call_index: int | None
+    key_notice: KeyNotice | None
+    call_limits: dict[str, int]
+
+
+class VoiceStepOut(StepOut):
+    data: dict[str, Any] = Field(default_factory=dict)
+    ran_at: UtcDatetime | None = None
+
+
+class CallRecord(BaseModel):
+    at: UtcDatetime
+    by: str
+    outcome: Literal["calling", "placed", "unknown", "not_placed"]
+
+
+class VoiceDiagnosisOut(BaseModel):
+    state: Literal["running", "done"]
+    part: Part | None
+    ran_at: UtcDatetime
+    by: str | None
+    steps: list[VoiceStepOut]
+    called_real: bool
+    call_unknown: bool
+    calls: list[CallRecord]
+
+
+@dataclass(frozen=True)
+class _Prep:
+    """진단 한 번에 쓸 값(평문 키·번호는 이 요청 동안만 — repr 에는 싣지 않는다)."""
+
+    part: str
+    chunks: tuple[tuple[int, ...], ...]
+    wait: int
+    conn: diagnostics.DiagnosticConn
+    voice: diagnostics_voice.VoiceDiag
+    agent_number: str | None = field(repr=False)
+    call_to: str | None = field(repr=False)
+
+
+# ── 고리 둘: SDK 가 있는가 · 일꾼이 붙어 있는가 ──────────────────────
+
+
+def sdk_installed() -> bool:
+    """음성 SDK 가 설치돼 있는가. 불러오지 않고 꼭대기 이름만 찾는다(SDK 는 불러올 때 준비 표시 파일을 건드린다)."""
+    try:
+        return importlib.util.find_spec(SDK_TOP) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def worker_connected(agent_number: str | None) -> bool:
+    """음성 일꾼이 이 번호로 플랫폼에 붙어 있는가(control 연결은 번호당 하나 — 붙어 있으면 진단이 연결하지 않는다).
+    아직 일꾼이 없어 늘 False 다. 일꾼을 만드는 작업이 이 함수 하나를 바꾼다 — 다른 것으로 짐작하지 않는다."""
+    return False
+
+
+def _ceiling(steps: tuple[int, ...], wait: int) -> float:
+    """덩어리 하나의 시간 상한(초): 진단 모듈이 스스로 지키는 상한(연결·통화·기다림·끊기·닫기)을 더한 값 + 여유."""
+    cut = diagnostics_voice.HANGUP_TIMEOUT_S + diagnostics_voice.END_GRACE_S
+    total = diagnostics.RESOLVE_TIMEOUT_S + diagnostics_voice.CONNECT_TIMEOUT_S  # 이름 풀이 + 연결
+    total += cut + diagnostics_voice.HANGUP_TIMEOUT_S + MARGIN_S  # 닫기(살아 있는 통화 끊기 + 연결 끊기) + 여유
+    wanted = set(steps)
+    if wanted & PARTS["call"]:
+        total += diagnostics_voice.CALL_CUT_S + cut
+    if wanted & FIRST_CHUNK["inbound"]:
+        total += wait + diagnostics_voice.INBOUND_START_S + diagnostics_voice.INBOUND_HOLD_S + cut
+    if 14 in wanted:
+        total += wait + diagnostics_voice.REJECT_GRACE_S + cut
+    return total
+
+
+STALE_CALL_S = 2 * _ceiling((6,), WAIT_DEFAULT) + 60  # 끝나지 않은 「거는 중」 기록을 「모름」으로 읽기까지(통화 두 통의 상한 + 여유)
+CALL_LIMITS = {"calls_per_request": 2, "ring_seconds": diagnostics_voice.RING_TIMEOUT_S,
+               "call_seconds": diagnostics_voice.CALL_CUT_S, "inbound_wait_default": WAIT_DEFAULT,
+               "inbound_wait_min": WAIT_MIN, "inbound_wait_max": diagnostics_voice.MAX_WAIT_INBOUND_S}
+
+
+# ── 설정: 검사·저장·보이기 ───────────────────────────────────────────
+
+
+def _too_long(name: str, limit: int, unit: str = "자") -> ApiError:
+    return ApiError(422, "too_long", f"{limit}{unit}까지 넣을 수 있습니다.", {"field": name, "max": limit})
+
+
+def _voice_id(raw: object, name: str) -> str | None:
+    """음성 이름 하나: 빈 값은 None(비움). 영문으로 시작하는 낱말 꼴만 — 번호처럼 보이는 것은 받지 않는다."""
+    if not isinstance(raw, str | None):
+        raise ApiError(422, "invalid_voice", INVALID_VOICE, {"field": name})
+    value = (raw or "").strip()
+    if not value:
+        return None
+    if len(value) > MAX_CHARS["voice_unknown"]:
+        raise _too_long(name, MAX_CHARS["voice_unknown"])
+    if not _VOICE.fullmatch(value) or redact.hide_phones(value) != value:
+        raise ApiError(422, "invalid_voice", INVALID_VOICE, {"field": name})
+    return value
+
+
+
+def _by_language(raw: dict) -> dict[str, dict[str, str]]:
+    name = "voices_by_language"
+    if len(raw) > MAX_LANGUAGES:
+        raise _too_long(name, MAX_LANGUAGES, "개")
+    bad = ApiError(422, "invalid_language", "언어별 음성의 언어 코드나 칸 이름이 올바르지 않습니다.", {"field": name})
+    out: dict[str, dict[str, str]] = {}
+    for language, slots in raw.items():
+        code = language.strip().lower()
+        if not _LANGUAGE.fullmatch(code) or not isinstance(slots, dict) or not set(slots) <= set(SLOT_FIELDS):
+            raise bad
+        found = {slot: _voice_id(value, name) for slot, value in slots.items()}
+        out[code] = {slot: value for slot, value in found.items() if value}
+    return out
+
+
+def _checked(data: VoiceUpdate) -> dict:
+    """보낸 칸을 검사해 저장할 값으로 바꾼다 {칸: 값}. 틀리면 ApiError — 보낸 값은 싣지 않는다."""
+    sent, values = data.model_fields_set, {}
+    if data.provider is not None:
+        values["provider"] = data.provider
+    if data.secret is not None:
+        key = data.secret.get_secret_value().strip()
+        if len(key) > MAX_CHARS["secret"]:
+            raise _too_long("secret", MAX_CHARS["secret"])
+        if len(key) < diagnostics.MIN_SECRET or not key.isascii() or not key.isprintable() or " " in key:
+            raise ApiError(422, "invalid_secret", "음성 모델 키는 8자 이상이고 공백·줄바꿈 같은 글자가 없어야 합니다.")
+        values["secret"] = key
+    if data.model is not None:
+        model = data.model.strip()
+        if len(model) > MAX_CHARS["model"]:
+            raise _too_long("model", MAX_CHARS["model"])
+        if model and (not _MODEL.fullmatch(model) or redact.hide_phones(model) != model):
+            raise ApiError(422, "invalid_model", "모델 이름에는 영문·숫자·점(.)·줄표(-)·밑줄(_)만 쓸 수 있습니다.")
+        values["model"] = model
+    if "agent_number" in sent:
+        raw = (data.agent_number or "").strip()
+        if len(raw) > MAX_CHARS["agent_number"]:
+            raise _too_long("agent_number", MAX_CHARS["agent_number"])
+        number = phone.normalize(raw) if raw else None
+        if raw and (number is None or not phone.can_call(number)):
+            raise ApiError(422, "invalid_number", "번호 형식이 올바르지 않거나 쓸 수 없는 번호입니다.", {"field": "agent_number"})
+        values["agent_number"] = number
+    for slot in SLOT_FIELDS:
+        if slot in sent:
+            values[slot] = _voice_id(getattr(data, slot), slot)
+    if data.voices_by_language is not None:
+        values["voices_by_language"] = _by_language(data.voices_by_language)
+    return values
+
+
+def _plain(ciphertext: str | None) -> str | None:
+    try:
+        return crypto.decrypt(ciphertext) if ciphertext else None
+    except crypto.SecretUnreadable:
+        return None
+
+
+def _apply(row: VoiceSettings, values: dict, old_key: str | None) -> None:
+    """검사한 값을 줄에 적는다. 공급자·키·모델·AI 전화 번호가 실제로 바뀌면 상태와 진단 걸음 줄을 비운다(통화 기록은 남긴다)."""
+    target, new_key, reset = values.get("provider", row.provider), values.get("secret"), False
+    if target != row.provider:
+        if new_key is None and target != "dashboard":
+            raise ApiError(422, "secret_required", "공급자를 바꾸면 음성 모델 키를 다시 넣어 주세요.")
+        row.provider, reset = target, True
+        if new_key is None:
+            row.secret_ciphertext, row.secret_last4 = None, ""
+    if new_key is not None and new_key != old_key:
+        row.secret_ciphertext, row.secret_last4, reset = crypto.encrypt(new_key), new_key[-4:], True
+    for name in ("model", "agent_number"):
+        if name in values and values[name] != getattr(row, name):
+            setattr(row, name, values[name])
+            reset = True
+    for slot in SLOT_FIELDS:
+        if slot in values:
+            setattr(row, slot, values[slot])
+    if "voices_by_language" in values:
+        row.voices_by_language_json = values["voices_by_language"]
+    if reset:
+        row.status, row.checked_at = "unknown", None
+        if isinstance(row.last_diagnosis_json, dict):
+            row.last_diagnosis_json = {**row.last_diagnosis_json, "steps": []}
+
+
+def _drop_unused(session: Session, old: str | None) -> None:
+    """옛 음성 키를 로그 거르개에서 내린다 — 다른 음성 설정·알림 연결이 같은 값을 쓰지 않을 때만."""
+    if not old:
+        return
+    in_use = {_plain(row.secret_ciphertext) for row in session.scalars(select(VoiceSettings))}
+    for conn in session.scalars(select(NotifyConnection)):
+        in_use |= {conn.account_id, _plain(conn.secret_ciphertext)}
+    session.rollback()
+    if old not in in_use:
+        redact.drop_secrets(old)
+
+
+def save(session: Session, conn_id: int, data: VoiceUpdate) -> VoiceOut:
+    """보낸 칸만 고친다(처음이면 줄을 만든다). 읽고-고치고-쓰기는 쓰기 트랜잭션 하나, 진단이 도는 동안은 받지 않는다."""
+    service.get(session, conn_id)
+    values = _checked(data)
+    service.begin_write(session)
+    try:
+        conn = service.get(session, conn_id, fresh=True)
+        if conn_id in diagnose._RUNNING:
+            raise ApiError(409, "diagnosis_running", RUNNING)
+        row = session.get(VoiceSettings, conn_id, populate_existing=True)
+        if row is None:
+            row = VoiceSettings(connection_id=conn_id, provider="google", secret_last4="", model="",
+                                voices_by_language_json={}, status="unknown")
+            session.add(row)
+        old_key = _plain(row.secret_ciphertext)
+        _apply(row, values, old_key)
+    except ApiError:
+        session.rollback()
+        raise
+    session.commit()
+    new_key = _plain(row.secret_ciphertext)
+    redact.add_secrets(new_key)
+    shown = _out(conn, row)
+    if new_key != old_key:
+        _drop_unused(session, old_key)
+    return shown
+
+
+def _out(conn: NotifyConnection, row: VoiceSettings | None) -> VoiceOut:
+    number = row.agent_number if row is not None else None
+    allow = list(conn.allow_numbers_json or [])
+    name = row.provider if row is not None else "google"
+    by_language = row.voices_by_language_json if row is not None else None
+    return VoiceOut(
+        connection_id=conn.id, provider=name, has_secret=bool(row is not None and row.secret_ciphertext),
+        secret_last4=row.secret_last4 if row is not None and row.secret_ciphertext else "",
+        model=row.model if row is not None else "",
+        agent_number_masked=phone.mask(number) if number else None,
+        agent_number_kind=(phone.kind(number) or "") if number else "",
+        **{slot: getattr(row, slot) if row is not None else None for slot in SLOT_FIELDS},
+        voices_by_language={lang: {s: v for s, v in slots.items() if isinstance(v, str)}
+                            for lang, slots in (by_language if isinstance(by_language, dict) else {}).items()
+                            if isinstance(slots, dict)},
+        status=row.status if row is not None else "unknown", checked_at=row.checked_at if row is not None else None,
+        sdk_installed=sdk_installed(), test_call_index=0 if allow and phone.can_call(allow[0]) and number else None,
+        key_notice=KeyNotice(code="google_free_tier", message=FREE_TIER_NOTICE) if name == "google" else None,
+        call_limits=CALL_LIMITS,
+    )
+
+
+# ── 진단: 걸기 전 검사·기록 ──────────────────────────────────────────
+
+
+def _plan(data: VoiceDiagnoseIn) -> tuple[str, tuple[tuple[int, ...], ...]]:
+    """요청 하나가 돌릴 종류와 덩어리. 걸거나 받는 걸음은 그 깃발이 진짜 참일 때만 든다."""
+    if data.call and data.inbound:
+        raise ApiError(422, "one_part_only", "시험 전화와 받는 통화 확인은 한 번에 하나만 할 수 있습니다.")
+    part = "call" if data.call is True else "inbound" if data.inbound is True else "connection"
+    picked = {int(step[1:]) for step in data.steps} if data.steps else set(DEFAULT_STEPS[part])
+    outside = sorted(picked - PARTS[part])
+    if outside:
+        raise ApiError(422, "steps_not_in_part", "고른 걸음은 이 진단에서 돌릴 수 없습니다.",
+                       {"steps": [f"P{n}" for n in outside]})
+    if not WAIT_MIN <= data.wait_inbound_s <= diagnostics_voice.MAX_WAIT_INBOUND_S:
+        raise ApiError(422, "invalid_wait", f"기다릴 시간은 {WAIT_MIN}초에서 {diagnostics_voice.MAX_WAIT_INBOUND_S}초 "
+                                            "사이여야 합니다.")
+    if part == "connection":
+        return part, (tuple(sorted(picked)),)
+    if picked & {7, 8}:
+        picked.add(6)  # P7·P8 은 P6 과 한 통화다
+    chunks = [c for c in (picked & FIRST_CHUNK[part], picked - FIRST_CHUNK[part]) if c]
+    chunks[0] = chunks[0] | LINK
+    return part, tuple(tuple(sorted(c)) for c in chunks)
+
+
+def _call_target(conn: NotifyConnection, row: VoiceSettings, data: VoiceDiagnoseIn) -> str:
+    """걸 번호(받는 통화에서는 받아 줄 번호) — 확인한 목록의 첫 허용 번호뿐. 걸 수 없으면 ApiError(아무것도 돌리기 전)."""
+    allow = list(conn.allow_numbers_json or [])
+    if not allow:
+        raise ApiError(422, "no_allow_numbers", "허용 번호를 먼저 넣어 주세요")
+    version = data.allow_numbers_version
+    # 판은 ASCII 글이다 — 다른 글자가 섞인 값은 견주기 전에 「바뀜」으로 다룬다(hmac.compare_digest 는 ASCII 만 받는다)
+    service.check_allow_version(conn, version if version is None or version.isascii() else "", VERSION_NEEDED)
+    if not phone.can_call(allow[0]):
+        raise ApiError(422, "test_number_not_callable", "첫 허용 번호가 전화를 걸 수 없는 번호입니다.")
+    if not row.agent_number:
+        raise ApiError(422, "no_agent_number", "AI 전화 번호를 먼저 넣어 주세요.")
+    return allow[0]
+
+
+def _settings(session: Session, conn_id: int, *, fresh: bool = False) -> VoiceSettings:
+    row = session.get(VoiceSettings, conn_id, populate_existing=fresh)
+    if row is not None and row.provider == "dashboard":
+        raise ApiError(422, "voice_provider_not_supported", "대시보드 에이전트 방식은 음성 진단을 하지 않습니다.")
+    if row is None or not row.secret_ciphertext:
+        raise ApiError(422, "voice_key_required", "음성 모델 키를 먼저 넣어 주세요.")
+    return row
+
+
+def _prepare_sync(session: Session, conn_id: int, data: VoiceDiagnoseIn) -> _Prep:
+    conn = service.get(session, conn_id)
+    if len(data.allow_numbers_version or "") > service.MAX_CHARS["allow_numbers_version"]:
+        raise _too_long("allow_numbers_version", service.MAX_CHARS["allow_numbers_version"])
+    part, chunks = _plan(data)
+    row = _settings(session, conn_id)
+    call_to = _call_target(conn, row, data) if part != "connection" else None
+    key = service.stored_key(conn)
+    voice_key = _plain(row.secret_ciphertext)
+    if voice_key is None:
+        raise ApiError(409, "voice_secret_unreadable", "저장된 음성 모델 키를 읽을 수 없습니다. 키를 다시 넣어 주세요.")
+    provider.register_secrets(key, conn.account_id)  # 풀자마자, SDK 를 건드리기 전에 로그 거르개에 올린다
+    redact.add_secrets(voice_key)
+    prep = _Prep(
+        part=part, chunks=chunks, wait=data.wait_inbound_s, agent_number=row.agent_number, call_to=call_to,
+        conn=diagnostics.DiagnosticConn(base_url=conn.base_url, key=key, account_id=conn.account_id,
+                                        sender=conn.sender_number or ""),
+        voice=diagnostics_voice.VoiceDiag(provider=row.provider, key=voice_key, model=row.model or None))
+    session.rollback()  # 트랜잭션을 끝내고 부른다
+    return prep
+
+
+def _record(row: VoiceSettings | None) -> dict:
+    found = row.last_diagnosis_json if row is not None else None
+    return found if isinstance(found, dict) else {}
+
+
+def _calls(record: dict) -> list[dict]:
+    rows = record.get("calls")
+    return [dict(r) for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def _open_call(calls: list[dict], now: datetime) -> bool:
+    """마지막 시험 전화의 결과를 모르고(거는 중·모름) 10분이 안 됐는가."""
+    if not calls or calls[-1].get("outcome") not in ("calling", "unknown"):
+        return False
+    at = diagnose._when(calls[-1].get("at"))
+    return at is None or now - at < RECALL_WINDOW
+
+
+def _mark_calling_sync(session: Session, conn_id: int, data: VoiceDiagnoseIn, by: str, now: datetime) -> None:
+    """쓰기 트랜잭션 하나: 목록 판·앞선 통화의 결과를 다시 보고 「거는 중」 기록을 남긴다(앞 진단의 걸음 줄은 그대로 둔다)."""
+    service.begin_write(session)
+    try:
+        conn = service.get(session, conn_id, fresh=True)
+        row = _settings(session, conn_id, fresh=True)
+        _call_target(conn, row, data)
+        record = _record(row)
+        calls = _calls(record)
+        if not data.confirm_recall and _open_call(calls, now):
+            raise ApiError(409, "call_unknown_pending", RECALL)
+    except ApiError:
+        session.rollback()
+        raise
+    calls = (calls + [{"at": now.isoformat(), "by": by, "outcome": "calling"}])[-CALLS_KEPT:]
+    row.last_diagnosis_json = {"state": "calling", "part": "call", "ran_at": now.isoformat(), "by": by,
+                               "steps": record.get("steps") or [], "real": False, "call_unknown": False, "calls": calls}
+    session.commit()
+
+
+# ── 진단: 돌리기 ─────────────────────────────────────────────────────
+
+
+async def _checks(prep: _Prep) -> tuple[dict[int, diagnostics.DiagnosticStep], str, diagnostics_voice.VoiceBudget]:
+    """({걸음 번호: 결과}, 멈춘 까닭, 통화 수). 까닭: "" · "timeout"(상한) · "unlinked"(연결 실패) · "stopped"(앞 통화의 끝을 모름)."""
+    rows: dict[int, diagnostics.DiagnosticStep] = {}
+    budget = diagnostics_voice.VoiceBudget()
+    busy = worker_connected(prep.agent_number)
+    for steps in prep.chunks:
+        try:
+            async with asyncio.timeout(_ceiling(steps, prep.wait)):
+                found = await diagnostics_voice.run_voice_checks(
+                    prep.conn, prep.voice, agent_number=prep.agent_number, steps=steps, call_to=prep.call_to,
+                    wait_inbound_s=prep.wait, worker_connected=busy, budget=budget)
+        except TimeoutError:
+            return rows, "timeout", budget
+        by_id = {step.id: step for step in found}
+        got = {n: by_id[f"P{n}"] for n in steps if f"P{n}" in by_id}
+        rows.update(got)
+        if (5 in got and got[5].ok is not True) or any(s.code == "skipped_not_connected" for s in got.values()):
+            return rows, "unlinked", budget
+        if budget.maybe_live or any(s.maybe_sent is True or s.code in HALTED for s in got.values()):
+            return rows, "stopped", budget
+    return rows, "", budget
+
+
+
+def _line(n: int, *, ran_at: str | None, code: str, detail: str, ok: bool = False, skipped: bool = False,
+          latency_ms: int | None = None, notes: list[str] | None = None, maybe_sent: bool = False,
+          data: dict | None = None) -> dict:
+    """걸음 줄 하나(저장하는 꼴 = 내보내는 꼴). 이름표는 늘 우리 것."""
+    return {"id": f"P{n}", "label": diagnostics_voice.LABELS[f"P{n}"], "ok": ok, "skipped": skipped, "detail": detail,
+            "latency_ms": latency_ms, "notes": notes or [], "code": code, "maybe_sent": maybe_sent, "pending": False,
+            "data": data or {}, "ran_at": ran_at}
+
+
+def _never(n: int) -> dict:
+    return _line(n, ran_at=None, code="skipped_not_requested", detail=diagnostics.NOT_REQUESTED, skipped=True)
+
+
+def _data(raw: object, clean: Callable[..., str]) -> dict:
+    """참거짓·작은 수·짧은 글만 남긴다(안쪽 dict 는 한 단계, 참거짓·수만). 열쇠는 낱말 꼴만 — 그 밖은 버린다."""
+    out: dict = {}
+
+    def plain(value: object) -> bool:
+        return value is None or type(value) is bool or (type(value) is int and abs(value) < 10_000_000)
+
+    for key, value in (raw.items() if isinstance(raw, dict) else ()):
+        if not (isinstance(key, str) and _WORD.fullmatch(key)):
+            continue
+        if isinstance(value, dict):
+            inner = {k: v for k, v in value.items() if isinstance(k, str) and _WORD.fullmatch(k) and plain(v)}
+            if inner:
+                out[key] = inner
+        elif plain(value):
+            out[key] = value
+        elif isinstance(value, str):
+            out[key] = clean(value, limit=80)
+    return out
+
+
+def _fresh(prep: _Prep, rows: dict[int, diagnostics.DiagnosticStep], halt: str, budget: diagnostics_voice.VoiceBudget,
+           now: datetime) -> dict[int, dict]:
+    """이번 요청이 돌린 걸음의 줄 {걸음 번호: 줄}. 글은 한 번 더 지우고, 끝나지 못한 걸음은 까닭을 적는다."""
+    clean = partial(diagnostics.scrub, secrets=[prep.conn.key, prep.conn.account_id, prep.voice.key],
+                    numbers=[n for n in (prep.agent_number, prep.call_to, prep.conn.sender) if n])
+    stamp, out = now.isoformat(), {}
+    wanted = sorted({n for chunk in prep.chunks for n in chunk})
+    unsure = next((n for n in wanted if n in (6, 10) and n not in rows), None) if budget.maybe_live else None
+    for n in wanted:
+        step = rows.get(n)
+        if step is not None:
+            code = step.code if isinstance(step.code, str) and _WORD.fullmatch(step.code) else "unknown"
+            skipped = step.skipped is True
+            out[n] = _line(n, ran_at=stamp, code=code, detail=clean(step.detail, limit=400), skipped=skipped,
+                           ok=step.ok is True and not skipped, maybe_sent=step.maybe_sent is True,
+                           latency_ms=step.latency_ms if type(step.latency_ms) is int else None,
+                           notes=[clean(note, limit=500) for note in (step.notes or [])][:20],
+                           data=_data(getattr(step, "data", None), clean))
+        elif halt == "timeout":
+            maybe = n == unsure
+            detail = f"{TIMED_OUT} {diagnostics_voice.MAYBE_PLACED}" if maybe else TIMED_OUT
+            out[n] = _line(n, ran_at=stamp, code="timeout", detail=detail, maybe_sent=maybe)
+        elif halt == "unlinked":
+            out[n] = _line(n, ran_at=stamp, code="skipped_not_connected", detail=diagnostics_voice.NOT_LINKED, skipped=True)
+        else:
+            out[n] = _line(n, ran_at=stamp, code="skipped_stopped", detail=diagnostics_voice.STOPPED, skipped=True)
+    return out
+
+
+def _outcome(fresh: dict[int, dict], halt: str, budget: diagnostics_voice.VoiceBudget) -> str:
+    """시험 전화 요청의 결과: unknown(걸렸는지·끊겼는지 모름) · placed(걸렸고 끝남) · not_placed(걸리지 않음)."""
+    if budget.maybe_live or any(line["maybe_sent"] for line in fresh.values()):
+        return "unknown"
+    rang = any(fresh[n]["ok"] or fresh[n]["code"] in RANG for n in (6, 10) if n in fresh)
+    return "placed" if rang or (halt == "timeout" and budget.placed > 0) else "not_placed"
+
+
+def _steps(record: dict, fresh: dict[int, dict] | None = None) -> list[dict]:
+    """열 줄(P5~P14): 이번에 돌린 줄, 아니면 저장된 마지막 결과, 그것도 없으면 「확인하지 않음」."""
+    saved = {s.get("id"): s for s in record.get("steps") or [] if isinstance(s, dict)}
+    out = []
+    for n in diagnostics_voice.STEPS:
+        line = (fresh or {}).get(n)
+        if line is None:
+            try:
+                line = VoiceStepOut(**saved[f"P{n}"]).model_dump(mode="json") if f"P{n}" in saved else _never(n)
+            except (ValidationError, TypeError):
+                line = _never(n)
+        out.append(line)
+    return out
+
+
+def _status(steps: list[dict]) -> str:
+    """걸음마다의 마지막 결과 가운데 연결(P5)·번호 묶기(P11)·통화(P6)로 정한다."""
+    by_id = {line["id"]: line for line in steps}
+    if any(by_id[i]["ran_at"] and not by_id[i]["ok"] and not by_id[i]["skipped"] for i in ("P5", "P11", "P6")):
+        return "failed"
+    return "ok" if by_id["P5"]["ok"] else "unknown"
+
+
+def _save_sync(session: Session, conn_id: int, part: str, fresh: dict[int, dict], outcome: str | None, now: datetime,
+               by: str) -> VoiceDiagnosisOut:
+    """결과로 바꾼다(쓰기 트랜잭션 하나, 줄은 다시 읽는다). 통화 기록은 이어 쓰고 이번 것은 결과로 고친다."""
+    service.begin_write(session)
+    row = session.get(VoiceSettings, conn_id, populate_existing=True)
+    record = _record(row)
+    calls = _calls(record)
+    for call in calls:
+        if outcome is not None and call.get("at") == now.isoformat():
+            call["outcome"] = outcome
+    unknown = outcome == "unknown" if outcome is not None else record.get("call_unknown") is True
+    steps = _steps(record, fresh)
+    record = {"state": "done", "part": part, "ran_at": now.isoformat(), "by": by, "steps": steps,
+              "real": outcome == "placed", "call_unknown": unknown, "calls": calls}
+    if row is None:  # 그사이 지워졌다 — 저장하지 않고 결과만 돌려준다
+        session.rollback()
+        return _shown(record, now)
+    row.last_diagnosis_json = record
+    if fresh.get(5, {}).get("code") != "worker_connected":  # 일꾼이 붙어 있어 연결해 보지 않은 진단은 상태를 바꾸지 않는다
+        row.status, row.checked_at = _status(steps), now
+    session.commit()
+    return _shown(record, datetime.now(UTC))
+
+
+async def run(session: Session, conn_id: int, data: VoiceDiagnoseIn, by: str) -> VoiceDiagnosisOut:
+    prep = await run_in_threadpool(_prepare_sync, session, conn_id, data)
+    if conn_id in diagnose._RUNNING:  # 연결 진단(P1~P4)과도 겹치지 않는다
+        raise ApiError(409, "diagnosis_running", RUNNING)
+    now = datetime.now(UTC)
+    diagnose._RUNNING.add(conn_id)
+    _VOICE_RUNNING[conn_id] = {"part": prep.part, "at": now, "by": by}
+    try:
+        if prep.part == "call":
+            await run_in_threadpool(_mark_calling_sync, session, conn_id, data, by, now)
+        rows, halt, budget = await _checks(prep)
+        fresh = _fresh(prep, rows, halt, budget, now)
+        outcome = _outcome(fresh, halt, budget) if prep.part == "call" else None
+        return await run_in_threadpool(_save_sync, session, conn_id, prep.part, fresh, outcome, now, by)
+    finally:
+        diagnose._RUNNING.discard(conn_id)
+        _VOICE_RUNNING.pop(conn_id, None)
+
+
+# ── 진단: 읽기 ───────────────────────────────────────────────────────
+
+
+def _records(calls: list[dict], now: datetime) -> list[CallRecord]:
+    """시험 전화 기록. 상한보다 오래 「거는 중」으로 남은 것은 「모름」으로 읽는다."""
+    out = []
+    for call in calls:
+        at = diagnose._when(call.get("at"))
+        outcome = call.get("outcome")
+        if at is not None and outcome == "calling" and now - at > timedelta(seconds=STALE_CALL_S):
+            outcome = "unknown"
+        try:
+            out.append(CallRecord(at=at, by=str(call.get("by") or ""), outcome=outcome))
+        except ValidationError:
+            continue
+    return out
+
+
+def _shown(record: dict, now: datetime) -> VoiceDiagnosisOut | None:
+    ran_at = diagnose._when(record.get("ran_at"))
+    if ran_at is None:
+        return None
+    base = {"part": record.get("part") if record.get("part") in PARTS else None, "ran_at": ran_at,
+            "by": record.get("by") if isinstance(record.get("by"), str) else None,
+            "calls": _records(_calls(record), now)}
+    if record.get("state") != "calling":
+        return VoiceDiagnosisOut(state="done", steps=_steps(record), called_real=record.get("real") is True,
+                                 call_unknown=record.get("call_unknown") is True, **base)
+    if now - ran_at <= timedelta(seconds=STALE_CALL_S):  # 걸고 있다(다른 프로세스이거나 방금 죽었을 수도 있다)
+        return VoiceDiagnosisOut(state="running", steps=[], called_real=False, call_unknown=False, **base)
+    unfinished = _line(6, ran_at=ran_at.isoformat(), code="not_finished", detail=NOT_FINISHED, maybe_sent=True)
+    return VoiceDiagnosisOut(state="done", steps=_steps(record, {6: unfinished}), called_real=False, call_unknown=True,
+                             **base)
+
+
+def last(session: Session, conn_id: int) -> VoiceDiagnosisOut | None:
+    service.get(session, conn_id)
+    record, now = _record(session.get(VoiceSettings, conn_id)), datetime.now(UTC)
+    running = _VOICE_RUNNING.get(conn_id)
+    if running is not None:
+        return VoiceDiagnosisOut(state="running", part=running["part"], ran_at=running["at"], by=running["by"],
+                                 steps=[], called_real=False, call_unknown=False, calls=_records(_calls(record), now))
+    return _shown(record, now)
+
+
+# ── 길(모두 관리자) ──────────────────────────────────────────────────
+
+
+@router.get("/connections/{conn_id}/voice", dependencies=[AdminOnly])
+def get_voice(conn_id: int, session: SessionDep) -> VoiceOut:
+    return _out(service.get(session, conn_id), session.get(VoiceSettings, conn_id))
+
+
+@router.put("/connections/{conn_id}/voice", dependencies=[AdminOnly])
+def put_voice(conn_id: int, body: VoiceUpdate, session: SessionDep) -> VoiceOut:
+    return save(session, conn_id, body)
+
+
+@router.post("/connections/{conn_id}/voice/diagnose")
+async def run_voice_diagnosis(conn_id: int, body: VoiceDiagnoseIn, session: SessionDep,
+                              user: Annotated[User, Depends(require_admin)]) -> VoiceDiagnosisOut:
+    return await run(session, conn_id, body, user.name)
+
+
+@router.get("/connections/{conn_id}/voice/diagnosis", dependencies=[AdminOnly])
+def last_voice_diagnosis(conn_id: int, session: SessionDep) -> VoiceDiagnosisOut | None:
+    return last(session, conn_id)
