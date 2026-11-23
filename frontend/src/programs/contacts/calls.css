@@ -1,0 +1,84 @@
+/* 연락처 통화 탭과 「전화 걸기」 창(Task 92, 시안 ②③). 색·글꼴은 tokens.css 변수만(두 테마).
+   통화 목록은 대화 칸과 같은 세로 세 층(머리 · 목록(여기만 스크롤) · 아래 [전화 걸기] 줄)이고, 날짜 줄·이름표·사건 접힌 줄은
+   thread.css 의 것을 그대로 쓴다. 받아쓰기는 카드 안의 제 상자에서만 스크롤한다. 글은 어디서든 줄을 바꾼다(가로로 밀지 않는다). */
+.cl-search {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.cl-search .ct-input { flex: 1 1 200px; min-width: 0; }
+.cl-search-count { flex: none; color: var(--fg-muted); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+
+/* 통화 카드 한 장 */
+.cl-card {
+  flex: none; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 5px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-4); background: var(--bg-panel);
+}
+.cl-card.is-draft { border: 1.5px dashed var(--border-strong); }
+.cl-card.is-draft.is-ai { border-color: color-mix(in srgb, var(--tile-violet-from) 70%, var(--fg-muted)); }
+.cl-card.is-live { border-color: color-mix(in srgb, var(--tone-info-fg) 55%, var(--border)); }
+.cl-card .th-meta { justify-content: flex-start; }
+.th-chip.is-ai { background: color-mix(in srgb, var(--tile-violet-from) 16%, var(--bg-panel)); color: var(--fg); border-color: transparent; }
+.cl-text { margin: 0; min-width: 0; font-size: var(--fs-13); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cl-text b { margin-right: 6px; }
+.cl-small { margin: 0; min-width: 0; color: var(--fg-muted); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.cl-card .th-acts { justify-content: flex-start; }
+
+/* 질문별 답과 근거 */
+.cl-answers { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cl-answers li {
+  min-width: 0; padding: 5px 8px; border-radius: var(--radius-3); background: var(--bg-panel-alt); font-size: var(--fs-12);
+  overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 2px;
+}
+.cl-q { color: var(--fg-muted); }
+.cl-a { color: var(--fg); font-weight: 600; white-space: pre-wrap; }
+.cl-quote { color: var(--fg-muted); }
+.cl-answers .th-chip { align-self: flex-start; }
+
+/* 결과 확정 */
+.cl-confirm { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cl-confirm .ct-textarea { width: 100%; min-height: 64px; box-sizing: border-box; }
+.cl-audio { width: 100%; max-width: 420px; }
+
+/* 받아쓰기: 제 상자 안에서만 스크롤 */
+.cl-tr { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cl-tr-head { margin: 0; color: var(--fg-muted); font-size: var(--fs-11); font-weight: 700; }
+.cl-tr-scroll {
+  max-height: 320px; min-height: 0; overflow-y: auto; overflow-x: hidden; margin: 0; padding: 6px 10px; list-style: none;
+  border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--bg-panel-alt); box-sizing: border-box;
+}
+.cl-tr-scroll:focus-visible { outline-offset: -2px; }
+.cl-tr-scroll li { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 2px 8px; padding: 2px 0; font-size: var(--fs-12); }
+.cl-tr-who { font-weight: 700; color: var(--fg); white-space: nowrap; }
+.cl-tr-who.is-ai { color: color-mix(in srgb, var(--tile-violet-from) 55%, var(--fg)); }
+.cl-tr-t { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.cl-tr-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* 아래 [전화 걸기] 줄 */
+.cl-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 16px; }
+.cl-foot .cl-small { flex: 1 1 240px; }
+
+/* 「전화 걸기」 창 */
+.cl-dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 12px 20px; display: flex; flex-direction: column; gap: 10px; }
+.cl-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: var(--fs-13); }
+.cl-kv dt { color: var(--fg-muted); }
+.cl-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.cl-kv ol { margin: 0; padding: 0; list-style: none; }
+.cl-form { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.cl-form label { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: var(--fs-12); color: var(--fg-muted); font-weight: 600; }
+.cl-form .ct-textarea { width: 100%; min-height: 56px; box-sizing: border-box; }
+.cl-form .ct-input { font-weight: 400; color: var(--fg); }
+.cl-form .cl-hint { font-weight: 400; }
+.cl-off { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; color: var(--warning-text); font-size: var(--fs-13); font-weight: 600; }
+.cl-state { margin: 0; overflow-wrap: anywhere; font-size: var(--fs-13); font-weight: 600; }
+.cl-state.is-ok { color: var(--success-text); }
+.cl-state.is-info { color: var(--tone-info-fg); }
+.cl-state.is-warn { color: var(--warning-text); }
+.cl-state.is-bad { color: var(--danger-text); }
+.cl-state.is-muted { color: var(--fg-muted); }
+
+@container (max-width: 480px) {
+  .cl-kv { grid-template-columns: minmax(0, 1fr); gap: 0 0; }
+  .cl-kv dd { margin-bottom: 6px; }
+  .cl-dialog-body { padding: 10px 14px; }
+  .cl-search, .cl-foot { padding-left: 12px; padding-right: 12px; }
+}

@@ -8,6 +8,7 @@ import type { ProgramProps } from '../../os/registry';
 import { useSession } from '../../os/session';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
+import { outreachApi } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import Tabs from '../../shared/ui/Tabs';
 import AddressBook from './AddressBook';
@@ -121,11 +122,13 @@ function channelText(p: PersonBrief, kakaoReady: boolean): string {
   return names.length ? `${names.join('·')} 가능` : '연락할 수 없음';
 }
 
-function PersonHead({ p, company, kakaoReady, tab, onTab, onEdit, onBack }: {
+function PersonHead({ p, company, kakaoReady, tab, calls, onTab, onEdit, onBack }: {
   p: PersonBrief;
   company: string;
   kakaoReady: boolean;
   tab: ThreadTab;
+  /** 통화 수(탭 글 「통화 n」) — 읽지 못했으면 null */
+  calls: number | null;
   onTab: (t: ThreadTab) => void;
   onEdit: () => void;
   onBack: () => void;
@@ -155,7 +158,7 @@ function PersonHead({ p, company, kakaoReady, tab, onTab, onEdit, onBack }: {
           onChange={(t) => onTab(t as ThreadTab)}
           items={[
             { id: 'messages', label: '문자 · 카카오톡' },
-            { id: 'calls', label: '통화' },
+            { id: 'calls', label: calls === null ? '통화' : `통화 ${calls}` },
           ]}
         />
         <Button onClick={onEdit}>고치기</Button>
@@ -184,6 +187,23 @@ function useBook(scheduleId: number, showHidden: boolean) {
   }, [scheduleId, showHidden, n]);
   const reload = useCallback(() => setN((x) => x + 1), []);
   return { book, error, reload };
+}
+
+/** 고른 사람의 통화 수(Task 92). 주소록을 다시 읽을 때(통화 탭의 동작 뒤 포함) 다시 센다. 못 읽으면 null(탭 글은 「통화」). */
+function useCallCount(scheduleId: number, contactId: number | null, book: Book | null) {
+  const [count, setCount] = useState<{ id: number; n: number } | null>(null);
+  useEffect(() => {
+    if (contactId === null) return;
+    let live = true;
+    outreachApi.listCalls(scheduleId, contactId).then(
+      (rows) => live && setCount({ id: contactId, n: rows.length }),
+      () => live && setCount(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [scheduleId, contactId, book]);
+  return count && count.id === contactId ? count.n : null;
 }
 
 function useNotifyStatus() {
@@ -229,6 +249,14 @@ function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projec
   useEffect(() => {
     if (handing && tab === 'messages') setUsedKey(handKey);
   }, [handing, tab, handKey]);
+  // 넘겨받은 통화 초안(params.call)도 그 사람의 통화 탭에 한 번만 — 창을 닫은 뒤 탭을 오가거나 다시 그려져도 다시 열지 않는다.
+  // 다른 프로그램이 다시 열면(새 params) 다시 넘긴다.
+  const [usedCall, setUsedCall] = useState<Params>(undefined);
+  const handingCall = mode.kind === 'none' && selected !== null && selected.id === positiveInt(params?.contact) && params?.call !== undefined && usedCall !== params;
+  useEffect(() => {
+    if (handingCall && tab === 'calls') setUsedCall(params);
+  }, [handingCall, tab, params]);
+  const callCount = useCallCount(scheduleId, selected?.id ?? null, book);
   if (isInbox(mode))
     return <InboxPane mode={mode} scheduleId={scheduleId} book={book} isAdmin={isAdmin} inbox={inbox} setMode={setMode} openPerson={openPerson} reload={reload} />;
   if (mode.kind === 'person')
@@ -273,12 +301,13 @@ function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projec
         company={company}
         kakaoReady={kakaoReady}
         tab={tab}
+        calls={callCount}
         onTab={setTab}
         onEdit={() => setMode({ kind: 'person', id: selected.id, companyId: null })}
         onBack={() => setSelectedId(null)}
       />
       <section className="ct-slot" aria-label="대화" data-tab={tab}>
-        <ThreadSlot key={selected.id} scheduleId={scheduleId} person={selected} tab={tab} compose={handing ? params?.compose : undefined} activity={handing ? params?.activity : undefined} call={params?.call} onChanged={reload} />
+        <ThreadSlot key={selected.id} scheduleId={scheduleId} person={selected} tab={tab} compose={handing ? params?.compose : undefined} activity={handing ? params?.activity : undefined} call={handingCall ? params?.call : undefined} onChanged={reload} />
       </section>
     </>
   );

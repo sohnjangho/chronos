@@ -101,6 +101,8 @@ function route(method: string, url: string): Reply {
     const contact = BOOK.companies.flatMap((c) => c.people).find((p) => p.id === Number(thread[1])) ?? person({ id: Number(thread[1]) });
     return { status: 200, body: { contact: { ...contact, unread: 0 }, messages: [], has_more: false } };
   }
+  // 통화 수(탭 글 「통화 n」 — Task 92)를 세는 목록 — 이 가짜에서는 늘 비어 있다. 통화 시험은 callKit.
+  if (method === 'GET' && /\/outreach\/calls\?contact_id=\d+$/.test(url)) return { status: 200, body: [] };
   if (method === 'GET' && url === '/api/outreach/unknown') return { status: 200, body: inbox.unknown };
   const peer = /^\/api\/outreach\/unknown\/([0-9a-f]{12})$/.exec(url);
   if (method === 'GET' && peer) {

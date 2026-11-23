@@ -1,7 +1,7 @@
 // 메시지 API(Task 73, backend/app/programs/outreach/schemas.py) — 한 사람과의 대화 읽기, 초안 고치기·지우기, 보내기, 예약 취소,
 // 다시 보내기. 연락처 창의 대화 칸과 대화 카드 등 다른 프로그램이 함께 쓴다. 응답에 전화번호 칸은 없다(연락처는 가린 꼴만).
 // 보내기는 막힌 것도 결과라 늘 200 이고 outcome 이 무엇이 됐는지 말한다 — 화면은 그 글을 그대로 보이고, 줄의 상태는 다시 읽어 그린다.
-import { api, ApiError } from '../api';
+import { api, ApiError, failure, networkError, requestHeaders } from '../api';
 
 /** received 는 받은 줄. sending 은 내부 상태(잠깐). unconfirmed = 보냈는지 알 수 없음(자동으로 다시 보내지 않는다). */
 export type MessageStatus = 'draft' | 'scheduled' | 'sending' | 'accepted' | 'delivered' | 'failed' | 'unconfirmed' | 'blocked_test' | 'received';
@@ -125,8 +125,115 @@ export interface MessagePatch {
 export const sendOutcomeUnknown = (e: unknown) =>
   e instanceof ApiError && (e.status === 0 || e.status >= 500 || e.code === 'bad_response');
 
+// ── 통화(Task 91, backend/app/programs/outreach/calls_schemas.py) ─────────────────────────────
+/** queued·dialing·in_call 은 걸고 있는 중(내부). rejected·missed 는 받은 통화만. */
+export type CallStatus =
+  | 'draft' | 'scheduled' | 'queued' | 'dialing' | 'in_call' | 'completed' | 'no_answer' | 'busy' | 'failed' | 'blocked_test' | 'blocked_hours'
+  | 'rejected' | 'missed';
+export type CallLanguage = 'ko' | 'en' | 'zh' | 'vi';
+
+/** 하네스 사건 한 줄 + 남긴 시각(저장된 글 그대로). */
+export interface CallEvent extends OutreachEvent {
+  at: string | null;
+}
+
+/** 질문 하나의 답과 근거. quote_found 가 거짓이면 근거 말을 받아쓰기(상대 말)에서 찾지 못한 것 — 「확인 필요」. */
+export interface CallAnswer {
+  question: string;
+  answer: string;
+  quote: string;
+  quote_found: boolean;
+}
+
+/** CallOut. 번호 칸은 없다. 요약·제안 결과·답·사건·받아쓰기는 서버가 번호를 가린 글, 사람이 쓴 목적·질문·확정 결과는 저장된 그대로. */
+export interface Call {
+  id: number;
+  direction: 'in' | 'out';
+  caller_class: string | null;
+  contact: { id: number; name: string; role_title: string; company: string } | null;
+  origin: 'user' | 'agent' | 'peer';
+  origin_name: string;
+  send_mode: 'manual' | 'approved' | 'delegated' | null;
+  approved_by: string | null;
+  status: CallStatus;
+  fail_reason: string | null;
+  purpose: string;
+  questions: string[];
+  avoid: string[];
+  language: string;
+  voice_id: string | null;
+  duration_s: number | null;
+  /** 없으면 빈 글 */
+  summary_ko: string;
+  /** 에이전트가 제안한 결과 — 없으면 빈 글 */
+  result_proposed: string;
+  result_confirmed: string | null;
+  confirmed_by: string | null;
+  answers: CallAnswer[];
+  events: CallEvent[];
+  has_recording: boolean;
+  prev_call_id: number | null;
+  activity: { id: string; name: string | null } | null;
+  /** 시각은 UTC 를 붙인 ISO. 근무시간 밖으로 막힌 줄은 문이 제안한 다음 근무 시작. */
+  scheduled_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  created_at: string;
+}
+
+/** 받아쓰기 한 줄: agent = 우리 AI, peer = 상대. t 는 통화 시작부터 초. */
+export interface TranscriptLine {
+  role: string;
+  text: string;
+  t: number | null;
+}
+
+export interface CallDetail extends Call {
+  transcript: TranscriptLine[];
+  reports: { id: number; kind: string; text: string; quote: string; quote_found: boolean; status: string; reviewed_by: string | null; created_at: string }[];
+}
+
+export interface CallIn {
+  contact_id: number;
+  purpose: string;
+  questions: string[];
+  avoid: string[];
+  activity_id?: string;
+  language?: CallLanguage;
+  voice_id?: string;
+}
+
+/** 보낸 칸만 바뀐다. null 로 비울 수 있는 것은 activity_id·voice_id 뿐. 승인이 아니다. */
+export interface CallPatch {
+  purpose?: string;
+  questions?: string[];
+  avoid?: string[];
+  activity_id?: string | null;
+  language?: CallLanguage;
+  voice_id?: string | null;
+}
+
+/** [전화 걸기]의 답 — 막힌 것도 200. outcome 은 문의 판정 그대로(근무시간 밖이면 scheduled_at 에 다음 근무 시작 제안). */
+export interface CallResult {
+  call: Call;
+  outcome: Outcome;
+}
+
 const base = (sid: number) => `/api/schedules/${sid}/outreach`;
 const post = (body?: unknown) => ({ method: 'POST', ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+
+/** 녹음 파일(로그인 머리글이 필요해 <audio src> 로 바로 읽을 수 없다 — 받아서 Blob 으로). */
+async function fetchBlob(path: string): Promise<Blob> {
+  const { headers, token } = requestHeaders({}, true);
+  let res: Response;
+  try {
+    res = await fetch(path, { headers, cache: 'no-store' });
+  } catch {
+    throw networkError();
+  }
+  if (!res.ok) throw await failure(res, token);
+  return res.blob();
+}
 
 export const outreachApi = {
   /** 가장 새 것부터 limit 개(기본 50, 1..100). before 를 주면 그 id 보다 앞의 것. */
@@ -153,4 +260,27 @@ export const outreachApi = {
   resend: (sid: number, id: number) => api<ResendOut>(`${base(sid)}/messages/${id}/resend`, post()),
   /** 그 사람에게서 받은 글을 읽음으로(주소록 API, Task 72). */
   markRead: (sid: number, contactId: number) => api<{ read: number }>(`/api/schedules/${sid}/contacts/people/${contactId}/read`, post()),
+
+  // 통화 — 줄을 건드리는 길은 모두 그 일정의 줄인지 먼저 본다(아니면 404 「통화를 찾을 수 없습니다.」).
+  /** 최근 것부터. */
+  listCalls: (sid: number, contactId: number) => api<Call[]>(`${base(sid)}/calls?contact_id=${contactId}`, { cache: 'no-store' }),
+  getCall: (sid: number, id: number) => api<CallDetail>(`${base(sid)}/calls/${id}`, { cache: 'no-store' }),
+  /** 초안만 만든다(걸지 않음). */
+  createCall: (sid: number, body: CallIn) => api<Call>(`${base(sid)}/calls`, post(body)),
+  /** 초안만(아니면 409 not_draft). */
+  patchCall: (sid: number, id: number, body: CallPatch) => api<Call>(`${base(sid)}/calls/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  removeCall: (sid: number, id: number) => api<void>(`${base(sid)}/calls/${id}`, { method: 'DELETE' }),
+  /** 문에 넣는다 — 막힌 것도 200. 끝난 줄은 409 not_sendable. */
+  placeCall: (sid: number, id: number) => api<CallResult>(`${base(sid)}/calls/${id}/place`, post()),
+  /** at 은 시간대가 붙은 ISO. 근무시간 밖 422 outside_hours · 지난 시각 422 past_time · 걸 수 없는 통화 409 not_schedulable(문의 글). */
+  scheduleCall: (sid: number, id: number, at: string) => api<Call>(`${base(sid)}/calls/${id}/schedule`, post({ at })),
+  /** 예약 → 초안. 예약이 아니면 409 not_scheduled. */
+  cancelCall: (sid: number, id: number) => api<Call>(`${base(sid)}/calls/${id}/cancel`, post()),
+  /** 진행 중인 통화만(아니면 409 not_live). 상태는 일꾼이 곧 적는다. */
+  hangupCall: (sid: number, id: number) => api<Call>(`${base(sid)}/calls/${id}/hangup`, post()),
+  /** 받지 않음·통화 중·실패 줄에서 같은 내용의 새 초안 — 걸지 않는다. 그 밖은 409 not_redialable. */
+  redialCall: (sid: number, id: number) => api<Call>(`${base(sid)}/calls/${id}/redial`, post()),
+  /** 끝난(completed) 통화의 결과를 사람이 확정한다(다시 확정하면 덮음). 아니면 409 not_completed. */
+  confirmCall: (sid: number, id: number, result: string) => api<Call>(`${base(sid)}/calls/${id}/confirm`, post({ result })),
+  callRecording: (sid: number, id: number) => fetchBlob(`${base(sid)}/calls/${id}/recording`),
 };

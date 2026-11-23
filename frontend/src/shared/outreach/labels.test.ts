@@ -1,6 +1,9 @@
 // 발신 글 네 가지 · 상태 글(셋으로 갈린 결과가 셋으로 남는지) · 보내기 판정 글 · 하네스 사건 한 줄 · KST 시각.
 import { describe, expect, test } from 'vitest';
-import { CODE_LABEL, channelLabel, eventLine, eventSummary, kstDay, kstShort, kstTime, outcomeLabel, RULE_LABEL, senderTag, statusLabel, VERDICT_LABEL } from './labels';
+import {
+  callOutcomeLabel, callResultLine, callStatusLabel, CODE_LABEL, channelLabel, durationText, eventLine, eventSummary, hasPhone, kstDay, kstShort, kstTime,
+  maskPhones, outcomeLabel, RULE_LABEL, senderTag, statusLabel, VERDICT_LABEL,
+} from './labels';
 import type { Message } from './outreachApi';
 
 function msg(over: Partial<Message> = {}): Message {
@@ -136,6 +139,39 @@ test('times are KST whatever the browser zone is', () => {
   expect(kstShort('2026-11-23T23:02:00Z')).toBe('11/24(화) 08:02');
   expect(channelLabel('kakao')).toBe('카카오톡');
   expect(channelLabel('sms')).toBe('문자');
+});
+
+describe('calls (Task 92)', () => {
+  const row: Parameters<typeof callStatusLabel>[0] = { status: 'failed', events: [], fail_reason: '전화를 걸지 못했습니다', duration_s: null, scheduled_at: null };
+  const unsure = { rule: 'delivery', verdict: 'noted', detail: '보냈는지 확인 필요', at: null };
+  test('three outcomes stay three: failed, 「확인 필요」 and a call that went through', () => {
+    expect(callStatusLabel(row)).toEqual({ text: '실패 — 전화를 걸지 못했습니다', tone: 'bad' });
+    expect(callStatusLabel({ ...row, events: [unsure] })).toEqual({ text: '확인 필요 — 걸렸는지 알 수 없음', tone: 'warn' });
+    expect(callStatusLabel({ ...row, status: 'completed', duration_s: 130 })).toEqual({ text: '통화 2분 10초', tone: 'ok' });
+    expect(callOutcomeLabel({ code: 'unsure', message: '보냈는지 확인 필요', scheduled_at: null })).toEqual({ text: '확인 필요 — 걸렸는지 알 수 없음', tone: 'warn' });
+    expect(callOutcomeLabel({ code: 'queued', message: '전화를 걸 차례에 넣었습니다', scheduled_at: null }).tone).toBe('ok');
+  });
+  test('durations', () => {
+    expect([0, 45, 60, 130, 3600, 3700].map(durationText)).toEqual(['0초', '45초', '1분', '2분 10초', '1시간', '1시간 1분 40초']);
+  });
+  test('the result line says who proposed and who confirmed', () => {
+    expect(callResultLine({ result_proposed: '', result_confirmed: null, confirmed_by: null })).toBeNull();
+    expect(callResultLine({ result_proposed: '가능', result_confirmed: null, confirmed_by: null })).toBe('결과: 가능 (에이전트 제안 · 확정 전)');
+    expect(callResultLine({ result_proposed: '가능', result_confirmed: '가능', confirmed_by: '김공정' })).toBe('결과: 가능 (에이전트 제안 · 김공정 확정)');
+    expect(callResultLine({ result_proposed: '가능', result_confirmed: '토요일만', confirmed_by: '김공정' })).toBe('결과: 토요일만 (김공정 확정 · 에이전트 제안 「가능」)');
+    expect(callResultLine({ result_proposed: '', result_confirmed: '토요일만', confirmed_by: '김공정' })).toBe('결과: 토요일만 (김공정 확정)');
+  });
+  test('phone-like numbers in a person’s text are hidden in the middle; dates and short numbers are left alone', () => {
+    expect(maskPhones('010-0000-0199 · 010 0000 0198 · 01000000197 · 02-123-4567 · 0311234567')).toBe(
+      '010-****-0199 · 010-****-0198 · 010-****-0197 · 02-****-4567 · 031-****-4567',
+    );
+    expect(maskPhones('11/30 08:00 · 2026-11-24 · A1210 · 6명')).toBe('11/30 08:00 · 2026-11-24 · A1210 · 6명');
+    expect([hasPhone('010-0000-0199 로'), hasPhone('A1210 6명'), hasPhone('010-****-0199')]).toEqual([true, false, false]);
+  });
+  test('call events read with the console words for the call codes', () => {
+    expect(eventLine({ rule: 'call_result', verdict: 'noted', detail: 'busy' })).toBe('통화 결과 — 통화 중');
+    expect(eventLine({ rule: 'hangup_by_person', verdict: 'noted', detail: null })).toBe('사람이 끊음');
+  });
 });
 
 // 개발 콘솔(서버)의 사건 이름표와 같은 낱말인지 — 파이썬 파일을 글로 읽는다. 파일 모양이 바뀌면 조용히 지나가지 않고 깨진다.

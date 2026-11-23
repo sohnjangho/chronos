@@ -1,7 +1,8 @@
 // 연락처 창 오른쪽의 대화 칸(Task 78). 위에서부터 머리 줄(ThreadHeader) · 탭 내용 · 입력창 자리.
 // 「문자 · 카카오톡」 탭: 대화(MessageThread)와 그 아래 입력창 자리(ComposerSlot — Task 79 가 채운다).
-// 「통화」 탭: CallsSlot(Task 92 가 채운다). 탭 줄은 위 PersonHead 에 있다. 대화는 문자 탭이 열려 있을 때만 읽는다.
+// 「통화」 탭: CallsSlot(Task 92 CallsTab). 탭 줄은 위 PersonHead 에 있다. 대화는 문자 탭이 열려 있을 때만 읽는다.
 import { useRef, type ComponentType } from 'react';
+import CallsTab from './CallsTab';
 import type { ThreadSlotProps } from './Contacts';
 import Composer from './Composer';
 import type { PersonBrief } from './contactsApi';
@@ -34,14 +35,10 @@ export interface CallsSlotProps {
   onChanged: () => void;
 }
 
-function CallsPlaceholder({ person }: CallsSlotProps) {
-  return <p className="ct-muted ct-pad">{`${person.name} 님과의 통화 기록이 여기에 보입니다.`}</p>;
-}
-
 /** 입력창 자리(Task 79 Composer). */
 const ComposerSlot: ComponentType<ComposerSlotProps> = Composer;
-/** 통화 탭 자리. Task 92 가 이 한 줄을 통화 목록으로 바꾼다. */
-const CallsSlot: ComponentType<CallsSlotProps> = CallsPlaceholder;
+/** 통화 탭 자리(Task 92 CallsTab). */
+const CallsSlot: ComponentType<CallsSlotProps> = CallsTab;
 
 function MessagesTab({ scheduleId, person, compose, activity, onChanged }: Omit<ThreadSlotProps, 'tab' | 'call'>) {
   const root = useRef<HTMLDivElement>(null);
@@ -65,7 +62,7 @@ export default function ThreadPane({ scheduleId, person, tab, compose, activity,
       <ThreadHeader key={`head-${person.id}`} scheduleId={scheduleId} person={person} />
       {tab === 'calls' ? (
         <div className="th-tab" data-slot="calls">
-          <CallsSlot scheduleId={scheduleId} person={person} call={call} onChanged={onChanged} />
+          <CallsSlot key={`calls-${person.id}`} scheduleId={scheduleId} person={person} call={call} onChanged={onChanged} />
         </div>
       ) : (
         <MessagesTab key={`messages-${person.id}`} scheduleId={scheduleId} person={person} compose={compose} activity={activity} onChanged={onChanged} />

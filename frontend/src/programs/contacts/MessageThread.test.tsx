@@ -85,11 +85,11 @@ describe('thread', () => {
     expect(document.querySelector('[data-slot="composer"]')).not.toBeNull();
   });
 
-  test('the calls tab shows a placeholder and reads no messages', async () => {
+  test('the calls tab shows the call list (Task 92) and reads no messages', async () => {
     stubThread({ 1: [SENT] });
     show(PARK, 'calls');
-    expect(screen.getByText('박현장 님과의 통화 기록이 여기에 보입니다.')).toBeVisible();
-    expect(screen.queryByRole('log')).toBeNull();
+    expect(screen.getByRole('log', { name: '통화 기록' })).toBeVisible();
+    expect(screen.queryByRole('log', { name: '문자 · 카카오톡 대화' })).toBeNull();
     await act(async () => {});
     expect(gets()).toHaveLength(0);
   });
