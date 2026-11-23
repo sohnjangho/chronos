@@ -140,7 +140,7 @@ function AllowList({ conn, busy, addError, onPatch }: {
 }
 
 /** 뒤 작업이 채울 자리: 카카오톡 채널과 문안(잠김) · 받는 범위·차단 · AI 전화. */
-function LaterGroups({ conn }: { conn: NotifyConnection }) {
+function LaterGroups({ conn, voice }: { conn: NotifyConnection; voice?: ReactNode }) {
   return (
     <>
       <Group title="카카오톡 채널과 문안">
@@ -152,9 +152,11 @@ function LaterGroups({ conn }: { conn: NotifyConnection }) {
       <Group title="받는 범위 · 차단">
         <p className="st-muted">준비 중 — 걸려 온 전화·문자를 누구에게서 받을지와 차단 목록이 이 자리에 들어옵니다.</p>
       </Group>
-      <Group title="AI 전화">
-        <p className="st-muted">준비 중 — 음성 모델 키·음성·최대 통화 시간·시험 전화가 이 자리에 들어옵니다.</p>
-      </Group>
+      {voice ?? (
+        <Group title="AI 전화">
+          <p className="st-muted">준비 중 — 음성 모델 키·음성·최대 통화 시간·시험 전화가 이 자리에 들어옵니다.</p>
+        </Group>
+      )}
     </>
   );
 }
@@ -171,11 +173,13 @@ const sayCount = (n: number | undefined, unit: string) => (n === undefined ? '�
 type Confirm = { kind: 'test_off' } | { kind: 'delegate'; field: 'agent_sms' | 'agent_call'; label: string };
 
 /** 카드 아래 칸: 발신번호 · 시험 모드와 허용 번호 · 에이전트 발송 권한 · 상한, 그리고 뒤 작업이 채울 자리. */
-export default function NotifyPolicy({ conn, locked = false, onChanged }: {
+export default function NotifyPolicy({ conn, locked = false, onChanged, voice }: {
   conn: NotifyConnection;
   /** 진단·시험 문자가 도는 동안 참 — 모든 칸을 잠근다. */
   locked?: boolean;
   onChanged(): void;
+  /** 「AI 전화」 묶음(Task 93). 없으면 자리 글. */
+  voice?: ReactNode;
 }) {
   const [problem, setProblem] = useState<{ group: string; error: LlmError } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -271,7 +275,7 @@ export default function NotifyPolicy({ conn, locked = false, onChanged }: {
         <LimitsForm connectionId={conn.id} disabled={locked} onSaved={onChanged} />
       </details>
 
-      <LaterGroups conn={conn} />
+      <LaterGroups conn={conn} voice={voice} />
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
 } from './notifyApi';
 import NotifyPolicy, { ConfirmPanel } from './NotifyPolicy';
 import { ErrorLine, savedButFailed, toProblem } from './parts';
+import VoiceBlock from './VoiceBlock';
 
 type Mode = 'idle' | 'url' | 'key' | 'delete';
 type SendKind = 'diagnose' | 'test';
@@ -53,7 +54,7 @@ export const UNSURE = '보냈는지 확인 필요 — 휴대전화에 문자가 
 const maskedKey = (last4: string) => '•'.repeat(last4 ? 12 : 8) + last4;
 
 /** 보내기 요청이 200 으로 끝나지 않았는데 분명한 거절도 아닌 것(끊김·5xx·읽을 수 없는 응답) — 갔는지 모른다. */
-const uncertain = (e: unknown) => !(e instanceof ApiError) || e.status === 0 || e.status >= 500 || e.code === 'bad_response';
+export const uncertain = (e: unknown) => !(e instanceof ApiError) || e.status === 0 || e.status >= 500 || e.code === 'bad_response';
 
 /** 시험 문자(첫 허용 번호로만)를 보낼 수 없는 까닭. 보낼 수 있으면 null. */
 export function smsBlockedReason(c: NotifyConnection): string | null {
@@ -104,16 +105,21 @@ function ProbeLine({ probe }: { probe: NotifyProbe }) {
   );
 }
 
-/** 판정은 칸으로만: 건너뜀 → 확인 필요(보냈는지 모름) → 확인 중(아직 접수) → OK / FAIL. */
-function verdict(step: DiagnosisStep): { tone: Tone; text: string } {
+/** 걸음 줄 하나(알림 연결 P1~P4 · 음성 P5~P14 가 같은 꼴). */
+export type StepRow = Omit<DiagnosisStep, 'id'> & { id: string };
+
+/** 판정은 칸으로만: 건너뜀 → 확인 필요(보냈는지·걸렸는지 모름) → 확인 중(아직 접수) → OK / FAIL. */
+function verdict(step: StepRow): { tone: Tone; text: string } {
   if (step.skipped) return { tone: 'neutral', text: '건너뜀' };
   if (step.maybe_sent) return { tone: 'warning', text: '확인 필요' };
   if (step.pending) return { tone: 'warning', text: '확인 중' };
   return step.ok ? { tone: 'success', text: 'OK' } : { tone: 'danger', text: 'FAIL' };
 }
 
-function StepLine({ s }: { s: DiagnosisStep }) {
-  const v = verdict(s);
+/** more = 접어 둘 기계 세부(코드·data). badge = 판정 대신 보일 것(아직 안 돌린 줄). */
+export function StepLine({ s, more = [], badge }: { s: StepRow; more?: string[]; badge?: { tone: Tone; text: string } }) {
+  const v = badge ?? verdict(s);
+  const folded = [...s.notes, ...more];
   return (
     <li>
       <div className="st-nt-step">
@@ -125,10 +131,10 @@ function StepLine({ s }: { s: DiagnosisStep }) {
         </span>
         {s.latency_ms !== null && <span className="st-count">{`${s.latency_ms}ms`}</span>}
       </div>
-      {s.notes.length > 0 && (
+      {folded.length > 0 && (
         <details className="st-nt-notes">
-          <summary>{`메모 ${s.notes.length}줄`}</summary>
-          {s.notes.map((n, i) => (
+          <summary>{`메모 ${folded.length}줄`}</summary>
+          {folded.map((n, i) => (
             <div key={i}>{n}</div>
           ))}
         </details>
@@ -300,10 +306,11 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
   const [mode, setMode] = useState<Mode>('idle');
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [busy, setBusy] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const d = useDiagnosis(conn, onChanged);
   const r = useRealSend(conn, d);
   const blocked = smsBlockedReason(conn);
-  const locked = busy || d.busy || mode !== 'idle' || r.pending !== null;
+  const locked = busy || d.busy || voiceBusy || mode !== 'idle' || r.pending !== null;
 
   async function run(task: () => Promise<Outcome>) {
     setMode('idle');
@@ -381,7 +388,12 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
         </div>
       )}
       {d.diag && <DiagnosisView diag={d.diag} />}
-      <NotifyPolicy conn={conn} locked={d.busy} onChanged={onChanged} />
+      <NotifyPolicy
+        conn={conn}
+        locked={d.busy || voiceBusy}
+        onChanged={onChanged}
+        voice={<VoiceBlock conn={conn} locked={busy || d.busy} onRunning={setVoiceBusy} onChanged={onChanged} />}
+      />
     </article>
   );
 }

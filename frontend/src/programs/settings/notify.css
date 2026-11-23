@@ -77,3 +77,47 @@
 .st-nt input:disabled,
 .st-nt select:disabled { background: var(--bg-panel-alt); color: var(--fg-muted); -webkit-text-fill-color: var(--fg-muted); opacity: 1; }
 .st-nt-sends { margin-left: 0; }
+
+/* ── 「AI 전화」 묶음(Task 93): 설정 칸 · 띠 · 도는 중 · 단추 셋 아래 걸음 줄 ── */
+.st-vc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.st-vc-head h4 { margin: 0; font-size: var(--fs-13); font-weight: 700; }
+.st-vc-form { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.st-vc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 360px)); gap: 10px 16px; align-items: start; min-width: 0; }
+.st-vc-grid .ui-field { max-width: none; min-width: 0; }
+.st-vc-grid .ui-field-hint,
+.st-vc-grid .ui-field-error { overflow-wrap: anywhere; }
+.st-vc-key { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.st-vc-key > .st-muted { overflow-wrap: anywhere; }
+.st-vc-notice { padding: 6px 8px; border-radius: var(--radius-2); background: var(--tone-warning-bg); overflow-wrap: anywhere; }
+.st-vc-facts { grid-template-columns: 96px minmax(0, 1fr); }
+.st-vc-band {
+  padding: 8px 10px;
+  border-radius: var(--radius-3);
+  border: 1px solid var(--warning);
+  background: var(--tone-warning-bg);
+  color: var(--warning-text);
+  font-size: var(--fs-13);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.st-vc-running {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-3);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  font-size: var(--fs-13);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.st-vc-diag { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.st-vc-part { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 8px 10px; border: 1px solid var(--bg-app); border-radius: var(--radius-3); }
+.st-vc-part-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; padding-bottom: 4px; }
+.st-vc-part-head > b { font-size: var(--fs-13); }
+.st-vc-p10 { font-size: var(--fs-12); }
+.st-nt-switch:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-2); }
+
+@container st-main (max-width: 620px) {
+  .st-vc-grid { grid-template-columns: minmax(0, 1fr); }
+}
