@@ -147,14 +147,27 @@ def test_committing_conditions_snaps_the_forecast(client, admin, sid_late):
     assert _status(v) == {"A": "on_plan", "B": "on_plan"}
 
 
-async def test_approving_a_schedule_rule_snaps_the_forecast(client, admin, session, sid_late):
+async def test_approving_text_only_schedule_rule_keeps_plan(client, admin, session, sid_late):
     _later(client, admin, sid_late)
     o = await _tool(session, sid_late, "rules.propose", {
         "scope": "schedule", "condition": {"kind": "text_only", "params": {}, "text": "타설 전날 알림"}, "why": "늘 그렇게"})
     if not o["applied"]:
         _decide(client, admin, o["approval_id"])
     v = _view(client, admin, sid_late)
-    assert v["version"] == 3 and _plan(v) == [("A", "2027-03-01", "2027-03-12"), ("B", "2027-03-15", "2027-03-19")]
+    assert v["version"] == 3 and _plan(v) == SNAPPED and _status(v) == {"A": "late +2", "B": "late +2"}
+
+
+async def test_approving_date_changing_schedule_rule_snaps_the_forecast(client, admin, session, sid_late):
+    _later(client, admin, sid_late)
+    o = await _tool(session, sid_late, "rules.propose", {
+        "scope": "schedule",
+        "condition": {"kind": "calendar", "params": {"days_per_week": 7, "holidays": []}, "text": "주 7일 작업"},
+        "why": "연속 시공",
+    })
+    if not o["applied"]:
+        _decide(client, admin, o["approval_id"])
+    v = _view(client, admin, sid_late)
+    assert v["version"] == 3 and v["plan_finish"] == v["finish"] and _status(v) == {"A": "on_plan", "B": "on_plan"}
 
 
 def test_restoring_brings_that_versions_plan(client, admin, sid_late):

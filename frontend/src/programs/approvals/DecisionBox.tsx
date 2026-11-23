@@ -12,12 +12,18 @@ interface Props {
 
 const NOTE_REQUIRED = '다시 짜게 하려면 이유를 적어 주세요.';
 
-const hintOf = (item: ApprovalDetail) =>
-  item.kind === 'rule'
-    ? '승인하면 내 규칙으로 저장됩니다. 일정은 바뀌지 않고, 조건·규칙 창에서 끄거나 지울 수 있습니다.'
-    : item.kind === 'first_save'
-      ? '승인하면 새 일정(버전 1, Plan)으로 저장되고, 탐색기에서 볼 수 있습니다.'
-      : `승인하면 버전 ${ro(item.base_version + 1)} 저장되고, 탐색기에서 되돌릴 수 있습니다.`;
+const hintOf = (item: ApprovalDetail) => {
+  if (item.kind === 'rule') {
+    return '승인하면 내 규칙으로 저장됩니다. 일정은 바뀌지 않고, 조건·규칙 창에서 끄거나 지울 수 있습니다.';
+  }
+  if (item.kind === 'first_save') {
+    return '승인하면 새 일정(버전 1, Plan)으로 저장되고, 탐색기에서 볼 수 있습니다.';
+  }
+  if (item.summary?.rule && item.summary?.plan_change === false) {
+    return `승인하면 내 규칙이 반영되어 버전 ${ro(item.base_version + 1)} 저장됩니다. 기존 기준선(Plan)은 유지됩니다.`;
+  }
+  return `승인하면 버전 ${ro(item.base_version + 1)} 저장되고, 탐색기에서 되돌릴 수 있습니다.`;
+};
 
 function Actions({ hint, busy, decide }: { hint: string; busy: boolean; decide(d: Decision): void }) {
   return (

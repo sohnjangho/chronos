@@ -116,7 +116,11 @@ def _schedule_rule(ctx: ToolContext, rule: dict, summary: dict, requested_by: st
                              emit=_with_rule(ctx.emit, summary), extra_reasons=["rule_save"])
     except ProposalError as e:
         raise ToolError(e.message) from None
-    result.row.summary_json = {**result.row.summary_json, "rule": summary}
+    result.row.summary_json = {
+        **result.row.summary_json,
+        "rule": summary,
+        "plan_change": approvals.is_plan_change(ctx.session, result.row),
+    }
     return ProposeRuleOut(approval_id=result.row.id, applied=result.applied, rule=rule)
 
 

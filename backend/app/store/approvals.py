@@ -12,16 +12,18 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.core.cpm import ScheduleError
 from app.store import links
 from app.store.drafts import get_draft
-from app.store.schedules import NotFound, create_schedule, from_json, load
+from app.store.schedules import NotFound, create_schedule, from_json, load, plan_snapshot, run
 from app.store.tables import Approval, ChangeLog, ChatMessage, ChatSession, Scenario
 from app.store.versions import mark_plan, save_new_version
 from app.store.view import plan_changed
 
 __all__ = [
-    "AGENT_NAME", "REQUEST_LIMIT", "STATUS_GROUPS", "DraftUsed", "NotFound", "apply", "create", "get", "last_request",
-    "listed", "pending_count", "pending_for_draft", "pending_retries", "record_decision", "was_resumed",
+    "AGENT_NAME", "REQUEST_LIMIT", "STATUS_GROUPS", "DraftUsed", "NotFound", "apply", "create", "get",
+    "is_plan_change", "last_request", "listed", "pending_count", "pending_for_draft", "pending_retries",
+    "record_decision", "was_resumed",
 ]
 
 AGENT_NAME = "에이전트"  # 자동 적용한 버전의 작성자
@@ -78,11 +80,26 @@ def last_request(session: Session, chat_session_id: int | None) -> str:
     return text[:REQUEST_LIMIT]
 
 
-def _plan_change(session: Session, row: Approval) -> bool:
-    """고침 건(change)을 반영한 버전이 Plan 을 새로 찍는가(PM 결정 11-20 밤, store.versions).
+def _rule_changes_dates(session: Session, row: Approval) -> bool:
+    """일정 범위 내 규칙(link_kind 'rule')이 실제 계획 날짜·작업을 바꾸는지 판별한다."""
+    before, conditions, _ = load(session, row.schedule_id, row.base_version)
+    after = from_json(row.snapshot_json)
+    if plan_changed(before, after):
+        return True
+    rule_kind = ((row.rule_json or {}).get("condition") or {}).get("kind") or (row.summary_json or {}).get("rule", {}).get("kind")
+    if rule_kind == "text_only":
+        return False
+    try:
+        return plan_snapshot(run(before, conditions), 0) != plan_snapshot(run(after, list(row.conditions_json)), 0)
+    except ScheduleError:
+        return True
+
+
+def is_plan_change(session: Session, row: Approval) -> bool:
+    """고침 건(change)을 반영한 버전이 Plan 을 새로 찍는가.
 
     - 복사본 반영: 지연 반영안(source 'delay')만 물려받고, 단축안·에이전트 복사본은 계획 변경.
-    - 일정 범위 내 규칙: 계획 변경.
+    - 일정 범위 내 규칙: 실제 계획 칸이나 계산 날짜(달력·금지기간 등)를 바꾸는 규칙만 계획 변경, text_only 나 날짜 무변경 규칙은 물려받는다.
     - 그 밖(에이전트 고침·조건 확정·실적 입력): 조건이 바뀌었거나 계획 칸이 바뀌었으면 계획 변경, 실적·Data Date 만
       바꿨으면(schedule.record_actual) 물려받는다. 계획 칸과 실적을 같이 바꾸면 계획 변경이다.
     """
@@ -91,9 +108,13 @@ def _plan_change(session: Session, row: Approval) -> bool:
         scenario = session.get(Scenario, row.link_id)
         return scenario is None or scenario.source != "delay"
     if row.link_kind == "rule":
-        return True
+        return _rule_changes_dates(session, row)
     before, conditions, _ = load(session, row.schedule_id, row.base_version)
     return list(row.conditions_json) != conditions or plan_changed(before, from_json(row.snapshot_json))
+
+
+def _plan_change(session: Session, row: Approval) -> bool:
+    return is_plan_change(session, row)
 
 
 def apply(session: Session, row: Approval, *, by_name: str) -> None:
