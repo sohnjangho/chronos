@@ -60,3 +60,16 @@ def test_situation_has_no_approval_line_without_approvals(session):
     chat = chats.create_chat(session, user_id=admin.id).id
     session.commit()
     assert "이 대화의 승인 건" not in context.situation(session, admin, context.UiContext(), chat_session_id=chat)
+
+
+# ── A11: 답 표현(분야 이름·자원 단위·한 달 날씨 통계) ─────────────────
+
+
+def test_the_prompt_asks_for_korean_domain_names_and_condition_units():
+    prompt = context.system_prompt([])
+    assert "분야는 한국어 이름으로 말한다" in prompt and "자원 단위는 조건·도구 결과의 단위 그대로" in prompt
+
+
+def test_the_weather_guide_says_a_month_statistic_is_not_a_yearly_average():
+    guide = context.system_prompt(["weather"])
+    assert "「연 평균」이라고 쓰지 않는다" in guide and "2016~2025년 12월 평균" in guide
