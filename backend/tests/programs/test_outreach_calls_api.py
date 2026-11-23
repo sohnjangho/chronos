@@ -376,7 +376,7 @@ def test_schedule_without_a_time_zone_is_422(client, user, session, sid):
     assert r.status_code == 422
 
 
-def test_schedule_and_cancel(client, user, session, sid, conn, no_gate):
+def test_schedule_and_cancel(client, user, session, sid, conn, fake_channel, no_gate):
     """예약은 문(gate.schedule)을 지나 사람의 결정을 적는다 — 에이전트 초안은 approved + 누른 사람. 취소는 초안으로, 모두 비운다."""
     pid = _person(session, sid)
     row = _call(session, sid, pid, origin="agent", origin_name="에이전트", status="blocked_hours",
@@ -405,7 +405,7 @@ def test_schedule_and_cancel(client, user, session, sid, conn, no_gate):
                                                                                   "예약된 통화가 아닙니다.")
 
 
-def test_schedule_leaves_no_earlier_approval_on_the_row(client, user, session, sid):
+def test_schedule_leaves_no_earlier_approval_on_the_row(client, user, session, sid, conn, fake_channel):
     """사람의 초안을 다른 시각으로 다시 예약하면 manual — 앞서 적힌 승인한 사람이 남지 않는다."""
     pid = _person(session, sid)
     row = _call(session, sid, pid, status="scheduled", scheduled_at=MONDAY + timedelta(hours=1), send_mode="approved",
@@ -435,6 +435,24 @@ def test_a_persons_schedule_is_placed_when_it_is_due(client, user, session, sid,
     assert (row.status, row.send_mode, row.approved_by) == (
         ("queued", "manual", None) if origin == "user" else ("queued", "approved", USER_NAME))
     assert [(d.channel, d.row_id) for d in fake_channel.delivered] == [("call", row.id)]
+
+
+def test_schedule_of_a_call_that_could_never_go_out_is_409_with_the_gates_message(client, user, session, sid, conn,
+                                                                                     fake_channel):
+    """예약도 문의 앞 확인을 지난다 — 시험 모드에 허용 번호가 아니면 「예약됨」이 아니라 409, 줄은 초안 그대로."""
+    conn.test_mode = True
+    session.commit()
+    pid = _person(session, sid)
+    row = _call(session, sid, pid)
+
+    r = client.post(_url(sid, f"/{row.id}/schedule"), json={"at": (MONDAY + timedelta(hours=1)).isoformat()},
+                    headers=user)
+
+    assert (r.status_code, r.json()["code"], r.json()["message"]) == (409, "not_schedulable",
+                                                                      "시험 모드라 허용한 번호에만 연락합니다")
+    row = _reread(session, row.id)
+    assert (row.status, row.scheduled_at, row.send_mode) == ("draft", None, None)
+    assert fake_channel.delivered == []
 
 
 def test_schedule_the_gate_refuses_is_409_with_its_message(client, user, session, sid, monkeypatch):

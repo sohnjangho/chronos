@@ -26,10 +26,10 @@ channel_choice allowed). 그 앞에 노트(GATE_NOTES)가 있을 수 있고, 통
   동안은 같은 글(통화는 같은 번호)의 다음 것을 막는다. 오래 남은 sending 줄을 unconfirmed 로 옮기는 것은 일꾼의 몫이다.
 - **통화 줄은 조건부로만 닫는다**: 통로는 줄에 넣기만 하고, 일꾼이 queued → dialing 으로 차지한 뒤에 건다. 통로 호출이 실패로
   끝나도 줄이 아직 queued 일 때만 failed 로 닫는다(이미 dialing 이면 그대로 둔다). 분명한 실패가 아닌 것(모름·예외·취소)으로
-  닫은 통화는 그 번호로의 다음 전화를 DUPLICATE_WINDOW_S 동안 막는다.
+  닫은 통화는 그 번호로의 다음 전화를 닫힌 때(그 delivery 사건·ended_at)부터 DUPLICATE_WINDOW_S 동안 막는다.
 - 상한 숫자는 모두 store.outreach.limits(conn) 에서 검사할 때마다 읽는다(여기 숫자는 상한이 아닌 것뿐: 같은 글 시간 창,
   DB 기다림, 결과 적기 다시 하기).
-- 일꾼(system)은 **scheduled 줄만**, 줄에 적힌 send_mode 로만 보낸다(approved 는 approved_by 가 있어야 한다) — **문을 거치지
+- 일꾼(system)은 **때가 된(scheduled_at ≤ now) scheduled 줄만**, 줄에 적힌 send_mode 로만 보낸다(approved 는 approved_by 가 있어야 한다) — **문을 거치지
   않고 scheduled 줄을 만드는 코드는 send_mode 를 적어야 한다**(비어 있으면 needs_approval). 사람이 고른 시각의 통화 예약은
   `schedule` 이 사람의 결정(_mode)을 적는다 — 프로그램 쪽은 send_mode 를 적지 않고 이 함수를 부른다.
 - 줄의 kind 를 그대로 믿지 않는다: dnc_confirm 은 글이 DNC_CONFIRM_TEXT 와 같아야 하고, auto_reply·notice 는 에이전트·일꾼만
@@ -44,7 +44,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, time, timedelta
 from time import sleep
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
@@ -154,8 +154,9 @@ async def dispatch(kind: Literal["message", "call"], row_id: int, actor: Actor, 
 def schedule(kind: Literal["call"], row_id: int, actor: Actor, at: datetime, *, now: datetime | None = None) -> Outcome:
     """사람이 고른 시각(at)에 통화를 예약한다: 그 사람의 결정(_mode — 자기 초안 manual, 에이전트 초안 approved + 그 사람)을
     줄에 적는다. 때가 되면 일꾼이 그 방식으로 dispatch 해 처음부터 다시 검사받는다. 사람(역할 user·admin)만, 거는 통화의
-    draft·blocked_hours·scheduled 줄만. 근무시간·지난 시각은 부른 쪽(API)이 미리 본다. 판정 사건 하나(예약 working_hours noted,
-    거절 precheck blocked — 없는 줄·받은 줄은 사건 없음). DB 쓰기 잠금을 얻지 못하면 「잠시 뒤 다시」(duplicate)."""
+    draft·blocked_hours·scheduled 줄만. dispatch 와 같은 앞 확인(차례 0~2 — 연결·번호·채널·통로·시험 모드·차단·수신 거부, _reachable)을
+    지나야 한다: 나갈 수 없는 통화는 그 판정 그대로(줄은 그대로). 근무시간·지난 시각은 부른 쪽(API)이 미리 본다. 판정 사건 하나
+    (예약 working_hours noted, 거절은 걸린 차례 blocked — 없는 줄·받은 줄은 사건 없음). DB 쓰기 잠금을 얻지 못하면 「잠시 뒤 다시」."""
     now, at = as_utc(now or datetime.now(UTC)), as_utc(at)
     with _session() as session:
         try:
@@ -183,7 +184,12 @@ def _schedule(session: Session, kind: str, row_id: int, actor: Actor, at: dateti
         return refuse("초안이거나 근무시간 밖이라 멈춘 통화만 예약할 수 있습니다")
     if actor.kind != "user" or actor.role not in ("user", "admin"):
         return refuse("예약은 걸 수 있는 사람만 합니다")
-    send_mode, approved_by = _mode(actor, row, outreach.connection(session), {"call"})
+    conn = outreach.connection(session)
+    reach = _reachable(session, kind, row, actor, conn, "call", "", {"call"})
+    if isinstance(reach, Outcome):  # 나갈 수 없는 통화는 「예약됨」이 아니다 — 같은 판정·사건, 줄은 그대로
+        events.record(session, ref, GATE_RULES[reach.rule], "blocked", reach.message, now=now)
+        return reach
+    send_mode, approved_by = _mode(actor, row, conn, {"call"})
     session.execute(update(OutreachCall).where(OutreachCall.id == row_id, OutreachCall.status.in_(_SCHEDULABLE)).values(
         status="scheduled", scheduled_at=at, send_mode=send_mode, approved_by=approved_by, fail_reason=None))
     events.record(session, ref, GATE_RULES[WORKING_HOURS], "noted", "사람이 고른 시각에 겁니다", now=now)
@@ -331,6 +337,9 @@ def _decide(session: Session, kind: str, row_id: int, actor: Actor, now: datetim
         return stop(Outcome("not_sendable", "보내거나 걸 수 있는 권한이 없습니다", PRECHECK), None)
     if actor.kind == "system" and row.status != "scheduled":
         return stop(Outcome("not_sendable", "일꾼은 예약된 줄만 보냅니다", PRECHECK), None)
+    if actor.kind == "system" and (row.scheduled_at is None or as_utc(row.scheduled_at) > now):
+        # 일꾼이 때가 된 id 를 고른 뒤 넣기 전에 사람이 시각을 뒤로 옮겼으면 지금 내보내지 않는다(문자·통화 같은 줄)
+        return stop(Outcome("not_sendable", "일꾼은 때가 된 예약만 보냅니다", PRECHECK), None)
     conn = outreach.connection(session)
     if kind == "call":
         lane, body = "call", ""
@@ -346,38 +355,10 @@ def _decide(session: Session, kind: str, row_id: int, actor: Actor, now: datetim
     needs = Outcome("needs_approval", "사람의 승인이 필요합니다", PERMISSION)
     if mode is None and actor.kind != "system" and row.status == "scheduled" and row.send_mode is not None:
         return stop(needs, None)
-    if kind == "message" and row.channel not in _MESSAGE_CHANNELS:
-        return stop(Outcome("not_sendable", "보낼 수 없는 채널입니다", PRECHECK))
-    if conn is None or conn.status != "ok":
-        return stop(Outcome("not_ready", "알림 연결이 준비되지 않았습니다. 설정에서 연결을 확인해 주세요", PRECHECK))
-    contact = session.get(Contact, row.contact_id) if row.contact_id is not None else None
-    if row.contact_id is not None and (contact is None or contact.schedule_id != row.schedule_id):
-        return stop(Outcome("not_sendable", "이 일정의 연락처가 아닙니다", PRECHECK))
-    stored = contact.phone if contact is not None else row.peer_number
-    number = phone.normalize(stored)
-    if number is None or (contact is not None and contact.phone_invalid):
-        return stop(Outcome("not_sendable", "받는 번호가 없거나 맞지 않습니다", PRECHECK))
-    if stored != number:  # 정리되지 않은 꼴로 저장된 번호는 수신 거부·사람당 상한·중복 검사(번호로 찾는다)가 찾지 못한다
-        return stop(Outcome("not_sendable", "연락처 번호를 다시 저장해 주세요", PRECHECK))
-    if not all(_can_take(contact, number, name) for name in wanted):
-        return stop(Outcome("not_sendable", "이 번호로는 그 방법으로 연락할 수 없습니다", PRECHECK))
-    if lane == "sms" and not body.strip():
-        return stop(Outcome("not_sendable", "보낼 글이 없습니다", PRECHECK))
-    if kind == "message" and row.kind == "dnc_confirm" and body.strip() != DNC_CONFIRM_TEXT:
-        return stop(Outcome("not_sendable", "수신 거부 확인 문자는 정해 둔 글만 보냅니다", PRECHECK))
-    if kind == "message" and row.kind in _AUTO_KINDS and actor.kind == "user":
-        return stop(Outcome("not_sendable", "자동 답은 사람이 보내는 글이 아닙니다. 보통 글로 다시 만들어 주세요", PRECHECK))
-    channel = _channel(lane)
-    if channel is None:
-        return stop(Outcome("not_ready", "보내는 통로가 아직 준비되지 않았습니다", PRECHECK))
-
-    # 1 시험 모드 · 2 차단·수신 거부
-    barred = _barred(session, conn, number)
-    if (barred is not None and barred.code == "do_not_contact" and kind == "message" and row.kind == "dnc_confirm"
-            and not _confirm_sent(session, number, row_id)):
-        barred = None  # 수신 거부로 표시한 뒤의 확인 문자 한 번
-    if barred is not None:
-        return stop(barred, "blocked_test" if barred.rule == TEST_MODE else "draft")
+    reach = _reachable(session, kind, row, actor, conn, lane, body, wanted)
+    if isinstance(reach, Outcome):
+        return stop(reach, "blocked_test" if reach.rule == TEST_MODE else "draft")
+    contact, number, channel = reach
 
     # 위임 없는 에이전트는 권한(5)을 근무시간(3)보다 먼저 본다 — 근무 밖이라 예약해도 때가 되면 권한에서 멈추므로, 나가지 않을 것을
     # 「다음 근무 시작에 보냅니다」라고 알리지 않는다(Task 81 고침 1). 사람·일꾼은 차례 그대로.
@@ -423,6 +404,50 @@ def _decide(session: Session, kind: str, row_id: int, actor: Actor, now: datetim
         events.record(session, ref, note, "noted", why, now=now)
     events.record(session, ref, GATE_RULES[CHANNEL_CHOICE], "allowed", lane, now=now)
     return channel
+
+
+class _Reach(NamedTuple):
+    """앞 확인(차례 0~2)을 지난 줄의 받는 사람·정리된 번호·부를 통로."""
+
+    contact: Contact | None
+    number: str
+    channel: Channel
+
+
+def _reachable(session: Session, kind: str, row: _Row, actor: Actor, conn: NotifyConnection | None, lane: str,
+               body: str, wanted: set[str]) -> Outcome | _Reach:
+    """차례 0(연결·연락처·번호·채널·글·통로) · 1 시험 모드 · 2 차단·수신 거부. 걸리면 그 판정(줄·사건은 부른 쪽이 적는다),
+    지나가면 _Reach. dispatch(_decide)와 예약(_schedule)이 같이 쓴다 — 같은 차례, 같은 글."""
+    if kind == "message" and row.channel not in _MESSAGE_CHANNELS:
+        return Outcome("not_sendable", "보낼 수 없는 채널입니다", PRECHECK)
+    if conn is None or conn.status != "ok":
+        return Outcome("not_ready", "알림 연결이 준비되지 않았습니다. 설정에서 연결을 확인해 주세요", PRECHECK)
+    contact = session.get(Contact, row.contact_id) if row.contact_id is not None else None
+    if row.contact_id is not None and (contact is None or contact.schedule_id != row.schedule_id):
+        return Outcome("not_sendable", "이 일정의 연락처가 아닙니다", PRECHECK)
+    stored = contact.phone if contact is not None else row.peer_number
+    number = phone.normalize(stored)
+    if number is None or (contact is not None and contact.phone_invalid):
+        return Outcome("not_sendable", "받는 번호가 없거나 맞지 않습니다", PRECHECK)
+    if stored != number:  # 정리되지 않은 꼴로 저장된 번호는 수신 거부·사람당 상한·중복 검사(번호로 찾는다)가 찾지 못한다
+        return Outcome("not_sendable", "연락처 번호를 다시 저장해 주세요", PRECHECK)
+    if not all(_can_take(contact, number, name) for name in wanted):
+        return Outcome("not_sendable", "이 번호로는 그 방법으로 연락할 수 없습니다", PRECHECK)
+    if lane == "sms" and not body.strip():
+        return Outcome("not_sendable", "보낼 글이 없습니다", PRECHECK)
+    if kind == "message" and row.kind == "dnc_confirm" and body.strip() != DNC_CONFIRM_TEXT:
+        return Outcome("not_sendable", "수신 거부 확인 문자는 정해 둔 글만 보냅니다", PRECHECK)
+    if kind == "message" and row.kind in _AUTO_KINDS and actor.kind == "user":
+        return Outcome("not_sendable", "자동 답은 사람이 보내는 글이 아닙니다. 보통 글로 다시 만들어 주세요", PRECHECK)
+    channel = _channel(lane)
+    if channel is None:
+        return Outcome("not_ready", "보내는 통로가 아직 준비되지 않았습니다", PRECHECK)
+    # 1 시험 모드 · 2 차단·수신 거부
+    barred = _barred(session, conn, number)
+    if (barred is not None and barred.code == "do_not_contact" and kind == "message" and row.kind == "dnc_confirm"
+            and not _confirm_sent(session, number, row.id)):
+        barred = None  # 수신 거부로 표시한 뒤의 확인 문자 한 번
+    return barred if barred is not None else _Reach(contact, number, channel)
 
 
 def _channel(name: str) -> Channel | None:
@@ -552,8 +577,9 @@ def _twin(session: Session, row: _Row, lane: str, body: str, number: str, now: d
         live = select(model.id).where(model.id != row.id, model.status.in_(outreach.LIVE_CALL), _to(model, number))
         if (row.contact_id is not None and outreach.live_call(session, row.contact_id)) or session.scalar(live.limit(1)):
             return Outcome("duplicate", "그 번호와 통화가 진행 중이거나 걸 차례를 기다리고 있습니다", DUPLICATE)
-        doubtful = select(model.harness_json).where(*others, model.status == "failed", model.claimed_at > since)
-        if any(_closed_unsure(log) for log in session.scalars(doubtful)):
+        # 「걸렸는지 모름」으로 닫힌 통화: 차지한 때가 아니라 모름으로 닫힌 때부터 잰다(길게 통화했거나 서버가 다시 떠 늦게 닫힌 것도)
+        doubtful = select(model.harness_json, model.ended_at).where(*others, model.status == "failed")
+        if any(_closed_unsure_after(log, ended, since) for log, ended in session.execute(doubtful)):
             return Outcome("duplicate", "방금 건 전화가 걸렸는지 확인되지 않았습니다. 잠시 뒤 다시 걸어 주세요", DUPLICATE)
         if row.retry_of is not None and row.auto_retry_used:  # 자동 다시 걸기: 예약한 뒤 그 번호로 전화가 나갔으면 걸지 않는다
             called = select(model.id).where(*others, model.claimed_at > row.created_at)
@@ -576,11 +602,22 @@ def _twin(session: Session, row: _Row, lane: str, body: str, number: str, now: d
     return None
 
 
-def _closed_unsure(log: object) -> bool:
-    """그 통화 줄을 「걸렸는지 모름」으로 닫았는가 — delivery 사건의 판정이 noted(DELIVERY_VERDICT 의 unsure)."""
-    return isinstance(log, list) and any(
-        isinstance(event, dict) and event.get("rule") == "delivery" and event.get("verdict") == DELIVERY_VERDICT["unsure"]
-        for event in log)
+def _closed_unsure_after(log: object, ended_at: datetime | None, since: datetime) -> bool:
+    """그 통화 줄을 「걸렸는지 모름」(delivery 사건의 판정이 DELIVERY_VERDICT 의 unsure)으로 닫았고, 닫힌 때 — 그 사건의 시각과
+    ended_at 가운데 늦은 것 — 가 since 뒤인가. 읽을 수 없는 시각은 건너뛴다."""
+    if not isinstance(log, list):
+        return False
+    marks = [event.get("at") for event in log if isinstance(event, dict) and event.get("rule") == "delivery"
+             and event.get("verdict") == DELIVERY_VERDICT["unsure"]]
+    if not marks:
+        return False
+    times = [as_utc(ended_at)] if ended_at is not None else []
+    for mark in marks:
+        try:
+            times.append(as_utc(datetime.fromisoformat(mark)))
+        except (TypeError, ValueError):
+            continue
+    return any(at > since for at in times)
 
 
 def _text(row: OutreachMessage, body: str, lane: str) -> tuple:

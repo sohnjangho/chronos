@@ -1193,3 +1193,107 @@ def test_schedule_that_cannot_get_the_lock_is_busy(session, sid, monkeypatch):
 
     assert (out.code, out.message) == ("duplicate", BUSY)
     assert reread(session, row).status == "draft"
+
+
+# ── 일꾼은 때가 된 줄만 · 예약도 앞 확인을 지난다 ─────────────────────
+
+
+@pytest.mark.parametrize("channel", ["sms", "call"])
+async def test_worker_takes_a_scheduled_row_only_once_it_is_due(session, sid, fake_channel, channel):
+    """일꾼이 때가 된 id 를 고른 뒤 넣기 전에 시각이 뒤로 옮겨졌으면 지금 내보내지 않는다(문자·통화가 같은 줄을 지난다)."""
+    connect(session)
+    later = MONDAY + timedelta(hours=2)
+    row = row_for(session, channel, person(session, sid), status="scheduled", scheduled_at=later, send_mode="manual")
+    no_time = row_for(session, channel, person(session, sid, OTHER_PHONE, name="이철근"), status="scheduled",
+                      send_mode="manual")
+    session.commit()
+
+    early = await send(row, SYSTEM, MONDAY)
+    unset = await send(no_time, SYSTEM, later)
+
+    assert (early.code, early.rule, unset.code, unset.rule) == ("not_sendable", 0, "not_sendable", 0)
+    got = reread(session, row)
+    assert (got.status, as_utc(got.scheduled_at), got.send_mode) == ("scheduled", as_utc(later), "manual")
+    assert reread(session, no_time).status == "scheduled" and fake_channel.delivered == []
+    assert trail(session, row) == [("precheck", "blocked")]
+
+    due = await send(row, SYSTEM, later)
+
+    assert due.code == ("queued" if channel == "call" else "accepted")
+    assert [d.row_id for d in fake_channel.delivered] == [row.id]
+
+
+async def test_person_moving_a_call_later_is_not_placed_at_the_old_time(session, sid, fake_channel):
+    """일꾼이 고른 뒤 사람이 더 늦게 옮김 → 옛 시각의 dispatch 는 걸지 않고, 새 시각에 건다."""
+    connect(session)
+    row = call(session, person(session, sid))
+    session.commit()
+    first, second = MONDAY + timedelta(hours=1), MONDAY + timedelta(hours=4)
+    assert gate.schedule("call", row.id, USER, first, now=WORK).code == "scheduled"
+    assert gate.schedule("call", row.id, USER, second, now=first).code == "scheduled"
+
+    assert (await send(row, SYSTEM, first)).code == "not_sendable"
+    assert fake_channel.delivered == []
+    assert (await send(row, SYSTEM, second)).code == "queued"
+    assert [d.row_id for d in fake_channel.delivered] == [row.id]
+
+
+@pytest.mark.parametrize(("case", "code", "rule", "event"), [
+    ("no_connection", "not_ready", 0, "precheck"),
+    ("connection_down", "not_ready", 0, "precheck"),
+    ("no_number", "not_sendable", 0, "precheck"),
+    ("no_calls", "not_sendable", 0, "precheck"),
+    ("test_mode", "blocked_test", 1, "test_mode"),
+    ("dnc", "do_not_contact", 2, "blocked_or_dnc"),
+    ("blocked_number", "blocked_number", 2, "blocked_or_dnc"),
+])
+def test_schedule_refuses_a_call_that_could_never_go_out(session, sid, fake_channel, case, code, rule, event):
+    """예약도 문의 앞 확인(차례 0~2)을 지난다 — 같은 판정·같은 글·같은 사건. 줄은 그대로(초안)."""
+    conn = None if case == "no_connection" else connect(session, status="failed" if case == "connection_down" else "ok",
+                                                         test_mode=case == "test_mode")
+    who = person(session, sid, None if case == "no_number" else PHONE, can_call=case != "no_calls",
+                 do_not_contact=case == "dnc")
+    if case == "blocked_number":
+        session.add(BlockedNumber(number=PHONE, reason="요청", created_by="관리자"))
+    row = call(session, who)
+    session.commit()
+    assert conn is not None or outreach.connection(session) is None
+
+    out = gate.schedule("call", row.id, USER, MONDAY, now=WORK)
+
+    assert (out.code, out.rule) == (code, rule)
+    got = reread(session, row)
+    assert (got.status, got.scheduled_at, got.send_mode, got.approved_by) == ("draft", None, None, None)
+    assert trail(session, row) == [(event, "blocked")]
+
+
+@pytest.mark.parametrize("closing", ["event", "ended_at"])
+async def test_long_call_closed_unsure_just_now_still_blocks_the_next_call(session, sid, fake_channel, closing):
+    """「걸렸는지 모름」 막기는 차지한 때가 아니라 모름으로 닫힌 때(그 delivery 사건의 시각, 또는 ended_at)부터 잰다 —
+    10분 전에 차지해 방금 모름으로 닫힌 통화 뒤에 같은 번호로 120초 안에 또 걸지 않는다."""
+    connect(session)
+    who = person(session, sid)
+    claimed, closed = WORK - timedelta(minutes=10), WORK - timedelta(seconds=5)
+    old = call(session, who, status="failed", claimed_at=claimed, ended_at=closed if closing == "ended_at" else None)
+    session.commit()
+    events.record(session, Ref("call", old.id), "delivery", "noted", gate.UNSURE,
+                  now=closed if closing == "event" else claimed)
+    session.commit()
+    soon, later = call(session, who, purpose_key="p-1"), call(session, who, purpose_key="p-2")
+    session.commit()
+
+    blocked = await send(soon, USER, WORK)
+
+    assert (blocked.code, blocked.rule) == ("duplicate", 6) and fake_channel.delivered == []
+    assert (await send(later, USER, closed + timedelta(seconds=gate.DUPLICATE_WINDOW_S + 1))).code == "queued"
+
+
+async def test_unsure_block_is_only_for_calls_closed_unsure(session, sid, fake_channel):
+    """모름이 아닌 실패(분명한 실패)는 막지 않는다 — 방금 끝났어도."""
+    connect(session)
+    who = person(session, sid)
+    call(session, who, status="failed", claimed_at=WORK - timedelta(minutes=10), ended_at=WORK - timedelta(seconds=5))
+    row = call(session, who, purpose_key="p-3")
+    session.commit()
+
+    assert (await send(row, USER, WORK)).code == "queued"
