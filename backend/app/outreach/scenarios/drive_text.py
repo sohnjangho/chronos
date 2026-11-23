@@ -57,6 +57,7 @@ from app.store.tables_outreach import (
     BlockedNumber,
     Contact,
     ContactCompany,
+    ContactReport,
     NotifyConnection,
     OutreachCall,
     OutreachMessage,
@@ -86,10 +87,12 @@ ADMIN = "김공정"
 @dataclass
 class CellResult:
     passed: bool
-    checks: list[dict]  # [{text, ok, error}] — error 는 검사가 터졌을 때 예외 종류(아니면 None)
+    checks: list[dict]  # [{text, ok, error, guarded}] — error 는 검사가 터졌을 때 예외 종류(아니면 None), guarded 는 그 칸의
+    #                     지키는 곳을 무르면 거짓이 되어야 하는 기대인가
     events: list[dict]  # [{ref, rule, verdict, detail}] — 모든 줄의 하네스 사건(번호 없음)
     sessions: tuple[str, ...] = ()  # 쓴 글 세션의 종류
     channel: str = ""  # 쓴 통로의 종류
+    note: str | None = None  # 격자에 보일 말(설계와 다름 · 공통 겹만 — Situation.notes)
 
 
 # ── 가짜 ───────────────────────────────────────────────────────────
@@ -131,6 +134,22 @@ def _result(spec: str) -> Delivered:
     if spec.startswith("failed:"):
         return Delivered("failed", fail_code=spec.removeprefix("failed:"))
     raise ValueError("통로 결과는 sent · unsure · failed:<code> 입니다")
+
+
+class WatchedText(SimulatedText):
+    """대본 글 세션 + 모델이 답을 마치는 순간(Reply 를 돌려주기 바로 전)에 열린 보고(contact_reports open)의 종류를 적는다 —
+    「세션이 끝나기 전에 보고가 있다」를 같은 시각이 아니라 차례로 보려고."""
+
+    def __init__(self, script: list) -> None:
+        super().__init__(script)
+        self.open_reports_at_reply: list[list[str]] = []
+
+    async def respond(self, instructions, tools, history, on_tool):
+        reply = await super().respond(instructions, tools, history, on_tool)
+        with Session(db._engine) as session:
+            kinds = session.scalars(select(ContactReport.kind).where(ContactReport.status == "open").order_by(ContactReport.id))
+            self.open_reports_at_reply.append(list(kinds))
+        return reply
 
 
 class _Inbox:
@@ -272,7 +291,7 @@ class _Run:
     fake: FakeChannel = field(default_factory=FakeChannel)
     inbox: _Inbox = field(default_factory=_Inbox)
     clock: datetime = WORK
-    sims: list[SimulatedText] = field(default_factory=list)
+    sims: list[WatchedText] = field(default_factory=list)
     pending: list | None = None
     sent_count: int = 0
     people: dict[str, int] = field(default_factory=dict)
@@ -333,7 +352,7 @@ class _Run:
         """앞 Them 의 응대를 지금 시각으로 돌린다(그 Them 의 대본을 끼우고)."""
         if self.pending is None:
             return
-        sim = SimulatedText(self.pending)
+        sim = WatchedText(self.pending)
         self.sims.append(sim)
         self.pending = None
         with text_session.pinned(sim):
@@ -411,10 +430,11 @@ class _Run:
                     ok = check.fn(world) is True
                 except Exception as exc:  # noqa: BLE001 — 기대가 터지면 그 기대는 거짓(까닭은 종류만)
                     ok, error = False, type(exc).__name__
-                checks.append({"text": check.text, "ok": ok, "error": error})
+                checks.append({"text": check.text, "ok": ok, "error": error, "guarded": check.breaks_in(self.column)})
             trail = _events(session)
         return CellResult(bool(checks) and all(c["ok"] for c in checks), checks, trail,
-                          tuple(type(sim).__name__ for sim in self.sims if sim.seen_instructions), type(self.fake).__name__)
+                          tuple(SimulatedText.__name__ for sim in self.sims if sim.seen_instructions), type(self.fake).__name__,
+                          self.situation.notes.get(self.column))
 
 
 def _events(session: Session) -> list[dict]:

@@ -109,10 +109,37 @@ async def test_text_only_case_passes(case):
 
 @pytest.mark.parametrize(("sid", "col"), TEXT_CELLS)
 async def test_text_cell_fails_when_its_guard_is_broken(sid, col):
-    """지키는 곳을 무르면 그 칸이 실패한다 — 그리고 실패는 검사가 거짓을 본 것이지 검사가 터진 것이 아니다."""
+    """지키는 곳을 무르면 그 칸이 실패한다 — 거짓이 되는 기대는 그 칸에 적어 둔 것(guarded)과 꼭 같다(「무언가」가 아니라 「이것」).
+    그리고 그 가운데 적어도 하나는 검사가 터진 것이 아니라 거짓을 본 것이다."""
     result = await run_cell(sid, col, broken=True)
+    failed = [c["text"] for c in result.checks if not c["ok"]]
     assert not result.passed
+    assert failed == [c["text"] for c in result.checks if c["guarded"]] and failed
     assert [c for c in result.checks if not c["ok"] and c["error"] is None], result.checks
+
+
+COMMON_ONLY = {("S-10", c) for c in TEXT} | {("S-11", c) for c in TEXT} | {("S-12", c) for c in TEXT}
+
+
+@pytest.mark.parametrize(("sid", "col"), sorted(COMMON_ONLY | {("S-01", "sms_in")}))
+async def test_grid_shows_honest_notes(sid, col):
+    """공통 겹만으로 지키는 칸(S-10·11·12)과 설계와 다른 칸(S-01 문자 받기)은 격자 결과에 그렇게 적힌다."""
+    note = (await run_cell(sid, col)).note
+    assert note is not None and note.startswith("공통 겹만" if (sid, col) in COMMON_ONLY else "설계와 다름: 물려줄 요청 없음")
+
+
+async def test_other_cells_carry_no_note():
+    assert (await run_cell("S-06", "sms_in")).note is None
+
+
+@pytest.mark.xfail(strict=True, reason="Task 71: channels.sms.length_kind 는 NFC 정리·앞뒤 공백 빼기를 하지 않아 화면 smsLength 와 갈린다 "
+                                       "(끝에 빈칸을 붙인 한글 45자 — 화면 SMS, 통로 long)")
+def test_sms_length_trailing_spaces_count_like_the_screen():
+    from app.outreach.channels.sms import length_kind
+    from app.outreach.scenarios.grid import SMS_BYTES, _sms_bytes
+
+    text = "가" * 45 + "  "
+    assert length_kind(text) == ("sms" if _sms_bytes(text) <= SMS_BYTES else "long")
 
 
 def test_every_cell_names_a_guard():
@@ -170,15 +197,25 @@ async def test_drivers_use_only_fakes(monkeypatch):
         lanes.append(real_channel(name))
         return lanes[-1]
 
+    from app.outreach import worker
+
+    real_plan = worker._plan
+
+    def spy_plan(at):
+        plan = real_plan(at)
+        clients.append(plan.client)
+        return plan
+
     monkeypatch.setattr(text_session, "session_for", spy_session)
     monkeypatch.setattr(registry, "channel", spy_channel)
+    monkeypatch.setattr(worker, "_plan", spy_plan)
     result = await run_cell("S-23", "sms_reply")  # 위임으로 실제로 나가는 칸
 
-    clients.append(provider.client_for)
+    assert clients and all(isinstance(c, drive_text._Inbox) for c in clients)  # 일꾼이 읽은 제공사는 대본의 가짜뿐
     assert result.passed and sessions and lanes
     assert all(isinstance(s, SimulatedText) for s in sessions)
     assert all(isinstance(lane, drive_text.FakeLane) for lane in lanes)
-    assert clients == [real_client]  # 끝나면 제공사 자리는 그대로
+    assert provider.client_for is real_client  # 끝나면 제공사 자리는 그대로
     assert result.sessions and set(result.sessions) == {"SimulatedText"} and result.channel == "FakeChannel"
 
 
