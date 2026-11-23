@@ -1247,8 +1247,10 @@ def test_interface_and_simulation_import_only_the_harness_words():
     modules = ("app.outreach.harness.types", "app.outreach.harness.registry", "app.outreach.redact",
                "app.outreach.voice.session")
     for name in TASK_FILES:
+        # backend_for(session.py) 만 SDK 어댑터를 부른다(Task 113 — 함수 안에서, 어댑터가 설정을 읽는다)
+        allowed = (*modules, "app.outreach.voice.kat_sdk") if name == "session.py" else modules
         mine = {n for n in _imported(VOICE / name) if n == "app" or n.startswith("app.")}
-        strangers = {n for n in mine if n not in packages and not any(n == m or n.startswith(m + ".") for m in modules)}
+        strangers = {n for n in mine if n not in packages and not any(n == m or n.startswith(m + ".") for m in allowed)}
         assert not strangers, (name, sorted(strangers))
 
 

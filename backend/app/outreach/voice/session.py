@@ -255,10 +255,16 @@ _PINNED: list[VoiceBackend] = []
 
 def backend_for(session: "Session | None") -> VoiceBackend:
     """쓸 음성 백엔드 — 시험·모래상자가 끼운 것(pinned)이 있으면 그것. 통화 일꾼·API 가 백엔드를 얻는 한 곳이다.
-    SDK 어댑터(Task 113)가 붙기 전에는 고를 것이 없어 NotReady(아무것도 걸지 않는다) — 113 이 여기서 voice_settings 를 읽는다."""
+    아니면 기본 알림 연결의 voice_settings 를 읽어 공급자가 google·openai 이고 SDK 가 깔렸고 설정이 다 갖춰졌으면 SDK 어댑터
+    (kat_sdk.KatVoice — Task 113), 그 밖(세션 없음·설정 없음·dashboard 방식·덜 된 설정)은 NotReady(아무것도 걸지 않는다).
+    어댑터는 여기서만 불러온다(그 모듈도 SDK 는 함수 안에서만 불러온다)."""
     if _PINNED:
         return _PINNED[-1]
-    raise NotReady("음성 통화 백엔드가 아직 준비되지 않았습니다")
+    if session is None:
+        raise NotReady("음성 통화 백엔드가 아직 준비되지 않았습니다")
+    from app.outreach.voice import kat_sdk
+
+    return kat_sdk.for_session(session)
 
 
 def _may_pin() -> bool:
