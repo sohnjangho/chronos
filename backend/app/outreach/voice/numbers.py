@@ -8,6 +8,9 @@
 from typing import Literal
 
 DEFAULT_LIVE_MODEL = "gemini-3.8-live"  # 구글 폐기 안내가 적은 뒤이음 모델
+# 구글 Live 모델은 v1alpha 에만 보이고 붙는다(11-24 실측: 기본 v1beta 는 목록에 Live 0개 · Live 소켓 404, v1alpha 는 목록 65개 ·
+# gemini-3.8-live 연결 됨). 목록(live_models)·진단·어댑터가 이 하나를 쓴다. OpenAI 에는 쓰지 않는다.
+GOOGLE_LIVE_API_VERSION = "v1alpha"
 
 
 def effective_agent_number(conn: object, voice: object | None) -> str | None:

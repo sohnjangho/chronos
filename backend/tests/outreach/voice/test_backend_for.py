@@ -299,11 +299,12 @@ class FakeSdk:
 
         class GeminiRealtime:
             def __init__(self, *, api_key=None, system_prompt="", model="sdk-default-model", voice="Kore",
-                         language="ko", greeting=True) -> None:
+                         language="ko", greeting=True, api_version=None) -> None:
                 if extra_missing:
                     raise ImportError("google-genai is required for GeminiRealtime")
                 sdk.sessions.append(("GeminiRealtime", {"api_key": api_key, "system_prompt": system_prompt,
-                                                        "model": model, "language": language, "voice": voice}))
+                                                        "model": model, "language": language, "voice": voice,
+                                                        "api_version": api_version}))
 
         class OpenAIRealtime:
             def __init__(self, *, api_key=None, system_prompt="", model="sdk-default-rt", voice="marin",
@@ -464,6 +465,7 @@ async def test_handlers_get_start_transcript_tool_end_in_order(world, caplog):
     kind, kw = sdk.sessions[-1]
     assert kind == "GeminiRealtime" and kw["model"] == numbers.DEFAULT_LIVE_MODEL and kw["api_key"] == GOOGLE_KEY
     assert kw["language"] == "ko" and kw["voice"] == "Kore"
+    assert kw["api_version"] == numbers.GOOGLE_LIVE_API_VERSION  # 기본(v1beta)에는 Live 모델이 없다(11-24 실측)
     assert kw["system_prompt"].startswith(_spec().instructions) and f"「{FIRST}」" in kw["system_prompt"]
     no_leaks(caplog, rec.log)
 
@@ -660,6 +662,13 @@ async def test_control_is_harmless_after_the_call_is_over(world):
     assert await rec.control.transfer(STAFF_NUMBER) is False
     await rec.control.say("들리시나요")
     assert rec.log == before and sdk.call.hangups == 0 and sdk.call.transfers == []
+
+
+async def test_openai_session_gets_no_google_api_version(world):
+    sdk = FakeSdk(world)
+    await place(kat(world, sdk, v=voice(provider="openai", model="gpt-realtime-test")))
+    kind, kw = sdk.sessions[-1]
+    assert kind == "OpenAIRealtime" and kw["model"] == "gpt-realtime-test" and "api_version" not in kw
 
 
 async def test_say_is_not_available_and_does_nothing(world):

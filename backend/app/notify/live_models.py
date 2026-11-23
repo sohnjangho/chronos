@@ -14,12 +14,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.outreach import redact
-from app.outreach.voice.numbers import DEFAULT_LIVE_MODEL
+from app.outreach.voice.numbers import DEFAULT_LIVE_MODEL, GOOGLE_LIVE_API_VERSION
 
 log = logging.getLogger(__name__)
 
 LIVE_ACTION = "bidiGenerateContent"
-FALLBACK = (DEFAULT_LIVE_MODEL, "gemini-3.8-live-extended-thinking")  # 설치된 음성 SDK 가 아는 3.8 Live 모델
+FALLBACK = (DEFAULT_LIVE_MODEL,)  # 고를 수 있는 것만(-extended-thinking 은 우리가 보내지 않는 설정이 필요해 뺐다 — 고침 2)
+UNUSABLE_SUFFIXES = ("-extended-thinking",)  # 생각 단계(thinking_level)를 보내야 붙는다(안 보내면 APIError 1007) — 우리는 보내지 않는다
+NO_VOICE_WORD = "transcribe"  # 받아쓰기만 하는 Live 모델(…-transcribe-live) — 말을 하지 못한다
 TIMEOUT_S = 8
 PAGE_SIZE = 200  # 한 번의 요청으로 읽는 줄 수(첫 쪽만)
 MAX_MODELS = 30  # 돌려주는 Live 모델 수
@@ -55,13 +57,19 @@ def google_client(key: str, timeout_s: float) -> object:
     from google import genai
     from google.genai import types
 
-    options = types.HttpOptions(timeout=int(timeout_s * 1000), retry_options=types.HttpRetryOptions(attempts=1))
+    options = types.HttpOptions(api_version=GOOGLE_LIVE_API_VERSION, timeout=int(timeout_s * 1000),
+                                retry_options=types.HttpRetryOptions(attempts=1))
     return genai.Client(api_key=key, http_options=options)
 
 
 def _status(error: BaseException) -> int | None:
     code = getattr(error, "code", None)
     return code if type(code) is int else None
+
+
+def usable(name: str) -> bool:
+    """전화에 쓸 수 있는 Live 모델 이름인가 — 우리가 보내지 않는 설정이 필요하거나 말을 하지 못하는 모델은 아니다."""
+    return not name.endswith(UNUSABLE_SUFFIXES) and NO_VOICE_WORD not in name
 
 
 def _names(page: object) -> list[str]:
@@ -71,7 +79,7 @@ def _names(page: object) -> list[str]:
         actions = getattr(item, "supported_actions", None) or []
         raw = getattr(item, "name", None)
         name = raw.removeprefix("models/") if isinstance(raw, str) else ""
-        if LIVE_ACTION in actions and _NAME.fullmatch(name) and name not in found:
+        if LIVE_ACTION in actions and _NAME.fullmatch(name) and usable(name) and name not in found:
             found.append(name)
     found.sort(key=lambda n: n != DEFAULT_LIVE_MODEL)
     return found

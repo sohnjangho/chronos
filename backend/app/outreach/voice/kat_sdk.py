@@ -420,8 +420,11 @@ class _Line:
         """통화마다 세션 하나(SDK 의 session_factory). 지시문 + 고정 첫마디, 모델은 effective_model."""
         s, spec = self.kat._s, self.spec
         rule = FIRST_RULE.get(spec.language.split("-")[0].lower(), FIRST_RULE["en"]).format(line=spec.first_line)
-        return getattr(self.sdk, SESSIONS[s.provider])(api_key=s.voice_key, system_prompt=f"{spec.instructions}\n\n{rule}",
-                                                       language=spec.language, model=s.model)
+        kw = {"api_key": s.voice_key, "system_prompt": f"{spec.instructions}\n\n{rule}", "language": spec.language,
+              "model": s.model}
+        if s.provider == "google":
+            kw["api_version"] = numbers.GOOGLE_LIVE_API_VERSION  # Live 모델은 v1alpha 에만 있다(11-24 실측)
+        return getattr(self.sdk, SESSIONS[s.provider])(**kw)
 
     async def bounded(self, awaitable: Awaitable, limit: float) -> object:
         """SDK 의 일을 우리 시계로 limit 초까지만 기다린다. 넘으면 취소하고 TimeoutError."""

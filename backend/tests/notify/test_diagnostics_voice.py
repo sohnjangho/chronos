@@ -256,11 +256,12 @@ class FakeSdk:
 
         class GeminiRealtime:
             def __init__(self, *, api_key=None, system_prompt="", model="fake-live", voice="Kore", language="ko",
-                         greeting=True) -> None:
+                         greeting=True, api_version=None) -> None:
                 if extra_missing:
                     raise ImportError("google-genai is required for GeminiRealtime")
                 sdk.sessions.append(("GeminiRealtime", {"api_key": api_key, "system_prompt": system_prompt,
-                                                        "model": model, "language": language}))
+                                                        "model": model, "language": language,
+                                                        "api_version": api_version}))
 
         class OpenAIRealtime:
             def __init__(self, *, api_key=None, system_prompt="", model="fake-rt", voice="marin", language="ko",
@@ -407,6 +408,7 @@ async def test_default_steps_connect_bind_and_report_voices_unsupported(world):
     assert agent.kw["session"] is None and callable(agent.kw["session_factory"])
     assert agent.kw["builtin_tools"] == "none"  # 내장 도구를 모두 끈다 — 기본값에는 전환이 들어 있다
     assert agent.kw["recording"] is False
+    assert {kw["api_version"] for kind, kw in sdk.sessions} == {"v1alpha"}  # 구글 Live 는 v1alpha 에만 있다(고침 2)
     assert agent.kw["prewarm_enabled"] is False  # 켜 두면 SDK 가 벨 동안 만든 첫 인사의 받아쓰기를 버린다
     assert agent.hook is not None and agent.disconnects == 1 and not agent.connected
 
