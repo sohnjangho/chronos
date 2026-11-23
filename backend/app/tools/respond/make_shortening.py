@@ -1,5 +1,6 @@
 """shorten.make — 단축안(만회안) 복사본을 만들고 비교판을 연다. 저장된 일정은 바꾸지 않는다.
 
+0. 지금 버전보다 낮은 버전으로 만든 열린 만회안·지연 반영안은 버린다(discarded, W4). 승인함에 올라간 안은 그대로.
 1. 기준 원본: 지금 버전에 열린 지연 사건을 넣은 것(store.delays.delayed_base, include_open_delays 가 거짓이면 사건 없이).
    열린 사건이 있으면 그것만 넣은 "지연 반영안 (n건)"(source delay)을 기준으로 둔다 — 같은 버전·같은 사건 묶음이고
    스냅숏·조건까지 같은 열린 지연 반영안이 있으면 그것을 쓴다(사건을 고쳤으면 새로 만든다).
@@ -143,6 +144,13 @@ def _delay_scenario(ctx: ToolContext, schedule_id: int, db) -> Scenario:
                             delay_event_ids=db.event_ids, created_by=_author(ctx))
 
 
+def _discard_older(ctx: ToolContext, schedule_id: int, n: int) -> None:
+    """옛 버전 기준의 열린 만회안·지연 반영안을 버린다(비교판·보고서에 같은 이름의 옛 안이 섞이지 않게). flush 만."""
+    for row in scenarios.listed(ctx.session, schedule_id, ("open",)):
+        if row.source in ("shorten", "delay") and row.base_version < n:
+            scenarios.set_status(ctx.session, row, "discarded")
+
+
 def _base(ctx: ToolContext, schedule_id: int, current: Schedule, stored: list[dict], include_open_delays: bool) -> _Base:
     if include_open_delays:
         db = delayed_base(ctx.session, schedule_id)
@@ -257,6 +265,7 @@ async def make_shortening(args: ShortenIn, ctx: ToolContext) -> ShortenOut:
     schedule_id = ctx.require_schedule_id()
     with explained_schedule_errors():
         current, stored, n = load(ctx.session, schedule_id)
+        _discard_older(ctx, schedule_id, n)
         base = _base(ctx, schedule_id, current, stored, args.include_open_delays)
         ready = prepare_stored(base.schedule, base.conditions)
         base_finish = level(ready, compute(ready)).finish

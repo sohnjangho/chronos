@@ -8,8 +8,9 @@ import pytest
 
 from app.core.model import Relation, Resource
 from app.llm.client import LlmClient
-from app.store.schedules import from_json
+from app.store.schedules import from_json, load
 from app.store.tables import DelayEvent, Scenario
+from app.store.versions import save_new_version
 from app.tools.registry import call, list_tools
 from app.tools.respond import make_shortening
 from tests.approval_doubles import crane, finish_by
@@ -224,6 +225,22 @@ async def test_shorten_base_skips_reflected_delays(ctx_chain, use_llm, session, 
     add_event(session, sid_chain, "B", 2, status="reflected", reflected_version=1)
     o = await shorten(ctx_chain, FailingLlm(), use_llm)
     assert (o["base"], o["base_finish"]) == ("current", "2027-03-19")
+
+
+async def test_open_plans_of_an_older_version_are_discarded(ctx_chain, use_llm, session, sid_chain):  # W4
+    """새 안을 만들 때 지금 버전보다 낮은 버전 기준의 열린 만회안·지연 반영안은 버린다. 승인함에 올라간 것은 그대로."""
+    add_event(session, sid_chain, "B", 2)
+    first = await shorten(ctx_chain, FailingLlm(), use_llm)
+    old = [int(first["base"][2:])] + [x["scenario_id"] for x in first["options"]]
+    get(session, old[1]).status = "submitted"
+    session.commit()
+    schedule, conditions, _ = load(session, sid_chain)
+    save_new_version(session, sid_chain, replace(schedule, data_date=date(2027, 3, 2)), conditions, by_kind="user",
+                     by_name="관리자", note="Data Date", changes=[], base_version=1, plan_change=False)
+    second = await shorten(ctx_chain, FailingLlm(), use_llm)
+    assert [get(session, i).status for i in old] == ["discarded", "submitted"] + ["discarded"] * (len(old) - 2)
+    new = [int(second["base"][2:])] + [x["scenario_id"] for x in second["options"]]
+    assert {(get(session, i).status, get(session, i).base_version) for i in new} == {("open", 2)}
 
 
 async def test_target_from_plan_when_no_deadline(ctx, use_llm, session):
