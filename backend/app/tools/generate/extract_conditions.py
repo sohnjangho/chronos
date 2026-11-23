@@ -5,15 +5,25 @@ LLM 이 낸 날짜(YYYY-MM-DD)는 그 연도가 원문(요청·질문지 답·�
 개략 일정(L1·L2)은 자원을 다루지 않으므로 resource_cap 을 버린다.
 조건 id 는 `in.<kind>` 또는 `in.<kind>.<대상>`(resource_cap 은 자원 id, blocked_period 는 꼬리표).
 같은 id 가 다시 나오면 `.2`, `.3` … 을 붙인다.
+시작일로부터의 기간으로 준 기한(finish_by 의 after_start, 예: 「착수 후 16주」)은 코드가 날짜로 바꾼다:
+시작일(start_after 조건, 없으면 시작·착공일 사실) + 기간 − 1일, 달력 날 기준(주 = 7일, 개월 = 같은 날짜).
+시작일을 모르면 조건을 만들지 않고 unknown 에 남긴다.
 """
 
+import calendar
 import re
+from datetime import date, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import app.tools.generate as package
-from app.agent.generation_build import ISO_DAY, ROUGH_RESOURCE_MESSAGE, uses_resources
+from app.agent.generation_build import (
+    ISO_DAY,
+    ROUGH_RESOURCE_MESSAGE,
+    start_date,
+    uses_resources,
+)
 from app.agent.generation_steps import compact, level_line, strict_object, system_prompt
 from app.domains.loader import DomainPack, UnknownDomain, resolve_pack
 from app.harness.conditions import Condition, validate_params
@@ -26,6 +36,8 @@ SOURCES = ("프롬프트", "질문지", "가정")
 UNREADABLE_MESSAGE = "조건을 읽지 못했습니다. 다시 시도해 주세요."
 CUT_MESSAGE = "답이 길이 제한에 걸려 잘렸습니다. 요청을 나누어 다시 시도해 주세요."
 YEARLESS_MESSAGE = "원문에 연도가 없는 날짜는 쓰지 않습니다."
+AFTER_START_MESSAGE = "시작일로부터의 기간이 올바르지 않습니다."
+UNITS = ("일", "주", "개월")
 # 종류마다 params 로 옮길 칸(LLM 답의 칸 이름 그대로)
 _PARAM_FIELDS = {
     "start_after": ("date",),
@@ -42,6 +54,7 @@ _STR = {"type": "string"}
 _NULL_STR = {"type": ["string", "null"]}
 _NULL_INT = {"type": ["integer", "null"]}
 _NULL_PAIR = {"type": ["array", "null"], "items": {"type": "integer"}}
+_AFTER_START = strict_object({"amount": {"type": "integer"}, "unit": {"type": "string", "enum": list(UNITS)}})
 _CONDITION = strict_object({
     "kind": {"type": "string", "enum": list(ALLOWED_KINDS)},
     "text": _STR,
@@ -55,6 +68,7 @@ _CONDITION = strict_object({
     "end_md": _NULL_PAIR,
     "tag": _NULL_STR,
     "days": _NULL_INT,
+    "after_start": {"anyOf": [_AFTER_START, {"type": "null"}]},
 })
 EXTRACT_SCHEMA = strict_object({
     "conditions": {"type": "array", "items": _CONDITION},
@@ -111,6 +125,11 @@ class ExtractOut(BaseModel):
     dropped: list[DroppedOut]
 
 
+class _AfterStart(BaseModel):
+    amount: int
+    unit: Literal["일", "주", "개월"]
+
+
 class _Proposed(BaseModel):
     """LLM 이 낸 조건 한 줄(모르는 종류도 받아서 dropped 로 알린다)."""
 
@@ -126,6 +145,7 @@ class _Proposed(BaseModel):
     end_md: list[int] | None = None
     tag: str | None = None
     days: int | None = None
+    after_start: _AfterStart | None = None  # finish_by 만: 시작일로부터의 기간(날짜는 코드가 셈한다)
 
 
 class _Labeled(BaseModel):
@@ -204,12 +224,54 @@ def facts_from(facts: list[FactOut], sources: str) -> tuple[list[FactOut], list[
     return kept, dropped
 
 
-def conditions_from(proposed: list[_Proposed], pack: DomainPack, args: ExtractIn) -> tuple[list[dict], list[DroppedOut]]:
+def _relative(p: _Proposed) -> bool:
+    return p.kind == "finish_by" and p.after_start is not None
+
+
+def _after(start: date, amount: int, unit: str) -> date:
+    """시작일 + 기간 − 1일(달력 날). 개월은 같은 날짜로 세고 그 달에 없으면 그달 끝."""
+    if unit == "개월":
+        months = start.month - 1 + amount
+        year, month = start.year + months // 12, months % 12 + 1
+        end = date(year, month, min(start.day, calendar.monthrange(year, month)[1]))
+    else:
+        end = start + timedelta(days=amount * (7 if unit == "주" else 1))
+    return end - timedelta(days=1)
+
+
+def _known_start(kept: list[dict], facts: list[FactOut]) -> date | None:
+    """뽑은 start_after 조건, 없으면 시작·착공일 사실의 날짜(생성과 같은 규칙). 모르면 None."""
+    day, assumed = start_date([Condition.from_dict(c) for c in kept], [f.model_dump() for f in facts], date.today())
+    return None if assumed else day
+
+
+def _deadline(p: _Proposed, start: date) -> tuple[dict, str] | str:
+    """after_start 기한 → (params, 조건 글) 또는 문제 글."""
+    a = p.after_start
+    try:
+        day = _after(start, a.amount, a.unit).isoformat() if a.amount >= 1 else None
+    except (OverflowError, ValueError):
+        day = None
+    if day is None:
+        return AFTER_START_MESSAGE
+    params = {"date": day}
+    if problem := validate_params("finish_by", params):
+        return problem
+    return params, f"{p.text.strip()} (시작일 {start.isoformat()} + {a.amount}{a.unit})"
+
+
+def conditions_from(
+    proposed: list[_Proposed], pack: DomainPack, args: ExtractIn, facts: list[FactOut]
+) -> tuple[list[dict], list[DroppedOut], list[str]]:
+    """(조건, 버린 것, 더 모르는 것). after_start 기한은 다른 조건을 다 본 뒤 시작일로 날짜를 셈한다."""
     kept: list[dict] = []
     dropped: list[DroppedOut] = []
     used: set[str] = set()
     sources = _sources(args)
+    relative = [p for p in proposed if _relative(p)]
     for p in proposed:
+        if _relative(p):
+            continue
         problem = _problem(p, pack, args.level)
         params = _params(p, pack) if problem is None else {}
         problem = problem or validate_params(p.kind, params) or _year_problem(_dates(p.kind, params), sources)
@@ -218,7 +280,19 @@ def conditions_from(proposed: list[_Proposed], pack: DomainPack, args: ExtractIn
             continue
         cid = _condition_id(p.kind, params, used)
         kept.append(Condition(cid, "input", p.kind, params, p.text.strip(), p.source).to_dict())
-    return kept, dropped
+    start = _known_start(kept, facts) if relative else None
+    unknown: list[str] = []
+    for p in relative:
+        if start is None:
+            unknown.append(f"시작일(완료 기한 「{p.text.strip()}」의 날짜 계산에 필요)")
+            continue
+        made = _deadline(p, start)
+        if isinstance(made, str):
+            dropped.append(DroppedOut(kind=p.kind, reason=made))
+            continue
+        params, text = made
+        kept.append(Condition(_condition_id(p.kind, params, used), "input", p.kind, params, text, p.source).to_dict())
+    return kept, dropped, unknown
 
 
 def _user_text(args: ExtractIn, pack: DomainPack) -> str:
@@ -270,12 +344,12 @@ async def extract_conditions(args: ExtractIn, ctx: ToolContext) -> ExtractOut:
     except UnknownDomain:
         raise ToolError(f"올바르지 않은 분야입니다: {args.domain}") from None
     reply = await _ask(args, pack, ctx)
-    conditions, dropped = conditions_from(reply.conditions, pack, args)
     facts, dropped_facts = facts_from(reply.facts, _sources(args))
+    conditions, dropped, unknown = conditions_from(reply.conditions, pack, args, facts)
     return ExtractOut(
         conditions=conditions,
         facts=facts,
         assumptions=[FactOut(label=a.label, value=a.value, source="가정") for a in reply.assumptions],
-        unknown=reply.unknown,
+        unknown=[*reply.unknown, *unknown],
         dropped=dropped + dropped_facts,
     )

@@ -21,7 +21,8 @@ from tests.gen_doubles import (
 )
 from tests.llm_doubles import FakeLiner, add_connection, chat_body
 
-_FIELDS = ("date", "resource_id", "capacity", "days_per_week", "holidays", "start_md", "end_md", "tag", "days")
+_FIELDS = ("date", "resource_id", "capacity", "days_per_week", "holidays", "start_md", "end_md", "tag", "days",
+           "after_start")
 
 
 def cond(kind: str, text: str, source: str = "프롬프트", **fields) -> dict:
@@ -171,6 +172,52 @@ async def test_extract_takes_the_year_from_answers_and_assumed(ctx, liner):
     )
     r = await call("generate.extract_conditions", args, ctx)
     assert [c["id"] for c in r.output["conditions"]] == ["in.finish_by", "in.calendar"] and r.output["dropped"] == []
+
+
+START_0607 = cond("start_after", "2027년 6월 7일 착수", date="2027-06-07")
+WEEKS_16 = cond("finish_by", "착수 후 16주 안에 완료", after_start={"amount": 16, "unit": "주"})
+
+
+async def test_extract_turns_weeks_after_start_into_a_finish_date(ctx, liner):
+    """A4: 「시작 후 16주」 기한은 코드가 달력 주로 날짜를 셈한다(시작일 + 7×16 − 1일)."""
+    script(liner, extracted([WEEKS_16, START_0607]))
+    r = await call("generate.extract_conditions", extract_args(text="2027년 6월 7일 착수, 착수 후 16주 안에 완료"), ctx)
+    out = r.output
+    finish = next(c for c in out["conditions"] if c["kind"] == "finish_by")
+    assert finish["id"] == "in.finish_by" and finish["params"] == {"date": "2027-09-26"}
+    assert finish["text"] == "착수 후 16주 안에 완료 (시작일 2027-06-07 + 16주)"
+    assert out["dropped"] == [] and out["unknown"] == []
+
+
+@pytest.mark.parametrize(("amount", "unit", "day"), [(8, "개월", "2028-02-06"), (30, "일", "2027-07-06"),
+                                                     (1, "개월", "2027-07-06")])
+async def test_extract_after_start_days_and_months(ctx, liner, amount, unit, day):
+    script(liner, extracted([START_0607, cond("finish_by", "완료", after_start={"amount": amount, "unit": unit})]))
+    r = await call("generate.extract_conditions", extract_args(text="2027년 6월 7일 착수"), ctx)
+    assert [c["params"] for c in r.output["conditions"] if c["kind"] == "finish_by"] == [{"date": day}]
+
+
+async def test_extract_after_start_uses_a_start_fact_and_ignores_the_llm_date(ctx, liner):
+    weeks = cond("finish_by", "착수 후 16주 안에 완료", date="2027-09-30", after_start={"amount": 16, "unit": "주"})
+    script(liner, extracted([weeks], facts=[{"label": "착수일", "value": "2027-06-07", "source": "프롬프트"}]))
+    r = await call("generate.extract_conditions", extract_args(text="2027-06-07 착수, 16주 안에 완료"), ctx)
+    assert [c["params"] for c in r.output["conditions"]] == [{"date": "2027-09-26"}]
+
+
+async def test_extract_after_start_without_a_start_stays_unknown(ctx, liner):
+    script(liner, extracted([WEEKS_16]))
+    r = await call("generate.extract_conditions", extract_args(text="착수 후 16주 안에 완료"), ctx)
+    out = r.output
+    assert out["conditions"] == [] and out["dropped"] == []
+    assert out["unknown"] == ["시작일(완료 기한 「착수 후 16주 안에 완료」의 날짜 계산에 필요)"]
+
+
+def test_extract_prompt_asks_for_after_start():
+    from app.agent.generation_steps import system_prompt
+    from app.domains.loader import load
+
+    text = system_prompt("extract", load("construction"))
+    assert "after_start" in text and "16주" in text
 
 
 def test_extract_prompt_forbids_converting_yearless_dates():
