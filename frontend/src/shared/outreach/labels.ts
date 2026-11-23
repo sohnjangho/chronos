@@ -94,11 +94,13 @@ export function outcomeLabel(o: Outcome): Label {
 }
 
 // ── 하네스 사건 ────────────────────────────────────────────────────────────
-// API 는 사건의 이름(rule)·판정·detail 만 준다(한글 이름표 없음). 이름의 한글은 이 표 하나에서만 읽는다(harness.types 의 낱말).
-// 표에 없는 이름은 지어내지 않고 이름 그대로 보인다.
-const RULE_LABEL: Record<string, string> = {
-  precheck: '보내기 전 확인', test_mode: '시험 모드', blocked_or_dnc: '차단·수신 거부', working_hours: '근무시간', limits: '상한',
-  permission: '승인', duplicate: '중복', channel_choice: '보낼 통로',
+// API 는 사건의 이름(rule)·판정·detail 만 준다(한글 이름표 없음). 화면의 사건 한글은 아래 세 표에서만 읽는다(harness.types 의 낱말).
+// 개발 콘솔(backend/app/programs/devconsole/outreach_view.py 의 ORDER_LABELS·VERDICT_LABELS·CODE_TEXT)과 겹치는 낱말은 그 글과
+// 똑같이 둔다 — labels.test.ts 가 그 파일을 읽어 맞춰 본다. 표에 없는 이름은 지어내지 않고 이름 그대로 보인다.
+export const VERDICT_LABEL: Readonly<Record<string, string>> = { blocked: '막음', allowed: '지나감', noted: '메모' };
+export const RULE_LABEL: Readonly<Record<string, string>> = {
+  precheck: '앞 확인', test_mode: '시험 모드·허용 번호', blocked_or_dnc: '차단·수신 거부', working_hours: '근무시간', limits: '상한',
+  permission: '권한', duplicate: '중복', channel_choice: '통로 고르기',
   reply_within_grace: '답 유예', kakao_not_ready: '카카오톡 준비 전',
   delivery: '통로 결과', delivery_update: '뒤에 확인한 상태', admission: '받기 판정',
   unsupported_date: '근거 없는 날짜', unsupported_answer: '근거 없는 답', out_of_scope_said: '범위 밖 내용', money_said: '금액·계약 언급',
@@ -107,16 +109,19 @@ const RULE_LABEL: Record<string, string> = {
   tool_not_allowed: '허용되지 않은 도구', tool_bad_args: '도구 인자 오류', scope_denied: '범위 밖 요청',
 };
 /** detail 이 정해 둔 코드 하나인 이름(FIXED_DETAILS)의 코드 → 글. */
-const CODE_LABEL: Record<string, Record<string, string>> = {
+export const CODE_LABEL: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   channel_choice: { sms: '문자', kakao: '카카오톡', call: '전화' },
-  delivery_update: { delivered: '도착', failed: '실패로 바뀜', gave_up: '기다리다 그만둠' },
+  delivery_update: { delivered: '도착', failed: '실패', gave_up: '결과 확인을 그만둠' },
   admission: {
-    inbound_off: '받지 않음 설정', outside_test: '시험 모드 — 허용 번호가 아님', blocked_number: '차단 번호', burst_limit: '너무 잦음',
+    inbound_off: '받는 범위가 「받지 않음」', outside_test: '시험 모드 — 허용 번호 아님', blocked_number: '차단 번호', burst_limit: '잦은 연락 상한',
     auto_reply_limit: '자동 답 상한', stop_word: '수신 거부 말', machine_text: '기계가 보낸 문자', media_attached: '사진이 붙음',
-    do_not_contact: '수신 거부 연락처', unknown_not_accepted: '모르는 번호 — 받지 않음', unknown_accepted: '모르는 번호 — 받음',
-    line_busy: '동시 통화 한도', known_caller: '아는 번호',
+    do_not_contact: '수신 거부 연락처', unknown_not_accepted: '모르는 번호 — 받지 않음', unknown_accepted: '모르는 번호 — 응대',
+    line_busy: '동시 통화 한도', known_caller: '아는 상대 — 응대',
   },
 };
+
+/** 판정 한 낱말: 막음 · 지나감 · 메모(모르는 판정은 그대로). */
+export const verdictLabel = (verdict: string) => VERDICT_LABEL[verdict] ?? verdict;
 
 /** 사건 한 줄: 「근무시간 — 근무시간 밖이라 다음 근무 시작에 보냅니다」. */
 export function eventLine(e: OutreachEvent): string {
@@ -125,7 +130,7 @@ export function eventLine(e: OutreachEvent): string {
   return detail ? `${label} — ${detail}` : label;
 }
 
-/** 상태 이름표가 이미 말하는 사건(보낼 통로·통로 결과·뒤에 확인한 상태·카카오톡 대신 문자) — 접힌 줄에서는 건수로만 센다. */
+/** 상태 이름표가 이미 말하는 사건(통로 고르기·통로 결과·뒤에 확인한 상태·카카오톡 대신 문자) — 접힌 줄에서는 건수로만 센다. */
 const SAID_BY_STATUS = new Set(['channel_choice', 'delivery', 'delivery_update', 'kakao_not_ready']);
 
 /** 나가는 문의 판정 사건(보내기 한 번마다 꼭 하나 — 그 앞의 참고와 그 뒤의 통로 결과가 한 번의 시도다). */

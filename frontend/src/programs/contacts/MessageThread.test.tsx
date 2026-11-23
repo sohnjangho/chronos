@@ -249,6 +249,23 @@ describe('agent draft', () => {
     expect(button(second, '보내기')).toBeEnabled();
   });
 
+  test('a send whose request never got an answer says it is not known whether it went out, stays locked until the re-read, never red', async () => {
+    stubThread({ 1: [DRAFT] });
+    failNext((c) => c.url.endsWith('/send'), 0);
+    const reread = holdNext((c) => c.method === 'GET' && gets().length === 2);
+    show();
+    await userEvent.click(button(await findBubble('타워크레인 일정을 맞추겠습니다.'), '보내기'));
+    const b = bubble('타워크레인 일정을 맞추겠습니다.');
+    await waitFor(() => expect(gets()).toHaveLength(2)); // 실패 뒤 곧바로 다시 읽는다
+    expect(within(b).getByRole('button', { name: '보내는 중…' })).toBeDisabled(); // 다시 읽기가 끝날 때까지 잠김
+    reread();
+    await waitFor(() => expect(within(bubble('타워크레인 일정을 맞추겠습니다.')).getByRole('status')).toHaveTextContent('보냈는지 확인하지 못했습니다 — 다시 읽은 뒤 상태를 확인해 주세요'));
+    const after = bubble('타워크레인 일정을 맞추겠습니다.');
+    expect(within(after).getByRole('status')).toHaveClass('is-warn');
+    expect(within(after).queryByText('서버에 연결할 수 없습니다.')).toBeNull();
+    expect(acts()).toHaveLength(1);
+  });
+
   test('a blocked send shows the gate text and the schedule outcome shows the time', async () => {
     stubThread({ 1: [DRAFT] });
     nextSend({ code: 'scheduled', message: '근무시간 밖이라 다음 근무 시작에 보냅니다', scheduled_at: '2026-11-30T08:00:00+09:00' }, { status: 'scheduled', scheduled_at: '2026-11-29T23:00:00Z', send_mode: 'approved', approved_by: '김하늘' });
@@ -485,6 +502,51 @@ describe('older messages', () => {
     await screen.findByText('가상 글 1');
     expect(within(log()).getAllByRole('article')).toHaveLength(120);
     expect(screen.queryByRole('button', { name: '이전 대화 더 보기' })).toBeNull();
+  });
+
+  test('send, discard and cancel on rows of an older page show the state the server answered (the re-read covers only the newest 50)', async () => {
+    const rows = many(60);
+    rows[4] = agentDraft({ id: 5, body: '앞쪽 초안 — 보낼 것', created_at: rows[4].created_at });
+    rows[5] = agentDraft({ id: 6, body: '앞쪽 초안 — 버릴 것', created_at: rows[5].created_at });
+    rows[6] = message({ id: 7, body: '앞쪽 예약 — 취소할 것', status: 'scheduled', scheduled_at: '2026-11-29T23:00:00Z', send_mode: 'manual', created_at: rows[6].created_at });
+    stubThread({ 1: rows });
+    show();
+    await screen.findByText('가상 글 60');
+    await userEvent.click(screen.getByRole('button', { name: '이전 대화 더 보기' }));
+    const toSend = await findBubble('앞쪽 초안 — 보낼 것');
+
+    await userEvent.click(button(toSend, '보내기'));
+    await waitFor(() => expect(within(bubble('앞쪽 초안 — 보낼 것')).getByText('접수')).toBeVisible());
+    expect(bubble('앞쪽 초안 — 보낼 것')).not.toHaveClass('is-draft');
+    expect(within(bubble('앞쪽 초안 — 보낼 것')).queryByRole('button', { name: '보내기' })).toBeNull();
+
+    await userEvent.click(button(bubble('앞쪽 초안 — 버릴 것'), '버리기'));
+    await waitFor(() => expect(screen.queryByText('앞쪽 초안 — 버릴 것')).toBeNull());
+
+    await userEvent.click(button(bubble('앞쪽 예약 — 취소할 것'), '취소'));
+    await waitFor(() => expect(within(bubble('앞쪽 예약 — 취소할 것')).getByRole('status')).toHaveTextContent('예약을 취소했습니다'));
+    const cancelled = bubble('앞쪽 예약 — 취소할 것');
+    expect(cancelled).toHaveClass('is-draft');
+    expect(within(cancelled).queryByText(/예약됨/)).toBeNull();
+    expect(within(cancelled).queryByRole('button', { name: '취소' })).toBeNull();
+    expect(screen.getByText('가상 글 1')).toBeInTheDocument();
+  });
+
+  test('saving an edit on an older-page draft shows the new text', async () => {
+    const rows = many(60);
+    rows[4] = agentDraft({ id: 5, body: '앞쪽 초안 — 고칠 것', created_at: rows[4].created_at });
+    stubThread({ 1: rows });
+    show();
+    await screen.findByText('가상 글 60');
+    await userEvent.click(screen.getByRole('button', { name: '이전 대화 더 보기' }));
+    const b = await findBubble('앞쪽 초안 — 고칠 것');
+    await userEvent.click(button(b, '고치기'));
+    const box = within(b).getByRole('textbox', { name: '초안 고치기' });
+    await userEvent.clear(box);
+    await userEvent.type(box, '앞쪽 초안 — 고친 글');
+    await userEvent.click(button(b, '저장'));
+    expect(await screen.findByText('앞쪽 초안 — 고친 글')).toBeVisible();
+    expect(screen.queryByText('앞쪽 초안 — 고칠 것')).toBeNull();
   });
 
   test('a re-read after loading older pages keeps them and still knows there is no more', async () => {

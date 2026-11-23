@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { getProgram } from '../../os/registry';
 import { useWindows } from '../../os/windowStore';
-import { channelLabel, eventLine, eventSummary, kstShort, kstTime, senderTag, statusLabel, type Label } from '../../shared/outreach/labels';
+import { channelLabel, eventLine, eventSummary, kstShort, kstTime, senderTag, statusLabel, verdictLabel, type Label } from '../../shared/outreach/labels';
 import type { Message } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import { activityLabel, draftLine, replyLine } from './thread';
@@ -29,8 +29,6 @@ export interface BubbleProps {
   onCancel(): void;
   onResend(): void;
 }
-
-const VERDICT: Record<string, string> = { blocked: '막음', allowed: '지나감', noted: '참고' };
 
 function Links({ m, scheduleId }: { m: Message; scheduleId: number }) {
   const sid = String(scheduleId);
@@ -64,7 +62,7 @@ function Events({ m }: { m: Message }) {
       <ul>
         {m.events.map((e, i) => (
           <li key={i}>
-            <span className="th-verdict">{VERDICT[e.verdict] ?? e.verdict}</span>
+            <span className="th-verdict">{verdictLabel(e.verdict)}</span>
             {eventLine(e)}
           </li>
         ))}

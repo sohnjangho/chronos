@@ -26,6 +26,10 @@ export interface ThreadHandle extends ThreadState {
   reload: () => Promise<void>;
   /** before(지금 보이는 첫 줄의 id)보다 앞의 것을 더 읽는다. */
   loadOlder: (before: number) => Promise<void>;
+  /** 동작(보내기·취소·고치기)의 응답이 준 줄로 같은 id 의 줄을 바꾼다 — 다시 읽기가 닿지 않는 앞쪽 줄도 서버의 답대로 보이게. */
+  apply: (row: Message) => void;
+  /** 지운 줄(204)을 뺀다. */
+  drop: (id: number) => void;
 }
 
 const EMPTY: ThreadState = { messages: null, contact: null, hasMore: false, error: null, stale: false, loadingOlder: false, olderError: null };
@@ -75,6 +79,14 @@ export function useThread(scheduleId: number, contactId: number, root: RefObject
     [scheduleId, contactId],
   );
 
+  // 다시 읽기는 새 쪽 50개만 덮는다(mergeNewest) — 「이전 대화 더 보기」로 읽은 줄은 동작의 응답으로만 바뀐다.
+  const apply = useCallback((row: Message) => {
+    if (alive.current) setState((prev) => (prev.messages ? { ...prev, messages: prev.messages.map((m) => (m.id === row.id ? row : m)) } : prev));
+  }, []);
+  const drop = useCallback((id: number) => {
+    if (alive.current) setState((prev) => (prev.messages ? { ...prev, messages: prev.messages.filter((m) => m.id !== id) } : prev));
+  }, []);
+
   useEffect(() => {
     alive.current = true;
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -103,5 +115,5 @@ export function useThread(scheduleId: number, contactId: number, root: RefObject
     };
   }, [reload, root]);
 
-  return { ...state, reload, loadOlder };
+  return { ...state, reload, loadOlder, apply, drop };
 }

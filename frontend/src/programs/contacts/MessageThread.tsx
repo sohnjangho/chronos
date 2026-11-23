@@ -3,6 +3,7 @@
 // 적고, 줄의 상태는 다시 읽은 것으로 그린다 — 「보냄」을 미리 그리지 않는다. 「확인 필요」 줄의 [다시 보내기]는 먼저 묻는다.
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { outcomeLabel, type Label } from '../../shared/outreach/labels';
+import { ApiError } from '../../shared/api';
 import { outreachApi, type Message } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import Bubble from './Bubble';
@@ -19,6 +20,8 @@ interface Props {
 }
 
 const NEW_DRAFT = '새 초안을 만들었습니다 — 아직 보내지 않았습니다. [보내기]를 눌러야 나갑니다.';
+/** [보내기] 요청이 답을 받지 못함(연결 끊김) — 나갔는지 모른다. 실패가 아니다: 다시 읽은 줄이 상태를 말한다. */
+export const SEND_UNKNOWN = '보냈는지 확인하지 못했습니다 — 다시 읽은 뒤 상태를 확인해 주세요';
 type Done = { on: number; note: Label } | void;
 
 /** 줄마다 한 번에 요청 하나. 끝나면 대화를 다시 읽은 뒤에 잠금을 푼다. */
@@ -147,15 +150,28 @@ export default function MessageThread({ scheduleId, thread, blocked }: Props) {
       blocked={blocked}
       onSend={() =>
         void run(m.id, 'send', async () => {
-          const r = await outreachApi.send(scheduleId, m.id);
+          let r;
+          try {
+            r = await outreachApi.send(scheduleId, m.id);
+          } catch (e) {
+            // 답이 오지 않았다: 서버가 받아 보냈을 수도 있다 — 「실패」가 아니라 「모름」, 다시 읽은 줄이 상태를 말한다.
+            if (e instanceof ApiError && e.status === 0) return { on: m.id, note: { text: SEND_UNKNOWN, tone: 'warn' } };
+            throw e;
+          }
+          thread.apply(r.message);
           return r.outcome ? { on: m.id, note: outcomeLabel(r.outcome) } : undefined;
         })
       }
-      onDiscard={() => void run(m.id, 'discard', () => outreachApi.remove(scheduleId, m.id))}
-      onSave={(body) => run(m.id, 'save', async () => void (await outreachApi.patch(scheduleId, m.id, { body })))}
+      onDiscard={() =>
+        void run(m.id, 'discard', async () => {
+          await outreachApi.remove(scheduleId, m.id);
+          thread.drop(m.id);
+        })
+      }
+      onSave={(body) => run(m.id, 'save', async () => void thread.apply(await outreachApi.patch(scheduleId, m.id, { body })))}
       onCancel={() =>
         void run(m.id, 'cancel', async () => {
-          await outreachApi.cancel(scheduleId, m.id);
+          thread.apply(await outreachApi.cancel(scheduleId, m.id));
           return { on: m.id, note: { text: '예약을 취소했습니다 — 초안으로 돌아왔습니다.', tone: 'info' } };
         })
       }

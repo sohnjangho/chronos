@@ -1,6 +1,6 @@
 // 발신 글 네 가지 · 상태 글(셋으로 갈린 결과가 셋으로 남는지) · 보내기 판정 글 · 하네스 사건 한 줄 · KST 시각.
 import { describe, expect, test } from 'vitest';
-import { channelLabel, eventLine, eventSummary, kstDay, kstShort, kstTime, outcomeLabel, senderTag, statusLabel } from './labels';
+import { CODE_LABEL, channelLabel, eventLine, eventSummary, kstDay, kstShort, kstTime, outcomeLabel, RULE_LABEL, senderTag, statusLabel, VERDICT_LABEL } from './labels';
 import type { Message } from './outreachApi';
 
 function msg(over: Partial<Message> = {}): Message {
@@ -91,8 +91,8 @@ describe('outcomeLabel', () => {
 describe('events', () => {
   test('a line is the rule name from the table plus what the server recorded', () => {
     expect(eventLine({ rule: 'working_hours', verdict: 'blocked', detail: '근무시간 밖이라 다음 근무 시작에 보냅니다' })).toBe('근무시간 — 근무시간 밖이라 다음 근무 시작에 보냅니다');
-    expect(eventLine({ rule: 'channel_choice', verdict: 'allowed', detail: 'sms' })).toBe('보낼 통로 — 문자');
-    expect(eventLine({ rule: 'delivery_update', verdict: 'noted', detail: 'gave_up' })).toBe('뒤에 확인한 상태 — 기다리다 그만둠');
+    expect(eventLine({ rule: 'channel_choice', verdict: 'allowed', detail: 'sms' })).toBe('통로 고르기 — 문자');
+    expect(eventLine({ rule: 'delivery_update', verdict: 'noted', detail: 'gave_up' })).toBe('뒤에 확인한 상태 — 결과 확인을 그만둠');
     expect(eventLine({ rule: 'kakao_not_ready', verdict: 'noted', detail: null })).toBe('카카오톡 준비 전');
   });
   test('a name the table does not have is shown as it is, not guessed', () => {
@@ -136,4 +136,47 @@ test('times are KST whatever the browser zone is', () => {
   expect(kstShort('2026-11-23T23:02:00Z')).toBe('11/24(화) 08:02');
   expect(channelLabel('kakao')).toBe('카카오톡');
   expect(channelLabel('sms')).toBe('문자');
+});
+
+// 개발 콘솔(서버)의 사건 이름표와 같은 낱말인지 — 파이썬 파일을 글로 읽는다. 파일 모양이 바뀌면 조용히 지나가지 않고 깨진다.
+// 앞 폴더 밖이라 ?raw 로는 읽히지 않는다(vite 가 막음) — node 의 fs 로 읽는다(이 프로젝트에는 node 형 정의가 없어 꼴을 적어 둠).
+const fsModule = 'node:fs';
+const { readFileSync } = (await import(/* @vite-ignore */ fsModule)) as { readFileSync(path: URL, encoding: 'utf8'): string };
+const here = import.meta.url; // new URL(글, import.meta.url) 꼴은 vite 가 자산으로 바꾸므로 변수로 둔다
+const backend = (path: string) => readFileSync(new URL(`../../../../backend/${path}`, here), 'utf8');
+const gateTypes = backend('app/outreach/harness/types.py');
+const serverView = backend('app/programs/devconsole/outreach_view.py');
+
+describe('the event words are the developer console’s (backend/app/programs/devconsole/outreach_view.py)', () => {
+  const block = (src: string, start: RegExp, end: string) => {
+    const at = src.search(start);
+    expect(at, `${start} 를 서버 파일에서 찾지 못함`).toBeGreaterThanOrEqual(0);
+    const stop = src.indexOf(end, at);
+    expect(stop, `${start} 의 끝(${end})을 찾지 못함`).toBeGreaterThan(at);
+    return src.slice(at, stop);
+  };
+  const pairs = (text: string) => Object.fromEntries([...text.matchAll(/"(\w+)":\s*"([^"]*)"/g)].map((m) => [m[1], m[2]]));
+
+  const order = [...block(gateTypes, /^GATE_RULES: /m, '})').matchAll(/(\d+):\s*"(\w+)"/g)].sort((a, b) => Number(a[1]) - Number(b[1])).map((m) => m[2]);
+  const orderText = [...block(serverView, /^ORDER_LABELS: /m, 'strict=True').matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  const verdicts = pairs(block(serverView, /^VERDICT_LABELS = /m, '}'));
+  const codes = pairs(block(serverView, /^CODE_TEXT = /m, '\n}'));
+
+  test('the server tables were read', () => {
+    expect(order).toHaveLength(8);
+    expect(orderText).toHaveLength(order.length);
+    expect(Object.keys(verdicts).sort()).toEqual(['allowed', 'blocked', 'noted']);
+    expect(Object.keys(codes).length).toBeGreaterThanOrEqual(20);
+  });
+  test('gate rule names', () => {
+    order.forEach((rule, i) => expect([rule, RULE_LABEL[rule]]).toEqual([rule, orderText[i]]));
+  });
+  test('verdicts', () => {
+    expect(VERDICT_LABEL).toEqual(verdicts);
+  });
+  test('every code both tables have reads the same', () => {
+    const shared = Object.values(CODE_LABEL).flatMap((t) => Object.entries(t)).filter(([code]) => code in codes);
+    expect(shared.length).toBeGreaterThanOrEqual(15);
+    for (const [code, text] of shared) expect([code, text]).toEqual([code, codes[code]]);
+  });
 });
