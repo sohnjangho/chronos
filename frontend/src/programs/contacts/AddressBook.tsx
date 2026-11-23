@@ -140,7 +140,7 @@ export default function AddressBook(props: Props) {
           <input type="checkbox" checked={showHidden} onChange={(e) => onShowHidden(e.target.checked)} />
           숨긴 사람 보기
         </label>
-        <p className="ct-hint">{`이 프로젝트의 주소록입니다${!onImport ? ' · CSV 가져오기·복사는 준비 중입니다' : ''}`}</p>
+        <p className="ct-hint ct-foot-note">{`이 프로젝트의 주소록입니다${!onImport ? ' · CSV 가져오기·복사는 준비 중입니다' : ''}`}</p>
         {book && (book.proposals_pending > 0 || book.reports_open > 0) && (
           <p className="ct-hint">{`확인할 연락처 제안 ${book.proposals_pending}건 · 확인하지 않은 보고 ${book.reports_open}건`}</p>
         )}

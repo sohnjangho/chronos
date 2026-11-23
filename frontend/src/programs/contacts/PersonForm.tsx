@@ -426,12 +426,14 @@ function PhoneField({ detail, mode, phone, setPhone, dirty, error, onReveal, onC
           <div className="ct-phone">
             <span className="ct-num">{detail.phone_masked}</span>
             {kind && <span className="ct-tag">{kind}</span>}
-            <button type="button" className="ct-link" onClick={onReveal}>
-              눌러서 보기
-            </button>
-            <button type="button" className="ct-link" onClick={onChange}>
-              번호 바꾸기
-            </button>
+            <span className="ct-phone-acts">
+              <button type="button" className="ct-link" onClick={onReveal}>
+                눌러서 보기
+              </button>
+              <button type="button" className="ct-link" onClick={onChange}>
+                번호 바꾸기
+              </button>
+            </span>
           </div>
         </>
       ) : (
@@ -466,9 +468,14 @@ interface ConfirmProps {
 
 function ConfirmBox({ kind, onCancel, onClear, onPick }: ConfirmProps) {
   const first = useRef<HTMLButtonElement>(null);
-  useEffect(() => first.current?.focus(), []);
+  const box = useRef<HTMLDivElement>(null);
+  // 양식 아래에 열리므로 상자 전체가 보이게 굴린 뒤 첫 단추에 초점(jsdom 에는 scrollIntoView 가 없다).
+  useEffect(() => {
+    box.current?.scrollIntoView?.({ block: 'nearest' });
+    first.current?.focus({ preventScroll: true });
+  }, []);
   return (
-    <div className="ct-confirm" role="alertdialog" aria-label={kind === 'number' ? '새 번호와 수신 거부' : '수신 거부 풀기'} aria-describedby="ct-confirm-text">
+    <div ref={box} className="ct-confirm" role="alertdialog" aria-label={kind === 'number' ? '새 번호와 수신 거부' : '수신 거부 풀기'} aria-describedby="ct-confirm-text">
       <p id="ct-confirm-text" className="ct-confirm-text">
         {kind === 'number' ? '예전 번호는 계속 수신 거부로 남습니다. 새 번호도 수신 거부로 둘까요?' : '이 번호가 있는 모든 프로젝트에서 수신 거부가 풀립니다. 풀까요?'}
       </p>
