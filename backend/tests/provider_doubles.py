@@ -4,14 +4,25 @@
   `KatClient(conn, transport=KatMock())` 로 끼운다. 값은 모두 가상이다.
 - FakeProvider — `Provider` 를 메모리로 구현한 것. fixture `fake_provider` 가 `provider.client_for` 를 이것으로 바꾼다
   (그래서 쓰는 쪽은 `from app.outreach import provider` 뒤 `provider.client_for(row)` 로 불러야 한다).
-- autouse `no_provider_dns` — `provider.RESOLVE` 를 공인 IP 하나로 답하는 가짜로 바꾼다(시험이 DNS 를 쓰지 않게).
-- autouse `no_real_provider` — 시험에서는 실제 전송으로 나갈 수 없다: transport 없이 `KatClient` 를 만들거나(`client_for`
-  포함) `diagnostics.make_client()` 를 transport 없이 부르면 바로 `RealProviderCall`(AssertionError) 이 난다.
-  진단 쪽은 모듈 속성 `diagnostics.make_client` 를 감싼 것이라 `from … import make_client` 로 먼저 잡아 둔 이름에는
-  듣지 않는다 — 진단을 부르는 코드는 `diagnostics.make_client(...)` 로 부를 것.
+- autouse `no_provider_dns` — `provider.RESOLVE` 와 `diagnostics.RESOLVE` 를 공인 IP 하나로 답하는 가짜로 바꾼다(시험이 DNS 를
+  쓰지 않게). 돌려주는 값은 물은 호스트 목록.
+- autouse `no_real_http` — **모든 backend 시험에 걸린다**(conftest 의 pytest_plugins 로 이 파일이 올라가므로). httpx 의 실제
+  전송(`httpx.AsyncHTTPTransport.handle_async_request`·`httpx.HTTPTransport.handle_request`)이 불리면 `RealProviderCall` 이
+  난다 — 클라이언트를 어떻게 만들었든(transport 없는 `KatClient`·`client_for`, `make_client()`, 손으로 만든 `httpx.AsyncClient`,
+  모듈을 불러올 때 만들어 둔 것) 같다. `RealProviderCall` 은 `BaseException` 이라 `except Exception` 이 삼켜 다른 오류로
+  바꾸지 못한다. 실제 HTTP 가 꼭 필요한 시험만 `@pytest.mark.real_http` 로 푼다. 지금 표시한 것은 일곱, 모두 127.0.0.1 로만 간다:
+  tests/files 의 다섯(꺼진 Qdrant 를 흉내 내려 127.0.0.1:1 에 붙어 보는 것 — test_file_search·test_jobs 둘·
+  test_reindex_api·test_vectors)과 tests/outreach/test_provider.py 의 둘(표시가 듣는지, httpx 가 요청 본문을 언제 읽는지).
+- 끝나지 않는 시험 막이 둘(2026-11-23 밤, 끝없이 다시 묻는 고리가 가짜를 붙잡고 메모리 5GB 를 잡았다): 가짜 서버는 요청을
+  `limit` 번(기본 `MAX_FAKE_REQUESTS`)까지만 받고 그 뒤는 `RunawayFake`(BaseException) 를 올린다. fixture `time_guard` 는
+  시험 하나가 `GUARD_S` 초 안에 끝나지 않으면 끊는다(`time_limit`) — 「멈춤·끝없음·아주 큼」을 흉내 내는 시험 파일은
+  `pytestmark = pytest.mark.usefixtures("time_guard")` 로 건다.
 """
 
+import _thread
 import json
+import threading
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -35,12 +46,24 @@ KAT_ACCOUNT = "AC00000000003c4d"
 KAT_SENDER = "07000000123"
 PUBLIC_IP = "93.184.216.34"
 _T0 = datetime(2026, 11, 2, 0, 0, 0, tzinfo=UTC)  # 지난 날짜(제공사 호출은 5분 넘게 앞선 시각을 조회 시각으로 바꾼다)
-NO_TRANSPORT = ("시험에서 실제 제공사로 나가려 했습니다 — KatClient(conn, transport=KatMock()) 로 만들거나 "
-                "fixture fake_provider 를 쓰세요(진단은 make_client(transport=…)).")
+NO_TRANSPORT = ("시험에서 실제 HTTP 로 나가려 했습니다({method} {host}) — KatClient(conn, transport=KatMock()) 로 만들거나 "
+                "fixture fake_provider 를 쓰세요(진단은 make_client(transport=…)). 꼭 필요하면 @pytest.mark.real_http.")
 
 
-class RealProviderCall(AssertionError):
-    """시험이 가짜 없이 제공사 클라이언트를 만들었다."""
+MAX_FAKE_REQUESTS = 200  # 가짜 서버 하나가 받는 요청 수의 상한(시험 하나가 가짜를 부르는 것은 많아야 수십 번이다)
+GUARD_S = 20.0  # time_guard 가 시험 하나에 주는 실제 시간(초)
+
+
+class RealProviderCall(BaseException):
+    """시험이 가짜 없이 실제 전송에 닿았다. Exception 이 아니다 — `except Exception` 이 삼키지 못하게."""
+
+
+class RunawayFake(BaseException):
+    """가짜 서버가 상한보다 많이 불렸다 — 부르는 쪽이 끝없이 돌고 있다. Exception 이 아니다(삼켜져 고리가 이어지지 않게)."""
+
+
+def pytest_configure(config) -> None:
+    config.addinivalue_line("markers", "real_http: 이 시험은 httpx 의 실제 전송을 쓴다(no_real_http 막이를 푼다)")
 
 
 def _iso(at: datetime) -> str:
@@ -50,12 +73,15 @@ def _iso(at: datetime) -> str:
 class KatMock(httpx.MockTransport):
     """가짜 한국AI통신. `requests` 에 받은 요청이 쌓인다. `override(request)` 가 응답을 돌려주면 그것이 먼저다(None 이면 기본).
 
+    요청은 `limit` 번까지만 받는다 — 넘으면 RunawayFake(끝없이 부르는 코드가 시험을 붙잡지 못하게).
+
     기본 동작: 키가 틀리면 401, 계정 경로가 틀리면 404, 발신번호 2개(승인 1·대기 1), 보내기는 201 `queued`
     (같은 IdempotencyKey 는 처음 것 그대로), 목록은 최신순·page 는 0부터·pageSize 100 초과는 400.
     """
 
-    def __init__(self, *, key: str = SENTINEL_KEY, account: str = KAT_ACCOUNT, override=None) -> None:
-        self.key, self.account, self.override = key, account, override
+    def __init__(self, *, key: str = SENTINEL_KEY, account: str = KAT_ACCOUNT, override=None,
+                 limit: int = MAX_FAKE_REQUESTS) -> None:
+        self.key, self.account, self.override, self.limit = key, account, override, limit
         self.requests: list[httpx.Request] = []
         self.senders: list[dict] = [
             {"id": "SN0001", "number": KAT_SENDER, "type": "070", "verificationMethod": "own_provisioned",
@@ -106,6 +132,8 @@ class KatMock(httpx.MockTransport):
         return httpx.Response(status, json={"error": error, "code": code})
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
+        if len(self.requests) >= self.limit:
+            raise RunawayFake(f"가짜 서버가 {self.limit}번 넘게 불렸습니다 — 부르는 쪽이 끝나지 않습니다")
         self.requests.append(request)
         if self.override is not None and (scripted := self.override(request)) is not None:
             return scripted
@@ -210,7 +238,7 @@ class FakeProvider:
 
 @pytest.fixture(autouse=True)
 def no_provider_dns(monkeypatch) -> list[str]:
-    """시험은 이름 풀이(DNS)를 쓰지 않는다 — KatClient 가 푸는 모든 호스트가 공인 IP 하나로 풀린다. 물은 호스트 목록."""
+    """시험은 이름 풀이(DNS)를 쓰지 않는다 — 제공사 호출과 연결 진단이 푸는 모든 호스트가 공인 IP 하나로 풀린다. 물은 호스트 목록."""
     asked: list[str] = []
 
     def resolve(host: str, port: int) -> list[str]:
@@ -218,25 +246,52 @@ def no_provider_dns(monkeypatch) -> list[str]:
         return [PUBLIC_IP]
 
     monkeypatch.setattr(provider, "RESOLVE", resolve)
+    monkeypatch.setattr(diagnostics, "RESOLVE", resolve)
     return asked
 
 
 @pytest.fixture(autouse=True)
-def no_real_provider(monkeypatch) -> None:
-    """시험에서는 실제 전송을 고를 수 없다(모듈 머리 글). 가짜 transport 를 준 것은 그대로 지나간다."""
+def no_real_http(request, monkeypatch) -> None:
+    """시험에서는 httpx 의 실제 전송으로 나갈 수 없다(모듈 머리 글). 가짜 transport 를 준 클라이언트는 그대로 지나간다."""
+    if request.node.get_closest_marker("real_http") is not None:
+        return
 
-    def refuse() -> None:
-        raise RealProviderCall(NO_TRANSPORT)
+    async def refuse_async(self, outgoing: httpx.Request) -> httpx.Response:
+        raise RealProviderCall(NO_TRANSPORT.format(method=outgoing.method, host=outgoing.url.host))
 
-    real_make_client = diagnostics.make_client
+    def refuse(self, outgoing: httpx.Request) -> httpx.Response:
+        raise RealProviderCall(NO_TRANSPORT.format(method=outgoing.method, host=outgoing.url.host))
 
-    def make_client(*, transport: httpx.AsyncBaseTransport | None = None) -> httpx.AsyncClient:
-        if transport is None:
-            raise RealProviderCall(NO_TRANSPORT)
-        return real_make_client(transport=transport)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse_async)
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
 
-    monkeypatch.setattr(provider, "_default_transport", refuse)
-    monkeypatch.setattr(diagnostics, "make_client", make_client)
+
+@contextmanager
+def time_limit(seconds: float):
+    """안의 일이 seconds 초 안에 끝나지 않으면 끊는다(KeyboardInterrupt — pytest 가 멈춘 줄을 보이고 실행을 끝낸다).
+    이벤트 루프에 돌아오지 않는 고리도 끊긴다. SIGALRM 은 쓰지 않는다(실행 전체에 건 `alarm` 을 지우지 않게)."""
+    done = threading.Event()
+
+    def watch() -> None:
+        if done.wait(seconds):
+            return
+        for _ in range(5):  # asyncio 는 첫 번째에 태스크 취소만 청한다 — 그래도 안 끝나면 다시
+            _thread.interrupt_main()
+            if done.wait(1.0):
+                return
+
+    threading.Thread(target=watch, daemon=True).start()
+    try:
+        yield
+    finally:
+        done.set()
+
+
+@pytest.fixture
+def time_guard():
+    """시험 하나에 GUARD_S 초(실제 시간)만 준다."""
+    with time_limit(GUARD_S):
+        yield
 
 
 @pytest.fixture

@@ -13,7 +13,8 @@
   순번·상태만 남긴다.
 - 실제 문자는 `send_test_sms is True`(글 "true"·1 은 아님)이고 공유 상한에 2번(POST + 상태 조회 1번)이 남았을 때만 1건.
   기본 「연결 테스트」는 보내지 않는다.
-- 요청 상한 8번(`Calls`; P1 1 + P2 1 + P3 4 + P4 1 = 7). 요청마다 15초 제한·리다이렉트 안 따름. 경로에 넣는 Account ID·
+- 요청 상한 8번(`Calls`; P1 1 + P2 1 + P3 4 + P4 1 = 7). 요청마다 15초(연결 5초) 제한·리다이렉트 안 따름. 응답 본문은 1MB
+  까지만 읽고 압축된 응답은 풀지 않는다. 단계를 돌리면 키·Account ID 가 로그 거르개에 오른다(redact.add_secrets). 경로에 넣는 Account ID·
   messageId 는 %인코딩한다. DB 에 쓰지 않는다.
 - 한국 밖 IP 에서 문자를 보내면 403 `overseas_ip_blocked` 가 온다고 문서에 있다.
 
@@ -48,6 +49,8 @@ from app.outreach import redact
 DEFAULT_BASE_URL = "https://api.koreaaitel.com"
 MAX_REQUESTS = 8
 TIMEOUT_S = 15.0
+CONNECT_TIMEOUT_S = 5.0  # 연결 제한은 전체보다 짧게 — 닿지 않는 호스트에서 「연결 시간 초과」가 먼저 난다(보낸 것이 없음이 분명해진다)
+MAX_BODY_BYTES = 1_000_000  # 응답 본문은 여기까지만 읽는다
 RESOLVE_TIMEOUT_S = 5.0  # 이름 풀이에 쓰는 시간
 MIN_SECRET = 8  # 이보다 짧은 키·Account ID 는 지우기가 보통 글을 망가뜨린다
 POLL_TIMES = 4
@@ -60,7 +63,7 @@ MAYBE_SENT = "보냈는지 알 수 없음 — 문자가 갔을 수도 안 갔을
 _SEP = r"(?:[\s.\-()+]|%20|%2D|%2E|%28|%29|%2B)*"  # 번호 사이 구분(%인코딩 꼴 포함)
 _DIGITS_RE = re.compile(r"\d{8,}")  # 7자리 넘는(8자리 이상) 숫자 묶음
 _TOKEN_RE = re.compile(r"[A-Za-z0-9%+/=_\-]{40,}")
-_BAD_URL_CHAR = re.compile(r"[\s%\\]")  # 기본 주소에 올 수 없는 글자
+_BAD_URL_CHAR = re.compile(r"[\s%\\;,&=]")  # 기본 주소에 올 수 없는 글자
 
 RESOLVE_FAILED = "resolve_failed · 주소의 호스트 이름을 풀지 못했습니다(이름 풀이 실패 또는 시간 초과)"
 RESOLVED_INSIDE = "bad_base_url · 호스트가 내부망 IP 로 풀리거나 공인 IP 가 없어 부르지 않았습니다"
@@ -113,23 +116,41 @@ class _Fail(Exception):
     pass
 
 
+def timeouts() -> httpx.Timeout:
+    """요청 하나의 시간 제한: 단계마다 15초, 연결만 5초."""
+    return httpx.Timeout(TIMEOUT_S, connect=CONNECT_TIMEOUT_S)
+
+
 def make_client(*, transport: httpx.AsyncBaseTransport | None = None) -> httpx.AsyncClient:
-    """진단에 쓸 클라이언트. 환경(프록시 변수)을 믿지 않고, 리다이렉트를 따르지 않고, 15초 제한."""
-    return httpx.AsyncClient(timeout=TIMEOUT_S, trust_env=False, follow_redirects=False, transport=transport)
+    """진단·제공사 호출에 쓸 클라이언트. 환경(프록시 변수)을 믿지 않고, 리다이렉트를 따르지 않고, 15초(연결 5초) 제한."""
+    return httpx.AsyncClient(timeout=timeouts(), trust_env=False, follow_redirects=False, transport=transport)
+
+
+async def read_body(response: httpx.Response, limit: int) -> bytes | None:
+    """흘려 받는 응답의 본문을 limit 바이트까지 읽는다. 넘으면 그만 읽고 None. 압축(Content-Encoding)돼 있으면 읽지도 풀지도
+    않고 None — 작은 압축 조각 하나가 수십 MB 로 풀릴 수 있다(요청에 `Accept-Encoding: identity` 를 싣는다)."""
+    if response.headers.get("content-encoding", "").strip().lower() not in ("", "identity"):
+        return None
+    raw = bytearray()
+    async for chunk in response.aiter_bytes():
+        raw += chunk
+        if len(raw) > limit:
+            return None
+    return bytes(raw)
 
 
 def base_url_problem(base_url: object) -> str | None:
     """주소가 안 되는 까닭(한국어) 또는 None. 꼴만 본다(이름 풀이 없음). 호스트 목록으로 고정하지 않는다.
 
     주소는 scheme·호스트·포트뿐이어야 한다(경로는 없거나 「/」). 질의(?)·조각(#)·경로가 있으면 뒤에 붙이는
-    `/v1/accounts/…` 가 그 속으로 들어가 다른 곳을 부르게 되므로 거절한다. 빈칸·%·역빗금도 거절(호스트 이름이 달라진다).
+    `/v1/accounts/…` 가 그 속으로 들어가 다른 곳을 부르게 되므로 거절한다. 빈칸·%·역빗금·「;,&=」도 거절(호스트 이름이 달라진다).
     연결 진단과 제공사 호출(app.outreach.provider)이 이 함수 하나를 쓴다."""
     if not isinstance(base_url, str) or not base_url.strip():
         return "주소가 비어 있습니다."
     if "@" in base_url:
         return "주소에 사용자 정보(@)를 넣을 수 없습니다."
     if _BAD_URL_CHAR.search(base_url):
-        return "주소에 빈칸·%·역빗금을 넣을 수 없습니다."
+        return "주소에 빈칸이나 % · \\ · ; · , · & · = 를 넣을 수 없습니다."
     try:
         url = httpx.URL(base_url)
     except httpx.InvalidURL:
@@ -262,6 +283,7 @@ class _Run:
     """단계 하나의 요청·기록. 글은 모두 지워서 남긴다."""
 
     def __init__(self, conn: DiagnosticConn, http: httpx.AsyncClient, calls: Calls) -> None:
+        redact.add_secrets(conn.key, conn.account_id)  # httpx 요청 줄(주소에 Account ID)이 남기 전에 로그 거르개에 올린다
         self.conn, self.http, self.calls = conn, http, calls
         self.base = f"{conn.base_url.rstrip('/')}/v1/accounts/{_segment(conn.account_id)}"
         self.ms = 0
@@ -282,13 +304,22 @@ class _Run:
         self.calls.sent += 1
         self.posted = self.posted or method == "POST"
         start = time.perf_counter()
-        r = await self.http.request(method, self.base + path, follow_redirects=False, timeout=TIMEOUT_S,
-                                    headers={"Authorization": f"Bearer {self.conn.key}",
-                                             "Accept": "application/json"}, **kw)
+        request = self.http.build_request(method, self.base + path, timeout=timeouts(), headers={
+            "Authorization": f"Bearer {self.conn.key}", "Accept": "application/json", "Accept-Encoding": "identity"}, **kw)
+        response = await self.http.send(request, stream=True, follow_redirects=False)
+        try:
+            raw = await read_body(response, MAX_BODY_BYTES)
+        finally:
+            await response.aclose()
         ms = int((time.perf_counter() - start) * 1000)
         self.ms += ms
-        self.note(f"[{self.calls.sent}] {method} {label}: HTTP {r.status_code} · {ms}ms · {len(r.content)}B")
-        return r
+        size = "읽지 않음(상한 초과 또는 압축)" if raw is None else f"{len(raw)}B"
+        self.note(f"[{self.calls.sent}] {method} {label}: HTTP {response.status_code} · {ms}ms · {size}")
+        if raw is None and response.is_success:
+            raise _Fail("body_unreadable · 응답 본문이 너무 크거나 압축돼 있어 읽지 않았습니다")
+        retry_after = response.headers.get("retry-after")
+        return httpx.Response(response.status_code, content=raw or b"",
+                              headers={"retry-after": retry_after} if retry_after is not None else None)
 
     def expect(self, r: httpx.Response, *ok: int) -> dict:
         """기대한 상태면 JSON(dict)을, 아니면 오류 본문의 `code`(없으면 http_<상태>)로 실패."""

@@ -34,6 +34,7 @@ def test_search_in_a_missing_collection_is_empty():
     assert Store(":memory:", "a").search(collection_for("none", 3, "a"), [1, 0, 0], 5) == []
 
 
+@pytest.mark.real_http  # 꺼진 Qdrant 를 흉내 내려 127.0.0.1:1(아무도 듣지 않는 곳)에 실제로 붙어 본다
 def test_available():
     assert Store(":memory:", "a").available()
     assert not Store("http://127.0.0.1:1", "a").available()  # 아무도 듣지 않는 곳

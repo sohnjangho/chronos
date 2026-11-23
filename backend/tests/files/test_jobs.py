@@ -146,6 +146,7 @@ async def test_reindex_moves_in_batches_and_lets_files_in_between(session, ready
     assert session.get(ReindexJob, 1).done == 5
 
 
+@pytest.mark.real_http  # 꺼진 Qdrant 를 흉내 내려 127.0.0.1:1(아무도 듣지 않는 곳)에 실제로 붙어 본다
 async def test_enqueue_reindex_refuses_when_it_cannot_start(session, ready, monkeypatch):
     jobs.enqueue_reindex(LARGE)
     with pytest.raises(jobs.ReindexRefused) as e:  # 이미 다시 넣는 중
@@ -291,6 +292,7 @@ def test_task51_put_assignments_starts_a_real_reindex(client, admin, session, re
     assert [(i.kind, i.id) for i in jobs._queue][-1] == ("reindex", 1)
 
 
+@pytest.mark.real_http  # 꺼진 Qdrant 를 흉내 내려 127.0.0.1:1(아무도 듣지 않는 곳)에 실제로 붙어 본다
 def test_task51_put_assignments_is_refused_when_qdrant_is_down(client, admin, session, ready, monkeypatch):
     monkeypatch.setattr(vectors, "STORE", vectors.Store("http://127.0.0.1:1", "t"))
     r = client.put("/api/llm/assignments", json={"items": [_embedding_model_listed(session, ready)]}, headers=admin)

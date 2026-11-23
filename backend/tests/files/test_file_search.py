@@ -51,6 +51,7 @@ async def test_filters_by_axis_values(session, ready, put):
     assert len(await search(session, "겨울 타설", filters={"현장": []})) == 2  # 빈 목록은 거르지 않는다
 
 
+@pytest.mark.real_http  # 꺼진 Qdrant 를 흉내 내려 127.0.0.1:1(아무도 듣지 않는 곳)에 실제로 붙어 본다
 async def test_qdrant_down_keeps_keyword_search_and_requeues(session, embedder, put, monkeypatch):
     add_connection(session)
     monkeypatch.setattr(vectors, "STORE", vectors.Store("http://127.0.0.1:1", "t"))  # Qdrant 가 꺼져 있다

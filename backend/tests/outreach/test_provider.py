@@ -4,11 +4,15 @@
 """
 
 import asyncio
+import gzip
 import json
 import logging
+import time
+import traceback
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
+import httpcore
 import httpx
 import pytest
 
@@ -17,6 +21,7 @@ from app.notify import diagnostics
 from app.outreach import phone, provider, redact
 from app.outreach.provider import (
     RECEIVED_MAX_PAGES,
+    RECEIVED_MAX_REQUESTS,
     RECEIVED_PAGE_SIZE,
     STATUS_MAP,
     Accepted,
@@ -41,7 +46,11 @@ from tests.provider_doubles import (
     FakeProvider,
     KatMock,
     RealProviderCall,
+    RunawayFake,
+    time_limit,
 )
+
+pytestmark = pytest.mark.usefixtures("time_guard")  # 멈춤·끝없음·큰 응답을 흉내 내는 시험들 — 하나가 20초를 넘기면 끊는다
 
 CONN = ProviderConn(base_url=KAT_BASE, account_id=KAT_ACCOUNT, key=SENTINEL_KEY)
 T0 = datetime(2026, 11, 23, 3, 0, 0, tzinfo=UTC)
@@ -114,7 +123,38 @@ def raising(exc_type: type[Exception], text: str = ""):
 
 
 def page(rows: list) -> object:
-    return answer(200, {"data": rows, "meta": {"page": 0, "pageSize": 100, "total": len(rows)}})
+    """받은 문자 한 쪽. 제공사가 한글·짝 없는 서로게이트를 \\uXXXX 로 적어 보낸 꼴(ensure_ascii)로 싣는다."""
+    return raw(200, json.dumps({"data": rows, "meta": {"page": 0, "pageSize": 50, "total": len(rows)}}).encode(),
+               "application/json")
+
+
+def body_then(status: int, first: bytes, exc_type: type[Exception]):
+    """상태와 본문 앞부분까지 온 뒤 끊기는 응답."""
+    async def chunks():
+        yield first
+        raise exc_type(f"boom {ECHO}")
+
+    return lambda request: httpx.Response(status, content=chunks(), headers={"content-type": "application/json"})
+
+
+class Hangs(httpx.AsyncBaseTransport):
+    """응답하지 않는 서버. at="connect" 는 요청을 읽기 전(연결 단계)에 멈춘다 — httpx 의 연결 시간 제한을 스스로 지킨다.
+    at="response" 는 요청을 다 받은 뒤 멈춘다."""
+
+    def __init__(self, at: str) -> None:
+        self.at = at
+        self.read_request = False
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if self.at == "connect":
+            try:
+                await asyncio.wait_for(asyncio.sleep(30), request.extensions["timeout"]["connect"])
+            except TimeoutError:
+                raise httpx.ConnectTimeout("connect timed out") from None
+        await request.aread()
+        self.read_request = True
+        await asyncio.sleep(30)
+        raise AssertionError("닿지 않는다")
 
 
 def row(**changes: object) -> NotifyConnection:
@@ -135,6 +175,7 @@ async def test_send_puts_bearer_and_idempotency_key():
     assert str(request.url) == f"{KAT_BASE}/v1/accounts/{KAT_ACCOUNT}/messages"
     assert request.headers["authorization"] == f"Bearer {SENTINEL_KEY}"
     assert request.headers["content-type"] == "application/json"
+    assert request.headers["content-length"] == str(len(request.content)) and "transfer-encoding" not in request.headers
     # Type 은 넣지 않는다 — 제공사가 본문 길이로 sms/lms 를 고른다(문서).
     assert json.loads(request.content) == {"To": SENTINEL_DIGITS, "From": KAT_SENDER, "Body": "내일 08시 타설입니다.",
                                            "IdempotencyKey": "idem-0001"}
@@ -201,7 +242,6 @@ async def test_message_the_vendor_already_marked_failed_is_still_accepted_with_i
 POST_OUTCOMES = [  # (이름, 가짜 응답, code, http_status, maybe_sent)
     ("connect error", raising(httpx.ConnectError), "network", None, False),
     ("tls error", raising(httpx.ConnectError, "[SSL: CERTIFICATE_VERIFY_FAILED]"), "network", None, False),
-    ("connect timeout", raising(httpx.ConnectTimeout), "timeout", None, False),
     ("pool timeout", raising(httpx.PoolTimeout), "timeout", None, False),
     ("write timeout", raising(httpx.WriteTimeout), "timeout", None, True),
     ("write error", raising(httpx.WriteError), "network", None, True),
@@ -240,6 +280,83 @@ async def test_send_says_whether_the_message_may_have_gone(name, override, code,
     assert asked.maybe_sent is False and "보냈는지" not in asked.message  # 조회는 보낸 것이 없다
     assert len(mock.requests) == 2  # 다시 시도하지 않는다
     assert leaks(*everything_in(sent), *everything_in(asked)) == []
+
+
+@pytest.mark.parametrize(("connect_limit", "total_limit"), [(0.05, 0.4), (0.4, 0.05), (0.05, 0.05)])
+async def test_timeout_before_the_request_is_written_means_nothing_was_sent(monkeypatch, connect_limit, total_limit):
+    """닿지 않는 호스트: 연결 제한이 먼저 걸리든 전체 제한이 먼저 걸리든(둘이 같아도) 한 바이트도 안 나갔으면 「안 나감」."""
+    monkeypatch.setattr(diagnostics, "CONNECT_TIMEOUT_S", connect_limit)
+    monkeypatch.setattr(provider, "TIMEOUT_S", total_limit)
+    hung = Hangs("connect")
+    e = await failure(KatClient(CONN, transport=hung).send_message(sms()))
+    assert (e.code, e.maybe_sent, e.http_status) == ("timeout", False, None) and hung.read_request is False
+    assert "보냈는지" not in e.message
+
+
+async def test_timeout_after_the_request_is_written_may_have_been_sent(monkeypatch):
+    monkeypatch.setattr(provider, "TIMEOUT_S", 0.05)
+    hung = Hangs("response")
+    e = await failure(KatClient(CONN, transport=hung).send_message(sms()))
+    assert (e.code, e.maybe_sent) == ("timeout", True) and hung.read_request is True
+    asked = await failure(KatClient(CONN, transport=Hangs("response")).message_status("MG1"))
+    assert (asked.code, asked.maybe_sent) == ("timeout", False)
+
+
+async def test_connect_limit_is_shorter_than_the_whole_call_and_goes_on_every_request():
+    assert 0 < diagnostics.CONNECT_TIMEOUT_S < diagnostics.TIMEOUT_S == provider.TIMEOUT_S
+    mock = KatMock()
+    client = KatClient(CONN, transport=mock)
+    await client.check()
+    await client.send_message(sms())
+    for request in mock.requests:
+        assert request.extensions["timeout"] == {"connect": diagnostics.CONNECT_TIMEOUT_S, "read": 15.0, "write": 15.0,
+                                                 "pool": 15.0}
+
+
+@pytest.mark.parametrize(("status", "exc_type", "code", "maybe_sent"), [
+    (401, httpx.ReadError, "bad_key", False), (400, httpx.ReadTimeout, "bad_request", False),
+    (403, httpx.RemoteProtocolError, "bad_account", False), (429, httpx.ReadError, "rate_limited", False),
+    (409, httpx.ReadError, "bad_request", True), (500, httpx.ReadError, "server", True),
+    (201, httpx.ReadError, "network", True), (200, httpx.ReadTimeout, "timeout", True),
+])
+async def test_reply_that_breaks_off_in_the_body_is_judged_by_its_status(status, exc_type, code, maybe_sent):
+    mock = KatMock(override=body_then(status, b'{"code": "unau', exc_type))
+    client = KatClient(CONN, transport=mock)
+    sent = await failure(client.send_message(sms()))
+    assert (sent.code, sent.http_status, sent.maybe_sent) == (code, status, maybe_sent)
+    asked = await failure(client.check())
+    assert (asked.http_status, asked.maybe_sent) == (status, False) and leaks(*everything_in(sent)) == []
+
+
+@pytest.mark.real_http
+async def test_httpx_reads_the_request_body_only_after_it_has_connected():
+    """「나갔는가」를 요청 본문을 읽기 시작했는가로 정하는 근거를 httpx 실제 전송으로 확인한다(내 컴퓨터 안 127.0.0.1 만 —
+    그래서 real_http 표시). 연결이 안 되면 본문에 손대지 않고, 연결된 뒤에야 본문을 읽는다."""
+    pulled: list[str] = []
+
+    async def body(label: str):
+        pulled.append(label)
+        yield b"{}"
+
+    async def silent(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        await reader.read(1024)  # 받기만 하고 답하지 않는다
+        await asyncio.sleep(1)
+        writer.close()
+
+    server = await asyncio.start_server(silent, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    closed = await asyncio.start_server(silent, "127.0.0.1", 0)
+    closed_port = closed.sockets[0].getsockname()[1]
+    closed.close()
+    await closed.wait_closed()
+    headers = {"Content-Length": "2"}
+    async with server, httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(0.3)) as http:
+        with pytest.raises(httpx.ConnectError):
+            await http.post(f"http://127.0.0.1:{closed_port}/", content=body("refused"), headers=headers)
+        assert pulled == []  # 연결 전에는 본문을 읽지 않는다
+        with pytest.raises(httpx.ReadTimeout):
+            await http.post(f"http://127.0.0.1:{port}/", content=body("connected"), headers=headers)
+        assert pulled == ["connected"]
 
 
 async def test_whole_call_is_bounded_by_the_time_limit(monkeypatch):
@@ -314,6 +431,7 @@ async def test_overseas_ip_has_its_own_code_and_says_korean_addresses_only():
 
 
 @pytest.mark.parametrize(("header", "expected"), [("30", 30), ("0", 0), ("9999", 600), (" 12 ", 12), (None, None),
+                                                  ("99999999999", 600), ("9" * 5000, 600),  # 터무니없는 값도 600 으로
                                                   ("soon", None), ("-5", None), ("1.5", None),
                                                   ("Wed, 21 Oct 2026 07:28:00 GMT", None), (ECHO, None)])
 async def test_429_keeps_retry_after_seconds_capped(header, expected):
@@ -374,6 +492,8 @@ async def test_redirect_is_not_followed():
     "https://api.koreaaitel.com?x=", "https://api.koreaaitel.com#", "https://api.koreaaitel.com/proxy?u=",
     "https://api.koreaaitel.com/a/../b", "https://api.koreaaitel.com/v1", " https://api.koreaaitel.com",
     "https://api.koreaaitel.com ", "https://api.koreaaitel.com%20", "https://evil.example\\.koreaaitel.com",
+    "https://api.koreaaitel.com;evil.example", "https://evil.example,api.koreaaitel.com", "https://a&b.example",
+    "https://a=b.example",
 ])
 async def test_internal_base_url_is_refused(base_url, no_provider_dns):
     mock = KatMock()
@@ -439,31 +559,68 @@ async def test_message_id_is_one_path_segment():
 # ── 시험에서는 실제 전송으로 나갈 수 없다 ──────────────────────────
 
 
-async def test_client_without_a_mock_transport_is_refused_under_tests(monkeypatch):
-    reached: list[httpx.Request] = []
+@pytest.fixture
+def below_httpx(monkeypatch) -> list:
+    """httpx 전송 아래(httpcore 연결 묶음)에 닿은 요청을 적는다 — 막이가 그 위에서 끊는지 보려고. 닿아도 나가지 않는다."""
+    reached: list = []
 
-    async def real_transport(self, request: httpx.Request) -> httpx.Response:
+    async def aconnect(self, request):
         reached.append(request)
-        raise httpx.ConnectError("blocked by the test")
+        raise httpcore.ConnectError("blocked by the test")
 
-    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", real_transport)
-    with pytest.raises(RealProviderCall, match="fake_provider"):
-        await provider.client_for(row()).check()  # fake_provider 를 잊은 시험
-    with pytest.raises(AssertionError, match="KatMock"):
-        KatClient(CONN)
-    assert reached == []
+    def connect(self, request):
+        reached.append(request)
+        raise httpcore.ConnectError("blocked by the test")
 
-
-async def test_diagnostics_client_without_a_mock_transport_is_refused_under_tests():
-    with pytest.raises(RealProviderCall, match="transport"):
-        diagnostics.make_client()
-    async with diagnostics.make_client(transport=KatMock()) as http:
-        assert http.trust_env is False and http.follow_redirects is False
+    monkeypatch.setattr(httpcore.AsyncConnectionPool, "handle_async_request", aconnect)
+    monkeypatch.setattr(httpcore.ConnectionPool, "handle_request", connect)
+    return reached
 
 
-def test_outside_tests_no_transport_means_the_real_one(monkeypatch):
-    monkeypatch.undo()  # 이 시험만 autouse 막이를 푼다(아무것도 보내지 않는다)
+async def test_client_without_a_mock_transport_cannot_send_under_tests(below_httpx):
+    client = provider.client_for(row())  # fake_provider 를 잊은 시험
+    assert isinstance(client, KatClient)
+    for call in (client.check(), client.send_message(sms()), client.received(None)):
+        with pytest.raises(RealProviderCall, match="KatMock"):  # ProviderFailed 로 바뀌지 않고 그대로 올라온다
+            await call
+    assert not issubclass(RealProviderCall, Exception) and below_httpx == []
+
+
+async def test_diagnostics_cannot_send_under_tests_however_the_client_was_made(below_httpx):
+    from app.notify.diagnostics import (
+        make_client,  # 모듈 속성이 아니라 이름으로 잡아 둔 것
+    )
+
+    conn = diagnostics.DiagnosticConn(KAT_BASE, SENTINEL_KEY, KAT_ACCOUNT)
+    async with make_client() as http:
+        with pytest.raises(RealProviderCall):
+            await diagnostics.run_checks(conn, http, steps=(1,))
+    async with httpx.AsyncClient(trust_env=False) as http:  # 손으로 만든 클라이언트
+        with pytest.raises(RealProviderCall):
+            await diagnostics.run_checks(conn, http, steps=(1,))
+    with httpx.Client() as http, pytest.raises(RealProviderCall):  # 동기 클라이언트도
+        http.get("https://example.invalid/")
+    assert below_httpx == []
+
+
+async def test_diagnostics_dns_is_faked_under_tests(no_provider_dns):
+    assert diagnostics.RESOLVE is not diagnostics._system_resolve
+    fake = KatMock()
+    async with diagnostics.make_client(transport=fake) as http:
+        steps = await diagnostics.run_checks(diagnostics.DiagnosticConn(KAT_BASE, SENTINEL_KEY, KAT_ACCOUNT), http, steps=(1,))
+    assert steps[0].ok and no_provider_dns == ["api.koreaaitel.com"]  # resolve= 를 주지 않아도 시스템 DNS 가 아니다
+
+
+@pytest.mark.real_http
+def test_marked_test_gets_the_real_transport_back():
+    """실제 HTTP 가 꼭 필요한 시험은 표시(real_http)로 푼다. 이 시험은 아무것도 보내지 않는다."""
+    assert httpx.AsyncHTTPTransport.handle_async_request.__module__.startswith("httpx")
+    assert httpx.HTTPTransport.handle_request.__module__.startswith("httpx")
+
+
+def test_no_transport_means_the_real_one_and_only_the_guard_stops_it():
     assert provider._default_transport() is None and KatClient(CONN)._transport is None
+    assert not httpx.AsyncHTTPTransport.handle_async_request.__module__.startswith("httpx")  # 막이가 걸려 있다
 
 
 # ── 로그·되돌려 주는 값 ────────────────────────────────────────────
@@ -522,6 +679,13 @@ async def test_registered_secrets_survive_another_caller_installing_its_own_sour
     assert "some-other-module-secret-1234" not in caplog.records[-1].getMessage()  # 그쪽 것도 그대로 지워진다
 
 
+async def test_traceback_with_local_variables_has_no_key():
+    for override in (raising(httpx.ConnectError), raising(httpx.ReadTimeout), answer(500), answer(401)):
+        e = await failure(KatClient(CONN, transport=KatMock(override=override)).send_message(sms()))
+        text = "".join(traceback.TracebackException.from_exception(e, capture_locals=True).format())
+        assert "send_message" in text and not key_survives(text, SENTINEL_KEY)
+
+
 async def test_vendor_echo_never_reaches_a_return_value():
     mock = KatMock()
     client = KatClient(CONN, transport=mock)
@@ -547,7 +711,7 @@ async def test_vendor_echo_never_reaches_a_return_value():
 
 
 @pytest.mark.parametrize("message_id", [SENTINEL_PHONE, SENTINEL_DIGITS, "+82 10-0000-0199", "1588-0199", "031-200-0199", 123, None,
-                                        "", "a b", "x" * 101])
+                                        "", "a b", "x" * 101, "..", "-_-", "."])
 async def test_message_id_that_is_a_phone_number_or_not_an_id_is_refused(message_id):
     mock = KatMock(override=answer(201, {"messageId": message_id, "status": "queued"}))
     e = await failure(KatClient(CONN, transport=mock).send_message(sms()))
@@ -604,6 +768,31 @@ async def test_response_body_over_the_cap_is_not_read_to_the_end(monkeypatch):
     assert (await KatClient(CONN, transport=KatMock(override=raw(200, fits, "application/json"))).check()).senders == []
 
 
+async def test_compressed_reply_is_refused_without_being_unpacked():
+    packed = gzip.compress(b'{"messageId": "MG1", "pad": "' + b"a" * 50_000_000 + b'"}')
+    pulled = []
+
+    async def chunks():
+        for i in range(0, len(packed), 4096):
+            pulled.append(i)
+            yield packed[i:i + 4096]
+
+    def encoded(status: int, encoding: str = "gzip"):
+        return lambda request: httpx.Response(status, content=chunks(), headers={"content-encoding": encoding})
+
+    mock = KatMock(override=encoded(201))
+    client = KatClient(CONN, transport=mock)
+    sent = await failure(client.send_message(sms()))
+    assert (sent.code, sent.http_status, sent.maybe_sent) == ("unknown", 201, True)
+    assert mock.requests[0].headers["accept-encoding"] == "identity"  # 압축하지 말라고 청한다
+    asked = await failure(client.check())
+    assert (asked.code, asked.http_status, asked.maybe_sent) == ("unknown", 201, False)
+    mock.override = encoded(400, "deflate")
+    assert ((await failure(client.send_message(sms()))).code, len(pulled)) == ("bad_request", 0)  # 본문을 당기지도 않았다
+    plain = KatMock(override=lambda r: httpx.Response(200, json={"senderNumbers": []}, headers={"content-encoding": "identity"}))
+    assert (await KatClient(CONN, transport=plain).check()).senders == []
+
+
 async def test_inbound_body_is_capped_and_cleaned():
     hostile = "x\x00y\x1b[31mred\x07 \u202eevil\u2066 \r\n\tz\x7f"
     mock = KatMock(override=page([{**GOOD, "messageId": "L1", "body": "가" * 5000}, {**GOOD, "messageId": "L2", "body": hostile},
@@ -614,6 +803,20 @@ async def test_inbound_body_is_capped_and_cleaned():
     assert (got["L2"].body, got["L2"].body_cut) == ("xy[31mred evil \n\tz", False)  # 제어 글자·방향 덮어쓰기 글자를 뺀다
     assert (len(got["L3"].body), got["L3"].body_cut) == (4000, False)
     assert (got["L4"].body, got["L5"].body, got["L5"].body_cut) == ("", "끝", False)
+
+
+@pytest.mark.parametrize(("given", "expected"), [
+    ("ok \ud83d lone", "ok  lone"), ("\udc00앞 뒤\ud800", "앞 뒤"),  # 짝 없는 서로게이트(그대로 두면 DB 에 넣을 때 깨진다)
+    ("웃음 \U0001f600 그대로", "웃음 \U0001f600 그대로"), ("가족 \U0001f468\u200d\U0001f469 사진", "가족 \U0001f468\u200d\U0001f469 사진"),
+    ("1번\r2번\r3번", "1번\n2번\n3번"), ("a\r\nb\r\n", "a\nb\n"), ("a\u2028b\u2029c", "a\nb\nc"),  # 줄 나눔은 \n 하나로
+    ("a\x9b31mred\x85b\x80", "a31mredb"), ("ok\U000e0041\U000e0042\U000e007f", "ok"), ("a\x0bb\x0cc", "abc"),
+    ("việc xong · می\u200cخواهم", "việc xong · می\u200cخواهم"),  # 다른 말의 글자는 건드리지 않는다
+])
+async def test_inbound_text_is_made_safe_to_store(given, expected):
+    mock = KatMock(override=page([{**GOOD, "body": given}]))
+    body = (await KatClient(CONN, transport=mock).received(None)).items[0].body
+    assert body == expected
+    body.encode("utf-8")  # 저장할 수 있다
 
 
 # ── 상태·받은 문자·발신번호·통화 ───────────────────────────────────
@@ -662,6 +865,7 @@ async def test_status_and_received_are_parsed():
     second = mock.add_inbound("+82 10-0000-0188", "사진 보냅니다", T0 + timedelta(seconds=30), media=1)
     got = await client.received(None)
     assert isinstance(got, Received) and (got.truncated, got.skipped, got.redated, got.fetched_at) == (False, 0, 0, NOW)
+    assert provider.SINCE_MARGIN_S == 600 and got.next_since == NOW - timedelta(minutes=10)  # 일꾼은 이 값을 다음 since 로
     assert [(m.provider_id, m.from_number, m.to_number, m.body, m.at, m.has_media, m.body_cut) for m in got.items] == [
         (first, SENTINEL_DIGITS, KAT_SENDER, "네 알겠습니다", T0, False, False),
         (second, "01000000188", KAT_SENDER, "사진 보냅니다", T0 + timedelta(seconds=30), True, False)]  # 오래된 것부터
@@ -701,12 +905,94 @@ async def test_received_keeps_only_since_and_later_and_stops_paging_at_older_row
     assert len((await client.received(None)).items) == size and len(mock.requests) == 1  # 처음에는 한 쪽만
 
 
-def test_a_full_page_of_the_longest_texts_fits_under_the_response_cap():
-    """쪽 크기는 응답 상한에 맞춘 값이다: 2,000자 문자가 \\uXXXX 꼴로 한 쪽 가득 와도 읽을 수 있어야 한다."""
-    full = {"data": [{**GOOD, "messageId": f"MG{i:06d}abcdef", "accountId": KAT_ACCOUNT, "subject": None,
-                      "body": "가" * 2000, "mediaUrl": [f"https://media.invalid/{i}/{n}.jpg" for n in range(3)]}
-                     for i in range(RECEIVED_PAGE_SIZE)], "meta": {"page": 0, "pageSize": RECEIVED_PAGE_SIZE, "total": 9999}}
-    assert len(json.dumps(full, ensure_ascii=True)) < provider.MAX_BYTES
+def longest(i: int, url_chars: int = 40) -> dict:
+    """가장 긴 문자(2,000자) 한 줄. 사진 주소 길이는 고를 수 있다."""
+    return {**GOOD, "messageId": f"MG{i:06d}abcdef", "accountId": KAT_ACCOUNT, "subject": None, "body": "가" * 2000,
+            "numMedia": 3, "mediaUrl": [f"https://media.invalid/{i}/{n}/" + "u" * url_chars for n in range(3)],
+            "dateCreated": (T0 + timedelta(seconds=i)).isoformat().replace("+00:00", "Z")}
+
+
+async def test_a_full_page_of_the_longest_texts_is_read_in_one_request():
+    """쪽 크기는 응답 상한에 맞춘 값이다: 2,000자 문자가 \\uXXXX 꼴로 한 쪽 가득 와도 읽힌다."""
+    mock = KatMock(override=page([longest(i) for i in range(RECEIVED_PAGE_SIZE)]))
+    got = await KatClient(CONN, transport=mock).received(None)
+    assert len(got.items) == RECEIVED_PAGE_SIZE and len(mock.requests) == 1 and got.skipped == 0
+    assert all(len(m.body) == 2000 and m.has_media for m in got.items)
+
+
+async def test_page_over_the_cap_is_read_again_in_halves():
+    rows = [longest(i, url_chars=4500) for i in range(RECEIVED_PAGE_SIZE)]  # 사진 주소가 길어 한 쪽이 상한을 넘는다
+
+    def listing(request: httpx.Request) -> httpx.Response:
+        size, number = int(request.url.params["pageSize"]), int(request.url.params["page"])
+        newest_first = rows[::-1]
+        return page(newest_first[number * size:(number + 1) * size])(request)
+
+    half = RECEIVED_PAGE_SIZE // 2
+    whole = json.dumps({"data": rows[:RECEIVED_PAGE_SIZE]}).encode()
+    assert len(whole) > provider.MAX_BYTES > len(json.dumps({"data": rows[:half]}).encode()) + 200
+    mock = KatMock(override=listing)
+    got = await KatClient(CONN, transport=mock).received(T0)
+    asked = [(r.url.params["pageSize"], r.url.params["page"]) for r in mock.requests]
+    assert asked == [(str(RECEIVED_PAGE_SIZE), "0"), (str(half), "0"), (str(half), "1"), (str(half), "2")]
+    assert [m.provider_id for m in got.items] == [r["messageId"] for r in rows] and got.truncated is False
+
+
+def always_over_the_cap(limit: int) -> KatMock:
+    """무엇을 물어도 응답 상한을 넘는 본문을 주는 가짜. limit 번까지만 답한다(그 뒤는 RunawayFake) — 주는 양에 끝이 있다."""
+    return KatMock(override=raw(200, b'{"data": [], "pad": "' + b"a" * provider.MAX_BYTES + b'"}', "application/json"),
+                   limit=limit)
+
+
+async def test_reply_that_is_always_over_the_cap_is_asked_for_only_twice():
+    """2026-11-23: 이 고리가 끝나지 않아 시험 프로세스가 메모리 5GB 를 잡았다. 절반으로 한 번만 다시 읽고 그만둔다."""
+    mock = always_over_the_cap(limit=RECEIVED_MAX_REQUESTS + 1)
+    started = time.monotonic()
+    e = await failure(KatClient(CONN, transport=mock).received(T0))
+    assert (e.code, e.http_status) == ("unknown", 200)
+    assert [r.url.params["pageSize"] for r in mock.requests] == [str(RECEIVED_PAGE_SIZE), str(RECEIVED_PAGE_SIZE // 2)]
+    assert time.monotonic() - started < 5
+
+
+async def test_received_never_asks_more_than_its_request_limit(monkeypatch):
+    """멈춤 조건과 따로 요청 수에 굳은 상한이 있다(RECEIVED_MAX_REQUESTS) — 제대로 읽을 때는 닿지 않는다."""
+    assert RECEIVED_MAX_REQUESTS >= RECEIVED_MAX_PAGES * 2 + 1
+    mock = KatMock(limit=10)
+    for i in range(RECEIVED_PAGE_SIZE * 2):
+        mock.add_inbound(SENTINEL_DIGITS, "회신", T0 + timedelta(seconds=i))
+    assert len((await KatClient(CONN, transport=mock).received(T0)).items) == RECEIVED_PAGE_SIZE * 2
+    assert len(mock.requests) == 3  # 두 쪽 + 빈 쪽
+
+    monkeypatch.setattr(provider, "RECEIVED_MAX_REQUESTS", 2)
+    mock.requests.clear()
+    e = await failure(KatClient(CONN, transport=mock).received(T0))
+    assert e.code == "unknown" and len(mock.requests) == 2
+
+
+async def test_fake_server_ends_a_caller_that_keeps_asking():
+    """가짜는 limit 번까지만 받는다. 넘으면 RunawayFake — `except Exception` 으로 삼키는 호출 코드도 뚫고 올라온다."""
+    mock = KatMock(limit=2)
+    client = KatClient(CONN, transport=mock)
+    await client.check()
+    await client.check()
+    with pytest.raises(RunawayFake):
+        await client.check()
+    assert len(mock.requests) == 2 and not issubclass(RunawayFake, Exception)
+
+
+def test_time_limit_cuts_a_loop_that_does_not_end():
+    """time_guard 가 쓰는 time_limit 은 스스로 멈추지 않는 고리를 끊는다. 고리도 2초로 묶여 있다(안 끊기면 실패로 끝난다)."""
+    def spin(until: float) -> None:  # 따로 둔 함수: 고리의 되돌이 자리에서 난 끊김은 같은 함수의 try·with 를 건너뛴다
+        while time.monotonic() < until:
+            pass
+
+    end, cut = time.monotonic() + 2, False
+    try:
+        with time_limit(0.05):
+            spin(end)
+    except KeyboardInterrupt:  # pytest.raises 는 KeyboardInterrupt 를 잡지 않는다
+        cut = True
+    assert cut and time.monotonic() < end
 
 
 async def test_paging_stops_on_the_last_row_of_a_page_not_on_any_older_row():
@@ -785,7 +1071,7 @@ async def test_received_skips_rows_it_cannot_read_and_duplicates():
     ("+82 1588-0199", "15880199"), ("+8215880199", "15880199"),  # +82 가 붙은 대표번호는 국내 열쇠 그대로
     ("KB국민", phone.NO_NUMBER), ("114", phone.NO_NUMBER), ("#0100000019", phone.NO_NUMBER),
     ("(((((((((((0", phone.NO_NUMBER), ("", phone.NO_NUMBER), ("+", phone.NO_NUMBER), ("+12", phone.NO_NUMBER),
-    ("+1234567890123456", phone.NO_NUMBER), (["01000000199"], phone.NO_NUMBER), (None, phone.NO_NUMBER), (0, phone.NO_NUMBER),
+    ("+1234567890123456", phone.NO_NUMBER), ("+0 10 0000 0199", phone.NO_NUMBER),  # 0 으로 시작하는 나라 번호는 없다 (["01000000199"], phone.NO_NUMBER), (None, phone.NO_NUMBER), (0, phone.NO_NUMBER),
 ])
 async def test_sender_and_receiver_numbers_of_an_inbound_text(given, expected):
     mock = KatMock(override=page([{**GOOD, "from": given, "to": given}]))

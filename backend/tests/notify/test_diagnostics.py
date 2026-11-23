@@ -24,6 +24,9 @@ from app.notify.diagnostics import (
     run_checks,
     scrub,
 )
+from tests.provider_doubles import MAX_FAKE_REQUESTS, RunawayFake
+
+pytestmark = pytest.mark.usefixtures("time_guard")  # 큰 응답·느린 이름 풀이를 흉내 내는 시험들 — 하나가 20초를 넘기면 끊는다
 
 SENTINEL_KEY = "kat-test-key-ZZZZ9999"
 SENTINEL_PHONE = "010-0000-0199"
@@ -53,6 +56,8 @@ class KatFake(httpx.MockTransport):
         super().__init__(self._handle)
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
+        if len(self.requests) >= MAX_FAKE_REQUESTS:
+            raise RunawayFake("가짜 서버가 너무 많이 불렸습니다 — 부르는 쪽이 끝나지 않습니다")
         self.requests.append(request)
         if self.override is not None:
             return self.override(request)
@@ -271,12 +276,60 @@ async def test_every_request_has_an_explicit_timeout():
         await run_checks(CONN, http, send_test_sms=True, sleep=no_sleep)
     assert fake.requests
     for r in fake.requests:
-        assert r.extensions["timeout"] == {"connect": 15.0, "read": 15.0, "write": 15.0, "pool": 15.0}
+        # 연결 제한은 전체보다 짧다 — 닿지 않는 호스트에서 연결 시간 초과가 먼저 나게(제공사 호출과 같은 값)
+        assert r.extensions["timeout"] == {"connect": 5.0, "read": 15.0, "write": 15.0, "pool": 15.0}
+        assert r.headers["accept-encoding"] == "identity"
 
 
 def test_make_client_has_the_contract():
     http = make_client()
     assert http.trust_env is False and http.follow_redirects is False and http.timeout.read == 15.0
+    assert http.timeout.connect == diagnostics.CONNECT_TIMEOUT_S == 5.0 < diagnostics.TIMEOUT_S
+
+
+async def test_diagnosis_scrubs_its_own_account_id_from_the_request_log(caplog):
+    """진단만 돌려도(제공사 클라이언트를 만들지 않아도) httpx 요청 줄에 Account ID·키가 남지 않는다."""
+    import logging
+
+    caplog.set_level(logging.INFO)
+    key, account = "kat-test-key-FRESH0001", "AC99999999fresh01"
+    conn = DiagnosticConn(base_url=DEFAULT_BASE_URL, key=key, account_id=account)
+    fake = KatFake()
+    async with client(fake) as http:
+        results = await run_checks(conn, http, steps=(1, 4))
+        single = await check_senders(DiagnosticConn(DEFAULT_BASE_URL, key, "AC88888888single"), http, calls=Calls())
+    assert results[0].ok and single.ok and account in str(fake.requests[0].url)  # 요청에는 그대로 나갔다
+    lines = [r.getMessage() for r in caplog.records if r.name == "httpx"]
+    assert len(lines) == 3 and all("/v1/accounts/" in line for line in lines)
+    assert not any(account in line or "AC88888888single" in line or key in line for line in lines)
+
+
+async def test_reply_body_is_read_only_up_to_the_cap_and_never_unpacked(monkeypatch):
+    import gzip
+
+    monkeypatch.setattr(diagnostics, "MAX_BODY_BYTES", 2000)
+    pulled = []
+
+    async def endless():
+        for i in range(500):
+            pulled.append(i)
+            yield b'{"senderNumbers": [], "pad": "' + b"a" * 970 if i == 0 else b"a" * 1000
+
+    fake = KatFake(override=lambda r: httpx.Response(200, content=endless()))
+    async with client(fake) as http:
+        result = await check_senders(CONN, http, calls=Calls())
+    assert not result.ok and result.detail.startswith("body_unreadable") and len(pulled) < 10
+
+    packed = gzip.compress(b'{"senderNumbers": []}' + b" " * 5_000_000)
+    fake = KatFake(override=lambda r: httpx.Response(200, content=packed, headers={"content-encoding": "gzip"}))
+    async with client(fake) as http:
+        result = await check_senders(CONN, http, calls=Calls())
+    assert not result.ok and result.detail.startswith("body_unreadable")
+
+    fits = b'{"senderNumbers": [], "pad": "' + b"a" * 1900 + b'"}'
+    fake = KatFake(override=lambda r: httpx.Response(200, content=fits))
+    async with client(fake) as http:
+        assert (await check_senders(CONN, http, calls=Calls())).ok
 
 
 async def test_client_that_trusts_env_sends_nothing():
@@ -309,6 +362,8 @@ async def test_unsafe_base_url_is_refused_before_any_request(base):
     "https://api.koreaaitel.com/a/../b", "https://api.koreaaitel.com/v1", " https://api.koreaaitel.com",
     "https://api.koreaaitel.com ", "https://api.koreaaitel.com%20", "https://api.koreaaitel.com%0a",
     "https://api.koreaaitel.com\t", "https://api.koreaaitel.com\n", "https://evil.example\\.koreaaitel.com",
+    "https://api.koreaaitel.com;evil.example", "https://evil.example,api.koreaaitel.com", "https://a&b.example",
+    "https://a=b.example",
 ])
 async def test_base_url_with_path_query_fragment_or_whitespace_is_refused(base):
     """주소는 scheme·호스트·포트뿐이어야 한다 — 뒤에 붙이는 /v1/accounts/… 가 질의·조각 속으로 들어가지 않게."""
