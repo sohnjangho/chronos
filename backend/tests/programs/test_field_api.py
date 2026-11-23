@@ -292,6 +292,18 @@ def test_an_approval_from_an_old_photo_reading_cannot_be_applied(client, admin, 
     assert (row.reported_progress, row.payload_json) == (95, {"photo_name": "old.jpg", "ai_progress": 95})  # 저장된 줄 그대로
 
 
+def test_an_unread_photo_answered_by_hand_is_not_an_old_reading_and_can_be_decided(client, admin, session, sid):
+    """리뷰: 새 방식이 읽지 못한 사진(unread_reason 있음)에 사람이 손으로 진도를 넣은 건은 예전 지어낸 판독이 아니다 —
+    현장 허브와 승인함이 같은 기준(field.legacy_photo)으로 본다."""
+    payload = {"photo_name": "dark.jpg", "ai_progress": None, "unread_reason": "모델 답을 읽지 못해 판독하지 않았습니다."}
+    approval_id, item_id = _photo_approval(client, admin, session, sid, payload)
+    session.expire_all()
+    assert field.legacy_photo(session.get(FieldItem, item_id)) is False
+    assert client.get(f"/api/approvals/{approval_id}", headers=admin).json()["blocked"] is None
+    r = client.post(f"/api/approvals/{approval_id}/decide", json={"decision": "approve"}, headers=admin)
+    assert r.status_code == 200 and r.json()["status"] == "approved"
+
+
 def test_an_approval_from_a_real_photo_reading_is_applied_as_before(client, admin, session, sid):
     payload = {"photo_name": "new.jpg", "ai_progress": 50, "ai_reason": "철근 배근이 절반쯤 끝났다.", "ai_risks": []}
     approval_id, _ = _photo_approval(client, admin, session, sid, payload)

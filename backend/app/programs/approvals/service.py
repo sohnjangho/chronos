@@ -20,6 +20,7 @@ from app.programs.approvals.schemas import (
     DecideOut,
     ModeIO,
 )
+from app.programs.progress.field import legacy_photo
 from app.store import approvals, chats, links
 from app.store.settings import approval_mode, set_approval_mode
 from app.store.tables import Approval, FieldItem, User
@@ -56,12 +57,10 @@ def list_approvals(session: Session, status: str) -> ApprovalList:
 
 
 def _blocked(session: Session, row: Approval) -> str | None:
-    """반영할 수 없는 까닭. 이 건을 낸 사진 항목에 실제 판독(ai_reason)이 없으면 — F1 이전에 지어낸 숫자다(재확인 #14).
-    저장된 줄은 바꾸지 않는다."""
+    """반영할 수 없는 까닭. 이 건을 낸 사진 항목이 예전 방식(F1 이전, 지어낸 숫자)이면(재확인 #14) — 현장 허브와 같은 기준
+    (progress.field.legacy_photo). 새 방식이 읽지 못해 사람이 손으로 넣은 것은 막지 않는다. 저장된 줄은 바꾸지 않는다."""
     photo = session.scalars(select(FieldItem).where(FieldItem.approval_id == row.id, FieldItem.kind == "photo")).first()
-    if photo is None or "ai_reason" in (photo.payload_json or {}):
-        return None
-    return OLD_PHOTO_MESSAGE
+    return OLD_PHOTO_MESSAGE if photo is not None and legacy_photo(photo) else None
 
 
 def detail(session: Session, approval_id: int) -> ApprovalDetail:

@@ -306,8 +306,9 @@ def ensure_seeded(session: Session, schedule_id: int, view: dict[str, Any]) -> N
     session.commit()
 
 
-def _legacy_photo(row: FieldItem) -> bool:
-    """F1 이전에 만든 사진 항목: 판독 까닭(ai_reason)도 못 읽은 까닭(unread_reason)도 없다 — 숫자는 모델이 읽은 것이 아니다."""
+def legacy_photo(row: FieldItem) -> bool:
+    """F1 이전에 만든 사진 항목: 판독 까닭(ai_reason)도 못 읽은 까닭(unread_reason)도 없다 — 숫자는 모델이 읽은 것이 아니다.
+    현장 허브(상신 막기)와 승인함(그 항목에서 나온 승인 건 막기, programs/approvals)이 같이 쓰는 기준."""
     payload = row.payload_json or {}
     return row.kind == "photo" and "ai_reason" not in payload and "unread_reason" not in payload
 
@@ -315,7 +316,7 @@ def _legacy_photo(row: FieldItem) -> bool:
 def _item_out(row: FieldItem) -> FieldItemOut:
     """예전 방식의 사진 항목은 판독하지 않음으로 내보낸다(저장된 줄은 바꾸지 않는다, 리뷰 I-3)."""
     out = FieldItemOut.model_validate(row)
-    if not _legacy_photo(row):
+    if not legacy_photo(row):
         return out
     payload = {**out.payload_json, "ai_progress": None, "unread_reason": LEGACY_PHOTO}
     return out.model_copy(update={"response_choice": "unread", "reported_progress": None, "payload_json": payload})
@@ -551,7 +552,7 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
     item = _get_item(session, schedule_id, item_id)
     if item.approval_id is not None:
         return _list_out(session, schedule_id, view)
-    if item.kind == "photo" and (item.reported_progress is None or _legacy_photo(item)):
+    if item.kind == "photo" and (item.reported_progress is None or legacy_photo(item)):
         raise ApiError(422, "photo_unread", "판독하지 않은 사진은 승인함에 올릴 수 없습니다.")
 
     record = get_record(session, schedule_id)
