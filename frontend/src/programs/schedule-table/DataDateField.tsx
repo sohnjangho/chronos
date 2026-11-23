@@ -4,10 +4,11 @@ import { useState, type KeyboardEvent } from 'react';
 import Badge from '../../shared/ui/Badge';
 import { isoDate } from '../../shared/schedule/edits';
 import { dot } from '../../shared/schedule/format';
-import { useNotify, useSchedule, useScheduleStore } from '../../shared/schedule/scope';
+import { useNotify, useSchedule, useScheduleStore, useWindowId } from '../../shared/schedule/scope';
 
 export default function DataDateField() {
   const store = useScheduleStore();
+  const windowId = useWindowId(); // 서버가 거절하면 그 글은 이 창에만
   const notify = useNotify();
   const current = useSchedule((s) => s.view?.data_date ?? null);
   const [open, setOpen] = useState(false);
@@ -20,7 +21,7 @@ export default function DataDateField() {
     const date = text ? isoDate(text) : null;
     if (text && !date) return notify('error', `날짜 형식이 맞지 않습니다: ${text} (예 2027.05.12)`);
     setOpen(false);
-    if (date !== current) void store.getState().setDataDate(date);
+    if (date !== current) void store.getState().setDataDate(date, windowId);
   }
 
   if (open)

@@ -54,14 +54,14 @@ export interface ScheduleState {
   lastChange: LastChange | null;
   /** 서버에서 다시 읽는다. 읽는 중이면 그 요청을 같이 기다린다. */
   load(): Promise<void>;
-  patchActivity(aid: string, fields: ActivityFields): Promise<boolean>;
+  patchActivity(aid: string, fields: ActivityFields, by?: string): Promise<boolean>; // by: 고친 창 — 거절 글은 그 창에만
   /** items 가 함수면 차례가 왔을 때의 일정으로 목록을 만든다(앞 요청의 결과를 반영). null 이면 보내지 않는다. */
-  setPredecessors(aid: string, items: PredItem[] | PredsFrom): Promise<boolean>;
+  setPredecessors(aid: string, items: PredItem[] | PredsFrom, by?: string): Promise<boolean>;
   /** 새 액티비티 id(못 넣었으면 null). 넣으면 그 행을 고르고 모든 창에서 보이게 한다. */
   addActivity(input: NewActivity): Promise<string | null>;
   deleteActivity(aid: string): Promise<boolean>;
   /** Data Date 바꾸기(null 이면 지움). 다른 고침처럼 새 버전·되돌리기. */
-  setDataDate(date: string | null): Promise<boolean>;
+  setDataDate(date: string | null, by?: string): Promise<boolean>;
   /** 가중치 방식 바꾸기. 버전 밖이라 되돌리기에 쌓지 않고, 바꾼 뒤 일정을 다시 읽는다. */
   setWeightMode(mode: WeightMode): Promise<boolean>;
   /** 마지막 고침의 지연 알림을 닫는다(이 일정을 보는 모든 창에서, 다음 고침까지). */
@@ -111,8 +111,8 @@ function writer(id: number, get: GetState, set: SetState) {
     });
   }
 
-  /** 보내고 성공하면 새 일정으로. 409 는 다시 불러오고 알림, 그 밖은 서버 글을 알림. */
-  async function write(send: () => Promise<ScheduleView>): Promise<ScheduleView | null> {
+  /** 보내고 성공하면 새 일정으로. 409 는 다시 불러오고 알림, 그 밖은 서버 글을 알림(by 를 주면 그 창에만). */
+  async function write(send: () => Promise<ScheduleView>, by?: string): Promise<ScheduleView | null> {
     const mine = q.epoch;
     set({ notice: null });
     try {
@@ -126,7 +126,7 @@ function writer(id: number, get: GetState, set: SetState) {
         q.cutoff = q.tickets;
         set({ notice: { tone: 'info', text: CONFLICT_NOTICE }, undo: [], redo: [] });
         await fetchView();
-      } else set({ notice: { tone: 'error', text: errorText(e) } });
+      } else set({ notice: { tone: 'error', text: errorText(e), ...(by ? { windowId: by } : {}) } });
       return null;
     }
   }
@@ -174,11 +174,11 @@ function editing(id: number, get: GetState, set: SetState, w: ReturnType<typeof 
    * build 는 차례가 왔을 때의 일정(view)으로 보낼 요청을 만든다(null 이면 보내지 않음). 버전이 바뀌면 되돌리기에 쌓고
    * 마지막 고침(lastChange, aid = 고친 액티비티)으로 둔다.
    */
-  function change(build: (view: ScheduleView) => (() => Promise<ScheduleView>) | null, aid: string | null = null) {
+  function change(build: (view: ScheduleView) => (() => Promise<ScheduleView>) | null, aid: string | null = null, by?: string) {
     return w.enqueue(async (view) => {
       const send = build(view);
       if (!send) return null;
-      const next = await w.write(send);
+      const next = await w.write(send, by);
       if (next && next.version !== view.version) {
         const lastChange = { before: view, after: next, aid };
         set((s) => ({ undo: [...s.undo, { restore: view.version, expect: next.version, note: '' }], redo: [], lastChange }));
@@ -222,12 +222,12 @@ function makeStore(id: number): ScheduleStore {
       scheduleId: id,
       ...INITIAL,
       load: w.load,
-      patchActivity: async (aid, fields) => (await change((view) => () => sapi.patchActivity(id, aid, fields, view.version), aid)) !== null,
-      async setPredecessors(aid, items) {
+      patchActivity: async (aid, fields, by) => (await change((view) => () => sapi.patchActivity(id, aid, fields, view.version), aid, by)) !== null,
+      async setPredecessors(aid, items, by) {
         const sent = await change((view) => {
           const list = typeof items === 'function' ? items(view) : items;
           return list && (() => sapi.putPredecessors(id, aid, list, view.version));
-        }, aid);
+        }, aid, by);
         return sent !== null;
       },
       async addActivity(input) {
@@ -245,7 +245,7 @@ function makeStore(id: number): ScheduleStore {
         if (ok) set({ notice: { tone: 'info', text: `${aid} 을(를) 지웠습니다. 되돌리기로 살릴 수 있습니다.` } });
         return ok;
       },
-      setDataDate: async (data_date) => (await change((view) => () => sapi.patchSchedule(id, { data_date, base_version: view.version }))) !== null,
+      setDataDate: async (data_date, by) => (await change((view) => () => sapi.patchSchedule(id, { data_date, base_version: view.version }), null, by)) !== null,
       setWeightMode: (mode) => w.sideWrite(() => sapi.putWeightMode(id, mode)),
       dismissChange: () => set({ lastChange: null }),
       undoLast: () => travel('undo'),

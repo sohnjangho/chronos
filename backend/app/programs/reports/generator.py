@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 _RESP_LABEL = {"owner": "발주처", "ours": "시공사/우리", "force": "불가항력", "undecided": "미정"}
 _STATUS_LABEL = {"open": "열림(검토 중)", "reflected": "반영됨"}
 OPEN_DELAYS = "기록된 지연 {}건 · 지연 일수 합 {}일"  # 간트 「기록된 지연」 띠와 같은 말
-OPEN_DELAYS_STATUS = "승인 전(일정에 반영되지 않음)"
+OPEN_DELAYS_WAITING = "승인 전(일정에 반영되지 않음)"  # 승인함에 낸 안에 든 열린 지연
+OPEN_DELAYS_UNPLANNED = "반영 전(계획에 넣지 않음)"  # 어떤 안에도 넣지 않은 열린 지연
 _SCEN_STATUS = {"open": "검토 중", "submitted": "승인 대기", "applied": "반영 완료", "discarded": "폐기"}
 
 
@@ -267,16 +268,22 @@ async def generate_report_blocks(
     except Exception:  # noqa: BLE001
         delay_events = []
 
-    scen_rows = scenarios_store.listed(session, schedule_id, ("open", "submitted", "applied"))
+    all_scen = scenarios_store.listed(session, schedule_id, ("open", "submitted", "applied"))
+    scen_rows = all_scen
     # 이번 차례의 안만: 지금 버전 기준 안 + 마지막으로 반영된 안과 기준 버전이 같은 안(옛 실행의 열린 안은 뺀다).
     keep = {prog.version} | {next((s.base_version for s in scen_rows if s.status == "applied"), prog.version)}
     scen_rows = [s for s in scen_rows if s.base_version in keep]
     # 지연 반영안은 그 사건이 모두 반영됐으면(다른 안과 함께 일정에 들어갔으면) 반영된 만회안처럼 「반영 완료」로 보인다.
     recorded = delays_store.listed(session, schedule_id)
     reflected = {e.id for e in recorded if e.status == "reflected"}
-    # 기록만 하고 반영하지 않은 지연(보이는 안에 들지 않은 것) — 간트 띠처럼 만회 표에 한 줄로(재확인 2). 수치는 바꾸지 않는다.
-    in_rows = {i for s in scen_rows for i in (s.delay_event_ids or [])}
-    open_delays = [e for e in recorded if e.status == "open" and e.id not in in_rows]
+    # 기록만 하고 반영하지 않은 지연 — 간트 띠처럼 만회 표에 한 줄로(재확인 2). 승인함에 낸 안에 든 것은 「승인 전」, 어떤 안에도
+    # 넣지 않은 것은 「반영 전(계획에 넣지 않음)」(재확인 3). 수치는 바꾸지 않는다.
+    in_plans = {i for s in all_scen for i in (s.delay_event_ids or [])}
+    submitted = {i for s in all_scen if s.status == "submitted" for i in (s.delay_event_ids or [])}
+    open_events = [e for e in recorded if e.status == "open"]
+    delay_lines = [(evs, status) for evs, status in (
+        ([e for e in open_events if e.id in submitted], OPEN_DELAYS_WAITING),
+        ([e for e in open_events if e.id not in in_plans], OPEN_DELAYS_UNPLANNED)) if evs]
 
     def scen_status(sc) -> str:
         if sc.source == "delay" and sc.status != "applied" and sc.delay_event_ids and set(sc.delay_event_ids) <= reflected:
@@ -419,16 +426,16 @@ async def generate_report_blocks(
                     scen_status(sc),
                 ]
                 rows.append(_pick(std_row, picks))
-            if open_delays:
-                line = OPEN_DELAYS.format(len(open_delays), sum(e.days for e in open_delays))
-                rows.append(_pick([line, "—", "—", "—", OPEN_DELAYS_STATUS], picks))
+            plan_rows = len(rows)
+            for evs, status in delay_lines:  # 열린 지연은 안 줄 뒤에 한 줄씩(계산한 수치는 그대로)
+                rows.append(_pick([OPEN_DELAYS.format(len(evs), sum(e.days for e in evs)), "—", "—", "—", status], picks))
             blocks.append(
                 ReportBlock(
                     id=sec.id,
                     heading=sec.heading,
                     block_kind="table",
                     data_binding=binding,
-                    text="생성된 만회 시나리오(만약에 안)가 없습니다." if not rows else "",
+                    text="생성된 만회 시나리오(만약에 안)가 없습니다." if not plan_rows else "",
                     table={"columns": cols, "rows": rows},
                 )
             )

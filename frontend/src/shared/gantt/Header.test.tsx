@@ -80,7 +80,8 @@ test('a mark that would run past the right edge is written leftwards from its li
 
 // 재확인 ④: 휴대폰(390px) 간트 머리에서 「Data Date 04.17」과 「준공 기한 12.24」가 겹쳐 「Data D준공 기한12.24」로 보였다.
 // 겹치면 덜 중요한 것부터 날짜만 남기고(전체 이름은 title), 둘 다 읽히게 — 이름표 자리는 서로 겹치지 않는다.
-const textW = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 11 : 7), 0);
+// 화면과 같은 어림(글꼴 11px: 한글 0.95 · 점 0.25 · 빈칸 0.3 · 그 밖 0.6)
+const textW = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 0.95 : ch === '.' ? 0.25 : ch === ' ' ? 0.3 : 0.6), 0) * 11;
 /** 이름표 글자 자리(선 오른쪽이면 x 부터, 왼쪽이면 x 까지). */
 function boxes(c: HTMLElement) {
   return [...c.querySelectorAll<SVGTextElement>('.gantt-mark')].map((el) => {
@@ -111,7 +112,7 @@ test('phone width: Data Date and the deadline label never overlap and both stay 
   expect(due.querySelector('title')).toHaveTextContent('준공 기한 2027.12.24');
 });
 
-test('when there is room for one full label, the Data Date keeps its name and the deadline gets its short name', () => {
+test('when there is room, both keep their full names', () => {
   const { container } = render(
     <Header
       scale={makeScale('2027-03-01', '2027-12-31', 220, 0)}
@@ -123,8 +124,7 @@ test('when there is room for one full label, the Data Date keeps its name and th
   );
   expect(container.querySelector('[data-mark="data"]')).toHaveTextContent('Data Date 04.17');
   const due = container.querySelector('[data-mark="deadline"]')!;
-  expect(due.lastChild!.textContent).toBe('기한 12.24');
-  expect(due.querySelector('title')).toHaveTextContent('준공 기한 12.24'); // 줄인 이름표는 전체 이름을 title 로
+  expect(due.lastChild!.textContent).toBe('준공 기한 12.24');
   expect(apart(boxes(container))).toBe(true);
 });
 
@@ -176,4 +176,33 @@ test('bare dates only when even the short names would overlap', () => {
   const texts = [...container.querySelectorAll('.gantt-mark')].map((e) => e.lastChild!.textContent);
   expect(texts.some((x) => /^\d\d\.\d\d$/.test(x!))).toBe(true);
   expect(apart(boxes(container))).toBe(true);
+});
+
+// 리뷰: 짧은 이름은 분야가 정한 기한 이름에서 — 「제품 납기」면 「납기 12.24」(늘 「기한」이 아니다).
+test('the short deadline name comes from the configured label', () => {
+  const { container } = render(
+    <Header
+      scale={makeScale('2027-03-01', '2027-12-31', 165, 0)}
+      marks={[
+        { key: 'data', x: 30, label: 'Data Date 04.17', tone: 'data' },
+        { key: 'deadline', x: 162, label: '제품 납기 12.24', tone: 'deadline' },
+      ]}
+    />,
+  );
+  expect(container.querySelector('[data-mark="deadline"]')!.lastChild!.textContent).toBe('납기 12.24');
+});
+
+// 리뷰: 휴대폰에서 --fs-11 은 13px 다 — 글꼴 크기를 토큰에서 읽어 달 숫자가 겹치지 않게(좁으면 글자 사이를 줄여 칸에 맞춤).
+test('phone fonts: month numbers are measured with the real token size and never run into the next cell', () => {
+  const { container } = render(
+    <div style={{ ['--fs-11' as string]: '13px', ['--fs-12' as string]: '14px' }}>
+      <Header scale={makeScale('2027-03-01', '2027-12-31', 165, 0)} />
+    </div>,
+  );
+  const cells = [...container.querySelectorAll<SVGTextElement>('.gantt-month')];
+  expect(cells.map((c) => c.textContent)).toEqual(['3', '4', '5', '6', '7', '8', '9', '10', '11', '12']);
+  const x = cells.map((c) => Number(c.getAttribute('x')));
+  const ends = cells.map((c, i) => x[i] + (Number(c.getAttribute('textLength')) || c.textContent!.length * 0.6 * 13));
+  expect(ends.slice(0, -1).every((end, i) => end <= x[i + 1])).toBe(true);
+  expect(cells.filter((c) => c.getAttribute('textLength')).map((c) => c.textContent)).toEqual(['10', '11', '12']);
 });

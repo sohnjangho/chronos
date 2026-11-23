@@ -558,7 +558,41 @@ async def test_open_recorded_delays_get_their_own_line_in_the_plan_table(session
     _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
     rows = blocks[0].table["rows"]
     assert rows[:-1] == before[0].table["rows"]  # 있던 줄·수치는 그대로
-    assert rows[-1] == ["기록된 지연 1건 · 지연 일수 합 2일", "—", "—", "—", "승인 전(일정에 반영되지 않음)"]
+    assert rows[-1] == ["기록된 지연 1건 · 지연 일수 합 2일", "—", "—", "—", "반영 전(계획에 넣지 않음)"]
+
+
+async def test_open_delay_lines_tell_unplanned_from_waiting_and_keep_the_no_plan_note(session):
+    """재확인 3: 어떤 안에도 넣지 않은 열린 지연은 「반영 전(계획에 넣지 않음)」, 승인함에 낸 안에 든 것만 「승인 전」.
+    만회안이 하나도 없으면 지연 줄만 있어도 「만회 시나리오가 없습니다」 글은 그대로."""
+    from datetime import date
+
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory, TemplateSection
+    from app.store import scenarios as scen_store
+    from app.store.schedules import load
+    from app.store.tables import DelayEvent
+
+    sid = schedules.store(session, schedules.sample())
+    rows_ = [DelayEvent(schedule_id=sid, activity_id="A", start_date=date(2027, 3, 2), days=d, cause="비", created_by="김공정",
+                        status="open") for d in (2, 3)]
+    session.add_all(rows_)
+    session.commit()
+    sec = TemplateSection(id="s", heading="만회", block_kind="table", data_binding="scenario_compare")
+    _, _, _, only = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
+    assert only[0].table["rows"] == [["기록된 지연 2건 · 지연 일수 합 5일", "—", "—", "—", "반영 전(계획에 넣지 않음)"]]
+    assert only[0].text == "생성된 만회 시나리오(만약에 안)가 없습니다."
+
+    current, stored, _ = load(session, sid)
+    plan = scen_store.create(session, schedule_id=sid, base_version=1, name="지연 반영안 (1건)", source="delay", schedule=current,
+                             conditions=stored, delay_event_ids=[rows_[0].id], created_by="김공정",
+                             extra_summary={"finish": "2027-03-10", "finish_delta": 2, "critical_count": 2})
+    scen_store.set_status(session, plan, "submitted")
+    session.commit()
+    _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
+    assert blocks[0].table["rows"][1:] == [
+        ["기록된 지연 1건 · 지연 일수 합 2일", "—", "—", "—", "승인 전(일정에 반영되지 않음)"],
+        ["기록된 지연 1건 · 지연 일수 합 3일", "—", "—", "—", "반영 전(계획에 넣지 않음)"],
+    ]
 
 
 async def test_prose_drops_heading_line_and_markdown_stars(session, monkeypatch):

@@ -376,15 +376,16 @@ def dispatch_checkins(session: Session, schedule_id: int, body: DispatchCheckinI
     view = _load_view(session, schedule_id)
     ensure_seeded(session, schedule_id, view)
     tasks = [a for a in view["activities"] if a["kind"] == "task"]
+    waiting = _waiting_activities(session, schedule_id)  # 같은 작업에 또 보내지 않는다(재확인 2)
     if body.activity_ids:
         wanted = set(body.activity_ids)
-        targets = [a for a in tasks if a["id"] in wanted]
+        candidates = [a for a in tasks if a["id"] in wanted]
     else:
-        open_tasks = [a for a in tasks if a.get("status") != "done"] or tasks
-        targets = open_tasks[:3]
-    waiting = _waiting_activities(session, schedule_id)  # 같은 작업에 또 보내지 않는다(재확인 2)
-    skipped = [a["id"] for a in targets if a["id"] in waiting]
-    targets = [a for a in targets if a["id"] not in waiting]
+        candidates = [a for a in tasks if a.get("status") != "done"] or tasks
+    skipped = [a["id"] for a in candidates if a["id"] in waiting]
+    targets = [a for a in candidates if a["id"] not in waiting]
+    if not body.activity_ids:
+        targets = targets[:3]  # 기다리는 작업을 먼저 거르고 남은 열린 작업에서 셋까지(재확인 3)
     for i, a in enumerate(targets):
         session.add(
             FieldItem(
@@ -407,7 +408,8 @@ def dispatch_checkins(session: Session, schedule_id: int, body: DispatchCheckinI
     session.commit()
     out = _list_out(session, schedule_id, view)
     if skipped:
-        out.notice = SKIPPED_CHECKINS.format(len(targets), len(skipped), ", ".join(skipped))
+        names = ", ".join(skipped[:5]) + (f" 외 {len(skipped) - 5}건" if len(skipped) > 5 else "")
+        out.notice = SKIPPED_CHECKINS.format(len(targets), len(skipped), names)
     return out
 
 

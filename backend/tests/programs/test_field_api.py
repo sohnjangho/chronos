@@ -448,3 +448,18 @@ def test_an_old_field_approval_without_reasons_reads_as_field_report(client, adm
     assert next(i for i in listed if i["id"] == row.id)["reasons"] == ["field_report"]
     session.expire_all()
     assert session.get(Approval, row.id).reasons_json == []
+
+
+def test_bulk_check_in_skips_waiting_work_first_then_takes_up_to_three(client, admin, session):
+    """재확인 3: 일괄 발송은 기다리는 작업을 먼저 거르고 남은 열린 작업에서 셋까지 고른다(앞 셋이 다 기다려도 0건이 아니다)."""
+    from tests.schedules import make, task
+
+    sid = schedules.store(session, make([task(i, 2) for i in "ABCDE"]))
+    first = client.post(f"/api/schedules/{sid}/field/checkins/dispatch", json={"activity_ids": ["A", "C"]}, headers=admin)
+    assert first.status_code == 200  # A·C 회신 대기(B 는 예시 카드로 이미 대기)
+    r = client.post(f"/api/schedules/{sid}/field/checkins/dispatch", json={}, headers=admin)
+    sent = [i["activity_id"] for i in r.json()["items"] if i["kind"] == "checkin" and i["title"].startswith("[에이전트 체크인]")]
+    assert sorted(sent) == ["A", "C", "D", "E"]
+    assert r.json()["notice"] == (
+        "체크인 2건을 보냈습니다. 3건은 건너뛰었습니다 — 회신을 기다리는 체크인이나 승인함에서 기다리는 보고가 "
+        "이미 있습니다(A, B, C).")

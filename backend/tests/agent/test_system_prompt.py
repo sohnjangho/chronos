@@ -73,3 +73,9 @@ def test_the_prompt_asks_for_korean_domain_names_and_condition_units():
 def test_the_weather_guide_says_a_month_statistic_is_not_a_yearly_average():
     guide = context.system_prompt(["weather"])
     assert "「연 평균」이라고 쓰지 않는다" in guide and "2016~2025년 12월 평균" in guide
+
+
+def test_the_prompt_says_to_call_approvals_승인_with_their_number():
+    """재확인 3: 답에 「approval #22」처럼 영문 id 가 나왔다 — 승인 건은 「승인 #번호」(approval_id)로 부르라고 한다."""
+    text = (context.PROMPT).read_text(encoding="utf-8")
+    assert "「승인 #번호」" in text and "approval" in text.split("「승인 #번호」")[1].split("\n")[0]

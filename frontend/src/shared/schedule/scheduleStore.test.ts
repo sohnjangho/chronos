@@ -18,6 +18,17 @@ test('load keeps the view and patchActivity replaces it with the server response
   expect(store().view).toMatchObject({ version: 2, finish: '2027-11-26' });
 });
 
+// 재확인 3: 스케줄 표에서 고친 칸이 서버에서 거절되면 그 빨간 글은 고친 창에만 — 공정률·보고서 창에 함께 뜨지 않는다.
+test('a refusal of an edit made in one window is shown only in that window, and the next edit clears it', async () => {
+  await store().load();
+  mockPatch(422, { code: 'actual_dates', message: '실제 날짜가 Data Date(2027-04-17)…', detail: null });
+  expect(await store().patchActivity('A2020', { actual_start: '2027-05-20' }, 'w-table')).toBe(false);
+  expect(store().notice).toEqual({ tone: 'error', text: '실제 날짜가 Data Date(2027-04-17)…', windowId: 'w-table' });
+  mockPatch(makeView({ version: 2 }));
+  expect(await store().patchActivity('A2020', { od: 52 }, 'w-table')).toBe(true);
+  expect(store().notice).toBeNull();
+});
+
 test('activities that did not change keep their object so their rows need not re-render', async () => {
   await store().load();
   const before = store().view!.activities;

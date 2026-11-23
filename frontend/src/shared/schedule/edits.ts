@@ -87,5 +87,6 @@ export function toRequest(col: ColKey, raw: string): EditRequest {
 export async function commitCell(store: ScheduleState, windowId: string, a: Activity, col: ColumnDef, text: string): Promise<unknown> {
   const req = toRequest(col.key, text);
   if ('error' in req) return store.setNotice({ tone: 'error', text: req.error, windowId });
-  return 'preds' in req ? store.setPredecessors(a.id, req.preds) : store.patchActivity(a.id, req.patch);
+  // 서버가 거절해도 그 글은 고친 창에만(재확인 3 — 공정률·보고서 창에 같은 빨간 띠가 뜨지 않게)
+  return 'preds' in req ? store.setPredecessors(a.id, req.preds, windowId) : store.patchActivity(a.id, req.patch, windowId);
 }
