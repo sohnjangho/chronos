@@ -25,5 +25,5 @@ export function resetShellState(): void {
   useDeviceMode.getState().reset();
   useWindows.getState().reset();
   useApprovals.setState({ pending: 0 });
-  useCurrentSchedule.setState({ userId: null, current: null, reloadToken: 0, newProjectModal: 'closed', creatingNewProject: false });
+  useCurrentSchedule.setState({ userId: null, current: null, reloadToken: 0, delaysToken: 0, newProjectModal: 'closed', creatingNewProject: false });
 }

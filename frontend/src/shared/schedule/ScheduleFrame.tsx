@@ -60,11 +60,12 @@ const DELAY_BAND = new Set(['gantt', 'progress']);
 
 /**
  * 열린(기록했지만 승인·반영 전) 지연의 건수와 일수 합 — 지연 기록 API 의 사건 그대로. 일정을 다시 읽을 때마다(view 가 바뀜:
- * 에이전트 도구 뒤·창 열기·되돌리기) 다시 묻는다. 못 읽으면 띠를 보이지 않는다.
+ * 에이전트 도구 뒤·창 열기·되돌리기)와 지연 기록 창에서 사건이 바뀔 때(delaysToken) 다시 묻는다. 못 읽으면 띠를 보이지 않는다.
  */
 function useOpenDelays(on: boolean): { count: number; days: number } | null {
   const scheduleId = useSchedule((s) => s.scheduleId);
   const view = useSchedule((s) => s.view);
+  const delaysToken = useCurrentSchedule((s) => s.delaysToken);
   const [open, setOpen] = useState<{ count: number; days: number } | null>(null);
   useEffect(() => {
     if (!on || !view) return;
@@ -79,7 +80,7 @@ function useOpenDelays(on: boolean): { count: number; days: number } | null {
     return () => {
       live = false;
     };
-  }, [on, scheduleId, view]);
+  }, [on, scheduleId, view, delaysToken]);
   return on ? open : null;
 }
 

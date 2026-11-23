@@ -219,3 +219,18 @@ test('the band follows a reload of the schedule (a delay recorded in the chat)',
   await act(() => schedule().load()); // 에이전트 도구가 끝나면 지금 일정 저장소를 다시 읽는다
   await waitFor(() => expect(band()).toHaveTextContent('기록된 지연 1건 · +3일 · 승인 전'));
 });
+
+// W2 후속: 지연 기록 창에서 사건을 등록·고치면(delaysToken) 일정을 다시 읽지 않고 띠만 다시 센다.
+test('the band counts again when the delays window changes an event, without reading the schedule again', async () => {
+  delayEvents = [];
+  stubDelays();
+  render(<Gantt windowId="w2" params={{ id: '1' }} />);
+  await screen.findByRole('toolbar', { name: '간트 도구' });
+  await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u) === '/api/schedules/1/delays')).toBe(true));
+  expect(band()).toBeNull();
+  const reads = loadSpy.mock.calls.length;
+  delayEvents = [delayEvent(1, 3, 'open'), delayEvent(2, 1, 'open')];
+  act(() => useCurrentSchedule.getState().bumpDelays());
+  await waitFor(() => expect(band()).toHaveTextContent('기록된 지연 2건 · +4일 · 승인 전'));
+  expect(loadSpy).toHaveBeenCalledTimes(reads);
+});

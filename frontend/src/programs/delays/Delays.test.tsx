@@ -433,3 +433,38 @@ test('the report visual button asks for the delay_impact picture', async () => {
   const call = vi.mocked(fetch).mock.calls.find(([u]) => String(u) === '/api/schedules/1/visuals');
   expect(JSON.parse(String(call?.[1]?.body))).toEqual({ kind: 'delay_impact' });
 });
+
+// W2 후속: 이 창에서 사건을 등록·고치기·다시 분석하면 열린 간트·공정률 창의 「기록된 지연」 띠가 바로 다시 센다.
+describe('W2 후속 기록된 지연 띠 알림', () => {
+  const token = () => useCurrentSchedule.getState().delaysToken;
+
+  test('adding an event tells the open schedule windows', async () => {
+    mockWrite({ ...D, events: [ev(), E2, ev({ id: 3 })] });
+    await openForm();
+    const before = token();
+    await pickActivity('작업 B');
+    await userEvent.type(screen.getByLabelText('일수'), '2');
+    await userEvent.type(screen.getByLabelText('원인'), '우천');
+    await userEvent.click(screen.getByRole('button', { name: '등록' }));
+    await waitFor(() => expect(bodyRows()).toHaveLength(3));
+    expect(token()).toBe(before + 1);
+  });
+
+  test('an edit and a reanalyse tell them too, an unchanged edit or a refusal does not', async () => {
+    await selectRow('B', 'open');
+    const before = token();
+    await userEvent.click(screen.getByRole('button', { name: '고치기' }));
+    await userEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(token()).toBe(before);
+    await userEvent.click(screen.getByRole('button', { name: '고치기' }));
+    await userEvent.type(screen.getByLabelText('일수'), '1');
+    await userEvent.click(screen.getByRole('button', { name: '저장' }));
+    await waitFor(() => expect(token()).toBe(before + 1));
+    mockPostError(409, { code: 'version_conflict', message: '그 사이 일정이 바뀌었습니다.', detail: null });
+    await userEvent.click(screen.getByRole('button', { name: '다시 분석' }));
+    expect(await screen.findByText('그 사이 일정이 바뀌었습니다.')).toBeVisible();
+    expect(token()).toBe(before + 1);
+    await userEvent.click(screen.getByRole('button', { name: '다시 분석' }));
+    await waitFor(() => expect(token()).toBe(before + 2));
+  });
+});

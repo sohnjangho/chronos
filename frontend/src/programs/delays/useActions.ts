@@ -1,5 +1,6 @@
 // 지연 기록 창의 단추 동작: 비교판 · 다시 분석 · 간트에서 보기 · 만회안 요청. 실패하면 알림 줄에 서버 글 그대로.
 import { useEffect, useRef, useState } from 'react';
+import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useSchedulePreview } from '../../os/schedulePreview';
 import { useWindows } from '../../os/windowStore';
 import { analyzeDelays, getDelayPreview, makeScenario, type DelayEvent, type DelaysData } from './delaysApi';
@@ -26,10 +27,11 @@ export function useActions(scheduleId: number, setData: (d: DelaysData) => void)
     };
   }, []);
 
-  /** 사건이 바뀌면 걸어 둔 지연 미리 보기는 낡았으므로 지운다. */
+  /** 사건이 바뀌면 걸어 둔 지연 미리 보기는 낡았으므로 지우고, 열린 간트·공정률 창의 「기록된 지연」 띠가 다시 세게 한다. */
   const redraw = (d: DelaysData) => {
     setData(d);
     clearDelayPreview(scheduleId);
+    useCurrentSchedule.getState().bumpDelays();
   };
   const run = async (work: () => Promise<void>) => {
     setBusy(true);

@@ -16,6 +16,8 @@ interface CurrentScheduleState {
   current: CurrentSchedule | null;
   /** 새 프로젝트가 생성·승인될 때마다 증가해 ScheduleSelector 목록을 새로 읽는다. */
   reloadToken: number;
+  /** 지연 기록 창에서 사건이 바뀔 때마다 증가해 간트·공정률 창의 「기록된 지연」 띠가 다시 센다(일정은 다시 읽지 않는다). */
+  delaysToken: number;
   /** 새 프로젝트 만들기 모달 상태. */
   newProjectModal: NewProjectModalMode;
   /** 새 프로젝트 생성 격리 모드(기존 일정과 분리). */
@@ -24,6 +26,7 @@ interface CurrentScheduleState {
   /** 그 사용자의 저장된 현장을 읽는다(셸이 사용자가 바뀔 때 그리기 전에 부른다). */
   load(userId: number | null): void;
   bumpReload(): void;
+  bumpDelays(): void;
   openNewProjectModal(mode?: 'direct' | 'ai'): void;
   closeNewProjectModal(): void;
   setCreatingNewProject(on: boolean): void;
@@ -39,6 +42,7 @@ export const useCurrentSchedule = create<CurrentScheduleState>((set, get) => ({
   userId: null,
   current: null,
   reloadToken: 0,
+  delaysToken: 0,
   newProjectModal: 'closed',
   creatingNewProject: false,
   setCurrent(current) {
@@ -58,6 +62,9 @@ export const useCurrentSchedule = create<CurrentScheduleState>((set, get) => ({
   },
   bumpReload() {
     set((s) => ({ reloadToken: s.reloadToken + 1 }));
+  },
+  bumpDelays() {
+    set((s) => ({ delaysToken: s.delaysToken + 1 }));
   },
   openNewProjectModal(mode = 'direct') {
     set({ newProjectModal: mode });
