@@ -42,6 +42,7 @@ from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply, Usage
 from app.store import approvals, chats, questionnaires, skills
 from app.store import settings as settings_store
 from app.store.llm_usage import UsageSum, last_call_id, usage_since
+from app.store.messages import FIELD_READ_ONLY_MESSAGE
 from app.store.tables import User
 from app.tools import registry
 from app.tools.context import ToolContext
@@ -64,6 +65,9 @@ IMPORT_BUTTON = re.compile(r"네, 확인했으니 이 파일\(#(\d+)\)을 일정
 IMPORT_FILLED = ("sheet", "columns", "domain", "level")  # 단추 턴에 확인 카드에서 채우는 칸
 # 한 턴에 같은 도구를 같은 인자로 불러 같은 까닭으로 FAILS_BEFORE_STOP 번 실패했으면 그 호출은 더 실행하지 않는다(I1 재확인).
 FAILS_BEFORE_STOP = 2
+# 현장 관리자에게 막힌 도구(ctx.require_editor, F4)가 실패했을 때 모델에게 주는 글 — 「인자를 고치라」 대신
+ROLE_REFUSED = ("이 계정(현장 관리자)은 새 일정을 만들 수 없고 일정을 고치거나 승인함에 낼 수도 없습니다. 다른 도구로 이어 가지 "
+                "말고, 할 수 없는 일을 사용자에게 분명히 말한 뒤 턴을 끝내세요 — 예: 「이 계정으로는 새 일정을 만들 수 없습니다.」")
 FAILING_AGAIN = ("같은 도구 `{}`를 같은 인자로 이미 {}번 불렀고 매번 같은 까닭으로 실패했습니다: {} "
                  "이 호출은 실행하지 않았습니다. 인자를 바꿔 부르거나, 멈추고 그 까닭을 사용자에게 알리세요.")
 IMPORT_AGAIN = "이번 턴에 이 파일(#{})은 이미 가져왔습니다. 다시 부르지 말고 받은 결과를 사용자에게 알리세요."
@@ -453,7 +457,8 @@ class _Turn:
             reflection = (
                 "이번 턴에 이미 질문(카드 또는 질문지)을 보냈습니다. 도구를 더 호출하지 말고 사용자에게 답을 요청하며 턴을 마치세요."
                 if call.name == "ask.questionnaire" and self.asked_questionnaire
-                else self.refused or f"도구 `{call.name}` 실패 — 오류 원인을 확인해 인자를 고치거나 대안 도구를 사용하세요."
+                else self.refused or (ROLE_REFUSED if result.error == FIELD_READ_ONLY_MESSAGE else
+                                      f"도구 `{call.name}` 실패 — 오류 원인을 확인해 인자를 고치거나 대안 도구를 사용하세요.")
             )
             tool_content = json.dumps(
                 {"error": json_safe(result.error) or "도구 실행에 실패했습니다.", "reflection": reflection},

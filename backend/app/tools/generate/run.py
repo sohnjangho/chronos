@@ -138,6 +138,7 @@ def result_card(out: RunOut) -> AgentEvent:
     mutates=True,
 )
 async def run(args: RunIn, ctx: ToolContext) -> RunOut:
+    ctx.require_editor()  # 현장 관리자는 새 일정을 만들 수 없다(F4) — LLM 을 부르기 전에
     inputs = _inputs(args.conditions)
     max_rounds = int(settings_store.get_agent_config(ctx.session)["max_check_retries"]) if ctx.session is not None else 5
     try:

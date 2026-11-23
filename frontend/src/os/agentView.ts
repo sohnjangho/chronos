@@ -5,6 +5,7 @@ import { toolLabel } from '../shared/toolLabels';
 import { useCurrentSchedule } from './currentSchedule';
 import { loadPref, savePref } from './prefs';
 import { resolveProgram } from './registry';
+import { useSession } from './session';
 import { RIBBON_H, SCHEDULE_BOUND_PROGRAMS, useWindows } from './windowStore';
 
 export type AgentViewMode = 'stage' | 'workflow' | 'off';
@@ -469,12 +470,14 @@ export const useAgentView = create<AgentViewState>((set, get) => {
       const labelName = toolLabel(tool);
       const totalSteps = Math.max(stepN, get().focus.totalSteps);
 
+      // 현장 관리자는 새 일정을 만들 수 없다(서버 도구가 거절, F4) — 「새 프로젝트 생성 중」으로 바꾸지 않는다.
       const isGenCreation =
         (tool === 'generate.extract_conditions' ||
           tool === 'generate.run' ||
           tool === 'schedule.create_project' ||
           (tool === 'ask.questionnaire' && args?.purpose === 'generate')) &&
-        !args?.schedule_id;
+        !args?.schedule_id &&
+        useSession.getState().session?.user.role !== 'field';
 
       if (isGenCreation && !useCurrentSchedule.getState().creatingNewProject) {
         useCurrentSchedule.getState().enterNewProjectMode();

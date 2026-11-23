@@ -281,6 +281,7 @@ async def _import(ctx: ToolContext, llm: LlmClient, table: Table, args: ImportIn
     mutates=True,
 )
 async def import_schedule(args: ImportIn, ctx: ToolContext) -> ImportOut:
+    ctx.require_editor()  # 현장 관리자는 새 일정을 만들 수 없다(F4) — 마지막 상신만이 아니라 가져오기 자체를 막는다
     # 질문지 답(answers·assumed)을 넣어 다시 부른 것은 가져오기다 — confirmed 를 빠뜨려도 확인 단계로 되돌아가지 않는다(I1).
     confirmed = args.confirmed or bool(args.answers or args.assumed)
     if confirmed and (args.domain is None or args.level is None):

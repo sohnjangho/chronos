@@ -57,6 +57,11 @@ APPROVALS_SHOWN = 5  # 「이 대화의 승인 건」 줄의 건 수(최근 것)
 APPROVAL_STATUS = {"pending": "대기", "approved": "승인됨", "rejected": "거부됨", "conflict": "충돌(그 사이 일정이 바뀜)",
                    "auto": "자동 적용"}
 RULE_TITLE_PREFIX = "내 규칙 저장 — "  # rules.propose 가 만드는 승인 건 제목의 앞(tools/out/propose_rule.TITLE_PREFIX)
+# 현장 관리자(field)의 지금 상황 줄(F4): 새 일정을 만드는 길은 도구에서도 막혀 있다(ctx.require_editor).
+FIELD_ROLE_LINE = (
+    "- 이 계정(현장 관리자)은 새 일정을 만들 수 없고 일정을 고치거나 승인함에 낼 수도 없다(읽기·현장 회신·지연 기록은 된다). "
+    "새 프로젝트·새 일정·공정표 가져오기를 청하면 도구를 부르지 말고 「이 계정으로는 새 일정을 만들 수 없습니다」라고 분명히 답한다."
+)
 SEOUL = ZoneInfo("Asia/Seoul")
 _WEEKDAYS = "월화수목금토일"
 # "11월 30일", "2027년 11월 30일", "내년 3월 2일" (월·일이 다 있을 때만. "내년 3월" 은 계산하지 않는다)
@@ -279,6 +284,8 @@ def build_context(
 def situation(session: Session, user: User, ui: UiContext, *, chat_session_id: int | None = None) -> str:
     role = {"admin": "관리자", "field": "현장 관리자"}.get(user.role, "일반 사용자")
     lines = ["## 지금 상황", f"- 사용자: {user.name} ({role})", f"- 열린 프로그램: {ui.program or '없음'}"]
+    if user.role == "field":
+        lines.append(FIELD_ROLE_LINE)
     approvals = _approvals_line(session, chat_session_id) if chat_session_id is not None else None
     return "\n".join(lines + _schedule_lines(session, ui) + ([approvals] if approvals else []))
 

@@ -844,7 +844,9 @@ def test_sources_list_every_guide_and_prompt_file_as_it_is_on_disk(client, admin
 
 
 EDITOR_TOOLS = {"schedule.create_project", "out.submit_change", "scenario.submit", "rules.propose",
-                "schedule.record_actual"}  # tests/security/test_roles.py EDIT_TOOLS 와 같다
+                "schedule.record_actual",  # tests/security/test_roles.py EDIT_TOOLS 와 같다
+                # 새 일정을 만드는 길(F4 재확인, test_roles.NEW_SCHEDULE_TOOLS). ask.questionnaire 는 purpose generate 만 막는다
+                "ask.questionnaire", "generate.extract_conditions", "generate.run", "schedule.import"}
 
 
 def registry_tools(client, admin) -> dict[str, dict]:

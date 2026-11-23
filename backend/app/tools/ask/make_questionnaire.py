@@ -72,6 +72,8 @@ def _problems(args: AskIn) -> list[str]:
     program="questionnaire",
 )
 def make_questionnaire(args: AskIn, ctx: ToolContext) -> AskOut:
+    if args.purpose == "generate":  # 새 일정 만들기의 질문지 — 현장 관리자는 새 일정을 만들 수 없다(F4)
+        ctx.require_editor()
     problems = _problems(args)
     if problems:
         raise ToolError(" / ".join(problems))

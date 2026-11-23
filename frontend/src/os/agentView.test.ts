@@ -22,6 +22,29 @@ describe('새 에이전트 도구의 화면 이름(A6)', () => {
   });
 });
 
+// F4(재확인): 현장 관리자는 새 일정을 만들 수 없다(서버 도구가 거절) — 생성 도구가 시작돼도 「새 프로젝트 생성 중」으로 바꾸지 않는다.
+describe('new project mode by role', () => {
+  const askGenerate = { run_id: 7, n: 1, call_id: 'c1', tool: 'ask.questionnaire', program: 'questionnaire', arguments: '{"purpose":"generate"}' };
+
+  async function startAs(role: 'field' | 'user') {
+    const { useSession } = await import('./session');
+    const { useCurrentSchedule } = await import('./currentSchedule');
+    useSession.getState().signIn({ token: 't', loginId: 'x', user: { id: 1, name: '박현장', role } });
+    useCurrentSchedule.setState({ current: null, creatingNewProject: false });
+    useAgentView.getState().reset();
+    useAgentView.getState().onToolStart(askGenerate);
+    return { creating: useCurrentSchedule.getState().creatingNewProject, ribbon: useAgentView.getState().ribbon.creatingNewProject };
+  }
+
+  it('the field role never enters new project mode', async () => {
+    expect(await startAs('field')).toEqual({ creating: false, ribbon: false });
+  });
+
+  it('other roles still do', async () => {
+    expect(await startAs('user')).toEqual({ creating: true, ribbon: true });
+  });
+});
+
 // 리뷰 W2: 에이전트가 지연을 기록하면(버전은 그대로) 간트·공정률의 기록된 지연 띠가 다시 센다.
 describe('onToolEnd delay signal', () => {
   it('a successful delay tool bumps the delays token, other tools and failures do not', async () => {

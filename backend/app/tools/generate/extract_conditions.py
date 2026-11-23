@@ -339,6 +339,7 @@ async def _ask(args: ExtractIn, pack: DomainPack, ctx: ToolContext) -> _Reply:
     "결과를 그대로 generate.run 에 넘긴다.",
 )
 async def extract_conditions(args: ExtractIn, ctx: ToolContext) -> ExtractOut:
+    ctx.require_editor()  # 새 일정 만들기의 첫 단계 — 현장 관리자는 새 일정을 만들 수 없다(F4)
     try:
         pack = resolve_pack(args.domain)
     except UnknownDomain:

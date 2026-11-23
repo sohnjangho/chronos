@@ -1,16 +1,24 @@
 """역할(F4): 현장 관리자(field)는 일정을 고치거나 승인·거부할 수 없다(403). 사용자(user)는 그대로 승인할 수 있다."""
 
+import json
+
 import pytest
 from sqlalchemy import select
 
+from app.agent.context import UiContext
+from app.agent.loop import run_turn
+from app.llm.client import LlmClient
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
+from app.store import chats
 from app.store.settings import set_approval_mode
-from app.store.tables import FieldItem, Scenario, User
+from app.store.tables import FieldItem, QuestionnaireRecord, Scenario, User, WorkflowRun
 from app.tools import registry
 from app.tools.context import ToolContext
 from tests.approval_doubles import finish_by
 from tests.helpers import auth
+from tests.llm_doubles import add_connection
+from tests.loop_doubles import ScriptedLlm, calls, reply
 from tests.schedules import sample, store
 
 FIELD_ONLY = "현장 관리자는 일정을 고치거나 승인·거부할 수 없습니다."
@@ -144,6 +152,57 @@ async def test_field_role_agent_tools_that_change_a_schedule_are_refused(session
     ctx = _ctx(session, sid, "field")
     r = await registry.call(name, args(session, sid), ctx)
     assert not r.ok and r.error == FIELD_ONLY
+
+
+QUESTION = {"id": "kind", "group": "범위", "question": "어떤 일정인가요?", "assumption": "건설 일정으로 봅니다."}
+# 새 일정을 만드는 길(F4 재확인): 새 프로젝트 질문지·조건 뽑기·생성·공정표 가져오기·빈 프로젝트 — 도구에서 같은 글로 거절
+NEW_SCHEDULE_TOOLS = [
+    ("ask.questionnaire", {"purpose": "generate", "title": "새 프로젝트 — 분야와 범위", "questions": [QUESTION]}),
+    ("generate.extract_conditions", {"text": "새 프로젝트 하나 만들어 줘", "domain": "construction", "level": "L2"}),
+    ("generate.run", {"domain": "construction", "level": "L2", "request": "새 프로젝트 하나 만들어 줘"}),
+    ("schedule.import", {"file_id": 1, "confirmed": True, "domain": "construction", "level": "L2"}),
+    ("schedule.import", {"file_id": 1}),
+    ("schedule.create_project", {"name": "새 현장"}),
+]
+
+
+@pytest.mark.parametrize(("name", "args"), NEW_SCHEDULE_TOOLS,
+                         ids=[f"{n} {sorted(a)}" for n, a in NEW_SCHEDULE_TOOLS])
+async def test_field_role_cannot_start_a_new_schedule_with_the_agent(session, sid, name, args):
+    ctx = _ctx(session, sid, "field")
+    r = await registry.call(name, args, ctx)
+    assert not r.ok and r.error == FIELD_ONLY
+    assert session.query(QuestionnaireRecord).count() == 0
+
+
+async def test_field_role_still_reads_and_asks_other_questions(session, sid):
+    ctx = _ctx(session, sid, "field")
+    assert (await registry.call("schedule.read", {}, ctx)).ok
+    asked = await registry.call("ask.questionnaire", {"purpose": "delay", "title": "지연 확인", "questions": [QUESTION]}, ctx)
+    assert asked.ok, asked.error
+
+
+async def test_field_role_new_project_request_ends_with_a_refusal_and_no_questionnaire(session, sid):
+    """F4(재확인): 현장 관리자가 대화로 새 프로젝트를 청하면 질문지 없이 거절로 끝난다. 모델에게는 이 계정으로는
+    일정을 만들 수 없다고 분명히 말하라는 글이 간다(지시문에도)."""
+    ctx = _ctx(session, sid, "field")
+    add_connection(session)
+    chat = chats.create_chat(session, user_id=ctx.user.id)
+    session.commit()
+    ask = {"purpose": "generate", "title": "새 프로젝트 — 분야와 범위", "questions": [QUESTION]}
+    llm = ScriptedLlm([calls("ask.questionnaire", ask), reply("이 계정으로는 새 일정을 만들 수 없습니다.")])
+    client = LlmClient(session, transport=llm.transport)
+    ev = [e async for e in run_turn(session, ctx.user, chat.id, "새 프로젝트 하나 만들어 줘", UiContext(None, None, None),
+                                    llm=client)]
+    assert [(e.data["tool"], e.data["ok"], e.data["error"]) for e in ev if e.type == "tool_end"] == [
+        ("ask.questionnaire", False, FIELD_ONLY)]
+    assert not any(e.type in ("questionnaire", "card") for e in ev)
+    assert session.query(QuestionnaireRecord).count() == 0
+    assert session.scalars(select(WorkflowRun)).one().status == "done"  # 답을 기다리지 않는다
+    told = json.loads(llm.last_body["messages"][-1]["content"])["reflection"]
+    assert "일정을 만들 수 없" in told
+    assert "일정을 만들 수 없" in llm.bodies[0]["messages"][0]["content"]  # 지시문(지금 상황)
+    assert [e.data["text"] for e in ev if e.type == "text"] == ["이 계정으로는 새 일정을 만들 수 없습니다."]
 
 
 async def test_field_role_may_still_record_a_delay_with_the_agent(session, sid):
