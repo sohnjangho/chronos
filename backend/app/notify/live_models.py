@@ -26,7 +26,8 @@ MAX_MODELS = 30  # 돌려주는 Live 모델 수
 _NAME = re.compile(r"[A-Za-z0-9._\-]{1,80}")  # 설정 길이 받는 모델 이름 꼴과 같다
 
 NO_KEY = "음성 모델 키(구글)가 저장돼 있지 않아 기본 목록을 보여 줍니다. 키를 저장하면 그 키로 쓸 수 있는 모델을 읽어 옵니다."
-BAD_KEY = "구글이 이 키를 받지 않아 기본 목록을 보여 줍니다. 음성 모델 키를 확인해 주세요."
+KEY_REFUSED = ("구글이 이 키로 Gemini API 를 쓰지 못하게 합니다(권한 없음). Google AI Studio 에서 만든 Gemini API 키를 넣거나, "
+               "이 키의 프로젝트에서 Generative Language API 를 켜 주세요.")
 TIMEOUT = "구글이 시간 안에 답하지 않아 기본 목록을 보여 줍니다."
 FAILED = "구글에서 모델 목록을 읽지 못해 기본 목록을 보여 줍니다."
 NO_CLIENT = "구글 연결 묶음(google-genai)이 서버에 없어 기본 목록을 보여 줍니다."
@@ -39,6 +40,7 @@ class LiveModels:
     fallback: bool  # 구글에서 읽은 목록이 아니라 고정 목록인가(이때 진단은 모델을 막지 않는다)
     reason: str | None  # fallback 의 까닭(쉬운 한국어). 읽은 목록이면 None
     available: frozenset[str] = frozenset()  # 읽은 Live 모델 전부(자르지 않음) — 진단 전 확인은 이것과 견준다
+    refused: bool = False  # 구글이 이 키를 거절했다(400·401·403) — 「못 읽음」이 아니라 분명한 실패. 목록은 비어 있다(고침 2)
 
 
 def _fallback(reason: str, word: str) -> LiveModels:
@@ -85,8 +87,9 @@ def list_live_models(key: str | None, client: Callable[[str, float], object] | N
     except ImportError:
         return _fallback(NO_CLIENT, "no_client")
     except Exception as e:  # noqa: BLE001 — 글은 읽지 않는다(키가 들 수 있다)
-        if _status(e) in (400, 401, 403):
-            return _fallback(BAD_KEY, "bad_key")
+        if _status(e) in (400, 401, 403):  # 키에 Gemini API 권한이 없다(11-24 실제: 403 PERMISSION_DENIED) — 걸어 봐야 끊긴다
+            log.info("음성 모델 목록: 구글이 키를 거절함")
+            return LiveModels(models=(), fallback=True, reason=KEY_REFUSED, refused=True)
         if isinstance(e, TimeoutError) or "timeout" in type(e).__name__.lower():
             return _fallback(TIMEOUT, "timeout")
         return _fallback(FAILED, type(e).__name__)

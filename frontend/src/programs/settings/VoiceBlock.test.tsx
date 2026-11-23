@@ -141,7 +141,7 @@ function open(over: Record<string, unknown> = {}) {
   });
 }
 
-const MODELS: VoiceModels = { models: ['gemini-3.8-live', 'gemini-x-live'], default: 'gemini-3.8-live', fallback: false, reason: null };
+const MODELS: VoiceModels = { models: ['gemini-3.8-live', 'gemini-x-live'], default: 'gemini-3.8-live', fallback: false, refused: false, reason: null };
 
 /** 저장된 음성 설정을 읽어 카드가 그려질 때까지 기다린다. */
 async function findBlock() {
@@ -589,7 +589,7 @@ test('the default model is not sent when it was left as it is', async () => {
 
 test('when the list could not be read the select still offers the default and says why', async () => {
   const reason = '구글이 시간 안에 답하지 않아 기본 목록을 보여 줍니다.';
-  open({ [VOICE]: FRESH, [`${VOICE}/models`]: { models: ['gemini-3.8-live'], default: 'gemini-3.8-live', fallback: true, reason } });
+  open({ [VOICE]: FRESH, [`${VOICE}/models`]: { models: ['gemini-3.8-live'], default: 'gemini-3.8-live', fallback: true, refused: false, reason } });
   const { form } = await findAddForm();
   expect(await within(form).findByText(reason)).toBeVisible();
   expect(within(form).getByRole('combobox', { name: '모델' })).toHaveValue('gemini-3.8-live');
@@ -723,4 +723,41 @@ test('only with no number anywhere does it ask for the AI call number', async ()
   open({ [VOICE]: voice({ agent_number_masked: null, agent_number_effective_masked: null, agent_number_source: null, test_call_index: null }) });
   const b = await findBlock();
   expect(within(b).getByText('AI 전화 번호를 먼저 넣어 주세요.')).toBeVisible();
+});
+
+// ── 고침 2: 구글이 거절한 키 — 카드에 크게, 가짜 목록 없음, 시험 전화 잠금 ──
+
+const REFUSED_TEXT = '구글이 이 키로 Gemini API 를 쓰지 못하게 합니다(권한 없음). Google AI Studio 에서 만든 Gemini API 키를 넣거나, 이 키의 프로젝트에서 Generative Language API 를 켜 주세요.';
+const REFUSED: VoiceModels = { models: [], default: 'gemini-3.8-live', fallback: true, refused: true, reason: REFUSED_TEXT };
+
+test('a key Google refused makes the card 실패 with the reason, locks real calls and shows no fake model list', async () => {
+  open({ [`${VOICE}/models`]: REFUSED, [VOICE]: voice({ status: 'ok' }) });
+  const b = await findBlock();
+  await waitFor(() => expect(within(b).getByText('실패', { selector: '.ui-badge' })).toBeVisible());
+  expect(within(b).getByRole('alert')).toHaveTextContent(REFUSED_TEXT);
+  expect(within(b).getByRole('switch', { name: /실제 통화 포함/ })).toBeDisabled();
+  expect(within(b).getByRole('button', { name: '시험 전화' })).toBeDisabled();
+  expect(within(b).getByRole('button', { name: '받는 통화 확인' })).toBeDisabled();
+  expect(within(b).getByText(/구글이 키를 거절해 전화를 걸 수 없습니다/)).toBeVisible();
+  const select = within(await editForm(b)).getByRole('combobox', { name: '모델' });
+  expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['gemini-3.8-live', '직접 입력']);
+  expect(within(b).getByText('키가 거절돼 목록을 읽지 못했습니다')).toBeVisible();
+});
+
+test('saving a new key reads the model list again', async () => {
+  let refused = true;
+  const { fetchMock } = open({
+    [`${VOICE}/models`]: () => json(200, refused ? REFUSED : MODELS),
+    [`PUT ${VOICE}`]: () => ((refused = false), json(200, voice({ secret_last4: '7777' }))),
+  });
+  const reads = () => fetchMock.mock.calls.filter(([url]) => String(url) === `${VOICE}/models`).length;
+  const b = await findBlock();
+  await waitFor(() => expect(within(b).getByRole('alert')).toHaveTextContent(REFUSED_TEXT));
+  const before = reads();
+  const form = await editForm(b);
+  await userEvent.type(within(form).getByLabelText(/^음성 모델 키/), SENTINEL_KEY);
+  await userEvent.click(within(form).getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  await waitFor(() => expect(within(b).queryByRole('alert')).toBeNull());
+  expect(within(b).getByRole('switch', { name: /실제 통화 포함/ })).toBeEnabled();
 });

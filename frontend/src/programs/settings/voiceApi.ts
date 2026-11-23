@@ -51,6 +51,8 @@ export interface VoiceModels {
   models: string[];
   default: string;
   fallback: boolean;
+  /** 구글이 이 키를 거절했다(400·401·403) — models 는 비어 있고, 진단·시험 전화는 걸기 전에 멈춘다. */
+  refused: boolean;
   reason: string | null;
 }
 

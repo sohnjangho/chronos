@@ -193,7 +193,7 @@ def test_models_lists_only_live_models_for_the_stored_key_in_one_bounded_request
     assert r.status_code == 200, r.text
     body = r.json()
     assert body == {"models": ["gemini-3.8-live", "gemini-x-live"], "default": "gemini-3.8-live", "fallback": False,
-                    "reason": None}
+                    "refused": False, "reason": None}
     assert google.keys == [GOOGLE_KEY] and google.registered == [True]
     assert len(google.requests) == 1 and 0 < google.timeouts[0] <= 10
     assert GOOGLE_KEY not in r.text and KAT_ACCOUNT not in r.text
@@ -216,7 +216,7 @@ class Rejected(Exception):
 
 
 @pytest.mark.parametrize(("error", "words"), [
-    (Rejected(400), "키"), (Rejected(403), "키"), (TimeoutError(), "시간"),
+    (TimeoutError(), "시간"),
     (RuntimeError(f"boom {GOOGLE_KEY}"), "읽지 못해"), (ImportError("google-genai"), "묶음"),
 ])
 def test_models_fall_back_to_a_small_static_list_with_a_plain_reason(client, admin, fake_provider, google, caplog,
@@ -476,3 +476,52 @@ def test_the_google_listing_lives_outside_the_voice_package():
     voice_dir = Path(numbers.__file__).parent
     assert not (voice_dir / "live_models.py").exists()
     assert live_models.__name__ == "app.notify.live_models"
+
+
+# ── 고침 2: 구글이 거절한 키(400·401·403)는 「못 읽음」이 아니라 분명한 실패 — 걸기 전에 막는다 ─────────
+
+REFUSED = ("구글이 이 키로 Gemini API 를 쓰지 못하게 합니다(권한 없음). Google AI Studio 에서 만든 Gemini API 키를 넣거나, "
+           "이 키의 프로젝트에서 Generative Language API 를 켜 주세요.")
+
+
+@pytest.mark.parametrize("code", [400, 401, 403])
+def test_a_refused_key_is_reported_as_refused_with_no_fake_list(client, admin, fake_provider, google, caplog, code):
+    caplog.set_level(logging.DEBUG)
+    google.error = Rejected(code)
+    cid = ready(client, admin)["id"]
+    r = models(client, admin, cid)
+    assert r.status_code == 200
+    assert r.json() == {"models": [], "default": "gemini-3.8-live", "fallback": True, "refused": True, "reason": REFUSED}
+    assert GOOGLE_KEY not in r.text and all(GOOGLE_KEY not in rec.getMessage() for rec in caplog.records)
+    assert live_models.KEY_REFUSED == REFUSED
+
+
+def test_other_list_failures_are_not_refusals(client, admin, fake_provider, google):
+    google.error = TimeoutError()
+    cid = ready(client, admin)["id"]
+    body = models(client, admin, cid).json()
+    assert body["refused"] is False and body["fallback"] is True and body["models"][0] == "gemini-3.8-live"
+    assert models(client, admin, connection(client, admin)["id"]).json()["refused"] is False  # 키 없음도 거절이 아니다
+
+
+@pytest.mark.parametrize("part", ["connection", "call", "inbound"])
+def test_a_refused_key_stops_the_diagnosis_before_dialling(client, admin, fake_provider, spy, google, session, part):
+    google.error = Rejected(403)
+    conn = ready(client, admin)
+    cid = conn["id"]
+    body = {"connection": {}, "call": call_body(conn), "inbound": {**call_body(conn), "call": False, "inbound": True}}[part]
+    r = diag(client, admin, cid, body)
+    assert r.status_code == 200, r.text
+    rows = {s["id"]: s for s in r.json()["steps"]}
+    assert (rows["P5"]["ok"], rows["P5"]["skipped"], rows["P5"]["code"]) == (False, False, "key_refused")
+    assert rows["P5"]["detail"] == REFUSED
+    assert spy.calls == []  # SDK 도 전화도 없다
+    assert r.json()["calls"] == [] and stored(session, cid)["calls"] == []
+    assert client.get(f"{BASE}/{cid}/voice", headers=admin).json()["status"] == "failed"
+
+
+def test_a_timeout_on_the_list_still_lets_the_test_call_go_ahead(client, admin, fake_provider, spy, google):
+    google.error = TimeoutError()
+    conn = ready(client, admin)
+    r = diag(client, admin, conn["id"], call_body(conn))
+    assert r.status_code == 200 and len(spy.calls) == 1

@@ -35,8 +35,8 @@ function fieldOf(e: unknown): string | null {
   return FIELD_BY_CODE[e.code] ?? null;
 }
 
-/** 이 키로 쓸 수 있는 구글 Live 모델(구글일 때만 묻는다). 묻지 못하면 기본 모델 하나와 까닭. */
-function useLiveModels(id: number, on: boolean, tick: string) {
+/** 이 키로 쓸 수 있는 구글 Live 모델(구글일 때만 묻는다, tick 이 바뀌면 — 새 키 — 다시 읽는다). 묻지 못하면 기본 모델 하나와 까닭. */
+export function useLiveModels(id: number, on: boolean, tick: string) {
   const [found, setFound] = useState<VoiceModels | null>(null);
   useEffect(() => {
     if (!on) return;
@@ -44,7 +44,7 @@ function useLiveModels(id: number, on: boolean, tick: string) {
     voiceApi
       .models(id)
       .then((m) => live && setFound(m))
-      .catch(() => live && setFound({ models: [DEFAULT_MODEL], default: DEFAULT_MODEL, fallback: true, reason: '모델 목록을 읽지 못해 기본 모델만 보여 줍니다.' }));
+      .catch(() => live && setFound({ models: [DEFAULT_MODEL], default: DEFAULT_MODEL, fallback: true, refused: false, reason: '모델 목록을 읽지 못해 기본 모델만 보여 줍니다.' }));
     return () => {
       live = false;
     };
@@ -72,11 +72,12 @@ function ModelPicker({ google, list, choice, custom, text, off, error, onChoice,
       </Field>
     );
   }
-  const options = list?.models.length ? list.models : [DEFAULT_MODEL];
+  // 구글이 키를 거절했으면 가짜 목록을 보이지 않는다 — 지금 고른 것과 「직접 입력」만
+  const options = list?.refused ? [] : list?.models.length ? list.models : [DEFAULT_MODEL];
   const shown = choice !== CUSTOM && !options.includes(choice) ? [...options, choice] : options;
   const label = (m: string) =>
-    m === (list?.default ?? DEFAULT_MODEL) ? `${m} (기본)` : list && !list.fallback && !list.models.includes(m) ? `${m} — 이 키로 쓸 수 없음` : m;
-  const hint = !list ? '모델 목록을 읽는 중…' : list.fallback ? (list.reason ?? '') : `이 키로 쓸 수 있는 실시간 음성 모델 ${list.models.length}개`;
+    list?.refused ? m : m === (list?.default ?? DEFAULT_MODEL) ? `${m} (기본)` : list && !list.fallback && !list.models.includes(m) ? `${m} — 이 키로 쓸 수 없음` : m;
+  const hint = !list ? '모델 목록을 읽는 중…' : list.refused ? '키가 거절돼 목록을 읽지 못했습니다' : list.fallback ? (list.reason ?? '') : `이 키로 쓸 수 있는 실시간 음성 모델 ${list.models.length}개`;
   return (
     <div className="st-vc-key">
       <Field label="모델" hint={hint} error={choice === CUSTOM ? undefined : error}>

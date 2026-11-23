@@ -390,7 +390,7 @@ function CallRecords({ calls }: { calls: CallRecord[] }) {
  * 단추 줄([음성 진단][시험 전화] + 카드의 extra) · below(카드의 고치기 폼·지우기 확인) · 띠 · 「실제 통화 포함」 · 확인 창 · 도는 중 · 경고 ·
  * 세 묶음(걸음 줄, 받는 통화는 그 단추와 함께) · 시험 전화 기록.
  */
-export function VoiceDiagnostics({ conn, voice, d, r, hold, extra, below }: {
+export function VoiceDiagnostics({ conn, voice, d, r, hold, extra, below, callsBlocked }: {
   conn: NotifyConnection;
   voice: VoiceSettings;
   d: Diag;
@@ -398,11 +398,13 @@ export function VoiceDiagnostics({ conn, voice, d, r, hold, extra, below }: {
   hold: boolean;
   extra?: ReactNode;
   below?: ReactNode;
+  /** 실제 통화를 막는 카드의 까닭(구글이 키를 거절함 등). */
+  callsBlocked?: string | null;
 }) {
   const busy = hold || r.pending !== null;
   const why = diagWhy(voice);
   const band = bandOf(voice, d.diag);
-  const callBlock = why ?? (band ? '음성 SDK 가 설치되면 시험 전화와 받는 통화를 확인할 수 있습니다.' : callWhy(conn, voice));
+  const callBlock = why ?? callsBlocked ?? (band ? '음성 SDK 가 설치되면 시험 전화와 받는 통화를 확인할 수 있습니다.' : callWhy(conn, voice));
   const callUnknown = d.unsure || (d.diag?.state === 'done' && d.diag.call_unknown);
   const callOff = busy || !!callBlock || !r.real;
   const serverRunning = !d.running && d.diag?.state === 'running' ? d.diag : null;
