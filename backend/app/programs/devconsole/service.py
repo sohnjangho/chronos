@@ -25,7 +25,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.agent import loop, turns
@@ -42,7 +42,9 @@ from app.llm.assignments import default_connection
 from app.llm.connections import secret_is_sendable
 from app.programs.devconsole.schemas import (
     ActiveTurnOut,
+    CallCount,
     DbHealthOut,
+    DevUsageOut,
     HealthOut,
     HolidayHealthOut,
     InfoApiHealthOut,
@@ -51,6 +53,7 @@ from app.programs.devconsole.schemas import (
     NodeDetail,
     NodeOut,
     QdrantHealthOut,
+    ReuseCount,
     ReuseHealthOut,
     SearchHealthOut,
     StopTurnOut,
@@ -59,15 +62,15 @@ from app.programs.devconsole.schemas import (
     ToolToggleOut,
     TurnDetail,
     TurnOut,
+    UsageCountersOut,
     UsageGroup,
-    UsageOut,
     VisionHealthOut,
 )
 from app.security.crypto import SecretUnreadable, decrypt
 from app.store import evidence_reuse
 from app.store import settings as settings_store
 from app.store import traces as store
-from app.store.evidence import NOT_SEARCH_MODES, REUSE_MODE
+from app.store.evidence import INFO_MODE, NOT_SEARCH_MODES, REUSE_MODE, WEATHER_MODE
 from app.store.messages import FIELD_READ_ONLY_MESSAGE
 from app.store.settings import get_agent_config
 from app.store.tables import (
@@ -90,6 +93,7 @@ from app.store.tables import (
     WorkflowStep,
 )
 from app.store.timeutil import as_utc
+from app.store.traces import UsageTotals
 from app.store.workflows import steps_of
 from app.tools import registry
 
@@ -158,8 +162,30 @@ def get_turn(session: Session, turn_id: int) -> TurnDetail:
     return TurnDetail(turn=turn, structure=structure, timeline=timeline)
 
 
-def usage(session: Session, *, days: int, group: UsageGroup) -> UsageOut:
-    return store.usage(session, days=days, group=group)
+def _counted(session: Session, since: datetime, *where) -> CallCount:
+    failed = func.coalesce(func.sum(case((EvidenceSearch.ok.is_(False), 1), else_=0)), 0)
+    calls, bad = session.execute(select(func.count(), failed).where(EvidenceSearch.created_at >= since, *where)).one()
+    return CallCount(calls=calls, failed=int(bad))
+
+
+def _counters(session: Session, days: int) -> UsageCountersOut:
+    """기간(사용량 표와 같은 서울 날짜 창) 안의 정보 API·날씨·Liner 검색·다시 쓰기 수와 그림 읽기·임베딩 호출 합."""
+    since = store._since(days)
+    llm = {"vision": UsageTotals(), "embedding": UsageTotals()}
+    for call in session.scalars(select(LlmCall).where(LlmCall.created_at >= since, LlmCall.purpose.in_(llm))):
+        llm[call.purpose].add(call)
+    return UsageCountersOut(
+        info_api=_counted(session, since, EvidenceSearch.mode == INFO_MODE),
+        weather=_counted(session, since, EvidenceSearch.mode == WEATHER_MODE),
+        searches=_counted(session, since, EvidenceSearch.mode.notin_(NOT_SEARCH_MODES)),
+        reuses=ReuseCount(calls=_counted(session, since, EvidenceSearch.mode == REUSE_MODE).calls),
+        vision=llm["vision"], embedding=llm["embedding"],
+    )
+
+
+def usage(session: Session, *, days: int, group: UsageGroup) -> DevUsageOut:
+    base = store.usage(session, days=days, group=group)
+    return DevUsageOut(**base.model_dump(), counters=_counters(session, days))
 
 
 # ── 구조 ────────────────────────────────────────────────────────────

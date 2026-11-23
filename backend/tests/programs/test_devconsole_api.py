@@ -457,6 +457,36 @@ def test_health_search_counts_leave_out_weather_and_info_api_calls(client, admin
     assert (search["calls_7d"], search["failed_7d"]) == (2, 1)
 
 
+def test_usage_counters_separate_info_api_searches_reuses_vision_and_embedding(client, admin, session):
+    old = (datetime.now(UTC) - timedelta(days=20)).replace(tzinfo=None)
+    session.add_all([
+        EvidenceSearch(query="q", mode="info", ok=True), EvidenceSearch(query="q", mode="info", ok=False),
+        EvidenceSearch(query="q", mode="info", ok=True, created_at=old),
+        EvidenceSearch(query="q", mode="weather", ok=True),
+        EvidenceSearch(query="q", mode="web", ok=True), EvidenceSearch(query="q", mode="legal", ok=False),
+        *[EvidenceSearch(query="q", mode="reuse", ok=True) for _ in range(3)],
+        EvidenceSearch(query="q", mode="reuse", ok=True, created_at=old),
+    ])
+    common = {"requested_model": "m", "latency_ms": 5}
+    session.add_all([
+        LlmCall(purpose="vision", model="v", input_tokens=100, output_tokens=20, cost=0.01, ok=True, **common),
+        LlmCall(purpose="vision", model="v", input_tokens=50, output_tokens=0, cost=None, ok=False, **common),
+        LlmCall(purpose="vision", model="v", input_tokens=9, output_tokens=9, ok=True, created_at=old, **common),
+        LlmCall(purpose="embedding", model="e", input_tokens=300, output_tokens=0, ok=True, **common),
+        LlmCall(purpose="normal", model="m", input_tokens=1, output_tokens=1, ok=True, **common),
+    ])
+    session.commit()
+    c = client.get("/api/devconsole/usage", headers=admin).json()["counters"]
+    assert c == {
+        "info_api": {"calls": 2, "failed": 1},
+        "weather": {"calls": 1, "failed": 0},
+        "searches": {"calls": 2, "failed": 1},
+        "reuses": {"calls": 3},
+        "vision": {"calls": 2, "input_tokens": 150, "output_tokens": 20, "cost": 0.01, "failed": 1},
+        "embedding": {"calls": 1, "input_tokens": 300, "output_tokens": 0, "cost": None, "failed": 0},
+    }
+
+
 @pytest.mark.parametrize("query", ["days=0", "days=91", "group=team"])
 def test_usage_rejects_bad_queries(client, admin, query):
     r = client.get(f"/api/devconsole/usage?{query}", headers=admin)
@@ -465,8 +495,11 @@ def test_usage_rejects_bad_queries(client, admin, query):
 
 def test_usage_when_nothing_happened(client, admin):
     u = client.get("/api/devconsole/usage", headers=admin).json()
-    assert u == {"rows": [], "totals": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": None, "failed": 0},
-                 "cost_known": False, "searches": {"calls": 0, "failed": 0}}
+    zero = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": None, "failed": 0}
+    assert u == {"rows": [], "totals": zero, "cost_known": False, "searches": {"calls": 0, "failed": 0},
+                 "counters": {"info_api": {"calls": 0, "failed": 0}, "weather": {"calls": 0, "failed": 0},
+                              "searches": {"calls": 0, "failed": 0}, "reuses": {"calls": 0},
+                              "vision": zero, "embedding": zero}}
 
 
 def test_catalog_and_harness_block_simulation(client, admin):

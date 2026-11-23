@@ -4,7 +4,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import DevConsole from './DevConsole';
-import { done, mockCatalog, mockHealth, mockTurn, setup } from './testKit';
+import { done, mockCatalog, mockHealth, mockTurn, mockUsage, setup } from './testKit';
 
 const structure = () => screen.findByRole('group', { name: '에이전트 구조' });
 const show = (tab?: string) => render(<DevConsole windowId="w1" params={tab ? { tab } : undefined} />);
@@ -179,6 +179,43 @@ describe('시스템 진단 — 정보 API·근거 다시 쓰기·공휴일 표·
     await screen.findByText('기본 연결 및 인증 키 준비됨');
     expect(screen.queryByRole('article', { name: '정보 API 연결' })).toBeNull();
     expect(screen.queryByRole('article', { name: '공휴일 표' })).toBeNull();
+  });
+});
+
+describe('사용량 — 따로 센 호출', () => {
+  const zero = { calls: 0, input_tokens: 0, output_tokens: 0, cost: null, failed: 0 };
+  async function openUsage() {
+    show('usage');
+    return screen.findByRole('table', { name: '사용량' });
+  }
+
+  test('info API, Liner searches against reuses, vision and embedding are counted apart with cost where recorded', async () => {
+    mockUsage({
+      counters: {
+        info_api: { calls: 2, failed: 1 },
+        weather: { calls: 1, failed: 0 },
+        searches: { calls: 9, failed: 1 },
+        reuses: { calls: 6 },
+        vision: { ...zero, calls: 2, input_tokens: 150, output_tokens: 20, cost: 0.01, failed: 1 },
+        embedding: { ...zero, calls: 1, input_tokens: 300 },
+      },
+    });
+    await openUsage();
+    const t = screen.getByRole('table', { name: '따로 센 호출' });
+    const row = (name: RegExp) => within(t).getByRole('row', { name });
+    expect(row(/정보 API 조회/)).toHaveTextContent('2');
+    expect(within(row(/근거 다시 씀/)).getByText('6')).toBeVisible();
+    expect(within(row(/근거 다시 씀/)).getByText('Liner 호출 6번 아낌')).toBeVisible();
+    expect(within(row(/그림 읽기/)).getByText('$0.01')).toBeVisible();
+    expect(within(row(/임베딩/)).getByText('—')).toBeVisible();
+    expect(within(t).getAllByRole('rowgroup').map((g) => g.getAttribute('aria-label')).filter(Boolean)).toEqual([
+      '바깥 정보', '근거 검색', '모델',
+    ]);
+  });
+
+  test('an older server without counters shows only the usage table', async () => {
+    await openUsage();
+    expect(screen.queryByRole('table', { name: '따로 센 호출' })).toBeNull();
   });
 });
 

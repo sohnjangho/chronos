@@ -114,6 +114,18 @@ export interface UsageOut {
   totals: UsageTotals;
   cost_known: boolean;
   searches: { calls: number; failed: number };
+  /** 11-23: 따로 센 호출. 예전 서버는 보내지 않는다. */
+  counters?: UsageCounters | null;
+}
+
+export interface UsageCounters {
+  info_api: { calls: number; failed: number };
+  weather: { calls: number; failed: number };
+  searches: { calls: number; failed: number };
+  /** 저장된 근거를 다시 써 Liner 를 부르지 않은 수. */
+  reuses: { calls: number };
+  vision: UsageTotals;
+  embedding: UsageTotals;
 }
 
 export interface HarnessRule {

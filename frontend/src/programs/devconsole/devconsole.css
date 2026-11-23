@@ -791,3 +791,5 @@
 .dc-health-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow-y: auto; font-size: var(--fs-12); }
 .dc-health-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 6px; }
 .dc-health-list .dc-tag { margin-left: 0; }
+.dc-u .dc-u-group th { background: var(--bg-app); color: var(--fg); font-weight: 700; text-align: left; }
+.dc-u .dc-u-note { color: var(--fg-muted); text-align: left; white-space: normal; }

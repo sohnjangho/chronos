@@ -1,10 +1,12 @@
-// 사용량·비용: 기간(7/14/30일)과 묶는 기준(모델·사용자·날짜·작업 종류)으로 표 + 토큰 가로 막대, 합계 줄, 근거 검색 수.
+// 사용량·비용: 기간(7/14/30일)과 묶는 기준(모델·사용자·날짜·작업 종류)으로 표 + 토큰 가로 막대, 합계 줄, 근거 검색 수,
+// 11-23: 따로 센 호출(정보 API · Liner 검색 대 다시 쓰기 · 그림 읽기 · 임베딩, UsageCounters).
 // 비용은 Liner 가 보낸 값만(cost_known 이 거짓이면 "—" 와 안내).
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../shared/api';
 import Field from '../../shared/ui/Field';
 import { devApi, type UsageGroup, type UsageOut, type UsageRow, type UsageTotals } from './devApi';
 import { cost, count } from './format';
+import UsageCounters from './UsageCounters';
 
 const PERIODS = [7, 14, 30];
 const GROUPS: { value: UsageGroup; label: string }[] = [
@@ -148,6 +150,7 @@ export default function UsageTab() {
       )}
       {body && !body.cost_known && <p className="dc-note">{COST_NOTE}</p>}
       {body ? <UsageTable data={body} group={group} /> : !error && <p className="dc-empty">불러오는 중…</p>}
+      {body?.counters && <UsageCounters counters={body.counters} />}
     </div>
   );
 }

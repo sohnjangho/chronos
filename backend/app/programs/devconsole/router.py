@@ -8,6 +8,7 @@ from app.programs.devconsole import catalog, service
 from app.programs.devconsole.schemas import (
     AgentConfigOut,
     AgentConfigPatch,
+    DevUsageOut,
     HealthOut,
     StopTurnOut,
     ToolToggleIn,
@@ -15,7 +16,6 @@ from app.programs.devconsole.schemas import (
     TurnDetail,
     TurnOut,
     UsageGroup,
-    UsageOut,
 )
 from app.security.deps import require_admin
 from app.store import settings as settings_store
@@ -39,7 +39,7 @@ def get_turn(turn_id: int, session: SessionDep) -> TurnDetail:
 @router.get("/usage")
 def read_usage(
     session: SessionDep, days: Annotated[int, Query(ge=1, le=90)] = 14, group: UsageGroup = "model",
-) -> UsageOut:
+) -> DevUsageOut:
     return service.usage(session, days=days, group=group)
 
 

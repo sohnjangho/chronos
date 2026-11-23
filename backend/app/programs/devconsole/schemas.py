@@ -3,13 +3,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.store.traces import UsageGroup, UsageOut
+from app.store.traces import UsageGroup, UsageOut, UsageTotals
 
 __all__ = [
     "ActiveTurnOut",
     "AgentConfigOut",
     "AgentConfigPatch",
+    "CallCount",
     "DbHealthOut",
+    "DevUsageOut",
     "HealthOut",
     "HolidayHealthOut",
     "InfoApiHealthOut",
@@ -18,6 +20,7 @@ __all__ = [
     "NodeDetail",
     "NodeOut",
     "QdrantHealthOut",
+    "ReuseCount",
     "ReuseHealthOut",
     "SearchHealthOut",
     "StopTurnOut",
@@ -27,6 +30,7 @@ __all__ = [
     "ToolToggleOut",
     "TurnDetail",
     "TurnOut",
+    "UsageCountersOut",
     "UsageGroup",
     "UsageOut",
     "VisionHealthOut",
@@ -103,6 +107,30 @@ class TurnDetail(BaseModel):
     turn: TurnOut
     structure: StructureOut
     timeline: list[TimelineItem]
+
+
+class CallCount(BaseModel):
+    calls: int = 0
+    failed: int = 0
+
+
+class ReuseCount(BaseModel):
+    calls: int = 0  # 저장된 근거를 다시 써 Liner 를 부르지 않은 수(아낀 호출)
+
+
+class UsageCountersOut(BaseModel):
+    """기간 안의 따로 센 호출. 비용은 기록된 것만(정보 API·근거 검색은 비용이 기록되지 않는다)."""
+
+    info_api: CallCount  # info.call(범용 정보 API, evidence_searches mode info)
+    weather: CallCount  # info.weather(기상청, mode weather)
+    searches: CallCount  # Liner 근거 검색(날씨·정보 API·다시 쓰기 빼고)
+    reuses: ReuseCount  # 저장된 근거 다시 쓰기(mode reuse)
+    vision: UsageTotals  # 그림 읽기 모델 호출(llm_calls purpose vision)
+    embedding: UsageTotals  # 임베딩 호출(llm_calls purpose embedding)
+
+
+class DevUsageOut(UsageOut):
+    counters: UsageCountersOut | None = None
 
 
 class AgentConfigOut(BaseModel):
