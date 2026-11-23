@@ -159,6 +159,7 @@ export function useApprovalData(paramId: string | undefined) {
     try {
       const view = await apvApi.restore(it.schedule_id, it.restore_to, it.version);
       setNotice({ tone: 'ok', text: `버전 ${it.restore_to}의 내용으로 되돌렸습니다 (새 버전 ${view.version}).` });
+      useCurrentSchedule.getState().bumpReload(); // 열린 일정 창(간트·스케줄·CPM·공정률)이 새 버전을 다시 읽는다
     } catch (e) {
       setNotice({ tone: 'error', text: message(e) });
     }

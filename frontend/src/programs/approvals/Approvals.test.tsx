@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { useCurrentSchedule } from '../../os/currentSchedule';
 import { json } from '../../test-helpers';
 import ApprovalDetailView from './ApprovalDetail';
 import DecisionBox from './DecisionBox';
@@ -62,6 +63,17 @@ describe('지시서 시험', () => {
     await userEvent.click(screen.getAllByRole('button', { name: '되돌리기' })[0]);
     await waitFor(() => expect(bodyOf('/api/schedules/1/versions/2/restore')).toEqual([{ base_version: 3 }]));
     expect(await screen.findByText(/버전 2의 내용으로 되돌렸습니다/)).toBeVisible();
+  });
+
+  // W1 후속: 자동 적용 되돌리기도 탐색기 되돌리기처럼 열린 일정 창(간트·공정률 등)에 다시 읽으라고 알린다.
+  test('W1: a revert tells the open schedule windows to read again', async () => {
+    setup();
+    await renderApprovals();
+    await userEvent.click(screen.getByRole('tab', { name: /자동 적용/ }));
+    const before = useCurrentSchedule.getState().reloadToken;
+    await userEvent.click(screen.getAllByRole('button', { name: '되돌리기' })[0]);
+    expect(await screen.findByText(/버전 2의 내용으로 되돌렸습니다/)).toBeVisible();
+    expect(useCurrentSchedule.getState().reloadToken).toBe(before + 1);
   });
 });
 
