@@ -11,10 +11,12 @@
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
+from datetime import date
 from typing import Literal
 
 from sqlalchemy.orm import Session
 
+from app.agent import context
 from app.agent.approval import REASONS, Assessment, _needs, assess
 from app.agent.events import AgentEvent
 from app.core.cpm import ScheduleError
@@ -91,9 +93,10 @@ class ScenarioError(Exception):
 
 
 def actual_dates_problem(before: Schedule | None, after: Schedule) -> str | None:
-    """바뀐(또는 새로 생긴) 실적 날짜 가운데 Data Date 뒤인 것(실제 시작·종료)과 착공일 앞인 것(실제 시작)을 한 줄로.
-    없으면 None. 바뀌지 않은 실적은 보지 않는다(예전 자료 때문에 다른 변경까지 막지 않게)."""
+    """바뀐(또는 새로 생긴) 실적 날짜 가운데 Data Date 뒤인 것(Data Date 가 없으면 실제 오늘 뒤)과 착공일 앞인 것(실제 시작·종료)을
+    한 줄로. 없으면 None. 바뀌지 않은 실적은 보지 않는다(예전 자료 때문에 다른 변경까지 막지 않게)."""
     old = {a.id: a for a in before.activities} if before is not None else {}
+    limit, where = (after.data_date, "Data Date") if after.data_date is not None else (context.today(), None)
     bad: list[str] = []
     for a in after.activities:
         o = old.get(a.id)
@@ -101,13 +104,23 @@ def actual_dates_problem(before: Schedule | None, after: Schedule) -> str | None
                                  ("실제 종료", a.actual_finish, o.actual_finish if o else None)):
             if day is None or day == prev:
                 continue
-            if after.data_date is not None and day > after.data_date:
-                bad.append(f"{a.id} {label} {day.isoformat()} — Data Date 뒤")
-            elif label == "실제 시작" and day < after.start:
+            if day > limit:
+                bad.append(f"{a.id} {label} {day.isoformat()} — {where or f'오늘({limit.isoformat()})'} 뒤")
+            elif day < after.start:
                 bad.append(f"{a.id} {label} {day.isoformat()} — 착공일 {after.start.isoformat()} 앞")
     if not bad:
         return None
     return ", ".join(bad[:3]) + (f" 외 {len(bad) - 3}건" if len(bad) > 3 else "")
+
+
+def late_actual(before: Schedule | None, after: Schedule) -> date | None:
+    """바뀐 실적 가운데 Data Date(없으면 실제 오늘) 뒤인 가장 늦은 날 — 표 고치기 거절 글의 「먼저 옮길」 날. 없으면 None."""
+    old = {a.id: a for a in before.activities} if before is not None else {}
+    limit = after.data_date or context.today()
+    days = [day for a in after.activities for day, prev in (
+        (a.actual_start, old[a.id].actual_start if a.id in old else None),
+        (a.actual_finish, old[a.id].actual_finish if a.id in old else None)) if day is not None and day != prev and day > limit]
+    return max(days, default=None)
 
 
 def data_date_problem(before: Schedule | None, after: Schedule) -> str | None:

@@ -14,6 +14,14 @@ from app.store.tables import ChangeLog, ScheduleVersion
 from app.store.versions import mark_plan, save_new_version
 from tests.schedules import make, store, task
 
+@pytest.fixture(autouse=True)
+def today_after_the_sample(monkeypatch):
+    """시험 일정(2027-03)은 실제 오늘보다 뒤다 — Data Date 가 없는 일정의 실적은 「오늘」 뒤일 수 없어(리뷰) 오늘을 그 뒤로 둔다."""
+    from app.agent import context
+
+    monkeypatch.setattr(context, "today", lambda: date(2027, 12, 31))
+
+
 # ── 작업 지시서의 시험 ──────────────────────────────────────────────
 
 
@@ -674,6 +682,21 @@ def test_table_edit_of_actual_dates_follows_the_data_date_and_the_project_start(
     r = _patch(client, admin, sid, "A", 2, **body)
     assert r.status_code == 422 and r.json()["code"] == "actual_dates" and why in r.json()["message"]
     assert client.get(f"/api/schedules/{sid}", headers=admin).json()["version"] == 2
+    if "Data Date 뒤" in why:  # 리뷰: 무엇을 하면 되는지 — Data Date 를 먼저 옮기라고
+        assert r.json()["message"].endswith(" Data Date 를 먼저 2027-03-08 이후로 옮긴 뒤 넣어 주세요.")
+
+
+@pytest.mark.parametrize(("body", "why"), [
+    ({"actual_start": "2030-01-01"}, "A 실제 시작 2030-01-01 — 오늘(2027-03-10) 뒤"),
+    ({"actual_finish": "2027-02-20"}, "A 실제 종료 2027-02-20 — 착공일 2027-03-01 앞"),
+])
+def test_table_edit_without_a_data_date_uses_today_and_checks_a_lone_actual_finish(client, admin, sid, monkeypatch, body, why):
+    """리뷰: Data Date 가 없는 일정은 실제 오늘보다 뒤의 실적을 받지 않고, 실제 종료만 있는 것도 착공일 앞이면 받지 않는다."""
+    from app.agent import context
+
+    monkeypatch.setattr(context, "today", lambda: date(2027, 3, 10))
+    r = _patch(client, admin, sid, "A", 1, **body)
+    assert r.status_code == 422 and r.json()["code"] == "actual_dates" and why in r.json()["message"]
 
 
 def test_the_data_date_cannot_move_before_recorded_actuals(client, admin, sid):

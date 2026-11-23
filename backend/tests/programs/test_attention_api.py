@@ -2,11 +2,21 @@
 
 from datetime import date
 
+import pytest
+
 import app.programs.attention.service as attention_service
 from app.core.model import Constraint, Relation
 from app.store.delays import DelayEventRow
 from tests.approval_doubles import finish_by
 from tests.schedules import make, sample, store, task
+
+
+@pytest.fixture(autouse=True)
+def today_after_the_sample(monkeypatch):
+    """시험 일정(2027)은 실제 오늘보다 뒤다 — Data Date 가 없는 일정의 실적은 「오늘」 뒤일 수 없어(리뷰) 오늘을 그 뒤로 둔다."""
+    from app.agent import context
+
+    monkeypatch.setattr(context, "today", lambda: date(2027, 12, 31))
 
 
 def items(client, admin) -> list[dict]:

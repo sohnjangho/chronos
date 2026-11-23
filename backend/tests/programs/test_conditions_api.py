@@ -1,3 +1,5 @@
+from datetime import date
+
 """조건·규칙 API (Task 18): 겹별 보기·미리 보기(저장 안 함)·확정(승인 판단)·에이전트에게 맞추게 하기.
 
 시험 일정: 2027-03-01(월) 시작, 주 5일. A 40일 → B·C 30일(둘 다 타워크레인) → D 20일.
@@ -11,6 +13,15 @@ from app.core.model import Relation, Resource
 from app.harness.conditions import Condition
 from app.store.tables import ScheduleVersion
 from tests.schedules import make, store, task
+
+
+@pytest.fixture(autouse=True)
+def today_after_the_sample(monkeypatch):
+    """시험 일정(2027)은 실제 오늘보다 뒤다 — Data Date 가 없는 일정의 실적은 「오늘」 뒤일 수 없어(리뷰) 오늘을 그 뒤로 둔다."""
+    from app.agent import context
+
+    monkeypatch.setattr(context, "today", lambda: date(2027, 12, 31))
+
 
 CRANE = Resource("crane", "타워크레인", "대", 1)
 
