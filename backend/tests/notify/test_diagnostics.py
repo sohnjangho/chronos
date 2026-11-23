@@ -10,6 +10,7 @@ from urllib.parse import quote, quote_plus
 import httpx
 import pytest
 
+from app.notify import diagnostics
 from app.notify.diagnostics import (
     DEFAULT_BASE_URL,
     MAX_REQUESTS,
@@ -68,6 +69,22 @@ class KatFake(httpx.MockTransport):
             return httpx.Response(200, json={"data": [msg("received", "inbound")],
                                              "meta": {"page": 0, "pageSize": 20, "total": 1}})
         return httpx.Response(404, json={"code": "not_found", "error": "없음"})
+
+
+PUBLIC_IP = "93.184.216.34"
+
+
+@pytest.fixture(autouse=True)
+def fake_dns(monkeypatch):
+    """시험은 이름 풀이(DNS)를 쓰지 않는다 — 모든 호스트가 공인 IP 하나로 풀린다."""
+    asked: list[str] = []
+
+    def resolve(host: str, port: int) -> list[str]:
+        asked.append(host)
+        return [PUBLIC_IP]
+
+    monkeypatch.setattr(diagnostics, "RESOLVE", resolve)
+    return asked
 
 
 def client(fake: KatFake) -> httpx.AsyncClient:
@@ -353,3 +370,103 @@ async def test_steps_accept_p_strings():
     async with client(fake) as http:
         results = await run_checks(CONN, http, steps=("P1", "p4"), sleep=no_sleep)
     assert [r.id for r in results] == ["P1", "P4"]
+
+
+# ── 리뷰 2차 ─────────────────────────────────────────────────────────
+
+
+def resolver(*addresses: str):
+    def resolve(host: str, port: int) -> list[str]:
+        return list(addresses)
+    return resolve
+
+
+@pytest.mark.parametrize("addresses", [("10.0.0.7",), (PUBLIC_IP, "192.168.0.3"), ("169.254.169.254",),
+                                       ("::1",), ("fd00::1",), ()])
+async def test_host_that_resolves_inside_is_refused(addresses):
+    conn = DiagnosticConn(base_url="https://intranet.example", key=SENTINEL_KEY, account_id=ACCOUNT,
+                          sender=FROM, test_to=TO)
+    fake = KatFake()
+    async with client(fake) as http:
+        results = await run_checks(conn, http, send_test_sms=True, sleep=no_sleep, resolve=resolver(*addresses))
+        single = await check_senders(conn, http, calls=Calls(), resolve=resolver(*addresses))
+    assert fake.requests == []
+    for r in [*results, single]:
+        assert not r.ok and not r.skipped and r.detail.startswith("bad_base_url · ") and "내부망" in r.detail
+
+
+async def test_host_that_resolves_public_only_proceeds():
+    asked: list[tuple[str, int]] = []
+
+    def resolve(host: str, port: int) -> list[str]:
+        asked.append((host, port))
+        return [PUBLIC_IP, "2606:2800:220:1:248:1893:25c8:1946"]
+
+    fake = KatFake()
+    async with client(fake) as http:
+        results = await run_checks(CONN, http, sleep=no_sleep, steps=(1,), resolve=resolve)
+    assert results[0].ok and len(fake.requests) == 1
+    assert asked == [("api.koreaaitel.com", 443)]
+
+
+@pytest.mark.parametrize("error", [OSError("no such host"), RuntimeError("boom")])
+async def test_resolver_error_fails_without_request(error):
+    def resolve(host: str, port: int) -> list[str]:
+        raise error
+
+    fake = KatFake()
+    async with client(fake) as http:
+        results = await run_checks(CONN, http, send_test_sms=True, sleep=no_sleep, resolve=resolve)
+    assert fake.requests == [] and len(results) == 4
+    for r in results:
+        assert not r.ok and not r.skipped and r.detail.startswith("resolve_failed · ") and "boom" not in r.detail
+
+
+async def test_slow_resolver_runs_out_of_time(monkeypatch):
+    import threading
+
+    gate = threading.Event()
+
+    def resolve(host: str, port: int) -> list[str]:
+        gate.wait(2)
+        return [PUBLIC_IP]
+
+    monkeypatch.setattr(diagnostics, "RESOLVE_TIMEOUT_S", 0.05)
+    fake = KatFake()
+    async with client(fake) as http:
+        results = await run_checks(CONN, http, sleep=no_sleep, steps=(1,), resolve=resolve)
+    gate.set()
+    assert fake.requests == [] and results[0].detail.startswith("resolve_failed · ")
+
+
+async def test_ip_literal_host_is_not_resolved(fake_dns):
+    conn = DiagnosticConn(base_url="https://93.184.216.34", key=SENTINEL_KEY, account_id=ACCOUNT)
+    async with client(KatFake()) as http:
+        results = await run_checks(conn, http, sleep=no_sleep, steps=(1,))
+    assert results[0].ok and fake_dns == []
+
+
+async def test_send_needs_room_for_one_status_check():
+    calls = Calls()
+    calls.sent = MAX_REQUESTS - 1
+    fake = KatFake()
+    async with client(fake) as http:
+        result, mid = await check_send_sms(CONN, http, send_test_sms=True, calls=calls)
+    assert result.skipped and not result.ok and result.detail.startswith("request_limit") and mid is None
+    assert fake.requests == [] and calls.sent == MAX_REQUESTS - 1
+
+
+@pytest.mark.parametrize("field_name", ["key", "account_id"])
+async def test_short_key_or_account_is_refused(field_name):
+    values = {"base_url": DEFAULT_BASE_URL, "key": SENTINEL_KEY, "account_id": ACCOUNT, field_name: "Ab12345"}
+    fake = KatFake()
+    async with client(fake) as http:
+        results = await run_checks(DiagnosticConn(**values), http, send_test_sms=True, sleep=no_sleep)
+    assert fake.requests == []
+    for r in results:
+        assert not r.ok and r.detail.startswith("bad_connection · ") and "8자" in r.detail
+
+
+def test_normal_key_leaves_ordinary_text_alone():
+    text = "unauthorized · HTTP 401 · status=queued · 발신번호 2개 · approved 1"
+    assert scrub(text, secrets=[SENTINEL_KEY, ACCOUNT], numbers=[FROM, TO]) == text

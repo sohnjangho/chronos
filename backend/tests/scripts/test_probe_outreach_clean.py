@@ -4,7 +4,9 @@
 """
 
 import httpx
+import pytest
 
+from app.notify import diagnostics
 from scripts.probe_outreach import Probe, run
 from tests.notify.test_diagnostics import (
     ACCOUNT,
@@ -17,6 +19,12 @@ from tests.notify.test_diagnostics import (
 )
 
 ENV = {"KAT_API_KEY": SENTINEL_KEY, "KAT_ACCOUNT_ID": ACCOUNT, "KAT_FROM": FROM, "PROBE_TO": TO}
+
+
+@pytest.fixture(autouse=True)
+def fake_dns(monkeypatch):
+    """시험은 이름 풀이(DNS)를 쓰지 않는다."""
+    monkeypatch.setattr(diagnostics, "RESOLVE", lambda host, port: ["93.184.216.34"])
 
 
 def set_env(monkeypatch, env: dict[str, str] | None) -> None:
