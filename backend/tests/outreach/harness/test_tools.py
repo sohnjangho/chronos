@@ -767,17 +767,20 @@ async def test_outbound_callee_cannot_find_or_redirect_to_another_company(sessio
     assert {e["detail"].split(" → ")[1] for e in log(session, row)[:-1]} == {"0명"}  # 사건도 「없음」과 같다
 
 
-async def test_redirect_target_must_be_in_the_callers_own_company(session, fake_channel):
-    """내부 계정은 그 현장 주소록 전체에서 찾지만, 「담당은 그 사람」으로 줄을 만드는 것은 상대 자신의 협력사 사람에게만이다."""
+async def test_redirect_target_is_anyone_the_callers_own_search_returns(session, fake_channel):
+    """넘기기 대상은 상대 자신의 find_contact 가 돌려줄 수 있는 사람 — 규칙 하나. 내부 계정은 그 현장 주소록 전체를 찾으므로
+    다른 협력사 사람에게도 줄이 생긴다(우리가 건 상대는 자기 협력사뿐 — 위 시험)."""
     w = world(session)
-    connect(session, agent_call="delegate")
+    connect(session)
     account(session, STRANGER)
     box, row = inbound(session, "call", STRANGER, purpose="타설 인원 확인")
 
     r = await box.call("find_contact", {"query": "이설비", "site": SITE_A, "redirect": True})
 
-    assert [item["contact_id"] for item in r["items"]] == [w.lee.id] and r["redirected"] is False
-    assert count(session, OutreachCall, OutreachCall.id != row.id) == 0 and fake_channel.delivered == []
+    assert [item["contact_id"] for item in r["items"]] == [w.lee.id] and r["redirected"] is True
+    made = session.scalars(select(OutreachCall).where(OutreachCall.id != row.id)).one()
+    assert (made.contact_id, made.prev_call_id, made.purpose, made.status) == (w.lee.id, row.id, "타설 인원 확인", "draft")
+    assert fake_channel.delivered == []
 
 
 async def test_notes_and_reasons_are_hidden_before_model(session):
@@ -1105,6 +1108,59 @@ async def test_identity_claim_rows_are_capped_per_conversation_not_per_name(sess
     assert sent() == 4
 
 
+async def test_texts_from_one_number_share_the_caps_for_24_hours(session, fake_channel):
+    """문자는 들어온 글 한 건이 한 줄이라, 같은 번호에서 지난 24시간에 들어온 글들이 만든 줄을 합쳐 센다 — 모르는 번호가
+    이름을 바꿔 글을 네 번 보내도 회신 줄은 모두 셋. 보고·긴급·제안도 그 번호의 24시간으로 센다. 그보다 앞의 글은 세지 않는다."""
+    w = world(session)
+    connect(session, agent_sms="delegate")
+    for n in range(3):
+        who(session, w.elec_b, f"전기공 {'가나다'[n]}", f"0100000030{n}")
+    claim_texts = lambda: count(session, OutreachMessage, OutreachMessage.direction == "out",
+                                OutreachMessage.body == tools.CLAIM_SMS)
+
+    def text(at: datetime = WORK):
+        return inbound(session, "sms", STRANGER, now=at, created_at=at)
+
+    day_before = WORK - timedelta(hours=25)
+    box, _ = text(day_before)
+    await box.call("take_message", {"text": "저예요", "claimed_name": "전기공 다"})
+    await box.call(*HELP[:2])
+    assert claim_texts() == 1 and count(session, ContactReport) == 2
+
+    said, rows = [], []
+    for name in ("박현장", "이설비", "최철근", "전기공 가"):
+        box, row = text()
+        said.append(await box.call("take_message", {"text": "저예요", "claimed_name": name}))
+        rows.append(row)
+    assert said == [{"say": "등록된 번호로 다시 연락드리겠습니다"}] * 4
+    assert claim_texts() == 1 + 3 and len(fake_channel.delivered) == 1 + 3
+    assert ["상한" in log(session, row)[-1]["detail"] for row in rows] == [False, False, False, True]
+
+    reports = [text() for _ in range(2)]  # 메모 넷 뒤 — 다섯째는 남고 여섯째는 상한
+    assert [await box.call(*MEMO[:2]) for box, _ in reports] == [MEMO[2]] * 2
+    assert count(session, ContactReport) == 2 + 5 and "상한" in log(session, reports[1][1])[-1]["detail"]
+
+    for _ in range(3):  # 하루 전 긴급 하나는 세지 않는다 — 둘까지
+        box, _ = text()
+        assert await box.call(*HELP[:2]) == HELP[2]
+    assert count(session, ContactReport, EMERGENCY) == 1 + 2
+
+    for n in range(6):
+        box, _ = text()
+        await box.call("propose_contact", {"name": f"새사람 {n}", "role_title": "반장", "phone": f"010-0000-040{n}"})
+    assert count(session, ContactProposal) == 5
+
+    elsewhere, _ = inbound(session, "sms", "01000000133", created_at=WORK)  # 같은 때의 다른 번호는 따로 센다
+    await elsewhere.call("take_message", {"text": "저예요", "claimed_name": "전기공 나"})
+    assert claim_texts() == 1 + 3 + 1 and count(session, ContactReport) == 2 + 5 + 2 + 1
+
+    for _ in range(2):  # 통화는 한 통이 한 대화 — 같은 번호의 다른 통화는 따로 센다
+        box, _ = inbound(session, "call", STRANGER, created_at=WORK)
+        for _ in range(2):
+            await box.call(*HELP[:2])
+    assert count(session, ContactReport, EMERGENCY, ContactReport.medium == "call") == 4
+
+
 @pytest.mark.parametrize("medium", ["sms", "call"])
 async def test_other_followups_do_not_use_up_the_claim_cap(session, fake_channel, medium):
     """상한은 신원 주장 회신 줄만 센다 — 같은 대화의 다시 연락 예약 줄은 세지 않는다."""
@@ -1122,30 +1178,56 @@ async def test_other_followups_do_not_use_up_the_claim_cap(session, fake_channel
     assert not any("상한" in e["detail"] for e in log(session, row))
 
 
+MEMO = ("take_message", {"text": "내일 다시 연락 주세요"}, {"say": "담당자가 확인 후 연락드리겠습니다"})
+TOLD = ("report_from_contact", {"kind": "delay", "text": "자재가 늦습니다", "quote": "모레 옵니다"},
+        {"say": "담당자가 확인하도록 전달했습니다"})
+HELP = ("handoff_to_human", {"reason": "emergency", "note": "사람이 다쳤습니다"},
+        {"transferred": False, "say": "담당자가 다시 연락드리겠습니다"})
+EMERGENCY = ContactReport.kind == "emergency"
+
+
 @pytest.mark.parametrize("medium", ["sms", "call"])
 async def test_reports_are_capped_per_conversation(session, medium):
-    """보고·메모·긴급 알림은 한 대화에 다섯 줄까지 — 여섯째부터는 답은 같고 줄이 없다."""
+    """보고·메모는 한 대화에 다섯 줄까지 — 여섯째부터는 답은 같고 줄이 없다."""
     world(session)
     connect(session)
     box, row = inbound(session, medium, PHONE)
-    memo = ("take_message", {"text": "내일 다시 연락 주세요"}, {"say": "담당자가 확인 후 연락드리겠습니다"})
-    told = ("report_from_contact", {"kind": "delay", "text": "자재가 늦습니다", "quote": "모레 옵니다"},
-            {"say": "담당자가 확인하도록 전달했습니다"})
-    help_ = ("handoff_to_human", {"reason": "emergency", "note": "사람이 다쳤습니다"},
-             {"transferred": False, "say": "담당자가 다시 연락드리겠습니다"})
 
-    for name, args, answer in (memo, told, help_, told, memo):
+    for name, args, answer in (MEMO, TOLD, TOLD, TOLD, MEMO):
         assert await box.call(name, args) == answer
     assert count(session, ContactReport) == 5
 
-    for name, args, answer in (told, memo, help_):
+    for name, args, answer in (TOLD, MEMO):
         assert await box.call(name, args) == answer  # 답은 그대로
     again = boxed(box.scope, row, "contact")
-    assert await again.call(*told[:2]) == told[2]
+    assert await again.call(*TOLD[:2]) == TOLD[2]
 
     assert count(session, ContactReport) == 5
-    assert ["상한" in e["detail"] for e in log(session, row)] == [False] * 5 + [True] * 4
+    assert ["상한" in e["detail"] for e in log(session, row)] == [False] * 5 + [True] * 3
     assert {e["verdict"] for e in log(session, row)} == {"allowed"}
+
+
+@pytest.mark.parametrize("medium", ["sms", "call"])
+async def test_emergency_reports_have_their_own_cap(session, medium):
+    """긴급 알림은 보통 보고의 다섯에 들지 않는다 — 보고 다섯 뒤에도 긴급은 남고, 긴급은 따로 둘까지(모르는 번호가 긴급으로
+    넘치게 하지 못한다). 긴급 둘이 보통 보고 자리를 먹지도 않는다."""
+    world(session)
+    connect(session)
+    box, _ = inbound(session, medium, PHONE)
+
+    for name, args, answer in (MEMO, TOLD, TOLD, TOLD, MEMO, HELP):
+        assert await box.call(name, args) == answer
+    assert count(session, ContactReport) == 6 and count(session, ContactReport, EMERGENCY) == 1
+
+    stranger, other = inbound(session, medium, STRANGER)
+    for _ in range(4):
+        assert await stranger.call(*HELP[:2]) == HELP[2]
+    for _ in range(6):  # 긴급 둘 뒤에도 보통 메모는 다섯 줄 그대로 남는다(여섯째만 상한)
+        assert await stranger.call(*MEMO[:2]) == MEMO[2]
+
+    mine = ContactReport.message_id == other.id if medium == "sms" else ContactReport.call_id == other.id
+    assert count(session, ContactReport, mine, EMERGENCY) == 2 and count(session, ContactReport, mine) == 2 + 5
+    assert ["상한" in e["detail"] for e in log(session, other)] == [False, False, True, True] + [False] * 5 + [True]
 
 
 @pytest.mark.parametrize("medium", ["sms", "call"])

@@ -6,7 +6,8 @@
   사실도 본인 요청도 사람 찾기도 가지 않는다. 호출마다 범위의 짝이 지금도 있고 보이는지 다시 본다(사라지면 범위가 닫힌다).
 - 빈 범위는 「줄 없음」이다: 일정·협력사가 비면 저장소를 읽기 전에 빈 결과·거절을 돌려준다. 저장소의 「조건 없음」(None)은
   범위가 정말 그 현장 전부일 때만(사실 수준 all — 내부 등급) 넘긴다. 그 밖의 모든 등급은 — **우리가 건 통화의 상대도** —
-  사람 찾기가 자기 협력사(scope.company_ids) 안이고, 「담당은 그 사람」으로 줄을 만드는 것도 자기 협력사 사람에게만이다.
+  사람 찾기가 자기 협력사(scope.company_ids) 안이다. 「담당은 그 사람」으로 줄을 만드는 대상은 그 상대의 찾기 결과 안의 사람뿐
+  (규칙 하나 — 내부는 그 현장 전체, 나머지는 자기 협력사).
 - 등급은 상대에서 읽는다(box.caller_class — Caller.caller_class). Scope 안의 등급 칸은 읽지 않는다. 상자에 넣는 도구(names)는
   그 등급·매체의 묶음(toolsets.for_class) 안이어야 한다 — 세션이 묶음을 잘못 넘겨도 모르는 번호에게 일정 도구가 가지 않는다.
 - 전화번호는 인자(새 연락처 제안의 번호 하나)로만 들어오고 결과·사건·오류 어디에도 나가지 않는다. 번호는 줄에서 코드가 읽고,
@@ -19,9 +20,9 @@
   것도 여기), 돌리지 않았으면 TOOL_REFUSALS 의 까닭 하나(blocked). 현장을 굳힌 호출에는 그 앞에 `site_pinned`(noted)가 하나 더
   있다. 전환을 나가는 문이 막으면 문의 판정(막은 차례 이름, blocked)을 이 줄에 따로 남기고, 위임으로 내보낸 후속 줄은 문이
   그 줄에 자기 판정을 남긴다. 남긴 뒤 곧바로 commit 하고, 문·통화 손잡이는 commit 한 뒤에 부른다(DB 를 쥐고 부르지 않는다).
-- 한 대화(한 줄 — Ref)가 만들 수 있는 줄에는 상한이 있다(아래 MAX_* 한 묶음): 신원 주장 회신 줄, 보고·메모, 제안, 답.
-  **그 줄에 딸려 저장된 줄을 세므로** 다음 차례에 상자를 새로 만들어도 이어서 센다. 넘으면 답은 평소와 같고 줄은 만들지 않으며
-  사건 detail 에 「상한」을 적는다.
+- 한 대화가 만들 수 있는 줄에는 상한이 있다(아래 MAX_* 한 묶음): 신원 주장 회신 줄, 보고·메모, 긴급 알림(따로), 제안, 답.
+  한 대화는 통화면 그 한 통, 문자면 **같은 번호에서 지난 24시간에 들어온 글들**(답만은 그 글 한 줄). **저장된 줄을 세므로**
+  다음 차례에 상자를 새로 만들어도 이어서 센다. 넘으면 답은 평소와 같고 줄은 만들지 않으며 사건 detail 에 「상한」을 적는다.
 - call 밖으로 예외가 나가지 않는다(취소만 지나간다): 붙을 줄이 지워졌거나(일정 지우기), DB 가 바쁘거나, 후속·도구가 무엇으로
   터져도 로그에는 예외의 종류만 남기고 모델에게는 정해 둔 한 줄({"error": ERR_BUSY})만 준다.
 - 후속(회신·다시 연락·담당자에게)은 같은 매체의 새 줄이다: 권한이 「승인 받기」면 초안, 「위임」이면 gate.dispatch(때를 정한
@@ -95,11 +96,14 @@ HANDOFF_TEXT = {"asked_for_person": "사람 담당자를 찾음", "out_of_scope"
 HANDOFF_KIND = {"emergency": "emergency", "schedule_change": "change_request"}  # 그 밖은 message
 TRANSFER_CLASSES = frozenset({"internal", "contact", "contact_multi", "shared", "outbound"})  # 내부·연락처 쪽
 FIND_LIMIT, CLAIM_MATCHES = 5, 3
-# 한 대화(한 줄 — Ref)가 만들 수 있는 줄 수의 상한. 그 줄에 딸려 저장된 줄을 센다(상자를 새로 만들어도 이어진다).
+# 한 대화가 만들 수 있는 줄 수의 상한. 저장된 줄을 센다(상자를 새로 만들어도 이어진다). 한 대화는 통화면 그 한 통,
+# 문자면 같은 번호(peer_number)에서 TEXT_WINDOW 안에 들어온 글들 — 답(MAX_ANSWERS)만은 그 글 한 줄.
 MAX_CLAIM_ROWS = 3  # 신원 주장으로 등록된 번호에 가는 회신 줄 — 이름마다가 아니라 모두 합쳐
-MAX_REPORTS = 5  # 보고·메모·긴급 알림(contact_reports)
+MAX_REPORTS = 5  # 보고·메모(contact_reports, 긴급 알림 밖)
+MAX_EMERGENCY_REPORTS = 2  # 긴급 알림(contact_reports kind emergency) — 보통 보고 다섯이 긴급을 막지 못하게 따로
 MAX_PROPOSALS = 5  # 새 연락처·언어 제안(contact_proposals)
 MAX_ANSWERS = 20  # 답(answers_json): 그 줄에 질문이 있으면 질문 수까지, 없으면 이 값
+TEXT_WINDOW = timedelta(hours=24)  # 문자 대화로 묶는 동안
 OVER = "상한"  # 상한에 닿아 줄을 만들지 않았을 때 사건 detail 에 적는 말
 CLAIM_KEY = "claim:"  # 신원 주장 회신 통화의 purpose_key 머리(뒤에 그 연락처 id)
 REQUEST_DAYS, REQUEST_LIMIT, REQUEST_TEXT = 7, 5, 200
@@ -355,14 +359,28 @@ class Toolbox:
         events.record(session, self.ref, "site_pinned", "noted", _hide(sites[chosen]), now=self.now())
         return None
 
-    def room(self, session: Session, model: type[ContactReport] | type[ContactProposal], cap: int) -> bool:
-        """이 줄(Ref)에 딸린 그 표의 줄이 상한보다 적은가 — 저장된 줄을 센다(상자를 새로 만들어도 이어진다)."""
+    def conversation(self, session: Session) -> Any:
+        """상한을 세는 대화의 줄 id 들: 통화는 이 통화 한 줄, 문자는 이 글과 같은 번호에서 TEXT_WINDOW 안에 들어온 글들
+        (들어온 문자 한 건이 한 줄이라 — 번호가 적히지 않은 줄이면 이 글 하나)."""
+        if self.ref.kind == "call" or (key := self.row(session).peer_number) is None:
+            return [self.ref.row_id]
+        return select(OutreachMessage.id).where(or_(
+            OutreachMessage.id == self.ref.row_id,
+            (OutreachMessage.peer_number == key) & (OutreachMessage.direction == "in")
+            & (OutreachMessage.created_at >= self.now() - TEXT_WINDOW)))
+
+    def room(self, session: Session, model: type[ContactReport] | type[ContactProposal], cap: int, *where: Any) -> bool:
+        """이 대화에 딸린 그 표의 줄(where 로 더 좁힘)이 상한보다 적은가 — 저장된 줄을 센다."""
         back = model.call_id if self.ref.kind == "call" else model.message_id
-        return (session.scalar(select(func.count(model.id)).where(back == self.ref.row_id)) or 0) < cap
+        counted = select(func.count(model.id)).where(back.in_(self.conversation(session)), *where)
+        return (session.scalar(counted) or 0) < cap
 
     def report(self, session: Session, kind: str, text: str, quote: str = "") -> str:
-        """보고 한 줄(한 대화에 MAX_REPORTS 줄까지). 돌려주는 것은 사건에 적을 한마디."""
-        if not self.room(session, ContactReport, MAX_REPORTS):
+        """보고 한 줄(한 대화에 MAX_REPORTS 줄까지, 긴급 알림은 따로 MAX_EMERGENCY_REPORTS 줄까지). 돌려주는 것은 사건에
+        적을 한마디."""
+        urgent = kind == "emergency"
+        if not self.room(session, ContactReport, MAX_EMERGENCY_REPORTS if urgent else MAX_REPORTS,
+                         (ContactReport.kind == "emergency") if urgent else (ContactReport.kind != "emergency")):
             return f"보고는 {OVER}이라 남기지 않음"
         person = self.person(session)
         outreach.add_report(session, schedule_id=self.sid, medium=self.medium, contact_id=person.id if person else None,
@@ -452,10 +470,10 @@ def _find_contact(box: Toolbox, session: Session, a) -> _Step:
 
 
 def _redirect(box: Toolbox, session: Session, target: Contact, step: _Step) -> None:
-    """상대가 「담당은 그 사람」이라고 알려 줌 → 그 사람에게 같은 매체의 후속 줄. 상대 자신의 협력사 사람에게만, 물려줄 것이
-    있을 때, 한 번만."""
+    """상대가 「담당은 그 사람」이라고 알려 줌 → 그 사람에게 같은 매체의 후속 줄. target 은 상대 자신의 범위로 돈 찾기의 결과
+    하나뿐이다(찾기가 돌려줄 수 있는 사람에게만 — 등급마다 따로 가르지 않는다). 물려줄 것이 있을 때, 한 번만."""
     me, fields = box.person(session), _carried(box, session)
-    if fields is None or target.company_id not in box.scope.company_ids or (me is not None and me.id == target.id):
+    if fields is None or (me is not None and me.id == target.id):
         step.note += " · 후속 없음"
         return
     model, back = (OutreachCall, OutreachCall.prev_call_id) if box.ref.kind == "call" else (OutreachMessage,
@@ -555,12 +573,12 @@ def _reached_already(session: Session, person: Contact, since: datetime) -> bool
 
 
 def _claim_rows(box: Toolbox, session: Session) -> int:
-    """이 줄(Ref)에서 이미 만든 신원 주장 회신 줄 수 — 저장된 줄을 센다."""
+    """이 대화(통화는 이 통화, 문자는 같은 번호의 24시간)에서 이미 만든 신원 주장 회신 줄 수 — 저장된 줄을 센다."""
     if box.ref.kind == "call":
         made = select(func.count(OutreachCall.id)).where(OutreachCall.prev_call_id == box.ref.row_id,
                                                          OutreachCall.purpose_key.startswith(CLAIM_KEY, autoescape=True))
     else:
-        made = select(func.count(OutreachMessage.id)).where(OutreachMessage.reply_to_id == box.ref.row_id,
+        made = select(func.count(OutreachMessage.id)).where(OutreachMessage.reply_to_id.in_(box.conversation(session)),
                                                             OutreachMessage.origin == "agent", OutreachMessage.body == CLAIM_SMS)
     return session.scalar(made) or 0
 
