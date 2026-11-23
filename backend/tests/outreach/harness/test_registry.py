@@ -384,7 +384,7 @@ def test_pin_scanner_catches_every_form(tmp_path):
 
 
 def test_no_app_module_pins_channels():
-    assert registry.SANDBOX_MODULES == frozenset()  # 뒤 작업이 모래상자 실행 모듈 이름을 여기에 더한다
+    assert registry.SANDBOX_MODULES == frozenset({"app.outreach.scenarios.drive_text"})  # 모래상자 실행 모듈(Task 86 구동기)
     app_dir = BACKEND / "app"
     offenders = {}
     for path in sorted(app_dir.rglob("*.py")):

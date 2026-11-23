@@ -20,7 +20,7 @@ from app.outreach.harness.types import CHANNELS, Channel, NotReady
 
 CHANNEL_NAMES = CHANNELS
 SANDBOX_ENV = "CHRONOS_HARNESS_SANDBOX"
-SANDBOX_MODULES: frozenset[str] = frozenset()  # pinned 를 불러도 되는 app 모듈(모래상자 실행기) — 지금은 없음
+SANDBOX_MODULES: frozenset[str] = frozenset({"app.outreach.scenarios.drive_text"})  # pinned 를 불러도 되는 app 모듈(모래상자 실행기 — 상황 대본 구동기, Task 86)
 _CHANNELS: dict[str, Channel] = {}
 _PINNED: list[Mapping[str, Channel]] = []
 
