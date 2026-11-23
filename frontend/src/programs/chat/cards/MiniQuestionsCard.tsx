@@ -90,12 +90,20 @@ function QuestionRow({
 /** 질문 두 개 이하(ask.questionnaire 의 카드 모드). 고르거나 적은 답을 한 번에 대화로 보낸다. */
 export default function MiniQuestionsCard({ data, ctx }: CardProps) {
   const questions = asList(data.questions).map(read);
+  const closed = asText(data.closed); // 서버가 닫은 질문(현장 관리자의 새 일정 질문 등) — 답을 받지 않는다
   const [answers, setAnswers] = useState<Record<string, Answer | undefined>>({});
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
   async function submit() {
     if (state !== 'idle' || questions.length === 0) return;
     setState('sending');
     setState((await ctx.sendText(answerText(questions, answers))) ? 'sent' : 'idle');
+  }
+  if (closed) {
+    return (
+      <Card title={asText(data.title) || '확인할 것'}>
+        <p className="ch-muted ch-wrap">{`닫힌 질문입니다 — ${closed}`}</p>
+      </Card>
+    );
   }
   return (
     <Card title={asText(data.title) || '확인할 것'}>

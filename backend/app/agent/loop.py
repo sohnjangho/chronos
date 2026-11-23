@@ -22,7 +22,9 @@ import traceback
 from collections.abc import AsyncIterator, Coroutine, Sequence
 from contextlib import aclosing
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agent import image_turn, turns
@@ -43,7 +45,7 @@ from app.store import approvals, chats, questionnaires, skills
 from app.store import settings as settings_store
 from app.store.llm_usage import UsageSum, last_call_id, usage_since
 from app.store.messages import FIELD_READ_ONLY_MESSAGE
-from app.store.tables import User
+from app.store.tables import QuestionnaireRecord, User, WorkflowRun, WorkflowStep
 from app.tools import registry
 from app.tools.context import ToolContext
 
@@ -225,6 +227,8 @@ class _Turn:
         self.enable_skill_match = bool(cfg["enable_skill_match"])
         self.enable_self_reflection = bool(cfg["enable_self_reflection"])
         self.calls_before = last_call_id(self.session)
+        if self.user.role == "field":  # 남아 있던 새 일정 질문은 닫는다 — 이 계정으로는 새 일정을 만들 수 없다(F4)
+            _close_generate_questions(self.session, self.chat_id)
         button = IMPORT_BUTTON.fullmatch((text or "").strip())
         self.import_file = button.group(1) if button else None
         chat = chats.get_chat(self.session, self.chat_id)
@@ -578,6 +582,50 @@ class _Turn:
     def cancel_task(self) -> None:
         if self.task is not None and not self.task.done():
             self.task.cancel()
+
+
+def _loaded(text: str | None) -> dict:
+    try:
+        value = json.loads(text or "{}")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _close_generate_questions(session: Session, chat_id: int) -> None:
+    """현장 관리자의 턴 앞: 이 대화에서 새 일정 질문(ask.questionnaire purpose generate)을 기다리던 실행을 끝내고(stopped),
+    그 질문 카드·질문지를 닫는다 — 까닭(역할 거절 글)은 질문 단계 출력과 카드 data 의 closed 에 남는다(재확인 2 #45).
+    commit 은 부르는 쪽(begin)이 한다."""
+    runs = session.scalars(select(WorkflowRun).where(WorkflowRun.chat_session_id == chat_id, WorkflowRun.status == "waiting"))
+    titles: set[str] = set()
+    ids: set[int] = set()
+    for run in runs:
+        steps = session.scalars(select(WorkflowStep).where(WorkflowStep.run_id == run.id,
+                                                           WorkflowStep.tool == "ask.questionnaire"))
+        asks = [s for s in steps if _loaded(s.input_json).get("purpose") == "generate"]
+        if not asks:
+            continue
+        run.status, run.ended_at = "stopped", datetime.now(UTC)
+        for step in asks:
+            out = _loaded(step.output_json)
+            step.output_json = json.dumps({**out, "closed": FIELD_READ_ONLY_MESSAGE}, ensure_ascii=False)
+            titles.add(str(_loaded(step.input_json).get("title")))
+            if out.get("mode") == "questionnaire" and isinstance(out.get("id"), int):
+                ids.add(out["id"])
+    if not titles:
+        return
+    for qid in ids:
+        record = session.get(QuestionnaireRecord, qid)
+        if record is not None and record.status == "open":
+            record.status = "closed"
+    for message in chats.messages(session, chat_id):
+        content = message.content_json if isinstance(message.content_json, dict) else {}
+        data = content.get("data") if message.role == "event" else None
+        if not isinstance(data, dict):
+            continue
+        card = content.get("type") == "card" and data.get("kind") == "mini_questions" and data.get("title") in titles
+        if card or (content.get("type") == "questionnaire" and data.get("id") in ids):
+            message.content_json = {**content, "data": {**data, "closed": FIELD_READ_ONLY_MESSAGE}}
 
 
 def _checked_card(session: Session, chat_id: int, file_id: str, sheet: object) -> dict | None:

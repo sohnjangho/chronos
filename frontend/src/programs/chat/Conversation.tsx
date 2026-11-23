@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getProgram } from '../../os/registry';
+import { useSession } from '../../os/session';
 import { useWindows } from '../../os/windowStore';
 import Button from '../../shared/ui/Button';
 import { asList, asObj, asText } from './cards/Card';
@@ -164,6 +165,7 @@ function useStickToBottom(dep: unknown, sessionId: number | null) {
 
 /** 가운데 대화: 내 말은 오른쪽 말풍선, 에이전트 답은 본문(도구 한 줄 · 글 · 카드). */
 export default function Conversation() {
+  const field = useSession((s) => s.session?.user.role === 'field'); // 현장 관리자는 새 일정을 만들 수 없다 — 현장 일을 권한다
   const currentId = useChat((s) => s.currentId);
   const thread = useChat((s) => (s.currentId === null ? undefined : s.threads[s.currentId]));
   const { ref, onScroll } = useStickToBottom(thread, currentId);
@@ -185,7 +187,11 @@ export default function Conversation() {
       <div className="ch-scroll" ref={ref} onScroll={onScroll}>
         <div className="ch-thread" role="log" aria-label="대화 내용">
           {items.length === 0 && retries.length === 0 && !thread?.notice && (
-            <p className="ch-empty">일정을 만들거나, 지연 영향을 묻거나, 고른 액티비티에 대해 물어보세요.</p>
+            <p className="ch-empty">
+              {field
+                ? '오늘 한 일과 진도를 알려 주거나, 오늘 작업에 대해 물어보세요.'
+                : '일정을 만들거나, 지연 영향을 묻거나, 고른 액티비티에 대해 물어보세요.'}
+            </p>
           )}
           {items.map((it) =>
             it.kind === 'user' ? (

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react';
 import type { ProgramProps } from '../../os/registry';
+import { useSession } from '../../os/session';
 import Button from '../../shared/ui/Button';
 import AttachButton from './AttachButton';
 import { useAttach } from './attachStore';
@@ -45,7 +46,12 @@ function SendOrStop({ streaming, stopping, empty }: { streaming: boolean; stoppi
 const composed = new WeakSet<object>();
 const attachedParams = new WeakSet<object>();
 
+/** 입력칸 예시 — 현장 관리자는 새 일정을 만들 수 없어(서버가 거절) 현장 일을 예로 든다. */
+export const PLACEHOLDER = '무엇을 도와드릴까요? 예: 전고체 배터리 R&D 일정 짜줘 · 인허가 스케줄 만들어 줘';
+export const FIELD_PLACEHOLDER = '무엇을 도와드릴까요? 예: A1110 오늘 30% 진행했어 · 오늘 내 작업이 뭐야?';
+
 export default function Composer({ params }: { params?: ProgramProps['params'] }) {
+  const field = useSession((s) => s.session?.user.role === 'field');
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
 
@@ -127,7 +133,7 @@ export default function Composer({ params }: { params?: ProgramProps['params'] }
         <FileChips items={items} notice={attachNotice} onRemove={(id) => useAttach.getState().remove(id)} />
         <textarea
           aria-label="에이전트에게 요청"
-          placeholder="무엇을 도와드릴까요? 예: 전고체 배터리 R&D 일정 짜줘 · 인허가 스케줄 만들어 줘"
+          placeholder={field ? FIELD_PLACEHOLDER : PLACEHOLDER}
           value={text}
           rows={2}
           onChange={(e) => setText(e.target.value)}

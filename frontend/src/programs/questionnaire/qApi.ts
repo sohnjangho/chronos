@@ -42,7 +42,8 @@ export interface QView {
   id: number;
   title: string;
   purpose: string;
-  status: 'open' | 'submitted';
+  /** closed: 서버가 닫은 질문지(현장 관리자의 새 일정 질문 등) — 답할 수 없다. */
+  status: 'open' | 'submitted' | 'closed';
   round: number;
   /** 이 질문지를 만든 대화. 대화 밖에서 만들었으면 null. */
   chat_session_id: number | null;

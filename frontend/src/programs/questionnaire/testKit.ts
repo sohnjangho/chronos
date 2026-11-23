@@ -83,7 +83,7 @@ export const PREFILLED = [
 export interface FakeState {
   questions: FakeQuestion[];
   answers: Record<string, string>;
-  status: 'open' | 'submitted';
+  status: 'open' | 'submitted' | 'closed';
   chat_session_id: number | null;
 }
 

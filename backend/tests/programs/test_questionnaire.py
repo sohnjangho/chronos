@@ -277,3 +277,11 @@ def test_store_create_rejects_a_bad_prefilled_dict(session):
             session, purpose="generate", title="t", questions=[Question.model_validate(FINISH)], prefilled=[{"label": "분야"}], domain=None, level=None
         )
     assert session.query(QuestionnaireRecord).count() == 0
+
+
+def test_a_closed_questionnaire_reads_as_closed_and_takes_no_answers(client, admin, session, qid):
+    """재확인 2(#45): 현장 관리자의 새 일정 질문을 닫은 질문지(status closed)는 읽히고(closed) 답·제출은 받지 않는다."""
+    session.get(QuestionnaireRecord, qid).status = "closed"
+    session.commit()
+    assert client.get(f"/api/questionnaires/{qid}", headers=admin).json()["status"] == "closed"
+    assert client.post(f"/api/questionnaires/{qid}/submit", headers=admin).status_code == 409

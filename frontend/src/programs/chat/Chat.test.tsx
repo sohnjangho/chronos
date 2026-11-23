@@ -634,3 +634,23 @@ describe('tablet 3-pane layout', () => {
     expect(screen.queryByRole('button', { name: '컨텍스트' })).toBeNull();
   });
 });
+
+// 재확인 2: 현장 관리자에게는 할 수 없는 일(일정 만들기)을 권하지 않는다 — 빈 대화 안내와 입력칸 예시가 현장 일이다.
+describe('field role hints', () => {
+  test('the field manager sees field examples, not schedule creation', async () => {
+    setup();
+    act(() => signInAsDemo('field', '박현장', 'site1', 3));
+    renderAt(900);
+    const box = await screen.findByRole('textbox', { name: '에이전트에게 요청' });
+    expect(box.getAttribute('placeholder')).not.toMatch(/일정 짜|스케줄 만들/);
+    expect(box).toHaveAttribute('placeholder', '무엇을 도와드릴까요? 예: A1110 오늘 30% 진행했어 · 오늘 내 작업이 뭐야?');
+    expect(screen.getByText('오늘 한 일과 진도를 알려 주거나, 오늘 작업에 대해 물어보세요.')).toBeVisible();
+  });
+
+  test('other roles keep the schedule examples', async () => {
+    setup();
+    renderAt(900);
+    const box = await screen.findByRole('textbox', { name: '에이전트에게 요청' });
+    expect(box.getAttribute('placeholder')).toMatch(/일정 짜줘/);
+  });
+});

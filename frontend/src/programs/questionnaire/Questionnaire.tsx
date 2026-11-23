@@ -33,7 +33,11 @@ export default function Questionnaire({ windowId, params }: ProgramProps) {
   const session = fromParams ?? view.chat_session_id;
   return (
     <div className="qn-root">
-      {view.status === 'submitted' ? (
+      {view.status === 'closed' ? (
+        <p className="qn-closed" role="status">
+          닫힌 질문지입니다 — 이 계정으로는 새 일정을 만들 수 없습니다.
+        </p>
+      ) : view.status === 'submitted' ? (
         <Submitted view={view} notice={doneNote} />
       ) : (
         <Answering

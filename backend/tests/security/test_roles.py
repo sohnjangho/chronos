@@ -250,3 +250,51 @@ def test_field_role_cannot_open_contacts(client, field_user, sid, method, path, 
 @pytest.mark.parametrize("who", ["user", "admin"])
 def test_user_and_admin_open_contacts(client, request, sid, who):
     assert client.get(f"/api/schedules/{sid}/contacts", headers=request.getfixturevalue(who)).status_code == 200
+
+
+async def test_a_field_answer_to_a_leftover_new_project_question_closes_its_run_and_card(session, sid):
+    """재확인 2(#45): 고치기 전에 열린 새 일정 질문(purpose generate)에 현장 관리자가 답하면 — 그 실행을 끝내고(stopped, 까닭은
+    역할 거절 글) 질문 카드를 닫는다. 실행이 waiting 으로 남지 않는다."""
+    from app.store.tables import ChatMessage, WorkflowStep
+
+    ctx = _ctx(session, sid, "field")
+    add_connection(session)
+    chat = chats.create_chat(session, user_id=ctx.user.id)
+    ask = {"purpose": "generate", "title": "새 프로젝트 — 분야와 범위", "questions": [QUESTION]}
+    run_row = WorkflowRun(chat_session_id=chat.id, title="새 프로젝트 하나 만들어 줘", request="새 프로젝트 하나 만들어 줘",
+                          status="waiting")
+    session.add(run_row)
+    session.flush()
+    session.add(WorkflowStep(run_id=run_row.id, n=1, tool="ask.questionnaire", program="questionnaire", why="",
+                             status="done", input_json=json.dumps(ask, ensure_ascii=False),
+                             output_json=json.dumps({"mode": "card", "questions": [QUESTION]}, ensure_ascii=False)))
+    card = chats.add_message(session, chat.id, "event", {"type": "card", "data": {
+        "kind": "mini_questions", "title": ask["title"], "questions": [QUESTION]}})
+    session.commit()
+
+    llm = ScriptedLlm([reply("이 계정으로는 새 일정을 만들 수 없습니다.")])
+    client = LlmClient(session, transport=llm.transport)
+    [e async for e in run_turn(session, ctx.user, chat.id, "카드 질문에 답합니다.\n- 어떤 일정인가요?: 건설",
+                               UiContext(None, None, None), llm=client)]
+
+    session.expire_all()
+    closed = session.get(WorkflowRun, run_row.id)
+    assert closed.status == "stopped" and closed.ended_at is not None
+    step = session.scalars(select(WorkflowStep).where(WorkflowStep.run_id == run_row.id)).one()
+    assert json.loads(step.output_json)["closed"] == FIELD_ONLY
+    assert session.get(ChatMessage, card.id).content_json["data"]["closed"] == FIELD_ONLY
+
+
+async def test_a_user_answer_still_resumes_the_question(session, sid):
+    """사용자 역할은 그대로 — 기다리던 실행을 닫지 않는다."""
+    ctx = _ctx(session, sid, "user")
+    add_connection(session)
+    chat = chats.create_chat(session, user_id=ctx.user.id)
+    run_row = WorkflowRun(chat_session_id=chat.id, title="x", request="x", status="waiting")
+    session.add(run_row)
+    session.commit()
+    llm = ScriptedLlm([reply("네")])
+    [e async for e in run_turn(session, ctx.user, chat.id, "건설", UiContext(None, None, None),
+                               llm=LlmClient(session, transport=llm.transport))]
+    session.expire_all()
+    assert session.get(WorkflowRun, run_row.id).status == "waiting"

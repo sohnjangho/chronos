@@ -433,3 +433,11 @@ function holdFirstPatch(over: Parameters<typeof setup>[0] = {}) {
 function writes(): string[] {
   return fetchMock.mock.calls.map(([u, init]) => `${init?.method ?? 'GET'} ${String(u)}`).filter((x) => !x.startsWith('GET'));
 }
+
+// 재확인 2(#45): 현장 관리자의 답으로 닫힌 새 일정 질문지(status closed)는 답할 칸 없이 닫혔다고만 보인다.
+test('a closed questionnaire shows that it is closed and no answers', async () => {
+  setup({ status: 'closed' });
+  render(<Questionnaire windowId="w1" params={PARAMS} />);
+  expect(await screen.findByText('닫힌 질문지입니다 — 이 계정으로는 새 일정을 만들 수 없습니다.')).toBeVisible();
+  expect(screen.queryByRole('navigation', { name: '질문 목차' })).toBeNull();
+});

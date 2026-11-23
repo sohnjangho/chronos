@@ -263,3 +263,11 @@ test.skipIf(!fs.existsSync(BACKEND))('every card kind the backend emits has a ca
   const missing = [...kinds].filter((k) => !CARDS[`card:${k}`]).sort();
   expect(missing).toEqual([]);
 });
+
+// 재확인 2(#45): 현장 관리자의 답으로 닫힌 새 일정 질문 카드는 닫힌 까닭을 보이고 답을 받지 않는다.
+test('a closed mini question card shows why and takes no answer', () => {
+  const closed = '현장 관리자는 일정을 고치거나 승인·거부할 수 없습니다.';
+  renderCard('card', { kind: 'mini_questions', title: '새 프로젝트 — 분야와 범위', questions: [{ id: 'kind', question: '어떤 일정인가요?', options: [], assumption: '건설' }], closed });
+  expect(screen.getByText(`닫힌 질문입니다 — ${closed}`)).toBeVisible();
+  expect(screen.queryByRole('button', { name: '답 보내기' })).toBeNull();
+});
