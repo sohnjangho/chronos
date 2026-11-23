@@ -198,9 +198,11 @@ def _word(value: object, default: str) -> str:
 
 def _sdk_error(e: Exception) -> tuple[str, object, str]:
     """SDK 예외에서 남길 것: (짧은 코드, HTTP 상태, 접어 보일 글). 예외 글은 버린다 — 계정·번호가 든다."""
-    code, status = _word(getattr(e, "code", None), ""), getattr(e, "status", None)
-    status = status if type(status) is int else None
-    return code, status, f"예외: {type(e).__name__} · code={code or '-'} · HTTP {status or '-'}"
+    code, raw = _word(getattr(e, "code", None), ""), getattr(e, "status", None)
+    raw = raw if type(raw) is int else None
+    # 4xx 만 「플랫폼이 거절 — 걸리지 않음」. 5xx(통화를 만든 뒤 프록시가 낸 오류일 수 있다)·2xx(만들었는데 답을 못 읽음)는 모름
+    status = raw if raw is not None and 400 <= raw < 500 else None
+    return code, status, f"예외: {type(e).__name__} · code={code or '-'} · HTTP {raw or '-'}"
 
 
 def _secret_problem(value: object, name: str) -> str:
@@ -358,7 +360,7 @@ class _Run:
             agent = self.sdk.ClawOpsAgent(
                 api_key=self.conn.key, account_id=self.conn.account_id, base_url=self.conn.base_url.rstrip("/"),
                 from_=self.number, session_factory=self.session, builtin_tools=self.sdk.BuiltinTool.NONE,
-                recording=False)
+                recording=False, prewarm_enabled=False)  # prewarm 은 첫 인사 받아쓰기를 버린다(_BufferingCall)
             self.agent = agent
             agent.on_incoming(self.screen)  # 연결 전에 건다 — 훅이 없으면 SDK 는 걸려 온 통화를 모두 받는다
             for name in ("call_start", "call_end", "call_failed", "transcript"):

@@ -21,7 +21,7 @@ import pytest
 
 from app.outreach import redact
 from app.outreach.harness.types import NotReady
-from app.outreach.voice import kat_sdk, numbers
+from app.outreach.voice import call_run, kat_sdk, numbers
 from app.outreach.voice import session as voice_session
 from app.outreach.voice.session import (
     END_AGENT,
@@ -154,7 +154,15 @@ class FakeCall:
         mode = self.agent.sdk.hangup
         if mode == "hang":
             await World.hang()
-        if mode == "works" and self.started and not self.over:  # 실제 SDK 도 받기 전에는 끊지 못한다
+        if mode == "slow":  # 실제 SDK 의 graceful_close: 보낸 소리가 다 나갈 때까지(mark) 5초까지 기다린 뒤 닫는다
+            done, world = asyncio.Event(), self.agent.sdk.world
+
+            async def played() -> None:
+                done.set()
+
+            world.at(world.ms + 6000, played)
+            await asyncio.wait_for(done.wait(), REAL_GUARD_S)
+        if mode in ("works", "slow") and self.started and not self.over:  # 실제 SDK 도 받기 전에는 끊지 못한다
             await self.agent.emit(self, "call_end")
 
     async def transfer(self, to: str, **kw) -> dict:
@@ -219,7 +227,7 @@ class FakeAgent:
         if isinstance(script, BaseException):
             raise script
         self.kw["session_factory"]()  # 실제 SDK 의 팩토리 모드: 통화마다 세션 하나
-        call = FakeCall(self, f"CA{len(self.calls):04d}")
+        call = FakeCall(self, f"{self.sdk.call_prefix}{len(self.calls):04d}")
         self.calls.append(call)
         world = self.sdk.world
         for ms, kind, *args in script:
@@ -237,7 +245,9 @@ class FakeAgent:
             try:
                 raise LiveError(f"HTTP 404 for model, caller {SENTINEL_PHONE}")
             except LiveError:
-                SDK_LOG.error("Session start failed for %s: %s", call.call_id, "HTTP 404", exc_info=True)
+                # 앱의 로그 거르개는 줄을 만들 때 번호처럼 보이는 것을 가린다 — 통화 id 도 가려진 채로 올 수 있다
+                SDK_LOG.error("Session start failed for %s: %s", redact.hide_phones(call.call_id), "HTTP 404",
+                              exc_info=True)
         else:
             await self.emit(call, kind, *args)
 
@@ -273,8 +283,11 @@ class FakeSdk:
     """`sdk=` 자리에 끼우는 가짜. 속성 이름은 실제 `clawops.agent` 와 같다."""
 
     def __init__(self, world: World, script=GOOD, *, connect="ok", hangup="works", transfer="answered", strangers=(),
-                 ignores_reject=False, extra_missing=False) -> None:
+                 ignores_reject=False, extra_missing=False, call_prefix="CA", rest="works") -> None:
         self.world, self.script, self.connect, self.hangup, self.transfer = world, script, connect, hangup, transfer
+        self.call_prefix, self.rest = call_prefix, rest
+        self.rest_ends: list[tuple[str, str]] = []  # REST calls.update(call_id, status) — 끝이 확인되지 않은 통화를 끝냄
+        self.rest_clients: list[dict] = []
         self.strangers, self.ignores_reject = tuple(strangers), ignores_reject
         self.agents: list[FakeAgent] = []
         self.sessions: list[tuple[str, dict]] = []
@@ -299,6 +312,19 @@ class FakeSdk:
                                                         "model": model, "language": language, "voice": voice}))
 
         self.GeminiRealtime, self.OpenAIRealtime = GeminiRealtime, OpenAIRealtime
+
+        class AsyncClawOps:  # 실제 `clawops.AsyncClawOps` 의 꼴 — calls.update 만
+            def __init__(self, **kw) -> None:
+                sdk.rest_clients.append(kw)
+                self.calls = self
+
+            async def update(self, call_id: str, *, status: str = "completed") -> dict:
+                sdk.rest_ends.append((call_id, status))
+                if sdk.rest == "fails":
+                    raise AgentError(None)
+                return {"callId": call_id, "status": status}
+
+        self.AsyncClawOps = AsyncClawOps
 
     def ClawOpsAgent(self, **kw) -> FakeAgent:  # 실제 SDK 의 이름
         agent = FakeAgent(self, **kw)
@@ -430,6 +456,8 @@ async def test_handlers_get_start_transcript_tool_end_in_order(world, caplog):
     assert agent.kw["api_key"] == SENTINEL_KEY and agent.kw["account_id"] == ACCOUNT
     assert agent.kw["base_url"] == "https://kat.invalid" and agent.kw["from_"] == OUR_NUMBER
     assert agent.kw["builtin_tools"] == "none" and agent.kw["recording"] is False and agent.hook_before_connect
+    assert agent.kw["prewarm_enabled"] is False  # 켜 두면 SDK 가 벨 동안 만든 첫 인사의 받아쓰기를 버린다(_BufferingCall)
+    assert sdk.rest_ends == []  # 끝이 확인된 통화는 REST 로 끝내지 않는다
     assert set(agent.handlers) == {"call_start", "call_end", "call_failed", "transcript", "session_lost"}
     assert sdk.dialed == [(SENTINEL_DIGITS, 20)] and agent.disconnects == 1 and sdk.call.hangups == 0
     # 모델은 언제나 effective_model — SDK 기본값으로 두지 않는다. 지시문 + 고정 첫마디
@@ -529,7 +557,7 @@ async def test_dial_refused_by_the_platform_is_not_placed(world, caplog):
     no_leaks(caplog, rec.log)
 
 
-@pytest.mark.parametrize("script", [AgentError(None), "hang"])
+@pytest.mark.parametrize("script", [AgentError(None), "hang", AgentError(503), AgentError(500), AgentError(201)])
 async def test_dial_with_unknown_outcome_is_a_backend_error(world, caplog, script):
     """발신 요청의 결과를 모르면(상태 없는 예외·끝나지 않음) 걸렸을 수 있다 — VoiceError(일꾼이 「걸렸는지 확인 필요」로 적음)."""
     sdk = FakeSdk(world, script)
@@ -564,7 +592,8 @@ async def test_hangup_without_end_event_is_a_backend_error_before_the_runner_giv
     with pytest.raises(VoiceError):
         await place(kat(world, sdk), rec=rec)
     assert sdk.call.hangups == 1 and [e for e in rec.log if e[0] == "end"] == []
-    assert kat_sdk.END_GRACE_S < 5  # 일꾼(call_run.HANGUP_WAIT_S)보다 먼저 스스로 끝낸다
+    assert kat_sdk.SDK_HANGUP_S < kat_sdk.END_GRACE_S < call_run.HANGUP_WAIT_S  # SDK 의 끊기(mark 5초)보다 길고 일꾼보다 먼저
+    assert sdk.rest_ends == [("CA0000", "completed")]  # 끝이 확인되지 않아 REST 로 끝낸다(결과는 그래도 「확인 필요」)
     hung_at = 1200 + 3300  # 받은 때 + 첫 발화가 끝났다고 본 때(조각 뒤 OPENING_GAP_S)
     assert world.ms <= hung_at + (kat_sdk.END_GRACE_S + 1) * 1000
 
@@ -772,3 +801,77 @@ async def test_runner_with_the_adapter_never_records_a_failed_session_as_complet
     else:
         assert [line["role"] for line in done.transcript_json] == ["agent", "peer", "peer", "agent"]
     no_leaks(caplog)
+
+
+# ── 고침 1: 끝이 확인되지 않은 통화는 REST 로 끝낸다 · 끊기는 SDK 의 기다림보다 길게 · 상한은 받은 때부터 ─────────
+
+
+async def test_slow_sdk_hangup_still_ends_the_call(world):
+    """실제 SDK 의 끊기는 보낸 소리가 다 나갈 때까지 5초까지 기다린다 — 6초 걸려도 끊기를 자르지 않고 끝 사건을 받는다."""
+    async def hang_up(control, role, text, t):
+        if role == "agent":
+            await control.hangup()
+
+    sdk = FakeSdk(world, TALK, hangup="slow")
+    rec = await place(kat(world, sdk), rec=Rec(on_transcript=hang_up))
+    assert rec.log[-1][:2] == ("end", END_AGENT) and sdk.call.hangups == 1 and sdk.rest_ends == []
+
+
+async def test_cancel_while_ringing_ends_the_call_by_rest_once(world, caplog):
+    sdk = FakeSdk(world, ())  # 벨이 울리는 중
+    task = asyncio.ensure_future(kat(world, sdk).place(_spec(), Rec()))
+    async with asyncio.timeout(10):
+        while not (sdk.agents and sdk.agent.calls):
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        while not sdk.agent.disconnects:
+            await asyncio.sleep(0)
+    assert sdk.rest_ends == [("CA0000", "completed")] and sdk.call.hangups == 0  # 받기 전 끊기는 SDK 가 무시한다
+    kw = sdk.rest_clients[0]
+    assert kw["api_key"] == SENTINEL_KEY and kw["account_id"] == ACCOUNT and kw["base_url"] == "https://kat.invalid"
+    assert kw["max_retries"] == 0 and kw["http_client"].trust_env is False
+    no_leaks(caplog)
+
+
+async def test_session_failure_with_a_masked_call_id_is_lost_and_ended_by_rest(world, caplog):
+    """세션 실패 줄의 통화 id 는 앱 거르개가 가린 채 올 수 있다(번호처럼 보이는 숫자). 실제 SDK 는 그 뒤 끝 사건을 보내지 않고
+    끊기도 듣지 않는다 — END_LOST 를 주고 REST 로 끝낸다."""
+    prefix = f"CA{SENTINEL_DIGITS}_"
+    assert redact.hide_phones(f"{prefix}0000") != f"{prefix}0000"
+    sdk = FakeSdk(world, (*TALK, (3000, "session_failed_log")), hangup="ignored", call_prefix=prefix)
+    rec = await place(kat(world, sdk))
+    assert rec.log[-1][:2] == ("end", END_LOST) and world.ms < 3000 + 12000
+    assert sdk.rest_ends == [(f"{prefix}0000", "completed")]
+    no_leaks(caplog)
+
+
+async def test_rest_end_failure_is_swallowed_and_logged_by_type_only(world, caplog):
+    caplog.set_level(logging.WARNING, logger="app.outreach.voice.kat_sdk")
+    sdk = FakeSdk(world, (*TALK, (3000, "session_failed_log")), hangup="ignored", rest="fails")
+    rec = await place(kat(world, sdk))
+    assert rec.log[-1][:2] == ("end", END_LOST) and len(sdk.rest_ends) == 1
+    assert any("AgentError" in r.getMessage() for r in caplog.records if r.name == "app.outreach.voice.kat_sdk")
+    no_leaks(caplog)
+
+
+async def test_whole_call_limit_starts_at_answer(world):
+    """벨이 오래 울린 통화도 받은 때부터 max_seconds + 여유까지는 끊지 않는다(연결·발신·벨 시간을 셈에서 뺀다)."""
+    sdk = FakeSdk(world, ((35000, "call_start"), (35300, "transcript", "assistant", SAID)))
+    with pytest.raises(VoiceError):
+        await place(kat(world, sdk), spec=_spec(max_seconds=60))
+    answered_s = 35.2  # 건 때(0.2초) + 벨 35초
+    assert world.ms / 1000 == pytest.approx(answered_s + 60 + kat_sdk.OVERALL_MARGIN_S, abs=1.0)
+    assert sdk.call.hangups == 1 and sdk.rest_ends == []  # 상한에 끊었고 끝이 확인됐다 — REST 는 쓰지 않는다
+
+
+def test_runner_status_reads_the_voice_settings(session):
+    from app.outreach.voice import runner
+
+    assert runner.status()["backend"] == "not_ready"  # 설정이 없다
+    row = connect(session, secret_ciphertext=crypto.encrypt(SENTINEL_KEY), account_id=ACCOUNT)
+    session.add(VoiceSettings(connection_id=row.id, provider="google", secret_ciphertext=crypto.encrypt(GOOGLE_KEY),
+                              secret_last4="7777", model="", agent_number=OUR_NUMBER, voices_by_language_json={}))
+    session.commit()
+    assert runner.status()["backend"] == "ok"

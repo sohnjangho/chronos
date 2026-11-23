@@ -210,13 +210,18 @@ def status() -> dict:
 
 
 def _backend_state() -> str:
+    """백엔드 준비 상태 — 걸 때와 같은 길(음성 설정을 읽는 backend_for(session))로 본다."""
     try:
-        voice_session.backend_for(None)
+        with _db() as session:
+            voice_session.backend_for(session)
     except NotReady:
         try:
             return "sdk_missing" if importlib.util.find_spec("clawops") is None else "not_ready"
         except (ImportError, ValueError):
             return "not_ready"
+    except Exception as exc:  # noqa: BLE001 — 상태 보기는 던지지 않는다(DB 를 못 읽음 등)
+        logger.warning("통화 일꾼: 음성 백엔드 상태를 읽지 못했습니다 (%s)", _kind(exc))
+        return "not_ready"
     return "ok" if all(redact.covers(name) for name in SDK_LOGGERS) else "not_ready"
 
 

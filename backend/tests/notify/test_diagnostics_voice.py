@@ -133,11 +133,11 @@ class FakeCall:
 
 class FakeAgent:
     def __init__(self, sdk: "FakeSdk", *, api_key=None, account_id=None, base_url=None, from_, session=None,
-                 session_factory=None, builtin_tools="all", recording=False) -> None:
+                 session_factory=None, builtin_tools="all", recording=False, prewarm_enabled=True) -> None:
         self.sdk = sdk
         self.kw = {"api_key": api_key, "account_id": account_id, "base_url": base_url, "from_": from_,
                    "session": session, "session_factory": session_factory, "builtin_tools": builtin_tools,
-                   "recording": recording}
+                   "recording": recording, "prewarm_enabled": prewarm_enabled}
         self.handlers: dict[str, list] = {}
         self.tools: dict[str, object] = {}
         self.hook = None
@@ -407,6 +407,7 @@ async def test_default_steps_connect_bind_and_report_voices_unsupported(world):
     assert agent.kw["session"] is None and callable(agent.kw["session_factory"])
     assert agent.kw["builtin_tools"] == "none"  # 내장 도구를 모두 끈다 — 기본값에는 전환이 들어 있다
     assert agent.kw["recording"] is False
+    assert agent.kw["prewarm_enabled"] is False  # 켜 두면 SDK 가 벨 동안 만든 첫 인사의 받아쓰기를 버린다
     assert agent.hook is not None and agent.disconnects == 1 and not agent.connected
 
 
@@ -505,7 +506,7 @@ async def test_unanswered_call_is_a_fixed_korean_failure(world, reason, code, te
 
 @pytest.mark.parametrize(("status", "vendor", "code", "text"), [
     (422, "recipient_blocked", "bad_request", "수신 거부"), (401, None, "bad_key", "키"),
-    (429, "", "rate_limited", "잦습니다"), (500, f"x {SENTINEL_KEY}", "server", "오류")])
+    (429, "", "rate_limited", "잦습니다")])
 async def test_dial_refused_by_the_platform_is_a_clean_failure(world, status, vendor, code, text):
     budget = VoiceBudget()
     sdk = FakeSdk(world, calls=[AgentError(status, vendor)])
@@ -515,6 +516,17 @@ async def test_dial_refused_by_the_platform_is_a_clean_failure(world, status, ve
     assert any(f"HTTP {status}" in n for n in out["P6"].notes)  # 기계 글은 접는 줄에
     assert out["P7"].code == "skipped_no_call"
     assert out["P10"].ok  # 다음 통화는 따로 본다
+
+
+@pytest.mark.parametrize("status", [500, 503, 201])
+async def test_dial_error_with_a_non_4xx_status_is_of_unknown_outcome(world, status):
+    """4xx 만 「걸리지 않음」. 5xx 는 통화를 만든 뒤 프록시가 낸 것일 수 있고, 201 인데 오류면(답을 읽지 못함) 통화는 만들어졌다."""
+    budget = VoiceBudget()
+    sdk = FakeSdk(world, calls=[AgentError(status, f"x {SENTINEL_KEY}")])
+    out = await run(world, sdk, steps=(6, 10), call_to=SENTINEL_PHONE, budget=budget)
+    assert out["P6"].code == "unknown" and out["P6"].maybe_sent and budget.maybe_live
+    assert any(f"HTTP {status}" in n for n in out["P6"].notes)
+    assert out["P10"].code == "skipped_stopped"
 
 
 async def test_dial_error_of_unknown_outcome_stops_and_flags(world):
