@@ -264,7 +264,7 @@ def models(session: Session, conn_id: int) -> VoiceModelsOut:
     session.rollback()
     found = live_models.list_live_models(key)
     return VoiceModelsOut(models=list(found.models), default=numbers.DEFAULT_LIVE_MODEL, fallback=found.fallback,
-                          refused=found.refused, reason=found.reason)
+                          refused=found.refused, no_live=found.no_live, reason=found.reason)
 
 
 # ── 진단: 걸기 전 검사·기록 ──────────────────────────────────────────
@@ -565,14 +565,16 @@ def _settle_cancelled(conn_id: int, stamp: str, budget: diagnostics_voice.VoiceB
 
 
 async def _model_refused(prep: _Prep, budget: diagnostics_voice.VoiceBudget, now: datetime) -> dict[int, dict] | None:
-    """구글이면 걸기·연결 전에 이 키의 Live 모델 목록을 본다. 구글이 키를 거절했거나(P5 key_refused), 목록을 읽었는데 고른 모델이
-    없으면(P5 model_not_available) P5 를 실패로 둔 줄(나머지는 연결 안 됨으로 건너뜀), 아니면(시간 초과 등으로 읽지 못했거나 목록에
+    """구글이면 걸기·연결 전에 이 키의 Live 모델 목록을 본다. 구글이 키를 거절했거나(P5 key_refused), 읽은 목록에 Live 모델이 하나도
+    없거나(P5 no_live_model), 목록을 읽었는데 고른 모델이 없으면(P5 model_not_available) P5 를 실패로 둔 줄(나머지는 연결 안 됨으로 건너뜀), 아니면(시간 초과 등으로 읽지 못했거나 목록에
     있음·다른 공급자) None — 그때는 전처럼 돈다."""
     if prep.voice.provider != "google" or not prep.voice.model:
         return None
     found = await run_in_threadpool(live_models.list_live_models, prep.voice.key)
     if found.refused:
         detail, code = live_models.KEY_REFUSED, "key_refused"
+    elif found.no_live:
+        detail, code = live_models.NO_LIVE_MODEL, "no_live_model"
     elif found.fallback or prep.voice.model in found.available:
         return None
     else:

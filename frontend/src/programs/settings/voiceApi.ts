@@ -53,6 +53,8 @@ export interface VoiceModels {
   fallback: boolean;
   /** 구글이 이 키를 거절했다(400·401·403) — models 는 비어 있고, 진단·시험 전화는 걸기 전에 멈춘다. */
   refused: boolean;
+  /** 목록은 읽혔는데 실시간 음성(Live) 모델이 하나도 없다 — models 는 비어 있고, 진단·시험 전화는 걸기 전에 멈춘다. */
+  no_live: boolean;
   reason: string | null;
 }
 

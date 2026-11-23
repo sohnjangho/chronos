@@ -193,7 +193,7 @@ def test_models_lists_only_live_models_for_the_stored_key_in_one_bounded_request
     assert r.status_code == 200, r.text
     body = r.json()
     assert body == {"models": ["gemini-3.8-live", "gemini-x-live"], "default": "gemini-3.8-live", "fallback": False,
-                    "refused": False, "reason": None}
+                    "refused": False, "no_live": False, "reason": None}
     assert google.keys == [GOOGLE_KEY] and google.registered == [True]
     assert len(google.requests) == 1 and 0 < google.timeouts[0] <= 10
     assert GOOGLE_KEY not in r.text and KAT_ACCOUNT not in r.text
@@ -241,11 +241,18 @@ def test_models_without_a_stored_google_key_fall_back_without_asking(client, adm
     assert body["fallback"] is True and google.keys == []  # 구글 키가 아니면 묻지 않는다
 
 
-def test_models_when_google_lists_no_live_model_is_a_fallback(client, admin, fake_provider, google):
-    google.items = [model("gemini-3.8-flash", "generateContent")]
+NO_LIVE = ("이 키의 프로젝트에서는 실시간 음성(Live) 모델을 쓸 수 없습니다. 구글이 이 프로젝트에 Live 모델을 열어 주지 않았습니다 — "
+           "결제(유료 등급)를 켠 뒤 다시 확인하거나, 공급자를 OpenAI 로 바꿔 주세요.")
+
+
+def test_a_readable_list_with_no_live_model_says_so_with_no_fake_list(client, admin, fake_provider, google):
+    """고침 3(11-24 실제 새 키): 목록은 읽히는데(28개) bidiGenerateContent 를 받는 모델이 하나도 없다."""
+    google.items = [model("gemini-3.8-flash", "generateContent"), model("embed-1", "embedContent")]
     cid = ready(client, admin)["id"]
     body = models(client, admin, cid).json()
-    assert body["fallback"] is True and body["models"][0] == "gemini-3.8-live" and body["reason"]
+    assert body == {"models": [], "default": "gemini-3.8-live", "fallback": False, "refused": False, "no_live": True,
+                    "reason": NO_LIVE}
+    assert live_models.NO_LIVE_MODEL == NO_LIVE
 
 
 def test_models_is_for_admins_only(client, admin, user, fake_provider, google):
@@ -491,7 +498,8 @@ def test_a_refused_key_is_reported_as_refused_with_no_fake_list(client, admin, f
     cid = ready(client, admin)["id"]
     r = models(client, admin, cid)
     assert r.status_code == 200
-    assert r.json() == {"models": [], "default": "gemini-3.8-live", "fallback": True, "refused": True, "reason": REFUSED}
+    assert r.json() == {"models": [], "default": "gemini-3.8-live", "fallback": True, "refused": True, "no_live": False,
+                        "reason": REFUSED}
     assert GOOGLE_KEY not in r.text and all(GOOGLE_KEY not in rec.getMessage() for rec in caplog.records)
     assert live_models.KEY_REFUSED == REFUSED
 
@@ -525,3 +533,37 @@ def test_a_timeout_on_the_list_still_lets_the_test_call_go_ahead(client, admin, 
     conn = ready(client, admin)
     r = diag(client, admin, conn["id"], call_body(conn))
     assert r.status_code == 200 and len(spy.calls) == 1
+
+
+# ── 고침 3: 실시간 음성 모델이 하나도 없는 키도 걸기 전에 막는다 ───────────────────────
+
+
+@pytest.mark.parametrize("part", ["connection", "call", "inbound"])
+def test_a_key_with_no_live_model_stops_the_diagnosis_before_dialling(client, admin, fake_provider, spy, google,
+                                                                      session, part):
+    google.items = [model(f"gemini-text-{n}", "generateContent") for n in range(28)]
+    conn = ready(client, admin)
+    cid = conn["id"]
+    body = {"connection": {}, "call": call_body(conn), "inbound": {**call_body(conn), "call": False, "inbound": True}}[part]
+    r = diag(client, admin, cid, body)
+    assert r.status_code == 200, r.text
+    rows = {s["id"]: s for s in r.json()["steps"]}
+    assert (rows["P5"]["ok"], rows["P5"]["skipped"], rows["P5"]["code"], rows["P5"]["detail"]) == (
+        False, False, "no_live_model", NO_LIVE)
+    assert spy.calls == [] and r.json()["calls"] == [] and stored(session, cid)["calls"] == []
+    assert client.get(f"{BASE}/{cid}/voice", headers=admin).json()["status"] == "failed"
+
+
+def test_a_model_missing_from_a_readable_non_empty_live_list_still_stops(client, admin, fake_provider, spy, google):
+    google.items = [model("gemini-x-live", LIVE), model("gemini-y-live", LIVE)]  # Live 모델은 있는데 고른 것(기본)이 없다
+    conn = ready(client, admin)
+    r = diag(client, admin, conn["id"], call_body(conn))
+    p5 = next(s for s in r.json()["steps"] if s["id"] == "P5")
+    assert p5["code"] == "model_not_available" and "gemini-3.8-live" in p5["detail"] and spy.calls == []
+
+
+@pytest.mark.parametrize("error", [TimeoutError(), RuntimeError("boom"), ImportError("google-genai")])
+def test_unreadable_lists_still_let_the_call_go_ahead(client, admin, fake_provider, spy, google, error):
+    google.error = error
+    conn = ready(client, admin)
+    assert diag(client, admin, conn["id"], call_body(conn)).status_code == 200 and len(spy.calls) == 1

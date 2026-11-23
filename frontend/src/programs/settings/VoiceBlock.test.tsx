@@ -141,7 +141,7 @@ function open(over: Record<string, unknown> = {}) {
   });
 }
 
-const MODELS: VoiceModels = { models: ['gemini-3.8-live', 'gemini-x-live'], default: 'gemini-3.8-live', fallback: false, refused: false, reason: null };
+const MODELS: VoiceModels = { models: ['gemini-3.8-live', 'gemini-x-live'], default: 'gemini-3.8-live', fallback: false, refused: false, no_live: false, reason: null };
 
 /** 저장된 음성 설정을 읽어 카드가 그려질 때까지 기다린다. */
 async function findBlock() {
@@ -589,7 +589,7 @@ test('the default model is not sent when it was left as it is', async () => {
 
 test('when the list could not be read the select still offers the default and says why', async () => {
   const reason = '구글이 시간 안에 답하지 않아 기본 목록을 보여 줍니다.';
-  open({ [VOICE]: FRESH, [`${VOICE}/models`]: { models: ['gemini-3.8-live'], default: 'gemini-3.8-live', fallback: true, refused: false, reason } });
+  open({ [VOICE]: FRESH, [`${VOICE}/models`]: { models: ['gemini-3.8-live'], default: 'gemini-3.8-live', fallback: true, refused: false, no_live: false, reason } });
   const { form } = await findAddForm();
   expect(await within(form).findByText(reason)).toBeVisible();
   expect(within(form).getByRole('combobox', { name: '모델' })).toHaveValue('gemini-3.8-live');
@@ -728,7 +728,7 @@ test('only with no number anywhere does it ask for the AI call number', async ()
 // ── 고침 2: 구글이 거절한 키 — 카드에 크게, 가짜 목록 없음, 시험 전화 잠금 ──
 
 const REFUSED_TEXT = '구글이 이 키로 Gemini API 를 쓰지 못하게 합니다(권한 없음). Google AI Studio 에서 만든 Gemini API 키를 넣거나, 이 키의 프로젝트에서 Generative Language API 를 켜 주세요.';
-const REFUSED: VoiceModels = { models: [], default: 'gemini-3.8-live', fallback: true, refused: true, reason: REFUSED_TEXT };
+const REFUSED: VoiceModels = { models: [], default: 'gemini-3.8-live', fallback: true, refused: true, no_live: false, reason: REFUSED_TEXT };
 
 test('a key Google refused makes the card 실패 with the reason, locks real calls and shows no fake model list', async () => {
   open({ [`${VOICE}/models`]: REFUSED, [VOICE]: voice({ status: 'ok' }) });
@@ -760,4 +760,22 @@ test('saving a new key reads the model list again', async () => {
   await waitFor(() => expect(reads()).toBeGreaterThan(before));
   await waitFor(() => expect(within(b).queryByRole('alert')).toBeNull());
   expect(within(b).getByRole('switch', { name: /실제 통화 포함/ })).toBeEnabled();
+});
+
+// ── 고침 3: Live 모델이 하나도 없는 키 ──
+
+const NO_LIVE_TEXT = '이 키의 프로젝트에서는 실시간 음성(Live) 모델을 쓸 수 없습니다. 구글이 이 프로젝트에 Live 모델을 열어 주지 않았습니다 — 결제(유료 등급)를 켠 뒤 다시 확인하거나, 공급자를 OpenAI 로 바꿔 주세요.';
+const NO_LIVE: VoiceModels = { models: [], default: 'gemini-3.8-live', fallback: false, refused: false, no_live: true, reason: NO_LIVE_TEXT };
+
+test('a key whose project has no Live model makes the card 실패 with the reason and locks real calls', async () => {
+  open({ [`${VOICE}/models`]: NO_LIVE, [VOICE]: voice({ status: 'ok' }) });
+  const b = await findBlock();
+  await waitFor(() => expect(within(b).getByText('실패', { selector: '.ui-badge' })).toBeVisible());
+  expect(within(b).getByRole('alert')).toHaveTextContent(NO_LIVE_TEXT);
+  expect(within(b).getByRole('switch', { name: /실제 통화 포함/ })).toBeDisabled();
+  expect(within(b).getByRole('button', { name: '시험 전화' })).toBeDisabled();
+  expect(within(b).getByText(/실시간 음성 모델이 없어 전화를 걸 수 없습니다/)).toBeVisible();
+  const select = within(await editForm(b)).getByRole('combobox', { name: '모델' });
+  expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['gemini-3.8-live', '직접 입력']);
+  expect(within(b).getByText('이 키로 쓸 수 있는 실시간 음성 모델이 없습니다')).toBeVisible();
 });

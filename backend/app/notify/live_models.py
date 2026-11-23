@@ -31,7 +31,8 @@ KEY_REFUSED = ("구글이 이 키로 Gemini API 를 쓰지 못하게 합니다(�
 TIMEOUT = "구글이 시간 안에 답하지 않아 기본 목록을 보여 줍니다."
 FAILED = "구글에서 모델 목록을 읽지 못해 기본 목록을 보여 줍니다."
 NO_CLIENT = "구글 연결 묶음(google-genai)이 서버에 없어 기본 목록을 보여 줍니다."
-NO_LIVE = "이 키의 모델 목록에 실시간 음성(Live) 모델이 보이지 않아 기본 목록을 보여 줍니다."
+NO_LIVE_MODEL = ("이 키의 프로젝트에서는 실시간 음성(Live) 모델을 쓸 수 없습니다. 구글이 이 프로젝트에 Live 모델을 열어 주지 않았습니다 — "
+                 "결제(유료 등급)를 켠 뒤 다시 확인하거나, 공급자를 OpenAI 로 바꿔 주세요.")
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class LiveModels:
     reason: str | None  # fallback 의 까닭(쉬운 한국어). 읽은 목록이면 None
     available: frozenset[str] = frozenset()  # 읽은 Live 모델 전부(자르지 않음) — 진단 전 확인은 이것과 견준다
     refused: bool = False  # 구글이 이 키를 거절했다(400·401·403) — 「못 읽음」이 아니라 분명한 실패. 목록은 비어 있다(고침 2)
+    no_live: bool = False  # 목록은 읽혔는데 Live 모델이 하나도 없다 — 어느 모델로 걸어도 Live 소켓이 404(고침 3). 분명한 실패
 
 
 def _fallback(reason: str, word: str) -> LiveModels:
@@ -93,6 +95,7 @@ def list_live_models(key: str | None, client: Callable[[str, float], object] | N
         if isinstance(e, TimeoutError) or "timeout" in type(e).__name__.lower():
             return _fallback(TIMEOUT, "timeout")
         return _fallback(FAILED, type(e).__name__)
-    if not names:
-        return _fallback(NO_LIVE, "no_live")
+    if not names:  # 11-24 실제: 새 AI Studio 키, 목록 28개에 bidiGenerateContent 0개 — 걸면 받자마자 끊긴다
+        log.info("음성 모델 목록: 실시간 음성 모델 없음")
+        return LiveModels(models=(), fallback=False, reason=NO_LIVE_MODEL, no_live=True)
     return LiveModels(models=tuple(names[:MAX_MODELS]), fallback=False, reason=None, available=frozenset(names))

@@ -44,7 +44,7 @@ export function useLiveModels(id: number, on: boolean, tick: string) {
     voiceApi
       .models(id)
       .then((m) => live && setFound(m))
-      .catch(() => live && setFound({ models: [DEFAULT_MODEL], default: DEFAULT_MODEL, fallback: true, refused: false, reason: '모델 목록을 읽지 못해 기본 모델만 보여 줍니다.' }));
+      .catch(() => live && setFound({ models: [DEFAULT_MODEL], default: DEFAULT_MODEL, fallback: true, refused: false, no_live: false, reason: '모델 목록을 읽지 못해 기본 모델만 보여 줍니다.' }));
     return () => {
       live = false;
     };
@@ -73,11 +73,12 @@ function ModelPicker({ google, list, choice, custom, text, off, error, onChoice,
     );
   }
   // 구글이 키를 거절했으면 가짜 목록을 보이지 않는다 — 지금 고른 것과 「직접 입력」만
-  const options = list?.refused ? [] : list?.models.length ? list.models : [DEFAULT_MODEL];
+  const blocked = !!(list?.refused || list?.no_live); // 이 키로는 어떤 Live 모델도 못 쓴다 — 가짜 목록을 보이지 않는다
+  const options = blocked ? [] : list?.models.length ? list.models : [DEFAULT_MODEL];
   const shown = choice !== CUSTOM && !options.includes(choice) ? [...options, choice] : options;
   const label = (m: string) =>
-    list?.refused ? m : m === (list?.default ?? DEFAULT_MODEL) ? `${m} (기본)` : list && !list.fallback && !list.models.includes(m) ? `${m} — 이 키로 쓸 수 없음` : m;
-  const hint = !list ? '모델 목록을 읽는 중…' : list.refused ? '키가 거절돼 목록을 읽지 못했습니다' : list.fallback ? (list.reason ?? '') : `이 키로 쓸 수 있는 실시간 음성 모델 ${list.models.length}개`;
+    blocked ? m : m === (list?.default ?? DEFAULT_MODEL) ? `${m} (기본)` : list && !list.fallback && !list.models.includes(m) ? `${m} — 이 키로 쓸 수 없음` : m;
+  const hint = !list ? '모델 목록을 읽는 중…' : list.refused ? '키가 거절돼 목록을 읽지 못했습니다' : list.no_live ? '이 키로 쓸 수 있는 실시간 음성 모델이 없습니다' : list.fallback ? (list.reason ?? '') : `이 키로 쓸 수 있는 실시간 음성 모델 ${list.models.length}개`;
   return (
     <div className="st-vc-key">
       <Field label="모델" hint={hint} error={choice === CUSTOM ? undefined : error}>

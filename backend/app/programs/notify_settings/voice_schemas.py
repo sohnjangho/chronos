@@ -97,6 +97,7 @@ class VoiceModelsOut(BaseModel):
     default: str
     fallback: bool  # 구글에서 읽은 목록이 아니라 고정 목록(거절이면 빈 목록)
     refused: bool  # 구글이 이 키를 거절했다(400·401·403) — 진단·시험 전화는 걸기 전에 P5 key_refused 로 멈춘다
+    no_live: bool  # 목록은 읽혔는데 Live 모델이 하나도 없다 — 걸기 전에 P5 no_live_model 로 멈춘다(models 는 빈 목록)
     reason: str | None  # fallback 의 까닭(쉬운 한국어)
 
 

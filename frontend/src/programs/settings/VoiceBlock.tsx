@@ -16,9 +16,10 @@ const maskedKey = (v: VoiceSettings) => (v.has_secret ? '•'.repeat(v.secret_la
 const providerName = (v: VoiceSettings) => PROVIDERS.find((p) => p.value === v.provider)?.label ?? v.provider;
 const JUDGED = ['P5', 'P6', 'P11'];
 const REFUSED_CALLS = '구글이 키를 거절해 전화를 걸 수 없습니다 — 위 안내대로 키를 바꾼 뒤 다시 해 주세요.';
+const NO_LIVE_CALLS = '이 키로는 실시간 음성 모델이 없어 전화를 걸 수 없습니다 — 위 안내대로 한 뒤 다시 해 주세요.';
 
 /**
- * 카드의 상태: 구글이 키를 거절했으면(모델 목록 길의 refused) 실패. 그 밖에는 서버의 status 와 마지막 진단 그대로. 결과를 모르는 것(call_unknown · pending · maybe_sent)은 「확인 필요」 — 실패로 그리지 않는다.
+ * 카드의 상태: 구글이 키를 거절했거나 그 키에 Live 모델이 하나도 없으면(모델 목록 길의 refused · no_live) 실패. 그 밖에는 서버의 status 와 마지막 진단 그대로. 결과를 모르는 것(call_unknown · pending · maybe_sent)은 「확인 필요」 — 실패로 그리지 않는다.
  * 모름 → 확인 필요 · failed → 실패 · ok → 연결됨 · 돌린 줄이 있는데 unknown → 확인 필요 · 그 밖 → 아직 진단 안 함.
  */
 export function voiceStatus(v: VoiceSettings, d: VoiceDiagnosis | null, refused = false): { tone: Tone; text: string } {
@@ -99,11 +100,12 @@ function CardHead({ voice, diag, refused, reason }: { voice: VoiceSettings; diag
   );
 }
 
-/** 저장된 구글 키를 구글이 거절했는가(모델 목록 길의 refused). 새 키를 저장하면(끝 4자리가 바뀌면) 다시 읽는다. */
+/** 저장된 구글 키로는 전화를 걸 수 없는가(모델 목록 길의 refused · no_live). 새 키를 저장하면(끝 4자리가 바뀌면) 다시 읽는다. */
 function useKeyRefused(id: number, voice: VoiceSettings | null) {
   const google = !!voice?.saved && voice.provider === 'google' && voice.has_secret;
   const list = useLiveModels(id, google, `${voice?.provider}-${voice?.secret_last4}`);
-  return { refused: google && !!list?.refused, reason: list?.reason ?? null };
+  const calls = list?.no_live ? NO_LIVE_CALLS : REFUSED_CALLS;
+  return { refused: google && !!(list?.refused || list?.no_live), reason: list?.reason ?? null, calls };
 }
 
 /**
@@ -126,7 +128,7 @@ export default function VoiceBlock({ conn, locked, onRunning, onHolding, onChang
   const [mode, setMode] = useState<Mode>('idle');
   const [outcome, setOutcome] = useState<{ note?: string; error?: LlmError | null } | null>(null);
   const [busy, setBusy] = useState(false);
-  const { refused, reason } = useKeyRefused(conn.id, v.voice);
+  const { refused, reason, calls } = useKeyRefused(conn.id, v.voice);
   // hold = 이 카드에서 진단이 도는 중(내 것·연결 진단·다른 곳에서 돌린 것). 확인 창이 열려 있어도 다른 단추는 잠근다.
   const running = locked || d.running !== null || d.diag?.state === 'running';
   const hold = running || mode !== 'idle' || busy;
@@ -205,7 +207,7 @@ export default function VoiceBlock({ conn, locked, onRunning, onHolding, onChang
       <CardHead voice={voice} diag={d.diag} refused={refused} reason={reason} />
       <Facts conn={conn} voice={voice} diag={d.diag} />
       {voice.key_notice && <p className="st-warn st-vc-notice">{voice.key_notice.message}</p>}
-      <VoiceDiagnostics conn={conn} voice={voice} d={d} r={r} hold={hold} extra={extra} below={below} callsBlocked={refused ? REFUSED_CALLS : null} />
+      <VoiceDiagnostics conn={conn} voice={voice} d={d} r={r} hold={hold} extra={extra} below={below} callsBlocked={refused ? calls : null} />
       {outcome?.note && <p className="st-note">{outcome.note}</p>}
       <ErrorLine error={outcome?.error} />
     </section>
