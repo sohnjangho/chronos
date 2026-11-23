@@ -435,6 +435,10 @@ test('when nobody called in, the reject call is not asked for', async () => {
   await userEvent.click(within(within(b).getByRole('group', { name: '받는 통화 확인 시작' })).getByRole('button', { name: '시작' }));
   await waitFor(() => expect(within(results()).getAllByRole('listitem')[7]).toHaveTextContent(/P12.*FAIL.*90초 동안/));
   expect(posts(fetchMock)).toHaveLength(1);
+  // P14 는 돌리지 않았지만 「안 돌림」이 아니라 까닭을 말한다.
+  const p14 = within(results()).getAllByRole('listitem')[9];
+  expect(p14).toHaveTextContent(/P14.*건너뜀.*받는 통화가 확인되지 않아 돌리지 않았습니다/);
+  expect(p14).not.toHaveTextContent('안 돌림');
 });
 
 test('without the voice SDK the band is shown, the call buttons are locked and the provider choice stays', async () => {
@@ -464,4 +468,40 @@ test('the dashboard agent has no voice diagnosis and no free-tier notice', async
   expect(within(b).getByRole('button', { name: '음성 진단' })).toBeDisabled();
   expect(within(b).getByText('대시보드 에이전트 방식은 음성 진단을 하지 않습니다.')).toBeVisible();
   expect(within(b).queryByText(FREE)).toBeNull();
+});
+
+// ── 고침 1차(리뷰 Important 1·2) ──
+
+test('an open confirm dialog in the notify block locks the voice buttons, and the other way round', async () => {
+  open();
+  const b = await findBlock();
+  const c = card();
+  await userEvent.click(within(c).getByRole('switch', { name: /실제 문자 1건 보내기/ }));
+  await userEvent.click(within(c).getByRole('button', { name: '시험 문자' }));
+  expect(within(c).getByRole('group', { name: '실제 문자 확인' })).toBeVisible();
+  expect(within(b).getByRole('button', { name: '음성 진단' })).toBeDisabled();
+  expect(within(b).getByRole('switch', { name: /실제 통화 포함/ })).toBeDisabled();
+  await userEvent.click(within(within(c).getByRole('group', { name: '실제 문자 확인' })).getByRole('button', { name: '취소' }));
+  expect(within(b).getByRole('button', { name: '음성 진단' })).toBeEnabled();
+  await userEvent.click(within(c).getByRole('button', { name: '삭제' }));
+  expect(within(c).getByRole('group', { name: '연결 삭제 확인' })).toBeVisible();
+  expect(within(b).getByRole('button', { name: '음성 진단' })).toBeDisabled();
+  await userEvent.click(within(within(c).getByRole('group', { name: '연결 삭제 확인' })).getByRole('button', { name: '취소' }));
+  // 음성 쪽 확인 창이 열려 있으면 알림 쪽 진단 단추가 잠긴다.
+  await askReal(b, '시험 전화');
+  expect(within(b).getByRole('group', { name: '실제 통화 확인' })).toBeVisible();
+  expect(within(c).getByRole('button', { name: '연결 진단' })).toBeDisabled();
+  expect(within(c).getByRole('button', { name: '삭제' })).toBeDisabled();
+});
+
+test('a diagnosis read back as running shows 도는 중 in its group, never 안 돌림', async () => {
+  const running: VoiceDiagnosis = { state: 'running', part: 'call', ran_at: RAN, by: '김하늘', steps: [], called_real: false, call_unknown: false, calls: [] };
+  open({ [`${VOICE}/diagnosis`]: running });
+  const b = await findBlock();
+  const call = await within(results()).findByRole('group', { name: '시험 전화' });
+  await waitFor(() => expect(within(call).getAllByRole('listitem')[0]).toHaveTextContent(/P6.*도는 중.*진단이 도는 중입니다/));
+  expect(within(call).getByText(/도는 중 — 김하늘/)).toBeVisible();
+  expect(within(results()).queryByText('안 돌림')).toBeNull();
+  expect(within(results()).queryByText(/아직 돌리지 않/)).toBeNull();
+  expect(within(b).getByRole('button', { name: '음성 진단' })).toBeDisabled();
 });

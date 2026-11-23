@@ -307,10 +307,13 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [busy, setBusy] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceHolding, setVoiceHolding] = useState(false);
   const d = useDiagnosis(conn, onChanged);
   const r = useRealSend(conn, d);
   const blocked = smsBlockedReason(conn);
-  const locked = busy || d.busy || voiceBusy || mode !== 'idle' || r.pending !== null;
+  // 이 카드가 하는 일(진단·연결 테스트·열린 확인 창·고치기 창)이 있으면 「AI 전화」 쪽을 잠근다. 거꾸로도 같다.
+  const own = busy || d.busy || mode !== 'idle' || r.pending !== null;
+  const locked = own || voiceBusy || voiceHolding;
 
   async function run(task: () => Promise<Outcome>) {
     setMode('idle');
@@ -360,7 +363,7 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
         </Button>
       </div>
       <RealSms target={r.target} blocked={blocked} real={r.real} locked={locked} onReal={r.setReal} onTest={() => r.ask('test')} />
-      {r.pending && <SendConfirm pending={r.pending} busy={d.busy} onSend={() => void r.send()} onCancel={r.cancel} />}
+      {r.pending && <SendConfirm pending={r.pending} busy={d.busy || voiceBusy} onSend={() => void r.send()} onCancel={r.cancel} />}
       {mode === 'url' && <NotifyUrlForm conn={conn} onSaved={saved} onCancel={() => setMode('idle')} />}
       {mode === 'key' && <NotifyKeyForm conn={conn} onSaved={saved} onCancel={() => setMode('idle')} />}
       {mode === 'delete' && (
@@ -368,6 +371,7 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
           label="연결 삭제 확인"
           text={`「${conn.name}」 연결을 지울까요? 이 연결의 키·허용 번호·상한·마지막 진단도 함께 지워집니다.`}
           action="삭제"
+          disabled={busy || d.busy || voiceBusy}
           onConfirm={() => run(async () => (await notifyApi.remove(conn.id), {}))}
           onCancel={() => setMode('idle')}
         />
@@ -392,7 +396,7 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
         conn={conn}
         locked={d.busy || voiceBusy}
         onChanged={onChanged}
-        voice={<VoiceBlock conn={conn} locked={busy || d.busy} onRunning={setVoiceBusy} onChanged={onChanged} />}
+        voice={<VoiceBlock conn={conn} locked={own} onRunning={setVoiceBusy} onHolding={setVoiceHolding} onChanged={onChanged} />}
       />
     </article>
   );

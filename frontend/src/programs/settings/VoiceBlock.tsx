@@ -456,30 +456,63 @@ function machine(s: VoiceStep): string[] {
 }
 
 const NOT_RUN = { tone: 'neutral' as const, text: '안 돌림' };
+const RUNNING = { tone: 'warning' as const, text: '도는 중' };
+const WAITING = { tone: 'neutral' as const, text: '대기' };
+const P14_NOT_ASKED = '받는 통화가 확인되지 않아 돌리지 않았습니다.';
 
-function placeholder(id: VoiceStepId) {
-  return { id, label: LABELS[id], ok: false, skipped: true, detail: '아직 돌리지 않았습니다.', latency_ms: null, notes: [], code: '', maybe_sent: false, pending: false };
+function placeholder(id: VoiceStepId, detail = '아직 돌리지 않았습니다.') {
+  return { id, label: LABELS[id], ok: false, skipped: true, detail, latency_ms: null, notes: [], code: '', maybe_sent: false, pending: false };
+}
+
+/** 받는 통화에서 P12 가 확인되지 않아 P14 를 부르지 않았는가(이번 진단의 P12 줄로 안다). */
+function p14NotAsked(d: VoiceDiagnosis): boolean {
+  const p12 = stepOf(d, 'P12');
+  const p14 = stepOf(d, 'P14');
+  return d.part === 'inbound' && !!p12 && p12.ran_at === d.ran_at && !p12.ok && p14?.ran_at !== d.ran_at;
+}
+
+/** 줄 하나: 도는 중 · 대기(다른 묶음이 도는 중) · 안 돌림 · 까닭 있는 건너뜀(P14) · 서버 결과. */
+function Row({ id, part, diag }: { id: VoiceStepId; part: VoicePart; diag: VoiceDiagnosis | null }) {
+  if (diag?.state === 'running') {
+    const mine = diag.part === null || diag.part === part;
+    return mine ? (
+      <StepLine s={placeholder(id, '진단이 도는 중입니다.')} badge={RUNNING} />
+    ) : (
+      <StepLine s={placeholder(id, '진단이 끝나면 마지막 결과가 보입니다.')} badge={WAITING} />
+    );
+  }
+  const s = diag ? stepOf(diag, id) : undefined;
+  if (id === 'P14' && diag && p14NotAsked(diag)) return <StepLine s={{ ...placeholder(id, P14_NOT_ASKED), label: s?.label ?? LABELS[id] }} />;
+  // 한 번도 돌리지 않은 줄(ran_at 없음)은 「안 돌림」 — 건너뜀과 가르고, 접을 세부도 없다.
+  return s?.ran_at ? <StepLine s={s} more={machine(s)} /> : <StepLine s={s ?? placeholder(id)} badge={NOT_RUN} />;
+}
+
+/** 묶음 머리의 시각 글: 도는 중이면 누른 사람·시각, 아니면 이 묶음 줄의 가장 늦은 ran_at. */
+function headText(part: VoicePart, ids: VoiceStepId[], diag: VoiceDiagnosis | null): string {
+  if (diag?.state === 'running') {
+    return diag.part === null || diag.part === part
+      ? `도는 중 — ${diag.by ?? '누군지 모름'} · ${checkedText(diag.ran_at, null)}`
+      : '진단이 끝난 뒤 보입니다';
+  }
+  const last = ids.map((id) => (diag ? stepOf(diag, id)?.ran_at : null) ?? '').sort().pop();
+  if (!last) return '아직 돌리지 않음';
+  return `돌린 시각 ${checkedText(last, null)}${diag?.by && last === diag.ran_at ? ` · ${diag.by}` : ''}`;
 }
 
 /** 단추 하나와 그 걸음 줄. 줄에는 판정과 서버 글만, 코드는 접어서. */
-function PartGroup({ title, ids, diag, children }: { title: string; ids: VoiceStepId[]; diag: VoiceDiagnosis | null; children: ReactNode }) {
-  const done = diag?.state === 'done' ? diag : null;
-  const steps = ids.map((id) => (done ? stepOf(done, id) : undefined));
-  const last = steps.map((s) => s?.ran_at ?? '').sort().pop();
+function PartGroup({ title, part, ids, diag, children }: { title: string; part: VoicePart; ids: VoiceStepId[]; diag: VoiceDiagnosis | null; children: ReactNode }) {
   return (
     <div className="st-vc-part" role="group" aria-label={title}>
       <div className="st-vc-part-head">
         <b>{title}</b>
-        <span className="st-muted">{last ? `돌린 시각 ${checkedText(last, null)}${done?.by && last === done.ran_at ? ` · ${done.by}` : ''}` : '아직 돌리지 않음'}</span>
+        <span className="st-muted">{headText(part, ids, diag)}</span>
         <span className="st-gap" />
         {children}
       </div>
       <ul className="st-nt-steps">
-        {ids.map((id, i) => {
-          const s = steps[i];
-          // 한 번도 돌리지 않은 줄(ran_at 없음)은 「안 돌림」 — 건너뜀과 가르고, 접을 세부도 없다.
-          return s?.ran_at ? <StepLine key={id} s={s} more={machine(s)} /> : <StepLine key={id} s={s ?? placeholder(id)} badge={NOT_RUN} />;
-        })}
+        {ids.map((id) => (
+          <Row key={id} id={id} part={part} diag={diag} />
+        ))}
       </ul>
     </div>
   );
@@ -547,12 +580,12 @@ function VoiceDiagnostics({ conn, voice, d, r, hold }: { conn: NotifyConnection;
         </div>
       )}
       <section className="st-vc-diag" aria-label="음성 진단 결과">
-        <PartGroup title="연결 확인" ids={GROUPS[0].ids} diag={d.diag}>
+        <PartGroup title="연결 확인" part={GROUPS[0].part} ids={GROUPS[0].ids} diag={d.diag}>
           <Button disabled={busy || !!why} onClick={() => void d.run('connection', [{ phase: null, body: {} }])}>
             음성 진단
           </Button>
         </PartGroup>
-        <PartGroup title="시험 전화" ids={GROUPS[1].ids} diag={d.diag}>
+        <PartGroup title="시험 전화" part={GROUPS[1].part} ids={GROUPS[1].ids} diag={d.diag}>
           {d.diag?.state === 'done' && d.diag.part === 'call' && d.diag.called_real && <Badge tone="info">실제 전화 걸림</Badge>}
           <label className="st-nt-switch st-vc-p10">
             <input type="checkbox" checked={r.p10} disabled={callOff} onChange={(e) => r.setP10(e.target.checked)} />
@@ -562,7 +595,7 @@ function VoiceDiagnostics({ conn, voice, d, r, hold }: { conn: NotifyConnection;
             시험 전화
           </Button>
         </PartGroup>
-        <PartGroup title="받는 통화" ids={GROUPS[2].ids} diag={d.diag}>
+        <PartGroup title="받는 통화" part={GROUPS[2].part} ids={GROUPS[2].ids} diag={d.diag}>
           <Button disabled={callOff} onClick={() => r.ask('inbound')}>
             받는 통화 확인
           </Button>
@@ -578,10 +611,12 @@ function VoiceDiagnostics({ conn, voice, d, r, hold }: { conn: NotifyConnection;
  * 공급자 · 키(끝 4자리만) · 모델 · AI 전화 번호 · 최대 통화 시간(보기만) · 음성 진단 세 단추와 P5~P14 열 줄.
  * locked = 같은 카드의 연결 진단 등이 도는 중. onRunning = 음성 진단이 도는지(카드가 다른 단추를 잠근다).
  */
-export default function VoiceBlock({ conn, locked, onRunning, onChanged }: {
+export default function VoiceBlock({ conn, locked, onRunning, onHolding, onChanged }: {
   conn: NotifyConnection;
   locked: boolean;
   onRunning(on: boolean): void;
+  /** 확인 창이 열려 있거나 서버가 음성 진단을 돌리는 중 — 카드가 다른 단추를 잠근다. */
+  onHolding(on: boolean): void;
   onChanged(): void;
 }) {
   const v = useVoiceSettings(conn.id);
@@ -589,6 +624,8 @@ export default function VoiceBlock({ conn, locked, onRunning, onChanged }: {
   const r = useRealCall(conn, v.voice, d, () => (onChanged(), v.reload()));
   // hold = 이 카드에서 진단이 도는 중(내 것·연결 진단·다른 곳에서 돌린 것). 확인 창이 열려 있어도 다른 단추는 잠근다.
   const hold = locked || d.running !== null || d.diag?.state === 'running';
+  const holding = r.pending !== null || d.diag?.state === 'running';
+  useEffect(() => onHolding(holding), [holding, onHolding]);
   return (
     <section className="st-nt-group st-vc" aria-label="AI 전화">
       <VoiceHead voice={v.voice} />
