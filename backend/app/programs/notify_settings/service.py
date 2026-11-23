@@ -296,7 +296,9 @@ def allow_version(conn: NotifyConnection) -> str:
 def check_allow_version(conn: NotifyConnection, version: str | None, missing: str) -> None:
     if version is None:
         raise ApiError(422, "allow_version_required", missing)
-    if not hmac.compare_digest(version, allow_version(conn)):
+    # 판은 ASCII 글이다. 다른 글자(한글·이모지·짝 없는 서로게이트)가 섞인 값은 견주지 않고 낡은 판으로 다룬다 —
+    # hmac.compare_digest 는 ASCII 가 아닌 str 에 TypeError 를 낸다. ASCII 끼리는 그대로 일정한 시간에 견준다.
+    if not (version.isascii() and hmac.compare_digest(version, allow_version(conn))):
         raise ApiError(409, "allow_list_changed", "허용 번호 목록이 그사이 바뀌었습니다. 새로 불러온 뒤 다시 해 주세요.")
 
 

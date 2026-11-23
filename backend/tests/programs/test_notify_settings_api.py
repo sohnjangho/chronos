@@ -881,3 +881,43 @@ def test_rows_are_read_again_after_provider_call(client, admin, fake_provider, m
     session.expire_all()
     row = session.scalars(select(NotifyConnection)).one()
     assert row.secret_last4 == "8888" and row.allow_numbers_json == [SENTINEL_DIGITS, "01000000198"]
+
+
+BAD_VERSIONS = ["판", "😀" * 3, "v" * 10_000, "", "\ud800abc"]  # 영문이 아닌 글·이모지·아주 긴 글·빈 글·짝 없는 서로게이트
+
+
+def raw(client, method: str, path: str, headers: dict, body: dict):
+    """JSON 을 \\uXXXX 로 적어 보낸다(짝 없는 서로게이트도 실제 클라이언트처럼 보낼 수 있게)."""
+    return client.request(method, path, content=json.dumps(body), headers={**headers, "content-type": "application/json"})
+
+
+def test_malformed_allow_version_is_a_stale_version_on_patch(client, admin, fake_provider, session):
+    b = with_numbers(client, admin, SENTINEL_PHONE, OTHER_MOBILE)
+    for bad in BAD_VERSIONS:
+        r = raw(client, "PATCH", f"{BASE}/{b['id']}", admin, {"allow_numbers_remove": [0], "allow_numbers_version": bad})
+        assert r.status_code in (409, 422), (bad[:5], r.status_code, r.text[:200])
+        assert r.json()["code"] == ("too_long" if len(bad) > 100 else "allow_list_changed")
+        assert (bad not in r.text) if bad else True
+    for bad in (123, ["x"], {"v": 1}):
+        r = patch(client, admin, b["id"], allow_numbers_remove=[0], allow_numbers_version=bad)
+        assert r.status_code == 422 and r.json()["code"] == "invalid_request"
+    r = patch(client, admin, b["id"], allow_numbers_remove=[0], allow_numbers_version=None)
+    assert r.status_code == 422 and r.json()["code"] == "allow_version_required"
+    session.expire_all()
+    assert session.get(NotifyConnection, b["id"]).allow_numbers_json == [SENTINEL_DIGITS, "01000000198"]
+
+
+def test_malformed_allow_version_is_a_stale_version_on_test_sms(client, admin, fake_provider, session, spy):
+    b = with_numbers(client, admin, SENTINEL_PHONE)
+    for bad in BAD_VERSIONS:
+        r = raw(client, "POST", f"{BASE}/{b['id']}/diagnose", admin, send_body(b, allow_numbers_version=bad))
+        assert r.status_code == 409 and r.json()["code"] == "allow_list_changed", (bad[:5], r.status_code, r.text[:200])
+        assert (bad not in r.text) if bad else True
+    for bad in (123, ["x"], {"v": 1}):
+        r = diagnose(client, admin, b["id"], send_body(b, allow_numbers_version=bad))
+        assert r.status_code == 422 and r.json()["code"] == "invalid_request"
+    r = diagnose(client, admin, b["id"], send_body(b, allow_numbers_version=None))
+    assert r.status_code == 422 and r.json()["code"] == "allow_version_required"
+    assert spy.calls == []  # 아무것도 보내지 않았다
+    session.expire_all()
+    assert session.get(NotifyConnection, b["id"]).last_diagnosis_json is None  # 「보내는 중」 기록도 남기지 않았다
