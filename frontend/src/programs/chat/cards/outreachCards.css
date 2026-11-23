@@ -1,0 +1,25 @@
+/* 대화의 연락 카드(Task 83 — 문자 초안·전화 초안·연락 결과). 값은 tokens.css 변수만 쓴다.
+   초안 글은 에이전트 초안의 보라 점선 상자(연락처 대화 칸의 초안 말풍선과 같은 꼴). 넘침 막기: 글은 줄을 바꾸고 칸은 min-width:0. */
+.oc-draft {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 9px 11px; border-radius: var(--radius-4); background: var(--bg-panel);
+  border: 1.5px dashed color-mix(in srgb, var(--tile-violet-from) 70%, var(--fg-muted));
+}
+.oc-body { margin: 0; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.oc-ko { margin: 0; display: flex; gap: 6px; align-items: baseline; min-width: 0; color: var(--fg-muted); font-size: var(--fs-12); white-space: pre-wrap; overflow-wrap: anywhere; }
+.oc-ko > span:last-child { min-width: 0; }
+.oc-ko-tag { flex: none; font-size: var(--fs-11); font-weight: 700; }
+.oc-tag { color: color-mix(in srgb, var(--tile-violet-from) 55%, var(--fg)); font-weight: 700; overflow-wrap: anywhere; }
+
+/* 지금 상태 줄·결과 줄(연락처 대화 칸의 결과 글과 같은 색) */
+.oc-line { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-12); font-weight: 600; color: var(--fg-muted); }
+.oc-line:empty { display: none; }
+.oc-line.is-ok { color: var(--success-text); }
+.oc-line.is-info { color: var(--tone-info-fg); }
+.oc-line.is-warn { color: var(--warning-text); }
+.oc-line.is-bad { color: var(--danger-text); }
+
+.oc-kv dd { overflow-wrap: anywhere; }
+.oc-list { margin: 0; padding-left: 18px; }
+.oc-list li { overflow-wrap: anywhere; }
+.oc-list li + li { margin-top: 2px; }
+.oc-acts { justify-content: flex-end; }

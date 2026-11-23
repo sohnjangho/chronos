@@ -1,5 +1,5 @@
 // 연락처 대화 칸 아래 입력창(Task 79, 시안 ①): 문자 | 카카오톡(카카오톡은 늘 잠김 — 까닭), 연결할 작업(분류+찾기), 글자 수·건 종류,
-// [에이전트에게 초안 맡기기](자리만), [보내기]. 보낸 뒤 결과 줄은 서버 판정 그대로(「확인 필요」는 「보냄」이 아니고, 「잠시 뒤 다시」는
+// [에이전트에게 초안 맡기기](Task 83 — 초안 줄만 만들고 보내지 않음), [보내기]. 보낸 뒤 결과 줄은 서버 판정 그대로(「확인 필요」는 「보냄」이 아니고, 「잠시 뒤 다시」는
 // 「이미 보냈습니다」가 아니다). 한 번 누르면 요청 하나. 글은 서버가 줄을 만들었다고 답했을 때만 비운다.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -12,7 +12,7 @@ import { json } from '../../test-helpers';
 import Contacts from './Contacts';
 import { SEND_UNKNOWN } from './MessageThread';
 import { CHOI, JUNG, KIM, LEE, mockStatus, PARK, person, STATUS } from './testKit';
-import { arrive, gets, holdNext, message, stubThread } from './threadKit';
+import { acts, agentDraft, arrive, gets, holdNext, message, stubThread } from './threadKit';
 import ThreadPane, { DNC_REASON } from './ThreadPane';
 
 const KAKAO_LOCKED = '카카오톡은 채널·문안 승인 뒤 쓸 수 있습니다 — 지금은 문자로 보냅니다';
@@ -39,6 +39,11 @@ let scheduleGets: string[];
 let script: Script[];
 let held: Promise<void> | null;
 let nextId: number;
+/** POST …/messages/agent-draft 의 답: 만들 초안 줄의 칸(기본 = 가상 글) · HTTP 오류 · 연결 끊김. */
+type DraftScript = Partial<Message> | { http: number; body: unknown } | 'network';
+let draftPosts: unknown[];
+let draftScript: DraftScript[];
+let draftHeld: Promise<void> | null;
 
 const OK: Script = { outcome: { code: 'accepted', message: '보냈습니다', scheduled_at: null }, row: { status: 'accepted' } };
 
@@ -51,6 +56,9 @@ function stub(rows: Record<number, Message[]> = {}) {
   script = [];
   held = null;
   nextId = 500;
+  draftPosts = [];
+  draftScript = [];
+  draftHeld = null;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -59,6 +67,17 @@ function stub(rows: Record<number, Message[]> = {}) {
       if (method === 'GET' && /^\/api\/schedules\/\d+$/.test(url)) {
         scheduleGets.push(url);
         return json(200, SCHEDULE);
+      }
+      if (method === 'POST' && url === '/api/schedules/1/outreach/messages/agent-draft') {
+        const body = JSON.parse(String(init!.body)) as { contact_id: number };
+        draftPosts.push(body);
+        const s = draftScript.shift() ?? {};
+        if (draftHeld) await draftHeld;
+        if (s === 'network') throw new TypeError('network');
+        if ('http' in s) return json(s.http, s.body);
+        const row = agentDraft({ id: nextId++, body: '철근 반입 시간을 알려 주시면 타워크레인 일정을 맞추겠습니다.', chat: null, created_at: '2026-11-24T01:00:00Z', ...s });
+        arrive(body.contact_id, row);
+        return json(200, row);
       }
       if (method === 'POST' && url === '/api/schedules/1/outreach/messages') {
         const body = JSON.parse(String(init!.body)) as MessageIn;
@@ -76,6 +95,14 @@ function stub(rows: Record<number, Message[]> = {}) {
       return inner(input, init);
     }),
   );
+}
+function holdDraft(): () => void {
+  let release!: () => void;
+  draftHeld = new Promise<void>((r) => (release = r));
+  return () => {
+    draftHeld = null;
+    release();
+  };
 }
 function holdCreate(): () => void {
   let release!: () => void;
@@ -268,13 +295,6 @@ describe('send', () => {
     expect(sendBtn()).toBeDisabled();
     await type('   \n ');
     expect(sendBtn()).toBeDisabled();
-  });
-
-  test('the agent-draft button is only a placeholder', async () => {
-    stub();
-    show();
-    await ready();
-    expect(within(composer()).getByRole('button', { name: '에이전트에게 초안 맡기기' })).toBeDisabled();
   });
 
   const BLOCKED: [string, Script, string, string][] = [
@@ -541,5 +561,110 @@ describe('handed-over text and activity (params.compose · params.activity)', ()
     await screen.findByRole('region', { name: '박현장 대화' });
     await within(composer()).findByText(BAND);
     expect(box()).toHaveValue('');
+  });
+});
+
+describe('[에이전트에게 초안 맡기기] (Task 83)', () => {
+  const MADE = '에이전트 초안을 대화에 넣었습니다 — 아직 보내지 않았습니다.';
+  const draftBtn = () => within(composer()).getByRole('button', { name: /^에이전트에게 초안 맡기기$|^초안 만드는 중…$/ });
+  const sendsOrCreates = () => [...posts, ...acts().filter((c) => c.url.endsWith('/send'))];
+  const picker = () => within(composer()).getByRole('button', { name: /연결할 작업/ });
+
+  test('one click = one request (person, channel, linked activity, the typed text as the request); locked until done; the draft appears as a dashed agent bubble; nothing is sent', async () => {
+    stub();
+    show(PARK, { activity: 'A1210' });
+    await ready();
+    await waitFor(() => expect(picker()).toHaveTextContent('A1210'));
+    await type('  철근 반입 시간 물어봐 줘 ');
+    const release = holdDraft();
+    const btn = draftBtn();
+    await act(async () => {
+      btn.click();
+      btn.click();
+    });
+    await userEvent.dblClick(draftBtn());
+    expect(draftBtn()).toBeDisabled();
+    expect(draftBtn()).toHaveTextContent('초안 만드는 중…');
+    expect(sendBtn()).toBeDisabled();
+    expect(box()).toHaveAttribute('readonly');
+    await act(async () => release());
+    const bubble = await screen.findByRole('article', { name: /^에이전트 초안 문자/ });
+    expect(bubble).toHaveClass('is-draft');
+    expect(bubble).toHaveClass('is-ai');
+    expect(within(bubble).getByText('철근 반입 시간을 알려 주시면 타워크레인 일정을 맞추겠습니다.')).toBeVisible();
+    await waitFor(() => expect(draftBtn()).toBeEnabled());
+    expect(draftPosts).toEqual([{ contact_id: PARK.id, channel: 'sms', activity_id: 'A1210', hint: '철근 반입 시간 물어봐 줘' }]);
+    expect(result().textContent).toBe(MADE);
+    expect(result()).toHaveClass('is-info');
+    expect(box()).toHaveValue(''); // 적은 요청은 초안이 되었다
+    expect(sendsOrCreates()).toEqual([]);
+  });
+
+  test('holding Enter on it makes one request; an empty box sends no request text', async () => {
+    stub();
+    show();
+    await ready();
+    const release = holdDraft();
+    const user = userEvent.setup();
+    draftBtn().focus();
+    await user.keyboard('{Enter>4/}');
+    await act(async () => release());
+    await waitFor(() => expect(result().textContent).toBe(MADE));
+    expect(draftPosts).toEqual([{ contact_id: PARK.id, channel: 'sms' }]);
+  });
+
+  test.each([
+    ['busy', { http: 409, body: { code: 'draft_busy', message: '이 사람의 초안을 이미 만드는 중입니다. 끝난 뒤 다시 눌러 주세요.' } }, 'is-warn'],
+    ['LLM not connected', { http: 503, body: { code: 'llm_not_ready', message: 'LLM 연결이 필요합니다. 설정에서 연결해 주세요.' } }, 'is-bad'],
+    ['the model failed', { http: 503, body: { code: 'draft_failed', message: '초안을 만들지 못했습니다 — 잠시 뒤 다시 눌러 주세요.' } }, 'is-bad'],
+    ['the person is gone', { http: 404, body: { code: 'not_found', message: '연락처를 찾을 수 없습니다.' } }, 'is-bad'],
+    ['do not contact', { http: 409, body: { code: 'do_not_contact', message: '이 사람은 수신 거부라 연락 초안을 만들 수 없습니다.' } }, 'is-bad'],
+  ] as [string, DraftScript, string][])('%s: the server message as it is, the text stays, no draft and nothing sent', async (_n, s, tone) => {
+    stub();
+    draftScript.push(s);
+    show();
+    await ready();
+    await type('철근 반입 시간 물어봐 줘');
+    await userEvent.click(draftBtn());
+    const message = (s as { body: { message: string } }).body.message;
+    await waitFor(() => expect(result().textContent).toBe(message));
+    expect(result()).toHaveClass(tone);
+    expect(box()).toHaveValue('철근 반입 시간 물어봐 줘');
+    await waitFor(() => expect(draftBtn()).toBeEnabled());
+    expect(screen.queryByRole('article', { name: /^에이전트 초안/ })).toBeNull();
+    expect(draftPosts).toHaveLength(1);
+    expect(sendsOrCreates()).toEqual([]);
+  });
+
+  test('no answer: says the server could not be reached, keeps the text, and re-reads the conversation', async () => {
+    stub();
+    draftScript.push('network');
+    show();
+    await ready();
+    await type('철근 반입 시간 물어봐 줘');
+    const before = gets(PARK.id).length;
+    await userEvent.click(draftBtn());
+    await waitFor(() => expect(result().textContent).toBe('서버에 연결할 수 없습니다.'));
+    expect(box()).toHaveValue('철근 반입 시간 물어봐 줘');
+    await waitFor(() => expect(gets(PARK.id).length).toBeGreaterThan(before));
+    expect(sendsOrCreates()).toEqual([]);
+  });
+
+  test('a person who cannot be written to: the button is off', async () => {
+    stub();
+    show(CHOI);
+    await screen.findByText('번호 없음 — 번호를 넣은 뒤에 보낼 수 있습니다');
+    expect(draftBtn()).toBeDisabled();
+  });
+
+  test('a request longer than 500 characters: the button is off and says why', async () => {
+    stub();
+    show();
+    await ready();
+    await type('가'.repeat(501));
+    expect(draftBtn()).toBeDisabled();
+    expect(draftBtn()).toHaveAttribute('title', expect.stringMatching(/500자/));
+    fireEvent.click(draftBtn());
+    expect(draftPosts).toEqual([]);
   });
 });

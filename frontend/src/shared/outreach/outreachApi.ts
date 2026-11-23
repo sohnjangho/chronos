@@ -105,6 +105,14 @@ export interface MessageIn {
   send?: boolean;
 }
 
+/** [에이전트에게 초안 맡기기](Task 82): hint 는 담당자 요청(≤500자). 보내지 않는다 — 답은 새 초안 줄(origin agent). */
+export interface AgentDraftIn {
+  contact_id: number;
+  channel: MessageChannel;
+  activity_id?: string;
+  hint?: string;
+}
+
 /** 보낸 칸만 바뀐다. null 로 비울 수 있는 것은 activity_id 뿐. */
 export interface MessagePatch {
   body?: string;
@@ -131,6 +139,8 @@ export const outreachApi = {
   },
   /** 초안을 만든다. send 면 곧바로 문에 넣는다(outcome 이 온다). */
   create: (sid: number, body: MessageIn) => api<MessageResult>(`${base(sid)}/messages`, post(body)),
+  /** 모델이 쓴 초안 줄을 만든다 — 보내지 않는다. 409 draft_busy(만드는 중)·do_not_contact 등, 503 draft_failed·llm_not_ready, 404. */
+  agentDraft: (sid: number, body: AgentDraftIn) => api<Message>(`${base(sid)}/messages/agent-draft`, post(body)),
   /** 초안만(아니면 409 not_draft). 승인이 아니다. */
   patch: (sid: number, id: number, body: MessagePatch) => api<Message>(`${base(sid)}/messages/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   /** 초안만(아니면 409 not_draft). */

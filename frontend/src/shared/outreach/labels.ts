@@ -10,6 +10,9 @@ export interface Label {
 }
 
 export const UNSURE_TEXT = '확인 필요 — 보냈는지 알 수 없음';
+/** [보내기] 요청이 나갔는지 모름(답 없음·5xx·읽지 못한 200 — outreachApi.sendOutcomeUnknown). 실패가 아니다: 다시 읽은 줄이 상태를 말한다.
+ *  연락처 대화 칸·입력창·대화 카드가 함께 쓴다. */
+export const SEND_UNKNOWN = '보냈는지 확인하지 못했습니다 — 다시 읽은 뒤 상태를 확인해 주세요';
 const FALLBACK_TEXT = '카카오톡 실패 → 문자로 대신 보냄';
 
 // ── 시각(KST, 브라우저 시간대와 상관없이) ──────────────────────────────────

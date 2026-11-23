@@ -10,6 +10,9 @@ import EvidenceCard from './EvidenceCard';
 import FileSavedCard from './FileSavedCard';
 import GenerationCard from './GenerationCard';
 import MiniQuestionsCard from './MiniQuestionsCard';
+import OutreachCallDraftCard from './OutreachCallDraftCard';
+import OutreachDraftCard from './OutreachDraftCard';
+import OutreachSentCard from './OutreachSentCard';
 import ProjectCreatedCard from './ProjectCreatedCard';
 import ResultCard from './ResultCard';
 import RuleSavedCard from './RuleSavedCard';
@@ -59,6 +62,9 @@ export const CARDS: Record<string, ComponentType<CardProps>> = {
   'card:visual': VisualCard,
   'card:file_saved': FileSavedCard,
   'card:schedule_file': ScheduleFileCard,
+  'card:outreach_draft': OutreachDraftCard,
+  'card:outreach_call_draft': OutreachCallDraftCard,
+  'card:outreach_sent': OutreachSentCard,
   approval: ApprovalCard,
   questionnaire: QuestionnaireCard,
 };

@@ -2,7 +2,7 @@
 // 단추를 누르면 그 줄의 단추는 답이 오고 대화를 다시 읽을 때까지 잠긴다(두 번 눌러도 요청은 하나). 결과는 서버가 준 판정 글을 그 줄 아래에
 // 적고, 줄의 상태는 다시 읽은 것으로 그린다 — 「보냄」을 미리 그리지 않는다. 「확인 필요」 줄의 [다시 보내기]는 먼저 묻는다.
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { outcomeLabel, type Label } from '../../shared/outreach/labels';
+import { outcomeLabel, SEND_UNKNOWN, type Label } from '../../shared/outreach/labels';
 import { outreachApi, sendOutcomeUnknown, type Message } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import Bubble from './Bubble';
@@ -19,8 +19,8 @@ interface Props {
 }
 
 const NEW_DRAFT = '새 초안을 만들었습니다 — 아직 보내지 않았습니다. [보내기]를 눌러야 나갑니다.';
-/** [보내기] 요청이 답을 받지 못함(연결 끊김) — 나갔는지 모른다. 실패가 아니다: 다시 읽은 줄이 상태를 말한다. */
-export const SEND_UNKNOWN = '보냈는지 확인하지 못했습니다 — 다시 읽은 뒤 상태를 확인해 주세요';
+/** [보내기] 요청이 답을 받지 못함 — 나갔는지 모른다. 글은 labels.ts 에 있다(대화 카드도 쓴다). */
+export { SEND_UNKNOWN };
 type Done = { on: number; note: Label } | void;
 
 /** 줄마다 한 번에 요청 하나. 끝나면 대화를 다시 읽은 뒤에 잠금을 푼다. */
