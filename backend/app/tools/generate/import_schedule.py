@@ -88,6 +88,7 @@ class ColumnsIn(BaseModel):
     pred_col: str | None = None
     start_col: str | None = None
     finish_col: str | None = None
+    resource_col: str | None = None
     start_constraint: bool = False
     finish_constraint: bool = False
 
@@ -174,12 +175,16 @@ async def _plan(llm: LlmClient, table: Table, ctx: ToolContext) -> Plan:
 
 
 def _request(rows: ImportedRows) -> str:
-    """생성 루프에 줄 요청 글: 규칙과 표 전체(빈 칸은 '?')."""
+    """생성 루프에 줄 요청 글: 규칙과 표 전체(빈 칸은 '?'). 담당자원 열이 있으면 자원 열도(빈 칸은 「미지정」 — 추정하지 않는다)."""
     def preds(r: ImportedRow) -> str:
         return "?" if r.preds is None else imports.pred_text(list(r.preds)) or "-"
+    has_resources = any(r.resources != () for r in rows.rows)
+
+    def resources(r: ImportedRow) -> str:
+        return f" | {', '.join(r.resources or ()) or '미지정'}" if has_resources else ""
     head = [f"파일 「{rows.title}」에서 가져온 공정표다. 아래 액티비티 {len(rows.rows)}개가 전부다.", *ESTIMATE_RULES]
-    lines = [f"{r.id} | {r.name} | {r.wbs} | {'?' if r.od is None else r.od} | {preds(r)}" for r in rows.rows]
-    return "\n".join([*head, "id | 이름 | WBS | 기간 | 선행", *lines])
+    lines = [f"{r.id} | {r.name} | {r.wbs} | {'?' if r.od is None else r.od} | {preds(r)}{resources(r)}" for r in rows.rows]
+    return "\n".join([*head, "id | 이름 | WBS | 기간 | 선행" + (" | 자원" if has_resources else ""), *lines])
 
 
 def _facts(rows: ImportedRows, args: ImportIn) -> list[dict]:

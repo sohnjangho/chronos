@@ -5,12 +5,14 @@
 - 표 읽기: 글 뽑기(app.files.extract — 칸·인코딩·압축 폭탄 검사를 같이 씀)는 앞 200행뿐이라 원본을 다시 다 읽는다.
 - 기간은 근무일 정수(「5일」), 선행은 화면 shared/schedule/predecessors.ts 꼴(「A1, A4 SS+15」), 숫자는 ASCII 만.
 - 빈 칸: 기간 칸이 비었거나 기간 열이 없으면 기간을, 선행 열이 없으면 선행을 추정한다. 선행 열이 있으면 빈 칸은 「선행 없음」(파일 값).
+- 담당자원: 파일에 적힌 자원만 붙인다(LLM 이 자원을 짓지 않는다). 빈 칸은 추정하지 않고 「미지정」 가정(출처 「추정」)으로 남긴다.
 """
 
 import csv
 import io
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
@@ -21,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy.orm import Session
 
 from app.agent.generation_build import MAX_ACTIVITIES, MAX_LAG, MAX_OD, DraftProblem
-from app.core.model import Constraint, Schedule
+from app.core.model import Constraint, Resource, Schedule
 from app.files import extract
 from app.llm.client import LlmReply, Usage
 from app.store import files
@@ -31,9 +33,9 @@ logger = logging.getLogger(__name__)
 
 ROW_LIMIT = 2000
 ROOT = "0"  # WBS 칸이 빈 행이 들어가는 맨 위 WBS
-COLUMNS = ("id_col", "name_col", "wbs_col", "duration_col", "pred_col", "start_col", "finish_col")
+COLUMNS = ("id_col", "name_col", "wbs_col", "duration_col", "pred_col", "start_col", "finish_col", "resource_col")
 LABELS = {"id_col": "ID", "name_col": "이름", "wbs_col": "WBS", "duration_col": "기간", "pred_col": "선행",
-          "start_col": "시작일", "finish_col": "종료일"}
+          "start_col": "시작일", "finish_col": "종료일", "resource_col": "담당자원"}
 NEEDED = ("name_col", "duration_col", "pred_col")  # 없으면 카드의 「빠진 것」
 NOT_TABLE = "표 파일(csv·tsv·xlsx)만 공정표로 가져올 수 있습니다."
 TOO_MANY = f"행이 {ROW_LIMIT:,}개를 넘어 가져올 수 없습니다. 표를 나눠 올려 주세요."
@@ -46,6 +48,7 @@ REPAIR_NOTE = "가져온 공정표의 고침이다: '고친 초안 전체'·'전
 _DURATION = re.compile(r"(\d+)(?:\.0+)?\s*(?:일|근무일|d|days?)?", re.IGNORECASE | re.ASCII)
 _PART = re.compile(r"(\S+)(?:\s+(FS|SS|FF|SF)([+-]\d+)?)?", re.IGNORECASE | re.ASCII)
 _LAG_ONLY = re.compile(r"(\S+?)([+-]\d+)", re.ASCII)
+_RESOURCE_SPLIT = re.compile(r"[,/]")
 _DAY = re.compile(r"(\d{4})\s*(?:[-./]|년)\s*(\d{1,2})\s*(?:[-./]|월)\s*(\d{1,2})\s*일?(?:[ T].*)?", re.ASCII)
 
 
@@ -157,6 +160,7 @@ class Plan(BaseModel):
     pred_col: str | None = None
     start_col: str | None = None
     finish_col: str | None = None
+    resource_col: str | None = None
     blanks: Literal["ask", "estimate"] = "estimate"
     questions: list[dict] = []  # ask 일 때 질문(ask.questionnaire 의 Question 모양 — 그 도구가 검사한다)
     start_constraint: bool = False
@@ -191,6 +195,8 @@ def card(table: Table, p: Plan) -> dict:
     missing = [LABELS[c] for c in NEEDED if getattr(p, c) is None]
     if p.duration_col and (blank := sum(1 for _, got in rows if not got["duration_col"])):
         missing.append(f"기간 빈 칸 {blank}개")
+    if p.resource_col and (blank := sum(1 for _, got in rows if not resources(got["resource_col"]))):
+        missing.append(f"담당자원 빈 칸 {blank}개")
     blanks = sum(1 for _, got in rows if not got["duration_col"] or table.index(p.pred_col) is None)
     return {"file_id": table.file_id, "sheet": table.sheet, "rows": len(rows), "columns_found": found, "missing": missing,
             "columns": p.model_dump(include={*COLUMNS, "start_constraint", "finish_constraint"}), "over_limit": len(rows) > MAX_ACTIVITIES, "blank_rows": blanks, "blank_limit": BLANK_LIMIT}
@@ -223,6 +229,11 @@ def predecessors(text: str, ids: set[str]) -> list[dict]:
     return out
 
 
+def resources(text: str) -> tuple[str, ...]:
+    """「전기팀 A, 전기팀 B / 장비팀」 → 자원 이름들(쉼표·빗금으로 나눔, 빈 것·겹친 것은 뺀다)."""
+    return tuple(dict.fromkeys(n for n in (part.strip() for part in _RESOURCE_SPLIT.split(text)) if n))
+
+
 def day(text: str) -> date:
     m = _DAY.fullmatch(text.strip())
     if m is None:
@@ -246,6 +257,7 @@ class ImportedRow:
     preds: tuple[dict, ...] | None  # None = 선행 열 없음(추정), () = 선행 없음(파일 값)
     start: date | None
     finish: date | None
+    resources: tuple[str, ...] | None = ()  # 파일의 담당자원. None = 열은 있는데 빈 칸, () = 자원 열 없음
 
     @property
     def blank(self) -> bool:
@@ -297,17 +309,28 @@ class ImportedRows:
         return replace(reply, parsed={"wbs": None, "activities": [r.merged(got.get(r.id, {}), ids) for r in self.rows]})
 
     def constrain(self, schedule: Schedule) -> Schedule:
-        """에이전트가 고른 대로 파일의 시작일(SNET)·종료일(FNLT)을 액티비티 제약으로. 날짜는 파일 값."""
+        """파일 값을 일정에: 에이전트가 고른 대로 시작일(SNET)·종료일(FNLT) 제약(날짜는 파일 값)과 담당자원 열의 자원.
+
+        자원은 Schedule.resources 에도 둔다(액티비티 자원 id 는 늘 일정의 자원이다). 용량은 파일에 없어 그 자원을 쓰는
+        행 수로 둔다 — 겹쳐 써도 넘치지 않으니 자원 맞춤이 파일 날짜를 옮기지 않는다."""
         by_id = {r.id: r for r in self.rows}
+        uses = Counter(n for r in self.rows for n in r.resources or ())
+        ids = {n: f"r{k}" for k, n in enumerate(uses, start=1)}
 
         def one(a):
             r = by_id.get(a.id)
-            if r is not None and self.snet and r.start:
+            if r is None:
+                return a
+            if r.resources:
+                a = replace(a, resources=tuple(ids[n] for n in r.resources))
+            if self.snet and r.start:
                 return replace(a, constraint=Constraint("SNET", r.start))
-            if r is not None and self.fnlt and r.finish:
+            if self.fnlt and r.finish:
                 return replace(a, constraint=Constraint("FNLT", r.finish))
             return a
-        return replace(schedule, activities=tuple(one(a) for a in schedule.activities))
+        added = tuple(Resource(ids[n], n[:60], "단위", count) for n, count in uses.items())
+        return replace(schedule, activities=tuple(one(a) for a in schedule.activities),
+                       resources=(*schedule.resources, *added))
 
     def estimates(self, schedule: Schedule) -> list[dict]:
         """추정한 칸(가정, 출처 「추정」): 빈 칸이 있던 행마다 한 줄."""
@@ -319,6 +342,7 @@ class ImportedRows:
         for r in self.rows:
             parts = [f"기간 {od.get(r.id)}일"] if r.od is None else []
             parts += [f"선행 {pred_text(preds.get(r.id, [])) or '없음'}"] if r.preds is None else []
+            parts += ["담당자원 미지정(파일 빈칸)"] if r.resources is None else []
             if parts:
                 out.append({"label": f"{r.id} {r.name}", "value": " · ".join(parts), "source": "추정"})
         return out
@@ -386,8 +410,9 @@ def convert(table: Table, p: Plan) -> ImportedRows:
         od = _parse(got["duration_col"], "기간", n, problems, duration)
         preds = _parse(got["pred_col"], "선행", n, problems, lambda t: predecessors(t, seen))
         start, finish = (_parse(got[c], LABELS[c], n, problems, day) for c in ("start_col", "finish_col"))
+        named = (resources(got["resource_col"]) or None) if has["resource_col"] else ()
         out.append(ImportedRow(n, i, got["name_col"] or i, got["wbs_col"] or ROOT, od,
-                               tuple(preds or ()) if has["pred_col"] else None, start, finish))
+                               tuple(preds or ()) if has["pred_col"] else None, start, finish, named))
     if problems:
         more = f" 외 {len(problems) - 8}개" if len(problems) > 8 else ""
         raise ImportProblem(f"읽을 수 없는 칸이 있습니다: {'; '.join(problems[:8])}{more}. 표를 고쳐 다시 올려 주세요.")

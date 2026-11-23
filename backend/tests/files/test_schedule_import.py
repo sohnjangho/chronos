@@ -10,10 +10,12 @@ from datetime import UTC, date, datetime
 import pytest
 from openpyxl import Workbook
 
+from app.core.model import Activity, CalendarSpec, Relation, Schedule
 from app.files.schedule_import import (
     ROW_LIMIT,
     ImportProblem,
     Plan,
+    card,
     convert,
     day,
     duration,
@@ -22,6 +24,7 @@ from app.files.schedule_import import (
     read_table,
 )
 from app.store.files import raw_path
+from app.store.schedules import run
 from app.store.tables import FileRow
 
 
@@ -178,6 +181,63 @@ def test_agent_column_names_must_be_in_the_header(session, admin_user):
     assert (got.id_col, got.name_col, got.duration_col, got.blanks) == ("ID", None, "기간", "ask")  # 없는 열은 null
     with pytest.raises(ImportProblem, match="표를 판단하지 못했습니다"):
         plan_from({"blanks": "maybe"}, table)
+
+
+ELEC = (  # 협력사 전기설비 공정표(가상). EL-130 만 담당자원 빈 칸, EL-120 은 기간도 빈 칸
+    "작업ID,작업명,WBS,기간(일),선행작업,담당자원\n"
+    "EL-100,간선 포설,1.1,5,,전기팀 A\n"
+    'EL-110,분전반 설치,1.1,3,EL-100,"전기팀 A, 전기팀 B"\n'
+    "EL-120,케이블 트레이,1.2,,EL-100,전기팀 B / 장비팀\n"
+    "EL-130,조명 기구 설치,1.2,2,EL-110,\n"
+)
+ELEC_PLAN = Plan(id_col="작업ID", name_col="작업명", wbs_col="WBS", duration_col="기간(일)", pred_col="선행작업",
+                 resource_col="담당자원")
+
+
+def test_resource_column_is_read_and_a_blank_cell_is_none(session, admin_user):
+    table = table_of(session, admin_user, ELEC)
+    rows = convert(table, ELEC_PLAN)
+    assert [(r.id, r.resources) for r in rows.rows] == [
+        ("EL-100", ("전기팀 A",)), ("EL-110", ("전기팀 A", "전기팀 B")), ("EL-120", ("전기팀 B", "장비팀")),
+        ("EL-130", None),  # 열은 있는데 빈 칸 = 「미지정」 가정으로 남길 칸
+    ]
+    assert rows.blanks == 1  # 담당자원 빈 칸은 추정(LLM)할 칸이 아니다 — 빈 칸 행은 기간이 빈 EL-120 뿐
+    without = convert(table, ELEC_PLAN.model_copy(update={"resource_col": None}))
+    assert {r.resources for r in without.rows} == {()}  # 자원 열이 없는 표
+
+
+def test_card_counts_blank_resource_cells(session, admin_user):
+    got = card(table_of(session, admin_user, ELEC), ELEC_PLAN)
+    assert got["missing"] == ["기간 빈 칸 1개", "담당자원 빈 칸 1개"]
+    assert got["columns"]["resource_col"] == "담당자원" and "담당자원" in got["columns_found"]
+    assert got["blank_rows"] == 1
+
+
+def test_file_resources_go_on_the_schedule_without_moving_dates(session, admin_user):
+    rows = convert(table_of(session, admin_user, ELEC), ELEC_PLAN)
+    bare = Schedule(start=date(2027, 3, 1), calendar=CalendarSpec(5), wbs=(),
+                    activities=tuple(Activity(r.id, r.name, "task", r.wbs, r.od or 4) for r in rows.rows),
+                    relations=(Relation("EL-100", "EL-110"), Relation("EL-100", "EL-120"), Relation("EL-110", "EL-130")))
+    s = rows.constrain(bare)
+    names = {r.id: r.name for r in s.resources}
+    assert [r.name for r in s.resources] == ["전기팀 A", "전기팀 B", "장비팀"]  # 파일에 나온 차례, 중복 없이
+    assert {a.id: tuple(names[i] for i in a.resources) for a in s.activities} == {
+        "EL-100": ("전기팀 A",), "EL-110": ("전기팀 A", "전기팀 B"), "EL-120": ("전기팀 B", "장비팀"), "EL-130": ()}
+    # 용량은 파일에 없다 — 그 자원을 쓰는 행 수로 두어 겹쳐도 넘치지 않는다: 자원 맞춤이 날짜를 옮기지 않는다
+    assert {r.name: r.capacity for r in s.resources} == {"전기팀 A": 2, "전기팀 B": 2, "장비팀": 1}
+    dates = {i: (row.es, row.ef) for i, row in run(s).rows.items()}
+    assert dates == {i: (row.es, row.ef) for i, row in run(bare).rows.items()}
+
+
+def test_blank_resource_cells_are_recorded_as_estimates(session, admin_user):
+    rows = convert(table_of(session, admin_user, ELEC), ELEC_PLAN)
+    bare = Schedule(start=date(2027, 3, 1), calendar=CalendarSpec(5), wbs=(),
+                    activities=tuple(Activity(r.id, r.name, "task", r.wbs, r.od or 4) for r in rows.rows),
+                    relations=(Relation("EL-100", "EL-110"), Relation("EL-100", "EL-120"), Relation("EL-110", "EL-130")))
+    assert rows.estimates(rows.constrain(bare)) == [
+        {"label": "EL-120 케이블 트레이", "value": "기간 4일", "source": "추정"},
+        {"label": "EL-130 조명 기구 설치", "value": "담당자원 미지정(파일 빈칸)", "source": "추정"},
+    ]
 
 
 def test_full_width_digits_are_refused():

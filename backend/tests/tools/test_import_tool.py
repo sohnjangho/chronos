@@ -98,7 +98,8 @@ def big_xlsx() -> bytes:
 
 BIG_COLUMNS = {
     "id_col": "작업 ID", "name_col": "작업명", "wbs_col": "WBS", "duration_col": None, "pred_col": "선행 작업",
-    "start_col": "시작일", "finish_col": "종료일", "start_constraint": False, "finish_constraint": False,
+    "start_col": "시작일", "finish_col": "종료일", "resource_col": None, "start_constraint": False,
+    "finish_constraint": False,
 }
 CSV_COLUMNS = {**BIG_COLUMNS, "id_col": "ID", "name_col": "작업", "wbs_col": None, "duration_col": "기간",
                "pred_col": "선행", "start_col": "시작", "finish_col": "종료"}
@@ -328,6 +329,47 @@ async def test_import_never_attaches_resources(ctx, llm, session):
     got = {i: (cpm.rows[i].es.isoformat(), cpm.rows[i].ef.isoformat()) for i in "ABC"}
     assert got == {"A": ("2027-03-02", "2027-03-06"), "B": ("2027-03-02", "2027-03-04"), "C": ("2027-03-02", "2027-03-05")}
     assert r.output["draft"]["finish"] == "2027-03-06"
+
+
+# 같은 셋에 담당자원 열(A6-1): A·B 는 같은 팀이 나란히 겹치고, C 는 빈 칸.
+PARALLEL_RES_CSV = (
+    "ID,작업,기간,선행,시작,종료,담당자원\n"
+    "A,1층 골조,5,,2027-03-02,2027-03-06,골조팀\n"
+    "B,2층 철근 배근,3,,2027-03-02,2027-03-04,골조팀\n"
+    "C,외장 패널,4,,2027-03-02,2027-03-05,\n"
+)
+RES_COLUMNS = {**CSV_COLUMNS, "resource_col": "담당자원"}
+
+
+async def test_import_keeps_file_resources_without_moving_file_dates(ctx, llm, session):
+    """A6-1: 담당자원 열의 자원만 붙는다(분야 자원은 여전히 붙이지 않는다). 같은 팀이 겹쳐도 파일 날짜 그대로,
+    빈 칸(C)은 「미지정」 가정(출처 추정). 추정할 빈 칸 행이 없으니 LLM 0번."""
+    fid = put(session, PARALLEL_RES_CSV.encode(), "골조_병행_담당.csv", "table")
+    r = await call("schedule.import", importing(fid, level="L3", columns=RES_COLUMNS), ctx)
+    assert r.ok, r.error
+    assert llm.bodies == []
+    draft = get_draft(session, r.output["draft"]["draft_id"])
+    s = from_json(draft.schedule_json)
+    [team] = s.resources
+    assert (team.name, team.capacity) == ("골조팀", 2)
+    assert {a.id: a.resources for a in s.activities} == {"A": (team.id,), "B": (team.id,), "C": ()}
+    cpm = run(s, draft.conditions_json)
+    got = {i: (cpm.rows[i].es.isoformat(), cpm.rows[i].ef.isoformat()) for i in "ABC"}
+    assert got == {"A": ("2027-03-02", "2027-03-06"), "B": ("2027-03-02", "2027-03-04"), "C": ("2027-03-02", "2027-03-05")}
+    estimated = [(a["label"], a["value"]) for a in draft.assumptions_json if a["source"] == "추정"]
+    assert estimated == [("C 외장 패널", "담당자원 미지정(파일 빈칸)")]
+
+
+async def test_estimate_request_shows_the_resource_column(ctx, llm, session):
+    """A6-1: 빈 칸을 추정할 때 요청 표에 자원 열 — 빈 자원 칸은 「미지정」(추정할 칸 '?' 가 아니다)."""
+    fid = put(session, PARALLEL_RES_CSV.replace("2층 철근 배근,3,", "2층 철근 배근,,").encode(), "골조_담당_빈칸.csv", "table")
+    llm.push(csv_plan(resource_col="담당자원"), estimate(est("B", 3)))
+    r = await call("schedule.import", importing(fid), ctx)
+    assert r.ok, r.error
+    text = user_text(llm, 1)
+    assert "id | 이름 | WBS | 기간 | 선행 | 자원" in text
+    for line in ("A | 1층 골조 | 0 | 5 | - | 골조팀", "B | 2층 철근 배근 | 0 | ? | - | 골조팀", "C | 외장 패널 | 0 | 4 | - | 미지정"):
+        assert line in text
 
 
 def many_blank_csv(n: int) -> bytes:
