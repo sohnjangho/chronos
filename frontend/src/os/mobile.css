@@ -318,8 +318,28 @@
 }
 .mob-root[data-device="phone"] .mob-title {
   flex: 0 1 auto;
-  min-width: 0;
+  min-width: 4em;
   font-size: var(--fs-16);
+}
+/* 휴대폰 머리줄: 「현장 전용」 알약은 글자 대신 점으로 줄여 제목이 한 글자로 잘리지 않게 한다(F6). 글은 화면 읽기용으로 남는다. */
+.mob-root[data-device="phone"] .mob-role-pill {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: transparent;
+  overflow: hidden;
+}
+/* 휴대폰 일정 고르기 목록: 단추 아래 왼쪽에 붙으면 오른쪽이 화면 밖으로 밀린다 — 화면 폭 안에 펼친다(F6). */
+.mob-root[data-device="phone"] .os-site-pop {
+  position: fixed;
+  top: 60px;
+  left: 8px;
+  right: 8px;
+  width: auto;
+  max-width: calc(100vw - 16px);
 }
 .mob-root[data-device="phone"] .mob-icon-btn {
   min-width: 44px;
@@ -358,6 +378,7 @@
   min-height: 40px;
   padding: 6px 14px;
   font-size: var(--fs-13);
+  white-space: nowrap;
 }
 .mob-root[data-device="phone"] .ch-thread {
   gap: 16px;
@@ -430,9 +451,10 @@
 }
 .mob-root[data-device="phone"] .pg-choice-btn {
   min-height: 48px;
-  padding: 10px 12px;
+  padding: 10px 8px;
   font-size: var(--fs-14);
   font-weight: 600;
+  white-space: nowrap;
 }
 .mob-root[data-device="phone"] .pg-flabel input,
 .mob-root[data-device="phone"] .pg-flabel select,
@@ -472,4 +494,19 @@
 }
 .mob-root .pg-tab.is-field-view .pg-toolbar {
   display: none;
+}
+
+/* 휴대폰: 일정 도구줄(리본)은 줄바꿈하지 않고 한 줄로 두어 옆으로 민다. 묶음마다 줄을 바꿔 리본이 화면을 다 차지해
+   간트 막대가 하나도 안 보이던 것(F3). 펼침 판은 portal(fixed)이라 잘리지 않는다. 관계 패널도 낮춰 표 줄을 더 보인다. */
+.mob-root[data-device="phone"] .sch-toolbar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+.mob-root[data-device="phone"] .sch-toolbar > .sch-rib-group {
+  flex: none;
+}
+.mob-root[data-device="phone"] .sch-rel {
+  height: min(120px, 22%);
+  min-height: 0;
+  padding: 6px 12px;
 }
