@@ -63,6 +63,47 @@ def test_block_by_peer_key_never_returns_number(client, admin, session):
     assert again.status_code == 409 and SENTINEL_DIGITS not in again.text
 
 
+def test_reason_rules(client, admin):
+    for bad in ("광고\u202e전화", "a\u0007b", "x\u2066y"):
+        r = client.post(URL, json={"number": SENTINEL_PHONE, "reason": bad}, headers=admin)
+        assert r.status_code == 422 and r.json()["code"] == "invalid_text" and r.json()["detail"] == {"field": "reason"}
+    r = client.post(URL, json={"number": "010-0000-0198", "reason": "x" * 201}, headers=admin)
+    assert r.status_code == 422 and r.json()["code"] == "too_long" and r.json()["detail"] == {"field": "reason", "max": 200}
+    r = client.post(URL, json={"number": "010-0000-01981", "reason": "x"}, headers=admin)  # 41자 넘는 번호 아님 — 꼴이 틀림
+    assert r.status_code == 422 and r.json()["code"] == "invalid_number"
+    r = client.post(URL, json={"number": "1" * 41}, headers=admin)
+    assert r.status_code == 422 and r.json()["detail"] == {"field": "number", "max": 40} and "1111111111" not in r.text
+    r = client.post(URL, json={"number": SENTINEL_PHONE, "reason": f"{SENTINEL_PHONE} 에서 광고\n두 번째 줄"},
+                    headers=admin)
+    assert r.status_code == 201 and SENTINEL_DIGITS not in r.text.replace("-", "")
+    assert "광고" in r.json()["reason"]
+    assert SENTINEL_DIGITS not in client.get(URL, headers=admin).text.replace("-", "")
+
+
+def test_peer_key_searches_only_unknown_number_rows(client, admin, session):
+    session.add(OutreachMessage(direction="in", channel="sms", origin="peer", peer_number=SENTINEL_DIGITS, schedule_id=1))
+    session.commit()
+    r = client.post(URL, json={"peer_key": phone.peer_key(SENTINEL_DIGITS)}, headers=admin)
+    assert r.status_code == 404 and r.json()["code"] == "peer_not_found"
+
+
+def test_concurrent_duplicate_block_is_409(client, admin, monkeypatch):
+    from app.programs.notify_settings import blocked
+
+    first = client.post(URL, json={"number": SENTINEL_PHONE}, headers=admin).json()
+    real = blocked._existing
+    calls = []
+
+    def blind(session, number):  # 다른 요청이 사이에 넣은 것처럼 — 처음 검사는 못 보고 저장에서 부딪힌다
+        calls.append(number)
+        return None if len(calls) == 1 else real(session, number)
+
+    monkeypatch.setattr(blocked, "_existing", blind)
+    r = client.post(URL, json={"number": "+82 10 0000 0199"}, headers=admin)
+    assert r.status_code == 409 and r.json() == {"code": "already_blocked", "message": "이미 차단한 번호입니다.",
+                                                 "detail": {"id": first["id"]}}
+
+
 def test_unblock(client, admin):
     row = client.post(URL, json={"number": SENTINEL_PHONE}, headers=admin).json()
     assert client.delete(f"{URL}/{row['id']}", headers=admin).status_code == 204

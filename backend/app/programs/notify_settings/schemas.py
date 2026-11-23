@@ -1,7 +1,8 @@
 """알림 연결 API 의 요청·응답 꼴. 계약: .superpowers/sdd/2026-11-23-chronos-plan-4-contacts/task-70-contract.md.
 
 요청 본문은 모르는 칸을 받지 않는다(PATCH 가 상한을 받지 않게). 참/거짓·순번은 엄격하게(「"true"」·「"1"」 거절).
-키는 SecretStr — repr·검증 오류에 드러나지 않는다. 번호는 응답에 가린 꼴로만 나간다.
+키·Account ID 는 SecretStr — repr·검증 오류에 드러나지 않는다. 번호는 응답에 가린 꼴로만 나간다.
+글 길이·빈 이름은 여기서 막지 않고 service.check_lengths 가 칸을 알려 주는 422 로 막는다(계약 V5).
 """
 
 from datetime import datetime
@@ -23,10 +24,6 @@ Agent = Literal["approve", "delegate"]
 InboundMode = Literal["off", "known", "all"]
 StepId = Literal["P1", "P2", "P3", "P4"]
 UtcDatetime = Annotated[datetime, AfterValidator(as_utc)]
-Name = Annotated[str, Field(min_length=1, max_length=100)]
-Text100 = Annotated[str, Field(max_length=100)]
-Text500 = Annotated[str, Field(max_length=500)]
-NumberText = Annotated[str, Field(max_length=40)]
 
 
 class _In(BaseModel):
@@ -34,33 +31,33 @@ class _In(BaseModel):
 
 
 class ConnectionTestIn(_In):
-    base_url: Text500 | None = None
+    base_url: str | None = None
     secret: SecretStr
-    account_id: Text100
+    account_id: SecretStr
 
 
 class ConnectionCreate(ConnectionTestIn):
-    name: Name
+    name: str
 
 
 class ConnectionUpdate(_In):
     """보낸 칸만 바꾼다(kakao_channel·handoff_number 는 null 도 「보냄」 — model_fields_set 으로 가른다)."""
 
-    name: Name | None = None
-    base_url: Text500 | None = None
+    name: str | None = None
+    base_url: str | None = None
     secret: SecretStr | None = None
-    account_id: Text100 | None = None
+    account_id: SecretStr | None = None
     sender_index: StrictInt | None = None
-    kakao_channel: Text100 | None = None
+    kakao_channel: str | None = None
     test_mode: StrictBool | None = None
-    allow_numbers_add: Annotated[list[NumberText], Field(max_length=50)] | None = None
-    allow_numbers_remove: Annotated[list[StrictInt], Field(max_length=50)] | None = None
-    allow_numbers_version: Text100 | None = None
+    allow_numbers_add: list[str] | None = None
+    allow_numbers_remove: list[StrictInt] | None = None
+    allow_numbers_version: str | None = None
     agent_sms: Agent | None = None
     agent_kakao: Agent | None = None
     agent_call: Agent | None = None
     inbound_mode: InboundMode | None = None
-    handoff_number: NumberText | None = None
+    handoff_number: str | None = None
     is_default: Literal[True] | None = None
 
 
@@ -69,17 +66,24 @@ class ErrorOut(BaseModel):
     message: str
 
 
+class SenderOut(BaseModel):
+    index: int
+    number_masked: str
+    kind: str
+    label: str  # 「발신번호 {index+1}」 — 끝 4자리가 같은 두 번호도 가른다
+
+
 class ProbeOut(BaseModel):
     ok: bool
     latency_ms: int | None
-    senders: list[str]  # 가린 꼴
+    senders: list[SenderOut]
     error: ErrorOut | None
 
 
 class AllowNumberOut(BaseModel):
     index: int
     number_masked: str
-    kind: str
+    kind: str  # 알 수 없으면 ""
     can_test_sms: bool
 
 
@@ -97,7 +101,7 @@ class ConnectionOut(BaseModel):
     account_id_masked: str
     sender_number_masked: str | None
     sender_index: int | None
-    senders: list[str]
+    senders: list[SenderOut]
     kakao_channel: str | None
     test_mode: bool
     allow_numbers: list[AllowNumberOut]
@@ -113,7 +117,7 @@ class ConnectionOut(BaseModel):
     status: str
     checked_at: UtcDatetime | None
     latency_ms: int | None
-    used_today: UsedToday
+    used_today: UsedToday | None  # 기본 연결이 아니면 null
 
 
 class ConnectionSaved(ConnectionOut):
@@ -129,6 +133,8 @@ class LimitsOut(BaseModel):
 class DiagnoseIn(_In):
     steps: Annotated[list[StepId], Field(min_length=1, max_length=4)] | None = None
     send: StrictBool = False
+    allow_numbers_version: str | None = None  # send 가 참이면 꼭 — 확인한 목록 그대로일 때만 보낸다
+    confirm_resend: StrictBool = False  # 앞선 시험 문자의 결과를 모를 때 그래도 다시 보낸다
 
 
 class StepOut(BaseModel):
@@ -139,13 +145,25 @@ class StepOut(BaseModel):
     detail: str
     latency_ms: int | None
     notes: list[str]
+    code: str = ""  # 이 칸이 생기기 전에 저장된 진단은 빈 값
+    maybe_sent: bool = False
+    pending: bool = False
+
+
+class SendRecord(BaseModel):
+    at: UtcDatetime
+    by: str
+    outcome: Literal["sending", "accepted", "unknown", "not_sent"]
 
 
 class DiagnosisOut(BaseModel):
+    state: Literal["sending", "done"]
     ran_at: UtcDatetime
+    by: str | None
     steps: list[StepOut]
     sent_real: bool
     sent_unknown: bool
+    sends: list[SendRecord]
 
 
 class AgentOut(BaseModel):
@@ -164,9 +182,9 @@ class StatusOut(BaseModel):
 
 
 class BlockIn(_In):
-    number: NumberText | None = None
+    number: str | None = None
     peer_key: Annotated[str, Field(pattern=r"^[0-9a-f]{12}$")] | None = None
-    reason: Annotated[str, Field(max_length=200)] = ""
+    reason: str = ""
 
 
 class BlockedOut(BaseModel):
