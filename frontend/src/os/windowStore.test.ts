@@ -527,3 +527,31 @@ describe('프로젝트 격리 · 일정 동기화 · 2단 스테이지 배치', 
     expect(c.y + c.h).toBeLessThanOrEqual(900 - DOCK_RESERVE);
   });
 });
+
+describe('상단 진행 리본이 펼쳐지면 창 제목줄이 그 밑에 숨지 않는다 (U4)', () => {
+  const ribbonBottom = MENUBAR_H + RIBBON_H;
+
+  test('a new window, a dragged window and a maximized window start below the open ribbon', () => {
+    s().setInsetTop(RIBBON_H);
+    const a = s().open('a');
+    expect(win(a).y).toBeGreaterThanOrEqual(ribbonBottom);
+    s().move(a, 100, 0);
+    expect(win(a).y).toBe(ribbonBottom);
+    expect(workArea()).toEqual({ x: 0, y: ribbonBottom, w: 1920, h: 1080 - ribbonBottom });
+    expect(resizeRect(win(a), 'n', 0, -500).y).toBe(ribbonBottom);
+  });
+
+  test('opening the ribbon pushes down windows it would cover and closing it leaves them', () => {
+    const a = s().open('a');
+    const b = s().open('b');
+    s().move(b, 300, 400);
+    expect(win(a).y).toBe(68);
+    s().setInsetTop(RIBBON_H);
+    expect(win(a).y).toBe(ribbonBottom);
+    expect(win(a).y + win(a).h).toBeLessThanOrEqual(1080);
+    expect(win(b).y).toBe(400);
+    s().setInsetTop(0);
+    expect(win(a).y).toBe(ribbonBottom);
+    expect(workArea().y).toBe(MENUBAR_H);
+  });
+});

@@ -54,12 +54,16 @@ const LIMITS = { minW: MIN_W, minH: MIN_H };
 
 /** 창이 쓸 수 있는 화면. 오른쪽에 붙은 패널(Context 패널) 폭만큼 좁다. */
 const screenSize = () => ({ w: window.innerWidth - useWindows.getState().insetRight, h: window.innerHeight });
+/** 창이 올라갈 수 있는 위 끝: 메뉴바 아래, 펼친 진행 리본이 있으면 그 아래. */
+const topY = () => MENUBAR_H + useWindows.getState().insetTop;
+/** 새 창의 첫 자리(위 끝에서 20px 아래). */
+const startPos = () => ({ x: START.x, y: topY() + 20 });
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
 
 /** 창을 메뉴바 아래, 화면 안으로. */
 function clampPos(x: number, y: number, w: number, h: number) {
   const s = screenSize();
-  return { x: clamp(x, 0, s.w - w), y: clamp(y, MENUBAR_H, s.h - h) };
+  return { x: clamp(x, 0, s.w - w), y: clamp(y, topY(), s.h - h) };
 }
 
 /** 최소 크기 이상, 화면 오른쪽·아래 끝을 넘지 않게. */
@@ -71,7 +75,7 @@ function sizeWithin(win: Rect, w: number, h: number) {
 function fitSize(size: { w: number; h: number }) {
   const s = screenSize();
   // 일반 창(defaultSize.h <= 1200)은 760px 이상 화면에서 초기 시작 위치(START.y) 기준 Dock 영역을 침범하지 않게 자동 조정한다.
-  const maxH = s.h >= 760 && size.h <= 1200 ? Math.max(MIN_H, s.h - START.y - DOCK_RESERVE) : s.h - MENUBAR_H;
+  const maxH = s.h >= 760 && size.h <= 1200 ? Math.max(MIN_H, s.h - startPos().y - DOCK_RESERVE) : s.h - topY();
   return { w: clamp(Math.round(size.w), MIN_W, s.w), h: clamp(Math.round(size.h), MIN_H, maxH) };
 }
 
@@ -97,7 +101,7 @@ export function resizeRect(start: Rect, edge: Edge, dx: number, dy: number): Rec
     r.w = right - r.x;
   }
   if (edge.includes('n')) {
-    r.y = clamp(start.y + dy, MENUBAR_H, bottom - MIN_H);
+    r.y = clamp(start.y + dy, topY(), bottom - MIN_H);
     r.h = bottom - r.y;
   }
   return r;
@@ -106,16 +110,16 @@ export function resizeRect(start: Rect, edge: Edge, dx: number, dy: number): Rec
 /** 앞에 새로 연 창에서 32px 오른쪽·아래. 화면을 벗어나면 왼쪽 위로 돌아간다. */
 function cascadeFrom(last: { x: number; y: number } | null, w: number, h: number) {
   const s = screenSize();
-  const next = last ? { x: last.x + CASCADE, y: last.y + CASCADE } : START;
+  const next = last ? { x: last.x + CASCADE, y: last.y + CASCADE } : startPos();
   const fits = next.x + w <= s.w && next.y + h <= s.h;
-  const at = fits ? next : START;
+  const at = fits ? next : startPos();
   return clampPos(at.x, at.y, w, h);
 }
 
-/** 확대한 창이 차지하는 자리: 메뉴바 아래부터 화면 아래 끝까지(그동안 Dock 은 숨는다). */
+/** 확대한 창이 차지하는 자리: 메뉴바(펼친 리본) 아래부터 화면 아래 끝까지(그동안 Dock 은 숨는다). */
 export function workArea(): Rect {
   const s = screenSize();
-  return { x: 0, y: MENUBAR_H, w: s.w, h: Math.max(MIN_H, s.h - MENUBAR_H) };
+  return { x: 0, y: topY(), w: s.w, h: Math.max(MIN_H, s.h - topY()) };
 }
 
 /** 정렬 영역: 메뉴바 아래, Dock 몫을 뺀 곳. */
@@ -341,6 +345,14 @@ function bulkActions(set: SetState, get: () => WindowState) {
     },
     setInsetTop(px: number) {
       set({ insetTop: Math.max(0, px) });
+      // 리본에 걸리는 창은 그 아래로 내린다(접힐 때는 되돌리지 않는다). 확대한 창은 다시 그려 workArea 를 따른다.
+      const top = topY();
+      const h = window.innerHeight;
+      set((s) => ({
+        wins: s.wins.map((w) =>
+          w.maximized ? { ...w } : w.y < top ? { ...w, y: top, h: clamp(w.h, MIN_H, h - top) } : w,
+        ),
+      }));
     },
     syncSchedule(scheduleId: number | null) {
       set((s) => ({
