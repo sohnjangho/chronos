@@ -497,6 +497,47 @@ async def test_scenario_table_keeps_only_current_round(session):
     assert [r[0] for r in blocks2[0].table["rows"]] == ["새 안"]
 
 
+async def test_delay_plan_whose_delays_are_already_in_the_schedule_is_shown_applied(session):
+    """재확인: 지연 2건이 만회안 B 와 함께 버전 3에 반영됐으면, 같은 사건을 넣은 열린 「지연 반영안 (2건)」은 「검토 중」이 아니라
+    「반영 완료」다(반영된 만회안처럼). 사건이 하나라도 아직 열려 있으면 검토 중 그대로."""
+    from datetime import date
+
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory, TemplateSection
+    from app.store import scenarios as scen_store
+    from app.store.schedules import load
+    from app.store.tables import DelayEvent
+
+    def delay(sid: int, status: str) -> int:
+        row = DelayEvent(schedule_id=sid, activity_id="A", start_date=date(2027, 3, 2), days=2, cause="자재 반입 지연",
+                         created_by="김공정", status=status, reflected_version=3 if status == "reflected" else None)
+        session.add(row)
+        session.flush()
+        return row.id
+
+    def delay_plan(sid: int, ids: list[int]) -> None:
+        current, stored, _ = load(session, sid)
+        scen_store.create(session, schedule_id=sid, base_version=2, name=f"지연 반영안 ({len(ids)}건)", source="delay",
+                          schedule=current, conditions=stored, delay_event_ids=ids, created_by="김공정",
+                          extra_summary={"finish": "2027-11-04", "finish_delta": 5, "critical_count": 12})
+        session.commit()
+
+    sec = TemplateSection(id="s", heading="만회", block_kind="table", data_binding="scenario_compare")
+    rows = {}
+    for case, statuses in (("reflected", ("reflected", "reflected")), ("one_open", ("reflected", "open"))):
+        sid = schedules.store(session, schedules.sample())
+        session.commit()
+        _bump_version(session, sid)  # 버전 2
+        delay_plan(sid, [delay(sid, s) for s in statuses])
+        _scenario(session, sid, 2, "만회안 A", "open", "2027-10-30", 1, 12)
+        _scenario(session, sid, 2, "만회안 B", "applied", "2027-10-05", -19, 27)
+        _bump_version(session, sid)  # 버전 3 = 만회안 B 반영(지연 반영)
+        _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
+        rows[case] = {r[0]: r[-1] for r in blocks[0].table["rows"]}
+    assert rows["reflected"] == {"만회안 B": "반영 완료", "만회안 A": "검토 중", "지연 반영안 (2건)": "반영 완료"}
+    assert rows["one_open"]["지연 반영안 (2건)"] == "검토 중"
+
+
 async def test_prose_drops_heading_line_and_markdown_stars(session, monkeypatch):
     """R3: 서술·수정 답의 첫 줄이 절 제목이면 빼고 ** 를 지운다. 두 프롬프트에 금지 문장이 있다."""
     from types import SimpleNamespace

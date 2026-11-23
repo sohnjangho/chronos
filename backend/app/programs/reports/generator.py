@@ -269,6 +269,13 @@ async def generate_report_blocks(
     # 이번 차례의 안만: 지금 버전 기준 안 + 마지막으로 반영된 안과 기준 버전이 같은 안(옛 실행의 열린 안은 뺀다).
     keep = {prog.version} | {next((s.base_version for s in scen_rows if s.status == "applied"), prog.version)}
     scen_rows = [s for s in scen_rows if s.base_version in keep]
+    # 지연 반영안은 그 사건이 모두 반영됐으면(다른 안과 함께 일정에 들어갔으면) 반영된 만회안처럼 「반영 완료」로 보인다.
+    reflected = {e.id for e in delays_store.listed(session, schedule_id) if e.status == "reflected"}
+
+    def scen_status(sc) -> str:
+        if sc.source == "delay" and sc.status != "applied" and sc.delay_event_ids and set(sc.delay_event_ids) <= reflected:
+            return _SCEN_STATUS["applied"]
+        return _SCEN_STATUS.get(sc.status, sc.status)
     # delays.report() 가 refresh 를 수행했을 수 있으므로 LLM 호출 전에 쓰기를 마친다.
     session.commit()
 
@@ -403,7 +410,7 @@ async def generate_report_blocks(
                     format_date(sm.get("finish"), dfmt),
                     delta_str,
                     sm.get("critical_count", "—"),
-                    _SCEN_STATUS.get(sc.status, sc.status),
+                    scen_status(sc),
                 ]
                 rows.append(_pick(std_row, picks))
             blocks.append(
