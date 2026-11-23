@@ -40,3 +40,19 @@ test('a ribbon node shows the Korean name and keeps the tool id as its title (U5
   render(<WorkflowRibbon />);
   expect(screen.getByText('1. 현장 데이터 조회').closest('[title]')).toHaveAttribute('title', 'field.list');
 });
+
+// 계획 4 Task 109: 대화 에이전트 연락 도구 6개 + 연락 하네스 도구 12개(표시 id outreach.<이름>).
+const CONTACT_TOOLS = [
+  'contacts.list', 'notify.draft_message', 'notify.draft_call', 'notify.status', 'notify.send_message', 'notify.place_call',
+  'outreach.find_contact', 'outreach.propose_contact', 'outreach.schedule_fact', 'outreach.my_requests',
+  'outreach.record_answer', 'outreach.take_message', 'outreach.report_from_contact', 'outreach.schedule_callback',
+  'outreach.mark_do_not_contact', 'outreach.handoff_to_human', 'outreach.end_call', 'outreach.confirm_person',
+];
+
+test('every new contact tool has a Korean label (Task 109)', () => {
+  expect(CONTACT_TOOLS).toHaveLength(18);
+  expect(CONTACT_TOOLS.filter((t) => !TOOL_LABELS[t])).toEqual([]);
+  for (const t of CONTACT_TOOLS) expect(toolLabel(t), t).toMatch(/[가-힣]/);
+  expect(toolLabel('notify.send_message')).toBe('문자 보내기(위임)');
+  expect(toolLabel('outreach.confirm_person')).toBe('본인 확인');
+});

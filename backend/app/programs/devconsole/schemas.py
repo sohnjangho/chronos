@@ -175,6 +175,21 @@ class EventGroupCount(BaseModel):
     count: int
 
 
+class OutreachFlowVerdict(BaseModel):
+    verdict: str | None
+    label: str  # 시간표 줄의 판정 글(확인 필요 포함)
+    count: int
+
+
+class OutreachFlowNode(BaseModel):
+    """연락 흐름도 마디 하나(Task 109): inbound · tool · post_check · gate · channel."""
+
+    key: str
+    label: str
+    count: int  # 그 마디의 사건 수
+    verdicts: list[OutreachFlowVerdict]
+
+
 class OutreachDetailOut(BaseModel):
     head: OutreachHeadOut
     timeline: list[HarnessItem]  # 남긴 차례대로
@@ -182,6 +197,8 @@ class OutreachDetailOut(BaseModel):
     attempts: int  # 보내기 시도 수
     needs_check: int  # 「확인 필요」 통로 결과 수
     omitted: int  # 보이지 않는 앞선 사건 수(저장할 때 생략된 것 + 상한 밖)
+    flow: list[OutreachFlowNode] = Field(default_factory=list)  # 다섯 마디(Task 109)
+    branches_lit: list[str] = Field(default_factory=list)  # 기록으로 켜진 가지(inbound_handled)
 
 
 class TurnDetail(BaseModel):
@@ -210,6 +227,14 @@ class UsageCountersOut(BaseModel):
     embedding: UsageTotals  # 임베딩 호출(llm_calls purpose embedding)
 
 
+class TextModelUsageOut(BaseModel):
+    kind: str  # text_reply | draft | translation
+    count: int
+    input_tokens: int
+    output_tokens: int
+    cost: float | None  # 모델이 알려 준 요금의 합, 없으면 None
+
+
 class OutreachUsageOut(BaseModel):
     """연락 사용량(store.outreach_usage.summary 의 다섯 칸). long 은 sms 의 부분 집합. provider_cost 가 None 이면 제공사가
     요금을 알려 주지 않았다."""
@@ -219,6 +244,7 @@ class OutreachUsageOut(BaseModel):
     kakao: int
     auto_replies: int
     provider_cost: float | None
+    text_models: list[TextModelUsageOut] = Field(default_factory=list)  # 글 쪽 모델 사용(Task 109)
 
 
 class DevUsageOut(UsageOut):

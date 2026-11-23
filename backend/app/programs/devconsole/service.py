@@ -40,7 +40,7 @@ from app.info import generic
 from app.llm import assignments
 from app.llm.assignments import default_connection
 from app.llm.connections import secret_is_sendable
-from app.programs.devconsole import outreach_view
+from app.programs.devconsole import outreach_branches, outreach_view
 from app.programs.devconsole.schemas import (
     ActiveTurnOut,
     CallCount,
@@ -293,7 +293,7 @@ def step_signals(step: WorkflowStep, button_file: str | None) -> list[str]:
         signals.append("repair_stopped")
     if error == FIELD_READ_ONLY_MESSAGE:
         signals.append("role_blocked")
-    return signals
+    return signals + outreach_branches.step_flags(step.tool, step.status, out)  # 연락 가지(Task 109)
 
 
 def _branch_signals(llms: list[TraceEvent], steps: list[WorkflowStep], skill_ev: TraceEvent | None = None,

@@ -1,12 +1,14 @@
 // 도구(Tools) & 베테랑 스킬(Skills) 등록부 탭: 통계 · 활성 토글 · 스킬 삭제.
 // 도구는 한글 이름(shared/toolLabels — 대화 칩·리본과 같은 표), 영역 묶음 + 찾기, 쓰기 여부, 부를 수 있는 역할.
+// 연락(Task 109): 대화 에이전트 연락 도구(역할 설명) + 연락 하네스 도구 12개(등록부 밖 — 받는 등급·매체, 끄기 없음).
 import { useState } from 'react';
 import { ApiError } from '../../shared/api';
 import { toolLabel } from '../../shared/toolLabels';
 import Badge from '../../shared/ui/Badge';
+import { classOf } from './outreachText';
 import { devApi, type CatalogOut, type SkillRegistryItem, type ToolRegistryItem } from './devApi';
 
-const CATS = ['전체', '하네스 점검', '승인 상신', '조회·계산·조작', '비활성'] as const;
+const CATS = ['전체', '하네스 점검', '승인 상신', '조회·계산·조작', '연락 하네스 도구', '비활성'] as const;
 /** 도구 이름 앞부분(영역.동작 의 영역)으로 묶는다. 표에 없는 영역은 「기타」. */
 const AREAS: [string, string[]][] = [
   ['일정·공정', ['schedule', 'calc', 'conditions', 'progress']],
@@ -19,6 +21,8 @@ const AREAS: [string, string[]][] = [
   ['현장', ['field']],
   ['보고서·그림', ['report', 'visual']],
   ['화면', ['ui']],
+  ['연락', ['contacts', 'notify']],
+  ['연락 하네스', ['outreach']],
 ];
 const areaOf = (name: string) => AREAS.find(([, prefixes]) => prefixes.includes(name.split('.')[0]))?.[0] ?? '기타';
 const AREA_ORDER = [...AREAS.map(([a]) => a), '기타'];
@@ -81,7 +85,25 @@ function WriteKind({ t }: { t: ToolRegistryItem }) {
   return t.mutates ? <Badge tone="warning">쓰기</Badge> : <Badge tone="neutral">읽기 전용</Badge>;
 }
 
-function Roles({ roles, limited }: { roles: string[] | undefined; limited: boolean }) {
+/** 연락 하네스 도구의 매체: 문자·통화 / 통화만. */
+const mediaOf = (media: string[]) => (media.includes('sms') ? (media.includes('call') ? '문자·통화' : '문자만') : '통화만');
+
+function Roles({ t }: { t: ToolRegistryItem }) {
+  const { roles, role_note: note, classes, media } = t;
+  if (note) {
+    return (
+      <>
+        <span>{note}</span>
+        {media && <span className="dc-tag is-info" title="이 도구를 받는 매체">{mediaOf(media)}</span>}
+        {classes && (
+          <span className="dc-tool-classes" title="이 도구를 받는 발신자 등급(toolsets.for_class)">
+            {`등급: ${classes.map(classOf).join(' · ')}`}
+          </span>
+        )}
+      </>
+    );
+  }
+  const limited = t.field_limited === true;
   if (!roles) return <span className="dc-muted">—</span>;
   return (
     <>
@@ -106,7 +128,7 @@ interface ToolRowProps {
 
 function ToolRow({ t, expanded, busy, onToggle, onExpand }: ToolRowProps) {
   const enabled = t.enabled !== false;
-  const tone = t.category === '하네스 점검' ? 'warning' : t.category === '승인 상신' ? 'danger' : 'info';
+  const tone = t.category === '하네스 점검' ? 'warning' : t.category === '승인 상신' ? 'danger' : t.category === '연락 하네스 도구' ? 'neutral' : 'info';
   return (
     <tr className="dc-cat-row">
       <td className="dc-tool-name">
@@ -114,26 +136,36 @@ function ToolRow({ t, expanded, busy, onToggle, onExpand }: ToolRowProps) {
         <code>{t.name}</code>
       </td>
       <td>
-        <button
-          type="button"
-          className={`dc-tool-toggle${enabled ? ' is-on' : ''}`}
-          aria-pressed={enabled}
-          aria-label={`${t.name} ${enabled ? '비활성화' : '활성화'}`}
-          disabled={busy}
-          onClick={() => onToggle(t.name, !enabled)}
-        >
-          {enabled ? '활성' : '비활성'}
-        </button>
+        {t.toggle === false ? (
+          <span className="dc-muted dc-nowrap" title="등록부 도구가 아니라 여기서 끄지 않습니다 — 등급표(toolsets)가 정합니다.">끄기 없음</span>
+        ) : (
+          <button
+            type="button"
+            className={`dc-tool-toggle${enabled ? ' is-on' : ''}`}
+            aria-pressed={enabled}
+            aria-label={`${t.name} ${enabled ? '비활성화' : '활성화'}`}
+            disabled={busy}
+            onClick={() => onToggle(t.name, !enabled)}
+          >
+            {enabled ? '활성' : '비활성'}
+          </button>
+        )}
       </td>
       <td><Badge tone={tone}>{t.category}</Badge></td>
       <td><WriteKind t={t} /></td>
-      <td className="dc-tool-roles"><Roles roles={t.roles} limited={t.field_limited === true} /></td>
-      <td>{t.program ? <code>{t.program}</code> : <span className="dc-muted">공통</span>}</td>
+      <td className="dc-tool-roles"><Roles t={t} /></td>
+      <td>{t.program ? <code>{t.program}</code> : <span className="dc-muted">{t.toggle === false ? '—' : '공통'}</span>}</td>
       <td>
         <div>{t.description}</div>
         <div className="dc-tool-meta">
-          <span>{`호출 ${t.calls ?? 0}회 · 실패 ${t.failed ?? 0}건`}</span>
-          {t.avg_ms !== null && t.avg_ms !== undefined && <span>{` · 평균 ${t.avg_ms}ms`}</span>}
+          {t.toggle === false ? (
+            <span>호출 기록은 실행 추적의 「연락」에서 봅니다</span>
+          ) : (
+            <>
+              <span>{`호출 ${t.calls ?? 0}회 · 실패 ${t.failed ?? 0}건`}</span>
+              {t.avg_ms !== null && t.avg_ms !== undefined && <span>{` · 평균 ${t.avg_ms}ms`}</span>}
+            </>
+          )}
         </div>
         <button type="button" className="dc-link" onClick={() => onExpand(expanded ? null : t.name)}>
           {`${expanded ? '▼' : '▶'} JSON 스키마 (${t.llm_name})`}

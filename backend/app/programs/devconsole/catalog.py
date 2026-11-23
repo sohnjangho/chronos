@@ -16,7 +16,7 @@ from app.domains.loader import domains, levels_prompt, load
 from app.errors import ApiError
 from app.harness.checks import check as check_schedule
 from app.harness.conditions import BASE_RULES, Condition
-from app.programs.devconsole import harness_live
+from app.programs.devconsole import harness_live, outreach_branches
 from app.programs.devconsole.harness_db import (
     LOOP_TOOL,
     ScriptedLiner,
@@ -245,7 +245,9 @@ def get_catalog(session: Session) -> dict[str, Any]:
             "avg_ms": ts["avg_ms"],
             "description": t.description,
             "schema": t.input_model.model_json_schema(),
+            **outreach_branches.chat_role(t.name, t.program),  # 대화 에이전트 연락 도구의 역할 칸(Task 109)
         })
+    tools_out += outreach_branches.harness_tools()  # 연락 하네스 도구 12개 — 등록부 밖, 끄기 없음
 
     skills_out = [
         {

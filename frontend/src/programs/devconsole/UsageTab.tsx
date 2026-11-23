@@ -101,6 +101,39 @@ function UsageTable({ data, group }: { data: UsageOut; group: UsageGroup }) {
 }
 
 export const FEE_UNREPORTED = '제공사가 알려 주지 않음';
+const MODEL_FEE_UNREPORTED = '모델이 알려 주지 않음';
+/** 글 쪽 모델 사용 종류(outreach_usage.kind, Task 109). 모르는 종류는 받은 그대로. */
+const TEXT_KIND: Record<string, string> = { text_reply: '문자 답', draft: '초안', translation: '번역' };
+
+/** 연락 글 쪽 모델 사용: 받은 문자에 답 만들기 · 초안 · 번역의 횟수·토큰·요금(모델이 알려 준 것만). */
+function TextModelTable({ rows }: { rows: NonNullable<OutreachUsage['text_models']> }) {
+  return (
+    <div className="dc-u-wrap">
+      <table className="dc-u" aria-label="연락 글 모델 사용량">
+        <thead>
+          <tr>
+            <th scope="col">글 쪽 모델</th>
+            <th scope="col">횟수</th>
+            <th scope="col">입력 토큰</th>
+            <th scope="col">출력 토큰</th>
+            <th scope="col" title="여러 번 가운데 일부만 알려 주었으면 알려 준 것만 더한 값입니다.">요금(알려 준 것)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.kind}>
+              <th scope="row">{TEXT_KIND[r.kind] ?? r.kind}</th>
+              <td>{count(r.count)}</td>
+              <td>{count(r.input_tokens)}</td>
+              <td>{count(r.output_tokens)}</td>
+              <td className={r.cost === null ? 'dc-muted' : undefined}>{r.cost === null ? MODEL_FEE_UNREPORTED : cost(r.cost)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 /** 연락 사용량: 나간 것(차지한 순간 기준 — 하루 상한이 세는 수와 같다). 장문은 문자의 일부. */
 function OutreachUsageTable({ o }: { o: OutreachUsage }) {
@@ -188,6 +221,7 @@ export default function UsageTab() {
       {body ? <UsageTable data={body} group={group} /> : !error && <p className="dc-empty">불러오는 중…</p>}
       {body?.counters && <UsageCounters counters={body.counters} />}
       {body?.outreach && <OutreachUsageTable o={body.outreach} />}
+      {body?.outreach?.text_models && body.outreach.text_models.length > 0 && <TextModelTable rows={body.outreach.text_models} />}
     </div>
   );
 }

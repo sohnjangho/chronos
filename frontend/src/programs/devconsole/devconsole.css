@@ -811,3 +811,47 @@
 .dc-o-diag .dc-health-list li > .dc-ellipsis { flex: 0 1 auto; }
 .dc-o-detail { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
 .dc-o-rule { margin-left: 6px; color: var(--fg-muted); font-size: var(--fs-11); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* Task 109: 연락 가지(구조 그림의 곁 칸) · 연락 하나의 다섯 마디 흐름도 · 도구 목록의 등급 */
+.dc-tag.is-danger { background: var(--tone-danger-bg); color: var(--danger); }
+.dc-side.dc-o-side.is-dim { opacity: 0.55; }
+.dc-side.dc-o-side.is-lit { border-style: solid; border-color: var(--success); background: var(--tone-success-bg); }
+.dc-side.dc-o-side.is-lit.is-warn { border-color: var(--warning); background: var(--tone-warning-bg); }
+.dc-edge.is-outreach.is-todo path { opacity: 0.6; }
+.dc-o-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px 22px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.dc-o-fnode,
+.dc-o-branch {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 0 1 150px;
+  min-width: 120px;
+  padding: 6px 10px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-3);
+  background: var(--bg-panel);
+}
+.dc-o-fnode b,
+.dc-o-branch b { font-size: var(--fs-13); }
+.dc-o-fnode small,
+.dc-o-branch small { color: var(--fg-muted); font-size: var(--fs-11); }
+.dc-o-fnode.is-on { border-style: solid; border-color: var(--success); background: var(--tone-success-bg); }
+.dc-o-fnode:not(.is-on) { color: var(--fg-muted); }
+.dc-o-fnode + .dc-o-fnode::before { content: '→'; position: absolute; left: -17px; top: 50%; transform: translateY(-50%); color: var(--fg-muted); }
+.dc-o-verdicts { display: flex; flex-wrap: wrap; gap: 3px; }
+.dc-o-verdicts .dc-tag { margin: 0; }
+.dc-o-branch { margin-left: 8px; }
+.dc-nowrap { white-space: nowrap; }
+/* 좁은 창: 다섯 마디를 위에서 아래로(줄이 접힐 때 화살표가 줄 끝에 매달리지 않게) */
+.dc-o-trace { container-type: inline-size; }
+@container (max-width: 1000px) {
+  .dc-o-flow { flex-direction: column; gap: 18px; }
+  .dc-o-fnode, .dc-o-branch { flex: none; flex-flow: row wrap; align-items: center; gap: 2px 10px; width: min(100%, 340px); }
+  .dc-o-fnode + .dc-o-fnode::before { content: '↓'; left: 22px; top: -16px; transform: none; }
+  .dc-o-branch { margin: 0; }
+}
+.dc-o-branch.is-dim { opacity: 0.55; }
+.dc-o-branch.is-lit { border-style: solid; border-color: var(--accent); background: var(--tone-info-bg); }
+.dc-tool-classes { display: block; margin-top: 4px; color: var(--fg-muted); font-size: var(--fs-11); overflow-wrap: anywhere; }

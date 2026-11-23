@@ -147,6 +147,14 @@ export interface OutreachHead extends OutreachRow {
   reply_to_id: number | null;
 }
 
+/** 연락 흐름도 마디 하나(Task 109): inbound · tool · post_check · gate · channel. 판정 글은 서버의 것. */
+export interface OutreachFlowNode {
+  key: string;
+  label: string;
+  count: number;
+  verdicts: { verdict: string | null; label: string; count: number }[];
+}
+
 export interface OutreachDetail {
   head: OutreachHead;
   timeline: TraceItem[];
@@ -156,6 +164,10 @@ export interface OutreachDetail {
   needs_check: number;
   /** 보이지 않는 앞선 사건 수. */
   omitted: number;
+  /** 다섯 마디 흐름도(Task 109). 예전 서버는 없다. */
+  flow?: OutreachFlowNode[];
+  /** 기록으로 켜진 가지(inbound_handled). 예전 서버는 없다. */
+  branches_lit?: string[];
 }
 
 export interface TurnDetail {
@@ -195,6 +207,8 @@ export interface OutreachUsage {
   kakao: number;
   auto_replies: number;
   provider_cost: number | null;
+  /** 글 쪽 모델 사용(text_reply · draft · translation). cost 는 모델이 알려 준 것만. 예전 서버는 없다. */
+  text_models?: { kind: string; count: number; input_tokens: number; output_tokens: number; cost: number | null }[];
 }
 
 export interface UsageCounters {
@@ -272,6 +286,14 @@ export interface ToolRegistryItem {
   roles?: string[];
   /** 현장 관리자는 어떤 인자에서만 거절(도구 코드의 조건 안 require_editor). 예전 서버는 없다. */
   field_limited?: boolean;
+  /** false = 끄기 길이 없음(연락 하네스 도구 — 등록부 밖). */
+  toggle?: boolean;
+  /** 역할 칸의 설명(연락 도구, Task 109). */
+  role_note?: string | null;
+  /** 연락 하네스 도구를 받는 발신자 등급(toolsets.for_class). */
+  classes?: string[];
+  /** 연락 하네스 도구의 매체(sms · call). */
+  media?: string[];
 }
 
 export interface SkillRegistryItem {

@@ -568,7 +568,7 @@ describe('연락 — 실행 추적 · 알림 연결 · 문자 사용량 (Task 10
     expect(within(list).getAllByRole('button')).toHaveLength(2);
     await userEvent.click(within(groups).getByRole('radio', { name: '전체 7' }));
     await userEvent.type(screen.getByRole('searchbox', { name: '사건 찾기' }), 'schedule_fact');
-    expect(within(list).getAllByRole('button').map((b) => b.textContent)).toEqual([expect.stringContaining('도구 거절 schedule_fact')]);
+    expect(within(list).getAllByRole('button').map((b) => b.textContent)).toEqual([expect.stringContaining('도구 거절 · 일정 사실 조회')]);
   });
 
   test('machine output of an event opens folded', async () => {

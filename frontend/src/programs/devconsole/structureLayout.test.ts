@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { NodeKey, NodeState } from './devApi';
-import { edgesFor, nodeBoxes, signalBoxes, type Box } from './structureLayout';
+import { edgeShape, edgesFor, nodeBoxes, signalBoxes, type Box } from './structureLayout';
 
 const overlap = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 const MAIN: NodeKey[] = ['request', 'context', 'skill', 'plan', 'judge', 'check', 'approval', 'respond'];
@@ -9,10 +9,19 @@ describe.each([1160, 900, 560, 420, 330])('nodeBoxes(%i)', (width) => {
   const boxes = nodeBoxes(width);
   const all = Object.entries(boxes);
 
-  test('has the nine nodes, five context sources and the two side boxes', () => {
+  test('has the nine nodes, five context sources and the three side boxes', () => {
     expect(Object.keys(boxes).sort()).toEqual(
-      ['approval', 'check', 'context', 'inbox', 'judge', 'plan', 'request', 'respond', 'skill', 'skillrun', 'src0', 'src1', 'src2', 'src3', 'src4', 'tool'].sort(),
+      ['approval', 'check', 'context', 'inbox', 'judge', 'outreach', 'plan', 'request', 'respond', 'skill', 'skillrun', 'src0', 'src1', 'src2', 'src3', 'src4', 'tool'].sort(),
     );
+  });
+
+  test('the contact branch box sits in the side column by the respond row and its line stays inside the width', () => {
+    expect(boxes.outreach.x).toBe(boxes.tool.x);
+    expect(boxes.outreach.y).toBe(boxes.respond.y);
+    const shape = edgeShape({ from: 'tool', to: 'outreach' }, boxes);
+    const xs = [...shape.d.matchAll(/[MH](-?[\d.]+)/g)].map((m) => Number(m[1]));
+    expect(Math.max(...xs)).toBeLessThanOrEqual(width - 1);
+    expect(Math.max(...xs)).toBeGreaterThan(boxes.tool.x + boxes.tool.w); // 곁 칸 줄 오른쪽으로 돌아 신호 칸·승인함을 지나지 않는다
   });
 
   test('every box fits the width and no two boxes overlap', () => {
@@ -77,5 +86,14 @@ describe('edgesFor', () => {
     expect(find(all, 'approval', 'inbox')).toMatchObject({ state: 'todo', unknown: true });
     expect(find(all, 'tool', 'judge')).toMatchObject({ state: 'past', label: '결과 관찰' });
     expect(all.filter((e) => e.unknown).map((e) => `${e.from}-${e.to}`)).toEqual(['check-judge', 'approval-inbox']);
+    expect(find(all, 'tool', 'outreach')?.state).toBe('todo'); // 도구를 들렀어도 연락 기록이 없으면 흐리다
+  });
+
+  test('the contact branch lights only from a recorded outreach flag', () => {
+    const visited = states({ request: 'past', context: 'past', plan: 'past', judge: 'past', tool: 'past', check: 'past', approval: 'past', respond: 'past' });
+    expect(find(edgesFor(visited, ['info_used', 'check_repair']), 'tool', 'outreach')?.state).toBe('todo');
+    for (const flag of ['contact_lookup', 'outreach_draft', 'outreach_delegated', 'outreach_blocked']) {
+      expect(find(edgesFor(visited, [flag]), 'tool', 'outreach')?.state, flag).toBe('past');
+    }
   });
 });

@@ -44,6 +44,19 @@ export const TOOL_LABELS: Record<string, string> = {
   'notify.status': '연락 상태 조회',
   'notify.send_message': '문자 보내기(위임)',
   'notify.place_call': '전화 걸기(위임)',
+  // 연락 하네스 도구(음성·글 에이전트가 받는 묶음 — 등록부 밖, 개발 콘솔의 표시 id outreach.<이름>)
+  'outreach.find_contact': '연락처 찾기',
+  'outreach.propose_contact': '새 연락처 제안',
+  'outreach.schedule_fact': '일정 사실 조회',
+  'outreach.my_requests': '받은 요청 조회',
+  'outreach.record_answer': '답 기록',
+  'outreach.take_message': '메모 받기',
+  'outreach.report_from_contact': '보고 기록',
+  'outreach.schedule_callback': '다시 연락 예약',
+  'outreach.mark_do_not_contact': '수신 거부 표시',
+  'outreach.handoff_to_human': '사람에게 넘기기',
+  'outreach.end_call': '통화 끝내기',
+  'outreach.confirm_person': '본인 확인',
 };
 
 export const toolLabel = (tool: string) => TOOL_LABELS[tool] ?? tool;

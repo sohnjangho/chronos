@@ -2,6 +2,7 @@
 // 넓으면 [컨텍스트 재료 | 흐름 | 곁 칸] 세 줄, 좁으면 재료를 곁 칸 줄 위쪽(요청 받기·컨텍스트 조립 옆)으로 옮겨 두 줄.
 // 흐름은 위에서 아래로 한 줄: 요청 받기 → 컨텍스트 조립 → 스킬 찾기 → 워크플로우 짜기 → 판단 → 조건 점검 → 승인 판단 → 응답·기록.
 import type { NodeKey, NodeState } from './devApi';
+import { OUTREACH_SIGNALS } from './signals';
 
 export interface Box {
   x: number;
@@ -10,7 +11,7 @@ export interface Box {
   h: number;
 }
 
-export type SideKey = 'skillrun' | 'inbox';
+export type SideKey = 'skillrun' | 'inbox' | 'outreach';
 export type SourceKey = 'src0' | 'src1' | 'src2' | 'src3' | 'src4';
 export type BoxKey = NodeKey | SideKey | SourceKey;
 
@@ -66,7 +67,8 @@ export function nodeBoxes(width: number): Record<BoxKey, Box> {
   const main = (row: number): Box => ({ x: c.main, y: rowY(row), w: c.mainW, h: NODE_H });
   const side = (row: number): Box => ({ x: c.side, y: rowY(row), w: c.sideW, h: NODE_H });
   const flow = Object.fromEntries(FLOW.map((k, i) => [k, main(i)])) as Record<Exclude<NodeKey, 'tool'>, Box>;
-  return { ...flow, tool: side(4), skillrun: side(2), inbox: side(6), ...sourceBoxes(c) };
+  // outreach = 연락 가지(Task 109): 응답·기록과 같은 줄의 곁 칸 — 도구 실행에서 곁 칸 줄 오른쪽으로 돌아 들어간다.
+  return { ...flow, tool: side(4), skillrun: side(2), inbox: side(6), outreach: side(7), ...sourceBoxes(c) };
 }
 
 const SIG_H = 64;
@@ -107,6 +109,8 @@ const EDGES: { from: BoxKey; to: BoxKey; label?: string; unknown?: true }[] = [
   { from: 'check', to: 'approval' },
   { from: 'approval', to: 'inbox', label: '중요한 변경', unknown: true },
   { from: 'approval', to: 'respond' },
+  // 대화 에이전트의 연락 도구 걸음(조회·초안·위임 발송) — 기록된 신호로만 켠다.
+  { from: 'tool', to: 'outreach' },
 ];
 
 /** 그릴 선과 그 상태. 들른 칸끼리의 선과 실제 실행된 분기(edgesLit)에 불을 켠다. */
@@ -122,8 +126,9 @@ export function edgesFor(nodes: { key: NodeKey; state: NodeState }[], edgesLit: 
     const flagLit =
       (from === 'skill' && to === 'skillrun' && litFlags.has('skill_matched')) ||
       (from === 'check' && to === 'judge' && litFlags.has('check_repair')) ||
-      (from === 'approval' && to === 'inbox' && litFlags.has('approval_inbox'));
-    const lit = flagLit || (!unknown && passed(from) && passed(to));
+      (from === 'approval' && to === 'inbox' && litFlags.has('approval_inbox')) ||
+      (to === 'outreach' && OUTREACH_SIGNALS.some((f) => litFlags.has(f)));
+    const lit = flagLit || (!unknown && to !== 'outreach' && passed(from) && passed(to));
     const s: Edge['state'] = !lit ? 'todo' : of(to) === 'now' ? 'now' : 'past';
     const isUnknown = unknown && !flagLit;
     return { from, to, ...(label && { label }), state: s, ...(isUnknown && { unknown: true as const }) };
@@ -138,6 +143,8 @@ export interface EdgeShape {
 }
 
 const right = (b: Box) => b.x + b.w;
+/** 연락 가지 선이 곁 칸 줄 오른쪽으로 비켜 가는 폭. 좁은 그림의 오른쪽 여백(8px)보다 작다. */
+const BEND = 6;
 const cy = (b: Box) => b.y + b.h / 2;
 const cx = (b: Box) => b.x + b.w / 2;
 
@@ -150,6 +157,11 @@ export function edgeShape(e: Pick<Edge, 'from' | 'to'>, boxes: Record<BoxKey, Bo
     const bus = leftOf ? (right(a) + b.x) / 2 : (right(b) + a.x) / 2;
     const d = leftOf ? `M${right(a)},${cy(a)} H${bus} V${cy(b)} H${b.x}` : `M${a.x},${cy(a)} H${bus} V${cy(b)} H${right(b)}`;
     return { d, lx: 0, ly: 0, anchor: 'start' };
+  }
+  if (e.to === 'outreach') {
+    // 곁 칸 줄 오른쪽(칸 끝 + BEND)으로 내려가 연락 칸의 오른쪽으로 — 신호 칸·승인함 위를 지나지 않는다.
+    const x = Math.max(right(a), right(b)) + BEND;
+    return { d: `M${right(a)},${cy(a) + 12} H${x} V${cy(b)} H${right(b)}`, lx: x, ly: cy(b), anchor: 'start' };
   }
   if (e.from === 'tool') return { d: `M${a.x},${cy(a) + 8} H${right(b)}`, lx: (a.x + right(b)) / 2, ly: cy(a) + 22, anchor: 'middle' };
   if (e.to === 'tool') return { d: `M${right(a)},${cy(a) - 8} H${b.x}`, lx: (right(a) + b.x) / 2, ly: cy(a) - 14, anchor: 'middle' };

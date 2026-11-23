@@ -500,7 +500,9 @@ def test_usage_when_nothing_happened(client, admin):
                  "counters": {"info_api": {"calls": 0, "failed": 0}, "weather": {"calls": 0, "failed": 0},
                               "searches": {"calls": 0, "failed": 0}, "reuses": {"calls": 0},
                               "vision": zero, "embedding": zero},
-                 "outreach": {"sms": 0, "long": 0, "kakao": 0, "auto_replies": 0, "provider_cost": None}}
+                 "outreach": {"sms": 0, "long": 0, "kakao": 0, "auto_replies": 0, "provider_cost": None,
+                              "text_models": [{"kind": k, "count": 0, "input_tokens": 0, "output_tokens": 0, "cost": None}
+                                              for k in ("text_reply", "draft", "translation")]}}
 
 
 def test_catalog_and_harness_block_simulation(client, admin):
@@ -860,10 +862,11 @@ def registry_tools(client, admin) -> dict[str, dict]:
 
 
 def test_registry_lists_every_tool_with_its_write_kind_and_the_roles_the_server_allows(client, admin):
-    tools = registry_tools(client, admin)
+    tools = {n: t for n, t in registry_tools(client, admin).items() if not n.startswith("outreach.")}  # 하네스 도구(109)는 등록부 밖
     assert {"info.list", "info.call", "files.set_axes", "field.list", "schedule.import"} <= set(tools)
     assert len(tools) >= 37
-    assert {n for n, t in tools.items() if "field" not in t["roles"]} == EDITOR_TOOLS
+    contact_tools = {n for n, t in tools.items() if t["program"] == "contacts"}  # tools.notify.schedule_for 가 거절(109)
+    assert {n for n, t in tools.items() if "field" not in t["roles"]} == EDITOR_TOOLS | contact_tools
     assert {n for n, t in tools.items() if t["field_limited"]} == PARTLY_EDITOR_TOOLS
     assert tools["ask.questionnaire"]["roles"] == ["admin", "user", "field"]
     assert all(t["roles"][:2] == ["admin", "user"] for t in tools.values())

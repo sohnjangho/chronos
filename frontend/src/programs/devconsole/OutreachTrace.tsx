@@ -1,12 +1,22 @@
 // 실행 추적의 「연락」(Task 108): 연락 기록 하나의 머리 줄(누구와 · 누가 시작 · 권한 방식 · 등급 · 상태)과 하네스 사건 시간표.
 // 사건은 서버가 harness.types 의 묶음으로 나눠 준다 — 묶음(수와 함께)으로 거르고 이름·코드로 찾는다. 읽기만 한다.
+// Task 109: 위에 다섯 마디 흐름도(OutreachFlow), 도구 사건 줄은 공용 한글 도구 이름(outreach.<이름>).
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../shared/api';
+import { TOOL_LABELS } from '../../shared/toolLabels';
 import Badge from '../../shared/ui/Badge';
 import { devApi, type OutreachDetail, type OutreachRow, type TraceItem } from './devApi';
 import { hourMinute } from './format';
 import { channelOf, classOf, modeOf, starterOf, statusOf, whoOf } from './outreachText';
 import TraceTimeline from './TraceTimeline';
+import { OutreachFlow } from './TurnFlowDiagram';
+
+/** 도구 사건 줄(「도구 find_contact」)의 도구 이름을 공용 한글 이름으로(「도구 · 연락처 찾기」). 표에 없는 이름은 그대로. */
+function named(t: TraceItem): TraceItem {
+  const code = t.harness?.group === 'tool' ? t.harness.code : null;
+  const label = code ? TOOL_LABELS[`outreach.${code}`] : undefined;
+  return label && t.label.endsWith(` ${code}`) ? { ...t, label: `${t.label.slice(0, -code!.length - 1)} · ${label}` } : t;
+}
 
 const ALL = 'all';
 const NONE_NOTE = '이 연락에는 남은 하네스 사건이 없습니다.';
@@ -88,7 +98,7 @@ export default function OutreachTrace({ row }: { row: Pick<OutreachRow, 'kind' |
   }, [row.kind, row.id]);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (data?.timeline ?? []).filter(
+    return (data?.timeline ?? []).map(named).filter(
       (t) => (group === ALL || (t.harness?.group ?? 'unknown') === group) && (!q || haystack(t).includes(q)),
     );
   }, [data, group, query]);
@@ -98,6 +108,7 @@ export default function OutreachTrace({ row }: { row: Pick<OutreachRow, 'kind' |
     <div className="dc-o-trace">
       <Head d={data} />
       <Notes d={data} />
+      {data.flow && data.flow.length > 0 && <OutreachFlow flow={data.flow} lit={data.branches_lit ?? []} />}
       {data.timeline.length > 0 && <Filters d={data} group={group} onGroup={setGroup} query={query} onQuery={setQuery} />}
       <TraceTimeline items={shown} running={false} empty={data.timeline.length ? '찾는 사건이 없습니다.' : NONE_NOTE} />
     </div>

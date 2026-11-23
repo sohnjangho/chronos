@@ -1,6 +1,7 @@
 // 이번 턴의 동적 ReAct · 워크플로우 · 하네스 · 내부 LLM 실행 흐름도(SVG).
-// 각 노드를 누르면 해당 구조 칸의 상세(NodeDetail)로 연결된다.
-import type { NodeKey, TraceItem, TurnDetail } from './devApi';
+// 각 노드를 누르면 해당 구조 칸의 상세(NodeDetail)로 연결된다. 연락 도구 걸음의 가지(조회·초안·위임 발송·막힘)는 그 걸음 옆 배지.
+// 연락 하나(Task 109)는 OutreachFlow: 들어오는 문 → 도구 → 뒤 확인 → 나가는 문 → 통로 다섯 마디.
+import type { NodeKey, OutreachFlowNode, TraceItem, TurnDetail } from './devApi';
 import { seconds, tokens } from './format';
 import { REFUSAL_SIGNALS, STEP_SIGNALS } from './signals';
 
@@ -180,5 +181,41 @@ export default function TurnFlowDiagram({ detail, selected, onSelect }: Props) {
         })}
       </svg>
     </div>
+  );
+}
+
+/** 연락 하나의 가지(서버가 기록으로 켠 것만): 받은 문자 줄에 받기 판정 사건이 있고 답 줄이 걸려 있음. 통화 가지는 Task 110·98. */
+const OUTREACH_BRANCHES = [{ key: 'inbound_handled', label: '받은 문자 응대', on: '답 줄로 이어짐' }];
+
+/** 연락 하나의 흐름도: 다섯 마디(차례는 서버가 준 대로)마다 그 줄의 사건 수와 판정(서버의 판정 글). 사건이 없는 마디와 꺼진 가지는
+ * 흐리다. 넓으면 한 줄, 좁은 창에서는 다음 줄로 접혀 가로로 넘치지 않는다. */
+export function OutreachFlow({ flow, lit }: { flow: OutreachFlowNode[]; lit: string[] }) {
+  return (
+    <ol className="dc-o-flow" aria-label="연락 흐름도">
+      {flow.map((n) => (
+        <li key={n.key} className={`dc-o-fnode${n.count ? ' is-on' : ''}`} aria-label={`${n.label}, 사건 ${n.count}`}>
+          <b>{n.label}</b>
+          <small>{`사건 ${n.count}`}</small>
+          {n.verdicts.length > 0 && (
+            <span className="dc-o-verdicts">
+              {n.verdicts.map((v) => (
+                <span key={`${v.verdict}-${v.label}`} className={`dc-tag${v.verdict === 'blocked' ? ' is-danger' : v.verdict === 'noted' ? ' is-warn' : ''}`}>
+                  {`${v.label} ${v.count}`}
+                </span>
+              ))}
+            </span>
+          )}
+        </li>
+      ))}
+      {OUTREACH_BRANCHES.map((b) => {
+        const on = lit.includes(b.key);
+        return (
+          <li key={b.key} className={`dc-o-branch ${on ? 'is-lit' : 'is-dim'}`} aria-label={`${b.label}, ${on ? b.on : '기록 없음'}`} title={b.key}>
+            <b>{b.label}</b>
+            <small>{`가지 · ${on ? b.on : '기록 없음'}`}</small>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

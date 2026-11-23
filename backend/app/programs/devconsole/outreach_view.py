@@ -37,6 +37,7 @@ from app.outreach.harness.types import (
     GATE_RULES,
     TOOL_REFUSALS,
 )
+from app.programs.devconsole import outreach_branches
 from app.programs.devconsole.schemas import (
     EventGroupCount,
     HarnessItem,
@@ -312,7 +313,8 @@ def detail(session: Session, kind: str, row_id: int) -> OutreachDetailOut:
                            reply_to_id=getattr(row, "reply_to_id", None))
     items, attempts, omitted = timeline(row.harness_json, fields["at"])
     return OutreachDetailOut(head=head, timeline=items, groups=_groups(items), attempts=attempts,
-                             needs_check=sum(i.harness.needs_check for i in items), omitted=omitted)
+                             needs_check=sum(i.harness.needs_check for i in items), omitted=omitted,
+                             flow=outreach_branches.flow(items), branches_lit=outreach_branches.branches(session, kind, row))
 
 
 # ── 시스템 진단 · 사용량 ────────────────────────────────────────────
@@ -384,4 +386,4 @@ def notify_health(session: Session) -> NotifyHealthOut:
 def usage(session: Session, days: int) -> OutreachUsageOut:
     s = outreach_usage.summary(session, days=days)
     return OutreachUsageOut(sms=s.sms, long=s.long, kakao=s.kakao, auto_replies=s.auto_replies,
-                            provider_cost=s.provider_cost)
+                            provider_cost=s.provider_cost, text_models=outreach_branches.text_models(s))

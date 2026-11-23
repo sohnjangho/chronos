@@ -1,10 +1,11 @@
 // 에이전트 구조 그림(SVG, 시안 A안): 흐름 칸 아홉 + 곁 칸(컨텍스트 재료 다섯, 스킬 실행·승인함).
 // 칸 모양: past 채움 · now 강조 테두리와 빛 · todo 점선 · skipped 회색 + "묶음 3". 칸은 폭에 맞춰 자리를 다시 잡는다.
+// 연락 가지(Task 109): 도구 실행 → 「연락」 곁 칸. 기록된 연락 신호가 있을 때만 켜고, 없으면 흐리게 둔다.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { HarnessSummary, NodeKey, StructureNode, Turn } from './devApi';
 import { hourMinute, seconds, tokens } from './format';
 import { contextParts, STATE } from './NodeDetail';
-import { signalsAt, STEP_SIGNALS } from './signals';
+import { OUTREACH_SIGNALS, signalsAt, STEP_SIGNALS } from './signals';
 import { edgeShape, edgesFor, nodeBoxes, signalBoxes, SOURCES, type Box, type Edge } from './structureLayout';
 
 /** 그림 칸의 폭(창 크기를 바꾸면 다시). ResizeObserver 가 없으면(시험 환경) 처음 값을 쓴다. */
@@ -55,7 +56,7 @@ const fo = (b: Box) => ({ x: b.x - PAD, y: b.y - PAD, width: b.w + 2 * PAD, heig
 function EdgeLine({ edge, boxes }: { edge: Edge; boxes: ReturnType<typeof nodeBoxes> }) {
   const s = edgeShape(edge, boxes);
   return (
-    <g className={`dc-edge is-${edge.state}${edge.unknown ? ' is-unknown' : ''}`}>
+    <g className={`dc-edge is-${edge.state}${edge.unknown ? ' is-unknown' : ''}${edge.to === 'outreach' ? ' is-outreach' : ''}`}>
       {edge.unknown && <title>기록에 남지 않는 길</title>}
       <path d={s.d} markerEnd={`url(#dc-arrow-${edge.state})`} />
       {edge.label && (
@@ -130,6 +131,23 @@ function SignalBoxes({ boxes, lit }: { boxes: ReturnType<typeof nodeBoxes>; lit:
   });
 }
 
+/** 연락 가지 곁 칸: 켜진 연락 신호의 짧은 이름(기록 없으면 흐림). */
+function OutreachBox({ boxes, lit }: { boxes: ReturnType<typeof nodeBoxes>; lit: string[] }) {
+  const flags = OUTREACH_SIGNALS.filter((f) => lit.includes(f));
+  const sub = flags.length ? flags.map((f) => STEP_SIGNALS[f].short).join(' · ') : '기록 없음';
+  const warn = flags.some((f) => STEP_SIGNALS[f].warn);
+  return (
+    <g role="group" aria-label={`연락 가지, ${sub}`}>
+      <foreignObject {...fo(boxes.outreach)}>
+        <div className={`dc-side dc-o-side ${flags.length ? 'is-lit' : 'is-dim'}${warn ? ' is-warn' : ''}`} title={flags.map((f) => STEP_SIGNALS[f].label).join(' · ') || '이 턴에는 연락 도구 기록이 없습니다.'}>
+          <b>연락 · 나가는 문</b>
+          <small>{sub}</small>
+        </div>
+      </foreignObject>
+    </g>
+  );
+}
+
 interface Props {
   nodes: StructureNode[];
   turn: Turn;
@@ -180,6 +198,7 @@ export default function AgentStructure({ nodes, turn, selected, edgesLit = [], h
         ))}
         <Sources boxes={boxes} node={context} />
         <SignalBoxes boxes={boxes} lit={edgesLit} />
+        <OutreachBox boxes={boxes} lit={edgesLit} />
         {SIDE.map((s) => (
           <foreignObject key={s.key} {...fo(boxes[s.key])}>
             <div className="dc-side">

@@ -1,6 +1,6 @@
 // 11-23 에 더한 단계 신호: 서버(devconsole/service.py _step_signals)가 기록된 단계·호출로만 켠다.
-// label = 신호 줄, short = 그림 배지, place = 그림에서 붙는 칸(도구 실행 · 조건 점검).
-export type SignalPlace = 'tool' | 'check';
+// label = 신호 줄, short = 그림 배지, place = 그림에서 붙는 칸(도구 실행 · 조건 점검 · 연락 가지).
+export type SignalPlace = 'tool' | 'check' | 'outreach';
 
 export interface SignalInfo {
   label: string;
@@ -19,7 +19,15 @@ export const STEP_SIGNALS: Record<string, SignalInfo> = {
   import_confirmed: { label: '가져오기 단추로 확인', short: '단추 확인', place: 'check' },
   import_refused: { label: '같은 가져오기 되풀이 거절', short: '되풀이 거절', place: 'check', warn: true },
   repair_stopped: { label: '같은 위반 반복 → 고치기 멈춤', short: '반복 위반 멈춤', place: 'check', warn: true },
+  // 연락 가지(Task 109): 대화 에이전트 연락 도구의 걸음 — 서버(devconsole/outreach_branches.step_flags)가 기록으로 켠다.
+  contact_lookup: { label: '연락처 조회', short: '연락처 조회', place: 'outreach' },
+  outreach_draft: { label: '연락 초안 만듦', short: '초안', place: 'outreach' },
+  outreach_delegated: { label: '위임 발송 — 문을 지나감', short: '위임 발송', place: 'outreach' },
+  outreach_blocked: { label: '위임 발송 — 문이 막음', short: '문이 막음', place: 'outreach', warn: true },
 };
+
+/** 연락 가지를 켜는 신호(그림의 「연락」 곁 칸). */
+export const OUTREACH_SIGNALS = Object.keys(STEP_SIGNALS).filter((f) => STEP_SIGNALS[f].place === 'outreach');
 
 /** 거절 신호 — 실행 추적의 결과 칸이 「실패」 대신 「거절」로 까닭을 보인다. */
 export const REFUSAL_SIGNALS = new Set(['role_blocked', 'import_refused']);

@@ -189,7 +189,23 @@ export function outreachDetail(over: Partial<OutreachDetail> = {}): OutreachDeta
     attempts: 2,
     needs_check: 1,
     omitted: 0,
+    flow: [
+      { key: 'inbound', label: '들어오는 문', count: 0, verdicts: [] },
+      { key: 'tool', label: '도구', count: 2, verdicts: [{ verdict: 'allowed', label: '지나감', count: 1 }, { verdict: 'blocked', label: '막음', count: 1 }] },
+      { key: 'post_check', label: '뒤 확인', count: 0, verdicts: [] },
+      { key: 'gate', label: '나가는 문', count: 3, verdicts: [{ verdict: 'blocked', label: '막음', count: 1 }, { verdict: 'noted', label: '메모', count: 1 }, { verdict: 'allowed', label: '지나감', count: 1 }] },
+      { key: 'channel', label: '통로', count: 1, verdicts: [{ verdict: 'noted', label: '확인 필요', count: 1 }] },
+    ],
+    branches_lit: [],
     ...over,
+  };
+}
+
+/** 연락 하네스 도구 한 줄(카탈로그 — 등록부 밖, 끄기 없음). classes·media 는 서버가 toolsets.for_class 에서 읽는 값의 가상 꼴. */
+export function harnessTool(name: string, classes: string[], media: string[]) {
+  return {
+    name: `outreach.${name}`, llm_name: name, program: null, category: '연락 하네스 도구', enabled: true, toggle: false, roles: [],
+    role_note: '음성·글 에이전트 — 사람이 직접 부르지 않음', classes, media, description: `${name} 설명`, schema: { type: 'object' },
   };
 }
 

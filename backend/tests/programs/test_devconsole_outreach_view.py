@@ -327,6 +327,7 @@ def test_usage_counts_sms_and_long_and_hides_cost_when_unreported(client, admin,
     _message(session, channel="kakao", status="accepted", claimed_at=NOW)
     _message(session, status="draft")  # 차지하지 않은 줄은 세지 않는다
     out = client.get("/api/devconsole/usage?days=7", headers=admin).json()["outreach"]
+    out.pop("text_models")  # 글 쪽 모델 사용(Task 109 — test_devconsole_outreach_branches 가 본다)
     assert out == {"sms": 3, "long": 1, "kakao": 1, "auto_replies": 1, "provider_cost": None}
 
 
