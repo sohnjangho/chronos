@@ -110,6 +110,7 @@ class ReportBlock(BaseModel):
     block_kind: BlockKind
     data_binding: DataBinding
     text: str = ""
+    auto_text: bool = False  # 서술을 AI 에게 받지 못해 코드가 만든 문안으로 채웠다(화면에만 알린다)
     metrics: list[dict] = Field(default_factory=list)
     table: dict | None = None
     chart: dict | None = None

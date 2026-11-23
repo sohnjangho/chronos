@@ -59,19 +59,50 @@ def _fmt_signed(val: float, precision: int) -> str:
     return f"{sign}{val:.{precision}f}"
 
 
-def _cols(section: TemplateSection, default_cols: list[str]) -> list[str]:
-    if len(section.table_columns) == len(default_cols):
-        return list(section.table_columns)
-    return default_cols
+# 표 종류마다 기본 열(순서대로)의 값을 넣을 양식 열 이름에 들어 있을 낱말.
+_COL_WORDS: dict[str, list[tuple[str, ...]]] = {
+    "wbs_table": [("wbs", "공종", "구분", "작업", "항목", "분류"), ("가중", "비중", "비율"), ("계획",), ("실적",),
+                  ("차이", "편차", "증감")],
+    "milestone_table": [("마일스톤", "구분", "이름", "항목", "공종"), ("계획", "plan", "기준"), ("예측", "실적", "전망", "예상"),
+                        ("차이", "편차", "지연"), ("상태", "특기", "비고", "결과")],
+    "delay_table": [("사건", "작업", "공종", "원인", "내용", "항목"), ("책임", "귀책"), ("영향", "준공", "지연일", "일수"),
+                    ("상태", "대책", "조치", "결과")],
+    "lookahead_3w": [("일자", "날짜", "기간", "일정", "예정", "시기"), ("구분", "상태"), ("작업", "공종", "액티비티", "항목"),
+                     ("선행", "유의", "조치", "점검", "비고")],
+    "scenario_compare": [("시나리오", "대안", "만회안", "이름"), ("준공", "완료일", "종료"), ("차이", "단축", "효과", "증감"),
+                         ("크리티컬 수", "크리티컬 작업", "주공정 수"), ("상태", "승인", "결과")],
+}
 
 
-def _map_row_to_custom_cols(custom_cols: list[str], std_cols: list[str], row: list[object]) -> list[object]:
-    if len(custom_cols) == len(std_cols):
-        return row
-    out: list[object] = []
-    for i, _col in enumerate(custom_cols):
-        out.append(row[i] if i < len(row) else "—")
-    return out
+def _fit_columns(binding: str, custom: list[str], std: list[str]) -> tuple[list[str], list[int | None]]:
+    """양식 열마다 뜻이 맞는 기본 열 번호(없으면 None). 이름 끝 쪽 낱말이 뜻을 정한다(「준공 차이」 → 차이).
+    양식 열이 없거나 기본 열의 절반도 못 맞추면 기본 열을 그대로 쓴다(틀린 칸보다 낫다)."""
+    same: list[int | None] = list(range(len(std)))
+    plain = (list(std), same)
+    if not custom:
+        return plain
+    words = _COL_WORDS[binding]
+    used: set[int] = set()
+    picks: list[int | None] = []
+    for col in custom:
+        name = col.lower()
+        best: tuple[int, int] | None = None  # (낱말이 끝나는 자리, 기본 열 번호)
+        for i, ws in enumerate(words):
+            if i in used:
+                continue
+            ends = [name.rfind(w) + len(w) for w in ws if w in name]
+            if ends and (best is None or max(ends) > best[0]):
+                best = (max(ends), i)
+        if best is not None:
+            used.add(best[1])
+        picks.append(None if best is None else best[1])
+    if len(used) * 2 < len(std):
+        return plain
+    return list(custom), picks
+
+
+def _pick(row: list[object], picks: list[int | None]) -> list[object]:
+    return ["—" if i is None else row[i] for i in picks]
 
 
 def _deterministic_summary(
@@ -97,22 +128,26 @@ def _deterministic_summary(
 
     is_bullet = "개조식" in style.tone or "~함" in style.tone
     period_word = "분기" if cadence == "quarterly" else "월간"
-    delay_count = len(delay_events) if delay_events else len(prog.top_delays)
+    open_n = sum(1 for ev in delay_events if ev.get("status") == "open")
+    events_txt = f"기록된 지연 사건 {len(delay_events)}건"
+    if delay_events:
+        events_txt += "(모두 반영)" if open_n == 0 else f"(열림 {open_n}건)"
 
     if is_bullet:
         lines = [
             (f"• {project_name} {period_label}({period_word}) 실적 공정률 {_fmt_pct(prog.actual_now, p)} "
             f"(계획 {_fmt_pct(prog.plan_now, p)}, 차이 {_fmt_signed(prog.gap, p)}%p, SPI {spi_txt}) 기록함."),
-            f"• {finish_desc}이며 전체 {prog.counts.total}개 작업 중 완료 {prog.counts.done}건, 진행 {prog.counts.in_progress}건, 지연 {prog.counts.late}건임.",
-            f"• 주요 지연 사안 {delay_count}건 추적 및 향후 3주 착수·종료 예정 작업({len(prog.lookahead.starts) + len(prog.lookahead.finishes)}건) 선행 조건 점검 필요함.",
+            (f"• {finish_desc}이며 전체 {prog.counts.total}개 작업 중 완료 {prog.counts.done}건, 진행 {prog.counts.in_progress}건, "
+            f"계획보다 늦은 작업 {prog.counts.late}건임."),
+            f"• {events_txt}, 향후 3주 착수·종료 예정 작업({len(prog.lookahead.starts) + len(prog.lookahead.finishes)}건) 선행 조건 점검 필요함.",
         ]
     else:
         lines = [
             (f"{project_name}의 {period_label} {period_word} 공정률은 계획 {_fmt_pct(prog.plan_now, p)} 대비 "
             f"실적 {_fmt_pct(prog.actual_now, p)}({ _fmt_signed(prog.gap, p) }%p), SPI {spi_txt}입니다."),
             (f"{finish_desc}이며, 총 {prog.counts.total}개 액티비티 중 {prog.counts.done}개가 완료되었고 "
-            f"{prog.counts.in_progress}개가 진행 중, {prog.counts.late}개가 지연 상태입니다."),
-            f"현재 추적 중인 지연 이슈는 {delay_count}건이며, 향후 3주 내 예정된 작업 착수 및 선행 공정 관리를 통해 공기 준수를 도모합니다.",
+            f"{prog.counts.in_progress}개가 진행 중이며, 계획보다 늦은 작업은 {prog.counts.late}개입니다."),
+            f"{events_txt}이며, 향후 3주 내 예정된 작업 착수 및 선행 공정 관리를 통해 공기 준수를 도모합니다.",
         ]
     if extra_note.strip():
         lines.append(f"• 특기사항: {extra_note.strip()}" if is_bullet else f"특기사항으로 {extra_note.strip()}")
@@ -134,9 +169,23 @@ def _progress_facts_text(
         f"SPI: {f'{prog.spi:.2f}' if prog.spi is not None else '미산출'}\n"
         f"현재 예상 준공: {format_date(prog.finish.current, style.date_format)} "
         f"(Plan 대비 {prog.finish.delta if prog.finish.delta is not None else '미정'}일)\n"
-        f"액티비티: 전체 {prog.counts.total}, 완료 {prog.counts.done}, 진행 {prog.counts.in_progress}, 지연 {prog.counts.late}\n"
-        f"지연 사건 수: {delay_count}건\n"
+        f"액티비티: 전체 {prog.counts.total}, 완료 {prog.counts.done}, 진행 {prog.counts.in_progress}, 계획보다 늦음 {prog.counts.late}\n"
+        f"기록된 지연 사건 수: {delay_count}건\n"
     )
+
+
+_NO_MARKUP = "- 제목 줄을 다시 쓰지 않는다. 마크다운 기호를 쓰지 않는다(**, # 등).\n"
+
+
+def _tidy(text: str, heading: str) -> str:
+    """모델 답 뒷손질: 첫 줄이 절 제목과 같으면(앞뒤 **·#·「」 무시) 빼고, 남은 ** 를 지운다."""
+    def bare(s: str) -> str:
+        return s.strip().strip("*#「」『』[]:： ").strip()
+
+    lines = text.strip().splitlines()
+    if lines and bare(lines[0]) == bare(heading):
+        lines = lines[1:]
+    return "\n".join(lines).replace("**", "").strip()
 
 
 async def _draft_prose_with_llm(
@@ -150,9 +199,10 @@ async def _draft_prose_with_llm(
     section: TemplateSection,
     style: StyleMemory,
     extra_note: str,
-) -> str:
+) -> tuple[str, bool]:
+    """(문단, 자동 문안인가). 모델 글을 받지 못하면 코드가 만든 문안과 참을 돌려준다(화면이 그 사실을 알린다)."""
     if fake.enabled():
-        return fallback_text
+        return fallback_text, True
 
     rules_txt = "\n".join(f"- {r}" for r in style.learned_rules) or "- 별도 추가 규칙 없음"
     facts = (
@@ -166,27 +216,28 @@ async def _draft_prose_with_llm(
         f"- 날짜 형식: {style.date_format}\n"
         f"- 섹션 지침: {section.section_prompt or '핵심 성과, 지연 위험, 향후 조치 요약'}\n"
         f"- 사용자 기억 규칙:\n{rules_txt}\n"
-        f"- 추가 메모: {extra_note or '없음'}\n\n"
-        f"[공정 수치]\n{facts}"
+        f"- 추가 메모: {extra_note or '없음'}\n"
+        + _NO_MARKUP
+        + f"\n[공정 수치]\n{facts}"
     )
+    messages = [
+        {"role": "system", "content": "너는 건설·플랜트 PM 보고서 작성 비서다. 제공된 수치만 인용한다."},
+        {"role": "user", "content": prompt},
+    ]
     try:
-        reply = await LlmClient(session).chat(
-            "normal",
-            [
-                {"role": "system", "content": "너는 건설·플랜트 PM 보고서 작성 비서다. 제공된 수치만 인용한다."},
-                {"role": "user", "content": prompt},
-            ],
-            timeout_s=35,
-            max_tokens=4000,
-        )
+        client = LlmClient(session)
+        reply = await client.chat("normal", messages, timeout_s=35, max_tokens=4000)
         if reply.finish_reason == "length":
-            logger.warning("보고서 서술 LLM 토큰 상한 절단 → 결정론적 문안 폴백 (heading=%s)", section.heading)
-            return fallback_text
-        cleaned = (reply.text or "").strip()
-        return cleaned or fallback_text
+            logger.warning("보고서 서술 LLM 토큰 상한 절단 → 길이를 올려 한 번 더 (heading=%s)", section.heading)
+            reply = await client.chat("normal", messages, timeout_s=35, max_tokens=12000)
+        if reply.finish_reason == "length":
+            logger.warning("보고서 서술 LLM 다시 절단 → 결정론적 문안 폴백 (heading=%s)", section.heading)
+            return fallback_text, True
+        cleaned = _tidy(reply.text or "", section.heading)
+        return (cleaned, False) if cleaned else (fallback_text, True)
     except (LlmNotReady, LlmFailed, ValueError) as exc:
         logger.info("보고서 서술 LLM 생략/폴백(결정론적 문안 사용): %s", type(exc).__name__)
-        return fallback_text
+        return fallback_text, True
 
 
 async def generate_report_blocks(
@@ -210,6 +261,9 @@ async def generate_report_blocks(
         delay_events = []
 
     scen_rows = scenarios_store.listed(session, schedule_id, ("open", "submitted", "applied"))
+    # 이번 차례의 안만: 지금 버전 기준 안 + 마지막으로 반영된 안과 기준 버전이 같은 안(옛 실행의 열린 안은 뺀다).
+    keep = {prog.version} | {next((s.base_version for s in scen_rows if s.status == "applied"), prog.version)}
+    scen_rows = [s for s in scen_rows if s.base_version in keep]
     # delays.report() 가 refresh 를 수행했을 수 있으므로 LLM 호출 전에 쓰기를 마친다.
     session.commit()
 
@@ -233,7 +287,7 @@ async def generate_report_blocks(
             blocks.append(ReportBlock(id=sec.id, heading=sec.heading, block_kind="kpi", data_binding=binding, metrics=metrics))
         elif binding == "wbs_table":
             std_cols = ["WBS", "가중치", "계획(%)", "실적(%)", "차이(%p)"]
-            cols = sec.table_columns or std_cols
+            cols, picks = _fit_columns(binding, sec.table_columns, std_cols)
             rows = []
             for r in prog.wbs:
                 std_row: list[object] = [
@@ -243,7 +297,7 @@ async def generate_report_blocks(
                     f"{r.actual:.{p}f}",
                     _fmt_signed(r.diff, p),
                 ]
-                rows.append(_map_row_to_custom_cols(cols, std_cols, std_row))
+                rows.append(_pick(std_row, picks))
             blocks.append(
                 ReportBlock(
                     id=sec.id,
@@ -255,7 +309,7 @@ async def generate_report_blocks(
             )
         elif binding == "milestone_table":
             std_cols = ["마일스톤", "Plan", "실적·예측", "차이(일)", "상태"]
-            cols = sec.table_columns or std_cols
+            cols, picks = _fit_columns(binding, sec.table_columns, std_cols)
             rows = []
             for m in prog.milestones:
                 std_row = [
@@ -265,7 +319,7 @@ async def generate_report_blocks(
                     "—" if m.delta is None else f"{m.delta:+d}",
                     m.status,
                 ]
-                rows.append(_map_row_to_custom_cols(cols, std_cols, std_row))
+                rows.append(_pick(std_row, picks))
             blocks.append(
                 ReportBlock(
                     id=sec.id,
@@ -277,7 +331,7 @@ async def generate_report_blocks(
             )
         elif binding == "delay_table":
             std_cols = ["사건", "책임", "준공 영향", "상태·대책"]
-            cols = sec.table_columns or std_cols
+            cols, picks = _fit_columns(binding, sec.table_columns, std_cols)
             rows = []
             for ev in delay_events:
                 impact = ev.get("impact") or {}
@@ -289,14 +343,13 @@ async def generate_report_blocks(
                     impact_txt,
                     f"{_STATUS_LABEL.get(str(ev.get('status')), str(ev.get('status')))} ({ev.get('days')}일 지연)",
                 ]
-                rows.append(_map_row_to_custom_cols(cols, std_cols, std_row))
+                rows.append(_pick(std_row, picks))
             if not rows and prog.top_delays:
                 for td in prog.top_delays:
                     rows.append(
-                        _map_row_to_custom_cols(
-                            cols,
-                            std_cols,
+                        _pick(
                             [f"{td.id} {td.name}", "진행 실적", f"+{td.finish_impact}일", f"지연 {td.delay}일 · 여유 {td.tf}일"],
+                            picks,
                         )
                     )
             blocks.append(
@@ -311,7 +364,7 @@ async def generate_report_blocks(
             )
         elif binding == "lookahead_3w":
             std_cols = ["일자", "구분", "작업명", "선행·유의사항"]
-            cols = sec.table_columns or std_cols
+            cols, picks = _fit_columns(binding, sec.table_columns, std_cols)
             blocked_map = {b.id: b.reason for b in prog.lookahead.blocked}
             events_la: list[tuple[date, list[object]]] = []
             for s in prog.lookahead.starts:
@@ -319,7 +372,7 @@ async def generate_report_blocks(
             for f in prog.lookahead.finishes:
                 events_la.append((f.date, [format_date(f.date, dfmt), "완료 예정", f"{f.id} {f.name}", "마감 점검"]))
             events_la.sort(key=lambda x: x[0])
-            rows = [_map_row_to_custom_cols(cols, std_cols, r) for _, r in events_la[:20]]
+            rows = [_pick(r, picks) for _, r in events_la[:20]]
             blocks.append(
                 ReportBlock(
                     id=sec.id,
@@ -331,8 +384,10 @@ async def generate_report_blocks(
                 )
             )
         elif binding == "scenario_compare":
-            std_cols = ["시나리오", "예상 준공", "준공 차이", "크리티컬 수", "상태"]
-            cols = sec.table_columns or std_cols
+            std_cols = ["시나리오", "예상 준공", "준공 차이(만들 때 일정 대비)", "크리티컬 수", "상태"]
+            cols, picks = _fit_columns(binding, sec.table_columns, std_cols)
+            # 기본 양식의 「준공 차이」도 무엇 대비인지 밝힌다.
+            cols = [std_cols[2] if c == "준공 차이" else c for c in cols]
             rows = []
             for sc in scen_rows[:10]:
                 sm = sc.summary_json or {}
@@ -345,7 +400,7 @@ async def generate_report_blocks(
                     sm.get("critical_count", "—"),
                     _SCEN_STATUS.get(sc.status, sc.status),
                 ]
-                rows.append(_map_row_to_custom_cols(cols, std_cols, std_row))
+                rows.append(_pick(std_row, picks))
             blocks.append(
                 ReportBlock(
                     id=sec.id,
@@ -391,8 +446,12 @@ async def generate_report_blocks(
             )
         elif binding == "summary_prose":
             fb = _deterministic_summary(rec.name, cadence, period_label, prog, delay_events, style, extra_note)
-            prose = await _draft_prose_with_llm(session, fb, rec.name, cadence, period_label, prog, delay_events, sec, style, extra_note)
-            blocks.append(ReportBlock(id=sec.id, heading=sec.heading, block_kind="prose", data_binding=binding, text=prose))
+            prose, auto = await _draft_prose_with_llm(
+                session, fb, rec.name, cadence, period_label, prog, delay_events, sec, style, extra_note
+            )
+            blocks.append(
+                ReportBlock(id=sec.id, heading=sec.heading, block_kind="prose", data_binding=binding, text=prose, auto_text=auto)
+            )
         else:
             blocks.append(
                 ReportBlock(
@@ -426,19 +485,20 @@ async def revise_block_text(
         try:
             rec = get_record(session, schedule_id)
             prog = progress_service.progress(session, schedule_id, "month")
-            delay_events = delays_store.list_events(session, schedule_id)
+            delay_events = delays_store.listed(session, schedule_id)
             facts_section = (
                 "\n\n[프로젝트 공정 수치]\n"
                 + _progress_facts_text(rec.name, prog, len(delay_events), style)
             )
         except Exception as exc:  # noqa: BLE001 — 수치 보조 조회 실패 시에도 문단 다듬기는 계속 시도
-            logger.debug("보고서 수정 참고 수치 조회 생략: %s", type(exc).__name__)
+            logger.warning("보고서 수정 참고 수치 조회 실패(수치 없이 다듬음): %s", type(exc).__name__)
 
     prompt = (
         f"아래 보고서 항목「{heading}」의 내용을 사용자 요청대로 다듬어라.\n"
         f"- 말투 규칙: {style.tone}\n"
         f"- 기억된 규칙: {', '.join(style.learned_rules) or '없음'}\n"
-        f"- 숫자와 날짜를 임의로 지어내지 말고, 기존 내용 또는 아래 [프로젝트 공정 수치]의 값만 인용하라.{facts_section}\n\n"
+        + _NO_MARKUP
+        + f"- 숫자와 날짜를 임의로 지어내지 말고, 기존 내용 또는 아래 [프로젝트 공정 수치]의 값만 인용하라.{facts_section}\n\n"
         f"[기존 내용]\n{current_text or '(비어 있음)'}\n\n"
         f"[수정 지시]\n{instruction}"
     )
@@ -458,7 +518,7 @@ async def revise_block_text(
     except (LlmFailed, ValueError) as exc:
         logger.warning("보고서 수정 LLM 실패: %s", type(exc).__name__)
         raise ApiError(502, "llm_revise_failed", "AI 문단 수정에 실패했습니다. 잠시 후 다시 시도해 주세요.") from None
-    text = (reply.text or "").strip()
+    text = _tidy(reply.text or "", heading)
     if reply.finish_reason == "length" or not text:
         raise ApiError(502, "llm_revise_failed", "AI 문단 수정 응답이 불완전하여 기존 내용을 유지했습니다.")
     return text

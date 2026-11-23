@@ -376,6 +376,7 @@ async def revise_report_block(session: Session, schedule_id: int, report_id: int
 
     updated = dict(blocks[idx])
     updated["text"] = new_text
+    updated["auto_text"] = False
     blocks[idx] = updated
     row.blocks_json = blocks
 

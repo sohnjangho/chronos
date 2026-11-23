@@ -364,3 +364,214 @@ async def test_prose_length_cutoff_and_revise_failure_protect_content(client, se
     after_blk = next(b for b in after["blocks"] if b["id"] == prose_blk["id"])
     assert after_blk["text"] == orig_text
     assert "[수정 반영:" not in after_blk["text"]
+
+
+# ── 11-23 시나리오 재검증 결함(R1~R6) ─────────────────────────────────
+
+
+def _scenario(session, sid: int, base: int, name: str, status: str, finish: str, delta: int, crit: int) -> None:
+    from app.store import scenarios as scen_store
+    from app.store.schedules import load
+
+    current, stored, _ = load(session, sid)
+    row = scen_store.create(
+        session, schedule_id=sid, base_version=base, name=name, source="shorten", schedule=current,
+        conditions=stored, created_by="김공정",
+        extra_summary={"finish": finish, "finish_delta": delta, "critical_count": crit},
+    )
+    scen_store.set_status(session, row, status)
+    session.commit()
+
+
+def _bump_version(session, sid: int) -> int:
+    from app.store.schedules import load
+    from app.store.versions import save_new_version
+
+    current, stored, n = load(session, sid)
+    return save_new_version(session, sid, current, stored, by_kind="user", by_name="김공정", note="시험",
+                            changes=[], base_version=n, plan_change=False)
+
+
+async def test_learned_table_columns_get_values_by_meaning(session):
+    """R1: 양식 열 이름의 뜻으로 값을 넣는다. 못 맞춘 칸은 「—」, 뜻이 같은 열은 그대로, 하나도 못 맞추면 기본 열."""
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory, TemplateSection
+
+    sid = schedules.store(session, schedules.sample())
+    session.commit()
+    _scenario(session, sid, 1, "만회안 B", "applied", "2027-10-05", -19, 27)
+    cols3 = ["만회 대안", "주요 조치 내용", "단축 효과(일)", "추가 비용/자원", "리스크 및 크리티컬패스 영향도", "귀책 주체", "승인 결과"]
+    ms_cols = ["구분", "기준 계획일", "현재 예측일", "차이(일)", "상태 및 특기사항"]
+    sections = [
+        TemplateSection(id="s3", heading="3. 만회 계획", block_kind="table", data_binding="scenario_compare", table_columns=cols3),
+        TemplateSection(id="s2", heading="2. 마일스톤", block_kind="table", data_binding="milestone_table", table_columns=ms_cols),
+        TemplateSection(id="s9", heading="9. 엉뚱한 표", block_kind="table", data_binding="scenario_compare",
+                        table_columns=["가", "나", "다"]),
+    ]
+    _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", sections, StyleMemory())
+    t3 = blocks[0].table
+    assert t3["columns"] == cols3
+    assert t3["rows"] == [["만회안 B", "—", "-19일", "—", "—", "—", "반영 완료"]]
+    assert blocks[1].table["columns"] == ms_cols
+    assert blocks[2].table["columns"][0] == "시나리오" and len(blocks[2].table["columns"]) == 5
+    assert blocks[2].table["rows"][0][:3] == ["만회안 B", "2027.10.05", "-19일"]
+
+    # 4절(룩어헤드) 7열: 날짜는 기간 칸, 작업 이름은 작업 칸
+    cols4 = ["작업/공종", "계획 기간", "선행 인계", "자재 조달", "장비 투입", "사전 조치 내역", "담당/상태"]
+    std4 = ["일자", "구분", "작업명", "선행·유의사항"]
+    cols, picks = generator._fit_columns("lookahead_3w", cols4, std4)
+    assert cols == cols4
+    row = generator._pick(["2027.04.17", "착수 예정", "A1100 기초 거푸집", "착수 가능"], picks)
+    assert row == ["A1100 기초 거푸집", "2027.04.17", "착수 가능", "—", "—", "—", "착수 예정"]
+    # 기본 열과 같은 이름은 그대로 자리에
+    std_ms = ["마일스톤", "Plan", "실적·예측", "차이(일)", "상태"]
+    assert generator._fit_columns("milestone_table", ms_cols, std_ms) == (ms_cols, [0, 1, 2, 3, 4])
+    assert generator._fit_columns("milestone_table", std_ms, std_ms) == (std_ms, [0, 1, 2, 3, 4])
+
+
+async def test_scenario_table_keeps_only_current_round(session):
+    """R2: 반영된 안이 있으면 그 안과 기준 버전이 같은 안(+ 지금 버전 기준 안)만 보인다. 옛 실행의 안은 빠진다."""
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory, TemplateSection
+
+    sid = schedules.store(session, schedules.sample())
+    session.commit()
+    _scenario(session, sid, 1, "만회안 B", "open", "2027-09-24", -27, 29)  # 옛 실행(버전 1 기준)
+    _scenario(session, sid, 1, "만회안 A", "open", "2027-10-25", -4, 12)
+    _bump_version(session, sid)  # 버전 2
+    _scenario(session, sid, 2, "지연 반영안 (2건)", "open", "2027-11-04", 5, 12)
+    _scenario(session, sid, 2, "만회안 A", "open", "2027-10-30", 1, 12)
+    _scenario(session, sid, 2, "만회안 B", "applied", "2027-10-05", -19, 27)
+    _bump_version(session, sid)  # 버전 3 = 만회안 B 반영
+    sec = TemplateSection(id="s", heading="만회", block_kind="table", data_binding="scenario_compare")
+    _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
+    t = blocks[0].table
+    assert [r[0] for r in t["rows"]] == ["만회안 B", "만회안 A", "지연 반영안 (2건)"]
+    assert t["columns"][2] == "준공 차이(만들 때 일정 대비)"
+
+    # 반영된 안이 없으면 지금 버전 기준 안만
+    sid2 = schedules.store(session, schedules.sample())
+    session.commit()
+    _scenario(session, sid2, 1, "옛 안", "open", "2027-09-24", -27, 29)
+    _bump_version(session, sid2)
+    _scenario(session, sid2, 2, "새 안", "open", "2027-10-30", 1, 12)
+    _, _, _, blocks2 = await generator.generate_report_blocks(session, sid2, "monthly", "2027년 4월", [sec], StyleMemory())
+    assert [r[0] for r in blocks2[0].table["rows"]] == ["새 안"]
+
+
+async def test_prose_drops_heading_line_and_markdown_stars(session, monkeypatch):
+    """R3: 서술·수정 답의 첫 줄이 절 제목이면 빼고 ** 를 지운다. 두 프롬프트에 금지 문장이 있다."""
+    from types import SimpleNamespace
+
+    from app.llm import fake as llm_fake
+    from app.llm.client import LlmClient
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory, TemplateSection
+
+    sid = schedules.store(session, schedules.sample())
+    session.commit()
+    monkeypatch.setattr(llm_fake, "enabled", lambda: False)
+    prompts: list[str] = []
+    heading = "1. 금월 프로젝트 핵심 요약 (Executive Summary)"
+
+    async def chat(self, purpose, messages, **kwargs):
+        prompts.append(messages[-1]["content"])
+        return SimpleNamespace(finish_reason="stop", text=f"**{heading}**\n- 핵심 **결론**: 준공 영향 없음.", parsed=None)
+
+    monkeypatch.setattr(LlmClient, "chat", chat)
+    sec = TemplateSection(id="s1", heading=heading, block_kind="prose", data_binding="summary_prose")
+    _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
+    assert blocks[0].text == "- 핵심 결론: 준공 영향 없음."
+    text = await generator.revise_block_text(session, {"heading": heading, "text": "원문"}, "다듬어 줘", StyleMemory(),
+                                             schedule_id=sid)
+    assert text == "- 핵심 결론: 준공 영향 없음."
+    assert all("제목 줄을 다시 쓰지 않는다" in p and "마크다운 기호를 쓰지 않는다" in p for p in prompts)
+
+
+async def test_prose_fallback_retries_once_then_marks_auto_text(client, session, admin, monkeypatch):
+    """R4: 잘리면 길이를 올려 한 번 더 부른다. 성공하면 표시 없음, 또 잘리면 auto_text. 고치면 표시가 지워진다."""
+    from types import SimpleNamespace
+
+    from app.llm import fake as llm_fake
+    from app.llm.client import LlmClient
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory, TemplateSection
+
+    sid = schedules.store(session, schedules.sample())
+    session.commit()
+    monkeypatch.setattr(llm_fake, "enabled", lambda: False)
+    sec = [TemplateSection(id="s1", heading="요약", block_kind="prose", data_binding="summary_prose")]
+    limits: list[int] = []
+
+    async def cut_then_ok(self, purpose, messages, **kwargs):
+        limits.append(kwargs["max_tokens"])
+        if len(limits) == 1:
+            return SimpleNamespace(finish_reason="length", text="잘린", parsed=None)
+        return SimpleNamespace(finish_reason="stop", text="AI 가 쓴 문단입니다.", parsed=None)
+
+    monkeypatch.setattr(LlmClient, "chat", cut_then_ok)
+    _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", sec, StyleMemory())
+    assert (blocks[0].text, blocks[0].auto_text) == ("AI 가 쓴 문단입니다.", False)
+    assert len(limits) == 2 and limits[1] > limits[0]
+
+    limits.clear()
+
+    async def always_cut(self, purpose, messages, **kwargs):
+        limits.append(kwargs["max_tokens"])
+        return SimpleNamespace(finish_reason="length", text="잘린", parsed=None)
+
+    monkeypatch.setattr(LlmClient, "chat", always_cut)
+    _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", sec, StyleMemory())
+    assert blocks[0].auto_text is True and len(limits) == 2 and "잘린" not in blocks[0].text
+
+    # API: LLM 이 연결되지 않아 자동 문안이면 표시, AI 수정 뒤에는 표시가 지워진다
+    monkeypatch.setattr(llm_fake, "enabled", lambda: True)
+    rep = client.post(f"/api/schedules/{sid}/reports", headers=admin, json={"cadence": "monthly"}).json()
+    prose = next(b for b in rep["blocks"] if b["block_kind"] == "prose")
+    assert prose["auto_text"] is True
+    rev = client.post(f"/api/schedules/{sid}/reports/{rep['id']}/revise", headers=admin,
+                      json={"block_id": prose["id"], "instruction": "짧게", "remember_rule": False})
+    assert rev.status_code == 200, rev.text
+    assert next(b for b in rev.json()["blocks"] if b["id"] == prose["id"])["auto_text"] is False
+
+
+async def test_revise_prompt_gets_progress_facts(session, monkeypatch):
+    """R5: AI 부분 수정 프롬프트에 공정 수치(Data Date·공정률)가 들어간다."""
+    from types import SimpleNamespace
+
+    from app.llm import fake as llm_fake
+    from app.llm.client import LlmClient
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory
+
+    sid = schedules.store(session, schedules.sample())
+    session.commit()
+    monkeypatch.setattr(llm_fake, "enabled", lambda: False)
+    seen: list[str] = []
+
+    async def chat(self, purpose, messages, **kwargs):
+        seen.append(messages[-1]["content"])
+        return SimpleNamespace(finish_reason="stop", text="고친 문단", parsed=None)
+
+    monkeypatch.setattr(LlmClient, "chat", chat)
+    await generator.revise_block_text(session, {"heading": "요약", "text": "원문"}, "다듬어", StyleMemory(), schedule_id=sid)
+    assert "[프로젝트 공정 수치]" in seen[0] and "Data Date:" in seen[0] and "실적 공정률:" in seen[0]
+
+
+def test_auto_summary_separates_late_tasks_from_delay_events(session):
+    """R6: 「계획보다 늦은 작업」과 「기록된 지연 사건」을 다른 낱말로 쓴다."""
+    from app.programs.progress import service as progress_service
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory
+
+    sid = schedules.store(session, schedules.sample())
+    session.commit()
+    prog = progress_service.progress(session, sid, "month")
+    events = [{"status": "reflected"}, {"status": "reflected"}]
+    for tone in ("~습니다", "개조식 ~함"):
+        txt = generator._deterministic_summary("현장", "monthly", "2027년 4월", prog, events, StyleMemory(tone=tone))
+        assert "계획보다 늦은 작업" in txt and "기록된 지연 사건 2건(모두 반영)" in txt
+        assert "주요 지연 사안" not in txt and "지연 이슈" not in txt
+    txt = generator._deterministic_summary("현장", "monthly", "2027년 4월", prog,
+                                           [{"status": "open"}, {"status": "reflected"}], StyleMemory())
+    assert "기록된 지연 사건 2건(열림 1건)" in txt
