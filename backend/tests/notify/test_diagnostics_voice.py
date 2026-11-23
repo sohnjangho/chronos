@@ -428,11 +428,22 @@ async def test_good_call_reports_latency_transcripts_and_tool(world):
     assert sdk.tool_results == [dv.DIAG_FACT]
     name, kw = sdk.sessions[-1]
     assert name == "GeminiRealtime" and kw["api_key"] == GOOGLE_KEY and kw["language"] == "ko"
-    assert dv.FIRST_LINES["ko"] == "안녕하세요, ChronOS 연결 진단 전화입니다. 이 통화는 기록됩니다."
     assert dv.FIRST_LINES["ko"] in kw["system_prompt"] and "diag_fact" in kw["system_prompt"]
     assert kw["model"] == "fake-live"  # 모델을 주지 않으면 SDK 기본값
     assert not any(ch.isdigit() for ch in kw["system_prompt"])  # 지시문에 번호가 없다
     assert sdk.agent.calls[0].hangups == 0  # 스스로 끝난 통화는 끊지 않는다
+
+
+async def test_first_line_says_the_call_is_not_recorded(world):
+    """진단은 녹음하지 않고(recording=False) 받아쓰기 글도 남기지 않는다 — 첫마디가 「기록됩니다」라고 하면 거짓이다."""
+    assert dv.FIRST_LINES == {"ko": "안녕하세요, ChronOS 연결 진단 전화입니다. 이 통화는 녹음하지 않습니다.",
+                              "en": "Hello, this is a ChronOS connection test call. This call is not recorded."}
+    sdk = FakeSdk(world)
+    out = await run(world, sdk, steps=(6, 10), call_to=SENTINEL_PHONE)
+    assert out["P6"].ok and out["P10"].ok and sdk.agent.kw["recording"] is False
+    prompts = [kw["system_prompt"] for _, kw in sdk.sessions]
+    assert any(dv.FIRST_LINES["ko"] in p for p in prompts) and any(dv.FIRST_LINES["en"] in p for p in prompts)
+    assert not any("기록됩니다" in p or "is recorded" in p for p in prompts)
 
 
 async def test_call_is_hung_up_soon_after_the_tool_was_called(world):

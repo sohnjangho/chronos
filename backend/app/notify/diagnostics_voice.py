@@ -75,8 +75,8 @@ SESSIONS = {"google": "GeminiRealtime", "openai": "OpenAIRealtime"}
 LABELS = {"P5": "음성 SDK · 플랫폼 연결", "P6": "한국어 시험 통화", "P7": "통화 중 받아쓰기", "P8": "통화 중 도구 호출",
           "P9": "음성 목록 · 샘플", "P10": "둘째 언어 통화", "P11": "AI 전화 번호를 에이전트에 묶기",
           "P12": "걸려 온 통화 받기", "P13": "건 번호 읽기", "P14": "받지 않고 거절하기"}
-FIRST_LINES = {"ko": "안녕하세요, ChronOS 연결 진단 전화입니다. 이 통화는 기록됩니다.",
-               "en": "Hello, this is a ChronOS connection test call. This call is recorded."}
+FIRST_LINES = {"ko": "안녕하세요, ChronOS 연결 진단 전화입니다. 이 통화는 녹음하지 않습니다.",
+               "en": "Hello, this is a ChronOS connection test call. This call is not recorded."}
 DIAG_FACT = "진단 확인 문장입니다. 도구 호출이 정상입니다."
 _KO = ("당신은 ChronOS 의 연결 진단 전화입니다. 통화가 연결되면 다음 문장을 한 글자도 바꾸지 않고 먼저 말합니다: 「{line}」 그다음 "
        "{then}「진단을 마칩니다. 감사합니다.」 라고 말합니다. 다른 이야기는 하지 않고, 무엇을 물어도 「연결 진단 전화라 답할 수 "
