@@ -284,7 +284,7 @@ test('switching SMS to 위임 asks first and sends agent_sms delegate; KakaoTalk
   const kakao = within(c).getByRole('radiogroup', { name: '카카오톡 발송 권한' });
   for (const r of within(kakao).getAllByRole('radio')) expect(r).toBeDisabled();
   expect(within(c).getAllByText(/카카오톡\(알림톡\)은 아직 쓸 수 없습니다/)[0]).toBeVisible();
-  expect(within(c).getByLabelText('카카오톡 채널')).toBeDisabled();
+  expect(await within(c).findByRole('button', { name: '채널·문안 다시 읽기' })).toBeDisabled();
 });
 
 test('turning test mode off asks first; cancelling sends nothing', async () => {
@@ -405,7 +405,7 @@ test('a send that ends with a server error says to check the phone and re-reads 
   expect(await within(c).findByText(UNSURE)).toBeVisible();
   await waitFor(() => expect(reads(fetchMock, `${ONE}/diagnosis`)).toBe(2));
   expect(within(c).queryByText('요청을 처리할 수 없습니다.')).toBeNull();
-  expect(within(c).queryByRole('button', { name: /다시/ })).toBeNull();
+  expect(within(c).queryByRole('button', { name: /다시 보내기/ })).toBeNull();
   expect(within(c).getByRole('switch', { name: /실제 문자 1건 보내기/ })).not.toBeChecked();
 });
 

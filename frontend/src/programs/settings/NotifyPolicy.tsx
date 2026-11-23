@@ -140,15 +140,17 @@ function AllowList({ conn, busy, addError, onPatch }: {
 }
 
 /** 뒤 작업이 채울 자리: 카카오톡 채널과 문안(잠김) · 받는 범위·차단 · AI 전화. */
-function LaterGroups({ conn, voice }: { conn: NotifyConnection; voice?: ReactNode }) {
+function LaterGroups({ conn, voice, kakao }: { conn: NotifyConnection; voice?: ReactNode; kakao?: ReactNode }) {
   return (
     <>
-      <Group title="카카오톡 채널과 문안">
-        <Field label="카카오톡 채널">
-          <input value={conn.kakao_channel ?? ''} placeholder="연결 안 됨" disabled readOnly />
-        </Field>
-        <p className="st-muted">{KAKAO_LOCKED} 그때까지 카카오톡으로 고른 것은 문자로 나갑니다.</p>
-      </Group>
+      {kakao ?? (
+        <Group title="카카오톡 채널과 문안">
+          <Field label="카카오톡 채널">
+            <input value={conn.kakao_channel ?? ''} placeholder="연결 안 됨" disabled readOnly />
+          </Field>
+          <p className="st-muted">{KAKAO_LOCKED} 그때까지 카카오톡으로 고른 것은 문자로 나갑니다.</p>
+        </Group>
+      )}
       <Group title="받는 범위 · 차단">
         <p className="st-muted">준비 중 — 걸려 온 전화·문자를 누구에게서 받을지와 차단 목록이 이 자리에 들어옵니다.</p>
       </Group>
@@ -173,13 +175,15 @@ const sayCount = (n: number | undefined, unit: string) => (n === undefined ? '�
 type Confirm = { kind: 'test_off' } | { kind: 'delegate'; field: 'agent_sms' | 'agent_call'; label: string };
 
 /** 카드 아래 칸: 발신번호 · 시험 모드와 허용 번호 · 에이전트 발송 권한 · 상한, 그리고 뒤 작업이 채울 자리. */
-export default function NotifyPolicy({ conn, locked = false, onChanged, voice }: {
+export default function NotifyPolicy({ conn, locked = false, onChanged, voice, kakao }: {
   conn: NotifyConnection;
   /** 진단·시험 문자가 도는 동안 참 — 모든 칸을 잠근다. */
   locked?: boolean;
   onChanged(): void;
   /** 「AI 전화」 묶음(Task 93). 없으면 자리 글. */
   voice?: ReactNode;
+  /** 「카카오톡 채널과 문안」 묶음(Task 102). 없으면 자리 글. */
+  kakao?: ReactNode;
 }) {
   const [problem, setProblem] = useState<{ group: string; error: LlmError } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -275,7 +279,7 @@ export default function NotifyPolicy({ conn, locked = false, onChanged, voice }:
         <LimitsForm connectionId={conn.id} disabled={locked} onSaved={onChanged} />
       </details>
 
-      <LaterGroups conn={conn} voice={voice} />
+      <LaterGroups conn={conn} voice={voice} kakao={kakao} />
     </div>
   );
 }

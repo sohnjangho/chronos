@@ -246,6 +246,46 @@ export const voiceApi = {
   lastDiagnosis: (id: number) => api<VoiceDiagnosis | null>(`${voicePath(id)}/diagnosis`),
 };
 
+// ── 카카오톡 채널·문안 상태(Task 101 계약) — 읽기와 쓰는 곳 잇기만. 보내기·켜기는 없다. ──
+
+/** 채널 한 줄. status 는 제공사 말(connected …), 모르면 unknown. */
+export type KakaoChannel = { id: string; name: string; status: string };
+
+export type KakaoTemplateStatus = 'approved' | 'reviewing' | 'rejected' | 'dormant';
+
+/** 문안 한 줄(TemplateOut). body 의 번호는 끝 4자리만 남긴 가린 꼴. reply_line = 「문자로 답하라」 줄이 있는가(서버가 지금 발신번호로 본 값). */
+export interface KakaoTemplate {
+  id: number;
+  channel: string;
+  provider_template_id: string;
+  use: string | null;
+  body: string;
+  variables: string[];
+  status: KakaoTemplateStatus;
+  reply_line: boolean;
+  usable: boolean;
+  fallback_body: string | null;
+}
+
+/** GET …/kakao(KakaoOut). available = 목록 읽는 길이 확인됐는가, ready = 카카오톡 준비(지금은 늘 false). */
+export interface KakaoState {
+  available: boolean;
+  reason: string | null;
+  channels: KakaoChannel[];
+  templates: KakaoTemplate[];
+  synced_at: string | null;
+  ready: boolean;
+}
+
+const kakaoPath = (id: number) => `${BASE}/${id}/kakao`;
+
+/** 카카오톡 채널·문안 상태(관리자만). sync 는 지금 늘 501 kakao_listing_unconfirmed(SyncOut 의 truncated = 상한 뒤를 읽지 않음). PATCH 는 use 만. */
+export const kakaoApi = {
+  get: (id: number) => api<KakaoState>(kakaoPath(id)),
+  sync: (id: number) => api<KakaoState & { truncated: boolean }>(`${kakaoPath(id)}/sync`, send('POST')),
+  setUse: (id: number, tid: number, use: string | null) => api<KakaoTemplate>(`${kakaoPath(id)}/templates/${tid}`, send('PATCH', { use })),
+};
+
 /** 알림 연결(관리자만). 상한은 shared/outreach/limitsApi 의 길로만. */
 export const notifyApi = {
   list: () => api<NotifyConnection[]>(BASE),

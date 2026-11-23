@@ -121,3 +121,53 @@
 @container st-main (max-width: 620px) {
   .st-vc-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── 「카카오톡 채널과 문안」 묶음(Task 102): 띠 · 채널 · 다시 읽기 · 상태 표(긴 문안은 두 줄 + 접어서) · 준비 차례 ── */
+.st-kk-band {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-3);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  font-size: var(--fs-13);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.st-kk-channels { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; min-width: 0; }
+.st-kk-channels > li { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--fs-13); }
+.st-kk-sync { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; }
+.st-kk-sync > .st-muted { flex: 1 1 220px; }
+.st-kk-table { min-width: 0; }
+.st-kk-table .ui-table { table-layout: fixed; }
+.st-kk-table .ui-table td { height: auto; padding: 6px 8px; vertical-align: top; white-space: normal; overflow: visible; }
+.st-kk-table .ui-field { max-width: none; }
+.st-kk-table select { width: 100%; min-width: 0; }
+.st-kk-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.st-kk-body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+.st-kk-more { min-width: 0; font-size: var(--fs-12); }
+.st-kk-more > summary { cursor: pointer; color: var(--fg-muted); width: fit-content; }
+.st-kk-more > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-2); }
+.st-kk-more > p { margin: 4px 0 0; }
+.st-kk-whole { padding: 6px 8px; border-radius: var(--radius-2); background: var(--bg-panel-alt); white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-13); }
+.st-kk-ids { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-11); color: var(--fg-muted); overflow-wrap: anywhere; }
+.st-kk-state { display: flex; flex-wrap: wrap; gap: 4px; }
+.st-kk-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-12); color: var(--fg-muted); overflow-wrap: anywhere; }
+
+.st-kk-table .ui-table th { z-index: 1; }
+.st-kk-cell:has(.st-kk-more[open]) > .st-kk-body { display: none; }
+.st-kk-steps { margin-top: -4px; }
+
+/* 좁은 창: 쓰는 곳·상태 칸을 줄여 문안 칸을 넓힌다(칸 너비는 Table 이 th 에 직접 넣으므로 !important). */
+@container st-main (max-width: 720px) {
+  .st-kk-table .ui-table th:first-child { width: 140px !important; }
+  .st-kk-table .ui-table th:last-child { width: 112px !important; }
+}

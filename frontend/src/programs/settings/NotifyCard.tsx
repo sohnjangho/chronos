@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ApiError } from '../../shared/api';
 import Badge, { type Tone } from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
+import KakaoBlock from './KakaoBlock';
 import { checkedText, type LlmError } from './model';
 import { NotifyKeyForm, NotifyUrlForm } from './NotifyAdd';
 import {
@@ -266,11 +267,12 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
   const [busy, setBusy] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceHolding, setVoiceHolding] = useState(false);
+  const [kakaoBusy, setKakaoBusy] = useState(false);
   const d = useDiagnosis(conn, onChanged);
   const r = useRealSend(conn, d);
   const blocked = smsBlockedReason(conn);
   // 이 카드가 하는 일(진단·연결 테스트·열린 확인 창·고치기 창)이 있으면 「AI 전화」 쪽을 잠근다. 거꾸로도 같다.
-  const own = busy || d.busy || mode !== 'idle' || r.pending !== null;
+  const own = busy || d.busy || mode !== 'idle' || r.pending !== null || kakaoBusy;
   const locked = own || voiceBusy || voiceHolding;
 
   async function run(task: () => Promise<Outcome>) {
@@ -355,6 +357,7 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
         locked={d.busy || voiceBusy}
         onChanged={onChanged}
         voice={<VoiceBlock conn={conn} locked={own} onRunning={setVoiceBusy} onHolding={setVoiceHolding} onChanged={onChanged} />}
+        kakao={<KakaoBlock conn={conn} locked={locked} onBusy={setKakaoBusy} />}
       />
     </article>
   );
