@@ -19,6 +19,7 @@ from app.seed.office import office_building
 from app.store import scenarios
 from app.store.delays import DelayEventRow, delayed_base
 from app.store.schedules import load
+from app.store.settings import set_approval_mode
 from app.store.tables import ScheduleVersion, User
 from app.store.versions import save_new_version
 from app.tools import registry
@@ -235,3 +236,51 @@ async def test_office_flow_delay_then_recovery_then_late_actual(client, admin, s
     assert _status(v)["A1090"].startswith("late +") and _status(v)["A1210"] == "late +6"
     variance = client.get(f"/api/schedules/{sid}/progress", headers=admin).json()["cpm"]["finish_variance"]
     assert variance == {"days": 6, "plan": "2027-10-01", "current": "2027-10-12"}
+
+
+# ── 승인 건 summary.plan_change: 반영할 때와 같은 규칙(store.approvals.is_plan_change)을 낼 때 미리 적는다 ──────
+
+
+def _pending_summary(client, admin, approval_id: int) -> dict:
+    d = client.get(f"/api/approvals/{approval_id}", headers=admin).json()
+    assert d["status"] == "pending", d
+    return d["summary"]
+
+
+def _copy(session, sid: int, source: str) -> int:
+    before, stored, n = load(session, sid)
+    after = replace(before, activities=tuple(replace(a, od=4) if a.id == "B" else a for a in before.activities))
+    sc = scenarios.create(session, schedule_id=sid, base_version=n, name="만회안", source=source, schedule=after,
+                          conditions=stored, created_by="김하늘")
+    session.commit()
+    return sc.id
+
+
+@pytest.mark.parametrize(("source", "expected"), [("shorten", True), ("agent", True), ("delay", False)])
+def test_a_submitted_copy_says_in_its_summary_whether_the_plan_is_set_again(client, admin, session, sid_late,
+                                                                              source, expected):
+    set_approval_mode(session, "all")
+    session.commit()
+    sc = _copy(session, sid_late, source)
+    sent = client.post(f"/api/schedules/{sid_late}/scenarios/{sc}/submit", json={}, headers=admin).json()
+    assert _pending_summary(client, admin, sent["approval_id"])["plan_change"] is expected
+
+
+@pytest.mark.parametrize(("condition", "expected"), [
+    ({"kind": "text_only", "params": {}, "text": "타설 전날 알림"}, False),
+    ({"kind": "calendar", "params": {"days_per_week": 7, "holidays": []}, "text": "주 7일 작업"}, True),
+])
+async def test_a_schedule_rule_says_in_its_summary_whether_the_plan_is_set_again(client, admin, session, sid_late,
+                                                                                   condition, expected):
+    set_approval_mode(session, "all")
+    session.commit()
+    o = await _tool(session, sid_late, "rules.propose", {"scope": "schedule", "condition": condition, "why": "늘 그렇게"})
+    assert _pending_summary(client, admin, o["approval_id"])["plan_change"] is expected
+
+
+def test_a_condition_commit_says_the_plan_is_set_again(client, admin, session, sid_late):
+    set_approval_mode(session, "all")
+    session.commit()
+    body = {"base_version": 1, "changes": [{"id": "in.finish_by", "params": {"date": "2027-05-31"}}]}
+    r = client.post(f"/api/schedules/{sid_late}/conditions/commit", json=body, headers=admin).json()
+    assert _pending_summary(client, admin, r["approval_id"])["plan_change"] is True

@@ -36,8 +36,12 @@ class DraftUsed(Exception):
 
 
 def create(session: Session, **fields: Any) -> Approval:
-    """승인 표에 한 줄을 넣고 flush 한다(id 가 생긴다). commit 은 부르는 쪽이 한다. 칸은 tables.Approval."""
+    """승인 표에 한 줄을 넣고 flush 한다(id 가 생긴다). commit 은 부르는 쪽이 한다. 칸은 tables.Approval.
+
+    summary_json 에 plan_change(반영하면 Plan 을 새로 찍는가 — apply 와 같은 규칙)를 넣는다. 결정 상자가 미리 알린다.
+    """
     row = Approval(**fields)
+    row.summary_json = {**(row.summary_json or {}), "plan_change": _sets_plan(session, row)}
     session.add(row)
     session.flush()
     return row
@@ -115,6 +119,13 @@ def is_plan_change(session: Session, row: Approval) -> bool:
 
 def _plan_change(session: Session, row: Approval) -> bool:
     return is_plan_change(session, row)
+
+
+def _sets_plan(session: Session, row: Approval) -> bool:
+    """apply 가 Plan 을 새로 찍는가: 첫 저장은 늘(mark_plan), 분야 범위 규칙 건(kind rule)은 일정을 건드리지 않아 아니고, 고침은 is_plan_change."""
+    if row.kind == "first_save":
+        return True
+    return row.kind == "change" and is_plan_change(session, row)
 
 
 def apply(session: Session, row: Approval, *, by_name: str) -> None:

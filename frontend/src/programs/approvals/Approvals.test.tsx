@@ -344,6 +344,18 @@ describe('W6 결정 상자 안내', () => {
     expect(screen.getByText('승인하면 버전 4로 저장되고, 기준선(Plan)도 이 안으로 새로 잡힙니다. 탐색기에서 되돌릴 수 있습니다.')).toBeVisible();
   });
 
+  // 서버는 모든 승인 건 summary 에 plan_change 를 넣는다(store.approvals.create) — 만회안 복사본은 true, 말로 된 일정 규칙은 false.
+  test('a submitted recovery plan says the baseline is set again', () => {
+    box({ plan_change: true, changed_count: 3 });
+    expect(screen.getByText(/기준선\(Plan\)도 이 안으로 새로 잡힙니다/)).toBeVisible();
+  });
+
+  test('a text-only schedule rule says the baseline stays', () => {
+    box({ plan_change: false, rule: { scope: 'schedule', domain: 'construction', text: '타설 전날 알림', kind: 'text_only', params: {} } });
+    expect(screen.getByText('승인하면 내 규칙이 반영되어 버전 4로 저장됩니다. 기존 기준선(Plan)은 유지됩니다.')).toBeVisible();
+    expect(screen.queryByText(/기준선\(Plan\)도/)).toBeNull();
+  });
+
   test('without the plan change mark the hint stays as before', () => {
     box({});
     expect(screen.getByText('승인하면 버전 4로 저장되고, 탐색기에서 되돌릴 수 있습니다.')).toBeVisible();

@@ -138,7 +138,8 @@ async def test_domain_rule_row_and_event(ctx_sid, session, events):
     r = await call("rules.propose", DOMAIN_RULE, ctx_sid)
     row = session.get(Approval, r.output["approval_id"])
     rule = {"scope": "domain", "domain": "construction", "text": TEXT, "kind": "max_duration", "params": {"days": 10}}
-    assert (row.schedule_id, row.base_version, row.summary_json, row.snapshot_json) == (None, 0, {"rule": rule}, {})
+    assert (row.schedule_id, row.base_version, row.summary_json, row.snapshot_json) == (
+        None, 0, {"rule": rule, "plan_change": False}, {})  # 분야 범위 규칙은 일정을 건드리지 않는다
     assert (row.link_kind, row.status, row.requested_kind, row.title) == ("rule", "pending", "agent", f"내 규칙 저장 — {TEXT}")
     cond = row.rule_json["condition"]
     assert (cond["layer"], cond["source"], cond["kind"], cond["params"], cond["text"]) == (
@@ -147,7 +148,8 @@ async def test_domain_rule_row_and_event(ctx_sid, session, events):
     assert row.rule_json == {"scope": "domain", "domain": "construction", "schedule_id": None, "condition": cond}
     assert r.output == {"approval_id": row.id, "applied": False, "rule": row.rule_json}
     assert [e.type for e in events] == ["approval"]
-    assert events[0].data == {"id": row.id, "title": row.title, "reasons": ["rule_save"], "summary": {"rule": rule}}
+    assert events[0].data == {"id": row.id, "title": row.title, "reasons": ["rule_save"],
+                              "summary": {"rule": rule, "plan_change": False}}
 
 
 async def test_auto_mode_saves_a_domain_rule_at_once(ctx_sid, session, events):
