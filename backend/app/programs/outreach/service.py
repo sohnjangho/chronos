@@ -62,6 +62,7 @@ MAY_HAVE_GONE = "이미 나갔을 수 있습니다"
 SENDABLE = ("draft", "scheduled", "sending")  # 문에 넘기는 상태(sending 은 문이 「잠시 뒤 다시」로 답한다)
 RESENDABLE = ("failed", "unconfirmed")
 AUTO_KINDS = ("auto_reply", "notice")  # 사람이 고치거나 보내면 normal 이 된다
+KIND_OPEN = ("draft", "scheduled")  # 종류를 바꿔도 되는 상태(나가는 중인 줄은 그대로)
 LAST_LINE_CHARS = 30  # 주소록 API 의 last_line 과 같은 길이
 # 글에서 막는 보이지 않는 글자(주소록 메모와 같은 규칙): 줄 바꿈·탭 밖의 제어 글자, 글 방향 글자 전부, 줄·문단 구분, 폭 없는 빈칸
 _HIDDEN = (frozenset(range(0x202A, 0x202F)) | frozenset(range(0x2066, 0x206A))
@@ -248,9 +249,12 @@ async def send(session: Session, schedule_id: int, message_id: int, user: User) 
     row = _message(session, schedule_id, message_id)
     if row.direction != "out" or row.status not in SENDABLE:
         raise ApiError(409, "not_sendable", USE_RESEND if row.status in RESENDABLE else DONE)
-    if row.kind in AUTO_KINDS:  # 사람이 보내는 자동 답 초안은 사람이 승인한 보통 글이 된다(origin 은 그대로)
-        row.kind = "normal"
-        session.commit()
+    # 사람이 보내는 자동 답 초안은 사람이 승인한 보통 글이 된다(origin 은 그대로). 아직 초안·예약일 때만 — 문이나 일꾼이
+    # 이미 가져간 줄(sending)의 종류는 건드리지 않는다(자동 답 상한·같은 자동 답 검사가 그 종류로 센다)
+    session.execute(update(OutreachMessage).where(
+        OutreachMessage.id == row.id, OutreachMessage.status.in_(KIND_OPEN), OutreachMessage.kind.in_(AUTO_KINDS),
+    ).values(kind="normal"))
+    session.commit()
     return await _dispatch(session, schedule_id, row, user)
 
 
@@ -294,13 +298,12 @@ def remove(session: Session, schedule_id: int, message_id: int) -> None:
 
 
 def cancel(session: Session, schedule_id: int, message_id: int, user: User) -> MessageOut:
-    """예약 → 초안(예약 시각을 비움). 그 사이 일꾼이 가져갔거나 예약이 아니면 409 not_scheduled.
-    send_mode·approved_by 는 건드리지 않는다 — 그 칸을 적는 모듈은 나가는 문뿐이다(test_gate_rules 의 SEND_MODE_WRITERS).
-    초안의 그 값은 쓰이지 않는다: 일꾼은 예약 줄만 넣고, 문은 다시 넣을 때 새로 정한다."""
+    """예약 → 초안: 예약 시각·보내는 방식·승인한 사람을 비운다(문이 초안으로 돌린 줄과 같은 꼴 — 지난 승인이 남지 않게).
+    그 사이 일꾼이 가져갔거나 예약이 아니면 409 not_scheduled."""
     row = _message(session, schedule_id, message_id)
     changed = session.execute(update(OutreachMessage).where(
         OutreachMessage.id == row.id, OutreachMessage.status == "scheduled",
-    ).values(status="draft", scheduled_at=None)).rowcount
+    ).values(status="draft", scheduled_at=None, send_mode=None, approved_by=None)).rowcount
     if changed != 1:
         session.rollback()
         raise ApiError(409, "not_scheduled", NOT_SCHEDULED)

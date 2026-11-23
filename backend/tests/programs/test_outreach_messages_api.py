@@ -597,6 +597,61 @@ def test_agent_draft_sent_by_user_shows_approver(client, user, session, sid, con
     assert len(fake_channel.delivered) == 1
 
 
+def test_cancelling_a_persons_schedule_clears_the_approval_on_the_draft(client, user, session, sid, conn, fake_channel,
+                                                                        monkeypatch):
+    monkeypatch.setattr(service, "_now", lambda: OFF)
+    pid = _person(session, sid)
+    draft = _row(session, sid, pid, origin="agent", origin_name="에이전트", body="에이전트 초안")
+    scheduled = client.post(_url(sid, f"/messages/{draft.id}/send"), headers=user).json()["message"]
+    assert (scheduled["status"], scheduled["send_mode"], scheduled["approved_by"]) == ("scheduled", "approved", USER_NAME)
+
+    r = client.post(_url(sid, f"/messages/{draft.id}/cancel"), headers=user)
+
+    assert r.status_code == 200
+    assert (r.json()["status"], r.json()["send_mode"], r.json()["approved_by"]) == ("draft", None, None)
+    row = _reread(session, draft.id)
+    assert (row.status, row.send_mode, row.approved_by, row.scheduled_at) == ("draft", None, None, None)
+    assert fake_channel.delivered == []
+
+
+@pytest.mark.parametrize("kind", ["auto_reply", "notice"])
+def test_send_on_an_automatic_reply_already_being_sent_leaves_its_kind(client, user, session, sid, conn, fake_channel,
+                                                                       kind):
+    pid = _person(session, sid)
+    row = _row(session, sid, pid, origin="agent", origin_name="에이전트", kind=kind, status="sending")
+
+    r = client.post(_url(sid, f"/messages/{row.id}/send"), headers=user)
+
+    assert r.status_code == 200
+    assert r.json()["outcome"] == {"code": "duplicate", "message": gate.BUSY, "scheduled_at": None}
+    assert r.json()["message"]["kind"] == kind
+    assert _reread(session, row.id).kind == kind
+    assert fake_channel.delivered == []
+
+
+def test_kind_is_changed_only_while_the_row_is_still_open(client, user, session, sid, conn, fake_channel, monkeypatch):
+    """문을 부르기 직전에 일꾼이 줄을 가져갔다(sending) — 종류는 그대로 남는다."""
+    pid = _person(session, sid)
+    row = _row(session, sid, pid, origin="agent", origin_name="에이전트", kind="auto_reply", status="scheduled",
+               send_mode="delegated")
+    real = service._message
+
+    def taken_meanwhile(s, schedule_id, message_id):
+        found = real(s, schedule_id, message_id)
+        session.execute(OutreachMessage.__table__.update().where(OutreachMessage.id == message_id).values(
+            status="sending"))
+        session.commit()
+        return found
+
+    monkeypatch.setattr(service, "_message", taken_meanwhile)
+
+    r = client.post(_url(sid, f"/messages/{row.id}/send"), headers=user)
+
+    assert r.json()["outcome"]["code"] == "duplicate"
+    assert _reread(session, row.id).kind == "auto_reply"
+    assert fake_channel.delivered == []
+
+
 def test_editing_an_agent_draft_makes_it_a_normal_message_and_keeps_its_origin(client, user, session, sid):
     pid = _person(session, sid)
     draft = _row(session, sid, pid, origin="agent", origin_name="에이전트", kind="notice", body="안내 초안")
