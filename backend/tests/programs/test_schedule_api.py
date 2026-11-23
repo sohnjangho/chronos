@@ -14,6 +14,7 @@ from app.store.tables import ChangeLog, ScheduleVersion
 from app.store.versions import mark_plan, save_new_version
 from tests.schedules import make, store, task
 
+
 @pytest.fixture(autouse=True)
 def today_after_the_sample(monkeypatch):
     """시험 일정(2027-03)은 실제 오늘보다 뒤다 — Data Date 가 없는 일정의 실적은 「오늘」 뒤일 수 없어(리뷰) 오늘을 그 뒤로 둔다."""
@@ -697,6 +698,8 @@ def test_table_edit_without_a_data_date_uses_today_and_checks_a_lone_actual_fini
     monkeypatch.setattr(context, "today", lambda: date(2027, 3, 10))
     r = _patch(client, admin, sid, "A", 1, **body)
     assert r.status_code == 422 and r.json()["code"] == "actual_dates" and why in r.json()["message"]
+    if "오늘" in why:  # 조정 11-24: Data Date 가 없으면 먼저 정하라고
+        assert r.json()["message"].endswith(" Data Date 를 먼저 정한 뒤 넣어 주세요.")
 
 
 def test_the_data_date_cannot_move_before_recorded_actuals(client, admin, sid):

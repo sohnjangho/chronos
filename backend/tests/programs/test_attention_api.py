@@ -2,21 +2,11 @@
 
 from datetime import date
 
-import pytest
-
 import app.programs.attention.service as attention_service
 from app.core.model import Constraint, Relation
 from app.store.delays import DelayEventRow
 from tests.approval_doubles import finish_by
 from tests.schedules import make, sample, store, task
-
-
-@pytest.fixture(autouse=True)
-def today_after_the_sample(monkeypatch):
-    """시험 일정(2027)은 실제 오늘보다 뒤다 — Data Date 가 없는 일정의 실적은 「오늘」 뒤일 수 없어(리뷰) 오늘을 그 뒤로 둔다."""
-    from app.agent import context
-
-    monkeypatch.setattr(context, "today", lambda: date(2027, 12, 31))
 
 
 def items(client, admin) -> list[dict]:
@@ -77,7 +67,9 @@ def test_unreadable_schedule_is_danger(client, admin, session):
 
 def test_late_task_alone_is_a_warning(client, admin, session):
     sid = store(session, make([task("A", 3), task("B", 2)], [Relation("A", "B")]))
-    body = {"actual_start": "2027-03-03", "progress": 0.5, "base_version": 1}  # 실적은 Plan(버전 1)을 옮기지 않는다
+    dd = {"data_date": "2027-03-03", "base_version": 1}  # 지원하는 차례: Data Date 를 정하고 실적을 넣는다
+    assert client.patch(f"/api/schedules/{sid}", json=dd, headers=admin).status_code == 200
+    body = {"actual_start": "2027-03-03", "progress": 0.5, "base_version": 2}  # 실적은 Plan(버전 1)을 옮기지 않는다
     assert client.patch(f"/api/schedules/{sid}/activities/A", json=body, headers=admin).status_code == 200
     got = item_of(client, admin, sid)
     assert got["late_count"] > 0 and got["violations"] == 0 and got["negative_float_count"] == 0

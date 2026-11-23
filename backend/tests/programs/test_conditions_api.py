@@ -1,5 +1,3 @@
-from datetime import date
-
 """조건·규칙 API (Task 18): 겹별 보기·미리 보기(저장 안 함)·확정(승인 판단)·에이전트에게 맞추게 하기.
 
 시험 일정: 2027-03-01(월) 시작, 주 5일. A 40일 → B·C 30일(둘 다 타워크레인) → D 20일.
@@ -13,15 +11,6 @@ from app.core.model import Relation, Resource
 from app.harness.conditions import Condition
 from app.store.tables import ScheduleVersion
 from tests.schedules import make, store, task
-
-
-@pytest.fixture(autouse=True)
-def today_after_the_sample(monkeypatch):
-    """시험 일정(2027)은 실제 오늘보다 뒤다 — Data Date 가 없는 일정의 실적은 「오늘」 뒤일 수 없어(리뷰) 오늘을 그 뒤로 둔다."""
-    from app.agent import context
-
-    monkeypatch.setattr(context, "today", lambda: date(2027, 12, 31))
-
 
 CRANE = Resource("crane", "타워크레인", "대", 1)
 
@@ -509,11 +498,12 @@ def test_m6_ask_agent_reuses_the_callers_latest_session_for_the_schedule(client,
 
 def _late_start(client, admin, sid) -> None:
     """버전 1(실적 없음)의 Plan 위에 A 를 실적으로 늦춘다(버전 2·3, Data Date 2027-03-29, A 진행 중 남은 30일).
-    실적은 계획 변경이 아니라 Plan 은 버전 1 것 그대로이고 ES/EF 는 그보다 2주 늦다."""
-    body = {"actual_start": "2027-03-01", "progress": 0.5, "rd": 30, "base_version": 1}
-    assert client.patch(f"/api/schedules/{sid}/activities/A", json=body, headers=admin).status_code == 200
-    body = {"data_date": "2027-03-29", "base_version": 2}
+    실적은 계획 변경이 아니라 Plan 은 버전 1 것 그대로이고 ES/EF 는 그보다 2주 늦다.
+    지원하는 차례(조정 11-24): Data Date 를 먼저 정하고(버전 2) 실적을 넣는다(버전 3)."""
+    body = {"data_date": "2027-03-29", "base_version": 1}
     assert client.patch(f"/api/schedules/{sid}", json=body, headers=admin).status_code == 200
+    body = {"actual_start": "2027-03-01", "progress": 0.5, "rd": 30, "base_version": 2}
+    assert client.patch(f"/api/schedules/{sid}/activities/A", json=body, headers=admin).status_code == 200
 
 
 def test_16d_preview_moves_the_plan_with_the_changed_capacity(client, admin, sid):

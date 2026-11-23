@@ -102,7 +102,8 @@ def patch_activity(schedule: Schedule, aid: str, fields: dict[str, Any]) -> Edit
     edited = replace(schedule, activities=acts)
     if (problem := actual_dates_problem(schedule, edited)) is not None:  # Data Date 뒤·착공일 앞 실적(재확인 2)
         late = late_actual(schedule, edited)  # 리뷰: 무엇을 하면 되는지 — Data Date 를 먼저 옮기라고
-        remedy = "" if late is None else f" Data Date 를 먼저 {late.isoformat()} 이후로 {'옮긴' if schedule.data_date else '정한'} 뒤 넣어 주세요."
+        remedy = ("" if late is None else f" Data Date 를 먼저 {late.isoformat()} 이후로 옮긴 뒤 넣어 주세요." if schedule.data_date
+                  else " Data Date 를 먼저 정한 뒤 넣어 주세요.")  # 지원하는 차례: Data Date 를 정하고 실적을 넣는다
         raise ApiError(422, "actual_dates", actuals_invalid(edited, problem) + remedy)
     note = f"{aid} " + ", ".join(
         f"{LABELS[c['field']]} {_show(c['from'], c['field'])} → {_show(c['to'], c['field'])}"
