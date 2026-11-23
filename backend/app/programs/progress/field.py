@@ -16,9 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.agent import context
 from app.agent.proposals import Proposal, ProposalError, propose
+from app.core.calendar import NoWorkdayError, WorkCalendar
 from app.core.cpm import ScheduleError
-from app.core.model import Schedule
+from app.core.model import Activity, Schedule
 from app.errors import ApiError
+from app.harness.assemble import prepare_stored
 from app.harness.conditions import Condition
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady
 from app.store import approvals
@@ -526,13 +528,21 @@ def update_handoff(session: Session, schedule_id: int, item_id: int, body: Hando
     return _list_out(session, schedule_id, view)
 
 
-def _earliest_start(schedule: Schedule, stored: list[dict], activity_id: str) -> date | None:
-    """반영 전 일정에서 그 액티비티의 가장 이른 시작(선행·제약·Data Date 를 따른 계산). 계산이 안 되면 None."""
+def _start_note(schedule: Schedule, stored: list[dict], activity: Activity, data_date: date) -> str | None:
+    """실제 시작을 Data Date 로 넣을 때 반영 전 계산의 가장 이른 시작이 그보다 늦으면 승인 요약에 남길 한 줄. 늦은 까닭이
+    달력뿐(Data Date 가 쉬는 날)이면 그렇게, 아니면 선행·제약 탓으로 적는다. 늦지 않거나 계산이 안 되면 None."""
     try:
-        row = run(schedule, stored).rows.get(activity_id)
-    except ScheduleError:
+        row = run(schedule, stored).rows.get(activity.id)
+        workday = WorkCalendar(prepare_stored(schedule, stored).calendar).next_workday(data_date, activity.tags)
+    except (ScheduleError, NoWorkdayError):
         return None
-    return row.es if row is not None else None
+    if row is None or row.es <= data_date:
+        return None
+    head = f"{activity.id} {activity.name}: 실제 시작을 Data Date {data_date.isoformat()}로 넣었습니다 — "
+    if row.es == workday:
+        return head + f"그날은 달력상 쉬는 날이라 계산상 가장 이른 시작은 {row.es.isoformat()}입니다."
+    return head + (f"선행 작업·제약으로 계산한 가장 이른 시작 {row.es.isoformat()}보다 이릅니다"
+                   "(선행이 끝나기 전에 시작한 것으로 기록됩니다).")
 
 
 def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> FieldListOut:
@@ -594,10 +604,8 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
         actual_start = a.actual_start
         if actual_start is None and progress_frac > 0:
             actual_start = data_date
-            earliest = _earliest_start(before, stored, a.id)
-            if earliest is not None and earliest > data_date:
-                notes.append(f"{a.id} {a.name}: 실제 시작을 Data Date {data_date.isoformat()}로 넣었습니다 — 선행 작업·제약으로 "
-                             f"계산한 가장 이른 시작 {earliest.isoformat()}보다 이릅니다(선행이 끝나기 전에 시작한 것으로 기록됩니다).")
+            if (note := _start_note(before, stored, a, data_date)) is not None:
+                notes.append(note)
         actual_finish = data_date if progress_frac >= 1.0 else None
         rd_val = 0 if progress_frac >= 1.0 else (item.reported_rd if item.reported_rd is not None else (a.rd if a.rd is not None else a.od))
         new_acts.append(replace(a, progress=progress_frac, rd=rd_val, actual_start=actual_start, actual_finish=actual_finish))

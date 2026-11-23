@@ -213,6 +213,21 @@ def test_checkin_start_earlier_than_the_predecessors_allow_is_shown_in_the_summa
     assert "선행" in notes[0]
 
 
+def test_a_data_date_on_a_day_off_is_named_as_the_reason_not_a_predecessor(client, admin, session, monkeypatch):
+    """리뷰: Data Date 가 쉬는 날(토요일)이라 가장 이른 시작이 뒤로 밀린 것뿐이면 그렇게 적는다(선행·제약 탓으로 적지 않는다).
+    선행 탓이면 예전 글 그대로."""
+    monkeypatch.setattr(context, "today", lambda: REAL_TODAY)
+    saturday = date(2027, 3, 6)
+    sid = schedules.store(session, replace(schedules.sample(), data_date=saturday))
+    a = _checkin_approval(client, admin, session, sid, "A", 30)
+    assert _snapshot(a, "A")["actual_start"] == "2027-03-06"
+    assert a.summary_json["notes"] == [
+        "A 작업 A: 실제 시작을 Data Date 2027-03-06로 넣었습니다 — 그날은 달력상 쉬는 날이라 계산상 가장 이른 시작은 2027-03-08입니다."]
+    b = _checkin_approval(client, admin, session, sid, "B", 30)
+    (note,) = b.summary_json["notes"]
+    assert "선행 작업" in note and "쉬는 날" not in note
+
+
 LEGACY = "판독하지 않음 — 이전 방식으로 만든 항목입니다. 사진을 다시 올려 주세요"
 
 
