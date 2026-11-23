@@ -327,6 +327,11 @@ class NotifyConnection(Base):
     latency_ms: Mapped[int | None] = mapped_column(default=None)
     reply_cursor: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)  # 들어온 문자를 여기 뒤 것만 묻는다
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    # 마지막 연결 진단 {ran_at, steps: [DiagnosticStep 을 dict 로], real: bool}(Task 112, NULL 이면 아직 안 돌림).
+    # 가린 글만 — masked text only, no key, no number(걸음의 detail·notes 는 진단 함수의 scrub 을 거친 것).
+    last_diagnosis_json: Mapped[dict | None] = mapped_column(
+        JSON, default=None, comment="masked text only, no key, no number"
+    )
 
 
 class KakaoTemplate(Base):
@@ -366,3 +371,8 @@ class VoiceSettings(Base):
     dashboard_agent_id: Mapped[str | None] = mapped_column(String(100), default=None)
     status: Mapped[str] = mapped_column(String(10), default="unknown")
     checked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    # 마지막 음성 진단 {ran_at, steps: [DiagnosticStep 을 dict 로], real: bool}(Task 112, NULL 이면 아직 안 돌림).
+    # 가린 글만 — masked text only, no key, no number(걸음의 detail·notes 는 진단 함수의 scrub 을 거친 것).
+    last_diagnosis_json: Mapped[dict | None] = mapped_column(
+        JSON, default=None, comment="masked text only, no key, no number"
+    )
