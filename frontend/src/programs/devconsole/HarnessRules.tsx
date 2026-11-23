@@ -62,15 +62,19 @@ function RuleRow({ rule, tested, testing, onTest }: RowProps) {
         {openFeedback && <pre className="dc-code-block">{rule.feedback_sample}</pre>}
         {tested && <TestResult tested={tested} />}
       </td>
-      <td className="dc-cat-code">
-        <code>{rule.code}</code>
-        <span className="dc-tag is-warn">{rule.mode}</span>
+      <td>
+        <div className="dc-cat-code">
+          <code>{rule.code}</code>
+          <span className="dc-tag is-warn">{rule.mode}</span>
+        </div>
       </td>
       <td className="dc-cat-stat">
         <Badge tone="success">구현</Badge>
       </td>
-      <td className="dc-cat-counts">
-        <Counts rule={rule} />
+      <td>
+        <div className="dc-cat-counts">
+          <Counts rule={rule} />
+        </div>
       </td>
       <td className="dc-cat-act">
         <button type="button" className="dc-btn" disabled={testing} onClick={() => onTest(rule.id)}>

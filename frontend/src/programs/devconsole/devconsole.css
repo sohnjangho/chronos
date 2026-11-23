@@ -508,8 +508,9 @@
 }
 
 .dc-flow-node {
-  width: 100%;
-  height: 100%;
+  width: calc(100% - 4px); /* 노드 칸(foreignObject)은 둘레 2px 여유 — 테두리가 잘리지 않게 */
+  height: calc(100% - 4px);
+  margin: 2px;
   text-align: left;
   padding: 6px 10px;
 }
@@ -788,8 +789,9 @@
 .dc-tool-name code { font-size: var(--fs-11); color: var(--fg-muted); }
 .dc-tool-roles { min-width: 9em; }
 .dc-tool-roles .dc-tag { margin: 4px 0 0; }
-.dc-health-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow-y: auto; font-size: var(--fs-12); }
-.dc-health-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 6px; }
+.dc-health-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; font-size: var(--fs-12); }
+.dc-health-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.dc-health-list li > .dc-ellipsis { flex: 1 1 100%; min-width: 0; font-weight: 600; } /* 이름 한 줄, 아래 줄에 종류·시험·시각 */
 .dc-health-list .dc-tag { margin-left: 0; }
 .dc-u .dc-u-group th { background: var(--bg-app); color: var(--fg); font-weight: 700; text-align: left; }
 .dc-u .dc-u-note { color: var(--fg-muted); text-align: left; white-space: normal; }

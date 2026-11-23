@@ -705,6 +705,10 @@ def test_import_confirmed_lights_only_for_the_button_sentence_of_that_file(clien
     assert "import_confirmed" not in other["structure"]["edges_lit"]  # 모델이 스스로 confirmed 를 넣은 것
     other_file = {**step, "input_json": out(file_id=13, confirmed=True)}
     assert tool_signals(get_turn(client, admin, signal_turn(session, [other_file], text=button))) == [[]]
+    # 같은 턴의 두 번째 가져오기는 루프가 confirmed 를 채웠어도 거절됐다 — 거절만 보인다
+    refused = {**step, "status": "failed", "output_json": out(error=loop.IMPORT_AGAIN.format("12"))}
+    assert tool_signals(get_turn(client, admin, signal_turn(session, [step, refused], text=button))) == [
+        ["import_confirmed"], ["import_refused"]]
 
 
 def test_a_repeated_import_is_marked_refused_with_the_loops_reason(client, admin, session):

@@ -274,15 +274,16 @@ def step_signals(step: WorkflowStep, button_file: str | None) -> list[str]:
         signals.append("info_used")
     if step.tool == "evidence.search" and done:
         signals.append("evidence_reused" if out.get("reused") is True else "evidence_fresh")
-    if step.tool == "schedule.import" and button_file is not None:
+    error = _step_error(step) if step.status == "failed" else ""
+    refused = step.tool == "schedule.import" and error.startswith(IMPORT_REFUSALS)
+    if step.tool == "schedule.import" and button_file is not None and not refused:  # 거절된 되풀이는 가져오지 않았다
         try:
             args = json.loads(step.input_json or "")
         except ValueError:
             args = None
         if isinstance(args, dict) and args.get("confirmed") is True and str(args.get("file_id")) == button_file:
             signals.append("import_confirmed")
-    error = _step_error(step) if step.status == "failed" else ""
-    if step.tool == "schedule.import" and error.startswith(IMPORT_REFUSALS):
+    if refused:
         signals.append("import_refused")
     draft = out.get("draft")
     reasons = (out.get("reason"), draft.get("reason") if isinstance(draft, dict) else None)
