@@ -1,36 +1,33 @@
-"""하네스 바탕(Task 64): 하네스 낱말의 꼴, 통로 등록부, 하네스가 통로·제공사·음성·글·LLM 을 import 하지 않음, 통로 가짜."""
+"""통로 등록부(Task 64): 등록·찾기·고정(pinned), 시험 가짜가 진짜 통로보다 앞에 섬, 진짜 통로에 닿는 시험은 실패함,
+하네스가 통로·제공사·음성·글·모델을 import 하지 않음."""
 
 import ast
-from dataclasses import FrozenInstanceError, fields
+import importlib
+import os
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
-from typing import get_args
 
 import pytest
 
 from app.outreach.harness import registry
-from app.outreach.harness.types import (
-    Actor,
-    Caller,
-    CallerClass,
-    Candidate,
-    Delivered,
-    Medium,
-    NotReady,
-    Outcome,
-    Ref,
-    Scope,
-    ToolDef,
-)
-from tests.harness_doubles import Delivery
+from app.outreach.harness.types import Delivered, NotReady
+from tests.harness_doubles import Delivery, faked_channels
 
-HARNESS = Path(__file__).resolve().parents[3] / "app" / "outreach" / "harness"
+BACKEND = Path(__file__).resolve().parents[3]
+HARNESS = BACKEND / "app" / "outreach" / "harness"
 PACKAGE = "app.outreach.harness"
-# 하네스는 코드만 — 통로·제공사·음성·글 세션(계획)과 HTTP·LLM(제공사·모델 호출 없음)을 import 하지 않는다.
-FORBIDDEN = ("app.outreach.channels", "app.outreach.provider", "app.outreach.voice", "app.outreach.text", "httpx", "app.llm")
+# 하네스는 코드만 — 통로·제공사·음성·글 세션(계획)과 HTTP·모델 SDK·음성 SDK(제공사·모델 호출 없음)를 import 하지 않는다.
+# 음성 SDK 의 import 이름은 0단계 확인 전이라 계획이 적은 설치 이름(koreaaitel)으로 둔다.
+FORBIDDEN = ("app.outreach.channels", "app.outreach.provider", "app.outreach.voice", "app.outreach.text", "app.llm",
+             "httpx", "openai", "google.genai", "anthropic", "koreaaitel")
+DYNAMIC = "<동적 import>"
 
 
 def _imports(source: str, module: str) -> set[str]:
-    """그 모듈이 import 하는 이름 전부(상대 import 는 풀고, `from a import b` 는 a 와 a.b 둘 다)."""
+    """그 모듈이 import 하는 이름 전부(상대 import 는 풀고, `from a import b` 는 a 와 a.b 둘 다,
+    importlib.import_module("x")·__import__("x") 도). 글자 그대로가 아닌 동적 import 는 DYNAMIC."""
     names: set[str] = set()
     package = module.rsplit(".", 1)[0]
     for node in ast.walk(ast.parse(source)):
@@ -45,50 +42,69 @@ def _imports(source: str, module: str) -> set[str]:
                 base = node.module or ""
             names.add(base)
             names.update(f"{base}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if called in ("import_module", "__import__"):
+                arg = node.args[0] if node.args else None
+                literal = isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                names.add(arg.value if literal else DYNAMIC)
     return names
 
 
 def _forbidden(names: set[str]) -> set[str]:
-    return {name for name in names for bad in FORBIDDEN if name == bad or name.startswith(bad + ".")}
+    bad = {name for name in names for f in FORBIDDEN if name == f or name.startswith(f + ".")}
+    return bad | (names & {DYNAMIC})
 
 
 def test_harness_package_imports_no_channel_or_provider():
-    files = sorted(HARNESS.glob("*.py"))
+    files = sorted(HARNESS.rglob("*.py"))
     assert {"__init__.py", "types.py", "events.py", "registry.py"} <= {f.name for f in files}
     for path in files:
-        module = f"{PACKAGE}.{path.stem}" if path.stem != "__init__" else f"{PACKAGE}.__init__"
+        parts = path.relative_to(HARNESS).with_suffix("").parts
+        module = ".".join((PACKAGE, *parts))  # __init__ 은 'pkg.__init__' — 상대 import 의 바탕이 그 꾸러미가 된다
         assert not _forbidden(_imports(path.read_text(encoding="utf-8"), module)), path.name
 
-    planted = "from app.outreach import provider\nfrom ..channels import sms\nfrom ..text.session import x\nimport httpx\n"
+    planted = textwrap.dedent("""
+        from app.outreach import provider
+        from ..channels import sms
+        from ..text.session import x
+        import httpx, openai
+        from google import genai
+        import anthropic.types
+        import importlib
+        importlib.import_module("app.outreach.voice.kat_sdk")
+        __import__("koreaaitel")
+        from importlib import import_module
+        import_module(name)
+    """)
     assert _forbidden(_imports(planted, f"{PACKAGE}.gate")) == {
         "app.outreach.provider", "app.outreach.channels", "app.outreach.channels.sms", "app.outreach.text.session",
-        "app.outreach.text.session.x", "httpx",
+        "app.outreach.text.session.x", "httpx", "openai", "google.genai", "anthropic.types",
+        "app.outreach.voice.kat_sdk", "koreaaitel", DYNAMIC,
     }  # 훑는 함수가 이런 꼴을 놓치지 않는다
 
 
-def test_words_have_the_plan_shapes():
-    assert get_args(Medium) == ("sms", "call")
-    assert get_args(CallerClass) == (
-        "internal", "contact", "contact_multi", "shared", "do_not_contact", "unknown", "withheld", "blocked",
-        "outside_test", "outbound",
-    )
-    shapes = {
-        Actor: ["kind", "user_id", "name", "role"],
-        Outcome: ["code", "message", "rule", "scheduled_at"],
-        Candidate: ["schedule_id", "contact_id", "company_id"],
-        Caller: ["caller_class", "candidates", "user_id"],
-        Scope: ["caller_class", "schedule_ids", "contact_ids", "company_ids", "personal", "facts"],
-        Ref: ["kind", "row_id"],
-        Delivered: ["ok", "provider_id", "fail_code", "fail_text"],
-        ToolDef: ["name", "description", "parameters"],
-    }
-    for cls, names in shapes.items():
-        assert [f.name for f in fields(cls)] == names, cls.__name__
-    assert Outcome("accepted", "보냈습니다") == Outcome("accepted", "보냈습니다", None, None)
-    assert Delivered(ok=True) == Delivered(True, None, None, None)
-    scope = Scope("contact", (1,), (2,), (3,), True, "trade")
-    with pytest.raises(FrozenInstanceError):
-        scope.facts = "all"  # 범위는 만든 뒤 바꿀 수 없다
+def test_importing_every_harness_module_loads_no_channel_provider_or_model():
+    """간접 import 까지: 새 프로세스에서 하네스 모듈을 모두(하위 폴더 포함) 불러온 뒤 sys.modules 를 본다.
+    (httpx 는 redact → app.info.generic 이 불러오므로 여기서는 보지 않는다 — 직접 import 는 위 시험이 막는다.)"""
+    code = textwrap.dedent("""
+        import importlib, pkgutil, sys
+        import app.outreach.harness as harness
+        for info in pkgutil.walk_packages(harness.__path__, harness.__name__ + "."):
+            importlib.import_module(info.name)
+        bad = ("app.outreach.channels", "app.outreach.provider", "app.outreach.voice", "app.outreach.text", "app.llm",
+               "openai", "google.genai", "anthropic", "koreaaitel")
+        loaded = sorted(n for n in sys.modules if any(n == b or n.startswith(b + ".") for b in bad))
+        print("LOADED", loaded)
+        print("COUNT", len([n for n in sys.modules if n.startswith("app.outreach.harness.")]))
+    """)
+    done = subprocess.run([sys.executable, "-c", code], check=False, cwd=BACKEND, capture_output=True, text=True, timeout=120,
+                          env=os.environ.copy())
+    assert done.returncode == 0, done.stderr[-2000:]
+    lines = dict(line.split(" ", 1) for line in done.stdout.splitlines())
+    assert lines["LOADED"] == "[]"
+    assert int(lines["COUNT"]) >= 3  # types·events·registry 를 실제로 불러왔다
 
 
 def test_unregistered_channel_is_not_ready(monkeypatch):
@@ -96,24 +112,113 @@ def test_unregistered_channel_is_not_ready(monkeypatch):
     for name in ("sms", "kakao", "call"):
         with pytest.raises(NotReady):
             registry.channel(name)
+    assert registry.registered() == []
 
 
 class _Lane:
     def __init__(self, name: str) -> None:
         self.name = name
+        self.calls: list[int] = []
 
     async def deliver(self, row_id: int) -> Delivered:
-        return Delivered(ok=True, provider_id=f"p-{row_id}")
+        self.calls.append(row_id)
+        return Delivered("sent", provider_id=f"p-{row_id}")
 
 
+@pytest.mark.real_channel
 async def test_registered_channel_is_found_by_name(monkeypatch):
     monkeypatch.setattr(registry, "_CHANNELS", {})
     sms = _Lane("sms")
     registry.register_channel("sms", sms)
     assert registry.channel("sms") is sms
     assert (await registry.channel("sms").deliver(7)).provider_id == "p-7"
+    assert registry.registered() == ["sms"]
     with pytest.raises(NotReady):
         registry.channel("kakao")  # 등록한 이름만
+
+
+def test_register_refuses_a_second_channel_under_the_same_name(monkeypatch):
+    monkeypatch.setattr(registry, "_CHANNELS", {})
+    first, second = _Lane("sms"), _Lane("sms")
+    registry.register_channel("sms", first)
+    registry.register_channel("sms", first)  # 같은 객체는 다시 불러도 된다(모듈 import 가 두 번 돌아도)
+    with pytest.raises(ValueError):
+        registry.register_channel("sms", second)
+    assert registry.registered() == ["sms"] and registry._CHANNELS["sms"] is first
+    registry.register_channel("sms", second, replace=True)
+    assert registry._CHANNELS["sms"] is second
+
+
+def test_register_checks_the_name(monkeypatch):
+    monkeypatch.setattr(registry, "_CHANNELS", {})
+    with pytest.raises(ValueError):
+        registry.register_channel("sms", _Lane("call"))  # 이름과 통로의 name 이 다름
+    with pytest.raises(ValueError):
+        registry.register_channel("fax", _Lane("fax"))  # 이름표의 통로(sms·kakao·call)가 아님
+    assert registry.registered() == []
+
+
+@pytest.mark.real_channel
+async def test_fake_stays_in_front_when_a_real_channel_registers_mid_test(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "_CHANNELS", {})
+    name = "late_sms_channel_t64"
+    (tmp_path / f"{name}.py").write_text(textwrap.dedent("""
+        from app.outreach.harness import registry
+        from app.outreach.harness.types import Delivered
+
+        class RealSms:
+            name = "sms"
+
+            def __init__(self):
+                self.calls = []
+
+            async def deliver(self, row_id):
+                self.calls.append(row_id)
+                return Delivered("sent")
+
+        CHANNEL = RealSms()
+        registry.register_channel("sms", CHANNEL)
+    """), encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, name, raising=False)
+    with faked_channels() as fake:
+        module = importlib.import_module(name)  # 진짜 통로가 시험 가운데 처음 import 돼 스스로 등록한다
+        await registry.channel("sms").deliver(1)
+        assert fake.delivered == [Delivery("sms", 1)] and module.CHANNEL.calls == []
+    assert registry.channel("sms") is module.CHANNEL  # 가짜를 걷어 낸 뒤에도 진짜 등록은 남는다
+    assert registry.registered() == ["sms"]
+
+
+def test_faked_channels_checks_at_the_end_that_the_fake_still_answers():
+    stray = _Lane("sms")
+    with pytest.raises(AssertionError, match="sms"), faked_channels():
+        registry._PINNED.append({"sms": stray})  # 누가 가짜 위에 다른 것을 끼우고 걷지 않음
+    registry._PINNED.remove({"sms": stray})
+    assert all(layer != {"sms": stray} for layer in registry._PINNED)
+
+
+async def test_test_that_reaches_a_real_channel_fails_loudly(monkeypatch, no_real_channels):
+    monkeypatch.setattr(registry, "_CHANNELS", {})
+    real = _Lane("sms")
+    registry.register_channel("sms", real)
+    with pytest.raises(pytest.fail.Exception, match="real_channel"):
+        try:
+            await registry.channel("sms").deliver(3)
+        except Exception:  # noqa: BLE001 — 문이 통로 예외를 잡아도 새어 나가는지 본다
+            pytest.fail("가드가 Exception 으로 잡혔습니다")
+    assert real.calls == []
+    assert len(no_real_channels.violations) == 1
+    no_real_channels.violations.clear()  # 이 시험이 일부러 낸 위반 — 걷지 않으면 끝에서 실패한다
+    with pytest.raises(NotReady):
+        registry.channel("kakao")  # 가드는 등록되지 않은 통로를 있는 것처럼 만들지 않는다
+
+
+def test_registered_lists_what_channel_can_find(monkeypatch):
+    monkeypatch.setattr(registry, "_CHANNELS", {})
+    assert registry.registered() == []
+    with faked_channels():
+        assert registry.registered() == ["call", "kakao", "sms"]  # 덮은 층의 이름도 찾을 수 있다
+    assert registry.registered() == []
 
 
 async def test_fake_channel_stands_in_for_all_three_channels(fake_channel):
@@ -124,7 +229,7 @@ async def test_fake_channel_stands_in_for_all_three_channels(fake_channel):
 
 async def test_fake_channel_can_fail_and_run_code_inside_deliver(fake_channel):
     seen = []
-    fake_channel.result = Delivered(ok=False, fail_code="bad_sender", fail_text="발신번호가 등록돼 있지 않습니다")
+    fake_channel.result = Delivered("failed", fail_code="bad_sender", fail_text="발신번호가 등록돼 있지 않습니다")
     fake_channel.during = seen.append
     got = await registry.channel("sms").deliver(5)
     assert not got.ok and got.fail_code == "bad_sender"
@@ -133,3 +238,12 @@ async def test_fake_channel_can_fail_and_run_code_inside_deliver(fake_channel):
     with pytest.raises(RuntimeError):
         await registry.channel("call").deliver(6)
     assert fake_channel.delivered[-1] == Delivery("call", 6)
+
+
+async def test_fake_channel_can_return_unsure(fake_channel):
+    fake_channel.result = Delivered("unsure", fail_code="timeout", fail_text="결과를 알 수 없습니다")
+    got = await registry.channel("sms").deliver(8)
+    assert got.state == "unsure" and not got.ok
+    assert fake_channel.delivered == [Delivery("sms", 8)]
+    fake_channel.result = None
+    assert (await registry.channel("sms").deliver(9)).state == "sent"  # 기본은 보냄
