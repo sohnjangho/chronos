@@ -70,6 +70,15 @@ describe('thread', () => {
     expect(gets()[0].url).toBe('/api/schedules/1/outreach/threads/1');
   });
 
+  test('a message sent to several people at once shows its batch line — who of how many replied', async () => {
+    const batched = message({ id: 9, body: '내일 3층 타설 가능하신가요?', status: 'accepted', batch: { id: 31, total: 3, replied: 2 }, created_at: '2026-11-23T09:00:00Z' });
+    stubThread({ 1: [batched, SENT] });
+    show();
+    const b = await findBubble('내일 3층 타설 가능하신가요?');
+    expect(within(b).getByText('묶음 #31 · 3명 중 2명 회신')).toBeVisible();
+    expect(within(bubble('투입 준비를 확인해 주세요.')).queryByText(/묶음 #/)).not.toBeInTheDocument();
+  });
+
   test('drawing a thread logs no React warning (keys, act)', async () => {
     const errors = vi.spyOn(console, 'error');
     stubThread({ 1: [SENT, REPLY, APPROVED, DRAFT] });

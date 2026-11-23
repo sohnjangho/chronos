@@ -79,10 +79,14 @@ const box = (name: string) => screen.getByRole('checkbox', { name: new RegExp(`^
 const toConfirm = async (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: /^다음/ }));
 
 beforeEach(() => {
+  sessionStorage.clear();
   signInAsDemo('user');
   stub();
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  sessionStorage.clear();
+});
 
 describe('받는 사람 고르기', () => {
   test('공종이 넘어오면 그 공종 협력사의 보낼 수 있는 사람만 미리 고른다', async () => {
@@ -262,6 +266,105 @@ describe('내용 확인과 보내기', () => {
     await screen.findByRole('group', { name: /가람철근/ });
     await user.keyboard('{Escape}');
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('고침 1 — 보내는 중·확인하지 못한 채 닫기·이전 묶음', () => {
+  const IN_PROGRESS = '보내는 중일 수 있습니다 — 잠시 뒤 다시 확인해 주세요';
+  const ASK_CLOSE = '결과를 확인하지 않고 닫을까요? 다시 보내면 같은 문자가 또 나갈 수 있습니다';
+  const sendTwo = async (user: ReturnType<typeof userEvent.setup>) => {
+    await screen.findByRole('group', { name: /가람철근/ });
+    await toConfirm(user);
+    await user.click(screen.getByRole('button', { name: '2명에게 보내기' }));
+  };
+
+  test('첫 요청이 아직 보내는 중이면 그렇다고 말하고, [다시 확인]은 같은 요청 번호·같은 몸', async () => {
+    const user = userEvent.setup();
+    answers = [
+      { status: 200, body: { batch_id: 31, replayed: true, in_progress: true, results: [ok(11, '김공정'), ok(12, '이설비', 'in_progress', IN_PROGRESS)] } },
+      { status: 200, body: { batch_id: 31, replayed: true, in_progress: false, results: [ok(11, '김공정'), ok(12, '이설비')] } },
+    ];
+    open({ trade: '철근', body: '안내' });
+    await sendTwo(user);
+
+    const table = await screen.findByRole('table', { name: '사람별 결과' });
+    expect(within(table).getByText(IN_PROGRESS)).toHaveClass('is-warn');
+    expect(screen.getByText('보냄 1 · 보내는 중일 수 있음 1')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '다시 확인' }));
+
+    await waitFor(() => expect(screen.getByText('보냄 2')).toBeInTheDocument());
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toEqual(posts[0]);
+    expect(screen.queryByRole('button', { name: '다시 확인' })).not.toBeInTheDocument();
+  });
+
+  test('답을 못 받은 채 Esc·[닫기]는 먼저 묻는다', async () => {
+    const user = userEvent.setup();
+    answers = ['network'];
+    const onClose = open({ trade: '철근', body: '안내' });
+    await sendTwo(user);
+    await screen.findByRole('button', { name: '결과 다시 받기' });
+
+    await user.keyboard('{Escape}');
+    const ask = screen.getByRole('alertdialog', { name: '닫기 확인' });
+    expect(ask).toHaveTextContent(ASK_CLOSE);
+    expect(onClose).not.toHaveBeenCalled();
+    await user.click(within(ask).getByRole('button', { name: '닫지 않기' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    await user.click(within(screen.getByRole('alertdialog', { name: '닫기 확인' })).getByRole('button', { name: '그래도 닫기' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test('확인하지 못한 묶음은 이 일정의 창을 다시 열면 [이전 묶음 결과 확인]으로 같은 요청을 다시 묻는다', async () => {
+    const user = userEvent.setup();
+    answers = ['network'];
+    const first = render(<BatchSendDialog scheduleId={7} title="연락" preset={{ trade: '철근', body: '안내' }} onClose={vi.fn()} />);
+    await sendTwo(user);
+    await screen.findByRole('button', { name: '결과 다시 받기' });
+    first.unmount();
+
+    answers = [{ status: 200, body: { batch_id: 31, replayed: true, in_progress: false, results: [ok(11, '김공정'), ok(12, '이설비')] } }];
+    const again = render(<BatchSendDialog scheduleId={7} title="연락" preset={{}} onClose={vi.fn()} />);
+    await screen.findByRole('group', { name: /가람철근/ });
+    expect(screen.getByText(/확인하지 못한 묶음이 있습니다/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '이전 묶음 결과 확인' }));
+
+    await screen.findByRole('table', { name: '사람별 결과' });
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toEqual(posts[0]);
+    again.unmount();
+
+    // 결과를 받았으니 다음에 열면 더 묻지 않는다
+    render(<BatchSendDialog scheduleId={7} title="연락" preset={{}} onClose={vi.fn()} />);
+    await screen.findByRole('group', { name: /가람철근/ });
+    expect(screen.queryByRole('button', { name: '이전 묶음 결과 확인' })).not.toBeInTheDocument();
+  });
+
+  test('다른 일정의 창에는 이전 묶음을 보이지 않고, 서버가 거절한 요청(4xx)은 남기지 않는다', async () => {
+    const user = userEvent.setup();
+    answers = [{ status: 409, body: { code: 'key_reused', message: '이 요청 번호는 다른 내용의 묶음에 이미 쓰였습니다.', detail: null } }];
+    const first = render(<BatchSendDialog scheduleId={7} title="연락" preset={{ trade: '철근', body: '안내' }} onClose={vi.fn()} />);
+    await sendTwo(user);
+    expect(await screen.findByRole('status')).toHaveClass('is-bad');
+    first.unmount();
+    sessionStorage.setItem('chronos.batchPending.8', JSON.stringify({ request_key: 'k-other-0001', contact_ids: [1], channel: 'sms', body: 'x' }));
+    render(<BatchSendDialog scheduleId={7} title="연락" preset={{}} onClose={vi.fn()} />);
+    await screen.findByRole('group', { name: /가람철근/ });
+    expect(screen.queryByRole('button', { name: '이전 묶음 결과 확인' })).not.toBeInTheDocument();
+  });
+
+  test('찾는 중에는 협력사 머리의 수와 [모두 고르기]가 보이는 사람만 따른다', async () => {
+    const user = userEvent.setup();
+    open();
+    await screen.findByRole('group', { name: /가람철근/ });
+    await user.type(screen.getByRole('searchbox', { name: '사람 찾기' }), '김공');
+
+    expect(screen.getByRole('group', { name: '가람철근 · 철근 · 3명 중 1명' })).toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: '가람철근 모두 고르기' }));
+    expect(screen.getByText('1명 고름 · 한 번에 20명까지')).toBeInTheDocument();
   });
 });
 

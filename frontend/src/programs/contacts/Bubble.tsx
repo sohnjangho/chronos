@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { getProgram } from '../../os/registry';
 import { useWindows } from '../../os/windowStore';
 import { channelLabel, eventLine, eventSummary, kstShort, kstTime, senderTag, statusLabel, verdictLabel, type Label } from '../../shared/outreach/labels';
+import { batchLine } from '../../shared/outreach/BatchSendDialog';
 import type { Message } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import { activityLabel, draftLine, replyLine } from './thread';
@@ -105,15 +106,16 @@ function Actions({ p, editing, onEdit, onStopEdit, onSaveEdit, canSave }: { p: B
   return null;
 }
 
-/** 아래 줄: 상태(보낸 줄만)·늦게 나간 시각·연결된 작업. 보일 것이 없으면 줄도 없다. */
+/** 아래 줄: 상태(보낸 줄만)·늦게 나간 시각·여러 명에게 보낸 묶음(「묶음 #31 · 3명 중 2명 회신」)·연결된 작업. 보일 것이 없으면 줄도 없다. */
 function Foot({ m, scheduleId, status }: { m: Message; scheduleId: number; status: Label }) {
   const sentLater = m.sent_at !== null && Math.abs(new Date(m.sent_at).getTime() - new Date(m.created_at).getTime()) >= 60_000;
   const showStatus = m.direction === 'out' && m.status !== 'draft';
-  if (!showStatus && !m.activity && m.field_item_id === null && m.approval_id === null) return null;
+  if (!showStatus && !m.batch && !m.activity && m.field_item_id === null && m.approval_id === null) return null;
   return (
     <div className="th-meta">
       {showStatus && <span className={`th-chip is-${status.tone}`}>{status.text}</span>}
       {showStatus && sentLater && m.sent_at && <span>{`${kstShort(m.sent_at)} 보냄`}</span>}
+      {m.batch && <span className="th-chip">{batchLine(m.batch)}</span>}
       <Links m={m} scheduleId={scheduleId} />
     </div>
   );

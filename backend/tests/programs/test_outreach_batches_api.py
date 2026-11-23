@@ -9,14 +9,15 @@
 
 import asyncio
 import logging
-from datetime import datetime
+import threading
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import func, select
 
 from app.outreach import hours
 from app.outreach.harness import gate
-from app.outreach.harness.types import Actor, Delivered
+from app.outreach.harness.types import Actor, Delivered, Outcome
 from app.programs.outreach import batches_service, service
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
@@ -134,7 +135,8 @@ def test_each_recipient_goes_through_gate_separately(client, user, session, sid,
 
     assert r.status_code == 200, r.json()
     body = r.json()
-    assert set(body) == {"batch_id", "results", "replayed"} and body["replayed"] is False
+    assert set(body) == {"batch_id", "results", "replayed", "in_progress"}
+    assert body["replayed"] is False and body["in_progress"] is False
     assert [(x["contact_id"], x["name"], x["outcome"]["code"]) for x in body["results"]] == [
         (ok, "김공정", "accepted"), (refused, "정배선", "do_not_contact"), (unsure, "이설비", "unsure")]
     assert body["results"][0]["outcome"]["message"] == "보냈습니다"
@@ -292,13 +294,28 @@ def test_same_request_twice_sends_once_and_returns_the_stored_results(client, us
     made = _count(session)
 
     again = _post(client, user, sid, ids)
-    changed = _post(client, user, sid, ids[:1], body="다른 글")  # 같은 요청 번호면 몸이 달라도 같은 묶음
 
-    assert first.status_code == again.status_code == changed.status_code == 200
-    assert again.json()["replayed"] is True and changed.json()["replayed"] is True
-    assert again.json()["batch_id"] == changed.json()["batch_id"] == first.json()["batch_id"]
-    assert again.json()["results"] == changed.json()["results"] == first.json()["results"]
+    assert first.status_code == again.status_code == 200
+    assert again.json()["replayed"] is True and again.json()["in_progress"] is False
+    assert again.json()["batch_id"] == first.json()["batch_id"]
+    assert again.json()["results"] == first.json()["results"]
     assert _count(session) == made and len(fake_channel.delivered) == 3
+
+
+@pytest.mark.parametrize("change", [
+    {"body": "다른 글"}, {"contact_ids": "fewer"}, {"activity_id": "A"}, {"channel": "kakao"},
+])
+def test_same_request_key_with_different_content_is_409_and_sends_nothing(client, user, session, sid, conn,
+                                                                          fake_channel, change):
+    ids = _people(session, sid, 2)
+    _post(client, user, sid, ids)
+    made = _count(session)
+    kw = {k: v for k, v in change.items() if k != "contact_ids"}
+
+    r = _post(client, user, sid, ids[:1] if change.get("contact_ids") else ids, **kw)
+
+    assert (r.status_code, r.json()["code"], r.json()["message"]) == (409, "key_reused", batches_service.KEY_REUSED)
+    assert _count(session) == made and len(fake_channel.delivered) == 2
 
 
 def test_a_repeated_request_is_answered_from_storage_even_if_the_book_changed(client, user, session, sid, conn,
@@ -405,8 +422,66 @@ def test_stored_results_say_what_each_row_is_now(client, user, session, sid, con
     again = _post(client, user, sid, ids)
 
     assert [(x["outcome"]["code"], x["outcome"]["message"]) for x in again.json()["results"]] == [
-        ("accepted", "보냈습니다"), ("failed", gate.FAIL_TEXT["network"]), ("duplicate", gate.BUSY),
+        ("accepted", "보냈습니다"), ("failed", gate.FAIL_TEXT["network"]), ("in_progress", batches_service.IN_PROGRESS),
         ("not_sent", "수신 거부한 번호입니다")]
+    assert again.json()["in_progress"] is True
+
+
+@pytest.mark.parametrize(("age_s", "code"), [
+    (10, "in_progress"), (20 * 15 - 1, "in_progress"), (20 * 15 + 1, "not_sent"),
+])
+def test_undispatched_drafts_are_in_progress_only_while_the_batch_is_young(client, user, session, sid, conn,
+                                                                          fake_channel, age_s, code):
+    """문에 아직 넣지 않은 초안(사건 없음): 묶음이 만들어진 지 20 × 제공사 시간 제한 안이면 「보내는 중일 수 있음」."""
+    assert batches_service.IN_PROGRESS_S == 20 * 15
+    ids = _people(session, sid, 2)
+    r = _post(client, user, sid, ids)
+    rows = _rows(session, r.json()["batch_id"])
+    rows[1].status, rows[1].harness_json, rows[1].fail_reason = "draft", [], None
+    for row in rows:
+        row.created_at = WORK - timedelta(seconds=age_s)
+    session.commit()
+
+    again = _post(client, user, sid, ids)
+
+    assert [x["outcome"]["code"] for x in again.json()["results"]] == ["accepted", code]
+    assert again.json()["in_progress"] is (code == "in_progress")
+    if code == "in_progress":
+        assert again.json()["results"][1]["outcome"]["message"] == "보내는 중일 수 있습니다 — 잠시 뒤 다시 확인해 주세요"
+
+
+def test_reasking_while_the_first_request_is_still_sending_says_in_progress(client, user, session, sid, conn,
+                                                                            fake_channel, monkeypatch):
+    """첫 요청이 첫 사람에게서 멈춰 있는 동안 같은 요청이 다시 옴 → 보내지 않고 「보내는 중일 수 있습니다」."""
+    monkeypatch.setattr(service, "_now", lambda: datetime.now(UTC))
+    ids = _people(session, sid, 3)
+    started, release, calls = threading.Event(), threading.Event(), []
+
+    async def held(kind, row_id, actor, *, now=None):
+        calls.append(row_id)
+        started.set()
+        for _ in range(200):  # 길어야 10초
+            if release.is_set():
+                break
+            await asyncio.sleep(0.05)
+        return Outcome("accepted", "보냈습니다")
+
+    monkeypatch.setattr(gate, "dispatch", held)
+    first: list = []
+    worker = threading.Thread(target=lambda: first.append(_post(client, user, sid, ids)))
+    worker.start()
+    try:
+        assert started.wait(10)
+        again = _post(client, user, sid, ids)
+    finally:
+        release.set()
+        worker.join(15)
+
+    assert again.status_code == 200, again.json()
+    assert again.json()["replayed"] is True and again.json()["in_progress"] is True
+    assert [x["outcome"]["code"] for x in again.json()["results"]] == ["in_progress"] * 3
+    assert first[0].status_code == 200 and first[0].json()["in_progress"] is False
+    assert len(calls) == 3 and _count(session) == 3
 
 
 # ── 묶음 셈 ───────────────────────────────────────────────────────────────

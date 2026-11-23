@@ -92,3 +92,9 @@ p.bs-note[role="status"] { padding: 8px 20px; }
   .bs-why { margin-left: 22px; flex-basis: 100%; }
 }
 .bs-wait { padding: 16px 20px; }
+/* 닫기 확인·확인하지 못한 이전 묶음(고침 1) */
+.bs-ask { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 20px 0; padding: 10px 12px; border-radius: var(--radius-2);
+  background: var(--tone-warning-bg); color: var(--warning-text); font-size: var(--fs-13); }
+.bs-ask p { flex: 1 1 260px; margin: 0; min-width: 0; word-break: keep-all; overflow-wrap: anywhere; line-height: 1.5; }
+.bs-ask .ui-btn { height: 30px; padding: 0 12px; font-size: var(--fs-13); }
+p.bs-note.bs-status { padding: 8px 20px 0; }
