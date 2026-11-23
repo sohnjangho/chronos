@@ -173,9 +173,11 @@ function useAsking(selected: string | null) {
   return [asking, setAsking] as const;
 }
 
+const noEdit = () => {};
+
 const PRED_HINT = '선행: A2010, A1040 SS+15 처럼 적습니다 · 띄어쓰기·쉼표가 든 ID 는 아래 관계 패널의 [+ 선행 추가]로 넣습니다';
 
-function Foot({ rows, total, editingPreds }: { rows: number; total: number; editingPreds: boolean }) {
+function Foot({ rows, total, editingPreds, canEdit }: { rows: number; total: number; editingPreds: boolean; canEdit: boolean }) {
   const pending = useSchedule((s) => s.pending);
   return (
     <div className="sch-foot">
@@ -187,7 +189,7 @@ function Foot({ rows, total, editingPreds }: { rows: number; total: number; edit
           {PRED_HINT}
         </span>
       ) : (
-        <span className="sch-muted">두 번 누르거나 Enter 로 고칩니다 · Esc 취소 · ↑↓ 줄 옮김</span>
+        <span className="sch-muted">{canEdit ? '두 번 누르거나 Enter 로 고칩니다 · Esc 취소 · ↑↓ 줄 옮김' : '현장 관리자는 일정을 고칠 수 없습니다 · ↑↓ 줄 옮김'}</span>
       )}
     </div>
   );
@@ -206,6 +208,8 @@ export default function TableTab() {
   const bodyRef = useRef<HTMLTableSectionElement>(null);
   const rs = useRowState(view, bodyRef);
   const cursor = useCursor(bodyRef, columns);
+  // 현장 관리자는 일정을 고칠 수 없다(서버도 403) — 칸 고치기를 열지 않고 관계 패널을 그리지 않는다(F4).
+  const canEdit = useSession((s) => s.session?.user.role !== 'field');
 
   const sel = view.activities.find((a) => a.id === selected);
   const [asking, setAsking] = useAsking(selected);
@@ -244,13 +248,14 @@ export default function TableTab() {
           selected={selected}
           bodyRef={bodyRef}
           {...cursor}
+          onEdit={canEdit ? cursor.onEdit : noEdit}
           onCommit={onCommit}
           onToggle={rs.onToggle}
           onActiveCol={cursor.setActiveCol}
         />
       </div>
-      <Foot rows={rs.rows.length} total={view.activities.length} editingPreds={cursor.editing?.col === 'preds'} />
-      <RelationsPanel />
+      <Foot rows={rs.rows.length} total={view.activities.length} editingPreds={cursor.editing?.col === 'preds'} canEdit={canEdit} />
+      {canEdit && <RelationsPanel />}
     </div>
   );
 }

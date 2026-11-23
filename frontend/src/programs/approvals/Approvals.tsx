@@ -1,5 +1,6 @@
 // 승인함(시안 「승인함 (2판)」): 왼쪽 묶음·목록, 오른쪽 고른 건과 결정 상자. params.id 면 그 건을 연다.
 import type { ProgramProps } from '../../os/registry';
+import { useSession } from '../../os/session';
 import ApprovalDetail from './ApprovalDetail';
 import ApprovalList from './ApprovalList';
 import DecisionBox from './DecisionBox';
@@ -8,6 +9,7 @@ import './approvals.css';
 
 export default function Approvals({ params }: ProgramProps) {
   const d = useApprovalData(params?.id);
+  const canDecide = useSession((s) => s.session?.user.role !== 'field'); // 현장 관리자는 승인·거부할 수 없다(서버도 403, F4)
   const scheduleName = d.detail?.schedule_id == null ? null : (d.schedules?.get(d.detail.schedule_id)?.name ?? null);
   return (
     <div className="apv-root">
@@ -36,7 +38,14 @@ export default function Approvals({ params }: ProgramProps) {
         {d.detail ? (
           <>
             <ApprovalDetail item={d.detail} scheduleName={scheduleName} />
-            {d.detail.status === 'pending' && <DecisionBox key={d.detail.id} item={d.detail} onDecide={d.decide} />}
+            {d.detail.status === 'pending' &&
+              (canDecide ? (
+                <DecisionBox key={d.detail.id} item={d.detail} onDecide={d.decide} />
+              ) : (
+                <section className="apv-decide" aria-label="결정">
+                  <p className="apv-muted">현장 관리자는 승인·거부할 수 없습니다</p>
+                </section>
+              ))}
           </>
         ) : (
           <p className="apv-empty">{d.selected === null || d.notice?.tone === 'error' ? '왼쪽에서 승인 건을 고르세요.' : '불러오는 중…'}</p>

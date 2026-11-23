@@ -349,3 +349,21 @@ test('lock keeps windows and unlocks with the password of the current user', asy
   const loginCall = fetch.mock.calls.find(([url]) => url === '/api/auth/login')!;
   expect(JSON.parse(String(loginCall[1]?.body))).toMatchObject({ login_id: 'demo-admin' });
 });
+
+// F4 후속: 현장 관리자(field)는 일정을 만들 수 없다(서버 403) — 빠른 시작에 새 프로젝트 단추를 그리지 않는다.
+test('the quick start widget shows no new-project buttons to the field role', () => {
+  signInAsDemo('field', '박현장', 'site1', 3);
+  render(<Desktop />);
+  const quick = screen.getByRole('region', { name: '빠른 시작' });
+  expect(within(quick).queryByRole('button', { name: /새 프로젝트 만들기/ })).toBeNull();
+  expect(within(quick).queryByRole('button', { name: /AI 일정 생성/ })).toBeNull();
+  expect(within(quick).getByRole('button', { name: /탐색기/ })).toBeVisible();
+});
+
+test('the quick start widget keeps the new-project buttons for a user', () => {
+  signInAsDemo('user', '김민지');
+  render(<Desktop />);
+  const quick = screen.getByRole('region', { name: '빠른 시작' });
+  expect(within(quick).getByRole('button', { name: /새 프로젝트 만들기/ })).toBeVisible();
+  expect(within(quick).getByRole('button', { name: /AI 일정 생성/ })).toBeVisible();
+});

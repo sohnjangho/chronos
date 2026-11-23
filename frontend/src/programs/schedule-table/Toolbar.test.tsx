@@ -231,4 +231,29 @@ describe('역할', () => {
     expect(button('+ 행 추가')).toBeVisible();
     expect(button('삭제')).toBeVisible();
   });
+
+  // F4 후속: 칸 고치기·관계 패널도 서버가 403 으로 막으므로 현장 관리자에게는 열지 않는다.
+  test('현장 관리자는 칸을 두 번 눌러도·Enter 로도 고치는 칸이 열리지 않는다', async () => {
+    signInAsDemo('field', '박현장', 'site1', 3);
+    await renderSchedule();
+    await userEvent.dblClick(cell('A3010', 'OD'));
+    expect(within(cell('A3010', 'OD')).queryByRole('textbox')).toBeNull();
+    row('A3010').focus();
+    await userEvent.keyboard('{Enter}');
+    expect(within(row('A3010')).queryByRole('textbox')).toBeNull();
+    expect(writes()).toEqual([]);
+    expect(screen.getByText(/현장 관리자는 일정을 고칠 수 없습니다/)).toBeVisible();
+  });
+
+  test('현장 관리자에게는 관계 패널을 그리지 않고, 사용자에게는 그린다', async () => {
+    signInAsDemo('field', '박현장', 'site1', 3);
+    const { unmount } = await renderSchedule();
+    expect(screen.queryByRole('region', { name: '관계' })).toBeNull();
+    unmount();
+    signInAsDemo('user');
+    await renderSchedule();
+    expect(screen.getByRole('region', { name: '관계' })).toBeVisible();
+    await userEvent.dblClick(cell('A3010', 'OD'));
+    expect(within(cell('A3010', 'OD')).getByRole('textbox')).toBeVisible();
+  });
 });

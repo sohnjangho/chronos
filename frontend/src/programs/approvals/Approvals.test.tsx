@@ -2,7 +2,8 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useCurrentSchedule } from '../../os/currentSchedule';
-import { json } from '../../test-helpers';
+import { useSession } from '../../os/session';
+import { json, signInAsDemo } from '../../test-helpers';
 import ApprovalDetailView from './ApprovalDetail';
 import DecisionBox from './DecisionBox';
 import Approvals from './Approvals';
@@ -22,7 +23,10 @@ async function renderApprovals(params?: Record<string, string>) {
 }
 
 beforeEach(() => localStorage.clear());
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  useSession.getState().logout();
+});
 
 describe('지시서 시험', () => {
   test('reasons are shown in Korean', () => {
@@ -360,5 +364,25 @@ describe('W6 결정 상자 안내', () => {
     box({});
     expect(screen.getByText('승인하면 버전 4로 저장되고, 탐색기에서 되돌릴 수 있습니다.')).toBeVisible();
     expect(screen.queryByText(/기준선\(Plan\)도/)).toBeNull();
+  });
+});
+
+// F4 후속: 현장 관리자(field)는 승인·거부할 수 없다(서버 403) — 결정 단추 대신 한 줄 안내.
+describe('F4 현장 관리자', () => {
+  test('the field role sees no decision buttons, only a note', async () => {
+    setup();
+    signInAsDemo('field', '박현장', 'site1', 3);
+    await renderApprovals();
+    expect(screen.getByText('현장 관리자는 승인·거부할 수 없습니다')).toBeVisible();
+    for (const name of ['승인하고 반영', '거부', '거부하고 다시 짜게 하기']) expect(screen.queryByRole('button', { name })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /의견/ })).toBeNull();
+  });
+
+  test('a user still decides', async () => {
+    setup();
+    signInAsDemo('user', '김민지');
+    await renderApprovals();
+    expect(screen.getByRole('button', { name: '승인하고 반영' })).toBeVisible();
+    expect(screen.queryByText('현장 관리자는 승인·거부할 수 없습니다')).toBeNull();
   });
 });
