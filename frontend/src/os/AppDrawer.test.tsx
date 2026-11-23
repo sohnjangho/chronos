@@ -104,3 +104,21 @@ test('edit mode supports move/remove icon buttons and 기본 순서 복원', asy
   expect(dockNames()).toContain('질문지');
   expect(localStorage.getItem('chronos.dock.1')).toBeNull();
 });
+
+test('완료 closes the drawer when it was opened straight into edit mode (settings · Dock menu) (B3)', async () => {
+  render(<Desktop />);
+  act(() => useShell.getState().setDrawer('edit'));
+  await userEvent.click(within(drawer()).getByRole('button', { name: '완료' }));
+  expect(screen.queryByRole('dialog', { name: '앱 목록' })).toBeNull();
+  expect(useShell.getState().drawer).toBe('closed');
+});
+
+test('an explicit 닫기 (✕) button closes the drawer in browse and edit mode (B3)', async () => {
+  render(<Desktop />);
+  act(() => useShell.getState().setDrawer('open'));
+  await userEvent.click(within(drawer()).getByRole('button', { name: '닫기' }));
+  expect(screen.queryByRole('dialog', { name: '앱 목록' })).toBeNull();
+  act(() => useShell.getState().setDrawer('edit'));
+  await userEvent.click(within(drawer()).getByRole('button', { name: '닫기' }));
+  expect(screen.queryByRole('dialog', { name: '앱 목록' })).toBeNull();
+});

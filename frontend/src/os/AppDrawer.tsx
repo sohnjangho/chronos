@@ -129,6 +129,8 @@ function DrawerView({ edit }: { edit: boolean }) {
   const allIds = all.map((p) => p.id);
   const shown = all.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase()));
   const close = () => useShell.getState().setDrawer('closed');
+  // 설정·Dock 메뉴에서 곧장 편집으로 연 서랍은 「완료」로 닫는다. 서랍 안에서 편집에 들어갔으면 목록으로 돌아간다(B3).
+  const [openedInEdit] = useState(edit);
   const ref = useRef<HTMLDivElement>(null);
   const trap = useModalFocus(ref);
   const launch = (id: string) => {
@@ -159,7 +161,12 @@ function DrawerView({ edit }: { edit: boolean }) {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && shown[0] && launch(shown[0].id)}
         />
-        <Button onClick={() => useShell.getState().setDrawer(edit ? 'open' : 'edit')}>{edit ? '완료' : '편집'}</Button>
+        <Button onClick={() => (edit && openedInEdit ? close() : useShell.getState().setDrawer(edit ? 'open' : 'edit'))}>
+          {edit ? '완료' : '편집'}
+        </Button>
+        <Button aria-label="닫기" title="닫기 (Esc)" onClick={close}>
+          ✕
+        </Button>
       </div>
       <DrawerGrid shown={shown} edit={edit} inDock={inDock} toggleDock={toggleDock} launch={launch} />
       {edit && <DockOrder all={all} />}
