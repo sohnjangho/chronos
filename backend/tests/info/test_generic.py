@@ -555,3 +555,98 @@ async def test_header_mode_body_and_logs_hold_no_key(use, caplog):
     use(ApiMock((200, {"echo": KEY, "auth": f"Bearer {KEY}"})))
     got = await generic.fetch(conn(key_in="header", key_name="Authorization"), "/x", {})
     assert "zyxwVUTSrqpo" not in got.text + got.url + caplog.text
+
+
+# ── 재검토 작은 지적 ─────────────────────────────────────────────────
+
+
+def _stream(*chunks: bytes):
+    async def gen():
+        for chunk in chunks:
+            yield chunk
+
+    return gen()
+
+
+def _pack(data: bytes, wbits: int) -> bytes:
+    import zlib
+
+    packer = zlib.compressobj(6, zlib.DEFLATED, wbits)
+    return packer.compress(data) + packer.flush()
+
+
+def test_a_huge_numeric_character_reference_counts_as_a_surviving_key():
+    assert generic.key_survives("<p>&#" + "1" * 4301 + ";</p>", KEY) is True
+
+
+async def test_a_body_with_a_huge_numeric_reference_is_dropped_not_raised(use):
+    use(ApiMock((200, "<p>&#" + "1" * 5000 + ";</p>", {"content-type": "text/html"})))
+    got = await generic.fetch(conn(), "/x", {})
+    assert got.text == generic.KEY_IN_BODY
+
+
+async def test_a_lone_surrogate_in_a_json_body_leaves_as_valid_utf8(use):
+    use(ApiMock((200, b'{"a": "\\ud800 x"}', {"content-type": "application/json"})))
+    got = await generic.fetch(conn(), "/x", {})
+    assert got.text.encode("utf-8") and "x" in got.text
+
+
+async def test_reading_stops_when_the_gzip_stream_has_ended(use):
+    junk_chunks = []
+
+    async def body():
+        yield _pack(b'{"a": 1}', 31)
+        for _ in range(1000):  # 끝난 뒤 쓰레기 64MB — 읽지 않아야 한다
+            junk_chunks.append(1)
+            yield b"\xaa" * 65536
+
+    use(ApiMock(lambda request: httpx.Response(200, content=body(), headers={
+        "content-encoding": "gzip", "content-type": "application/json"})))
+    got = await generic.fetch(conn(), "/x", {})
+    assert json.loads(got.text) == {"a": 1} and len(junk_chunks) <= 1 and got.cut
+
+
+@pytest.mark.parametrize("label", ["truncated", "two members"])
+async def test_a_truncated_or_multi_member_gzip_is_marked_cut(use, label):
+    whole = _pack(json.dumps({"items": ["가나다라"] * 400}, ensure_ascii=False).encode(), 31)
+    data = whole[: len(whole) // 2] if label == "truncated" else _pack(b'{"a": 1}', 31) + _pack(b'{"b": 2}', 31)
+    use(ApiMock(lambda request: httpx.Response(200, content=_stream(data), headers={"content-encoding": "gzip"})))
+    assert (await generic.fetch(conn(), "/x", {})).cut is True
+
+
+@pytest.mark.parametrize("wbits", [15, -15])
+async def test_deflate_header_is_decided_after_two_bytes(use, wbits):
+    packed = _pack(json.dumps(holiday_body()).encode(), wbits)
+    use(ApiMock(lambda request: httpx.Response(200, content=_stream(packed[:1], packed[1:]), headers={
+        "content-encoding": "deflate", "content-type": "application/json"})))
+    got = await generic.fetch(conn(), "/x", {})
+    assert json.loads(got.text) == holiday_body() and not got.cut
+
+
+@pytest.mark.parametrize("encoding", ["UTF-8", "none", "identity", "", " Identity "])
+async def test_a_content_encoding_that_is_not_compression_is_read_as_is(use, encoding):
+    use(ApiMock(lambda request: httpx.Response(200, content=_stream(b'{"a": 1}'), headers={
+        "content-encoding": encoding, "content-type": "application/json"})))
+    assert json.loads((await generic.fetch(conn(), "/x", {})).text) == {"a": 1}
+
+
+@pytest.mark.parametrize("encoding", ["br", "zstd", "compress", "gzip, gzip"])
+async def test_real_but_unsupported_compression_still_fails(use, encoding):
+    use(ApiMock(lambda request: httpx.Response(200, content=_stream(b"\x1f\x8b"), headers={
+        "content-encoding": encoding})))
+    with pytest.raises(GenericFailed) as e:
+        await generic.fetch(conn(), "/x", {})
+    assert e.value.code == "bad_encoding"
+
+
+async def test_http_prefers_an_ipv4_among_the_validated_addresses(use, monkeypatch):
+    mock = use(ApiMock())
+    monkeypatch.setattr(generic, "RESOLVE", lambda host, port: ["2001:4860:4860::8888", PUBLIC_IP])
+    await generic.fetch(conn(base_url="http://api.example.kr/svc"), "/x", {})
+    assert mock.requests[0].url.host == PUBLIC_IP
+
+
+def test_fit_json_budgets_by_escaped_length():
+    text, cut = generic.fit_json(('예: /getX?a=1&b="값"\n' * 200)[:3000], 1000, " …(줄임)")
+    assert cut and len(json.dumps(text, ensure_ascii=False)) <= 1000 and text.endswith(" …(줄임)")
+    assert generic.fit_json("짧다", 1000, " …") == ("짧다", False)

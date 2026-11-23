@@ -316,3 +316,8 @@ test('seven connections show a filter that matches name or description', async (
   expect(screen.queryAllByRole('article')).toHaveLength(0);
   expect(screen.getByText('찾는 연결이 없습니다.')).toBeVisible();
 });
+
+test('the 쓰는 법 box allows 3,000 characters like the server', async () => {
+  await openGenericAdd();
+  expect(within(form()).getByLabelText('쓰는 법')).toHaveAttribute('maxLength', '3000');
+});

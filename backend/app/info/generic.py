@@ -69,6 +69,9 @@ BAD_ENCODING = "{name} 응답이 풀 수 없는 압축 방식(Content-Encoding)�
 _FORBIDDEN = ("://", "..", "@", "\\", "#")
 # 공인처럼 보이지만 안쪽 IPv4 를 품거나 옛 사이트 로컬인 IPv6(::/96 IPv4 호환·64:ff9b::/96 NAT64·fec0::/10)
 _EMBEDDING_V6 = tuple(ipaddress.ip_network(n) for n in ("::/96", "64:ff9b::/96", "fec0::/10"))
+# 실제 압축 방식(IANA Content-Encoding). 이 밖의 값은 압축이 아니라고 보고 그대로 읽는다.
+_COMPRESSIONS = frozenset({"gzip", "x-gzip", "deflate", "br", "zstd", "compress", "x-compress", "exi", "pack200-gzip",
+                           "aes128gcm", "dcb", "dcz"})
 _ACCOUNT_RESULT_CODES = frozenset({"20", "21", "22", "30", "31", "32", "33"})
 _U_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -200,7 +203,7 @@ async def _resolved(url: httpx.URL, name: str) -> str | None:
         raise GenericFailed("bad_url", failure_message("bad_url", name))
     if not addresses or not all(_public(a) for a in addresses):
         raise GenericFailed("blocked_host", RESOLVED_INTERNAL)
-    return addresses[0]
+    return next((a for a in addresses if ipaddress.ip_address(a).version == 4), addresses[0])  # IPv4 가 있으면 그것
 
 
 # ── 키 ──────────────────────────────────────────────────────────────
@@ -230,10 +233,13 @@ def key_survives(text: str, key: str) -> bool:
     """text 를 html·%·\\uXXXX 로 거듭 풀어 보아 키(그대로·디코딩)가 남아 있는가(대소문자 무시)."""
     plains = {p.casefold() for p in (key, unquote(key)) if p}
     current = text
-    for _ in range(4):
-        if any(p in current.casefold() for p in plains):
-            return True
-        current = unquote(html.unescape(_U_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), current)))
+    try:
+        for _ in range(4):
+            if any(p in current.casefold() for p in plains):
+                return True
+            current = unquote(html.unescape(_U_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), current)))
+    except ValueError:  # 풀 수 없는 글(예: 4,300자리를 넘는 &#…;) — 남았다고 보고 버리게 한다
+        return True
     return any(p in current.casefold() for p in plains)
 
 
@@ -373,18 +379,29 @@ def _json_len(text: str) -> int:
     return len(json.dumps(text, ensure_ascii=False))
 
 
+def _fit(text: str, limit: int, hint: str) -> str:
+    low, high = 0, min(len(text), limit)
+    while low < high:  # 옮긴 길이는 앞부분이 길수록 늘어난다 — 들어가는 가장 긴 앞부분
+        mid = (low + high + 1) // 2
+        if _json_len(text[:mid] + hint) <= limit:
+            low = mid
+        else:
+            high = mid - 1
+    return text[:low] + hint
+
+
+def fit_json(text: str, limit: int, hint: str) -> tuple[str, bool]:
+    """(JSON 글로 옮긴 길이가 limit 안인 글, 줄였는가). 줄이면 끝에 hint."""
+    if _json_len(text) <= limit:
+        return text, False
+    return _fit(text, limit, hint), True
+
+
 def body_for_model(text: str, cut: bool) -> tuple[str, bool]:
     """(에이전트에게 줄 본문, 잘렸는가). JSON 글로 옮긴 길이가 BODY_LIMIT 안이다. 잘리면 끝에 TRUNCATED_HINT."""
     if not cut and _json_len(text) <= BODY_LIMIT:
         return text, False
-    low, high = 0, min(len(text), BODY_LIMIT)
-    while low < high:  # 옮긴 길이는 앞부분이 길수록 늘어난다 — 들어가는 가장 긴 앞부분
-        mid = (low + high + 1) // 2
-        if _json_len(text[:mid] + TRUNCATED_HINT) <= BODY_LIMIT:
-            low = mid
-        else:
-            high = mid - 1
-    return text[:low] + TRUNCATED_HINT, True
+    return _fit(text, BODY_LIMIT, TRUNCATED_HINT), True
 
 
 def _status_code(status: int, data: object) -> str | None:
@@ -400,39 +417,60 @@ def _status_code(status: int, data: object) -> str | None:
     return None
 
 
-def _decompressor(encoding: str, first: bytes) -> "zlib._Decompress | None":
-    """Content-Encoding 에 맞는 zlib 풀개(없으면 None). deflate 는 zlib 머리가 있는지 첫 조각으로 가린다."""
-    if encoding in ("", "identity"):
+def _coding(header: str) -> str | None:
+    """Content-Encoding → 'gzip' | 'deflate' | None(그대로). 압축 방식이 아닌 값(UTF-8·none·identity·빈 값)은 그대로.
+    풀 수 없는 실제 압축(br·zstd·compress 등)이나 겹친 압축(gzip, gzip)은 _Undecodable."""
+    codings = [c for c in (t.strip().lower() for t in header.split(",")) if c in _COMPRESSIONS]
+    if not codings:
         return None
-    if encoding in ("gzip", "x-gzip"):
-        return zlib.decompressobj(16 + zlib.MAX_WBITS)
-    if encoding == "deflate":
-        wrapped = len(first) >= 2 and first[0] & 0x0F == 8 and ((first[0] << 8) | first[1]) % 31 == 0
-        return zlib.decompressobj(zlib.MAX_WBITS if wrapped else -zlib.MAX_WBITS)
+    if len(codings) == 1 and codings[0] in ("gzip", "x-gzip", "deflate"):
+        return "deflate" if codings[0] == "deflate" else "gzip"
     raise _Undecodable
 
 
+def _decompressor(coding: str, first: bytes) -> "zlib._Decompress":
+    """zlib 풀개. deflate 는 zlib 머리가 있는지 앞 2바이트로 가린다."""
+    if coding == "gzip":
+        return zlib.decompressobj(16 + zlib.MAX_WBITS)
+    wrapped = first[0] & 0x0F == 8 and ((first[0] << 8) | first[1]) % 31 == 0
+    return zlib.decompressobj(zlib.MAX_WBITS if wrapped else -zlib.MAX_WBITS)
+
+
 async def _read(response: httpx.Response) -> tuple[bytes, bool]:
-    """날 바이트를 읽어(풀어서) MAX_BYTES 까지. (본문, MAX_BYTES 에서 멈췄는가). 푸는 쪽도 MAX_BYTES + 1 을 넘게 만들지 않는다."""
-    encoding = response.headers.get("content-encoding", "").strip().lower()
+    """날 바이트를 읽어(풀어서) MAX_BYTES 까지. (본문, 다 읽지 못했는가).
+
+    푸는 쪽도 MAX_BYTES + 1 을 넘게 만들지 않는다. 압축 흐름이 끝나면(eof) 더 읽지 않고, 그 뒤에 남은 것(여러 멤버·쓰레기)이
+    있거나 끝나기 전에 끊기면 다 읽지 못한 것(True)으로 본다.
+    """
+    coding = _coding(response.headers.get("content-encoding", ""))
     out = bytearray()
-    decoder, started = None, False
+    decoder, pending = None, b""
     async for chunk in response.aiter_raw():
-        if not started:
-            decoder, started = _decompressor(encoding, chunk), True
-        if decoder is not None:
-            chunk = decoder.decompress(chunk, MAX_BYTES + 1 - len(out))
-        out += chunk
+        if coding is None:
+            out += chunk
+        else:
+            if decoder is not None and decoder.eof:
+                if chunk:
+                    return bytes(out), True
+                continue
+            if decoder is None:
+                pending += chunk
+                if len(pending) < 2:  # deflate 머리를 가리려면 2바이트가 있어야 한다
+                    continue
+                decoder, chunk, pending = _decompressor(coding, pending), pending, b""
+            out += decoder.decompress(chunk, MAX_BYTES + 1 - len(out))
+            if decoder.eof and decoder.unused_data:
+                return bytes(out[:MAX_BYTES]), True
         if len(out) > MAX_BYTES:
             return bytes(out[:MAX_BYTES]), True
-    if not started:
-        _decompressor(encoding, b"")  # 빈 본문이어도 모르는 압축이면 실패
+    if coding is not None and (pending or (decoder is not None and not decoder.eof)):
+        return bytes(out), True  # 압축 흐름이 끝나기 전에 끊겼다
     return bytes(out), False
 
 
 def _clean(text: str, conn: GenericConn, dropped: str) -> str:
-    """키를 지우고, 풀어 보아도 남으면 dropped 로 바꾼다."""
-    text = scrub(text, conn.key, key_name=conn.key_name)
+    """UTF-8 로 쓸 수 없는 글자(짝 없는 서로게이트)를 바꾸고, 키를 지우고, 풀어 보아도 남으면 dropped 로 바꾼다."""
+    text = scrub(text.encode("utf-8", "replace").decode("utf-8"), conn.key, key_name=conn.key_name)
     return dropped if key_survives(text, conn.key) else text
 
 

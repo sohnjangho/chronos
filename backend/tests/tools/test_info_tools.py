@@ -114,7 +114,7 @@ async def test_list_shows_usable_connections_without_key_material(session, ctx):
 
 
 async def test_list_is_empty_without_connections(ctx):
-    assert (await call("info.list", {}, ctx)).output == {"connections": []}
+    assert (await call("info.list", {}, ctx)).output == {"connections": [], "more": 0, "hint": None}
 
 
 # ── info.call ───────────────────────────────────────────────────────
@@ -360,3 +360,45 @@ async def test_a_failed_call_shows_the_status_and_the_start_of_the_body(api, hol
     api.answer = (500, f"필수 파라미터 solYear 누락 (key={KEY})", {"content-type": "text/plain"})
     r = await call("info.call", _args(holidays), ctx)
     assert not r.ok and "HTTP 500" in r.error and "필수 파라미터 solYear 누락" in r.error and not _leaks(r.error)
+
+
+# ── 재검토 작은 지적 ─────────────────────────────────────────────────
+
+
+async def test_an_unexpected_error_after_sending_is_a_counted_korean_failure(holidays, ctx_chat, session, monkeypatch):
+    async def broken(conn, path, params):
+        raise RuntimeError(f"boom {KEY}")
+
+    monkeypatch.setattr(generic, "fetch", broken)
+    r = await call("info.call", _args(holidays), ctx_chat)
+    assert not r.ok and "RuntimeError" not in r.error and not _leaks(r.error)
+    assert any("가" <= ch <= "힣" for ch in r.error)
+    session.rollback()
+    row = session.scalars(select(EvidenceSearch)).one()
+    assert (row.mode, row.ok, row.error_code) == ("info", False, "unknown")
+
+
+async def test_list_of_twenty_long_connections_fits_with_a_more_count(session, ctx):
+    for i in range(20):
+        _row(session, name=f"연결 {i}", description="가" * 500)
+    r = await call("info.list", {}, ctx)
+    assert r.ok, r.error
+    out = r.output
+    assert len(json.dumps(out, ensure_ascii=False)) < 4000 and not result_text(r, limit=4000).endswith(CUT_NOTE)
+    assert all(len(c["description"]) <= 120 for c in out["connections"])
+    assert len(out["connections"]) + out["more"] == 20 and out["more"] > 0 and "connection_id" in out["hint"]
+
+
+async def test_a_short_list_has_no_more_and_no_hint(session, ctx):
+    _row(session)
+    out = (await call("info.list", {}, ctx)).output
+    assert (out["more"], out["hint"]) == (0, None)
+
+
+async def test_one_connection_with_a_long_quoted_usage_fits(session, ctx):
+    usage = ('예: /getX?a=1&b="값"\n' * 200)[:3000]
+    row = _row(session, name="가" * 100, description="가" * 500, usage=usage)
+    r = await call("info.list", {"connection_id": row.id}, ctx)
+    assert r.ok and len(json.dumps(r.output, ensure_ascii=False)) < 4000
+    [one] = r.output["connections"]
+    assert one["usage_chars"] == 3000 and one["usage"].startswith('예: /getX?a=1&b="값"') and len(one["usage"]) < 3000

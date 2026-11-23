@@ -137,6 +137,10 @@ async def info_call(args: CallIn, ctx: ToolContext) -> CallOut:
         _record_failure(ctx, title, e.code, int((time.perf_counter() - start) * 1000))
         seen = f" (HTTP {e.http_status}) 응답 앞부분: {e.sample}" if e.http_status is not None else ""
         raise ToolError(f"{e.message}{seen} {FALLBACK}") from None
+    except Exception as exc:  # noqa: BLE001 — 보낸 뒤 생긴 뜻밖의 오류도 실패 줄로 세고, 예외 글(키가 있을 수 있다)은 내지 않는다
+        logger.warning("정보 API 조회 중 뜻밖의 오류 (%s)", type(exc).__name__)
+        _record_failure(ctx, title, "unknown", int((time.perf_counter() - start) * 1000))
+        raise ToolError(f"{generic.failure_message('unknown', name)} {FALLBACK}") from None
     body, truncated = generic.body_for_model(got.text, got.cut)
     hit = SearchHit(title=title, url=got.url[:URL_MAX], hostname=httpx.URL(base_url).host, description=body,
                     date=None)

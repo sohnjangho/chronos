@@ -73,7 +73,7 @@ export default function GenericFieldset({ draft, set, errors, busy, keyLabel, ke
         <textarea rows={2} maxLength={500} value={draft.description} disabled={busy} onChange={(e) => set({ description: e.target.value })} />
       </Field>
       <Field label="쓰는 법" hint="경로·필수 파라미터·예시 — 에이전트가 읽고 호출을 짭니다">
-        <textarea rows={4} maxLength={4000} value={draft.usage} disabled={busy} onChange={(e) => set({ usage: e.target.value })} />
+        <textarea rows={4} maxLength={3000} value={draft.usage} disabled={busy} onChange={(e) => set({ usage: e.target.value })} />
       </Field>
       <Field label="시험 경로" hint="연결 테스트에 쓸 경로+질의, 예: /getRestDeInfo?solYear=2026&solMonth=12" error={errors.test_path}>
         <input value={draft.test_path} maxLength={500} spellCheck={false} disabled={busy} onChange={(e) => set({ test_path: e.target.value })} />
