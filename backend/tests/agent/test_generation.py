@@ -136,6 +136,14 @@ async def test_best_draft_is_kept_at_the_limit(ctx, llm, liner):
     assert r.report.violations[0].amount == 1
 
 
+async def test_with_equal_violation_counts_the_smaller_total_amount_wins(ctx, llm, liner):
+    """A3(리뷰): 위반 수가 같으면 어긴 양(amount) 합이 작은 안 — 나중 안이 더 많이 어겼으면 앞 안을 둔다."""
+    script(liner, WBS_OK, SCHED_LATE_BY_1, SCHED_LATE_BY_3, SCHED_CYCLE)
+    r = await gen(ctx, llm, inputs=[FINISH_BY], max_rounds=3)
+    assert [x.violations for x in r.rounds] == [1, 1, -1] and not r.ok
+    assert r.report.violations[0].amount == 1
+
+
 async def test_llm_down_gives_reason_and_no_draft(ctx, llm, liner, session):
     script(liner, httpx.ReadTimeout("느림"))
     r = await gen(ctx, llm)

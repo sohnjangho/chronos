@@ -102,6 +102,11 @@ class GenResult:
     invalid: list[dict] = field(default_factory=list)
 
 
+def _rank(report: CheckReport) -> tuple[int, int]:
+    """좋은 초안 차례: 위반 수, 그다음 어긴 양(근무일·대수) 합(잴 수 없는 위반은 0)."""
+    return len(report.violations), sum(v.amount or 0 for v in report.violations)
+
+
 @dataclass(frozen=True)
 class _Scored:
     """점검까지 마친 초안."""
@@ -236,8 +241,8 @@ class _Loop:
         self.record(count, len(report.violations))
         self.card("check")  # 점검을 마친 뒤: 이 회차의 결과가 rounds 에 들어 있다
         scored = _Scored(len(self.rounds), schedule, report, fit_warnings(self.brief.level, self.wbs, count))
-        if self.best is None or len(report.violations) <= len(self.best.report.violations):
-            self.best = scored  # 위반 수가 같으면 나중 안
+        if self.best is None or _rank(report) <= _rank(self.best.report):
+            self.best = scored  # 위반 수가 같으면 어긴 양 합이 작은 안, 그것도 같으면 나중 안
         self.feedback = self.repair_note(scored, cpm)
         return scored
 
