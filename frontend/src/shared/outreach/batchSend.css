@@ -1,0 +1,94 @@
+/* 여러 명에게 한 번에(Task 103). 색·글꼴은 tokens.css 변수만(두 테마). 겹화면은 가장 가까운 position 조상을 덮고 그보다 커지지 않는다.
+   머리·위 칸·발은 늘 보이고 가운데(.bs-scroll)만 세로로 스크롤한다. 좁은 창(520 아래)에서는 결과 표가 줄마다 카드가 된다 — 가로 스크롤 없음. */
+.bs-scrim {
+  position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px;
+  box-sizing: border-box; background: color-mix(in srgb, var(--bg-topbar) 35%, transparent);
+}
+.bs-dialog {
+  width: 100%; max-width: 720px; max-height: 100%; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box;
+  background: var(--bg-panel); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius-4); box-shadow: var(--menu-shadow);
+  container-type: inline-size; overflow: hidden;
+}
+.bs-title { flex: none; margin: 0; padding: 16px 20px 0; font-size: var(--fs-15); font-weight: 700; overflow-wrap: anywhere; }
+.bs-top { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.bs-search {
+  font: inherit; font-size: var(--fs-13); height: 32px; box-sizing: border-box; padding: 0 10px; min-width: 0;
+  color: var(--fg); background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+}
+.bs-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.bs-count, .bs-batch { margin: 0; font-size: var(--fs-12); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.bs-batch { color: var(--fg); font-weight: 600; }
+.bs-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.bs-empty { margin: 0; padding: 16px 20px; color: var(--fg-muted); font-size: var(--fs-13); }
+.bs-note { margin: 0; padding: 0; font-size: var(--fs-12); line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+p.bs-note[role="status"] { padding: 8px 20px; }
+.bs-note.is-ok { color: var(--success-text); }
+.bs-note.is-info { color: var(--tone-info-fg); }
+.bs-note.is-warn { color: var(--warning-text); }
+.bs-note.is-bad { color: var(--danger-text); }
+.bs-note.is-muted { color: var(--fg-muted); }
+.bs-foot {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+.bs-foot .ui-btn { height: 32px; padding: 0 14px; font-size: var(--fs-13); }
+
+/* 협력사별 묶음과 사람 줄 */
+.bs-co { border-bottom: 1px solid var(--border); }
+.bs-person, .bs-co-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 6px 20px; min-width: 0; cursor: pointer; font-size: var(--fs-13);
+}
+.bs-co-head { position: sticky; top: 0; z-index: 1; background: var(--bg-panel-alt); font-weight: 700; }
+.bs-co-meta { color: var(--fg-muted); font-size: var(--fs-12); font-weight: 400; }
+.bs-person:hover { background: var(--menu-hover-bg); }
+.bs-person input, .bs-co-head input { flex: none; margin: 0; }
+.bs-person input:focus-visible, .bs-co-head input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bs-person-name { font-weight: 600; overflow-wrap: anywhere; }
+.bs-person-role { color: var(--fg-muted); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.bs-person-num { color: var(--fg-muted); font-size: var(--fs-12); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bs-why { margin-left: auto; color: var(--warning-text); font-size: var(--fs-12); }
+.bs-person.is-off { cursor: default; }
+.bs-person.is-off .bs-person-name, .bs-person.is-off .bs-person-role, .bs-person.is-off .bs-person-num { opacity: 0.55; }
+
+/* 내용 확인 */
+.bs-confirm { display: flex; flex-direction: column; gap: 10px; padding: 12px 20px; }
+.bs-to { margin: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-13); max-height: 96px; overflow-y: auto; }
+.bs-to span { color: var(--fg-muted); overflow-wrap: anywhere; }
+.bs-link { margin: 0; font-size: var(--fs-12); color: var(--fg-muted); overflow-wrap: anywhere; }
+.bs-lanes { display: flex; gap: 6px; flex-wrap: wrap; }
+.bs-lanes .ui-btn { height: 30px; padding: 0 12px; font-size: var(--fs-13); }
+.bs-lanes .ui-btn[aria-pressed="true"] { background: var(--bg-selected); border-color: var(--accent); color: var(--accent-text); font-weight: 700; }
+.bs-field { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-13); color: var(--fg-muted); }
+.bs-field textarea, .bs-field input {
+  font: inherit; font-size: var(--fs-13); color: var(--fg); background: var(--bg-panel); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2); padding: 8px 10px; box-sizing: border-box; width: 100%; min-width: 0; resize: vertical;
+}
+.bs-field textarea:focus, .bs-field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.bs-field textarea[readonly], .bs-field input[readonly] { background: var(--bg-panel-alt); }
+.bs-template { display: flex; flex-direction: column; gap: 8px; }
+.bs-template-body { margin: 0; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-panel-alt); border-radius: var(--radius-2); font-size: var(--fs-13); }
+
+/* 사람별 결과 표 */
+.bs-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--fs-13); }
+.bs-table thead th {
+  position: sticky; top: 0; z-index: 1; background: var(--bg-panel-alt); color: var(--fg-muted); font-size: var(--fs-12); font-weight: 600;
+  text-align: left; padding: 6px 20px; border-bottom: 1px solid var(--border);
+}
+.bs-table th:nth-child(1) { width: 24%; }
+.bs-table th:nth-child(2) { width: 24%; }
+.bs-table td { padding: 8px 20px; border-bottom: 1px solid var(--border); vertical-align: top; word-break: keep-all; overflow-wrap: anywhere; }
+.bs-out.is-ok { color: var(--success-text); }
+.bs-out.is-info { color: var(--tone-info-fg); }
+.bs-out.is-warn { color: var(--warning-text); font-weight: 600; }
+.bs-out.is-bad { color: var(--danger-text); font-weight: 600; }
+.bs-out.is-muted { color: var(--fg-muted); }
+@container (max-width: 520px) {
+  .bs-table thead { display: none; }
+  .bs-table, .bs-table tbody, .bs-table tr, .bs-table td { display: block; width: auto; }
+  .bs-table tr { padding: 8px 16px; border-bottom: 1px solid var(--border); }
+  .bs-table td { padding: 0; border: 0; }
+  .bs-table td:nth-child(2) { color: var(--fg-muted); font-size: var(--fs-12); }
+  .bs-person, .bs-co-head, .bs-top, .bs-confirm, .bs-foot { padding-left: 16px; padding-right: 16px; }
+  .bs-why { margin-left: 22px; flex-basis: 100%; }
+}
+.bs-wait { padding: 16px 20px; }

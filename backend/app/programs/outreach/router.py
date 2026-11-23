@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.programs.outreach import service
+from app.programs.outreach.batches_router import batches_router  # noqa: F401 — 여러 명에게 한 번에(Task 103)
 from app.programs.outreach.calls_router import calls_router  # noqa: F401 — 통화 API(Task 91), main 은 router.py 만 읽는다
 from app.programs.outreach.inbox_router import inbox_router  # noqa: F401 — 들어온 문자 화면 API(Task 85)
 from app.programs.outreach.schemas import (
