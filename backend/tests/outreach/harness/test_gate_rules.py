@@ -505,22 +505,47 @@ async def test_approved_row_without_an_approver_does_not_leave(session, sid, fak
 SEND_MODE_WRITERS = {"outreach/harness/gate.py", "outreach/harness/tools.py"}
 
 
-def _writes_send_mode(node: ast.AST) -> bool:
-    """그 자리가 연락 줄의 send_mode 에 값을 적는가: 속성에 넣기(`row.send_mode = …`), **어느 부름에든** 인자로 주기, 또는
-    dict 글자의 "send_mode" 열쇠에 값을 두기(나중에 `**` 로 풀어 넣는 꼴). 비우는 것(None)은 아니다. 있는 줄의 값을 그대로
-    옮겨 담는 것(`… = row.send_mode` — 응답 모델·보기 dict)도 아니다 — 단 줄을 만들거나 고치는 부름(`OutreachMessage(…)`·
-    `OutreachCall(…)`·`.values(…)`)에서는 옮겨 담기도 쓰기다."""
+_ROW_MODELS = ("OutreachMessage", "OutreachCall")
+
+
+# 줄을 고치는 부름에 이름 붙인 dict 를 통째로 넣는(`.values(**values)`) 함수 — (모듈, 함수) → 그 dict 에 넣는 열쇠.
+# 11-24 에 하나씩 읽어 send_mode 를 넣지 않음을 확인했다. 다른 곳의 통째 넣기는 읽고 여기에 더하기 전까지 쓰기로 센다.
+REVIEWED_SPREADS = {
+    ("app.store.outreach", "claim"): "status, claimed_at",
+    ("app.programs.outreach.service", "patch"): "MessagePatch fields + kind",
+    ("app.outreach.worker", "_apply_status"): "checks, last_checked_at, status, delivered_at, fail_reason, fallback_sms",
+}
+
+
+def _writes_send_mode(node: ast.AST, *, spread_reviewed: bool = False) -> bool:
+    """그 자리가 연락 줄의 send_mode 에 값을 적는가. 비우는 것(상수 None)은 어디서든 쓰기가 아니다.
+    - 속성에 넣기(`row.send_mode = …`), `setattr(…, "send_mode", …)`.
+    - **줄을 만들거나 고치는 부름**(`OutreachMessage(…)`·`OutreachCall(…)`·`.values(…)`·`insert/update(OutreachMessage|
+      OutreachCall, …)`): `send_mode=` 는 옛 줄의 값을 옮겨 담는 것(`old.send_mode`)도 쓰기다. 그리고 풀어 넣거나 통째로 주는
+      값(`**x`, `.values(x)`, `values=x`)은 send_mode 가 없거나 None 뿐임이 글자로 분명한 dict(`{…}`·키워드만의 `dict(…)`,
+      그 목록)가 아니면 쓰기다.
+    - 그 밖의 부름의 `send_mode=` 키워드와 dict 글자의 "send_mode" 열쇠: 있는 값을 그대로 옮겨 담는 것(`X.send_mode` —
+      응답 모델·보기 dict)만 빼고 쓰기다."""
     if isinstance(node, ast.Attribute):
         return node.attr == "send_mode" and isinstance(node.ctx, ast.Store)
     if isinstance(node, ast.Dict):
-        values = [value for key, value in zip(node.keys, node.values, strict=True)
-                  if isinstance(key, ast.Constant) and key.value == "send_mode"]
-        return any(_sets_value(value, copy_counts=False) for value in values)
+        return any(_sets_value(value, copy_counts=False) for key, value in zip(node.keys, node.values, strict=True)
+                   if isinstance(key, ast.Constant) and key.value == "send_mode")
     if not isinstance(node, ast.Call):
         return False
     called = getattr(node.func, "attr", getattr(node.func, "id", None))
-    row_call = called in ("OutreachMessage", "OutreachCall", "values")
-    return any(keyword.arg == "send_mode" and _sets_value(keyword.value, copy_counts=row_call) for keyword in node.keywords)
+    if called == "setattr" and len(node.args) == 3:
+        name, value = node.args[1], node.args[2]
+        return isinstance(name, ast.Constant) and name.value == "send_mode" and _sets_value(value, copy_counts=True)
+    statement = called in ("insert", "update") and bool(node.args) and \
+        getattr(node.args[0], "attr", getattr(node.args[0], "id", None)) in _ROW_MODELS
+    row_call = called in (*_ROW_MODELS, "values") or statement
+    if not row_call:
+        return any(keyword.arg == "send_mode" and _sets_value(keyword.value, copy_counts=False) for keyword in node.keywords)
+    wholes = [*(node.args[1:] if statement else node.args),
+              *(keyword.value for keyword in node.keywords if keyword.arg is None or keyword.arg == "values")]
+    return any(keyword.arg == "send_mode" and _sets_value(keyword.value, copy_counts=True) for keyword in node.keywords) \
+        or not (spread_reviewed or all(_clean_mapping(whole) for whole in wholes))
 
 
 def _sets_value(value: ast.AST, *, copy_counts: bool) -> bool:
@@ -529,15 +554,44 @@ def _sets_value(value: ast.AST, *, copy_counts: bool) -> bool:
     return copy_counts or not (isinstance(value, ast.Attribute) and value.attr == "send_mode")
 
 
-def _send_mode_writes(source: str) -> int:
-    return sum(_writes_send_mode(node) for node in ast.walk(ast.parse(source)))
+def _clean_mapping(node: ast.AST) -> bool:
+    """send_mode 열쇠가 없거나 상수 None 뿐임이 글자로 분명한가: 열쇠가 모두 글자인 dict(안에 `**` 없음), 위치 인자·`**` 없는
+    `dict(…)`, 또는 그런 것들의 목록·튜플. 이름·부름 결과(`vars(old)`)처럼 속을 알 수 없는 것은 거짓."""
+    if isinstance(node, ast.List | ast.Tuple):
+        return all(_clean_mapping(item) for item in node.elts)
+    if isinstance(node, ast.Dict):
+        pairs = list(zip(node.keys, node.values, strict=True))
+    elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "dict" and not node.args:
+        pairs = [(None if keyword.arg is None else ast.Constant(keyword.arg), keyword.value) for keyword in node.keywords]
+    else:
+        return False
+    return all(isinstance(key, ast.Constant) and isinstance(key.value, str)
+               and not (key.value == "send_mode" and _sets_value(value, copy_counts=True)) for key, value in pairs)
+
+
+def _send_mode_writes(source: str, module: str = "") -> int:
+    """source(모듈 이름 module, 예 "app.store.outreach") 안의 send_mode 쓰기 수. 통째 넣기는 가장 안쪽 함수가
+    REVIEWED_SPREADS 에 있을 때만 봐준다."""
+    count = 0
+
+    def visit(node: ast.AST, function: str | None) -> None:
+        nonlocal count
+        count += _writes_send_mode(node, spread_reviewed=(module, function) in REVIEWED_SPREADS)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            function = node.name
+        for child in ast.iter_child_nodes(node):
+            visit(child, function)
+
+    visit(ast.parse(source), None)
+    return count
 
 
 def test_only_named_modules_write_send_mode():
     """일꾼은 줄의 send_mode 를 믿는다 — 그래서 그 칸에 값을 적는 코드는 이름을 밝힌 모듈뿐이다."""
     root = Path(app.__file__).parent
     found = {path.relative_to(root).as_posix() for path in root.rglob("*.py")
-             if _send_mode_writes(path.read_text(encoding="utf-8"))}
+             if _send_mode_writes(path.read_text(encoding="utf-8"),
+                                  ".".join(("app", *path.relative_to(root).with_suffix("").parts)))}
     assert found == SEND_MODE_WRITERS
 
 
@@ -560,6 +614,56 @@ def test_send_mode_writes_are_recognised():
     assert _send_mode_writes("outreach.add_message(session, send_mode=mode)") == 1
     assert _send_mode_writes("make_row(session, send_mode=None)") == 0
     assert _send_mode_writes("OutreachMessage(send_mode=old.send_mode)") == 1  # 줄을 만드는 부름은 옮겨 담기도 쓰기다
+
+
+@pytest.mark.parametrize("source", [
+    # 옛 줄의 send_mode 를 복사해 새 줄을 만드는 꼴 — 일꾼이 그 approved·delegated 를 믿게 된다
+    "OutreachMessage(**{'status': 'scheduled', 'send_mode': old.send_mode})",
+    "OutreachMessage(**dict(send_mode=old.send_mode))",
+    "OutreachMessage(**vars(old))",
+    "OutreachCall(**base)",
+    "OutreachMessage(body=b, **{'status': 'draft', **extra})",
+    "OutreachMessage(**{key: 'approved'})",
+    "update(OutreachMessage).values(send_mode=old.send_mode)",
+    "update(OutreachMessage).where(OutreachMessage.id == i).values(**values)",
+    "insert(OutreachCall).values({'status': 'scheduled', 'send_mode': old.send_mode})",
+    "insert(OutreachMessage).values(rows)",
+    "insert(OutreachMessage).values([{'body': b}, {'send_mode': 'manual'}])",
+    "insert(OutreachMessage, values=fields)",
+    "setattr(row, 'send_mode', 'approved')",
+    "setattr(row, 'send_mode', old.send_mode)",
+])
+def test_send_mode_copies_into_rows_are_writes(source):
+    assert _send_mode_writes(source) > 0
+
+
+def test_whole_dict_spread_is_allowed_only_in_reviewed_functions():
+    """확인해 둔 함수(REVIEWED_SPREADS) 안의 통째 넣기만 쓰기가 아니다 — 같은 꼴이 다른 함수·다른 모듈에 있으면 쓰기다.
+    send_mode= 를 직접 주는 것은 확인한 함수 안에서도 쓰기다."""
+    spread = "def {name}(session, values):\n    session.execute(update(model).where(model.id == 1).values(**values))\n"
+    assert _send_mode_writes(spread.format(name="claim"), "app.store.outreach") == 0
+    assert _send_mode_writes(spread.format(name="reopen"), "app.store.outreach") == 1  # 표에 없는 함수
+    assert _send_mode_writes(spread.format(name="claim"), "app.store.other") == 1  # 표에 없는 모듈
+    assert _send_mode_writes(spread.format(name="claim")) == 1
+    direct = "def claim(session, old):\n    session.execute(update(model).values(send_mode=old.send_mode))\n"
+    assert _send_mode_writes(direct, "app.store.outreach") == 1
+
+
+@pytest.mark.parametrize("source", [
+    "MessageOut(id=row.id, send_mode=row.send_mode)",  # 응답 모델에 옮겨 담기(programs/outreach/service.py)
+    "view = {'id': row.id, 'send_mode': row.send_mode}",  # 보기 dict(devconsole/outreach_view.py)
+    "dict(id=row.id, send_mode=row.send_mode)",
+    "OutreachMessage(**{'status': 'draft', 'body': b})",  # 풀어 넣는 dict 에 send_mode 가 없음이 분명하다
+    "OutreachMessage(**{'status': 'draft', 'send_mode': None})",
+    "OutreachMessage(**dict(status='draft', body=b))",
+    "update(OutreachMessage).values({'read_at': now})",
+    "insert(OutreachMessage).values([{'body': b}, dict(body=c, send_mode=None)])",
+    "setattr(row, 'send_mode', None)",
+    "setattr(row, 'status', 'approved')",
+    "MessageOut(**payload)",  # 줄을 만드는 부름이 아니다
+])
+def test_send_mode_pass_through_and_clean_spreads_are_not_writes(source):
+    assert _send_mode_writes(source) == 0
 
 
 # ── 4 상한 ────────────────────────────────────────────────────────────
