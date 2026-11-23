@@ -70,6 +70,14 @@ describe('thread', () => {
     expect(gets()[0].url).toBe('/api/schedules/1/outreach/threads/1');
   });
 
+  test('drawing a thread logs no React warning (keys, act)', async () => {
+    const errors = vi.spyOn(console, 'error');
+    stubThread({ 1: [SENT, REPLY, APPROVED, DRAFT] });
+    show();
+    await screen.findByText('타워크레인 일정을 맞추겠습니다.');
+    expect(errors).not.toHaveBeenCalled();
+  });
+
   test('an empty thread says so, and the composer slot is there', async () => {
     stubThread({});
     show();
@@ -180,6 +188,36 @@ describe('agent draft', () => {
     expect(within(sent).getByText('[에이전트 발신] · 김하늘 승인')).toBeVisible();
     expect(within(sent).queryByRole('button', { name: '보내기' })).toBeNull();
     expect(acts()).toHaveLength(1);
+  });
+
+  test('two clicks landing before the screen redraws still make one request', async () => {
+    stubThread({ 1: [DRAFT] });
+    show();
+    const send = button(await findBubble('타워크레인 일정을 맞추겠습니다.'), '보내기');
+    await act(async () => {
+      send.click();
+      send.click();
+    });
+    await waitFor(() => expect(within(bubble('타워크레인 일정을 맞추겠습니다.')).getByText('접수')).toBeVisible());
+    expect(acts()).toHaveLength(1);
+  });
+
+  test('a slower re-read that left before the send cannot put the sent row back to a draft', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    stubThread({ 1: [DRAFT] });
+    show();
+    await findBubble('타워크레인 일정을 맞추겠습니다.');
+    const release = holdNext((c) => c.method === 'GET'); // 초안이던 때의 답이 늦게 온다
+    await act(async () => void vi.advanceTimersByTime(POLL_MS));
+    expect(gets()).toHaveLength(2);
+    await userEvent.click(button(bubble('타워크레인 일정을 맞추겠습니다.'), '보내기'));
+    await waitFor(() => expect(within(bubble('타워크레인 일정을 맞추겠습니다.')).getByText('접수')).toBeVisible());
+    await act(async () => release());
+    await act(async () => {});
+    const b = bubble('타워크레인 일정을 맞추겠습니다.');
+    expect(within(b).getByText('접수')).toBeVisible();
+    expect(b).not.toHaveClass('is-draft');
+    expect(within(b).queryByRole('button', { name: '보내기' })).toBeNull();
   });
 
   test('an unsure result is drawn as 확인 필요, not as sent and not as failed', async () => {
@@ -480,6 +518,16 @@ describe('header', () => {
     expect(screen.queryByText('010-0000-0000')).toBeNull();
   });
 
+  test('a number shown for one person is gone when the pane shows another', async () => {
+    stubThread({ 1: [SENT], 3: [] });
+    const view = show();
+    await userEvent.click(await screen.findByRole('button', { name: '번호 눌러서 보기' }));
+    expect(await screen.findByText('010-0000-0000')).toBeVisible();
+    view.rerender(<ThreadPane scheduleId={1} person={LEE} tab="messages" onChanged={onChanged} />);
+    expect(screen.queryByText('010-0000-0000')).toBeNull();
+    expect(screen.getByRole('button', { name: '번호 눌러서 보기' })).toBeVisible();
+  });
+
   test('over the reveal limit the server text is shown and no number', async () => {
     stubThread({ 1: [SENT] });
     mockReveal(429, { code: 'too_many_reveals', message: '번호 보기는 10분에 30번까지입니다. 잠시 뒤에 다시 해 주세요.' });
@@ -512,6 +560,16 @@ describe('inside the contacts window', () => {
     await screen.findByText('투입 준비를 확인해 주세요.');
     expect(screen.queryByText('010-0000-0000')).toBeNull();
     expect(screen.getByRole('button', { name: '번호 눌러서 보기' })).toBeVisible();
+  });
+
+  test('the head above the pane: a name cut short can be read in full, the masked number never breaks, the line wraps on a phone', async () => {
+    stubThread({ 1: [SENT] });
+    render(<Contacts windowId="w1" params={{ contact: '1' }} />);
+    await screen.findByText('투입 준비를 확인해 주세요.');
+    expect(screen.getByRole('heading', { name: '박현장' })).toHaveAttribute('title', '박현장');
+    expect(screen.getByText('문자·전화 가능')).toHaveAttribute('title', '문자·전화 가능');
+    expect(css).toMatch(/\.ct-head-line\.ct-head-sub\s*\{[^}]*flex-wrap:\s*wrap/);
+    expect(css).toMatch(/\.ct-head-sub \.ct-num\s*\{[^}]*white-space:\s*nowrap/);
   });
 
   test('switching the project unmounts the pane: no more reads for the old project', async () => {

@@ -133,19 +133,16 @@ export function stubThread(rows: Record<number, Message[]> = {}, role: Role = 'a
       if (!/\/outreach\/|\/read$/.test(c.url)) return inner(input, init);
       calls.push(c);
       const hold = holds.find((h) => h.test(c));
-      if (hold) {
-        holds.splice(holds.indexOf(hold), 1);
-        await hold.gate;
-      }
+      if (hold) holds.splice(holds.indexOf(hold), 1);
       const fail = failQueue.find((f) => f.test(c));
-      if (fail) {
-        failQueue.splice(failQueue.indexOf(fail), 1);
-        if (fail.status === 0) throw new TypeError('network');
-        return json(fail.status, fail.body);
-      }
-      const r = route(c) ?? { status: 404, body: { code: 'not_found', message: '찾을 수 없습니다.' } };
-      // 답을 만든 때의 모습으로 굳힌다(뒤에 가짜 서버의 줄이 바뀌어도 이미 보낸 답은 그대로).
-      return r.status === 204 ? new Response(null, { status: 204 }) : json(r.status, JSON.parse(JSON.stringify(r.body ?? {})));
+      if (fail) failQueue.splice(failQueue.indexOf(fail), 1);
+      // 서버는 요청을 받은 때에 처리하고 답을 그때의 모습으로 굳힌다 — 붙잡아 둔 답은 늦게 닿을 뿐이다(그 사이 줄이 바뀌어도 옛 모습).
+      const r = fail ? null : (route(c) ?? { status: 404, body: { code: 'not_found', message: '찾을 수 없습니다.' } });
+      const body = r ? JSON.stringify(r.body ?? {}) : '';
+      if (hold) await hold.gate;
+      if (fail?.status === 0) throw new TypeError('network');
+      if (fail) return json(fail.status, fail.body);
+      return r!.status === 204 ? new Response(null, { status: 204 }) : json(r!.status, JSON.parse(body));
     }),
   );
 }

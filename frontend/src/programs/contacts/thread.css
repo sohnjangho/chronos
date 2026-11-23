@@ -81,10 +81,11 @@ button.th-chip:hover { background: var(--bg-selected); }
 /* 초안: 점선 말풍선 */
 .th-b.is-draft {
   box-sizing: border-box; gap: 6px; padding: 9px 11px; border-radius: var(--radius-4); background: var(--bg-panel);
-  border: 1.5px dashed color-mix(in srgb, var(--tile-violet-from) 70%, var(--fg-muted)); align-items: stretch;
+  border: 1.5px dashed var(--border-strong); align-items: stretch;
 }
+.th-b.is-draft.is-ai { border-color: color-mix(in srgb, var(--tile-violet-from) 70%, var(--fg-muted)); }
 .th-b.is-draft .th-meta { justify-content: flex-start; }
-.th-b.is-draft .th-bub { padding: 0; background: none; border-radius: 0; }
+.th-b.is-draft.is-me .th-bub { padding: 0; background: none; border-radius: 0; }
 .th-edit { width: 100%; min-height: 84px; }
 
 /* 아래 띠·입력창 자리·통화 탭 자리 */
@@ -96,8 +97,14 @@ button.th-chip:hover { background: var(--bg-selected); }
 .th-strip.is-warn { color: var(--warning-text); background: var(--tone-warning-bg); }
 .th-composer { flex: none; min-width: 0; border-top: 1px solid var(--border); background: var(--bg-panel-alt); }
 .th-soon { margin: 0; padding: 10px 16px; }
-.th-dialog-text { margin: 0; padding: 12px 20px 16px; line-height: 1.6; overflow-wrap: anywhere; }
-.th-dialog-text strong { color: var(--warning-text); }
+/* 확인 창의 글: 대화상자 틀(.ct-xfer-top)의 안쪽 여백을 그대로 쓰고 아래 줄만 뺀다(발에 줄이 있다). */
+.ct-xfer-top.th-dialog-text { margin: 0; border-bottom: 0; line-height: 1.6; overflow-wrap: anywhere; display: block; }
+.ct-xfer-top.th-dialog-text strong { color: var(--warning-text); }
+
+/* 대화 칸 바로 위 머리(Contacts.tsx PersonHead)의 둘째 줄: 좁으면 가린 번호가 「010- / ****-000 / 1」로 끊기고 「연락할 수 없음…」이
+   잘렸다 — 번호는 한 덩이로 두고, 자리가 모자라면 뒤의 것을 다음 줄로 보낸다. */
+.ct-head-line.ct-head-sub { flex-wrap: wrap; row-gap: 2px; }
+.ct-head-sub .ct-num { flex: none; white-space: nowrap; }
 
 @container (max-width: 480px) {
   .th-b { max-width: 94%; }

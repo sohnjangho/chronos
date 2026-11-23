@@ -79,15 +79,15 @@ function PersonHead({ p, company, kakaoReady, tab, onTab, onEdit, onBack }: {
       </button>
       <div className="ct-head-main">
         <div className="ct-head-line">
-          <h2 className="ct-head-name ct-ellipsis">{p.name}</h2>
-          <span className="ct-head-sub ct-ellipsis">{[p.role_title, company].filter(Boolean).join(' · ')}</span>
+          <h2 className="ct-head-name ct-ellipsis" title={p.name}>{p.name}</h2>
+          <span className="ct-head-sub ct-ellipsis" title={[p.role_title, company].filter(Boolean).join(' · ')}>{[p.role_title, company].filter(Boolean).join(' · ')}</span>
         </div>
         <div className="ct-head-line ct-head-sub">
           <span className="ct-num">{p.phone_masked}</span>
           {p.phone_kind && <span className="ct-tag">{KIND_LABEL[p.phone_kind]}</span>}
           {p.do_not_contact && <span className="ct-tag is-bad">수신 거부</span>}
           {p.phone_invalid && <span className="ct-tag is-bad">번호 오류</span>}
-          <span className="ct-ellipsis">{channelText(p, kakaoReady)}</span>
+          <span className="ct-ellipsis" title={channelText(p, kakaoReady)}>{channelText(p, kakaoReady)}</span>
         </div>
       </div>
       <div className="ct-head-acts">

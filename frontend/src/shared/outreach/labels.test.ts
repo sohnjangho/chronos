@@ -102,9 +102,29 @@ describe('events', () => {
     const m = msg({ status: 'scheduled', scheduled_at: '2026-11-22T23:00:00Z', events: [{ rule: 'working_hours', verdict: 'blocked', detail: '근무시간 밖이라 다음 근무 시작에 보냅니다' }] });
     expect(eventSummary(m)).toBe('근무시간 밖 → 월 08:00 예약');
   });
-  test('summary: otherwise the latest line and how many there are', () => {
-    const m = msg({ events: [{ rule: 'channel_choice', verdict: 'allowed', detail: 'sms' }, { rule: 'delivery', verdict: 'allowed', detail: '통로가 받았습니다' }] });
-    expect(eventSummary(m)).toBe('통로 결과 — 통로가 받았습니다 · 기록 2건');
+  test('summary: the latest note or block the status text does not already say, with the count', () => {
+    const grace = msg({ events: [{ rule: 'reply_within_grace', verdict: 'noted', detail: '상대가 방금 보낸 문자의 답이라 근무시간 밖이어도 보냅니다' }, { rule: 'channel_choice', verdict: 'allowed', detail: 'sms' }, { rule: 'delivery', verdict: 'allowed', detail: '통로가 받았습니다' }] });
+    expect(eventSummary(grace)).toBe('답 유예 — 상대가 방금 보낸 문자의 답이라 근무시간 밖이어도 보냅니다 · 기록 3건');
+    const held = msg({ status: 'draft', fail_reason: '내용 확인 필요', events: [{ rule: 'unsupported_date', verdict: 'noted', detail: '도구 결과에 없는 날짜입니다' }, { rule: 'held_for_review', verdict: 'blocked', detail: '내용 확인 필요' }] });
+    expect(eventSummary(held)).toBe('근거 없는 날짜 — 도구 결과에 없는 날짜입니다 · 기록 2건');
+    expect(eventSummary(msg({ direction: 'in', status: 'received', events: [{ rule: 'admission', verdict: 'noted', detail: 'stop_word' }] }))).toBe('받기 판정 — 수신 거부 말');
+  });
+  test('summary: what the status chip already says is only counted', () => {
+    const sent = msg({ events: [{ rule: 'channel_choice', verdict: 'allowed', detail: 'sms' }, { rule: 'delivery', verdict: 'allowed', detail: '통로가 받았습니다' }, { rule: 'delivery_update', verdict: 'noted', detail: 'delivered' }] });
+    expect(eventSummary(sent)).toBe('처리 기록 3건');
+    const failed = msg({ status: 'failed', fail_reason: '제공사에 연결하지 못했습니다', events: [{ rule: 'channel_choice', verdict: 'allowed', detail: 'sms' }, { rule: 'delivery', verdict: 'blocked', detail: '제공사에 연결하지 못했습니다' }] });
+    expect(eventSummary(failed)).toBe('처리 기록 2건');
+    const waiting = msg({ status: 'draft', fail_reason: '사람의 승인이 필요합니다', events: [{ rule: 'permission', verdict: 'blocked', detail: '사람의 승인이 필요합니다' }] });
+    expect(eventSummary(waiting)).toBe('처리 기록 1건');
+  });
+  test('summary: only the latest attempt speaks — an older block is not repeated after a newer decision', () => {
+    const retried = msg({
+      status: 'draft', fail_reason: '알림 연결이 준비되지 않았습니다. 설정에서 연결을 확인해 주세요',
+      events: [{ rule: 'permission', verdict: 'blocked', detail: '사람의 승인이 필요합니다' }, { rule: 'precheck', verdict: 'blocked', detail: '알림 연결이 준비되지 않았습니다. 설정에서 연결을 확인해 주세요' }],
+    });
+    expect(eventSummary(retried)).toBe('처리 기록 2건');
+    const sentLater = msg({ status: 'accepted', events: [{ rule: 'working_hours', verdict: 'blocked', detail: '근무시간 밖이라 다음 근무 시작에 보냅니다' }, { rule: 'channel_choice', verdict: 'allowed', detail: 'sms' }, { rule: 'delivery', verdict: 'allowed', detail: '통로가 받았습니다' }] });
+    expect(eventSummary(sentLater)).toBe('처리 기록 3건');
     expect(eventSummary(msg())).toBeNull();
   });
 });

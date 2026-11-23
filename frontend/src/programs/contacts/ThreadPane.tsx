@@ -64,13 +64,13 @@ function MessagesTab({ scheduleId, person, compose, activity, onChanged }: Omit<
 export default function ThreadPane({ scheduleId, person, tab, compose, activity, call, onChanged }: ThreadSlotProps) {
   return (
     <div className="th-pane">
-      <ThreadHeader key={person.id} scheduleId={scheduleId} person={person} />
+      <ThreadHeader key={`head-${person.id}`} scheduleId={scheduleId} person={person} />
       {tab === 'calls' ? (
         <div className="th-tab" data-slot="calls">
           <CallsSlot scheduleId={scheduleId} person={person} call={call} onChanged={onChanged} />
         </div>
       ) : (
-        <MessagesTab key={person.id} scheduleId={scheduleId} person={person} compose={compose} activity={activity} onChanged={onChanged} />
+        <MessagesTab key={`messages-${person.id}`} scheduleId={scheduleId} person={person} compose={compose} activity={activity} onChanged={onChanged} />
       )}
     </div>
   );

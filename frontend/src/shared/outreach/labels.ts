@@ -125,13 +125,24 @@ export function eventLine(e: OutreachEvent): string {
   return detail ? `${label} — ${detail}` : label;
 }
 
-/** 접힌 한 줄. 근무시간에 걸려 예약된 줄은 「근무시간 밖 → 월 08:00 예약」, 그 밖은 마지막 사건과 건수. 사건이 없으면 null. */
+/** 상태 이름표가 이미 말하는 사건(보낼 통로·통로 결과·뒤에 확인한 상태·카카오톡 대신 문자) — 접힌 줄에서는 건수로만 센다. */
+const SAID_BY_STATUS = new Set(['channel_choice', 'delivery', 'delivery_update', 'kakao_not_ready']);
+
+/** 나가는 문의 판정 사건(보내기 한 번마다 꼭 하나 — 그 앞의 참고와 그 뒤의 통로 결과가 한 번의 시도다). */
+const GATE_DECISIONS = new Set(['precheck', 'test_mode', 'blocked_or_dnc', 'working_hours', 'limits', 'permission', 'duplicate', 'channel_choice']);
+
+/** 접힌 한 줄. 근무시간에 걸려 예약된 줄은 「근무시간 밖 → 월 08:00 예약」, 그 밖은 마지막 시도에서 화면이 아직 말하지 않은 참고·막음과
+ *  건수, 그런 것이 없으면 「처리 기록 n건」. 사건이 없으면 null. */
 export function eventSummary(m: Message): string | null {
-  const last = m.events.at(-1);
-  if (!last) return null;
-  if (last.rule === 'working_hours' && m.status === 'scheduled' && m.scheduled_at) {
+  const n = m.events.length;
+  if (n === 0) return null;
+  const decisions = m.events.flatMap((e, i) => (GATE_DECISIONS.has(e.rule) ? [i] : []));
+  const latest = m.events.slice(decisions.length > 1 ? decisions[decisions.length - 2] + 1 : 0); // 앞선 시도의 막음을 되풀이하지 않는다
+  const pick = latest.filter((e) => e.verdict !== 'allowed' && !SAID_BY_STATUS.has(e.rule) && (e.detail === null || e.detail !== m.fail_reason)).at(-1);
+  if (!pick) return `처리 기록 ${n}건`;
+  if (pick.rule === 'working_hours' && m.status === 'scheduled' && m.scheduled_at) {
     const t = kst(m.scheduled_at);
     return `근무시간 밖 → ${t.wd} ${t.hm} 예약`;
   }
-  return m.events.length > 1 ? `${eventLine(last)} · 기록 ${m.events.length}건` : eventLine(last);
+  return n > 1 ? `${eventLine(pick)} · 기록 ${n}건` : eventLine(pick);
 }

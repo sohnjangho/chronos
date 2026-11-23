@@ -96,7 +96,7 @@ function ResendConfirm({ onClose, onConfirm }: { onClose(): void; onConfirm(): v
         </>
       }
     >
-      <p className="th-dialog-text">
+      <p className="ct-xfer-top th-dialog-text">
         <strong>이미 나갔을 수 있습니다.</strong> 이 글은 보냈는지 확인되지 않았습니다. 다시 보내면 상대가 같은 글을 두 번 받을 수 있습니다. 계속하면 같은 글의 새 초안을
         만들고, 그 초안에서 [보내기]를 눌러야 나갑니다.
       </p>
