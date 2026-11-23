@@ -63,6 +63,7 @@ def quiet_outreach_worker(monkeypatch):
 
     monkeypatch.setattr(worker, "start", start)
     monkeypatch.setattr(worker, "_state", worker._State())
+    monkeypatch.delenv("CHRONOS_OUTREACH_WORKER", raising=False)  # 시험을 돌리는 셸의 값과 상관없이 기본(켬)에서 시작
 
 
 @pytest.fixture

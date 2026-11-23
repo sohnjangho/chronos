@@ -5,10 +5,12 @@
 """
 
 import asyncio
+import contextlib
 import logging
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
@@ -20,8 +22,9 @@ from sqlalchemy import select, update
 
 from app.main import app
 from app.outreach import phone, provider, worker
+from app.outreach.channels import sms
 from app.outreach.harness import door, events, gate
-from app.outreach.harness.types import Ref
+from app.outreach.harness.types import Delivered, Ref
 from app.outreach.provider import Delivery, Inbound, ProviderFailed, Received
 from app.outreach.text import inbox
 from app.store import outreach
@@ -278,8 +281,8 @@ async def test_off_hours_due_row_is_scheduled_again_not_sent(session, sid, fake_
 async def test_restart_never_resends_a_sending_row(session, sid, fake_channel, fake_provider):
     connect(session)
     who = person(session, sid)
-    row = message(session, who, status="sending", claimed_at=NOW - timedelta(minutes=1), send_mode="manual",
-                  scheduled_at=NOW - timedelta(minutes=2))
+    row = message(session, who, status="sending", claimed_at=NOW - timedelta(minutes=6), send_mode="manual",
+                  scheduled_at=NOW - timedelta(minutes=7))
     session.commit()
 
     assert worker.recover(now=NOW) == 1
@@ -296,13 +299,29 @@ def test_recover_leaves_rows_claimed_after_the_server_started(session, sid):
     """일꾼의 첫 걸음이 돌기 전에 들어온 보내기(지금 나가는 중)는 건드리지 않는다."""
     connect(session)
     who = person(session, sid)
-    before = message(session, who, status="sending", claimed_at=NOW - timedelta(seconds=1))
+    before = message(session, who, status="sending", claimed_at=NOW - timedelta(seconds=worker.STALE_SENDING_S + 1))
     in_flight = message(session, who, status="sending", claimed_at=NOW + timedelta(seconds=1), body="방금 누른 글")
     session.commit()
 
-    assert worker.recover(now=NOW + timedelta(seconds=5), before=NOW) == 1
+    assert worker.recover(now=NOW + timedelta(minutes=10), before=NOW) == 1  # in_flight 도 300초를 넘겼지만 뜬 뒤에 차지됐다
 
     assert reread(session, before).status == "unconfirmed" and reread(session, in_flight).status == "sending"
+
+
+def test_recover_leaves_young_sending_rows_to_whoever_is_sending_them(session, sid):
+    """둘째 프로세스가 같은 DB 로 떠도 첫 프로세스가 지금 보내는 줄을 「확인 필요」로 옮기지 않는다 — 뜨기 전에 차지된 줄이라도
+    STALE_SENDING_S(바퀴의 정리와 같은 문턱)보다 젊으면 그대로 둔다(정말 남은 줄이면 바퀴의 정리가 뒤에 옮긴다)."""
+    connect(session)
+    who = person(session, sid)
+    young = message(session, who, status="sending", claimed_at=NOW - timedelta(seconds=worker.STALE_SENDING_S - 5))
+    old = message(session, who, status="sending", claimed_at=NOW - timedelta(seconds=worker.STALE_SENDING_S + 5),
+                  body="오래 남은 글")
+    session.commit()
+
+    assert worker.recover(now=NOW, before=NOW) == 1
+
+    assert reread(session, young).status == "sending" and details(session, young) == []
+    assert reread(session, old).status == "unconfirmed"
 
 
 async def test_stale_sending_row_becomes_unconfirmed_on_a_later_tick(session, sid, fake_channel, fake_provider):
@@ -680,6 +699,47 @@ async def test_same_inbound_is_stored_once(session, sid, fake_provider, handed):
     assert len(inbound_rows(session)) == 1 and len(handed) == 1
 
 
+def _side_by_side(monkeypatch, module, name: str, job) -> list:
+    """두 스레드가 job 을 함께 돌린다. module.name 을 「두 쪽이 다 올 때까지(길어야 1초) 기다린 뒤 진짜를 부름」으로 바꿔 두
+    쪽이 확인을 지나 쓰기 바로 앞에서 만나게 한다 — 확인과 쓰기가 한 쓰기 트랜잭션이면 둘째는 확인 앞에서 기다리고, 첫째는
+    1초 뒤 혼자 지나간다. 돌려주는 것: 두 job 의 결과."""
+    real, meet = getattr(module, name), threading.Barrier(2)
+
+    def waiting(*args, **kwargs):
+        with contextlib.suppress(threading.BrokenBarrierError):
+            meet.wait(timeout=1.0)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(module, name, waiting)
+    results: list = [None, None]
+
+    def run(slot: int) -> None:
+        results[slot] = job()
+
+    threads = [threading.Thread(target=run, args=(slot,), daemon=True) for slot in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert not any(thread.is_alive() for thread in threads)
+    return results
+
+
+def test_two_workers_store_the_same_inbound_once(session, sid, monkeypatch):
+    """두 프로세스의 일꾼이 같은 DB 에서 같은 받은 문자를 함께 읽어도 한 줄만 남는다(겹침 확인과 넣기가 한 쓰기 트랜잭션)."""
+    connect(session, inbound_mode="known")
+    person(session, sid)
+    session.commit()
+    item = text_in()
+
+    stored = _side_by_side(monkeypatch, worker, "route", lambda: worker._store_inbound([item], OUR, as_utc(NOW), False))
+
+    assert len(inbound_rows(session)) == 1
+    assert sorted(len(result.new) for result in stored) == [0, 1]
+    [row] = inbound_rows(session)
+    assert len(details(session, row)) == 1
+
+
 async def test_inbound_is_handed_to_inbox(session, sid, fake_provider, handed):
     """응대할 것(engage·notice)만 글 세션 줄에 넣는다. 기록만 하는 것(받지 않음·사진·기계 문자)은 넣지 않는다."""
     connect(session, inbound_mode="known")
@@ -784,8 +844,10 @@ async def test_stop_from_an_unlisted_number_marks_without_a_confirmation(session
     assert fake_channel.delivered == []
 
 
-async def test_admission_trouble_keeps_the_stored_text(session, sid, fake_provider, handed, monkeypatch, caplog):
-    """받기 판정이 깨져도 받은 문자는 남는다(응대만 하지 않는다) — 다음 문자는 그대로 받는다."""
+async def test_admission_trouble_keeps_the_stored_text_and_judges_it_again(session, sid, fake_provider, handed, monkeypatch,
+                                                                           caplog):
+    """받기 판정이 깨져도 받은 문자는 남고 다음 문자는 그대로 받는다 — 깨진 줄은 다음 바퀴에 저장된 글로 다시 판정받는다
+    (한 번만: 판정이 된 줄은 다시 하지 않는다)."""
     caplog.set_level(logging.DEBUG)
     connect(session, inbound_mode="known")
     person(session, sid)
@@ -800,12 +862,96 @@ async def test_admission_trouble_keeps_the_stored_text(session, sid, fake_provid
     monkeypatch.setattr(door, "admit", admit)
     receive(fake_provider, text_in(body="깨짐"), text_in(pid="MGIN0002"))
 
-    await worker.tick(now=NOW)
+    assert (await worker.tick(now=NOW))["inbound"] == 2  # 판정이 깨진 줄도 새로 저장한 줄로 센다
 
     broken, fine = inbound_rows(session)
     assert (broken.body, broken.caller_class, details(session, broken)) == ("깨짐", None, [])
     assert handed == [fine.id] and worker.status()["last_error_kind"] == "RuntimeError"
+
+    monkeypatch.setattr(door, "admit", real)  # 판정이 다시 된다
+    await worker.tick(now=NOW + timedelta(seconds=20))
+    await worker.tick(now=NOW + timedelta(seconds=40))
+
+    broken = reread(session, broken)
+    assert broken.caller_class == "contact" and details(session, broken) == [("admission", "allowed", "known_caller")]
+    assert handed == [fine.id, broken.id] and len(details(session, fine)) == 1
+    assert worker.status()["last_error_kind"] is None
     assert_clean(caplog)
+
+
+async def test_lost_stop_word_is_judged_again_before_the_next_send(session, sid, fake_provider, fake_channel, monkeypatch):
+    """「수신거부」의 판정이 깨졌으면 다음 바퀴에 다시 판정한다 — 그 바퀴에 때가 된 예약보다 먼저(번호가 표시돼 예약은 나가지
+    않는다). 확인 문자도 한 번만."""
+    connect(session, inbound_mode="known", agent_sms="delegate")
+    who = person(session, sid)
+    session.commit()
+    real = door.admit
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(door, "admit", broken)
+    receive(fake_provider, text_in(body="수신거부"))
+
+    await worker.tick(now=NOW)
+    assert not outreach.is_do_not_contact(session, PHONE) and out_rows(session, "dnc_confirm") == []
+
+    monkeypatch.setattr(door, "admit", real)
+    planned = due(session, who, body="예약해 둔 안내", scheduled_at=NOW)
+    session.commit()
+    await worker.tick(now=NOW + timedelta(seconds=20))
+    await worker.tick(now=NOW + timedelta(seconds=40))
+
+    [row] = inbound_rows(session)
+    [confirm] = out_rows(session, "dnc_confirm")
+    assert outreach.is_do_not_contact(session, PHONE) and details(session, row) == [("admission", "noted", "stop_word")]
+    assert (confirm.status, confirm.reply_to_id) == ("accepted", row.id)
+    assert reread(session, planned).status == "draft"
+    assert fake_channel.delivered == [Handed("sms", confirm.id)]
+
+
+def _unjudged(session, pid: str, created: datetime) -> OutreachMessage:
+    """판정이 깨진 채 남은 받은 줄(caller_class 없음 · 사건 없음)."""
+    row = OutreachMessage(direction="in", channel="sms", status="received", origin="peer", peer_number=PHONE, body="내일 됩니다",
+                          provider_message_id=pid, sent_at=created, created_at=created)
+    session.add(row)
+    session.flush()
+    return row
+
+
+async def test_judging_again_is_capped_oldest_first_and_old_rows_are_left_for_a_person(session, sid, fake_provider, handed,
+                                                                                        monkeypatch):
+    connect(session, inbound_mode="known")
+    person(session, sid)
+    old = _unjudged(session, "MGOLD", NOW - timedelta(seconds=worker.READMIT_MAX_AGE_S + 60))
+    rows = [_unjudged(session, f"MGIN{i:04d}", NOW - timedelta(minutes=10 - i)) for i in range(3)]
+    session.commit()
+    monkeypatch.setattr(worker, "READMIT_PER_TICK", 2)
+    receive(fake_provider)
+
+    await worker.tick(now=NOW)
+    assert handed == [rows[0].id, rows[1].id] and reread(session, rows[2]).caller_class is None
+    assert worker.status()["inbound_unjudged"] == 1
+
+    await worker.tick(now=NOW + timedelta(seconds=20))
+    await worker.tick(now=NOW + timedelta(seconds=40))
+    assert handed == [row.id for row in rows]
+    assert reread(session, old).caller_class is None and details(session, old) == []
+    assert worker.status()["inbound_unjudged"] == 1
+
+
+def test_two_workers_never_judge_the_same_row_twice(session, sid, monkeypatch):
+    """판정은 쓰기 트랜잭션 안에서 줄의 caller_class 를 다시 보고 한다 — 두 일꾼이 같은 줄을 함께 다시 판정해도 한 번."""
+    connect(session, inbound_mode="known", agent_sms="delegate")
+    person(session, sid)
+    row = _unjudged(session, "MGIN0001", NOW - timedelta(minutes=1))
+    row.body = "수신거부"
+    session.commit()
+
+    judged = _side_by_side(monkeypatch, door, "admit", lambda: worker._admit(row.id, as_utc(NOW)))
+
+    assert sorted(result is None for result in judged) == [False, True]
+    assert details(session, row) == [("admission", "noted", "stop_word")] and len(out_rows(session, "dnc_confirm")) == 1
 
 
 async def test_inbound_poll_slows_down_when_nothing_is_expected(session, sid, fake_provider):
@@ -991,6 +1137,103 @@ async def test_repeated_trouble_backs_off_up_to_five_minutes(session, sid, fake_
     assert waits == [20, 40, 80, 160, 300, 300, 300] and fake_provider.log == ["received"] * 7
 
 
+MANY = {"per_contact_sms_daily": 100, "daily_sms_total": 100}
+
+
+@pytest.mark.real_channel("sms")
+@pytest.mark.parametrize(("failure", "closed", "kind"), [
+    (ProviderFailed("network", "연결 실패"), "failed", "network"),
+    (ProviderFailed("bad_key", "키", 401), "failed", "bad_key"),
+    (ProviderFailed("rate_limited", "잦음", 429, retry_after_s=90), "failed", "rate_limited"),
+    (ProviderFailed("server", "오류", 500, maybe_sent=True), "unconfirmed", "unsure"),
+])
+async def test_send_failure_stops_the_due_rows_and_backs_off(session, sid, fake_provider, failure, closed, kind):
+    """보내기가 제공사 쪽 까닭으로 실패하거나 결과를 모르면 그 바퀴의 남은 예약을 넣지 않고 쉰다 — 한 번의 끊김이 때가 된
+    예약을 모두 실패·확인 필요로 닫지 않는다."""
+    connect(session, limits_json=MANY)
+    who = person(session, sid)
+    rows = [due(session, who, body=f"예약 {i}") for i in range(3)]
+    waiting = sent(session, who)
+    session.commit()
+    fake_provider.fail = failure
+
+    result = await worker.tick(now=NOW)
+
+    assert [reread(session, row).status for row in rows] == [closed, "scheduled", "scheduled"]
+    assert fake_provider.log == ["send_message"] and result["error"] == kind  # 조회·받기도 그 바퀴에는 하지 않는다
+    assert reread(session, waiting).checks == 0
+    assert worker.status()["quiet_until"] == as_utc(NOW + timedelta(seconds=worker.TICK_S)).isoformat()
+
+
+@pytest.mark.real_channel("sms")
+async def test_after_a_send_failure_reads_go_first_and_sending_waits_for_them(session, sid, fake_provider, monkeypatch):
+    """쉰 뒤의 바퀴는 읽기부터 — 들어온 문자를 읽을 때가 아니어도 읽어 보고, 되면 그때 넣는다."""
+    connect(session, limits_json=MANY)
+    who = person(session, sid)
+    monkeypatch.setattr(worker, "INBOUND_S", 1000.0)  # 들어온 문자는 이 시험 동안 읽을 때가 아니다(첫 바퀴만 빼고)
+    monkeypatch.setattr(worker, "INBOUND_IDLE_S", 1000.0)
+    session.commit()
+    assert (await worker.tick(now=NOW - timedelta(seconds=10)))["skipped"] is None and fake_provider.log == ["received"]
+    rows = [due(session, who, body=f"예약 {i}") for i in range(3)]
+    session.commit()
+    fake_provider.fail = ProviderFailed("network", "연결 실패")
+    fake_provider.log.clear()
+    await worker.tick(now=NOW)
+    assert fake_provider.log == ["send_message"]
+
+    fake_provider.log.clear()
+    await worker.tick(now=NOW + timedelta(seconds=20))  # 쉬고 나서도 아직 안 된다 — 읽기만 해 보고 보내지 않는다
+    assert fake_provider.log == ["received"]
+    assert [reread(session, row).status for row in rows] == ["failed", "scheduled", "scheduled"]
+
+    fake_provider.fail = None  # 돌아옴
+    fake_provider.log.clear()
+    await worker.tick(now=NOW + timedelta(seconds=60))
+    assert fake_provider.log == ["received", "send_message", "send_message"]
+    assert [reread(session, row).status for row in rows] == ["failed", "accepted", "accepted"]
+    assert worker.status()["quiet_until"] is None and worker.status()["last_error_kind"] is None
+
+
+async def test_gate_refusals_and_our_own_send_failures_are_not_provider_trouble(session, sid, fake_provider, fake_channel):
+    """문이 막은 것(수신 거부 …)과 통로가 보내기 전에 스스로 거른 것은 제공사 탓이 아니다 — 쉬지 않고 나머지를 넣는다."""
+    connect(session, limits_json=MANY)
+    refused = due(session, person(session, sid))
+    outreach.mark_do_not_contact(session, PHONE, reason="전화로 요청")
+    other = person(session, sid, OTHER_PHONE, name="이철근")
+    rows = [due(session, other, body=f"예약 {i}") for i in range(2)]
+    session.commit()
+    fake_channel.result = Delivered("failed", fail_code=sms.NOT_REACHABLE)
+
+    result = await worker.tick(now=NOW)
+
+    assert result["due"] == 3 and reread(session, refused).status == "draft"
+    assert [reread(session, row).status for row in rows] == ["failed", "failed"]
+    assert worker.status()["quiet_until"] is None and result["error"] is None
+
+
+@pytest.mark.real_channel("sms")
+async def test_confirmation_send_failure_also_backs_off(session, sid, fake_provider):
+    """수신 거부 확인 문자도 보내기다 — 제공사 쪽 까닭으로 실패하면 쉬고, 그 바퀴의 다음 확인 문자는 초안으로 남는다."""
+    connect(session, inbound_mode="known", agent_sms="delegate", limits_json=MANY)
+    person(session, sid)
+    person(session, sid, OTHER_PHONE, name="이철근")
+    session.commit()
+    receive(fake_provider, text_in(body="수신거부"), text_in(sender=OTHER_PHONE, pid="MGIN0002", body="수신거부"))
+
+    async def refused(req):
+        fake_provider._called("send_message")
+        raise ProviderFailed("network", "연결 실패")
+
+    fake_provider.send_message = refused
+
+    result = await worker.tick(now=NOW)
+
+    first, second = out_rows(session, "dnc_confirm")
+    assert (first.status, second.status, second.fail_reason) == ("failed", "draft", worker.CONFIRM_HELD)
+    assert fake_provider.log.count("send_message") == 1 and result["error"] == "network"
+    assert worker.status()["quiet_until"] is not None
+
+
 @pytest.mark.parametrize("state", ["missing", "unknown", "failed", "unreadable_key"])
 async def test_no_usable_connection_means_nothing_happens(session, sid, fake_channel, state, monkeypatch):
     """연결이 없거나 ok 가 아니면 아무것도 하지 않는다 — 예약 줄도 그대로 둔다(연결이 돌아오면 그때 검사받는다)."""
@@ -1054,7 +1297,7 @@ async def test_status_reports_last_run_times(session, sid, fake_provider, fake_c
     assert empty == {"running": False, "last_tick_at": None, "last_due_at": None, "last_status_poll_at": None,
                      "last_inbound_poll_at": None, "inbound_truncated": 0, "inbound_truncated_at": None, "inbound_skipped": 0,
                      "inbound_redated": 0, "inbound_other_sender": 0, "inbound_failed": 0, "last_error_kind": None,
-                     "quiet_until": None}
+                     "quiet_until": None, "off_reason": None, "inbound_unjudged": 0}
     connect(session)
     who = person(session, sid)
     due(session, who)
@@ -1113,11 +1356,70 @@ async def test_start_twice_is_one_worker_and_stop_ends_it(session, monkeypatch):
     await worker.stop()  # 떠 있지 않아도 괜찮다
 
 
+def _start_lines(caplog) -> list[tuple[int, str]]:
+    return [(record.levelno, record.getMessage()) for record in caplog.records if record.name == worker.__name__]
+
+
+@pytest.mark.parametrize(("env", "reason"), [
+    ({"CHRONOS_OUTREACH_WORKER": "off"}, "disabled"),
+    ({"CHRONOS_OUTREACH_WORKER": "0"}, "disabled"),
+    ({"CHRONOS_OUTREACH_WORKER": "false"}, "disabled"),
+    ({"CHRONOS_OUTREACH_WORKER": " OFF "}, "disabled"),
+    ({"CHRONOS_OUTREACH_WORKER": "of"}, "disabled"),  # 모르는 값은 끈다(실제 문자를 보낼 수 있는 일꾼이다)
+    ({"CHRONOS_HARNESS_SANDBOX": "1"}, "sandbox"),
+    ({"CHRONOS_HARNESS_SANDBOX": "1", "CHRONOS_OUTREACH_WORKER": "on"}, "sandbox"),
+])
+async def test_switch_keeps_the_worker_off(session, monkeypatch, caplog, env, reason):
+    """CHRONOS_OUTREACH_WORKER 가 off·0·false(또는 모르는 값)이거나 모래상자 프로세스면 일꾼을 띄우지 않는다 — 시작 로그
+    한 줄과 status 의 off_reason 으로 까닭을 남긴다."""
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.delenv("CHRONOS_HARNESS_SANDBOX", raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    ran = []
+
+    async def run(stop, started):
+        ran.append(started)
+
+    monkeypatch.setattr(worker, "_run", run)
+    try:
+        worker.start.__wrapped__()
+        assert worker._task is None
+    finally:
+        await worker.stop()
+
+    assert ran == [] and worker.status()["running"] is False and worker.status()["off_reason"] == reason
+    assert _start_lines(caplog) == [(logging.INFO, f"연락 일꾼: 띄우지 않습니다 ({reason})")]
+
+
+@pytest.mark.parametrize("value", [None, "on", "ON", "1", "true"])
+async def test_switch_on_or_unset_starts_the_worker(session, monkeypatch, caplog, value):
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.delenv("CHRONOS_HARNESS_SANDBOX", raising=False)
+    if value is not None:
+        monkeypatch.setenv("CHRONOS_OUTREACH_WORKER", value)
+    ran = []
+
+    async def run(stop, started):  # 고리를 돌리지 않는다 — 띄웠는지만 본다
+        ran.append(started)
+
+    monkeypatch.setattr(worker, "_run", run)
+    try:
+        worker.start.__wrapped__()
+        assert worker._task is not None
+    finally:
+        await worker.stop()
+
+    assert len(ran) == 1 and worker.status()["off_reason"] is None
+    assert _start_lines(caplog) == [(logging.INFO, "연락 일꾼: 띄웁니다")]
+
+
 async def test_started_worker_first_closes_rows_left_sending_before_it_started(session, sid, monkeypatch):
     connect(session)
     who = person(session, sid)
-    left = message(session, who, status="sending", claimed_at=datetime.now(UTC) - timedelta(seconds=5))
+    left = message(session, who, status="sending", claimed_at=datetime.now(UTC) - timedelta(minutes=10))
     pressed = message(session, who, status="sending", claimed_at=datetime.now(UTC) + timedelta(hours=1), body="뜬 뒤에 누른 글")
+    young = message(session, who, status="sending", claimed_at=datetime.now(UTC) - timedelta(seconds=5), body="다른 쪽이 보내는 글")
     session.commit()
     ticks = []
 
@@ -1135,6 +1437,7 @@ async def test_started_worker_first_closes_rows_left_sending_before_it_started(s
         await worker.stop()
 
     assert ticks == ["unconfirmed"] and reread(session, pressed).status == "sending"
+    assert reread(session, young).status == "sending"
     assert details(session, left) == [("server_restart", "noted", worker.RESTARTED)]
 
 

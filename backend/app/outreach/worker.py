@@ -6,12 +6,16 @@
 - **알림 연결이 없거나 ok 가 아니거나 키를 풀 수 없으면 아무것도 하지 않는다**(예약 줄도 그대로 둔다 — 넣으면 문이 초안으로
   돌린다). 제공사가 안 되면(연결·키·잦은 요청·읽을 수 없는 답) 그 바퀴의 남은 요청을 그만두고 TICK_S 부터 두 배씩,
   길어야 QUIET_MAX_S 동안 쉰다(429 의 Retry-After 가 더 길면 그만큼) — 쉬는 동안은 예약도 내보내지 않는다.
+  **보내기도 같다**: 문에 넣은 줄이 제공사 쪽 까닭으로 실패하거나(_TROUBLE_TEXT) 결과를 모르면(unsure) 그 바퀴의 남은 예약을
+  넣지 않고 쉰다(문이 막은 것·통로가 보내기 전에 스스로 거른 것은 제공사 탓이 아니다). 쉰 뒤의 바퀴(fail_streak > 0)는
+  **읽기부터**(상태 조회 · 들어온 문자 — 읽을 때가 아니어도 읽어 본다) 하고, 읽기가 되었을 때만 예약을 넣는다.
 - **상태 조회**: 제공사 id 가 있는 accepted·unconfirmed 줄을 status_gap(checks) 간격으로(10초 → 두 배씩 → 5분) 묻는다.
   도착·실패로 바뀌면 `delivery_update`(delivered·failed) 사건, GIVE_UP_AFTER_S 가 지나면 그만 묻고 fail_reason 에 GAVE_UP
   (`delivery_update` · gave_up). 실패 까닭은 제공사의 code 를 우리 글 표(diagnostics.FAILURES)로 옮긴 것만 적는다.
   id 가 없는 unconfirmed 줄은 사람이 정할 때까지 그대로 둔다. 어느 줄도 다시 보내지 않는다.
-- **sending 으로 남은 줄**: 서버가 뜰 때 recover 가(그 전에 차지된 것 모두 — `server_restart` 사건), 그 뒤로는 바퀴마다
-  STALE_SENDING_S 넘게 남은 것을(`delivery` noted — 문이 결과를 적지 못한 것) unconfirmed 로 옮긴다. 다시 보내지 않는다.
+- **sending 으로 남은 줄**: 서버가 뜰 때 recover 가(그 전에 차지됐고 STALE_SENDING_S 보다 오래된 것 — 같은 DB 의 다른
+  프로세스가 지금 보내는 줄은 건드리지 않는다 · `server_restart` 사건), 그 뒤로는 바퀴마다 STALE_SENDING_S 넘게 남은 것을
+  (`delivery` noted — 문이 결과를 적지 못한 것) unconfirmed 로 옮긴다. 다시 보내지 않는다.
 - **들어온 문자**: `received(since)` 의 다음 since 는 `Received.next_since` 만 쓴다(처음에는 지금 − 여유 — 옛 문자를 끌어오지
   않는다). 겹쳐 오는 줄은 제공사 id 로 한 번만, 우리 발신번호로 온 것이 아니면 버리고 센다. truncated·skipped·redated 는
   status() 에 드러낸다(쪽 상한 뒤의 줄은 다시 읽어도 오지 않으므로 커서는 그대로 나아간다). 줄을 먼저 쓰고(route 가 고른
@@ -19,32 +23,41 @@
   등급과 `admission` 사건을 남긴다. stop 이면 번호를 수신 거부로 표시하고(이미 표시된 번호가 아니고 Admission.confirm 이
   참일 때만) 확인 문자 한 줄(dnc_confirm · gate.DNC_CONFIRM_TEXT)을 만들어 문에 넣는다(문자 권한 설정대로 — 「승인 받기」면
   초안으로 남는다). engage·notice 는 `inbox.enqueue(message_id)`.
+  **겹침 확인과 넣기, 판정은 저마다 쓰기 트랜잭션 하나(BEGIN IMMEDIATE)** — 같은 DB 에 일꾼이 둘이어도 한 줄·한 판정. 판정은
+  트랜잭션 안에서 줄의 caller_class 를 다시 보고 비어 있을 때만 하며, 등급·admission 사건·수신 거부 표시·확인 문자 줄을 한
+  commit 으로 남긴다(넘기기·확인 문자 보내기는 그 commit 이 된 판정에만 — 그래서 한 번).
+- **판정이 깨진 받은 줄은 다시 판정한다**: 바퀴마다 보내기보다 먼저, caller_class 가 빈 받은 줄을 오래된 차례로
+  READMIT_PER_TICK 줄까지(저장된 글로). READMIT_MAX_AGE_S 보다 오래된 줄은 사람에게 남기고 status() 의 inbound_unjudged 로 센다.
 - **한 바퀴의 상한**(아래 상수): 제공사 요청 MAX_REQUESTS_PER_TICK 번(received 는 가장 많이 쓰는 수로 미리 뗀다), 예약
-  DUE_PER_TICK 줄, 조회 STATUS_PER_TICK 줄, 확인 문자 CONFIRMS_PER_TICK 줄, 새로 받는 문자 INBOUND_ROWS_PER_TICK 줄, 옮기는
-  줄 SWEEP_ROWS 줄. 고리는 모두 이 수로 끝난다. 일꾼 고리는 바퀴가 MIN_PASS_S 보다 빨리 MAX_FAST_PASSES 번 이어 돌면 스스로
-  멈춘다(헛돌며 쌓지 않는다).
+  DUE_PER_TICK 줄, 조회 STATUS_PER_TICK 줄, 확인 문자 CONFIRMS_PER_TICK 줄, 새로 받는 문자 INBOUND_ROWS_PER_TICK 줄, 다시
+  판정 READMIT_PER_TICK 줄, 옮기는 줄 SWEEP_ROWS 줄. 고리는 모두 이 수로 끝난다. 일꾼 고리는 바퀴가 MIN_PASS_S 보다
+  빨리 MAX_FAST_PASSES 번 이어 돌면 스스로 멈춘다(헛돌며 쌓지 않는다).
 - DB 묶음은 짧게, 스레드에서(asyncio.to_thread), 묶음마다 새 세션. 제공사를 부르는 동안에는 세션도 잠금도 쥐지 않는다.
   어떤 예외도 일꾼을 멈추지 않는다 — 종류만 기록한다(번호·글·키는 로그·사건·status 어디에도 없다).
 - 일꾼은 프로세스에 하나: start 를 두 번 불러도 하나, stop 은 돌던 바퀴를 STOP_WAIT_S 까지 기다린 뒤 끊는다(바퀴는 요청
   사이마다 멈춤 신호를 본다). 통로(app.outreach.channels)는 start 가 불러와 등록한다.
+- **끄는 설정**: 환경 변수 CHRONOS_OUTREACH_WORKER 가 없거나 on(1·true)이면 띄우고, off·0·false(그 밖의 모르는 값도)이면
+  띄우지 않는다(`disabled`). 모래상자 프로세스(CHRONOS_HARNESS_SANDBOX=1)에서도 띄우지 않는다(`sandbox`). 까닭은 status()
+  의 off_reason, 시작 로그 INFO 한 줄.
 """
 
 import asyncio
 import contextlib
 import logging
+import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import ColumnElement, and_, func, literal, or_, select, update
+from sqlalchemy import ColumnElement, and_, func, literal, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.notify import diagnostics
 from app.outreach import phone, provider
-from app.outreach.harness import door, events, gate
-from app.outreach.harness.types import Actor, Ref
+from app.outreach.harness import door, events, gate, registry
+from app.outreach.harness.types import Actor, Outcome, Ref
 from app.outreach.text import inbox
 from app.store import contacts, outreach
 from app.store.tables_outreach import (
@@ -74,6 +87,10 @@ QUIET_MAX_S = 300.0  # 제공사가 안 될 때 쉬는 가장 긴 시간
 INBOUND_HOLD_MAX = 15  # 받은 문자를 저장하지 못해 커서를 붙잡아 두는 바퀴 수(넘으면 그 줄을 건너뛰고 나아간다)
 STOP_WAIT_S = 5.0  # stop 이 돌던 바퀴를 기다리는 시간
 MIN_PASS_S, MAX_FAST_PASSES = 1.0, 5  # 이보다 빨리 끝난 바퀴가 이만큼 이어지면 일꾼이 스스로 멈춘다
+READMIT_PER_TICK = 10  # 한 바퀴에 다시 판정하는 받은 줄(판정이 깨졌던 것)
+READMIT_MAX_AGE_S = 3600  # 이보다 오래된 판정 없는 받은 줄은 다시 하지 않고 사람에게 남긴다(status 의 inbound_unjudged)
+SWITCH_ENV = "CHRONOS_OUTREACH_WORKER"  # 없거나 on·1·true 면 띄운다. 그 밖(off·0·false …)은 띄우지 않는다
+_SWITCH_ON = ("", "on", "1", "true")
 GAVE_UP = "결과를 확인하지 못했습니다"
 RESTARTED = "서버가 다시 시작돼 보냈는지 확인이 필요합니다"
 RESULT_LOST = "보낸 결과를 적지 못해 확인이 필요합니다"
@@ -87,6 +104,10 @@ CONFIRM_ACTOR = Actor("agent", None, "수신 거부 확인", "user")  # 확인 �
 _M = OutreachMessage
 _WAITING = ("accepted", "unconfirmed")  # 결과를 기다리는 줄
 _ADMIT_VERDICT = {"engage": "allowed", "notice": "allowed", "stop": "noted"}  # admission 사건의 판정(그 밖은 blocked)
+# 보내기 실패 가운데 제공사 쪽 까닭(문이 적은 글 → 우리 code). 이것이거나 결과를 모르면 그 바퀴의 남은 예약을 넣지 않고 쉰다.
+# 통로가 보내기 전에 스스로 거른 것(not_reachable·not_sendable·local_error — 문에는 SEND_FAILED 로 보인다)은 넣지 않는다.
+_TROUBLE_TEXT = {gate.FAIL_TEXT[code]: code for code in ("bad_key", "bad_account", "bad_sender", "rate_limited", "overseas_ip",
+                                                          "network", "bad_request", "server")}
 _SENT_AT = func.coalesce(_M.sent_at, _M.claimed_at, _M.created_at)
 _LAST_LOOK = func.coalesce(_M.last_checked_at, _M.sent_at, _M.claimed_at, _M.created_at)
 
@@ -110,6 +131,8 @@ class _State:
     inbound_failed: int = 0  # 저장하지 못해 끝내 건너뛴 줄
     last_error_kind: str | None = None  # 마지막 바퀴의 오류 종류(제공사 code 또는 예외 이름). 깨끗했으면 None
     quiet_until: datetime | None = None  # 이때까지 제공사를 부르지 않는다
+    off_reason: str | None = None  # 띄우지 않은 까닭: disabled(끄는 설정) · sandbox(모래상자 프로세스)
+    inbound_unjudged: int = 0  # 판정 없이 READMIT_MAX_AGE_S 를 넘겨 사람에게 남긴 받은 줄(마지막 바퀴에 센 수)
     fail_streak: int = 0
     inbound_holds: int = 0
 
@@ -182,7 +205,8 @@ def status() -> dict:
         "inbound_truncated": s.inbound_truncated, "inbound_truncated_at": _iso(s.inbound_truncated_at),
         "inbound_skipped": s.inbound_skipped, "inbound_redated": s.inbound_redated,
         "inbound_other_sender": s.inbound_other_sender, "inbound_failed": s.inbound_failed,
-        "last_error_kind": s.last_error_kind, "quiet_until": _iso(s.quiet_until),
+        "last_error_kind": s.last_error_kind, "quiet_until": _iso(s.quiet_until), "off_reason": s.off_reason,
+        "inbound_unjudged": s.inbound_unjudged,
     }
 
 
@@ -202,6 +226,7 @@ class _Tick:
         self.clock = _now if now is None else (lambda: self.at)
         self.result: dict = {"skipped": None, "error": None, "due": 0, "status": 0, "inbound": 0, "requests": 0}
         self.broken = False  # 제공사가 안 된다 — 이 바퀴의 남은 요청을 하지 않는다
+        self.confirms = CONFIRMS_PER_TICK  # 이 바퀴에 더 넣을 수 있는 확인 문자
 
     def soft(self, exc: Exception, what: str) -> None:
         """한 건의 오류 — 그 건만 넘어간다. 종류만 남긴다(예외 글에는 번호·키가 있을 수 있다)."""
@@ -245,32 +270,55 @@ async def _work(run: _Tick) -> None:
         run.result["skipped"] = plan.skip
         state.last_error_kind = None if plan.skip in ("no_connection", "not_ok") else plan.skip
         return
-    reserved = provider.RECEIVED_MAX_REQUESTS + CONFIRMS_PER_TICK if plan.inbound_due else 0
+    recovering = state.fail_streak > 0  # 지난 바퀴에 제공사가 안 됐다 — 읽기부터 해 보고, 되면 보낸다
+    inbound = plan.inbound_due or recovering
+    reserved = provider.RECEIVED_MAX_REQUESTS + CONFIRMS_PER_TICK if inbound else 0
     room = MAX_REQUESTS_PER_TICK - reserved
-    await _send_due(run, plan.due[:max(0, min(DUE_PER_TICK, room))])
-    await _poll(run, plan, plan.polls[:max(0, min(STATUS_PER_TICK, room - run.result["due"]))])
-    if plan.inbound_due and not run.broken and not _stopping():
-        await _receive(run, plan)
+    due = plan.due[:max(0, min(DUE_PER_TICK, room))]
+    polls = plan.polls[:max(0, min(STATUS_PER_TICK, room - len(due)))]
+    news, state.inbound_unjudged = await asyncio.to_thread(_judge_again, run.at)  # 수신 거부 말이 보내기보다 먼저
+    if not recovering:
+        await _send_due(run, due)
+    await _poll(run, plan, polls)
+    if inbound and not run.broken and not _stopping():
+        news += await _receive(run, plan)
+    await _hand_off(run, news)
+    if recovering and not run.broken:
+        await _send_due(run, due)
     if not run.broken:
         state.last_error_kind, state.fail_streak, state.quiet_until = run.result["error"], 0, None
 
 
+def _provider_trouble(outcome: Outcome) -> str | None:
+    """보내기 결과가 제공사 쪽 문제인가 — 그 종류(결과를 모름 unsure · 제공사 까닭의 실패 code), 아니면 None."""
+    if outcome.code == "unsure":
+        return "unsure"
+    return _TROUBLE_TEXT.get(outcome.message) if outcome.code == "failed" else None
+
+
 async def _send_due(run: _Tick, ids: list[int]) -> None:
-    """① 때가 된 예약 줄을 문에 넣는다 — 검사는 문이 처음부터 다시 한다."""
+    """① 때가 된 예약 줄을 문에 넣는다 — 검사는 문이 처음부터 다시 한다. 제공사 쪽 문제로 끝난 줄이 있으면 남은 줄은 넣지
+    않고 쉰다(남은 줄은 scheduled 그대로 — 쉰 뒤 다시)."""
     for row_id in ids:
-        if _stopping():
+        if _stopping() or run.broken:
             break
         run.result["due"] += 1
         run.result["requests"] += 1
         try:
-            await gate.dispatch("message", row_id, SYSTEM, now=run.clock())
+            outcome = await gate.dispatch("message", row_id, SYSTEM, now=run.clock())
         except Exception as exc:  # noqa: BLE001
             run.soft(exc, "예약 보내기")
+            continue
+        kind = _provider_trouble(outcome)
+        if kind is not None:
+            run.trouble(kind)
     _state.last_due_at = run.at
 
 
 async def _poll(run: _Tick, plan: _Plan, polls: list[tuple[int, str]]) -> None:
     """② 상태 조회. 제공사가 그 메시지만 모르면(bad_request) 그 줄의 다음 조회만 미루고, 그 밖의 실패는 바퀴를 멈춘다."""
+    if run.broken:
+        return
     for row_id, provider_id in polls:
         if _stopping():
             break
@@ -287,15 +335,15 @@ async def _poll(run: _Tick, plan: _Plan, polls: list[tuple[int, str]]) -> None:
     _state.last_status_poll_at = run.at
 
 
-async def _receive(run: _Tick, plan: _Plan) -> None:
-    """③ 들어온 문자: 읽고(세션 밖) → 저장·받기 판정(스레드) → 넘기기·확인 문자 → 커서."""
+async def _receive(run: _Tick, plan: _Plan) -> list[_New]:
+    """③ 들어온 문자: 읽고(세션 밖) → 저장·받기 판정(스레드) → 커서. 새로 판정한 줄을 돌려준다(넘기기는 _hand_off)."""
     state = _state
     run.result["requests"] += provider.RECEIVED_MAX_REQUESTS
     try:
         got = await plan.client.received(plan.since)
     except provider.ProviderFailed as exc:
         run.trouble(exc.code, exc.retry_after_s)
-        return
+        return []
     state.last_inbound_poll_at = run.at
     if got.truncated:
         state.inbound_truncated, state.inbound_truncated_at = state.inbound_truncated + 1, run.at
@@ -307,25 +355,32 @@ async def _receive(run: _Tick, plan: _Plan) -> None:
     run.result["inbound"] = len(stored.new)
     if stored.error is not None:
         run.result["error"] = stored.error
-    confirms = CONFIRMS_PER_TICK
-    for new in stored.new:
-        try:
-            if new.confirm_id is None:
-                if new.verdict in ("engage", "notice"):
-                    inbox.enqueue(new.message_id)
-            elif confirms > 0 and not _stopping():
-                confirms -= 1
-                run.result["requests"] += 1
-                await gate.dispatch("message", new.confirm_id, CONFIRM_ACTOR, now=run.clock())
-            else:
-                await asyncio.to_thread(_hold_confirm, new.confirm_id)
-        except Exception as exc:  # noqa: BLE001
-            run.soft(exc, "받은 문자 넘기기")
     if stored.complete:
         state.inbound_holds = 0
         await asyncio.to_thread(_save_cursor, plan.conn_id, got.next_since)
     elif stored.broke:
         state.inbound_holds += 1
+    return stored.new
+
+
+async def _hand_off(run: _Tick, news: list[_New]) -> None:
+    """판정한 받은 줄을 넘긴다: engage·notice → inbox.enqueue, 확인 문자 → 문(바퀴에 CONFIRMS_PER_TICK 줄까지, 제공사가 안
+    되는 바퀴에는 넣지 않는다 — 넘거나 못 넣은 것은 초안으로 남아 사람이 보낸다)."""
+    for new in news:
+        try:
+            if new.confirm_id is None:
+                if new.verdict in ("engage", "notice"):
+                    inbox.enqueue(new.message_id)
+            elif run.confirms > 0 and not run.broken and not _stopping():
+                run.confirms -= 1
+                run.result["requests"] += 1
+                kind = _provider_trouble(await gate.dispatch("message", new.confirm_id, CONFIRM_ACTOR, now=run.clock()))
+                if kind is not None:
+                    run.trouble(kind)
+            else:
+                await asyncio.to_thread(_hold_confirm, new.confirm_id)
+        except Exception as exc:  # noqa: BLE001
+            run.soft(exc, "받은 문자 넘기기")
 
 
 # ── DB 묶음(스레드에서, 묶음마다 새 세션) ─────────────────────────────
@@ -396,13 +451,14 @@ def _close(session: Session, ids: list[int], rule: str, why: str, at: datetime) 
 
 
 def recover(now: datetime | None = None, *, before: datetime | None = None) -> int:
-    """서버가 뜰 때: before(없으면 지금) 전에 차지돼 sending 으로 남은 메시지를 unconfirmed 로 옮기고 `server_restart`
-    사건을 남긴다 — 다시 보내지 않는다. 옮긴 줄 수(한 번에 SWEEP_ROWS 줄까지 — 남은 것은 바퀴가 이어서 옮긴다)."""
+    """서버가 뜰 때: before(없으면 지금) 전에 차지돼 sending 으로 남은 메시지 가운데 STALE_SENDING_S 보다 오래된 것을
+    unconfirmed 로 옮기고 `server_restart` 사건을 남긴다 — 다시 보내지 않는다. 더 젊은 줄은 같은 DB 의 다른 프로세스가 지금
+    보내는 것일 수 있어 두고, 정말 남은 줄이면 바퀴의 정리가 뒤에 옮긴다. 옮긴 줄 수(한 번에 SWEEP_ROWS 줄까지)."""
     at = _now() if now is None else as_utc(now)
-    cut = at if before is None else as_utc(before)
+    cut = min(at if before is None else as_utc(before), at - timedelta(seconds=STALE_SENDING_S))
     with _db() as session:
         left = select(_M.id).where(_M.direction == "out", _M.status == "sending",
-                                   or_(_M.claimed_at.is_(None), _M.claimed_at < cut))
+                                   func.coalesce(_M.claimed_at, _M.created_at) < _t(cut))
         return _close(session, list(session.scalars(left.order_by(_M.id).limit(SWEEP_ROWS))), "server_restart", RESTARTED, at)
 
 
@@ -474,40 +530,73 @@ def _insert(session: Session, item: provider.Inbound, at: datetime) -> int:
     return row_id
 
 
-def _admit(row_id: int, item: provider.Inbound, at: datetime) -> _New:
-    """저장한 줄의 받기 판정(들어오는 문): 등급과 `admission` 사건을 남기고, 수신 거부 말이면 번호를 표시한다."""
+def _write_lock(session: Session) -> None:
+    """쓰기 트랜잭션(BEGIN IMMEDIATE)을 연다 — 확인(읽기)과 쓰기가 한 덩어리(같은 DB 의 다른 일꾼이 그 사이에 쓰지 못한다)."""
+    session.execute(text("BEGIN IMMEDIATE"))
+
+
+def _admit(row_id: int, at: datetime) -> _New | None:
+    """저장한 받은 줄의 받기 판정(들어오는 문) — 줄에 저장된 번호·글로. 등급과 `admission` 사건을 남기고, 수신 거부 말이면
+    번호를 표시한다. 쓰기 트랜잭션 안에서 줄을 다시 읽어 caller_class 가 이미 있으면(다른 일꾼·앞 바퀴가 판정함) 아무것도
+    하지 않고 None — 판정의 모든 쓰기는 commit 하나이므로 한 줄은 꼭 한 번만 판정된다."""
     with _db() as session:
-        admitted = door.admit(session, "sms", item.from_number, now=at, body=item.body, has_media=item.has_media,
-                              exclude_message_id=row_id)
-        session.execute(update(_M).where(_M.id == row_id).values(caller_class=admitted.caller.caller_class))
+        _write_lock(session)
+        row = session.get(_M, row_id)
+        if row is None or row.caller_class is not None:
+            return None
+        admitted = door.admit(session, "sms", row.peer_number, now=at, body=row.body.removesuffix(CUT_MARK),
+                              has_media=row.has_media, exclude_message_id=row_id)
+        row.caller_class = admitted.caller.caller_class
         events.record(session, Ref("message", row_id), "admission", _ADMIT_VERDICT.get(admitted.verdict, "blocked"),
                       admitted.reason, now=at)
-        confirm_id = _refuse(session, row_id, item, admitted.confirm, at) if admitted.verdict == "stop" else None
+        confirm_id = _refuse(session, row, admitted.confirm, at) if admitted.verdict == "stop" else None
         session.commit()
     return _New(row_id, admitted.verdict, confirm_id)
 
 
-def _refuse(session: Session, row_id: int, item: provider.Inbound, confirm: bool, at: datetime) -> int | None:
+def _refuse(session: Session, asked: OutreachMessage, confirm: bool, at: datetime) -> int | None:
     """수신 거부 말: 번호를 번호 기준 수신 거부로 표시한다. 새로 표시한 번호이고 confirm 이면 확인 문자 초안 한 줄을
     만들어 그 id 를 준다(표시마다 하나 — 다시 「수신거부」를 보내와도 더 만들지 않는다). commit 은 부른 쪽."""
-    number = door.stored_peer_number(item.from_number)
+    number = asked.peer_number
     marked = session.scalar(select(DoNotContactNumber.id).where(DoNotContactNumber.number == number)) is not None
     outreach.mark_do_not_contact(session, number, reason=STOP_REASON)
     if marked or not confirm:
         return None
-    asked = session.get(OutreachMessage, row_id)
     row = OutreachMessage(
         schedule_id=asked.schedule_id, contact_id=asked.contact_id, peer_number=None if asked.contact_id else number,
         direction="out", channel="sms", kind="dnc_confirm", body=gate.DNC_CONFIRM_TEXT, origin="agent",
-        origin_name=CONFIRM_ACTOR.name, status="draft", reply_to_id=row_id, created_at=at)
+        origin_name=CONFIRM_ACTOR.name, status="draft", reply_to_id=asked.id, created_at=at)
     session.add(row)
     session.flush()
     return row.id
 
 
+def _judge_again(at: datetime) -> tuple[list[_New], int]:
+    """판정이 깨진 채 남은 받은 줄(caller_class 없음)을 오래된 차례로 READMIT_PER_TICK 줄까지 다시 판정한다 — 이 바퀴에
+    저장한 줄은 빼고(방금 해 봤다), READMIT_MAX_AGE_S 보다 오래된 줄은 사람에게 남긴다. (새로 판정한 줄, 남긴 줄 수)."""
+    unjudged = (_M.direction == "in", _M.channel == "sms", _M.origin == "peer", _M.status == "received",
+                _M.caller_class.is_(None))
+    floor = _t(at - timedelta(seconds=READMIT_MAX_AGE_S))
+    with _db() as session:
+        ids = list(session.scalars(select(_M.id).where(*unjudged, _M.created_at >= floor, _M.created_at < _t(at))
+                                   .order_by(_M.created_at, _M.id).limit(READMIT_PER_TICK)))
+        left = session.scalar(select(func.count()).select_from(_M).where(*unjudged, _M.created_at < floor)) or 0
+    news = []
+    for row_id in ids:
+        try:
+            new = _admit(row_id, at)
+        except Exception as exc:  # noqa: BLE001 — 다음 바퀴에 다시
+            logger.warning("연락 일꾼: 받은 문자의 받기 판정을 다시 하지 못했습니다 (%s)", type(exc).__name__)
+            continue
+        if new is not None:
+            news.append(new)
+    return news, left
+
+
 def _store_inbound(items: list[provider.Inbound], our_number: str | None, at: datetime, tolerant: bool) -> _Stored:
-    """받은 줄들을 차례로: 우리 번호로 온 것만, 제공사 id 로 한 번만, 새 줄은 INBOUND_ROWS_PER_TICK 까지. 줄을 쓰고
-    commit 한 뒤 받기 판정을 한다 — 판정이 깨져도 받은 문자는 남는다. 저장이 깨지면 멈춘다(tolerant 면 그 줄만 건너뛴다)."""
+    """받은 줄들을 차례로: 우리 번호로 온 것만, 제공사 id 로 한 번만(겹침 확인과 넣기는 쓰기 트랜잭션 하나), 새 줄은
+    INBOUND_ROWS_PER_TICK 까지. 줄을 쓰고 commit 한 뒤 받기 판정을 한다 — 판정이 깨져도 받은 문자는 남고 다음 바퀴에 다시
+    판정한다(_judge_again). 저장이 깨지면 멈춘다(tolerant 면 그 줄만 건너뛴다)."""
     out = _Stored()
     for item in items:
         if our_number is None or item.to_number != our_number:
@@ -515,6 +604,7 @@ def _store_inbound(items: list[provider.Inbound], our_number: str | None, at: da
             continue
         try:
             with _db() as session:
+                _write_lock(session)
                 seen = select(_M.id).where(_M.direction == "in", _M.provider_message_id == item.provider_id).limit(1)
                 if session.scalar(seen) is not None:
                     continue
@@ -531,11 +621,12 @@ def _store_inbound(items: list[provider.Inbound], our_number: str | None, at: da
             out.complete, out.broke = False, True
             break
         try:
-            out.new.append(_admit(row_id, item, at))
+            new = _admit(row_id, at)
         except Exception as exc:  # noqa: BLE001
             out.error = type(exc).__name__
-            out.new.append(_New(row_id))
             logger.warning("연락 일꾼: 받은 문자의 받기 판정을 하지 못했습니다 (%s)", out.error)
+            new = None
+        out.new.append(new or _New(row_id))  # 판정 없는 줄(None)도 새로 저장한 줄로 센다 — 넘기지는 않는다
     return out
 
 
@@ -589,17 +680,29 @@ async def _run(stop: asyncio.Event, started: datetime) -> None:
         state.running = False
 
 
+def _off_reason() -> str | None:
+    """일꾼을 띄우지 않을 까닭(모듈 머리 글의 「끄는 설정」) — 띄우면 None."""
+    if os.environ.get(registry.SANDBOX_ENV) == "1":
+        return "sandbox"
+    return None if os.environ.get(SWITCH_ENV, "").strip().lower() in _SWITCH_ON else "disabled"
+
+
 def start() -> None:
     """서버가 뜰 때(lifespan, 이벤트 루프 안). 통로를 등록하고 일꾼을 띄운다 — 이미 떠 있으면 아무것도 하지 않는다.
-    기다리지 않는다(첫 정리와 첫 바퀴는 띄운 작업 안에서 돈다)."""
+    끄는 설정이면 띄우지 않는다(통로도 등록하지 않는다). 기다리지 않는다(첫 정리와 첫 바퀴는 띄운 작업 안에서 돈다)."""
     global _task, _stop
     if _task is not None and not _task.done():
+        return
+    _state.off_reason = _off_reason()
+    if _state.off_reason is not None:
+        logger.info("연락 일꾼: 띄우지 않습니다 (%s)", _state.off_reason)
         return
     import app.outreach.channels  # noqa: F401 — 진짜 통로(문자)를 등록한다. 불러오는 것은 여기 한 곳
 
     _stop = asyncio.Event()
     _state.running = True
     _task = asyncio.create_task(_run(_stop, _now()), name="outreach-worker")
+    logger.info("연락 일꾼: 띄웁니다")
 
 
 async def stop() -> None:
