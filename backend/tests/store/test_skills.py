@@ -59,8 +59,10 @@ def test_saved_steps_drop_repeats_questionnaires_and_window_opening(session):
     assert [s["tool"] for s in _saved(session, tools).steps_json] == ["schedule.find", "delay.record", "schedule.find"]
 
 
-def test_prompt_block_says_record_tools_only_when_asked(session):
+def test_prompt_block_leaves_record_tools_to_the_instructions(session):
+    """A6(리뷰): 지연 지시문(guides/delay.md)은 사용자가 지연을 말하면 기록하라고 한다 — 스킬 글이 그것과 다투지 않는다."""
     block = skills.skill_prompt_block(_saved(session))
     assert "요청이 같은 일일 때만 참고한다" in block
-    assert "기록·저장·제출 도구는 사용자가 이번에 그렇게 해 달라고 했을 때만 부른다" in block
+    assert "이 스킬 순서 때문에 기록 도구를 부르지는 않는다 — 부를지는 지시문과 이번 요청으로 정한다" in block
+    assert "해 달라고 했을 때만 부른다" not in block
     assert "우선 따라 실행한다" not in block

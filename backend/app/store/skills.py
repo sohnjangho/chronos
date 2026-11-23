@@ -121,7 +121,7 @@ def skill_prompt_block(skill: SkillRow) -> str:
     lines = [
         f"## 매칭된 스킬: {skill.name}",
         f"- 설명: {skill.description}",
-        "- 요청이 같은 일일 때만 참고한다. 기록·저장·제출 도구는 사용자가 이번에 그렇게 해 달라고 했을 때만 부른다.",
+        "- 요청이 같은 일일 때만 참고한다. 이 스킬 순서 때문에 기록 도구를 부르지는 않는다 — 부를지는 지시문과 이번 요청으로 정한다.",
         "- 참고할 도구 순서(상황에 맞게 인자를 채운다):",
     ]
     for i, step in enumerate(skill.steps_json or [], 1):
