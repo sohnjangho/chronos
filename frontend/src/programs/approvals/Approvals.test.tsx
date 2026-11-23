@@ -436,3 +436,32 @@ describe('현장 보고 사유', () => {
     expect(within(screen.getByRole('list', { name: '승인 건 목록' })).getByText('현장 보고')).toBeVisible();
   });
 });
+
+// 재확인 2(#14·#13): 반영할 수 없는 건에는 「승인하면 버전 N…」을 보이지 않고, 버전은 지금 일정의 다음 버전으로 센다.
+describe('결정 상자 안내의 버전', () => {
+  const OLD = '이전 방식으로 만든 판독이라 반영할 수 없습니다 — 사진을 다시 올려 주세요';
+
+  test('a blocked approval has no 「승인하면 버전」 line', () => {
+    render(<DecisionBox item={{ ...detailOf({ base_version: 4 }), blocked: OLD }} currentVersion={9} onDecide={async () => {}} />);
+    expect(screen.queryByText(/승인하면/)).toBeNull();
+    expect(screen.getByText(OLD)).toBeVisible();
+  });
+
+  test('the version is the next one of the schedule as it is now', () => {
+    render(<DecisionBox item={detailOf({ base_version: 9 })} currentVersion={9} onDecide={async () => {}} />);
+    expect(screen.getByText('승인하면 버전 10으로 저장되고, 탐색기에서 되돌릴 수 있습니다.')).toBeVisible();
+  });
+
+  test('an approval made on an older version says it will not apply as it is', () => {
+    render(<DecisionBox item={detailOf({ base_version: 4 })} currentVersion={9} onDecide={async () => {}} />);
+    expect(screen.queryByText(/버전 5/)).toBeNull();
+    expect(screen.getByText('버전 4 기준으로 만든 건이라 지금 일정(버전 9)에는 그대로 반영되지 않습니다 — 승인하면 충돌로 남습니다.')).toBeVisible();
+  });
+
+  test('the approvals window passes the current schedule version', async () => {
+    setup([item({ base_version: 2 })]);
+    render(<Approvals windowId="w1" />);
+    await screen.findByRole('heading', { name: '만회안 B 반영 — 크레인 2대' });
+    expect(await screen.findByText('버전 2 기준으로 만든 건이라 지금 일정(버전 3)에는 그대로 반영되지 않습니다 — 승인하면 충돌로 남습니다.')).toBeVisible();
+  });
+});

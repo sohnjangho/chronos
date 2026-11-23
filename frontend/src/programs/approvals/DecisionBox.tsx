@@ -6,13 +6,19 @@ import { ro } from './format';
 
 interface Props {
   item: ApprovalDetail;
+  /** 대상 일정의 지금 버전(모르면 null·없음 — 그때는 승인 건의 기준 버전으로 센다). */
+  currentVersion?: number | null;
   /** 서버에 결정을 보내고 끝나면 풀린다(결과 글은 부르는 쪽이 보인다). */
   onDecide(decision: Decision, note: string): Promise<void>;
 }
 
 const NOTE_REQUIRED = '다시 짜게 하려면 이유를 적어 주세요.';
 
-const hintOf = (item: ApprovalDetail) => {
+const hintOf = (item: ApprovalDetail, current: number | null) => {
+  if (item.blocked) return ''; // 반영할 수 없는 건 — 「승인하면 …」을 말하지 않는다
+  if (item.kind === 'change' && current !== null && current !== item.base_version) {
+    return `버전 ${item.base_version} 기준으로 만든 건이라 지금 일정(버전 ${current})에는 그대로 반영되지 않습니다 — 승인하면 충돌로 남습니다.`;
+  }
   if (item.kind === 'rule') {
     return '승인하면 내 규칙으로 저장됩니다. 일정은 바뀌지 않고, 조건·규칙 창에서 끄거나 지울 수 있습니다.';
   }
@@ -31,7 +37,7 @@ const hintOf = (item: ApprovalDetail) => {
 function Actions({ hint, busy, blocked, decide }: { hint: string; busy: boolean; blocked: boolean; decide(d: Decision): void }) {
   return (
     <div className="apv-decide-row">
-      <span className="apv-muted apv-wrap">{hint}</span>
+      {hint && <span className="apv-muted apv-wrap">{hint}</span>}
       <Button className="apv-reject" disabled={busy} onClick={() => decide('reject')}>
         거부
       </Button>
@@ -45,7 +51,7 @@ function Actions({ hint, busy, blocked, decide }: { hint: string; busy: boolean;
   );
 }
 
-export default function DecisionBox({ item, onDecide }: Props) {
+export default function DecisionBox({ item, currentVersion = null, onDecide }: Props) {
   const id = useId();
   const box = useRef<HTMLTextAreaElement>(null);
   const [note, setNote] = useState('');
@@ -92,7 +98,7 @@ export default function DecisionBox({ item, onDecide }: Props) {
         </p>
       )}
       {item.blocked && <p className="apv-error apv-wrap">{item.blocked}</p>}
-      <Actions hint={hintOf(item)} busy={busy} blocked={Boolean(item.blocked)} decide={(d) => void decide(d)} />
+      <Actions hint={hintOf(item, currentVersion)} busy={busy} blocked={Boolean(item.blocked)} decide={(d) => void decide(d)} />
     </section>
   );
 }

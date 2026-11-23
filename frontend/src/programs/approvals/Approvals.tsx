@@ -40,7 +40,12 @@ export default function Approvals({ params }: ProgramProps) {
             <ApprovalDetail item={d.detail} scheduleName={scheduleName} />
             {d.detail.status === 'pending' &&
               (canDecide ? (
-                <DecisionBox key={d.detail.id} item={d.detail} onDecide={d.decide} />
+                <DecisionBox
+                  key={d.detail.id}
+                  item={d.detail}
+                  currentVersion={d.detail.schedule_id == null ? null : (d.schedules?.get(d.detail.schedule_id)?.version ?? null)}
+                  onDecide={d.decide}
+                />
               ) : (
                 <section className="apv-decide" aria-label="결정">
                   <p className="apv-muted">현장 관리자는 승인·거부할 수 없습니다</p>
