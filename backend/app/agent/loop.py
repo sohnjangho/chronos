@@ -208,6 +208,7 @@ class _Turn:
         self.enable_self_reflection = True
         self.asked_questionnaire = False
         self.waiting_for_user = False
+        self.wait_reason: str | None = None  # 기다리는 까닭: answer(질문 답) | approval(승인함) — workflow 사건에 싣는다
         self.import_file: str | None = None  # 이 턴이 가져오기 단추로 온 파일 id(IMPORT_BUTTON)
         # 이 턴에 성공한 schedule.import: ("checked", 파일, 시트) | ("imported"·"asked"·"no_draft", 파일)
         self.import_seen: set[tuple] = set()
@@ -268,6 +269,7 @@ class _Turn:
             u = self.usage
             tokens = _count(u.input_tokens + u.output_tokens) if u else 0
             wf_status = "waiting" if self.outcome.status == "done" and self.waiting_for_user else self.outcome.status
+            self.log.wait_reason = self.wait_reason if wf_status == "waiting" else None
             self.log.finish(wf_status, tokens=tokens, cost=_money(u.cost) if u else None)
         if self.trace is not None:
             self.trace.end(self.outcome.status, (self.outcome.error or {}).get("message", self.last_text))
@@ -444,25 +446,25 @@ class _Turn:
         result = self.vision.after_tool(call.name, result)  # 붙이지 않은 그림은 결과에 까닭(image_note)
         if not result.ok:
             self.session.rollback()  # 실패한 도구가 남긴 쓰기는 저장하지 않는다
-        if result.ok and call.name in ("schedule.create_project", "out.submit_change") and isinstance(result.output, dict):
-            created_sid = result.output.get("schedule_id")
+        output = result.output if result.ok and isinstance(result.output, dict) else {}
+        # 가져오기는 안에서 out.submit_change·ask.questionnaire 를 부른다 — 그 결과(approval·step asked)를 같은 기준으로 본다
+        submitted = output.get("approval") if call.name == "schedule.import" else output
+        submitted = submitted if isinstance(submitted, dict) else {}
+        if call.name in ("schedule.create_project", "out.submit_change", "schedule.import"):
+            created_sid = submitted.get("schedule_id")
             if isinstance(created_sid, int):
                 self.schedule_id = created_sid
-        if call.name == "ask.questionnaire" and result.ok:
-            self.asked_questionnaire = True
-            self.waiting_for_user = True
-        elif call.name in ("out.submit_change", "scenario.submit", "rules.propose") and result.ok and isinstance(result.output, dict):
-            applied = result.output.get("applied")
+        if (call.name == "ask.questionnaire" and result.ok) or (call.name == "schedule.import" and output.get("step") == "asked"):
+            self.asked_questionnaire = self.asked_questionnaire or call.name == "ask.questionnaire"
+            self.waiting_for_user, self.wait_reason = True, "answer"
+        elif call.name in ("out.submit_change", "scenario.submit", "rules.propose", "schedule.import") and result.ok:
+            applied = submitted.get("applied")
             if applied is False:
-                self.waiting_for_user = True
+                self.waiting_for_user, self.wait_reason = True, "approval"
             elif applied is True:
                 self.waiting_for_user = False
         elif call.name in ("generate.run", "generate.extract_conditions", "schedule.create_project") and result.ok:
             self.waiting_for_user = False
-        elif call.name == "schedule.import" and result.ok and isinstance(result.output, dict):
-            approval = result.output.get("approval")  # 초안을 승인함에 냈다(out.submit_change 결과) — 같은 기준으로
-            if isinstance(approval, dict) and approval.get("applied") is not None:
-                self.waiting_for_user = approval.get("applied") is False
         self.note_import(call, result)
         if self.ran:
             self.note_failure(call, result)

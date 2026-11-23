@@ -26,6 +26,7 @@ class WorkflowLog:
         self.request = request
         self.run_id: int | None = None
         self.status = "running"
+        self.wait_reason: str | None = None  # waiting 일 때 까닭(answer | approval) — 화면 리본의 「답변·승인 대기 중」
         self._run: WorkflowRun | None = None
         self._resumable: WorkflowRun | None = session.scalars(
             select(WorkflowRun)
@@ -106,5 +107,6 @@ class WorkflowLog:
             self._run.cost = None
 
     def event(self) -> AgentEvent:
-        """workflow 사건: {run_id, status(실행), steps: [{n, tool, program, status}]}."""
-        return AgentEvent("workflow", {"run_id": self.run_id, "status": self.status, "steps": [dict(r) for r in self._rows]})
+        """workflow 사건: {run_id, status(실행), steps: [{n, tool, program, status}], wait_reason(waiting 일 때 answer|approval)}."""
+        return AgentEvent("workflow", {"run_id": self.run_id, "status": self.status, "steps": [dict(r) for r in self._rows],
+                                       "wait_reason": self.wait_reason if self.status == "waiting" else None})

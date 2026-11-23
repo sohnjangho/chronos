@@ -66,4 +66,11 @@ describe('import waiting for approval', () => {
     useAgentView.getState().onWorkflowEvent({ run_id: 49, status: 'waiting', steps: [{ n: 1, tool: 'schedule.import', program: null, status: 'done' }] });
     expect(useAgentView.getState().ribbon.waitReason).toBe('approval');
   });
+
+  // 재확인 3(#51): 가져오기가 빈 칸 질문을 열고 기다리면 서버가 wait_reason answer 를 싣는다 — 「답변 대기 중」.
+  it('the server wait reason wins over the guess from the last step', () => {
+    useAgentView.getState().reset();
+    useAgentView.getState().onWorkflowEvent({ run_id: 51, status: 'waiting', wait_reason: 'answer', steps: [{ n: 1, tool: 'schedule.import', program: null, status: 'done' }] });
+    expect(useAgentView.getState().ribbon.waitReason).toBe('answer');
+  });
 });

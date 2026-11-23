@@ -420,6 +420,7 @@ export const useAgentView = create<AgentViewState>((set, get) => {
     onWorkflowEvent(data) {
       const runId = typeof data.run_id === 'number' ? data.run_id : null;
       const status = validRibbonStatus(data.status);
+      const serverWait = data.wait_reason === 'answer' || data.wait_reason === 'approval' ? data.wait_reason : null;
       const rawSteps = Array.isArray(data.steps) ? data.steps : [];
       const steps: RibbonStep[] = rawSteps
         .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
@@ -445,7 +446,8 @@ export const useAgentView = create<AgentViewState>((set, get) => {
         collapsed: keepOpen ? false : cur.collapsed,
         runId: nextRunId,
         status,
-        waitReason: status === 'waiting' ? inferWaitReason(mergedSteps) : null,
+        // 서버가 실은 까닭(answer·approval)이 먼저 — 없으면(예전 사건) 마지막 단계로 짐작
+        waitReason: status === 'waiting' ? (serverWait ?? inferWaitReason(mergedSteps)) : null,
         steps: mergedSteps,
         creatingNewProject: keepOpen ? (resetSteps ? false : cur.creatingNewProject) : false,
         ...(status !== 'running' ? { genStage: null } : {}),

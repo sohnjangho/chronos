@@ -172,9 +172,12 @@ async def test_tool_turn_event_order(run, sid):
     assert end["ok"] is True and end["error"] is None and end["tool"] == "schedule.read" and end["ms"] >= 0
     assert (end["run_id"], end["n"], end["call_id"]) == (run_id, 1, "call_1")
     step = {"n": 1, "tool": "schedule.read", "program": "schedule-table"}
-    assert ev[1].data == {"run_id": run_id, "status": "running", "steps": [{**step, "status": "running"}]}
-    assert ev[4].data == {"run_id": run_id, "status": "running", "steps": [{**step, "status": "done"}]}
-    assert ev[6].data == {"run_id": run_id, "status": "done", "steps": [{**step, "status": "done"}]}
+    assert ev[1].data == {"run_id": run_id, "status": "running", "steps": [{**step, "status": "running"}],
+                          "wait_reason": None}
+    assert ev[4].data == {"run_id": run_id, "status": "running", "steps": [{**step, "status": "done"}],
+                          "wait_reason": None}
+    assert ev[6].data == {"run_id": run_id, "status": "done", "steps": [{**step, "status": "done"}],
+                          "wait_reason": None}
     assert ev[0].data == {"text": "일정을 읽겠습니다."} and ev[5].data == {"text": "두 개입니다."}
 
 
@@ -1063,6 +1066,46 @@ async def test_an_import_waiting_in_the_approval_box_leaves_the_run_waiting(run,
     assert [e.type for e in ev].count("approval") == 1
     assert session.scalars(select(WorkflowRun)).one().status == "waiting"
     assert [e.data for e in ev if e.type == "workflow"][-1]["status"] == "waiting"
+
+
+async def test_an_import_that_opens_a_questionnaire_leaves_the_run_waiting_for_an_answer(run, session, monkeypatch):
+    """재확인 3(#51): 가져오기가 빈 칸을 묻는 질문을 열고 멈추면 실행은 「완료」가 아니라 답변 대기(waiting, wait_reason answer)."""
+    question = {"id": "dur", "group": "기간", "question": "터파기 기간은?", "why": "기간 칸이 비었습니다.",
+                "options": [{"value": "4", "label": "4일", "hint": None, "recommended": True}],
+                "allow_free": True, "assumption": "4일로 봅니다."}
+    gen = FakeLiner()
+    gen.push(chat_body(json.dumps({**IMPORT_COLUMNS, "blanks": "ask", "questions": [question], "reason": "빈 칸"})))
+    _gen_client(monkeypatch, gen)
+    fid = _put_csv(session, IMPORT_CSV.replace("B,터파기,4,A", "B,터파기,,A"))
+    importing = {"file_id": fid, "confirmed": True, "domain": "construction", "level": "L2", "columns": IMPORT_COLUMNS}
+    ev = await run(ScriptedLlm([calls("schedule.import", importing), reply("질문에 답해 주세요.")]), _button_text(fid))
+    assert any(e.type == "card" and e.data.get("kind") == "mini_questions" for e in ev)
+    assert session.scalars(select(WorkflowRun)).one().status == "waiting"
+    last = [e.data for e in ev if e.type == "workflow"][-1]
+    assert (last["status"], last["wait_reason"]) == ("waiting", "answer")
+
+
+async def test_an_auto_approved_import_points_the_rest_of_the_turn_at_the_new_schedule(run, session, monkeypatch):
+    """리뷰: 바로 반영(자동 승인)된 가져오기가 일정을 만들면, out.submit_change 처럼 이 턴의 뒤 도구가 그 일정을 본다."""
+    from app.store.settings import set_approval_mode
+
+    set_approval_mode(session, "auto")
+    _gen_client(monkeypatch, FakeLiner())
+    fid = _put_csv(session, IMPORT_CSV)
+    seen: list[int | None] = []
+
+    def spy(args: Empty, ctx) -> Empty:
+        seen.append(ctx.schedule_id)
+        return Empty()
+
+    importing = {"file_id": fid, "confirmed": True, "domain": "construction", "level": "L2", "columns": IMPORT_COLUMNS}
+    with registered("spy_sid", spy):
+        ev = await run(ScriptedLlm([calls("schedule.import", importing), calls("spy_sid", {}, call_id="c2"), reply("끝")]),
+                       _button_text(fid))
+    approval = json.loads(session.scalars(select(WorkflowStep).where(WorkflowStep.tool == "schedule.import")).one()
+                          .output_json)["approval"]
+    assert approval["applied"] is True and seen == [approval["schedule_id"]]
+    assert [e.data for e in ev if e.type == "workflow"][-1]["status"] == "done"
 
 
 async def test_import_button_keeps_what_the_model_did_give(run, session, monkeypatch):
