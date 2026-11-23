@@ -63,6 +63,7 @@ export function useExplorerData() {
     try {
       const view = await exApi.restore(schedule.id, n, schedule.version);
       setNotice({ tone: 'ok', text: `버전 ${n}의 내용으로 버전 ${view.version}${eulOf(String(view.version))} 만들었습니다.` });
+      useCurrentSchedule.getState().bumpReload(); // 열린 일정 창(간트·스케줄·CPM·공정률)이 새 버전을 다시 읽는다
     } catch (e) {
       setNotice({ tone: 'error', text: message(e) });
     }

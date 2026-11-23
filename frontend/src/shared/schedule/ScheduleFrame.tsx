@@ -8,7 +8,7 @@ import { useWindows } from '../../os/windowStore';
 import Badge from '../ui/Badge';
 import { dot } from './format';
 import { ScheduleScope, useSchedule, useScheduleStore, type Scope } from './scope';
-import { holdSchedule, scheduleStore } from './scheduleStore';
+import { holdSchedule, scheduleStore, type ScheduleStore } from './scheduleStore';
 import './schedule.css';
 
 const positiveInt = (s: string | undefined) => (s && /^\d+$/.test(s) && Number(s) > 0 ? Number(s) : null);
@@ -137,6 +137,17 @@ function NoSchedule({ windowId, programId, name }: Pick<FrameProps, 'windowId' |
   );
 }
 
+/**
+ * 창을 열 때 늘 다시 읽는다 — 다른 창이 잡고 있던 저장소는 다른 곳(탐색기 되돌리기·승인)에서 바뀐 버전보다 낡았을 수 있다.
+ * 버전이 그대로면 다른 창의 지연 알림(lastChange)은 둔다(다시 읽기는 알림을 거두므로).
+ */
+async function reread(store: ScheduleStore) {
+  const { view, lastChange } = store.getState();
+  await store.getState().load();
+  const s = store.getState();
+  if (lastChange && !s.lastChange && s.view?.version === view?.version) store.setState({ lastChange });
+}
+
 export default function ScheduleFrame(props: FrameProps) {
   const { windowId, params } = props;
   const current = useCurrentSchedule((s) => s.current);
@@ -144,9 +155,17 @@ export default function ScheduleFrame(props: FrameProps) {
   const scope = useMemo<Scope | null>(() => (scheduleId === null ? null : { store: scheduleStore(scheduleId), windowId }), [scheduleId, windowId]);
   useEffect(() => {
     if (!scope) return;
-    const release = holdSchedule(scope.store, windowId);
-    if (!scope.store.getState().view) void scope.store.getState().load();
-    return release;
+    const { store } = scope;
+    const release = holdSchedule(store, windowId);
+    void reread(store);
+    // 화면 단추로 버전이 바뀐 곳(탐색기 되돌리기·승인함 승인)은 reloadToken 을 올린다 — 열린 창도 다시 읽는다.
+    const stop = useCurrentSchedule.subscribe((s, prev) => {
+      if (s.reloadToken !== prev.reloadToken) void store.getState().load();
+    });
+    return () => {
+      stop();
+      release();
+    };
   }, [scope, windowId]);
   if (!scope) return <NoSchedule {...props} />;
   return (

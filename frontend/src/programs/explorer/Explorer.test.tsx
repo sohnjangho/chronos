@@ -90,6 +90,18 @@ describe('R7 탐색기', () => {
     expect(callsTo('/api/explorer/tree').length).toBeGreaterThanOrEqual(2);
   });
 
+  test('W1: a restore tells the open schedule windows to read again', async () => {
+    setup();
+    await renderExplorer();
+    await pick('5층 사무동 신축');
+    await within(panel()).findByText('처음 생성 (승인)');
+    const before = useCurrentSchedule.getState().reloadToken;
+    await userEvent.click(screen.getAllByRole('button', { name: '되돌리기' })[0]);
+    await userEvent.click(within(screen.getByRole('alertdialog', { name: '버전 되돌리기' })).getByRole('button', { name: '되돌리기' }));
+    expect(await screen.findByText('버전 1의 내용으로 버전 3을 만들었습니다.')).toBeVisible();
+    expect(useCurrentSchedule.getState().reloadToken).toBe(before + 1);
+  });
+
   test('a restore conflict shows the server message', async () => {
     setup('admin', {
       'POST /api/schedules/1/versions/1/restore': () => json(409, { code: 'version_conflict', message: '그 사이 일정이 바뀌었습니다. 다시 불러와 주세요.', detail: { current: 3 } }),

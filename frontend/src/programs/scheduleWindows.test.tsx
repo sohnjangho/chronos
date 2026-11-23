@@ -1,15 +1,16 @@
 // 일정 도구 프로그램끼리(스케줄 ↔ 간트차트): 같은 일정을 보는 창은 저장소 하나를 함께 쓴다 —
 // 고침·되돌리기·쓰기 줄·고른 액티비티. 프로그램 폴더는 서로 import하지 않으므로 이 시험은 programs 바로 아래에 둔다.
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { useCurrentSchedule } from '../os/currentSchedule';
 import { useUiContext } from '../os/uiContext';
 import { useWindows } from '../os/windowStore';
-import { forgetSchedules } from '../shared/schedule/scheduleStore';
+import { forgetSchedules, holdSchedule, scheduleStore } from '../shared/schedule/scheduleStore';
 import Gantt from './gantt/Gantt';
 import { bar, leftRow, setupGantt } from './gantt/testKit';
 import ScheduleTable from './schedule-table/ScheduleTable';
-import { cell, editCell, loadSpy, makeView, mockPatch, row, rowOrNull, schedule, table, writes } from './schedule-table/testKit';
+import { cell, editCell, loadSpy, makeView, mockPatch, row, rowOrNull, schedule, server, table, writes } from './schedule-table/testKit';
 
 beforeEach(() => {
   localStorage.clear();
@@ -135,4 +136,40 @@ test('picking the same activity again in the other window follows again', async 
   await userEvent.click(leftRow('A4010')!);
   await waitFor(() => expect(scroll).toHaveBeenCalled());
   expect(scroll.mock.contexts.at(-1)).toBe(row('A4010'));
+});
+
+// W1(11-23): 탐색기 되돌리기·승인함 승인처럼 다른 곳에서 버전이 바뀌면 열린 일정 창과 새로 여는 창이 새 버전을 보인다.
+const head = (c: HTMLElement) => within(c).getByRole('group', { name: '일정 요약' });
+
+test('a reload signal (restore or approval elsewhere) makes an open window read the new version', async () => {
+  const { gantt } = await openBoth();
+  expect(head(gantt.container)).toHaveTextContent('완료 예정 2027.11.24');
+  server.view = makeView({ version: 6, finish: '2027-10-29' });
+  act(() => useCurrentSchedule.getState().bumpReload());
+  await waitFor(() => expect(head(gantt.container)).toHaveTextContent('완료 예정 2027.10.29'));
+  expect(loadSpy).toHaveBeenCalledTimes(2); // 두 창이 같은 저장소라 한 번만 읽는다
+});
+
+test('a window opened while another window holds an old copy reads the schedule again', async () => {
+  const release = holdSchedule(scheduleStore(1), 'w-cpm'); // CPM 창이 옛 버전을 잡고 있다
+  await act(() => schedule().load());
+  server.view = makeView({ version: 6, finish: '2027-10-29' });
+  const gantt = render(<Gantt windowId="w2" params={{ id: '1' }} />);
+  await waitFor(() => expect(head(gantt.container)).toHaveTextContent('완료 예정 2027.10.29'));
+  expect(loadSpy).toHaveBeenCalledTimes(2);
+  release();
+});
+
+test('opening another window keeps the delay notice when the version did not change', async () => {
+  const tableWin = render(<ScheduleTable windowId="w1" params={{ id: '1' }} />);
+  await screen.findByRole('table', { name: '스케줄표' });
+  const late = makeView({ version: 2 });
+  late.activities = late.activities.map((a) => (a.id === 'A3010' ? { ...a, status: 'late +2' } : a));
+  mockPatch(late);
+  await editCell('A3010', 'OD', '40');
+  expect(await within(tableWin.container).findByText(/늦어졌습니다/)).toBeVisible();
+  render(<Gantt windowId="w2" params={{ id: '1' }} />);
+  await waitFor(() => expect(loadSpy).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(schedule().view?.version).toBe(2));
+  expect(within(tableWin.container).getByText(/늦어졌습니다/)).toBeVisible();
 });
