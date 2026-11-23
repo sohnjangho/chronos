@@ -5,8 +5,10 @@
 - 받아쓰기는 `{role: agent|peer, text(redact.hide_phones), t}` — 우리 말과 상대 말을 가른다. 통화 중에는 한 줄씩 짧게 적고(실패해도
   통화는 이어진다), 끝에 모은 것을 한꺼번에 다시 적는다.
 - 첫 발화가 AI 비서·기록을 밝히지 않으면(greeting.discloses + 부정 말 거르기) 고정 첫마디를 한 번 더 시키고, 그래도 아니면 끊는다.
-- 끝: 받음 → completed(+길이·사용량·after_call) · 받은 뒤 연결·세션이 끊김(END_LOST) → failed 「확인 필요」 · 받지 않음/통화 중/
+- 끝: 받음 → completed(+길이·사용량) · 받은 뒤 연결·세션이 끊김(END_LOST) → failed 「확인 필요」 · 받지 않음/통화 중/
   실패 → 그 상태(+받지 않음은 gate.after_no_answer) · 고장 → failed(`call_result` backend_error). 모든 쓰기는 짧은 세션을 스레드에서.
+- 통화 뒤 일(after_call → Task 89 after.finish)은 끝 손잡이 안에서 돌지 않는다: 통화를 돌린 쪽이 place 가 끝난 뒤 `run_after`
+  로 부른다 — 줄이 completed 로 적혔을 때만, 자기 시간 상한 AFTER_WAIT_S 로, 실패·시간 넘김은 통화의 결과를 바꾸지 않는다.
 """
 
 import asyncio
@@ -25,7 +27,7 @@ from app.outreach import redact
 from app.outreach.harness import events, gate
 from app.outreach.harness.tools import Toolbox
 from app.outreach.harness.types import DELIVERY_VERDICT, Ref
-from app.outreach.voice import greeting
+from app.outreach.voice import after, greeting
 from app.outreach.voice import session as voice_session
 from app.outreach.voice.session import CallSpec
 from app.store import outreach
@@ -38,7 +40,9 @@ SILENCE_CHECKS = 2  # 확인 말 수 — 그다음 침묵에는 끊는다
 WRAP_UP_S = 20  # 최대 시간 이만큼 전에 정리 말
 MAX_TURNS = 400  # 한 통화의 받아쓰기 줄(우리 말·상대 말 합쳐)
 MAX_TOOL_CALLS = 40  # 한 통화의 도구 호출
-HANGUP_WAIT_S = 5.0  # 고장 뒤 끊기를 기다리는 시간
+HANGUP_WAIT_S = 5.0  # 고장 뒤 끊기를 기다리는 시간 · 일꾼이 끊기를 건넨 뒤 끝 사건을 기다리는 시간
+END_WRITE_WAIT_S = 30.0  # 끝 사건이 온 뒤 끝을 적는 쓰기(_tries — WRITE_TRIES 번, SQLite 기다림 포함)를 기다리는 시간
+AFTER_WAIT_S = 90.0  # 통화 뒤 일(뒤 확인 + 요약 — 요약 부름은 after.TIMEOUT_S)을 기다리는 시간
 WRITE_TRIES, WRITE_PAUSE_S = 3, 0.2  # 통화 끝을 적는 시도
 HELLO = "여보세요, 들리시나요?"
 GIVE_UP = "잘 들리지 않아 통화를 마치겠습니다"
@@ -54,9 +58,20 @@ _LIVE = ("dialing", "in_call")
 _NEGATIONS = ("아니", "않")  # discloses 는 낱말만 본다 — 「AI 가 아니고 … 기록되지 않습니다」를 밝힌 것으로 치지 않는다
 
 
-async def after_call(call_id: int) -> None:
-    """받은 통화가 끝난 뒤의 일(Task 89 의 after.finish 가 이 자리를 채운다). 지금은 아무것도 하지 않는다."""
-    return
+async def after_call(call_id: int, box: Toolbox | None = None) -> None:
+    """받은 통화가 끝난 뒤의 일 — Task 89 의 뒤 확인·요약·결과 제안. box 는 그 통화의 도구 상자(도구 결과·범위)."""
+    await after.finish(call_id, box)
+
+
+async def run_after(run: "CallRun") -> None:
+    """통화를 돌린 쪽이 place 가 끝난 뒤(그 시간 창 밖에서) 부른다: 줄이 completed 로 적힌 통화만, AFTER_WAIT_S 안에서.
+    실패·시간 넘김은 종류만 로그 — 통화의 결과(줄·outcome)는 그대로다. 취소(일꾼이 멈춤)만 지나간다."""
+    if not run.recorded:
+        return
+    try:
+        await asyncio.wait_for(after_call(run.call_id, run.box), AFTER_WAIT_S)
+    except Exception as exc:  # noqa: BLE001 — TimeoutError 포함
+        logger.warning("통화 일꾼: 통화 뒤 일을 마치지 못했습니다 (%s)", _kind(exc))
 
 
 def _db():
@@ -80,6 +95,8 @@ class CallRun:
         self.lines: list[dict] = []  # 받아쓰기(가린 글) — 끝에 한꺼번에 다시 적는다
         self.started = self.ended = self.closing = self.by_person = self.wrapped = self.resaid = False
         self.hung = asyncio.Event()  # 일꾼이 끊기를 건넸다 — 그 뒤로는 끝 사건을 HANGUP_WAIT_S 만 기다린다(runner)
+        self.end_seen = asyncio.Event()  # 끝 사건(on_end·on_failed)이 왔다 — 실제 시간 상한은 여기까지(runner)
+        self.recorded = False  # 끝을 completed 로 적었다(그때만 통화 뒤 일)
         self.opening_pending = True
         self.silence_checks, self.last_check, self.turns, self.tool_calls = 0, None, 0, 0
         self.note: str | None = None  # 끝난 줄의 fail_reason 에 남길 말
@@ -146,6 +163,7 @@ class CallRun:
 
     async def on_end(self, reason: str, seconds: int) -> None:
         self.ended = True
+        self.end_seen.set()
         self.elapsed = max(self.elapsed, float(seconds))
         if reason == voice_session.END_LOST:  # 받은 뒤 연결·세션이 끊김 — 통화됨이 아니다(확인 필요)
             self.outcome = "failed"
@@ -157,15 +175,12 @@ class CallRun:
                                     "failed")
             return
         self.outcome = "completed"
-        await asyncio.to_thread(_tries, _finish, self.call_id, list(self.lines), int(seconds), self.note, self.by_person,
-                                self.model, self.at())
-        try:
-            await after_call(self.call_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("통화 일꾼: 통화 뒤 일을 마치지 못했습니다 (%s)", _kind(exc))
+        self.recorded = await asyncio.to_thread(_tries, _finish, self.call_id, list(self.lines), int(seconds), self.note,
+                                                self.by_person, self.model, self.at()) is True
 
     async def on_failed(self, code: str, detail: str) -> None:
         self.ended = True
+        self.end_seen.set()
         self.outcome = code if code in FAILED_TEXT else "failed"
         await asyncio.to_thread(_tries, _unanswered, self.call_id, self.outcome, self.at())
         if self.outcome == "no_answer":
@@ -238,17 +253,18 @@ def _discloses(language: str, spoken: str) -> bool:
 # ── 통화의 쓰기(스레드에서, 짧은 세션, 곧바로 commit) ─────────────────────────────
 
 
-def _tries(work: Callable, *args: Any) -> None:
-    """통화의 끝은 꼭 적는다 — 몇 번 다시 해 보고, 끝내 못 적으면 종류만 로그(줄은 다음에 뜰 때 recover 가 닫는다)."""
+def _tries(work: Callable, *args: Any) -> Any:
+    """통화의 끝은 꼭 적는다 — 몇 번 다시 해 보고(돌려준 값을 그대로), 끝내 못 적으면 종류만 로그하고 None(줄은 다음에 뜰 때
+    recover 가 닫는다)."""
     for attempt in range(WRITE_TRIES):
         if attempt:
             time.sleep(WRITE_PAUSE_S)
         try:
-            work(*args)
-            return
+            return work(*args)
         except Exception as exc:  # noqa: BLE001
             failure = _kind(exc)
     logger.error("통화 일꾼: 통화의 끝을 적지 못했습니다 (%s)", failure)
+    return None
 
 
 def _mark_in_call(call_id: int, at: datetime) -> None:
@@ -273,18 +289,21 @@ def _record(call_id: int, rule: str, detail: str, at: datetime) -> None:
 
 
 def _finish(call_id: int, lines: list[dict], seconds: int, note: str | None, by_person: bool, model: str | None,
-            at: datetime) -> None:
-    """받은 통화의 끝: completed · 길이 · 받아쓰기 전부 · 사용량(초 — 토큰·요금은 백엔드가 알려 줄 때만, 지금은 없음)."""
+            at: datetime) -> bool:
+    """받은 통화의 끝: completed · 길이 · 받아쓰기 전부 · 사용량(초 — 토큰·요금은 백엔드가 알려 줄 때만, 지금은 없음).
+    completed 로 옮겼으면 True(이미 끝난 줄이면 False — 아무것도 바꾸지 않음)."""
     with _db() as session:
         done = session.execute(
             update(OutreachCall).where(OutreachCall.id == call_id, OutreachCall.status.in_(_LIVE))
             .values(status="completed", duration_s=seconds, ended_at=at, transcript_json=lines, fail_reason=note)
             .execution_options(synchronize_session=False))
-        if done.rowcount == 1:
+        moved = done.rowcount == 1
+        if moved:
             if by_person:
                 events.record(session, Ref("call", call_id), "hangup_by_person", "noted", "사람이 화면에서 끊었습니다", now=at)
             outreach.add_usage(session, "voice_model", ref=("call", call_id), model=model, seconds=seconds)
         session.commit()
+        return moved
 
 
 def _unanswered(call_id: int, code: str, at: datetime) -> None:

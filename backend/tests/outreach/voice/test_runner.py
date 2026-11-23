@@ -19,7 +19,13 @@ import app
 from app.outreach import redact
 from app.outreach.harness import gate, tools
 from app.outreach.harness.toolsets import ALL
-from app.outreach.harness.types import CALL_RESULTS, TOOL_REFUSALS, Actor, Delivered
+from app.outreach.harness.types import (
+    CALL_RESULTS,
+    REVIEW_FLAGS,
+    TOOL_REFUSALS,
+    Actor,
+    Delivered,
+)
 from app.outreach.voice import call_run, instructions, numbers, runner
 from app.outreach.voice import session as voice_session
 from app.outreach.voice.simulated import (
@@ -234,7 +240,7 @@ async def test_opening_that_denies_being_an_ai_ends_the_call(session, world, mon
 
     sim.place = place_once
     finished = []
-    monkeypatch.setattr(call_run, "after_call", lambda call_id: finished.append(call_id) or asyncio.sleep(0))
+    monkeypatch.setattr(call_run, "after_call", lambda call_id, box=None: finished.append(call_id) or asyncio.sleep(0))
     with voice_session.pinned(sim):
         await runner.run_one(row.id, now=WORK)
 
@@ -279,7 +285,7 @@ async def test_states_dialing_in_call_completed(session, world):
 async def test_after_call_hook_runs_once_per_finished_call(session, world, monkeypatch):
     finished = []
 
-    async def hook(call_id):
+    async def hook(call_id, box=None):
         finished.append(call_id)
 
     monkeypatch.setattr(call_run, "after_call", hook)
@@ -522,7 +528,7 @@ async def test_answered_then_dropped_is_never_completed(session, world, monkeypa
     from app.outreach.voice.simulated import Lost
 
     finished = []
-    monkeypatch.setattr(call_run, "after_call", lambda call_id: finished.append(call_id) or asyncio.sleep(0))
+    monkeypatch.setattr(call_run, "after_call", lambda call_id, box=None: finished.append(call_id) or asyncio.sleep(0))
     row = queued(session, world.who)
     sim = await place(row, [Lost()])
     back = reread(session, row)
@@ -714,7 +720,8 @@ async def test_call_events_use_the_fixed_vocabulary(session, world):
             seen.add(rule)
             if rule == "call_result":
                 assert detail in CALL_RESULTS
-    assert seen <= RUNNER_RULES | {"delivery"}  # delivery 는 결과 모름을 문에 알리는 문의 낱말(고침 1)
+    # delivery 는 결과 모름을 문에 알리는 문의 낱말(고침 1) · 깃발은 통화 뒤 하네스 뒤 확인(Task 89)의 낱말
+    assert seen <= RUNNER_RULES | {"delivery"} | REVIEW_FLAGS
     assert {"silence", "time_limit", "call_result", "recheck_before_dial"} <= seen
 
 

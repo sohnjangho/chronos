@@ -15,10 +15,12 @@
   정리 말, 닿으면 끊음 · `time_limit`), 침묵 SILENCE_S 마다 확인 말 SILENCE_CHECKS 번, 그다음은 끊음(`silence`), 받아쓰기
   MAX_TURNS 줄·도구 MAX_TOOL_CALLS 번(넘으면 끊음 · `time_limit`), 그리고 실제 시간으로도 `max_call_seconds + PLACE_GRACE_S`
   (백엔드가 돌아오지 않으면 끊고 「걸렸는지 확인 필요」).
-- **끝은 늘 정해진 상태로**: 받음 → completed(+duration_s·사용량 voice_model·통화 뒤 after_call) · 받지 않음/통화 중/실패 →
+- **끝은 늘 정해진 상태로**: 받음 → completed(+duration_s·사용량 voice_model) · 받지 않음/통화 중/실패 →
   no_answer/busy/failed(`call_result` · 받지 않음은 gate.after_no_answer — 다시 거는 것은 **새 줄**) · 백엔드 고장·예외·시간 넘김 →
   failed(`call_result` backend_error — 받기 전이면 「걸렸는지 확인 필요」) · 서버가 다시 뜸 → recover. 결과를 모르는 통화는
-  자동으로 다시 걸지 않는다.
+  자동으로 다시 걸지 않는다. 실제 시간 상한은 **끝 사건이 올 때까지만**이다 — 그 뒤 끝 적기는 call_run.END_WRITE_WAIT_S 로
+  따로 묶고, 통화 뒤 일(call_run.run_after → after.finish: 뒤 확인·요약)은 place 가 끝난 뒤 completed 로 적힌 통화만
+  call_run.AFTER_WAIT_S 안에서 돈다. 어느 쪽의 실패·시간 넘김도 적힌 통화의 결과를 바꾸지 않는다.
 - **번호·키·글은 로그에 없다**: 예외는 종류만. 음성 키는 백엔드를 쓰기 전에 redact.add_secrets 로 거르개에 올리고, SDK 로거가
   가리개에 덮였는지(redact.covers) 본 뒤에만 건다. 받아쓰기는 `{role: agent|peer, text(hide_phones), t}` 로 우리 말과 상대 말을 가른다.
 - **통화가 도는 동안 열린 세션·쓰기 잠금이 없다**: DB 일은 짧은 세션을 스레드에서(asyncio.to_thread), 쓰고 곧바로 commit.
@@ -278,24 +280,37 @@ async def _call(call_id: int, base: datetime) -> str | None:
         else:  # 끝 손잡이 없이 돌아왔다 — 약속을 어긴 백엔드
             state.last_error_kind = "no_end"
             await run.broke()
+    state.live.pop(call_id, None)  # 통화는 끝났다(끊기·live 셈에서 빠짐). 줄은 통화 뒤 일까지 쥔다 — 한 번에 한 통
+    await call_run.run_after(run)
     return run.outcome
 
 
 async def _place(backend: VoiceBackend, spec: CallSpec, run: CallRun) -> None:
-    """건다 — 실제 시간 상한 둘: 통화 전체 max_seconds + PLACE_GRACE_S, 그리고 일꾼이 끊기를 건넨 뒤에는 끝 사건을
-    call_run.HANGUP_WAIT_S 만 기다린다(세션이 실패해 끝 사건이 오지 않는 백엔드). 넘으면 TimeoutError."""
+    """건다 — 실제 시간 상한은 끝 사건(on_end·on_failed)이 올 때까지만: 통화 전체 max_seconds + PLACE_GRACE_S, 그리고 일꾼이
+    끊기를 건넨 뒤에는 끝 사건을 call_run.HANGUP_WAIT_S 만 기다린다(세션이 실패해 끝 사건이 오지 않는 백엔드). 그 전에 넘으면
+    TimeoutError. 끝 사건이 온 뒤에는 끝 적기를 call_run.END_WRITE_WAIT_S 까지 기다리고, 그 뒤의 예외·시간 넘김은 종류만
+    로그한다(끝은 이미 정해졌다 — 고장으로 바꾸지 않는다)."""
     task = asyncio.ensure_future(backend.place(spec, run))
     hung = asyncio.ensure_future(run.hung.wait())
+    end = asyncio.ensure_future(run.end_seen.wait())
     try:
-        done, _ = await asyncio.wait({task, hung}, timeout=spec.max_seconds + PLACE_GRACE_S,
+        done, _ = await asyncio.wait({task, hung, end}, timeout=spec.max_seconds + PLACE_GRACE_S,
                                      return_when=asyncio.FIRST_COMPLETED)
-        if task not in done and hung in done:
-            done, _ = await asyncio.wait({task}, timeout=call_run.HANGUP_WAIT_S)
-        if task not in done:
+        if hung in done and not done & {task, end}:
+            done, _ = await asyncio.wait({task, end}, timeout=call_run.HANGUP_WAIT_S, return_when=asyncio.FIRST_COMPLETED)
+        if not done & {task, end}:
             raise TimeoutError
-        task.result()
+        if not run.ended:  # 끝 사건 없이 place 가 돌아왔다 — 예외면 그대로(고장), 아니면 부른 쪽이 no_end 로
+            task.result()
+            return
+        if not task.done():
+            await asyncio.wait({task}, timeout=call_run.END_WRITE_WAIT_S)
+        if not task.done() or task.cancelled() or task.exception() is not None:
+            failure = "TimeoutError" if not task.done() else "CancelledError" if task.cancelled() else _kind(task.exception())
+            logger.warning("통화 일꾼: 끝 사건 뒤 통화를 마무리하지 못했습니다 (%s)", failure)
     finally:
         hung.cancel()
+        end.cancel()
         if not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
