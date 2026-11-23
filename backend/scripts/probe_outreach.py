@@ -30,11 +30,10 @@ from app.notify.diagnostics import (
     Calls,
     DiagnosticConn,
     DiagnosticStep,
+    make_client,
     run_checks,
     scrub,
 )
-
-TIMEOUT_S = 30.0
 
 
 class Skip(Exception):
@@ -125,13 +124,14 @@ def run(argv: list[str] | None = None, *, transport: httpx.AsyncBaseTransport | 
     conn = DiagnosticConn(base_url=DEFAULT_BASE_URL, key=key, account_id=account, sender=sender, test_to=to)
 
     async def go() -> list[DiagnosticStep]:
-        async with httpx.AsyncClient(timeout=TIMEOUT_S, trust_env=False, follow_redirects=False,
-                                     transport=transport) as http:
+        async with make_client(transport=transport) as http:
             return await run_checks(conn, http, send_test_sms=args.send, steps=args.steps, sleep=sleep, calls=p.calls)
 
     for result in asyncio.run(go()):
         if result.id == "P2" and result.skipped and not args.send:
             result.detail = "--send 필요"
+        elif result.id == "P2" and result.skipped:  # --send 를 줬는데 못 보냄 → 실패로
+            result.skipped, result.detail = False, "missing_number · --send 에는 KAT_FROM·PROBE_TO 가 모두 필요"
         p.show(result)
     print(f"\n요청 수: {p.sent}")
     return (1 if p.failed else 0), p

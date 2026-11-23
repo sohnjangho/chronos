@@ -95,3 +95,11 @@ def test_error_and_network_failures_print_no_secret(monkeypatch, capsys):
     assert "[P1] FAIL — unauthorized" in out and "[P4] FAIL — ConnectError" in out and code == code2 == 1
     assert "cannot reach" not in out
     assert_clean(out)
+
+
+def test_send_without_recipient_is_a_fail_line(monkeypatch, capsys):
+    set_env(monkeypatch, {k: v for k, v in ENV.items() if k != "PROBE_TO"})
+    fake = KatFake()
+    code, _ = run(["--send", "--steps", "2"], transport=fake, sleep=no_sleep)
+    out = capsys.readouterr().out
+    assert code == 1 and "[P2] FAIL — " in out and "PROBE_TO" in out and fake.requests == []

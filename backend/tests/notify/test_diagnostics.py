@@ -5,8 +5,10 @@
 
 import json
 from dataclasses import asdict
+from urllib.parse import quote, quote_plus
 
 import httpx
+import pytest
 
 from app.notify.diagnostics import (
     DEFAULT_BASE_URL,
@@ -17,6 +19,7 @@ from app.notify.diagnostics import (
     check_received,
     check_send_sms,
     check_senders,
+    make_client,
     run_checks,
     scrub,
 )
@@ -68,7 +71,7 @@ class KatFake(httpx.MockTransport):
 
 
 def client(fake: KatFake) -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=fake, trust_env=False, follow_redirects=False)
+    return make_client(transport=fake)
 
 
 async def no_sleep(_s: float) -> None:
@@ -104,7 +107,7 @@ async def test_connection_test_never_sends_sms():
 async def test_send_sms_needs_explicit_flag():
     fake = KatFake()
     async with client(fake) as http:
-        result, mid = await check_send_sms(CONN, http)
+        result, mid = await check_send_sms(CONN, http, calls=Calls())
     assert result.skipped and mid is None and fake.requests == []
 
 
@@ -152,7 +155,7 @@ async def test_status_polls_at_most_four_times_within_cap():
 async def test_failed_status_shows_failure_code():
     fake = KatFake(statuses=("failed",))
     async with client(fake) as http:
-        result = await check_message_status(CONN, http, MSG_ID, sleep=no_sleep)
+        result = await check_message_status(CONN, http, MSG_ID, sleep=no_sleep, calls=Calls())
     assert result.ok and result.detail == "failed · failureCode=handset_off"
 
 
@@ -169,7 +172,7 @@ async def test_error_body_gives_code_and_no_secret():
     fake = KatFake(override=lambda r: httpx.Response(401, json={
         "code": "unauthorized", "error": f"bad key {SENTINEL_KEY} for {ACCOUNT} from {FROM} to {SENTINEL_PHONE}"}))
     async with client(fake) as http:
-        result = await check_senders(CONN, http)
+        result = await check_senders(CONN, http, calls=Calls())
     assert not result.ok and result.detail.startswith("unauthorized")
     assert any("bad key" in n for n in result.notes)
     assert_clean([result])
@@ -180,7 +183,7 @@ async def test_network_error_gives_type_only():
         raise httpx.ConnectError(f"cannot reach {request.url} key {SENTINEL_KEY}")
 
     async with client(KatFake(override=boom)) as http:
-        result = await check_received(CONN, http)
+        result = await check_received(CONN, http, calls=Calls())
     assert not result.ok and result.detail == "ConnectError"
     assert "cannot reach" not in json.dumps(asdict(result), ensure_ascii=False)
     assert_clean([result])
@@ -188,8 +191,8 @@ async def test_network_error_gives_type_only():
 
 async def test_redirect_is_not_followed_even_if_client_would():
     fake = KatFake(override=lambda r: httpx.Response(302, headers={"location": "https://elsewhere.example/x"}))
-    async with httpx.AsyncClient(transport=fake, follow_redirects=True) as http:
-        result = await check_senders(CONN, http)
+    async with httpx.AsyncClient(transport=fake, follow_redirects=True, trust_env=False) as http:
+        result = await check_senders(CONN, http, calls=Calls())
     assert not result.ok and result.detail.startswith("http_302") and len(fake.requests) == 1
 
 
@@ -197,5 +200,156 @@ async def test_send_without_recipient_is_skipped():
     conn = DiagnosticConn(base_url=DEFAULT_BASE_URL, key=SENTINEL_KEY, account_id=ACCOUNT, sender=FROM, test_to="")
     fake = KatFake()
     async with client(fake) as http:
-        result, mid = await check_send_sms(conn, http, send_test_sms=True)
+        result, mid = await check_send_sms(conn, http, send_test_sms=True, calls=Calls())
     assert result.skipped and mid is None and fake.requests == []
+
+
+# ── 리뷰 1차 ─────────────────────────────────────────────────────────
+
+ODD_KEY = "kT+9/zQ=Secret_KEY_value"
+ODD_ACCOUNT = "AcCt-77x/9"
+
+
+def secret_forms(s: str) -> set[str]:
+    full = "".join(f"%{b:02X}" for b in s.encode())
+    forms = {s, quote(s), quote(s, safe=""), quote_plus(s), full, full.lower()}
+    return forms | {f.lower() for f in forms} | {f.upper() for f in forms}
+
+
+def phone_forms(n: str) -> set[str]:
+    a, b, c = n[:3], n[3:7], n[7:]
+    intl = "82" + n[1:]
+    return {n, f"{a}-{b}-{c}", f"+{intl}", f"+82 {n[1:3]}-{b}-{c}", f"({a}) {b} {c}", f"{a}.{b}.{c}",
+            quote(f"+{intl}"), quote(f"+82 {n[1:3]}-{b}-{c}"), quote(f"{a} {b} {c}"), quote_plus(f"+82 {n[1:]}"),
+            f"{a}%2D{b}%2D{c}", f"{a}%2d{b}%2d{c}", f"{a}%20{b}%20{c}", f"{a}%2E{b}%2E{c}", f"tel:{n}"}
+
+
+@pytest.mark.parametrize("flag", ["false", "0", 1, None, "true", "True"])
+async def test_send_needs_literal_true(flag):
+    fake = KatFake()
+    async with client(fake) as http:
+        results = await run_checks(CONN, http, send_test_sms=flag, sleep=no_sleep)
+        single, mid = await check_send_sms(CONN, http, send_test_sms=flag, calls=Calls())
+    assert not [r for r in fake.requests if r.method == "POST"]
+    assert results[1].skipped and single.skipped and mid is None
+
+
+@pytest.mark.parametrize("planted", sorted(
+    secret_forms(ODD_KEY) | secret_forms(ODD_ACCOUNT) | phone_forms(FROM) | phone_forms(TO)))
+async def test_scrub_removes_encoded_case_and_separator_variants(planted):
+    conn = DiagnosticConn(base_url=DEFAULT_BASE_URL, key=ODD_KEY, account_id=ODD_ACCOUNT, sender=FROM, test_to=TO)
+    fake = KatFake(override=lambda r: httpx.Response(400, json={"code": f"c {planted} c", "error": f"e {planted} e"},
+                                                     headers={"Retry-After": planted}))
+    async with client(fake) as http:
+        result = await check_senders(conn, http, calls=Calls())
+    text = result.detail + " ".join(result.notes)
+    assert planted not in text and planted.lower() not in text.lower()
+    for n in (FROM, TO):
+        assert n[1:] not in "".join(ch for ch in text if ch.isdigit())
+
+
+async def test_every_request_has_an_explicit_timeout():
+    fake = KatFake(statuses=("sent",))
+    async with httpx.AsyncClient(transport=fake, trust_env=False, timeout=120) as http:
+        await run_checks(CONN, http, send_test_sms=True, sleep=no_sleep)
+    assert fake.requests
+    for r in fake.requests:
+        assert r.extensions["timeout"] == {"connect": 15.0, "read": 15.0, "write": 15.0, "pool": 15.0}
+
+
+def test_make_client_has_the_contract():
+    http = make_client()
+    assert http.trust_env is False and http.follow_redirects is False and http.timeout.read == 15.0
+
+
+async def test_client_that_trusts_env_sends_nothing():
+    fake = KatFake()
+    async with httpx.AsyncClient(transport=fake) as http:  # trust_env 기본 True
+        results = await run_checks(CONN, http, send_test_sms=True, sleep=no_sleep)
+        single = await check_senders(CONN, http, calls=Calls())
+    assert fake.requests == []
+    for r in [*results, single]:
+        assert not r.ok and not r.skipped and "trust_env=False" in r.detail
+
+
+@pytest.mark.parametrize("base", ["http://127.0.0.1:5600", "ftp://x", "https://api.koreaaitel.com@evil.test",
+                                  "https://localhost", "https://10.0.0.1", "https://[::1]", "https://169.254.169.254",
+                                  "", "not a url"])
+async def test_unsafe_base_url_is_refused_before_any_request(base):
+    conn = DiagnosticConn(base_url=base, key=SENTINEL_KEY, account_id=ACCOUNT, sender=FROM, test_to=TO)
+    fake = KatFake()
+    async with client(fake) as http:
+        results = await run_checks(conn, http, send_test_sms=True, sleep=no_sleep)
+        single = await check_received(conn, http, calls=Calls())
+    assert fake.requests == []
+    assert len(results) == 4
+    for r in [*results, single]:
+        assert not r.ok and not r.skipped and r.detail.startswith("bad_base_url · ") and "주소" in r.detail
+
+
+async def test_broken_connection_values_never_raise():
+    fake = KatFake()
+    async with client(fake) as http:
+        for conn in (DiagnosticConn(base_url=None, key=SENTINEL_KEY, account_id=ACCOUNT),  # type: ignore[arg-type]
+                     DiagnosticConn(base_url=DEFAULT_BASE_URL, key=None, account_id=ACCOUNT),  # type: ignore[arg-type]
+                     DiagnosticConn(base_url=DEFAULT_BASE_URL, key="a\nb", account_id=ACCOUNT),
+                     DiagnosticConn(base_url=DEFAULT_BASE_URL, key="키값", account_id=ACCOUNT)):
+            results = await run_checks(conn, http, send_test_sms=True, sleep=no_sleep)
+            assert results and not any(r.ok for r in results)
+
+
+def test_conn_repr_hides_key_account_and_numbers():
+    for text in (repr(CONN), str(CONN)):
+        for leak in (SENTINEL_KEY, ACCOUNT, FROM, TO):
+            assert leak not in text
+
+
+async def test_ids_are_quoted_into_the_path():
+    odd = "../../x?y=1#f"
+    fake = KatFake(override=lambda r: httpx.Response(201, json={"messageId": odd, "status": "queued"})
+                   if r.method == "POST" else httpx.Response(200, json={"status": "sent"}))
+    async with client(fake) as http:
+        await run_checks(CONN, http, send_test_sms=True, sleep=no_sleep, steps=(2, 3))
+        conn = DiagnosticConn(base_url=DEFAULT_BASE_URL, key=SENTINEL_KEY, account_id="x/../../admin?q=1")
+        await check_senders(conn, http, calls=Calls())
+    poll, senders = fake.requests[1], fake.requests[2]
+    assert poll.url.query == b"" and poll.url.raw_path.endswith(b"/messages/..%2F..%2Fx%3Fy%3D1%23f")
+    assert senders.url.query == b"" and senders.url.raw_path.startswith(b"/v1/accounts/x%2F..%2F..%2Fadmin%3Fq%3D1/")
+    for r in fake.requests:
+        assert r.url.path.startswith("/v1/accounts/")
+
+
+async def test_dot_ids_cannot_climb_the_path():
+    fake = KatFake(override=lambda r: httpx.Response(201, json={"messageId": "..", "status": "queued"})
+                   if r.method == "POST" else httpx.Response(200, json={"status": "sent"}))
+    async with client(fake) as http:
+        await run_checks(CONN, http, send_test_sms=True, sleep=no_sleep, steps=(2, 3))
+    assert fake.requests[1].url.path.endswith("/messages/..")  # %2E%2E 로 보냄 — 위로 올라가지 않음
+    assert fake.requests[1].url.raw_path.endswith(b"/messages/%2E%2E")
+
+
+@pytest.mark.parametrize("exc", [httpx.ReadTimeout, httpx.WriteTimeout, httpx.RemoteProtocolError, httpx.ReadError])
+async def test_post_that_may_have_gone_says_so(exc):
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise exc("x")
+
+    async with client(KatFake(override=boom)) as http:
+        result, mid = await check_send_sms(CONN, http, send_test_sms=True, calls=Calls())
+    assert not result.ok and mid is None and result.detail.startswith(exc.__name__)
+    assert "보냈는지 알 수 없" in result.detail and "두 번째 문자" in result.detail
+
+
+async def test_post_that_never_connected_does_not_warn():
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("x")
+
+    async with client(KatFake(override=boom)) as http:
+        result, _ = await check_send_sms(CONN, http, send_test_sms=True, calls=Calls())
+    assert result.detail == "ConnectError"
+
+
+async def test_steps_accept_p_strings():
+    fake = KatFake()
+    async with client(fake) as http:
+        results = await run_checks(CONN, http, steps=("P1", "p4"), sleep=no_sleep)
+    assert [r.id for r in results] == ["P1", "P4"]
