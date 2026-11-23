@@ -84,10 +84,28 @@ async def test_not_json_is_retried(ctx, llm, liner):
 
 
 async def test_unsatisfiable_stops_at_limit_and_names_conflict(ctx, llm, liner):
-    script(liner, WBS_OK, *[SCHED_LATE_BY_3] * 9)
+    # 위반이 회차마다 달라야 한도까지 돈다(같은 위반이 이어지면 A3 로 먼저 멈춘다)
+    script(liner, WBS_OK, *[SCHED_LATE_BY_3, SCHED_LATE_BY_1] * 5)
     r = await gen(ctx, llm, inputs=[FINISH_BY], max_rounds=3)
     assert not r.ok and len(r.rounds) == 3 and r.conflict == ["in.finish_by"] and r.schedule is not None
     assert r.reason == "조건을 모두 맞추지 못했습니다." and r.draft_id is not None and len(liner.requests) == 4
+
+
+async def test_same_violations_twice_stop_the_repair(ctx, llm, liner):
+    """A3: 바로 앞 회차와 위반이 똑같으면 다음 회차를 부르지 않고 가장 나은 안과 부딪히는 조건을 돌려준다."""
+    script(liner, WBS_OK, SCHED_LATE_BY_3, SCHED_LATE_BY_3, SCHED_OK)
+    r = await gen(ctx, llm, inputs=[FINISH_BY])
+    assert not r.ok and [x.violations for x in r.rounds] == [1, 1] and len(liner.requests) == 3
+    assert r.conflict == ["in.finish_by"] and r.draft_id is not None
+    assert r.reason == "같은 위반이 두 회차 이어져 고치기를 멈췄습니다. 조건을 모두 맞추지 못했습니다."
+
+
+async def test_changed_violations_keep_the_repair_going(ctx, llm, liner):
+    """A3: 위반이 줄면(3일 → 1일 늦음) 계속 고치고, 그 뒤 같은 위반이 이어지면 멈춘다."""
+    script(liner, WBS_OK, SCHED_LATE_BY_3, SCHED_LATE_BY_1, SCHED_LATE_BY_1, SCHED_OK)
+    r = await gen(ctx, llm, inputs=[FINISH_BY])
+    assert not r.ok and [x.violations for x in r.rounds] == [1, 1, 1] and len(liner.requests) == 4
+    assert r.report.violations[0].amount == 1
 
 
 async def test_best_draft_is_kept_at_the_limit(ctx, llm, liner):

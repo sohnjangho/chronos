@@ -4,7 +4,8 @@ LLM 은 구조와 기간·선후 관계만 낸다. 날짜·여유·조건 통과
 
 회차(round): 스케줄 초안 한 번(처음 초안 또는 고친 초안)이 한 회차다. WBS 답이 깨져 다시 받는 것도
 한 회차로 센다(violations=-1). WBS 는 처음 한 번만 받고, 고침 답이 새 WBS 를 낼 때만 바꾼다.
-멈춤: 위반 0 인 초안(ok) · 회차가 max_rounds 에 닿음(가장 나은 안) · LLM 실패(그때까지 가장 나은 안, 없으면 초안 없음).
+멈춤: 위반 0 인 초안(ok) · 회차가 max_rounds 에 닿음(가장 나은 안) · 바로 앞 회차와 위반이 똑같음(가장 나은 안)
+· LLM 실패(그때까지 가장 나은 안, 없으면 초안 없음).
 쓰기: 초안은 맨 끝에 한 번만 넣고 commit 한다. LLM 을 부르는 동안 쓰지 않는다.
 개략 일정(L1·L2)은 자원을 다루지 않는다: resource_cap 입력 조건은 빼고 warnings 에 알린다.
 파일에서 가져온 행(fixed, Task 53)이 있으면 WBS 를 청하지 않고 그 행이 전부다: 파일 값이 LLM 답보다 앞서고, LLM 은
@@ -18,6 +19,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 from typing import Literal
 
+from app.agent.domain_synth import synthesize_pack
 from app.agent.events import AgentEvent
 from app.agent.generation_build import (
     ROUGH_RESOURCE_MESSAGE,
@@ -45,7 +47,6 @@ from app.agent.generation_steps import (
     schedule_messages,
     wbs_messages,
 )
-from app.agent.domain_synth import synthesize_pack
 from app.core.cpm import CpmResult, ScheduleError
 from app.core.model import Schedule
 from app.domains.loader import DomainPack, is_specialty_domain, resolve_pack
@@ -66,6 +67,7 @@ GenStage = Literal["wbs", "schedule", "compute", "critical", "check"]
 # 이 기본 규칙을 어기면 초안이 깨진 것이다(LLM 이 고쳐야 한다). base.calendar 는 조건 탓이라 위반으로 센다.
 BROKEN_RULES = frozenset({"base.no_cycle", "base.no_dangling", "base.valid"})
 LIMIT_REASON = "조건을 모두 맞추지 못했습니다."
+REPEAT_REASON = f"같은 위반이 두 회차 이어져 고치기를 멈췄습니다. {LIMIT_REASON}"
 NO_DRAFT_REASON = "일정 초안을 만들지 못했습니다. 다시 시도해 주세요."
 OUT_OF_RANGE = "날짜 계산이 범위를 넘었습니다(기간·lag 가 너무 큽니다)."
 STOPPED_REASON = "중단했습니다."
@@ -126,6 +128,8 @@ class _Loop:
         self.violation_note = ""  # 마지막으로 점검한 초안의 위반·계산 결과(깨진 회차에도 함께 보낸다)
         self.sent: set[str] = set()  # 이미 보낸 정밀도 맞춤 알림
         self.best: _Scored | None = None
+        self.last_violations: frozenset[Violation] | None = None  # 바로 앞 회차의 위반(깨진 회차면 None)
+        self.repeated = False  # 같은 위반이 두 회차 이어져 멈췄다
 
     def card(self, stage: GenStage) -> None:
         rounds = [asdict(r) for r in self.rounds]
@@ -151,6 +155,16 @@ class _Loop:
                 return
             if self.fixed is not None and not self.fixed.blanks:  # 파일 값뿐 — LLM 이 고칠 칸이 없다
                 return
+            if self.same_as_before(scored):  # 고쳐도 나아지지 않는다 — 가장 나은 안으로 끝낸다
+                self.repeated = True
+                return
+
+    def same_as_before(self, scored: _Scored | None) -> bool:
+        """이 회차의 위반(조건·액티비티·양·글)이 바로 앞 회차와 똑같은가. 깨진 회차는 견주지 않는다."""
+        now = frozenset(scored.report.violations) if scored is not None else None
+        same = now is not None and now == self.last_violations
+        self.last_violations = now
+        return same
 
     def stop_check(self) -> None:
         if self.ctx.stop_requested():
@@ -278,7 +292,8 @@ class _Loop:
         return GenResult(
             ok=ok, draft_id=draft_id, schedule=best.schedule, report=best.report,
             warnings=[*self.notes, *best.warnings], conflict=[] if ok else [v.condition_id for v in best.report.violations],
-            reason=None if ok else _end_reason(best, failure, stopped), uncheckable=uncheckable, invalid=invalid,
+            reason=None if ok else _end_reason(best, failure, stopped, self.repeated), uncheckable=uncheckable,
+            invalid=invalid,
             **base,
         )
 
@@ -287,12 +302,12 @@ def _described(v: Violation) -> str:
     return f"{v.message} ({', '.join(v.activity_ids)})" if v.activity_ids else v.message
 
 
-def _end_reason(best: _Scored, failure: str | None, stopped: bool = False) -> str:
+def _end_reason(best: _Scored, failure: str | None, stopped: bool = False, repeated: bool = False) -> str:
     count = len(best.report.violations)
     if stopped:
         return f"중단해서 지금까지 가장 나은 초안({best.round}회차, 위반 {count})을 저장했습니다."
     if failure is None:
-        return LIMIT_REASON
+        return REPEAT_REASON if repeated else LIMIT_REASON
     return f"LLM 호출이 실패해 지금까지 가장 나은 초안({best.round}회차, 위반 {count})을 저장했습니다. {failure}"
 
 

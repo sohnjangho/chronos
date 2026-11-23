@@ -10,6 +10,7 @@ from app.tools.generate.extract_conditions import EXTRACT_SCHEMA
 from app.tools.registry import call, list_tools
 from tests.gen_doubles import (
     FINISH,
+    SCHED_LATE_BY_1,
     SCHED_LATE_BY_3,
     SCHED_OK,
     START_FACT,
@@ -240,7 +241,8 @@ async def test_run_generates_and_stores_draft(ctx, liner, session, events):
 
 
 async def test_run_reports_violations_at_the_limit(ctx, liner):
-    script(liner, WBS_OK, *[SCHED_LATE_BY_3] * 5)  # 기본 한도 5회
+    # 기본 한도 5회. 위반이 회차마다 달라야 한도까지 돈다(같은 위반이 이어지면 먼저 멈춘다)
+    script(liner, WBS_OK, SCHED_LATE_BY_3, SCHED_LATE_BY_1, SCHED_LATE_BY_3, SCHED_LATE_BY_1, SCHED_LATE_BY_3)
     r = await call("generate.run", run_args(), ctx)
     assert r.ok and not r.output["ok"] and r.output["conflict"] == ["in.finish_by"] and len(r.output["rounds"]) == 5
     v = r.output["violations"][0]

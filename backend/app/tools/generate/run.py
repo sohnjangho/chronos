@@ -130,7 +130,7 @@ def result_card(out: RunOut) -> AgentEvent:
 @tool(
     "generate.run",
     "일정 초안을 만든다: WBS → 액티비티(기간·선후 관계) → 코드가 날짜·크리티컬 패스 계산 → 조건 점검 → "
-    "위반이면 고쳐 다시(최대 5회). 입력은 generate.extract_conditions 의 결과(facts·conditions·assumptions). "
+    "위반이면 고쳐 다시(최대 5회, 같은 위반이 두 회차 이어지면 멈춘다). 입력은 generate.extract_conditions 의 결과(facts·conditions·assumptions). "
     "단계마다 생성 카드가 대화에 보인다. 초안은 저장 전 상태(draft_id)이고, 일정 저장은 승인 뒤에 한다. "
     "한도까지 못 맞추거나 LLM 호출이 중간에 실패하면 ok=false 와 그때까지 가장 나은 안, 부딪히는 조건(conflict)을 준다. "
     "ok 는 자동 점검한 조건만의 결과입니다. uncheckable 의 조건은 점검하지 않았으니 통과로 말하지 마세요.",
