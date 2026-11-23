@@ -1,4 +1,4 @@
-// 위 KPI 넷: 준공 영향 합계 · 책임별 준공 영향 · 여유로 흡수된 지연 · 비용 환산. 모두 서버 합계(열림·반영 사건 모두).
+// 위 KPI 넷: 준공 영향 누적(반영 포함) · 책임별 준공 영향 · 여유로 흡수된 지연 · 비용 환산. 모두 서버 합계(열림·반영 사건 모두).
 import type { Finish, Totals } from './delaysApi';
 import { impactDays, RESPONSIBILITIES, shortPair, won } from './format';
 
@@ -42,7 +42,7 @@ export default function KpiBar({ totals, finish }: { totals: Totals; finish: Fin
   return (
     <div role="group" aria-label="지연 요약" className="dl-kpis">
       <div className="dl-kpi">
-        <div className="dl-kpi-l">준공 영향 합계</div>
+        <div className="dl-kpi-l">준공 영향 누적(반영 포함)</div>
         <div className={`dl-kpi-v${totals.finish_impact > 0 ? ' is-danger' : ''}`}>{impactDays(totals.finish_impact)}</div>
         <div className={`dl-kpi-s${line.late ? ' is-danger' : ''}`}>{line.text}</div>
       </div>

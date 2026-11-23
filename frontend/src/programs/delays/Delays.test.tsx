@@ -65,6 +65,14 @@ test('kpis summarize totals', async () => {
   expect(screen.getByText('사건 1건')).toBeVisible();
 });
 
+// W6(11-23): 합계는 열린 사건과 이미 반영된 사건을 함께 센다 — 이름표가 그것을 말한다.
+test('the finish impact kpi says it adds up reflected events too', async () => {
+  mockDelays(D);
+  show();
+  expect(await screen.findByText('준공 영향 누적(반영 포함)')).toBeVisible();
+  expect(screen.queryByText('준공 영향 합계')).toBeNull();
+});
+
 test('without a cost the cost kpi is a dash and a late deadline says so', async () => {
   mockDelays({ ...D, totals: { ...D.totals, cost: null }, finish: { ...D.finish, deadline_float: -3 } });
   show();

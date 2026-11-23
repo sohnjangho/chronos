@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { json } from '../../test-helpers';
 import ApprovalDetailView from './ApprovalDetail';
+import DecisionBox from './DecisionBox';
 import Approvals from './Approvals';
 import manifest from './index';
 import { AUTO, bodyOf, callsTo, detailOf, item, openSpy, setup, SUMMARY } from './testKit';
@@ -318,5 +319,22 @@ describe('내 규칙 저장 (Task 35)', () => {
     render(<Approvals windowId="w1" params={{ id: '3' }} />);
     expect(await screen.findByText('승인하면 내 규칙으로 저장됩니다. 일정은 바뀌지 않고, 조건·규칙 창에서 끄거나 지울 수 있습니다.')).toBeVisible();
     expect(screen.queryByText(/버전 1로 저장/)).toBeNull();
+  });
+});
+
+// W6(11-23): Plan 이 바뀌는 승인 건이면 기준선(Plan)도 새로 잡힌다고 결정 상자에 미리 알린다.
+describe('W6 결정 상자 안내', () => {
+  const box = (summary: Record<string, unknown>) =>
+    render(<DecisionBox item={detailOf({ base_version: 3, summary: { ...SUMMARY, ...summary } })} onDecide={async () => {}} />);
+
+  test('a plan-changing approval says the baseline is set again', () => {
+    box({ plan_change: true });
+    expect(screen.getByText('승인하면 버전 4로 저장되고, 기준선(Plan)도 이 안으로 새로 잡힙니다. 탐색기에서 되돌릴 수 있습니다.')).toBeVisible();
+  });
+
+  test('without the plan change mark the hint stays as before', () => {
+    box({});
+    expect(screen.getByText('승인하면 버전 4로 저장되고, 탐색기에서 되돌릴 수 있습니다.')).toBeVisible();
+    expect(screen.queryByText(/기준선\(Plan\)도/)).toBeNull();
   });
 });

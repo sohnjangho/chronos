@@ -22,6 +22,9 @@ const hintOf = (item: ApprovalDetail) => {
   if (item.summary?.rule && item.summary?.plan_change === false) {
     return `승인하면 내 규칙이 반영되어 버전 ${ro(item.base_version + 1)} 저장됩니다. 기존 기준선(Plan)은 유지됩니다.`;
   }
+  if (item.summary?.plan_change === true) {
+    return `승인하면 버전 ${ro(item.base_version + 1)} 저장되고, 기준선(Plan)도 이 안으로 새로 잡힙니다. 탐색기에서 되돌릴 수 있습니다.`;
+  }
   return `승인하면 버전 ${ro(item.base_version + 1)} 저장되고, 탐색기에서 되돌릴 수 있습니다.`;
 };
 
