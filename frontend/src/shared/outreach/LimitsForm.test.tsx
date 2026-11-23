@@ -39,8 +39,8 @@ const LIMITS = '/api/notify/connections/3/limits';
 
 const out = (values: Record<string, number> = {}): LimitsOut => ({
   values: { ...DEFAULTS, ...values },
-  defaults: DEFAULTS,
-  ranges: RANGES,
+  defaults: { ...DEFAULTS },
+  ranges: { ...RANGES },
 });
 
 function sentBodies(fetchMock: ReturnType<typeof stubFetch>, key: string) {
@@ -138,4 +138,30 @@ test('a failed read shows the server message', async () => {
   stubFetch({ [LIMITS]: () => json(404, { code: 'connection_not_found', message: '알림 연결을 찾을 수 없습니다.', detail: null }) });
   render(<LimitsForm connectionId={3} />);
   expect(await screen.findByText('알림 연결을 찾을 수 없습니다.')).toBeVisible();
+});
+
+test('the two new fields have their own labels and sit in their groups (fourteen in all)', async () => {
+  const body = out();
+  Object.assign(body.values, { unknown_calls_hourly: 3, unknown_notice_total_daily: 20 });
+  Object.assign(body.defaults, { unknown_calls_hourly: 3, unknown_notice_total_daily: 20 });
+  Object.assign(body.ranges, { unknown_calls_hourly: [0, 1000], unknown_notice_total_daily: [0, 1000] });
+  stubFetch({ [LIMITS]: body });
+  render(<LimitsForm connectionId={3} />);
+  const calls = await screen.findByRole('spinbutton', { name: '모르는 번호 전화 한 시간 (통)' });
+  expect(screen.getAllByRole('spinbutton')).toHaveLength(14);
+  expect(within(screen.getByRole('group', { name: '전화' })).getByRole('spinbutton', { name: '모르는 번호 전화 한 시간 (통)' })).toBe(calls);
+  const notices = within(screen.getByRole('group', { name: '자동 답' }))
+    .getAllByRole('spinbutton')
+    .map((i) => i.closest('[data-limit]')?.getAttribute('data-limit'));
+  expect(notices.slice(-2)).toEqual(['unknown_notice_daily', 'unknown_notice_total_daily']);
+  expect(screen.getByRole('spinbutton', { name: '모르는 번호 안내 하루 전체 (건)' })).toHaveValue(20);
+  expect(screen.queryByRole('group', { name: '그 밖' })).toBeNull();
+});
+
+test('disabled locks every field and the reset button', async () => {
+  stubFetch({ [LIMITS]: out({ daily_sms_total: 40 }) });
+  render(<LimitsForm connectionId={3} disabled />);
+  await screen.findByRole('spinbutton', { name: /^하루 문자/ });
+  for (const input of screen.getAllByRole('spinbutton')) expect(input).toBeDisabled();
+  expect(screen.getByRole('button', { name: '기본값으로' })).toBeDisabled();
 });

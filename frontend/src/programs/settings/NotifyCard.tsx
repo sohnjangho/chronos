@@ -1,18 +1,37 @@
 import { useEffect, useState } from 'react';
+import { ApiError } from '../../shared/api';
 import Badge, { type Tone } from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import { checkedText, type LlmError } from './model';
 import { NotifyKeyForm, NotifyUrlForm } from './NotifyAdd';
-import { notifyApi, type DiagnoseIn, type Diagnosis, type DiagnosisStep, type NotifyConnection, type NotifyProbe, type NotifySaved } from './notifyApi';
+import {
+  notifyApi,
+  type DiagnoseIn,
+  type Diagnosis,
+  type DiagnosisStep,
+  type NotifyConnection,
+  type NotifyProbe,
+  type NotifySaved,
+  type SendRecord,
+} from './notifyApi';
 import NotifyPolicy, { ConfirmPanel } from './NotifyPolicy';
 import { ErrorLine, savedButFailed, toProblem } from './parts';
 
 type Mode = 'idle' | 'url' | 'key' | 'delete';
+type SendKind = 'diagnose' | 'test';
 
 interface Outcome {
   note?: string;
   probe?: NotifyProbe;
   error?: LlmError | null;
+}
+
+/** 확인 창을 열 때 본 것(받을 번호·목록 판)에 묶인 보내기 하나. */
+interface PendingSend {
+  kind: SendKind;
+  resend: boolean;
+  version: string;
+  target: string;
 }
 
 const STATUS: Record<NotifyConnection['status'], { tone: Tone; text: string }> = {
@@ -21,8 +40,20 @@ const STATUS: Record<NotifyConnection['status'], { tone: Tone; text: string }> =
   unknown: { tone: 'neutral', text: '미확인' },
 };
 
+const OUTCOME: Record<SendRecord['outcome'], string> = {
+  sending: '보내는 중',
+  accepted: '접수됨',
+  unknown: '확인 필요',
+  not_sent: '보내지 않음',
+};
+
+export const UNSURE = '보냈는지 확인 필요 — 휴대전화에 문자가 왔는지 먼저 확인해 주세요';
+
 /** 끝 4자리만. 키가 짧아 서버가 끝자리를 주지 않으면 점만. */
 const maskedKey = (last4: string) => '•'.repeat(last4 ? 12 : 8) + last4;
+
+/** 보내기 요청이 200 으로 끝나지 않았는데 분명한 거절도 아닌 것(끊김·5xx·읽을 수 없는 응답) — 갔는지 모른다. */
+const uncertain = (e: unknown) => !(e instanceof ApiError) || e.status === 0 || e.status >= 500 || e.code === 'bad_response';
 
 /** 시험 문자(첫 허용 번호로만)를 보낼 수 없는 까닭. 보낼 수 있으면 null. */
 export function smsBlockedReason(c: NotifyConnection): string | null {
@@ -31,6 +62,20 @@ export function smsBlockedReason(c: NotifyConnection): string | null {
   if (!c.allow_numbers[0].can_test_sms) return '첫 허용 번호가 휴대전화가 아니라 시험 문자를 받을 수 없습니다.';
   if (!c.sender_number_masked) return '발신번호를 먼저 골라 주세요.';
   return '지금은 시험 문자를 보낼 수 없습니다.';
+}
+
+function CardHead({ conn }: { conn: NotifyConnection }) {
+  const status = STATUS[conn.status];
+  return (
+    <div className="st-card-head">
+      <b className="st-card-name">{conn.name}</b>
+      <Badge tone="info">한국AI통신</Badge>
+      {conn.is_default && <Badge className="st-badge-default">기본 연결</Badge>}
+      <span className="st-gap" />
+      <Badge tone={conn.test_mode ? 'info' : 'warning'}>{conn.test_mode ? `시험 모드 · 허용 번호 ${conn.allow_numbers.length}개` : '시험 모드 꺼짐'}</Badge>
+      <Badge tone={status.tone}>{status.text}</Badge>
+    </div>
+  );
 }
 
 function Facts({ conn }: { conn: NotifyConnection }) {
@@ -59,59 +104,85 @@ function ProbeLine({ probe }: { probe: NotifyProbe }) {
   );
 }
 
-function verdict(step: DiagnosisStep, unknown: boolean): { tone: Tone; text: string } {
+/** 판정은 칸으로만: 건너뜀 → 확인 필요(보냈는지 모름) → 확인 중(아직 접수) → OK / FAIL. */
+function verdict(step: DiagnosisStep): { tone: Tone; text: string } {
   if (step.skipped) return { tone: 'neutral', text: '건너뜀' };
-  if (unknown) return { tone: 'warning', text: '확인 필요' };
+  if (step.maybe_sent) return { tone: 'warning', text: '확인 필요' };
+  if (step.pending) return { tone: 'warning', text: '확인 중' };
   return step.ok ? { tone: 'success', text: 'OK' } : { tone: 'danger', text: 'FAIL' };
 }
 
-/** 걸음마다 한 줄(id · 판정 · 이름 — 서버 글 · 응답 시간), notes 는 접어서. 보낸 뒤 결과를 모르는 P2 는 「확인 필요」. */
+function StepLine({ s }: { s: DiagnosisStep }) {
+  const v = verdict(s);
+  return (
+    <li>
+      <div className="st-nt-step">
+        <b className="st-nt-step-id">{s.id}</b>
+        <Badge tone={v.tone}>{v.text}</Badge>
+        <span className="st-nt-step-text">
+          <span className="st-muted">{s.label}</span>
+          {` — ${s.detail}`}
+        </span>
+        {s.latency_ms !== null && <span className="st-count">{`${s.latency_ms}ms`}</span>}
+      </div>
+      {s.notes.length > 0 && (
+        <details className="st-nt-notes">
+          <summary>{`메모 ${s.notes.length}줄`}</summary>
+          {s.notes.map((n, i) => (
+            <div key={i}>{n}</div>
+          ))}
+        </details>
+      )}
+    </li>
+  );
+}
+
+/** 실제 시험 문자 기록(번호 없음): 최근 5건, 새것부터, 접어서. */
+function SendRecords({ sends }: { sends: SendRecord[] }) {
+  if (sends.length === 0) return null;
+  const recent = sends.slice(-5).reverse();
+  return (
+    <details className="st-nt-notes st-nt-sends">
+      <summary>{`시험 문자 기록 ${sends.length}건`}</summary>
+      {recent.map((r, i) => (
+        <div key={`${r.at}-${i}`}>{`${checkedText(r.at, null)} · ${r.by ?? '누군지 모름'} · ${OUTCOME[r.outcome] ?? r.outcome}`}</div>
+      ))}
+    </details>
+  );
+}
+
+/** 걸음마다 한 줄(id · 판정 · 이름 — 서버 글 · 응답 시간), notes 는 접어서, 보내는 중·보냈는지 모름은 「확인 필요」. */
 function DiagnosisView({ diag }: { diag: Diagnosis }) {
   return (
     <section className="st-nt-diag" aria-label="연결 진단 결과">
       <div className="st-nt-diag-head">
         <b>연결 진단</b>
-        <span className="st-muted">{`돌린 시각 ${checkedText(diag.ran_at, null)}`}</span>
+        <span className="st-muted">{`돌린 시각 ${checkedText(diag.ran_at, null)}${diag.by ? ` · ${diag.by}` : ''}`}</span>
         {diag.sent_real && <Badge tone="info">실제 문자 1건 접수됨</Badge>}
       </div>
-      {diag.sent_unknown && (
+      {diag.state === 'sending' && (
+        <p className="st-warn">{`확인 필요 — 시험 문자를 보내는 중이거나 결과가 아직 없습니다${diag.by ? `(${diag.by})` : ''}. 휴대전화를 먼저 확인해 주세요.`}</p>
+      )}
+      {diag.state !== 'sending' && diag.sent_unknown && (
         <p className="st-warn">보냈는지 확인 필요 — 문자가 갔을 수도 안 갔을 수도 있습니다. 휴대전화를 먼저 확인해 주세요. 다시 누르면 두 번째 문자가 갈 수 있습니다.</p>
       )}
       <ul className="st-nt-steps">
-        {diag.steps.map((s) => {
-          const v = verdict(s, diag.sent_unknown && s.id === 'P2' && !s.ok);
-          return (
-            <li key={s.id}>
-              <div className="st-nt-step">
-                <b className="st-nt-step-id">{s.id}</b>
-                <Badge tone={v.tone}>{v.text}</Badge>
-                <span className="st-nt-step-text">
-                  <span className="st-muted">{s.label}</span>
-                  {` — ${s.detail}`}
-                </span>
-                {s.latency_ms !== null && <span className="st-count">{`${s.latency_ms}ms`}</span>}
-              </div>
-              {s.notes.length > 0 && (
-                <details className="st-nt-notes">
-                  <summary>{`메모 ${s.notes.length}줄`}</summary>
-                  {s.notes.map((n, i) => (
-                    <div key={i}>{n}</div>
-                  ))}
-                </details>
-              )}
-            </li>
-          );
-        })}
+        {diag.steps.map((s) => (
+          <StepLine key={s.id} s={s} />
+        ))}
       </ul>
+      <SendRecords sends={diag.sends ?? []} />
     </section>
   );
 }
 
-/** 마지막 진단(다시 열어도 보임)과 새로 돌리기. 실제 문자는 켬 + 확인 창을 거치고, 도는 동안은 다시 못 누른다. */
+/** 마지막 진단(다시 열어도 보임)과 새로 돌리기. 보내기가 200 으로 끝나지 않고 거절도 아니면 「확인 필요」 + 마지막 진단 다시 읽기. */
 function useDiagnosis(conn: NotifyConnection, onChanged: () => void) {
   const [diag, setDiag] = useState<Diagnosis | null>(null);
   const [error, setError] = useState<LlmError | null>(null);
+  const [unsure, setUnsure] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     let live = true;
     notifyApi
@@ -121,34 +192,29 @@ function useDiagnosis(conn: NotifyConnection, onChanged: () => void) {
     return () => {
       live = false;
     };
-  }, [conn.id]);
-  async function run(body: DiagnoseIn) {
+  }, [conn.id, tick]);
+  /** 돌려준 값: 실패한 오류 코드(없으면 null). */
+  async function run(body: DiagnoseIn): Promise<string | null> {
     setBusy(true);
     setError(null);
+    setUnsure(false);
     try {
       setDiag(await notifyApi.diagnose(conn.id, body));
+      return null;
     } catch (e) {
+      if (body.send && uncertain(e)) {
+        setUnsure(true);
+        setTick((t) => t + 1);
+        return 'unsure';
+      }
       setError(toProblem(e));
+      return e instanceof ApiError ? e.code : 'unknown';
     } finally {
       setBusy(false);
+      onChanged();
     }
-    onChanged();
   }
-  return { diag, error, busy, run };
-}
-
-function CardHead({ conn }: { conn: NotifyConnection }) {
-  const status = STATUS[conn.status];
-  return (
-    <div className="st-card-head">
-      <b className="st-card-name">{conn.name}</b>
-      <Badge tone="info">한국AI통신</Badge>
-      {conn.is_default && <Badge className="st-badge-default">기본 연결</Badge>}
-      <span className="st-gap" />
-      <Badge tone={conn.test_mode ? 'info' : 'warning'}>{conn.test_mode ? `시험 모드 · 허용 번호 ${conn.allow_numbers.length}개` : '시험 모드 꺼짐'}</Badge>
-      <Badge tone={status.tone}>{status.text}</Badge>
-    </div>
-  );
+  return { diag, error, unsure, busy, run };
 }
 
 /** 「실제 문자 1건 보내기」 켬과 [시험 문자]. 보낼 수 없으면 둘 다 잠그고 까닭을 보인다. */
@@ -174,17 +240,70 @@ function RealSms({ target, blocked, real, locked, onReal, onTest }: {
   );
 }
 
+function SendConfirm({ pending, busy, onSend, onCancel }: { pending: PendingSend; busy: boolean; onSend(): void; onCancel(): void }) {
+  return pending.resend ? (
+    <ConfirmPanel
+      label="다시 보내기 확인"
+      text={`앞서 보낸 시험 문자가 갔는지 모르는 채로 ${pending.target}(으)로 한 건 더 보냅니다. 두 번째 문자가 갈 수 있고 요금이 듭니다. 보낼까요?`}
+      action="다시 보내기"
+      disabled={busy}
+      onConfirm={onSend}
+      onCancel={onCancel}
+    />
+  ) : (
+    <ConfirmPanel
+      label="실제 문자 확인"
+      text={`실제 문자 1건을 ${pending.target}(으)로 보냅니다. 요금이 들고 되돌릴 수 없습니다. 보낼까요?`}
+      action="보내기"
+      disabled={busy}
+      onConfirm={onSend}
+      onCancel={onCancel}
+    />
+  );
+}
+
+/** 실제 문자 보내기: 켬 → 확인 창(그때의 받을 번호·목록 판에 묶임) → 한 번. 409 sent_unknown_pending 이면 따로 [그래도 다시 보내기]. */
+function useRealSend(conn: NotifyConnection, d: ReturnType<typeof useDiagnosis>) {
+  const [real, setReal] = useState(false);
+  const [pending, setPending] = useState<PendingSend | null>(null);
+  const [resendKind, setResendKind] = useState<SendKind | null>(null);
+  const target = conn.allow_numbers.find((a) => a.index === conn.test_sms_index)?.number_masked;
+  const ask = (kind: SendKind, resend = false) => {
+    if (!resend) setResendKind(null);
+    setPending({ kind, resend, version: conn.allow_numbers_version, target: target ?? '첫 허용 번호' });
+  };
+  const send = async () => {
+    const p = pending;
+    if (!p) return;
+    setPending(null);
+    setReal(false);
+    setResendKind(null);
+    const body: DiagnoseIn = {
+      ...(p.kind === 'test' ? { steps: ['P2', 'P3'] } : {}),
+      send: true,
+      allow_numbers_version: p.version,
+      ...(p.resend ? { confirm_resend: true as const } : {}),
+    };
+    if ((await d.run(body)) === 'sent_unknown_pending') setResendKind(p.kind);
+  };
+  const reset = () => {
+    setPending(null);
+    setResendKind(null);
+  };
+  /** 확인 창만 닫는다(서버가 막은 다시 보내기 단추는 남긴다). */
+  const cancel = () => setPending(null);
+  return { real, setReal, pending, resendKind, target, ask, send, cancel, reset };
+}
+
 /** 알림 연결 카드: 이름·공급자·상태·주소·키 끝 4자리·Account ID·발신번호(가린 꼴)·확인 시각, 단추, 진단 결과, 아래 칸. */
 export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection; onChanged(): void }) {
   const [mode, setMode] = useState<Mode>('idle');
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [busy, setBusy] = useState(false);
-  const [real, setReal] = useState(false);
-  const [confirm, setConfirm] = useState<'diagnose' | 'test' | null>(null);
   const d = useDiagnosis(conn, onChanged);
+  const r = useRealSend(conn, d);
   const blocked = smsBlockedReason(conn);
-  const target = conn.allow_numbers.find((a) => a.index === conn.test_sms_index)?.number_masked;
-  const locked = busy || d.busy || mode !== 'idle' || confirm !== null;
+  const locked = busy || d.busy || mode !== 'idle' || r.pending !== null;
 
   async function run(task: () => Promise<Outcome>) {
     setMode('idle');
@@ -206,14 +325,10 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
   };
   const edit = (m: Mode) => {
     setOutcome(null);
+    r.reset();
     setMode(m);
   };
-  const send = () => {
-    const kind = confirm;
-    setConfirm(null);
-    setReal(false);
-    void d.run(kind === 'test' ? { steps: ['P2', 'P3'], send: true } : { send: true });
-  };
+  const diagnose = () => (r.real ? r.ask('diagnose') : (r.reset(), void d.run({ send: false })));
 
   return (
     <article className="st-card" aria-label={conn.name}>
@@ -223,7 +338,7 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
         <Button disabled={locked} onClick={() => run(async () => ({ probe: await notifyApi.test(conn.id) }))}>
           연결 테스트
         </Button>
-        <Button disabled={locked} onClick={() => (real ? setConfirm('diagnose') : void d.run({ send: false }))}>
+        <Button disabled={locked} onClick={diagnose}>
           연결 진단
         </Button>
         <Button disabled={locked} onClick={() => edit('url')}>
@@ -237,17 +352,8 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
           삭제
         </Button>
       </div>
-      <RealSms target={target} blocked={blocked} real={real} locked={locked} onReal={setReal} onTest={() => setConfirm('test')} />
-      {confirm && (
-        <ConfirmPanel
-          label="실제 문자 확인"
-          text={`실제 문자 1건을 ${target ?? '첫 허용 번호'}(으)로 보냅니다. 요금이 들고 되돌릴 수 없습니다. 보낼까요?`}
-          action="보내기"
-          disabled={d.busy}
-          onConfirm={send}
-          onCancel={() => setConfirm(null)}
-        />
-      )}
+      <RealSms target={r.target} blocked={blocked} real={r.real} locked={locked} onReal={r.setReal} onTest={() => r.ask('test')} />
+      {r.pending && <SendConfirm pending={r.pending} busy={d.busy} onSend={() => void r.send()} onCancel={r.cancel} />}
       {mode === 'url' && <NotifyUrlForm conn={conn} onSaved={saved} onCancel={() => setMode('idle')} />}
       {mode === 'key' && <NotifyKeyForm conn={conn} onSaved={saved} onCancel={() => setMode('idle')} />}
       {mode === 'delete' && (
@@ -262,10 +368,20 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
       {outcome?.note && <p className="st-note">{outcome.note}</p>}
       {outcome?.probe && <ProbeLine probe={outcome.probe} />}
       <ErrorLine error={outcome?.error} />
-      {d.busy && <p className="st-note">연결 진단을 돌리는 중…</p>}
+      {d.busy && <p className="st-note">연결 진단을 돌리는 중… 끝날 때까지 아래 설정도 잠급니다.</p>}
+      {d.unsure && (
+        <p className="st-warn" role="alert">
+          {UNSURE}
+        </p>
+      )}
       <ErrorLine error={d.error} />
+      {r.resendKind && !locked && (
+        <div className="st-actions">
+          <Button onClick={() => r.ask(r.resendKind ?? 'test', true)}>그래도 다시 보내기</Button>
+        </div>
+      )}
       {d.diag && <DiagnosisView diag={d.diag} />}
-      <NotifyPolicy conn={conn} onChanged={onChanged} />
+      <NotifyPolicy conn={conn} locked={d.busy} onChanged={onChanged} />
     </article>
   );
 }

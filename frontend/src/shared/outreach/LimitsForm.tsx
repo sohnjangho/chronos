@@ -11,18 +11,20 @@ const LABELS: Record<string, [string, string]> = {
   per_contact_calls_daily: ['한 사람 하루 전화', '통'],
   max_call_seconds: ['최대 통화 시간', '초'],
   max_call_seconds_unknown: ['모르는 번호 통화 시간', '초'],
+  unknown_calls_hourly: ['모르는 번호 전화 한 시간', '통'],
   auto_reply_hourly: ['자동 답 한 시간', '번'],
   auto_reply_daily: ['자동 답 하루', '번'],
   reply_grace_minutes: ['답 유예', '분'],
   unknown_notice_daily: ['모르는 번호 안내 하루', '번'],
+  unknown_notice_total_daily: ['모르는 번호 안내 하루 전체', '건'],
   inbound_burst_count: ['잦은 전화 횟수', '번'],
   inbound_burst_minutes: ['잦은 전화 시간 창', '분'],
 };
 
 const GROUPS: [string, string[]][] = [
   ['문자', ['daily_sms_total', 'per_contact_sms_daily']],
-  ['전화', ['daily_calls_total', 'per_contact_calls_daily', 'max_call_seconds', 'max_call_seconds_unknown']],
-  ['자동 답', ['auto_reply_hourly', 'auto_reply_daily', 'reply_grace_minutes', 'unknown_notice_daily']],
+  ['전화', ['daily_calls_total', 'per_contact_calls_daily', 'max_call_seconds', 'max_call_seconds_unknown', 'unknown_calls_hourly']],
+  ['자동 답', ['auto_reply_hourly', 'auto_reply_daily', 'reply_grace_minutes', 'unknown_notice_daily', 'unknown_notice_total_daily']],
   ['들어오는 전화', ['inbound_burst_count', 'inbound_burst_minutes']],
 ];
 
@@ -134,7 +136,12 @@ function LimitField({ name, data, draft, problem, saved, busy, onDraft, onSave }
  * 알림 연결의 상한 열두 칸(GET …/limits 가 주는 그대로). 칸마다 따로 저장하고(PUT 은 그 칸만),
  * 서버의 까닭은 그 칸 아래에. [기본값으로] 는 바꾼 칸을 모두 지운다. 부르는 화면의 상태는 받지 않는다.
  */
-export default function LimitsForm({ connectionId, onSaved }: { connectionId: number; onSaved?(values: Record<string, number>): void }) {
+export default function LimitsForm({ connectionId, disabled = false, onSaved }: {
+  connectionId: number;
+  /** 부르는 화면이 다른 일을 하는 동안 참(예: 연결 진단 중) — 칸·단추를 모두 잠근다. */
+  disabled?: boolean;
+  onSaved?(values: Record<string, number>): void;
+}) {
   const [data, setData] = useState<LimitsOut | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -189,7 +196,7 @@ export default function LimitsForm({ connectionId, onSaved }: { connectionId: nu
       draft={drafts[name]}
       problem={problems[name]}
       saved={savedKey === name}
-      busy={busy}
+      busy={busy || disabled}
       onDraft={(text) => setDrafts((d) => ({ ...d, [name]: text }))}
       onSave={() => apply(() => limitsApi.put(connectionId, { [name]: Number(drafts[name]) }), name)}
     />
@@ -198,7 +205,7 @@ export default function LimitsForm({ connectionId, onSaved }: { connectionId: nu
     <div style={S.root}>
       <div style={S.head}>
         <p style={S.muted}>{changedCount === 0 ? '모두 기본값입니다.' : `기본값과 다른 칸 ${changedCount}개`} · 칸마다 따로 저장합니다.</p>
-        <Button disabled={busy || changedCount === 0} onClick={() => apply(() => limitsApi.reset(connectionId), null)}>
+        <Button disabled={busy || disabled || changedCount === 0} onClick={() => apply(() => limitsApi.reset(connectionId), null)}>
           기본값으로
         </Button>
       </div>

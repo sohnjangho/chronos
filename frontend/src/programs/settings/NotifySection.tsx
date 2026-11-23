@@ -61,8 +61,8 @@ export default function NotifySection() {
       {connections?.length === 0 && !adding && (
         <p className="st-muted">아직 연결이 없습니다. 「+ 연결 추가」로 한국AI통신 API Key 와 Account ID 를 넣어 주세요.</p>
       )}
-      {connections?.map((c) => <NotifyCard key={c.id} conn={c} onChanged={reload} />)}
       {adding && <NotifyAdd onSaved={saved} onCancel={() => setAdding(false)} />}
+      {connections?.map((c) => <NotifyCard key={c.id} conn={c} onChanged={reload} />)}
     </div>
   );
 }

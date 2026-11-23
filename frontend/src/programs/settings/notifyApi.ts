@@ -19,8 +19,17 @@ export type PhoneKind = 'mobile' | 'landline' | 'internet' | 'rep' | 'safe' | 't
 export interface AllowNumber {
   index: number;
   number_masked: string;
-  kind: PhoneKind;
+  /** 번호 종류를 알 수 없으면 "". */
+  kind: PhoneKind | '';
   can_test_sms: boolean;
+}
+
+/** 승인된 발신번호 하나. label 은 「발신번호 n」(제공사 목록 차례 — 끝 4자리가 같아도 가를 수 있게). */
+export interface Sender {
+  index: number;
+  number_masked: string;
+  kind: PhoneKind | '';
+  label: string;
 }
 
 /** 서버의 알림 연결 한 줄(Task 70 계약 ConnectionOut). 키는 끝 4자리, Account ID·번호는 가린 꼴만. */
@@ -33,7 +42,7 @@ export interface NotifyConnection {
   account_id_masked: string;
   sender_number_masked: string | null;
   sender_index: number | null;
-  senders: string[];
+  senders: Sender[];
   kakao_channel: string | null;
   test_mode: boolean;
   allow_numbers: AllowNumber[];
@@ -50,7 +59,8 @@ export interface NotifyConnection {
   status: 'ok' | 'failed' | 'unknown';
   checked_at: string | null;
   latency_ms: number | null;
-  used_today: { sms: number; call: number };
+  /** 오늘(서울) 나간 문자·전화. 기본 연결이 아니면 null. */
+  used_today: { sms: number; call: number } | null;
 }
 
 /** 저장 결과. 이번에 부른 연결 테스트가 실패했으면 error 가 있다. */
@@ -62,13 +72,13 @@ export interface NotifySaved extends NotifyConnection {
 export interface NotifyProbe {
   ok: boolean;
   latency_ms: number | null;
-  senders: string[];
+  senders: Sender[];
   error: LlmError | null;
 }
 
 export type StepId = 'P1' | 'P2' | 'P3' | 'P4';
 
-/** 진단 걸음 한 줄. detail·notes 는 서버가 가린 글. skipped 를 먼저 보고 그다음 ok. */
+/** 진단 걸음 한 줄. label·detail 은 서버의 한국어 글(가린 것) 그대로. 판정은 칸으로만 가른다(detail 글로 가르지 않는다). */
 export interface DiagnosisStep {
   id: StepId;
   label: string;
@@ -77,10 +87,28 @@ export interface DiagnosisStep {
   detail: string;
   latency_ms: number | null;
   notes: string[];
+  /** 걸음마다 고정된 기계 코드(timeout · not_finished …). */
+  code: string;
+  /** P2: 보내기 요청이 나갔고 결과가 분명한 거절이 아님 — 보냈는지 알 수 없음. */
+  maybe_sent: boolean;
+  /** P3: 아직 「접수됨」 — 실패가 아니라 확인 중. */
+  pending: boolean;
+}
+
+/** 실제 시험 문자 한 건의 기록(번호 없음). */
+export interface SendRecord {
+  at: string;
+  by: string | null;
+  outcome: 'sending' | 'accepted' | 'unknown' | 'not_sent';
 }
 
 export interface Diagnosis {
   ran_at: string;
+  /** sending = 시험 문자를 보내는 중(끝나지 않은 기록). */
+  state: 'sending' | 'done';
+  by: string | null;
+  /** 실제 시험 문자 기록, 오래된 것부터(최근 20개). */
+  sends: SendRecord[];
   steps: DiagnosisStep[];
   /** 시험 문자가 제공사에 접수됨. */
   sent_real: boolean;
@@ -112,6 +140,10 @@ export type NotifyPatch = Partial<{
 export interface DiagnoseIn {
   steps?: StepId[];
   send: boolean;
+  /** send 면 꼭 — 확인 창을 열 때 본 허용 번호 목록의 판. */
+  allow_numbers_version?: string;
+  /** 「보냈는지 모름」 뒤에 사람이 따로 확인하고 다시 보낼 때만. */
+  confirm_resend?: true;
 }
 
 /** 알림 연결(관리자만). 상한은 shared/outreach/limitsApi 의 길로만. */

@@ -37,7 +37,10 @@ function conn(over: Partial<NotifyConnection> = {}): NotifyConnection {
     account_id_masked: '…0001',
     sender_number_masked: '070-****-0123',
     sender_index: 0,
-    senders: ['070-****-0123', '070-****-0456'],
+    senders: [
+      { index: 0, number_masked: '070-****-0123', kind: 'internet', label: '발신번호 1' },
+      { index: 1, number_masked: '070-****-0123', kind: 'internet', label: '발신번호 2' },
+    ],
     kakao_channel: null,
     test_mode: true,
     allow_numbers: [{ index: 0, number_masked: '010-****-0199', kind: 'mobile', can_test_sms: true }],
@@ -58,15 +61,30 @@ function conn(over: Partial<NotifyConnection> = {}): NotifyConnection {
   };
 }
 
+type Step = Diagnosis['steps'][number];
+const step = (over: Partial<Step> & Pick<Step, 'id' | 'label' | 'detail'>): Step => ({
+  ok: false,
+  skipped: false,
+  latency_ms: null,
+  notes: [],
+  code: '',
+  maybe_sent: false,
+  pending: false,
+  ...over,
+});
+
 const DIAG: Diagnosis = {
   ran_at: '2026-11-23T05:12:00Z',
+  state: 'done',
+  by: '김하늘',
+  sends: [],
   sent_real: false,
   sent_unknown: false,
   steps: [
-    { id: 'P1', label: '인증·발신번호', ok: true, skipped: false, detail: '인증됨 · 발신번호 2개', latency_ms: 412, notes: ['senderNumbers: 2개 · approved 2'] },
-    { id: 'P2', label: '문자 1건', ok: false, skipped: true, detail: '실제 문자를 켜지 않아 건너뜀', latency_ms: null, notes: [] },
-    { id: 'P3', label: '상태 조회', ok: false, skipped: true, detail: 'P2 를 건너뛰어 건너뜀', latency_ms: null, notes: [] },
-    { id: 'P4', label: '받은 문자 목록', ok: false, skipped: false, detail: 'http_403 · 권한이 없습니다', latency_ms: 230, notes: ['status 403'] },
+    step({ id: 'P1', label: '인증 + 발신번호 목록', ok: true, code: 'ok', detail: '키와 Account ID 가 맞습니다. 승인된 발신번호가 2개 있습니다.', latency_ms: 412, notes: ['응답 칸: senderNumbers'] }),
+    step({ id: 'P2', label: '시험 문자 1건 보내기', skipped: true, code: 'not_requested', detail: '실제 문자를 켜지 않아 보내지 않았습니다.' }),
+    step({ id: 'P3', label: '보낸 문자 상태 조회', skipped: true, code: 'not_requested', detail: '보낸 시험 문자가 없어 조회하지 않았습니다.' }),
+    step({ id: 'P4', label: '받은 문자 목록', code: 'forbidden', detail: '받은 문자 목록을 읽을 권한이 없습니다.', latency_ms: 230, notes: ['상태 403'] }),
   ],
 };
 
@@ -175,10 +193,10 @@ test('연결 진단 draws one line per step with notes collapsed and the run tim
   const result = await within(card()).findByRole('region', { name: '연결 진단 결과' });
   const lines = within(result).getAllByRole('listitem');
   expect(lines).toHaveLength(4);
-  expect(lines[0]).toHaveTextContent(/P1.*OK.*인증됨 · 발신번호 2개.*412ms/);
-  expect(lines[1]).toHaveTextContent(/P2.*건너뜀.*실제 문자를 켜지 않아 건너뜀/);
-  expect(lines[3]).toHaveTextContent(/P4.*FAIL.*http_403 · 권한이 없습니다.*230ms/);
-  expect(within(lines[0]).getByText('senderNumbers: 2개 · approved 2')).not.toBeVisible();
+  expect(lines[0]).toHaveTextContent(/P1.*OK.*인증 \+ 발신번호 목록.*키와 Account ID 가 맞습니다\. 승인된 발신번호가 2개 있습니다\..*412ms/);
+  expect(lines[1]).toHaveTextContent(/P2.*건너뜀.*실제 문자를 켜지 않아 보내지 않았습니다\./);
+  expect(lines[3]).toHaveTextContent(/P4.*FAIL.*받은 문자 목록을 읽을 권한이 없습니다\..*230ms/);
+  expect(within(lines[0]).getByText('응답 칸: senderNumbers')).not.toBeVisible();
   expect(within(result).getByText(/돌린 시각/)).toBeVisible();
   expect(sent(fetchMock, `POST ${ONE}/diagnose`)).toEqual([{ send: false }]);
 });
@@ -213,7 +231,7 @@ test('a real SMS goes only through the confirmation that shows the masked number
   confirm = within(c).getByRole('group', { name: '실제 문자 확인' });
   const go = within(confirm).getByRole('button', { name: '보내기' });
   await userEvent.dblClick(go);
-  expect(sent(fetchMock, `POST ${ONE}/diagnose`)).toEqual([{ send: true }]);
+  expect(sent(fetchMock, `POST ${ONE}/diagnose`)).toEqual([{ send: true, allow_numbers_version: 'v1' }]);
   expect(within(c).getByRole('button', { name: '시험 문자' })).toBeDisabled();
   release();
   expect(await within(c).findByRole('region', { name: '연결 진단 결과' })).toBeVisible();
@@ -228,20 +246,28 @@ test('시험 문자 runs P2·P3 only after confirming and shows diagnosis_runnin
   await userEvent.click(within(c).getByRole('button', { name: '시험 문자' }));
   await userEvent.click(within(within(c).getByRole('group', { name: '실제 문자 확인' })).getByRole('button', { name: '보내기' }));
   expect(await within(c).findByText(message)).toBeVisible();
-  expect(sent(fetchMock, `POST ${ONE}/diagnose`)).toEqual([{ steps: ['P2', 'P3'], send: true }]);
+  expect(sent(fetchMock, `POST ${ONE}/diagnose`)).toEqual([{ steps: ['P2', 'P3'], send: true, allow_numbers_version: 'v1' }]);
 });
 
 test('sent but outcome unknown is shown as such, not as a failure', async () => {
   const unknown: Diagnosis = {
     ...DIAG,
     sent_unknown: true,
-    steps: [{ id: 'P2', label: '문자 1건', ok: false, skipped: false, detail: 'ReadTimeout · 보냈는지 알 수 없음', latency_ms: 15000, notes: [] }],
+    steps: [
+      DIAG.steps[0],
+      step({ id: 'P2', label: '시험 문자 1건 보내기', code: 'read_timeout', maybe_sent: true, detail: '응답을 기다리다 끊겼습니다.', latency_ms: 15000 }),
+      step({ id: 'P3', label: '보낸 문자 상태 조회', code: 'pending', pending: true, detail: '아직 접수 상태입니다.', latency_ms: 5100 }),
+      DIAG.steps[3],
+    ],
   };
   open({ [`${ONE}/diagnosis`]: unknown });
   const result = await within(await findCard()).findByRole('region', { name: '연결 진단 결과' });
-  const line = within(result).getAllByRole('listitem')[0];
-  expect(line).toHaveTextContent(/P2.*확인 필요/);
-  expect(line).not.toHaveTextContent('FAIL');
+  const lines = within(result).getAllByRole('listitem');
+  expect(lines).toHaveLength(4);
+  expect(lines[1]).toHaveTextContent(/P2.*확인 필요.*응답을 기다리다 끊겼습니다\./);
+  expect(lines[1]).not.toHaveTextContent('FAIL');
+  expect(lines[2]).toHaveTextContent(/P3.*확인 중.*아직 접수 상태입니다\./);
+  expect(lines[2]).not.toHaveTextContent('FAIL');
   expect(within(result).getByText(/다시 누르면 두 번째 문자가 갈 수 있습니다/)).toBeVisible();
 });
 
@@ -311,7 +337,12 @@ test('a changed allow list (409) reloads and asks again without retrying', async
 test('the sender number is chosen by index', async () => {
   const { fetchMock } = open({ [`PATCH ${ONE}`]: { ...conn({ sender_index: 1 }), error: null } });
   const c = await findCard();
-  await userEvent.selectOptions(within(c).getByRole('combobox', { name: '발신번호' }), '070-****-0456');
+  const select = within(c).getByRole('combobox', { name: '발신번호' });
+  expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+    '발신번호 1 · 070-****-0123 · 인터넷 전화',
+    '발신번호 2 · 070-****-0123 · 인터넷 전화',
+  ]);
+  await userEvent.selectOptions(select, '발신번호 2 · 070-****-0123 · 인터넷 전화');
   await waitFor(() => expect(sent(fetchMock, `PATCH ${ONE}`)).toEqual([{ sender_index: 1 }]));
 });
 
@@ -350,4 +381,175 @@ test('the limits group uses the shared form for this connection', async () => {
   const c = await findCard();
   await userEvent.click(within(c).getByText(/^상한 —/));
   expect(await within(c).findByRole('spinbutton', { name: /^하루 문자/ })).toHaveValue(50);
+});
+
+// ── 고침 1차(리뷰 I2·I4·계약 V1~V9) ──
+
+const UNSURE = '보냈는지 확인 필요 — 휴대전화에 문자가 왔는지 먼저 확인해 주세요';
+const reads = (fetchMock: ReturnType<typeof open>['fetchMock'], path: string) =>
+  fetchMock.mock.calls.filter(([url, init]) => String(url) === path && !(init as RequestInit | undefined)?.method).length;
+
+async function sendTestSms(c: HTMLElement) {
+  await userEvent.click(within(c).getByRole('switch', { name: /실제 문자 1건 보내기/ }));
+  await userEvent.click(within(c).getByRole('button', { name: '시험 문자' }));
+  await userEvent.click(within(within(c).getByRole('group', { name: '실제 문자 확인' })).getByRole('button', { name: '보내기' }));
+}
+
+test('a send that ends with a server error says to check the phone and re-reads the last diagnosis', async () => {
+  const { fetchMock } = open({
+    [`POST ${ONE}/diagnose`]: () => json(502, { code: 'http_error', message: '요청을 처리할 수 없습니다.', detail: null }),
+  });
+  const c = await findCard();
+  await waitFor(() => expect(reads(fetchMock, `${ONE}/diagnosis`)).toBe(1));
+  await sendTestSms(c);
+  expect(await within(c).findByText(UNSURE)).toBeVisible();
+  await waitFor(() => expect(reads(fetchMock, `${ONE}/diagnosis`)).toBe(2));
+  expect(within(c).queryByText('요청을 처리할 수 없습니다.')).toBeNull();
+  expect(within(c).queryByRole('button', { name: /다시/ })).toBeNull();
+  expect(within(c).getByRole('switch', { name: /실제 문자 1건 보내기/ })).not.toBeChecked();
+});
+
+test('a send cut off by the network is treated the same way', async () => {
+  open({ [`POST ${ONE}/diagnose`]: () => Promise.reject(new TypeError('Failed to fetch')) });
+  const c = await findCard();
+  await sendTestSms(c);
+  expect(await within(c).findByText(UNSURE)).toBeVisible();
+});
+
+test('a clear refusal of a send (422) is a plain reason line', async () => {
+  const message = '발신번호를 먼저 골라 주세요.';
+  open({ [`POST ${ONE}/diagnose`]: () => json(422, { code: 'no_sender', message, detail: null }) });
+  const c = await findCard();
+  await sendTestSms(c);
+  expect(await within(c).findByText(message)).toBeVisible();
+  expect(within(c).queryByText(UNSURE)).toBeNull();
+});
+
+test('sent_unknown_pending needs its own resend confirmation before confirm_resend is sent', async () => {
+  const message = '앞서 보낸 시험 문자가 갔는지 아직 모릅니다. 휴대전화에 문자가 왔는지 먼저 확인해 주세요. 확인한 뒤에도 다시 보내려면 다시 보내기를 골라 주세요.';
+  let calls = 0;
+  const { fetchMock } = open({
+    [`POST ${ONE}/diagnose`]: () => (++calls === 1 ? json(409, { code: 'sent_unknown_pending', message, detail: null }) : json(200, DIAG)),
+  });
+  const c = await findCard();
+  await sendTestSms(c);
+  expect(await within(c).findByText(message)).toBeVisible();
+  await userEvent.click(within(c).getByRole('button', { name: '그래도 다시 보내기' }));
+  const confirm = within(c).getByRole('group', { name: '다시 보내기 확인' });
+  expect(confirm).toHaveTextContent('010-****-0199');
+  expect(confirm).toHaveTextContent('두 번째 문자');
+  expect(sent(fetchMock, `POST ${ONE}/diagnose`)).toHaveLength(1);
+  await userEvent.click(within(confirm).getByRole('button', { name: '취소' }));
+  expect(sent(fetchMock, `POST ${ONE}/diagnose`)).toHaveLength(1);
+  await userEvent.click(within(c).getByRole('button', { name: '그래도 다시 보내기' }));
+  await userEvent.click(within(within(c).getByRole('group', { name: '다시 보내기 확인' })).getByRole('button', { name: '다시 보내기' }));
+  await waitFor(() =>
+    expect(sent(fetchMock, `POST ${ONE}/diagnose`)).toEqual([
+      { steps: ['P2', 'P3'], send: true, allow_numbers_version: 'v1' },
+      { steps: ['P2', 'P3'], send: true, allow_numbers_version: 'v1', confirm_resend: true },
+    ]),
+  );
+});
+
+test('a changed allow list on send reloads and asks again with the new masked target', async () => {
+  const message = '허용 번호 목록이 그사이 바뀌었습니다. 새로 불러온 뒤 다시 지워 주세요.';
+  let rows = [conn()];
+  const { fetchMock } = open({
+    [LIST]: () => json(200, rows),
+    [`POST ${ONE}/diagnose`]: () => {
+      rows = [conn({ allow_numbers: [{ index: 0, number_masked: '010-****-0288', kind: 'mobile', can_test_sms: true }], allow_numbers_version: 'v2' })];
+      return json(409, { code: 'allow_list_changed', message, detail: null });
+    },
+  });
+  const c = await findCard();
+  await sendTestSms(c);
+  expect(await within(c).findByText(message)).toBeVisible();
+  expect(within(c).queryByRole('group', { name: '실제 문자 확인' })).toBeNull();
+  await within(c).findByText(/010-\*\*\*\*-0288\(으\)로/);
+  await userEvent.click(within(c).getByRole('switch', { name: /실제 문자 1건 보내기/ }));
+  await userEvent.click(within(c).getByRole('button', { name: '시험 문자' }));
+  expect(within(c).getByRole('group', { name: '실제 문자 확인' })).toHaveTextContent('010-****-0288');
+  expect(sent(fetchMock, `POST ${ONE}/diagnose`)).toHaveLength(1);
+});
+
+test('everything below the card is locked while a diagnosis runs', async () => {
+  let release: () => void = () => {};
+  open({
+    [`POST ${ONE}/diagnose`]: () => new Promise<Response>((r) => (release = () => r(json(200, DIAG)))),
+    [`${ONE}/limits`]: { values: DEFAULT_LIMITS, defaults: DEFAULT_LIMITS, ranges: {} },
+  });
+  const c = await findCard();
+  await userEvent.click(within(c).getByText(/^상한 —/));
+  const sms = await within(c).findByRole('spinbutton', { name: /^하루 문자/ });
+  await userEvent.click(within(c).getByRole('button', { name: '연결 진단' }));
+  const locked = [
+    within(c).getByRole('combobox', { name: '발신번호' }),
+    within(c).getByRole('switch', { name: '시험 모드' }),
+    within(c).getByLabelText('허용 번호 더하기'),
+    within(within(c).getByRole('list', { name: '허용 번호' })).getByRole('button', { name: '빼기' }),
+    ...within(within(c).getByRole('radiogroup', { name: '문자 발송 권한' })).getAllByRole('radio'),
+    ...within(within(c).getByRole('radiogroup', { name: '전화 발송 권한' })).getAllByRole('radio'),
+    sms,
+  ];
+  for (const el of locked) expect(el).toBeDisabled();
+  release();
+  await within(c).findByRole('region', { name: '연결 진단 결과' });
+  await waitFor(() => expect(within(c).getByRole('switch', { name: '시험 모드' })).toBeEnabled());
+  expect(sms).toBeEnabled();
+});
+
+test('a sending state from the server shows 확인 필요', async () => {
+  open({ [`${ONE}/diagnosis`]: { ...DIAG, state: 'sending', by: '김하늘' } });
+  const result = await within(await findCard()).findByRole('region', { name: '연결 진단 결과' });
+  expect(within(result).getByText(/확인 필요/)).toBeVisible();
+});
+
+test('the record of real test SMS is collapsed under the result and has no number', async () => {
+  const sends = [
+    { at: '2026-11-23T05:00:00Z', by: '김하늘', outcome: 'accepted' as const },
+    { at: '2026-11-23T05:10:00Z', by: '김하늘', outcome: 'unknown' as const },
+  ];
+  open({ [`${ONE}/diagnosis`]: { ...DIAG, sends } });
+  const result = await within(await findCard()).findByRole('region', { name: '연결 진단 결과' });
+  const record = within(result).getByText('시험 문자 기록 2건');
+  const rows = within(result).getAllByText(/김하늘 · (접수됨|확인 필요)/);
+  for (const r of rows) expect(r).not.toBeVisible();
+  await userEvent.click(record);
+  expect(rows[0]).toHaveTextContent('확인 필요');
+  expect(rows[0]).toBeVisible();
+  expect(result.textContent).not.toMatch(/010|0199/);
+});
+
+test('a field-specific 422 sits under that field in the add form', async () => {
+  open({ [LIST]: [], [`POST ${LIST}`]: () => json(422, { code: 'too_long', message: '100자까지 넣을 수 있습니다.', detail: { field: 'name', max: 100 } }) });
+  await userEvent.click(await screen.findByRole('button', { name: '+ 연결 추가' }));
+  const form = screen.getByRole('group', { name: '알림 연결 추가' });
+  await userEvent.type(within(form).getByLabelText(/^API Key/), SENTINEL_KEY);
+  await userEvent.type(within(form).getByLabelText(/^Account ID/), ACCOUNT);
+  await userEvent.click(within(form).getByRole('button', { name: '저장하고 연결 테스트' }));
+  const nameField = within(form).getByLabelText('이름').closest('.ui-field') as HTMLElement;
+  expect(await within(nameField).findByText('100자까지 넣을 수 있습니다.')).toBeVisible();
+});
+
+test('a field-specific 422 for an added number sits under the number field', async () => {
+  open({ [`PATCH ${ONE}`]: () => json(422, { code: 'too_long', message: '40자까지 넣을 수 있습니다.', detail: { field: 'allow_numbers_add', max: 40 } }) });
+  const c = await findCard();
+  await userEvent.type(within(c).getByLabelText('허용 번호 더하기'), '0100000019901000000199');
+  await userEvent.click(within(c).getByRole('button', { name: '더하기' }));
+  const add = within(c).getByLabelText('허용 번호 더하기').closest('.st-nt-addrow') as HTMLElement;
+  expect(await within(add).findByText('40자까지 넣을 수 있습니다.')).toBeVisible();
+});
+
+test('used_today null shows a dash, not zero', async () => {
+  open({ [LIST]: [conn({ used_today: null, is_default: false })] });
+  const c = await findCard();
+  expect(within(c).getByText(/^상한 —/)).toHaveTextContent('오늘 문자 — · 전화 —');
+});
+
+test('the add form opens at the top of the section', async () => {
+  open();
+  await findCard();
+  await userEvent.click(screen.getByRole('button', { name: '+ 연결 추가' }));
+  const form = screen.getByRole('group', { name: '알림 연결 추가' });
+  expect(form.compareDocumentPosition(card()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });

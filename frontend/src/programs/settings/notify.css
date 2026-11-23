@@ -68,3 +68,12 @@
   .st-nt-perm-why { grid-column: 1; }
   .st-nt-facts { grid-template-columns: 74px minmax(0, 1fr); }
 }
+
+/* ── 고침 1차: 칸 오류 자리 · 더하기 줄 · 두 테마에서 같은 입력 바탕 ── */
+.st-nt-secret { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.st-nt-addrow { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.st-nt .st-search { background: var(--bg-panel); color: var(--fg); }
+.st-nt .st-search::placeholder { color: var(--fg-muted); }
+.st-nt input:disabled,
+.st-nt select:disabled { background: var(--bg-panel-alt); color: var(--fg-muted); -webkit-text-fill-color: var(--fg-muted); opacity: 1; }
+.st-nt-sends { margin-left: 0; }
