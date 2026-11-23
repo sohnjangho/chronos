@@ -24,10 +24,11 @@ from sqlalchemy.orm import Session
 
 from app.agent.generation_build import MAX_ACTIVITIES, MAX_LAG, MAX_OD, DraftProblem
 from app.core.model import Constraint, Resource, Schedule
+from app.domains.loader import levels
 from app.files import extract
 from app.llm.client import LlmReply, Usage
 from app.store import files
-from app.store.schedules import NotFound
+from app.store.schedules import NotFound, get_record
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,19 @@ def card(table: Table, p: Plan) -> dict:
     blanks = sum(1 for _, got in rows if not got["duration_col"] or table.index(p.pred_col) is None)
     return {"file_id": table.file_id, "sheet": table.sheet, "rows": len(rows), "columns_found": found, "missing": missing,
             "columns": p.model_dump(include={*COLUMNS, "start_constraint", "finish_constraint"}), "over_limit": len(rows) > MAX_ACTIVITIES, "blank_rows": blanks, "blank_limit": BLANK_LIMIT}
+
+
+def defaults(session: Session, schedule_id: int | None, rows: int) -> dict:
+    """확인 카드에 보이는 가져오기 기본값(I1): 분야 = 이 대화의 일정 분야(없으면 general), 정밀도 = 액티비티 수가
+    들어가는 가장 낮은 단계(L1~L4, 넘으면 L4). 카드 단추로 가져올 때 모델이 빼면 이 값을 쓴다(agent.loop)."""
+    domain = "general"
+    if schedule_id is not None:
+        try:
+            domain = get_record(session, schedule_id).domain
+        except NotFound:
+            pass
+    level = next((d.id for d in levels().values() if d.activity_count and rows <= d.activity_count[1]), "L4")
+    return {"domain": domain, "level": level}
 
 
 def duration(text: str) -> int:

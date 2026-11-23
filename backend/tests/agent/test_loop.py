@@ -35,7 +35,7 @@ from app.store.tables import (
     WorkflowStep,
 )
 from app.tools import registry
-from app.tools.context import ToolContext
+from app.tools.context import ToolContext, ToolError
 from tests.gen_doubles import (
     FINISH_BY,
     SCHED_LATE_BY_3,
@@ -46,7 +46,7 @@ from tests.gen_doubles import (
 )
 from tests.llm_doubles import FakeLiner, add_connection, chat_body
 from tests.loop_doubles import FAIL, ScriptedLlm, calls, raw_call, reply
-from tests.tool_doubles import Empty, registered
+from tests.tool_doubles import Empty, SpyIn, registered
 
 NO_UI = UiContext(None, None, None)
 
@@ -1027,6 +1027,96 @@ async def test_repeated_check_in_a_turn_shows_one_card_and_never_imports(run, se
     assert len(gen.requests) == 2 and session.scalars(select(ScheduleDraft)).all() == []
     last_tool = json.loads(llm.last_body["messages"][-1]["content"])
     assert "이미 확인" in last_tool["reflection"] and "인자를 고치" not in last_tool["reflection"]
+
+
+async def test_import_button_fills_what_the_check_step_found(run, session, monkeypatch):
+    """I1(재확인): 단추 턴에 모델이 confirmed=true 만 넣고 분야·정밀도·열 대응을 빼도, 이 대화의 확인 카드 값
+    (열 대응·시트·카드에 보인 기본 분야·정밀도)으로 채워 한 번에 가져온다 — 실패 호출이 없다."""
+    gen = FakeLiner()
+    gen.push(chat_body(json.dumps({"is_schedule": True, "reason": "공정표"})),
+             chat_body(json.dumps({**IMPORT_COLUMNS, "blanks": "estimate", "questions": [], "reason": "빈 칸 없음"})))
+    _gen_client(monkeypatch, gen)
+    fid = _put_csv(session, IMPORT_CSV)
+    await run(ScriptedLlm([calls("schedule.import", {"file_id": fid}), reply("공정표입니다.")]), "첨부한 공정표를 확인해 줘.")
+    llm = ScriptedLlm([
+        calls("schedule.import", {"file_id": fid, "sheet": None, "confirmed": True}),  # run 43 의 인자
+        reply("승인함에서 승인을 기다립니다."),
+    ])
+    ev = await run(llm, _button_text(fid))
+    assert _tool_ends(ev) == [("schedule.import", True)]
+    assert len(session.scalars(select(ScheduleDraft)).all()) == 1 and len(gen.requests) == 2  # 판단은 확인 때 두 번뿐
+    assert [e.type for e in ev].count("approval") == 1
+    step = session.scalars(select(WorkflowStep).order_by(WorkflowStep.id.desc())).first()
+    args = json.loads(step.input_json)  # 기록에도 실제로 부른 인자
+    assert (args["confirmed"], args["domain"], args["level"], args["columns"]) == (True, "general", "L1", IMPORT_COLUMNS)
+
+
+async def test_import_button_keeps_what_the_model_did_give(run, session, monkeypatch):
+    """I1(재확인): 모델이 넣은 값은 그대로 두고 빠진 칸만 채운다."""
+    gen = FakeLiner()
+    gen.push(chat_body(json.dumps({"is_schedule": True, "reason": "공정표"})),
+             chat_body(json.dumps({**IMPORT_COLUMNS, "blanks": "estimate", "questions": [], "reason": "빈 칸 없음"})))
+    _gen_client(monkeypatch, gen)
+    fid = _put_csv(session, IMPORT_CSV)
+    await run(ScriptedLlm([calls("schedule.import", {"file_id": fid}), reply("공정표입니다.")]), "첨부한 공정표를 확인해 줘.")
+    llm = ScriptedLlm([calls("schedule.import", {"file_id": fid, "domain": "construction"}), reply("끝")])
+    ev = await run(llm, _button_text(fid))
+    assert _tool_ends(ev) == [("schedule.import", True)]
+    step = session.scalars(select(WorkflowStep).order_by(WorkflowStep.id.desc())).first()
+    args = json.loads(step.input_json)
+    assert (args["domain"], args["level"], args["columns"]) == ("construction", "L1", IMPORT_COLUMNS)
+
+
+# ── 같은 호출이 같은 까닭으로 되풀이해 실패하면 세 번째는 실행하지 않는다(I1 재확인) ──
+
+
+@pytest.fixture
+def failing_tool():
+    """도구 'stubborn' {n}: 부를 때마다 센다. n 이 0 이면 늘 같은 까닭으로 실패, 아니면 성공."""
+    seen: list[int] = []
+
+    def stubborn(args: SpyIn, ctx) -> Empty:
+        seen.append(args.n)
+        if args.n == 0:
+            raise ToolError("n 이 0 이면 안 됩니다.")
+        return Empty()
+
+    with registered("stubborn", stubborn):
+        yield seen
+
+
+async def test_third_identical_failing_call_is_not_run(run, session, failing_tool):
+    llm = ScriptedLlm([
+        calls("stubborn", {"n": 0}),
+        calls("stubborn", {"n": 0}, call_id="call_2"),
+        calls("stubborn", {"n": 0}, call_id="call_3"),
+        reply("멈춥니다."),
+    ])
+    ev = await run(llm, "해 줘")
+    assert failing_tool == [0, 0]  # 세 번째는 실행하지 않았다
+    assert _tool_ends(ev) == [("stubborn", False)] * 3
+    third = json.loads(llm.bodies[3]["messages"][-1]["content"])
+    assert "n 이 0 이면 안 됩니다." in third["error"] and "인자를 바꿔" in third["error"]
+    assert third["reflection"] == third["error"]
+    assert ev[-1].type == "done" and not any(e.type == "error" for e in ev)
+
+
+async def test_a_call_with_changed_arguments_still_runs(run, session, failing_tool):
+    llm = ScriptedLlm([
+        calls("stubborn", {"n": 0}),
+        calls("stubborn", {"n": 0}, call_id="call_2"),
+        calls("stubborn", {"n": 1}, call_id="call_3"),
+        reply("됐습니다."),
+    ])
+    ev = await run(llm, "해 줘")
+    assert failing_tool == [0, 0, 1]
+    assert _tool_ends(ev) == [("stubborn", False), ("stubborn", False), ("stubborn", True)]
+
+
+async def test_repeated_failures_are_counted_per_turn(run, session, failing_tool):
+    await run(ScriptedLlm([calls("stubborn", {"n": 0}), calls("stubborn", {"n": 0}, call_id="c2"), reply("x")]), "1")
+    await run(ScriptedLlm([calls("stubborn", {"n": 0}), reply("y")]), "2")
+    assert failing_tool == [0, 0, 0]  # 다음 턴의 첫 호출은 실행한다
 
 
 CARD_TSX = Path(__file__).resolve().parents[3] / "frontend/src/programs/chat/cards/ScheduleFileCard.tsx"

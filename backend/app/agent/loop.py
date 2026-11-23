@@ -36,6 +36,7 @@ from app.agent.context import (
 from app.agent.events import AgentEvent, json_safe
 from app.agent.trace import TraceLog, context_parts
 from app.agent.workflow_log import TITLE_LIMIT, WorkflowLog
+from app.files import schedule_import
 from app.llm import assignments
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply, Usage
 from app.store import approvals, chats, questionnaires, skills
@@ -57,8 +58,14 @@ PING = AgentEvent("ping", {})
 CUT_NOTE = " (답이 길어 잘렸습니다)"  # max_tokens 에 걸려 잘린 글 답 끝에 붙인다
 _MAX_SQL_INT = 2**63 - 1
 # 공정표 카드의 [일정 초안으로 가져오기]가 보내는 글(frontend ScheduleFileCard.tsx). 이 턴의 그 파일 schedule.import 는
-# 모델이 confirmed 를 빼도 가져오기로 부른다(I1). 한 턴에 같은 파일은 한 번만 가져오고, 같은 확인은 한 번만 한다(I1·I2).
+# 모델이 confirmed 를 빼도 가져오기로 부르고, 모델이 뺀 시트·열 대응·분야·정밀도는 이 대화의 확인 카드 값으로 채운다(I1).
+# 한 턴에 같은 파일은 한 번만 가져오고, 같은 확인은 한 번만 한다(I1·I2).
 IMPORT_BUTTON = re.compile(r"네, 확인했으니 이 파일\(#(\d+)\)을 일정 초안으로 가져와 줘\.?")
+IMPORT_FILLED = ("sheet", "columns", "domain", "level")  # 단추 턴에 확인 카드에서 채우는 칸
+# 한 턴에 같은 도구를 같은 인자로 불러 같은 까닭으로 FAILS_BEFORE_STOP 번 실패했으면 그 호출은 더 실행하지 않는다(I1 재확인).
+FAILS_BEFORE_STOP = 2
+FAILING_AGAIN = ("같은 도구 `{}`를 같은 인자로 이미 {}번 불렀고 매번 같은 까닭으로 실패했습니다: {} "
+                 "이 호출은 실행하지 않았습니다. 인자를 바꿔 부르거나, 멈추고 그 까닭을 사용자에게 알리세요.")
 IMPORT_AGAIN = "이번 턴에 이 파일(#{})은 이미 가져왔습니다. 다시 부르지 말고 받은 결과를 사용자에게 알리세요."
 ASKED_AGAIN = ("이번 턴에 이 파일(#{})은 빈 칸을 물을 질문지를 열었습니다(아직 가져오지 않았습니다). 다시 부르지 말고 "
                "질문지에 답해 달라고 말한 뒤 턴을 끝내세요 — 제출되면 answers·assumed 를 넣어 다시 부릅니다.")
@@ -191,7 +198,9 @@ class _Turn:
         self.import_file: str | None = None  # 이 턴이 가져오기 단추로 온 파일 id(IMPORT_BUTTON)
         # 이 턴에 성공한 schedule.import: ("checked", 파일, 시트) | ("imported"·"asked"·"no_draft", 파일)
         self.import_seen: set[tuple] = set()
-        self.refused: str | None = None  # 지금 도구를 실행하지 않은 까닭(같은 가져오기·확인 되풀이)
+        self.refused: str | None = None  # 지금 도구를 실행하지 않은 까닭(같은 가져오기·확인 되풀이, 같은 실패 되풀이)
+        self.ran = False  # 지금 도구를 실제로 실행했는가(거절한 호출은 실패 횟수에 넣지 않는다)
+        self.failures: dict[tuple[str, str], tuple[str, int]] = {}  # 이 턴: (도구, 인자) → (마지막 오류, 연달아 같은 오류 수)
 
     # ── 시작·끝 ──
 
@@ -315,12 +324,14 @@ class _Turn:
                         return
                     for event in self.start_tool(call, reply, text):
                         yield event
-                    self.refused = self._import_again(call)
+                    self.refused = self._import_again(call) or self._failing_again(call)
+                    self.ran = False
                     if call.name == "ask.questionnaire" and self.asked_questionnaire:
                         self.start(self._reject_duplicate_questionnaire())
                     elif self.refused is not None:
                         self.start(self._refuse(self.refused))
                     else:
+                        self.ran = True
                         self.start(registry.call(call.name, call.arguments, self.tool_context()))
                     while (event := await self.waiting()) is not None:
                         yield event
@@ -386,8 +397,9 @@ class _Turn:
             self.calls_seen += 1
             arguments, text_args = json_safe(c.arguments), json_safe(arguments_text(c.arguments, c.raw_arguments))
             if self._button_import(json_safe(c.name), arguments):  # 단추로 온 가져오기(I1): 기록에도 실제로 부를 인자
-                arguments = {**arguments, "confirmed": True}
-                text_args = json.dumps(arguments, ensure_ascii=False)
+                filled = self._button_arguments(arguments)
+                if filled != arguments:
+                    arguments, text_args = filled, json.dumps(filled, ensure_ascii=False)
             calls.append(_Call(json_safe(c.id) or f"call_{self.calls_seen}", json_safe(c.name), arguments, text_args))
         tool_calls = [{"id": c.id, "name": c.name, "arguments": c.arguments_text} for c in calls]
         self.save("assistant", {"kind": "tool_calls", "text": text, "tool_calls": tool_calls})
@@ -429,6 +441,8 @@ class _Turn:
         elif call.name in ("generate.run", "generate.extract_conditions", "schedule.create_project") and result.ok:
             self.waiting_for_user = False
         self.note_import(call, result)
+        if self.ran:
+            self.note_failure(call, result)
         stopped = result.ok and turns.stop_requested(self.chat_id)  # 도는 동안 멈춤을 눌렀다
         self.log.step_finished(self.step_n, result, stopped)
         for event in self.collected:
@@ -461,9 +475,42 @@ class _Turn:
         )
 
     def _button_import(self, name: str, arguments: object) -> bool:
-        """가져오기 단추로 온 턴의 그 파일 schedule.import 인데 confirmed 가 true 가 아니다(I1)."""
+        """가져오기 단추로 온 턴의 그 파일 schedule.import 다(I1)."""
         return (self.import_file is not None and name == "schedule.import" and isinstance(arguments, dict)
-                and str(arguments.get("file_id")) == self.import_file and arguments.get("confirmed") is not True)
+                and str(arguments.get("file_id")) == self.import_file)
+
+    def _button_arguments(self, arguments: dict) -> dict:
+        """단추로 온 가져오기의 인자: confirmed 는 true, 모델이 뺀 시트·열 대응·분야·정밀도는 이 대화의 확인 카드 값(I1).
+        모델이 넣은 값은 그대로 둔다. 분야·정밀도가 없는 예전 카드는 확인 단계와 같은 셈의 기본값으로 채운다."""
+        card = _checked_card(self.session, self.chat_id, self.import_file, arguments.get("sheet"))
+        known: dict = {}
+        if card is not None:
+            known = {k: card.get(k) for k in IMPORT_FILLED}
+            rows = card.get("rows") if isinstance(card.get("rows"), int) else 0
+            known = {**schedule_import.defaults(self.session, self.schedule_id, rows),
+                     **{k: v for k, v in known.items() if v is not None}}
+        missing = {k: v for k, v in known.items() if v is not None and arguments.get(k) is None}
+        return {**arguments, **missing, "confirmed": True}
+
+    @staticmethod
+    def _call_key(call: _Call) -> tuple[str, str]:
+        args = call.arguments if call.arguments is not None else call.arguments_text
+        return call.name, json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)
+
+    def note_failure(self, call: _Call, result: registry.ToolResult) -> None:
+        """실행한 호출의 결과를 센다: 같은 (도구, 인자)가 같은 오류로 연달아 실패한 수. 성공하면 지운다."""
+        key = self._call_key(call)
+        if result.ok:
+            self.failures.pop(key, None)
+            return
+        error = json_safe(result.error) or ""
+        last, n = self.failures.get(key, ("", 0))
+        self.failures[key] = (error, n + 1 if error == last else 1)
+
+    def _failing_again(self, call: _Call) -> str | None:
+        """이 턴에 같은 도구·같은 인자가 같은 까닭으로 FAILS_BEFORE_STOP 번 실패했으면 실행하지 않을 까닭. 아니면 None."""
+        error, n = self.failures.get(self._call_key(call), ("", 0))
+        return FAILING_AGAIN.format(call.name, n, error) if n >= FAILS_BEFORE_STOP else None
 
     def note_import(self, call: _Call, result: registry.ToolResult) -> None:
         """성공한 schedule.import 가 무엇을 했는지 적는다: 확인 · 질문지만 엶 · 초안 없음 · 가져옴(초안을 만듦)."""
@@ -501,6 +548,17 @@ class _Turn:
     def cancel_task(self) -> None:
         if self.task is not None and not self.task.done():
             self.task.cancel()
+
+
+def _checked_card(session: Session, chat_id: int, file_id: str, sheet: object) -> dict | None:
+    """이 대화에 마지막으로 뜬 그 파일의 확인 카드(card:schedule_file) data. 시트를 주면 그 시트의 것만. 없으면 None."""
+    for message in reversed(chats.messages(session, chat_id)):
+        content = message.content_json if isinstance(message.content_json, dict) else {}
+        data = content.get("data") if message.role == "event" and content.get("type") == "card" else None
+        if (isinstance(data, dict) and data.get("kind") == "schedule_file" and str(data.get("file_id")) == file_id
+                and (sheet is None or data.get("sheet") == sheet)):
+            return data
+    return None
 
 
 async def run_turn(

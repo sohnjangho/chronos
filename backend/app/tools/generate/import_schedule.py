@@ -40,7 +40,8 @@ NEED_LEVEL = "가져오려면 분야(domain)와 정밀도(level)를 정해 주�
 ASK_TITLE = "공정표 가져오기 — 빈 칸 확인"
 NEXT_AFTER_CHECK = (  # 확인 결과에 붙는 다음 할 일(I1: 모델이 확인만 되풀이하지 않게)
     "요약 카드를 띄웠다. 카드 내용을 한두 문장으로 말하고 턴을 끝낸다 — 같은 인자로 다시 부르지 않는다. "
-    "사용자가 [일정 초안으로 가져오기]를 누르거나 가져오라고 하면 그때 confirmed=true 와 domain·level, 위 columns 그대로 다시 부른다."
+    "사용자가 [일정 초안으로 가져오기]를 누르거나 가져오라고 하면 그때 confirmed=true 와 domain·level, 위 columns 그대로 다시 부른다"
+    "(domain·level 은 위 값이 카드에 보인 기본값이다 — 대화에서 따로 정했으면 그것)."
 )
 PREVIEW_ROWS = 20  # 판단에 보여 줄 앞 행 수(숫자는 코드가 센 통계로 따로 준다)
 JUDGE_MAX_TOKENS = 12000  # 판단 답의 한도. normal 기본(4000)이면 열 대응 답이 잘려 「표를 판단하지 못했습니다」가 잦다
@@ -130,6 +131,8 @@ class ImportOut(BaseModel):
     columns_found: list[str]
     missing: list[str]
     columns: dict | None = None  # 열 대응·날짜 판단(카드와 같다) — 가져올 때 그대로 넘긴다
+    domain: str | None = None  # checked(공정표): 카드에 보인 가져오기 기본 분야(files.schedule_import.defaults)
+    level: str | None = None  # checked(공정표): 카드에 보인 가져오기 기본 정밀도
     next: str | None = None  # checked(공정표): 다음에 할 일(같은 인자로 다시 부르지 않는다)
     questionnaire: dict | None = None  # asked: ask.questionnaire 의 결과
     draft: RunOut | None = None  # drafted: generate.run 과 같은 모양(가정의 source "추정" = 추정한 칸)
@@ -206,7 +209,8 @@ def _out(step: str, table: Table, is_schedule: bool, reason: str, card: dict | N
     card = card or {"rows": len(table.rows), "columns_found": [], "missing": []}
     return ImportOut(step=step, is_schedule=is_schedule, reason=reason, file_id=table.file_id, sheet=table.sheet,
                      sheets=table.sheets, rows=card["rows"], columns_found=card["columns_found"],
-                     missing=card["missing"], columns=card.get("columns"), **more)
+                     missing=card["missing"], columns=card.get("columns"), domain=card.get("domain"),
+                     level=card.get("level"), **more)
 
 
 async def _check(ctx: ToolContext, llm: LlmClient, table: Table) -> ImportOut:
@@ -216,6 +220,7 @@ async def _check(ctx: ToolContext, llm: LlmClient, table: Table) -> ImportOut:
     card = imports.card(table, await _plan(llm, table, ctx))
     if card["blank_rows"] > imports.BLANK_LIMIT:  # 추정을 부르기 전에 멈춘다(빈 칸 수는 열 대응에 달려 있다)
         raise ImportProblem(imports.TOO_MANY_BLANKS.format(card["blank_rows"]))
+    card |= imports.defaults(ctx.session, ctx.schedule_id, card["rows"])  # 카드 단추가 쓸 기본 분야·정밀도(I1)
     ctx.emit(AgentEvent("card", {"kind": "schedule_file", **card}))
     return _out("checked", table, True, found.reason, card, next=NEXT_AFTER_CHECK)
 

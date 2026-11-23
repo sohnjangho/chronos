@@ -157,9 +157,11 @@ async def test_detect_card_counts_rows_by_code(ctx, events, llm, session):
         "kind": "schedule_file", "file_id": fid, "sheet": "공정표", "rows": 120,
         "columns_found": ["작업 ID", "작업명", "WBS", "선행 작업", "시작일", "종료일"], "missing": ["기간"],
         "columns": BIG_COLUMNS, "over_limit": False, "blank_rows": 120, "blank_limit": 150,
+        "domain": "general", "level": "L4",  # I1: 가져오기 기본값(일정 없는 대화 · 120행)
     }]
     out = r.output
     assert (out["step"], out["is_schedule"], out["rows"], out["sheets"]) == ("checked", True, 120, ["공정표", "메모"])
+    assert (out["domain"], out["level"]) == ("general", "L4")
     assert out["columns"] == BIG_COLUMNS  # 확인 단계의 열 대응 — 가져올 때 그대로 넘긴다(M7)
     assert [c.purpose for c in session.scalars(select(LlmCall))] == ["normal"] * 2  # 판단은 normal
     assert [b["max_tokens"] for b in llm.bodies] == [JUDGE_MAX_TOKENS] * 2  # I4: 4000 에 잘리지 않게
@@ -191,6 +193,24 @@ async def test_check_result_says_what_to_do_next_and_the_import_result_does_not(
     drafted = await call("schedule.import", importing(fid, columns=CSV_COLUMNS), ctx)
     assert drafted.ok, drafted.error
     assert drafted.output["step"] == "drafted" and drafted.output["next"] is None
+
+
+async def test_check_card_shows_the_import_defaults_of_this_chat(ctx, events, llm, session):
+    """I1(재확인): 확인 카드에 가져오기 기본값 — 분야는 대화의 일정 분야, 정밀도는 액티비티 수에 맞는 가장 낮은 단계."""
+    from dataclasses import replace
+
+    from tests import schedules
+
+    sid = schedules.store(session, schedules.sample())  # 분야 construction
+    fid = put(session, COMPLETE_CSV.encode(), "기초_공정_완성.csv", "table")
+    llm.push(reply({"is_schedule": True, "reason": "공정표"}), csv_plan())
+    r = await call("schedule.import", {"file_id": fid}, replace(ctx, schedule_id=sid))
+    assert r.ok, r.error
+    card = next(e.data for e in events if e.type == "card")
+    assert (card["domain"], card["level"], card["rows"]) == ("construction", "L1", 6)
+    assert (r.output["domain"], r.output["level"]) == ("construction", "L1")
+    assert schedule_import.defaults(session, None, 41)["level"] == "L3"
+    assert schedule_import.defaults(session, None, 400) == {"domain": "general", "level": "L4"}
 
 
 async def test_non_schedule_table_gets_no_card(ctx, events, llm, session):

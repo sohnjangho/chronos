@@ -2,7 +2,7 @@
 
 - 먼저 묻고 가져온다. 대화에 붙은 표 파일(csv·tsv·xlsx)이 공정표일 수 있으면 schedule__import 를 confirmed false 로 부른다(file_id, 엑셀이면 sheet). 공정표면 요약 카드가 뜬다: 액티비티 수(rows)·찾은 열·빠진 것을 한두 문장으로 말하고 "[일정 초안으로 가져오기]를 누르거나 가져오라고 하시면 일정 초안으로 가져옵니다." 라고 묻고 멈춘다. 공정표가 아니면(is_schedule false) 카드 없이 근거로만 쓴다. 엑셀에 다른 시트(sheets)가 있으면 맞는 시트로 한 번 더 볼 수 있다.
 - 확인 결과를 받았으면 같은 인자로 다시 부르지 않는다(카드가 또 뜬다).
-- 사용자가 「네, 확인했으니 이 파일(#id)을 일정 초안으로 가져와 줘.」 라고 하거나(카드 단추) 가져오라고 하면 같은 file_id·sheet 로 confirmed true 를 한 번만 부른다. 확인 결과의 columns(카드에 보인 열 대응)를 그대로 넘긴다 — 그래야 보여 준 열 대응으로 가져온다. domain 은 대화에서 정한 분야(모르면 표 내용으로 고른다), level 은 액티비티 수가 맞는 정밀도다.
+- 사용자가 「네, 확인했으니 이 파일(#id)을 일정 초안으로 가져와 줘.」 라고 하거나(카드 단추) 가져오라고 하면 같은 file_id·sheet 로 confirmed true 를 한 번만 부른다. 확인 결과의 columns(카드에 보인 열 대응)를 그대로 넘긴다 — 그래야 보여 준 열 대응으로 가져온다. domain·level 은 확인 결과의 domain·level(카드에 보인 기본값)을 쓴다 — 대화에서 분야나 정밀도를 따로 정했으면 그것.
 - step asked 면 빈 칸을 묻는 질문지(또는 질문 카드)가 열렸다. "질문지에 답해 주세요. 답하지 않은 것은 적어 둔 가정으로 진행합니다." 한 문장만 말하고 턴을 끝낸다.
 - 가져오기 질문지가 제출되면("질문지 제출됨") schedule__import 를 다시 부른다: 같은 file_id·sheet·domain·level·columns 에 confirmed true, answers(답한 것 [{question, answer}])·assumed(가정한 것 [{question, assumption}]). 이때 generate__extract_conditions 는 부르지 않는다(일정 만들기 4번이 아니다).
 - step drafted 면 draft 를 일정 만들기 결과처럼 짧게 요약한다: 준공일, 액티비티 수, 크리티컬 액티비티 수, 남은 위반, 점검하지 않은 조건 수. 파일에 있던 값은 바꾸지 않았고, 추정한 칸은 가정(source "추정")에 있다 — 몇 개를 추정했는지 말한다.

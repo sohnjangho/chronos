@@ -1,4 +1,5 @@
 // 공정표 파일 감지 카드(card:schedule_file). [일정 초안으로 가져오기]로 에이전트에게 요청한다.
+import { domainLabel } from '../../../shared/domainLabels';
 import Button from '../../../shared/ui/Button';
 import { useChat } from '../chatStore';
 import { asList, asNum, asText, Card, type CardProps } from './Card';
@@ -9,6 +10,9 @@ export default function ScheduleFileCard({ data }: CardProps) {
   const rows = asNum(data.rows);
   const found = asList(data.columns_found).map((v) => String(v));
   const missing = asList(data.missing).map((v) => String(v));
+  // 단추로 가져올 때 쓸 기본 분야·정밀도(서버 files/schedule_import.defaults — 모델이 빼면 이 값으로 채운다)
+  const domain = asText(data.domain);
+  const level = asText(data.level);
 
   function importDraft() {
     if (fileId === null) return;
@@ -24,6 +28,7 @@ export default function ScheduleFileCard({ data }: CardProps) {
       </p>
       {found.length > 0 && <p className="ch-muted ch-wrap">{`찾은 열: ${found.join(', ')}`}</p>}
       {missing.length > 0 && <p className="ch-muted ch-wrap">{`비어 있는 열: ${missing.join(', ')}`}</p>}
+      {domain && level && <p className="ch-muted ch-wrap">{`가져올 때: 분야 ${domainLabel(domain)} · 정밀도 ${level}`}</p>}
       {fileId !== null && (
         <div className="ch-actions">
           <Button variant="primary" onClick={importDraft}>

@@ -234,6 +234,12 @@ test('schedule file card shows its title instead of the muted unknown line', () 
   expect(screen.queryByText(/보일 수 없는 카드/)).toBeNull();
 });
 
+// I1(재확인): 단추로 가져올 때 쓸 기본 분야·정밀도를 카드에 보인다(서버가 모델이 뺀 값을 이 값으로 채운다).
+test('schedule file card shows the domain and level the import button will use', () => {
+  renderCard('card', { kind: 'schedule_file', file_id: 1, sheet: null, rows: 5, columns_found: ['작업명'], missing: [], domain: 'construction', level: 'L1' });
+  expect(screen.getByText('가져올 때: 분야 건설 · 정밀도 L1')).toBeVisible();
+});
+
 // 서버 원본을 맥에서 직접 읽는다(vite 는 frontend 밖 파일을 import 하지 못하고, 이 저장소에는 node 형 정의가 없어 이름을 글로 넘긴다).
 // Docker 의 frontend 컨테이너에는 backend 폴더가 없다 — 그때는 건너뛴다.
 interface Fs {
