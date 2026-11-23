@@ -102,6 +102,60 @@ export interface NotifyStatus {
   kakao_ready: boolean;
 }
 
+/** CSV 가져오기 한 행(Task 76 ImportRowOut). 번호는 가린 꼴(phone_shown)만, 걸린 칸의 값은 null. */
+export interface ImportRow {
+  /** 파일의 행 번호(머리줄 = 1) */
+  n: number;
+  company: string | null;
+  name: string | null;
+  role_title: string | null;
+  phone_shown: string;
+  phone_kind: PhoneKind | null;
+  do_not_contact: boolean;
+  result: 'new' | 'exists' | 'no_phone' | 'bad_phone' | 'bad_row';
+  reason: string | null;
+  code: string | null;
+  column: string | null;
+  /** 요청의 skip 에 든 행 — 넣지 않음, 다른 셈에 들지 않음 */
+  skipped: boolean;
+}
+
+/** 미리 보기와 넣기가 같은 꼴. 넣을(넣은) 사람 = new + no_phone, bad = bad_phone + bad_row. */
+export interface ImportOut {
+  rows: ImportRow[];
+  summary: { new: number; exists: number; no_phone: number; bad: number; skipped: number };
+}
+
+export interface CopySource {
+  schedule_id: number;
+  name: string;
+  people: number;
+}
+
+export interface CopyPerson {
+  id: number;
+  name: string;
+  role_title: string;
+  phone_masked: string;
+  phone_kind: PhoneKind | null;
+  has_phone: boolean;
+  do_not_contact: boolean;
+  /** 복사하면 건너뛸 사람(같은 번호 또는 같은 협력사·이름이 이 프로젝트에 있음) */
+  already_here: boolean;
+}
+
+export interface CopySourceDetail {
+  schedule_id: number;
+  name: string;
+  companies: { id: number; name: string; trade: string; people: CopyPerson[] }[];
+}
+
+export interface CopyOut {
+  copied: number;
+  skipped: number;
+  refused: number;
+}
+
 export const KIND_LABEL: Record<PhoneKind, string> = {
   mobile: '휴대전화',
   landline: '유선',
@@ -132,6 +186,20 @@ export const patchCompany = (sid: number, id: number, body: CompanyBody) => api<
 /** 전체 번호. 부른 쪽은 양식이 닫히면 잊는다(저장·URL·로그에 두지 않는다). 10분에 30번을 넘으면 429. */
 export const revealPhone = (sid: number, id: number) =>
   api<{ phone: string | null }>(`${base(sid)}/people/${id}/reveal`, { method: 'POST', cache: 'no-store' });
+
+/** CSV 가져오기(Task 76). dryRun 이면 미리 보기(아무것도 쓰지 않음), 아니면 넣기 — 서버가 파일을 처음부터 다시 판정한다.
+ *  파일은 이 요청 몸에만 실린다(저장·URL·로그에 두지 않는다). */
+export function importCsv(sid: number, file: File, skip: number[], dryRun: boolean) {
+  const body = new FormData();
+  body.append('file', file);
+  if (skip.length) body.append('skip', skip.join(','));
+  return api<ImportOut>(`${base(sid)}/import?dry_run=${dryRun ? 1 : 0}`, { method: 'POST', body });
+}
+/** 다른 프로젝트에서 복사 — 관리자만(아니면 403 admin_only). */
+export const getCopySources = (sid: number) => api<CopySource[]>(`${base(sid)}/copy-sources`);
+export const getCopySource = (sid: number, other: number) => api<CopySourceDetail>(`${base(sid)}/copy-sources/${other}`);
+export const postCopy = (sid: number, from: number, ids: number[]) =>
+  api<CopyOut>(`${base(sid)}/copy`, send('POST', { from_schedule_id: from, contact_ids: ids }));
 
 export async function getNotifyStatus(): Promise<NotifyStatus | null> {
   try {

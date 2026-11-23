@@ -11,6 +11,8 @@ import Button from '../../shared/ui/Button';
 import Tabs from '../../shared/ui/Tabs';
 import AddressBook from './AddressBook';
 import CompanyForm from './CompanyForm';
+import CopyFromProject from './CopyFromProject';
+import CsvImport from './CsvImport';
 import { getBook, getNotifyStatus, KIND_LABEL, type AddressBook as Book, type Company, type NotifyStatus, type PersonBrief } from './contactsApi';
 import PersonForm from './PersonForm';
 import './contacts.css';
@@ -243,6 +245,7 @@ function ContactsBody({ windowId, scheduleId, params, projectName }: { windowId:
   const { book, error, reload } = useBook(scheduleId, showHidden);
   const status = useNotifyStatus();
   const [mode, setMode] = useState<Mode>({ kind: 'none' });
+  const [xfer, setXfer] = useState<'import' | 'copy' | null>(null); // 이 몸은 일정마다 새로 그려진다 → 프로젝트를 바꾸면 대화상자도 닫힌다
   const { selectedId, setSelectedId, tab, setTab } = useParamSelection(params, setMode);
 
   useEffect(() => {
@@ -274,6 +277,8 @@ function ContactsBody({ windowId, scheduleId, params, projectName }: { windowId:
           showHidden={showHidden}
           onShowHidden={setShowHidden}
           isAdmin={isAdmin}
+          onImport={() => setXfer('import')}
+          onCopy={isAdmin ? () => setXfer('copy') : undefined}
         />
         <section className="ct-pane" aria-label={selected && mode.kind === 'none' ? `${selected.name} 대화` : '연락처 자세히'}>
           {mode.kind !== 'none' && (
@@ -298,6 +303,8 @@ function ContactsBody({ windowId, scheduleId, params, projectName }: { windowId:
           />
         </section>
       </div>
+      {xfer === 'import' && <CsvImport scheduleId={scheduleId} onClose={() => setXfer(null)} onDone={reload} />}
+      {xfer === 'copy' && <CopyFromProject scheduleId={scheduleId} onClose={() => setXfer(null)} onDone={reload} />}
     </div>
   );
 }

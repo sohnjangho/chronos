@@ -1,0 +1,97 @@
+/* CSV 가져오기·다른 프로젝트에서 복사 대화상자(Task 77). 색·글꼴은 tokens.css 변수만(두 테마).
+   대화상자는 연락처 창(.ct-root) 위에 뜨고 창보다 커지지 않는다. 머리·위 칸·발은 늘 보이고 가운데(.ct-xfer-scroll)만 세로로 스크롤한다.
+   넓은 창에서는 표, 좁은 창(760 아래 — 태블릿 분할·폰)에서는 행마다 카드로 — 가로 스크롤은 없다. */
+.ct-root { position: relative; }
+.ct-scrim {
+  position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: center; padding: 16px;
+  box-sizing: border-box; background: color-mix(in srgb, var(--bg-topbar) 35%, transparent);
+}
+.ct-xfer {
+  width: 100%; max-width: 680px; max-height: 100%; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-4); box-shadow: var(--menu-shadow);
+  container-type: inline-size; overflow: hidden;
+}
+.ct-xfer.is-wide { max-width: 980px; }
+.ct-xfer-title { flex: none; margin: 0; padding: 16px 20px 0; font-size: var(--fs-15); font-weight: 700; }
+.ct-xfer-top { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.ct-xfer-pickrow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ct-xfer-pick { flex: none; display: inline-flex; align-items: center; height: 32px; box-sizing: border-box; padding: 0 14px; font-size: var(--fs-13); }
+.ct-xfer-pick:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ct-xfer-pick.is-off { color: var(--fg-muted); cursor: default; opacity: 0.6; }
+.ct-xfer-file { flex: 0 1 auto; color: var(--fg-muted); font-size: var(--fs-12); }
+.ct-xfer-filter { align-self: flex-start; font-size: var(--fs-12); }
+.ct-xfer-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.ct-xfer-foot {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+.ct-xfer-foot .ui-btn { height: 32px; padding: 0 14px; font-size: var(--fs-13); }
+.ct-xfer-sum { flex: 1 1 240px; min-width: 0; margin-right: auto; color: var(--fg-muted); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+
+/* 미리 보기 표 */
+.ct-xfer-tbl { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--fs-13); }
+.ct-xfer-tbl thead th {
+  position: sticky; top: 0; z-index: 1; background: var(--bg-panel-alt); color: var(--fg-muted); font-size: var(--fs-12); font-weight: 600;
+  text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border);
+}
+.ct-xfer-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; min-width: 0; }
+.ct-xfer-tbl th.ct-xfer-narrow { width: 44px; }
+.ct-xfer-tbl th.ct-xfer-narrow:last-child { width: 76px; }
+.ct-xfer-tbl th:nth-child(6) { width: 32%; }
+.ct-xfer-tbl tr.is-bad td { background: color-mix(in srgb, var(--tone-danger-bg) 45%, transparent); }
+.ct-xfer-tbl tr.is-skipped td { color: var(--fg-muted); }
+.ct-xfer-tbl tr.is-skipped td .ct-xfer-cell { text-decoration: line-through; }
+.ct-xfer-cell { display: block; }
+.ct-xfer-tags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.ct-xfer-reason { display: block; margin-top: 3px; color: var(--fg-muted); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.ct-tag.is-ok { background: var(--tone-success-bg); color: var(--success-text); border-color: transparent; }
+.ct-xfer-x { text-align: center; }
+.ct-xfer-x .ct-link, .ct-xfer-tbl .ct-num { white-space: nowrap; }
+.ct-xfer-del {
+  width: 26px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: var(--radius-2); background: none; font: inherit;
+  color: var(--fg-muted); cursor: pointer;
+}
+.ct-xfer-del:hover:not(:disabled) { background: var(--bg-selected); color: var(--fg); }
+.ct-xfer-del:disabled, .ct-xfer-x .ct-link:disabled { opacity: 0.5; cursor: default; }
+
+/* 복사: 협력사별 사람(복사하는 중·뒤에는 fieldset 이 모두 끈다) */
+.ct-xfer-set { margin: 0; padding: 0; border: 0; min-width: 0; }
+.ct-xfer-co { padding-right: 12px; background: var(--bg-panel-alt); }
+.ct-xfer-all { flex: 1; min-width: 0; padding: 6px 10px; font-size: var(--fs-12); font-weight: 700; }
+.ct-xfer-all .ct-co-trade { color: var(--fg-muted); }
+.ct-xfer-person { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 12px; cursor: pointer; }
+.ct-xfer-person:hover { background: var(--bg-panel-alt); }
+.ct-xfer-person.is-off { cursor: default; color: var(--fg-muted); }
+.ct-xfer-person input { flex: none; margin: 0; accent-color: var(--accent); }
+.ct-xfer-who { flex: 1 1 0; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.ct-xfer-who .ct-name { flex: 0 1 auto; min-width: 4em; }
+.ct-xfer-who .ct-role { flex: 1 1 0; } /* 좁으면 담당부터 줄인다 */
+.ct-xfer-person > .ct-xfer-tags { flex: 0 1 auto; justify-content: flex-end; }
+
+/* 좁은 대화상자(태블릿·폰): 표 행을 카드로 */
+@container (max-width: 760px) {
+  .ct-xfer-title { padding: 14px 14px 0; }
+  .ct-xfer-top, .ct-xfer-foot { padding: 10px 14px; }
+  .ct-xfer-tbl, .ct-xfer-tbl tbody { display: block; }
+  .ct-xfer-tbl thead { display: none; }
+  .ct-xfer-tbl tr {
+    display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr) auto; gap: 2px 8px; padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ct-xfer-tbl td { padding: 0; border: 0; }
+  .ct-xfer-tbl tr.is-bad { background: color-mix(in srgb, var(--tone-danger-bg) 45%, transparent); }
+  .ct-xfer-tbl tr.is-bad td { background: none; }
+  .ct-xfer-tbl td:nth-child(1) { grid-row: 1 / span 3; }
+  .ct-xfer-tbl td:nth-child(2) { grid-column: 2; grid-row: 1; }
+  .ct-xfer-tbl td:nth-child(3) { grid-column: 3; grid-row: 1; font-weight: 600; }
+  .ct-xfer-tbl td:nth-child(4) { grid-column: 2; grid-row: 2; color: var(--fg-muted); font-size: var(--fs-12); }
+  .ct-xfer-tbl td:nth-child(5) { grid-column: 3; grid-row: 2; }
+  .ct-xfer-tbl td:nth-child(6) { grid-column: 2 / 4; grid-row: 3; }
+  .ct-xfer-tbl td:nth-child(7) { grid-column: 4; grid-row: 1 / span 3; }
+  .ct-xfer-person { flex-wrap: wrap; }
+  .ct-xfer-person > .ct-xfer-tags { flex-basis: 100%; padding-left: 24px; justify-content: flex-start; }
+}
+/* 폰: 목록 자리를 넓히려고 열 이름 안내는 뺀다(인코딩 안내는 늘 보인다). */
+@container (max-width: 420px) {
+  .ct-xfer-cols { display: none; }
+}
