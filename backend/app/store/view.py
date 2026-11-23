@@ -7,7 +7,8 @@ compute → level(shift=True) 한 결과(LevelResult.cpm)를 쓴다. 그래서 �
 옮기지 않고 상태(late +n)로만 보인다. plan_json 이 없는 옛 버전은 예전처럼 같은 버전의 일정에서 실적(실제 시작·종료·
 진도·남은 기간)과 기록한 지연의 시작 하한(start_floor), Data Date 를 빼고 계산한다. 처음 계획(is_plan 버전)은 Plan 칸을
 정하지 않는다.
-액티비티·관계·자원 칸은 저장된 일정 그대로 보여 준다(조건이 넣은 FNLT·용량은 보이지 않는다).
+액티비티·관계 칸은 저장된 일정 그대로 보여 준다(조건이 넣은 FNLT 는 보이지 않는다). 자원 칸은 계산에 쓴 용량(조건
+resource_cap 을 넣은 것)이다 — 간트 자원 줄이 계산·답변과 같은 용량을 보이게(W3, 11-23).
 달력(calendar)은 조건을 넣은 달력의 근무 요일과, 작업 금지 기간을 일정 기간 안의 날짜로 펼친 것이다.
 가중치(weight)는 일정의 weight_mode(duration·manual)를 따른다.
 표시 설정(display)은 그 일정 분야 묶음의 display(간트 묶음 기준·납기 이름·덧붙일 칸), 모르는 분야면 기본값이다.
@@ -218,7 +219,7 @@ def view_of(
 ) -> dict:
     """메모리의 일정으로 만든 ScheduleView 자료(칸 그대로, 계산한 날짜는 date 객체). 저장된 것이 아니어도 된다.
 
-    schedule = 저장 모양의 일정(액티비티·관계·자원 칸), ready = 조건을 넣은 일정(지연 일수를 세는 달력),
+    schedule = 저장 모양의 일정(액티비티·관계 칸), ready = 조건을 넣은 일정(지연 일수를 세는 달력·자원 용량),
     cpm = ready 의 run 결과, plan = Plan(plan_of), n = 보일 버전 번호. 없는 일정이면 NotFound.
     """
     record = get_record(session, schedule_id)
@@ -242,7 +243,7 @@ def view_of(
         "wbs": snapshot["wbs"],
         "activities": activities,
         "relations": snapshot["relations"],
-        "resources": snapshot["resources"],
+        "resources": to_json(ready)["resources"],
         "summary": {
             "critical_count": sum(a["critical"] for a in activities),
             "negative_float_count": sum(a["tf"] < 0 for a in activities),
