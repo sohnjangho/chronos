@@ -576,3 +576,15 @@ async def test_kakao_draft_uses_an_approved_template_once_the_channel_is_registe
     landline = await _call("notify.draft_message", {**args, "contact_id": wired.id}, tctx)
     assert not landline.ok and "문자" in landline.error
     assert _count(session, OutreachMessage) == 1
+
+
+@pytest.mark.parametrize("value", ["3월\u202e 2일", "3월\u200b2일", "3월\u0007 2일"])
+async def test_template_values_are_checked_for_hidden_characters(session, sid, tctx, events, fake_channel, value):
+    """문안 빈칸 값도 본문과 같은 글자 검사(메시지 API 의 check_body 와 같은 범위)."""
+    conn = _conn(session)
+    _template(session, conn, "schedule")
+    who = _person(session, sid)
+    result = await _call("notify.draft_message", {"contact_id": who.id, "channel": "kakao", "body": "작업 확인 부탁드립니다",
+                                                  "template_use": "schedule", "template_vars": {"날짜": value}}, tctx)
+    assert not result.ok and "보이지 않는" in result.error
+    assert _count(session, OutreachMessage) == 0 and events == []

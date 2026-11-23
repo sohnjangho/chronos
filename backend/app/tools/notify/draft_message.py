@@ -109,7 +109,7 @@ def draft_message(args: DraftMessageIn, ctx: ToolContext) -> DraftMessageOut:
     if args.body is None:
         raise ToolError(NEED_BODY)
     try:
-        check_body(args.body, args.body_ko)
+        check_body(args.body, args.body_ko, *(args.template_vars or {}).values())
     except ApiError:
         raise ToolError(HIDDEN_CHARS) from None
     check_activity(session, schedule_id, args.activity_id)
