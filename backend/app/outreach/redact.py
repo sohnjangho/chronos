@@ -27,6 +27,7 @@ HideSecrets·install·activate — LOGGERS(아래 로거 모두)의 줄(메시�
 logging.makeLogRecord 로 만든 줄(이름이 뒤에 붙음)은 메시지를 꺼낼 때 지운다. 이 모듈을 불러오면 번호 지우기가 켜지고, 앱도
 뜰 때 activate 를 부른다. 키 목록은 install 이 준다. 거르는 도중 무엇이 실패해도(비밀 목록을 못 읽음 포함) 로그를 남긴 코드로
 올라가지 않고 그 줄을 HIDDEN_LINE 으로 바꾼다. secrets_provider 는 줄마다 불리므로 가벼워야 한다(메모리에 둔 값).
+걸린 로거의 예외는 exc_info 에 종류만 남는다(`(종류, None, None)`) — 받는 쪽은 종류만 믿을 수 있고, 글은 지운 exc_text 다.
 """
 
 import functools
@@ -44,7 +45,10 @@ HIDDEN_LINE = "(비밀 목록을 읽지 못해 이 로그 줄을 숨겼습니다
 LOGGERS = ("app.outreach", "app.programs.contacts", "app.programs.outreach", "app.programs.notify_settings",
            "app.tools.notify", "app.notify", "app.errors", "uvicorn.error", "httpx", "httpcore",
            # 음성 SDK(clawops)와 그것이 쓰는 aiohttp·google genai — 거는·받은 번호, 연결 거절 때 Account ID 를 남긴다
-           "clawops", "aiohttp", "google_genai", "google.genai")
+           "clawops", "aiohttp", "google_genai", "google.genai",
+           # 음성 SDK 가 쓰는 전송 — websockets 는 DEBUG 로 핸드셰이크 머리글(Gemini Live 는 키 머리글)을 남긴다
+           "websockets", "livekit")
+# 불러올 때 한 번 만든다 — LOGGERS 를 실행 중에 바꿔 넣어도 반영되지 않는다(바꾸지 말 것)
 _LOGGER_NAMES = frozenset(LOGGERS)
 _LOGGER_PREFIXES = tuple(f"{name}." for name in LOGGERS)
 MIN_SECRET = 8

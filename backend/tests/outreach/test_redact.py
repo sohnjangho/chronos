@@ -686,3 +686,46 @@ def test_exception_type_stays_for_later_filters_but_not_its_value(caplog, keys):
     assert record.exc_info[1] is None and record.exc_info[2] is None
     assert "ValueError" in caplog.text
     assert_clean(caplog)
+
+
+def _reachable(value: object, depth: int = 0) -> list[object]:
+    """레코드 칸에서 닿는 값들(dict·list·tuple 은 세 겹까지)."""
+    out = [value]
+    if depth < 3 and isinstance(value, dict):
+        for v in value.values():
+            out += _reachable(v, depth + 1)
+    elif depth < 3 and isinstance(value, list | tuple):
+        for v in value:
+            out += _reachable(v, depth + 1)
+    return out
+
+
+def test_exception_on_a_previously_covered_logger_keeps_the_type_only(caplog, keys):
+    """약속: 걸린 로거의 예외는 exc_info 에 종류만 남는다((종류, None, None)) — 값·traceback 은 어느 칸에서도 닿지 않고,
+    글은 지운 exc_text 로만 나간다."""
+    try:
+        raise ValueError(f"bad {SENTINEL_PHONE} {SENTINEL_KEY}")
+    except ValueError:
+        logging.getLogger("app.errors").exception("처리하지 못한 오류")
+    record = caplog.records[-1]
+    assert record.exc_info == (ValueError, None, None)
+    assert "ValueError" in record.exc_text and "0199" not in record.exc_text and SENTINEL_KEY not in record.exc_text
+    for value in (v for attr in record.__dict__.values() for v in _reachable(attr)):
+        assert not isinstance(value, BaseException) and type(value).__name__ != "traceback"
+    formatted = logging.Formatter().format(record)
+    assert "0199" not in formatted and SENTINEL_KEY not in formatted and "ValueError" in formatted
+
+
+@pytest.mark.parametrize("name", ["websockets", "websockets.client", "websockets.server", "livekit", "livekit.rtc"])
+def test_covers_voice_transport_loggers(name):
+    assert covers(name)
+
+
+def test_websockets_handshake_line_is_scrubbed(caplog):
+    """websockets 는 DEBUG 로 핸드셰이크 머리글을 남긴다 — Gemini Live 라면 키 머리글이 들어갈 수 있다."""
+    add_secrets(SENTINEL_KEY)
+    caplog.set_level(logging.DEBUG, logger="websockets.client")
+    logging.getLogger("websockets.client").debug("> x-goog-api-key: %s\n> x-caller: %s", SENTINEL_KEY, SENTINEL_PHONE)
+    logging.getLogger("livekit.rtc").warning("participant %s", SENTINEL_PHONE)
+    assert len(caplog.records) == 2
+    assert_clean(caplog)
