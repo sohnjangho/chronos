@@ -589,10 +589,78 @@ async def test_open_delay_lines_tell_unplanned_from_waiting_and_keep_the_no_plan
     scen_store.set_status(session, plan, "submitted")
     session.commit()
     _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
-    assert blocks[0].table["rows"][1:] == [
-        ["기록된 지연 1건 · 지연 일수 합 2일", "—", "—", "—", "승인 전(일정에 반영되지 않음)"],
-        ["기록된 지연 1건 · 지연 일수 합 3일", "—", "—", "—", "반영 전(계획에 넣지 않음)"],
-    ]
+    # 보이는 안(승인 대기)에 든 지연은 그 안의 줄에 — 따로 세지 않는다(리뷰: 어느 지연도 두 번 세지 않음)
+    assert blocks[0].table["rows"][0][0] == "지연 반영안 (1건)"
+    assert blocks[0].table["rows"][1:] == [["기록된 지연 1건 · 지연 일수 합 3일", "—", "—", "—", "반영 전(계획에 넣지 않음)"]]
+
+
+def _open_delay(session, sid, days: int):
+    from datetime import date
+
+    from app.store.tables import DelayEvent
+
+    row = DelayEvent(schedule_id=sid, activity_id="A", start_date=date(2027, 3, 2), days=days, cause="비", created_by="김공정",
+                     status="open")
+    session.add(row)
+    session.flush()
+    return row
+
+
+def _delay_plan(session, sid, base: int, events: list, status: str):
+    from app.store import scenarios as scen_store
+    from app.store.schedules import load
+
+    current, stored, _ = load(session, sid)
+    plan = scen_store.create(session, schedule_id=sid, base_version=base, name=f"지연 반영안 ({len(events)}건)", source="delay",
+                             schedule=current, conditions=stored, delay_event_ids=[e.id for e in events], created_by="김공정",
+                             extra_summary={"finish": "2027-03-10", "finish_delta": 2, "critical_count": 2})
+    scen_store.set_status(session, plan, status)
+    session.commit()
+    return plan
+
+
+def _lines(block) -> list[tuple[int, str]]:
+    """만회 표의 열린 지연 줄: [(건수, 상태)]."""
+    import re
+
+    return [(int(re.match(r"기록된 지연 (\d+)건", r[0]).group(1)), r[-1]) for r in block.table["rows"]
+            if str(r[0]).startswith("기록된 지연")]
+
+
+async def test_a_delay_in_an_old_unsubmitted_plan_still_gets_a_line(session):
+    """리뷰: 지연 기록 → 지연 반영안(열림) → 내지 않고 표를 고침(버전 올라감) → 보고서. 옛 안은 표에서 빠지므로 그 지연은
+    「반영 전(계획에 넣지 않음)」 줄에 나온다(어디에도 없어지지 않는다)."""
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory, TemplateSection
+
+    sid = schedules.store(session, schedules.sample())
+    event = _open_delay(session, sid, 2)
+    _delay_plan(session, sid, 1, [event], "open")
+    _bump_version(session, sid)  # 버전 2 — 옛 안(버전 1 기준)은 이번 차례가 아니다
+    sec = TemplateSection(id="s", heading="만회", block_kind="table", data_binding="scenario_compare")
+    _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
+    assert blocks[0].table["rows"] == [["기록된 지연 1건 · 지연 일수 합 2일", "—", "—", "—", "반영 전(계획에 넣지 않음)"]]
+
+
+async def test_every_open_delay_is_counted_exactly_once(session):
+    """리뷰: 보이는 안 · 승인함에 낸(보이지 않는) 안 · 보이지 않는 옛 열린 안 · 어느 안에도 없음 — 줄의 건수와 보이는 안의
+    지연을 더하면 열린 지연 수와 같고, 두 번 세는 지연이 없다. 계산한 수치(안 줄)는 그대로다."""
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory, TemplateSection
+
+    sid = schedules.store(session, schedules.sample())
+    shown, waiting, stale, _loose = (_open_delay(session, sid, d) for d in (1, 2, 3, 4))  # _loose: 어느 안에도 없음
+    _delay_plan(session, sid, 1, [waiting], "submitted")  # 승인함에 냈지만 옛 버전 기준이라 표에 없다
+    _delay_plan(session, sid, 1, [stale], "open")  # 내지 않은 옛 안
+    _bump_version(session, sid)  # 버전 2
+    _delay_plan(session, sid, 2, [shown], "open")  # 이번 차례의 안 — 표에 보인다
+    sec = TemplateSection(id="s", heading="만회", block_kind="table", data_binding="scenario_compare")
+    _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
+    rows = blocks[0].table["rows"]
+    assert [r[0] for r in rows if not str(r[0]).startswith("기록된 지연")] == ["지연 반영안 (1건)"]  # 보이는 안 하나
+    assert _lines(blocks[0]) == [(1, "승인 전(일정에 반영되지 않음)"), (2, "반영 전(계획에 넣지 않음)")]
+    assert sum(n for n, _ in _lines(blocks[0])) + 1 == 4  # 보이는 안의 1건 + 줄의 3건 = 열린 지연 4건
+    assert "지연 일수 합 2일" in rows[1][0] and "지연 일수 합 7일" in rows[2][0]  # 승인 전 = waiting(2) · 반영 전 = stale+loose(3+4)
 
 
 async def test_prose_drops_heading_line_and_markdown_stars(session, monkeypatch):

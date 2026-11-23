@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 _RESP_LABEL = {"owner": "발주처", "ours": "시공사/우리", "force": "불가항력", "undecided": "미정"}
 _STATUS_LABEL = {"open": "열림(검토 중)", "reflected": "반영됨"}
+SHOWN_PLANS = 10  # 만회 표에 싣는 안 수
 OPEN_DELAYS = "기록된 지연 {}건 · 지연 일수 합 {}일"  # 간트 「기록된 지연」 띠와 같은 말
 OPEN_DELAYS_WAITING = "승인 전(일정에 반영되지 않음)"  # 승인함에 낸 안에 든 열린 지연
 OPEN_DELAYS_UNPLANNED = "반영 전(계획에 넣지 않음)"  # 어떤 안에도 넣지 않은 열린 지연
@@ -276,14 +277,15 @@ async def generate_report_blocks(
     # 지연 반영안은 그 사건이 모두 반영됐으면(다른 안과 함께 일정에 들어갔으면) 반영된 만회안처럼 「반영 완료」로 보인다.
     recorded = delays_store.listed(session, schedule_id)
     reflected = {e.id for e in recorded if e.status == "reflected"}
-    # 기록만 하고 반영하지 않은 지연 — 간트 띠처럼 만회 표에 한 줄로(재확인 2). 승인함에 낸 안에 든 것은 「승인 전」, 어떤 안에도
-    # 넣지 않은 것은 「반영 전(계획에 넣지 않음)」(재확인 3). 수치는 바꾸지 않는다.
-    in_plans = {i for s in all_scen for i in (s.delay_event_ids or [])}
+    # 기록만 하고 반영하지 않은 지연 — 간트 띠처럼 만회 표에 한 줄로(재확인 2·3). 열린 지연은 꼭 한 곳에만 센다: 표에 보이는 안의
+    # 줄 → 아니면 승인함에 낸 안에 들었으면 「승인 전」 줄 → 그 밖(표에 없는 옛 열린 안에 든 것 포함)은 「반영 전(계획에 넣지 않음)」 줄.
+    # 수치는 바꾸지 않는다.
+    in_shown = {i for s in scen_rows[:SHOWN_PLANS] for i in (s.delay_event_ids or [])}
     submitted = {i for s in all_scen if s.status == "submitted" for i in (s.delay_event_ids or [])}
-    open_events = [e for e in recorded if e.status == "open"]
+    open_events = [e for e in recorded if e.status == "open" and e.id not in in_shown]
     delay_lines = [(evs, status) for evs, status in (
         ([e for e in open_events if e.id in submitted], OPEN_DELAYS_WAITING),
-        ([e for e in open_events if e.id not in in_plans], OPEN_DELAYS_UNPLANNED)) if evs]
+        ([e for e in open_events if e.id not in submitted], OPEN_DELAYS_UNPLANNED)) if evs]
 
     def scen_status(sc) -> str:
         if sc.source == "delay" and sc.status != "applied" and sc.delay_event_ids and set(sc.delay_event_ids) <= reflected:
@@ -414,7 +416,7 @@ async def generate_report_blocks(
             # 기본 양식의 「준공 차이」도 무엇 대비인지 밝힌다.
             cols = [std_cols[2] if c == "준공 차이" else c for c in cols]
             rows = []
-            for sc in scen_rows[:10]:
+            for sc in scen_rows[:SHOWN_PLANS]:
                 sm = sc.summary_json or {}
                 f_delta = sm.get("finish_delta")
                 delta_str = f"{f_delta:+d}일" if isinstance(f_delta, int) else "—"
