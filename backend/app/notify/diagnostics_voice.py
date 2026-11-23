@@ -42,19 +42,17 @@ getting-started · voice-agent/providers · call-blocking · call-failure-causes
 import asyncio
 import importlib
 import inspect
-import logging
-import os
 import re
 import sys
 import time
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import partial
 
 from app.notify import diagnostics
 from app.notify.diagnostics import NOT_REQUESTED, DiagnosticConn, DiagnosticStep, scrub
+from app.notify.voice_sdk_logs import _quiet_sdk
 from app.outreach import phone, redact
 
 SDK_MODULE = "clawops.agent"  # 배포 이름은 koreaaitel, import 이름은 clawops
@@ -221,43 +219,6 @@ def _picked(steps: object) -> list[int] | None:
 def _call_id(obj: object) -> str:
     call_id = getattr(obj, "call_id", None)
     return call_id if isinstance(call_id, str) and call_id else f"?{id(obj)}"
-
-
-_marker = {"holders": 0, "saved": None}  # 겹쳐 도는 진단이 있어도 준비 표시 환경 변수를 처음 값으로 되돌린다
-
-
-@contextmanager
-def _quiet_sdk(clean: Callable[[object, int], str]) -> Iterator[None]:
-    """진단 동안: SDK 로거의 줄을 지운 글로 바꾸고(예외는 종류 이름만), SDK 의 준비 표시 파일을 끈다. 끝나면 되돌린다."""
-
-    def guard(record: logging.LogRecord) -> bool:
-        try:
-            text = record.getMessage()
-            if record.exc_info and record.exc_info[0] is not None:
-                text += f" ({record.exc_info[0].__name__})"
-            text = clean(text, 300)
-        except Exception:  # noqa: BLE001 — 로그를 남긴 SDK 코드로 올리지 않는다
-            text = "(음성 SDK 로그 줄을 지우지 못해 숨겼습니다)"
-        record.msg, record.args, record.exc_info, record.exc_text, record.stack_info = text, None, None, None, None
-        return True
-
-    loggers = [logging.getLogger(name) for name in SDK_LOGGERS]
-    for logger in loggers:
-        logger.addFilter(guard)
-    if _marker["holders"] == 0:
-        _marker["saved"] = os.environ.get(READY_ENV)
-    _marker["holders"] += 1
-    os.environ[READY_ENV] = ""
-    try:
-        yield
-    finally:
-        for logger in loggers:
-            logger.removeFilter(guard)
-        _marker["holders"] -= 1
-        if _marker["holders"] == 0:
-            os.environ.pop(READY_ENV, None)
-            if _marker["saved"] is not None:
-                os.environ[READY_ENV] = _marker["saved"]
 
 
 class _Call:
@@ -781,7 +742,7 @@ async def run_voice_checks(conn: DiagnosticConn, voice: VoiceDiag, *, agent_numb
     crash = ""
     if picked:
         redact.add_secrets(*run.secrets)  # SDK 를 건드리기 전에 로그 거르개에 올린다
-        with _quiet_sdk(run.clean):
+        with _quiet_sdk(run.clean, SDK_LOGGERS, READY_ENV):
             try:
                 try:
                     await run.go(set(picked), sdk, lang2, wait_inbound_s, worker_connected)
