@@ -283,3 +283,57 @@ def test_an_approval_from_a_real_photo_reading_is_applied_as_before(client, admi
     assert client.get(f"/api/approvals/{approval_id}", headers=admin).json()["blocked"] is None
     r = client.post(f"/api/approvals/{approval_id}/decide", json={"decision": "approve"}, headers=admin)
     assert r.status_code == 200 and r.json()["status"] == "approved"
+
+
+# ── 리뷰: 현장 관리자가 올린 것은 승인 수준과 상관없이 늘 승인을 기다린다(자동 승인이어도 일정이 바뀌지 않음) ──────
+FIELD_WAITS = "현장 관리자가 올린 건이라 승인 수준과 상관없이 승인을 기다립니다 — 승인되기 전에는 일정이 바뀌지 않습니다."
+
+
+def _headers(session, role: str) -> dict[str, str]:
+    from app.security.passwords import hash_password
+    from app.security.tokens import issue_token
+    from tests.helpers import auth
+
+    row = User(login_id=f"{role}-auto", name="박현장" if role == "field" else "김공정", role=role,
+               password_hash=hash_password("x-pass-123"))
+    session.add(row)
+    session.commit()
+    return auth(issue_token(row.id))
+
+
+@pytest.mark.parametrize(("role", "applied"), [("field", False), ("user", True), ("admin", True)])
+def test_field_reports_by_the_field_role_wait_for_approval_even_at_the_auto_level(client, admin, session, sid, role, applied):
+    from app.store.settings import set_approval_mode
+
+    set_approval_mode(session, "auto")
+    who = admin if role == "admin" else _headers(session, role)
+    before = client.get(f"/api/schedules/{sid}", headers=admin).json()["version"]
+
+    row = _checkin_approval(client, who, session, sid, "B", 50)
+
+    after = client.get(f"/api/schedules/{sid}", headers=admin).json()["version"]
+    if applied:
+        assert (row.status, after) == ("auto", before + 1)  # 사용자·관리자는 예전처럼 바로 반영
+        assert FIELD_WAITS not in (row.summary_json.get("notes") or [])
+    else:
+        assert (row.status, after) == ("pending", before)
+        assert FIELD_WAITS in row.summary_json["notes"]
+
+
+def test_a_photo_reading_applied_by_the_field_role_also_waits(client, admin, session, sid):
+    from app.store.settings import set_approval_mode
+
+    set_approval_mode(session, "auto")
+    field_user = _headers(session, "field")
+    client.get(f"/api/schedules/{sid}/field", headers=field_user)
+    item = FieldItem(schedule_id=sid, kind="photo", activity_id="A", activity_name="작업 A", trade="골조팀", status="responded",
+                     title="[AI 사진 판독] A 작업 A", prompt_text="", response_choice="verified", reported_progress=40,
+                     reported_rd=2, response_note="", payload_json={"ai_progress": 40, "ai_reason": "절반쯤 섰다."})
+    session.add(item)
+    session.commit()
+    r = client.post(f"/api/schedules/{sid}/field/{item.id}/apply", headers=field_user)
+    assert r.status_code == 200, r.json()
+    approval_id = next(i for i in r.json()["items"] if i["id"] == item.id)["approval_id"]
+    session.expire_all()
+    assert session.get(Approval, approval_id).status == "pending"
+    assert client.get(f"/api/schedules/{sid}", headers=admin).json()["version"] == 1

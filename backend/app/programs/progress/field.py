@@ -618,6 +618,7 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
                 draft_id=None,
                 base_version=n,
                 requested_kind="user",
+                requested_role=user.role,  # 현장 관리자가 올린 것은 승인 수준과 상관없이 늘 기다린다
             ),
             chat_session_id=None,
             requested_by=user.name,
@@ -625,7 +626,8 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
         )
         approval_row = res.row
         if notes:  # 승인함 요약에 보인다(화면 approvals/ApprovalDetail 의 알릴 것)
-            approval_row.summary_json = {**approval_row.summary_json, "notes": notes}
+            summary = approval_row.summary_json
+            approval_row.summary_json = {**summary, "notes": [*(summary.get("notes") or []), *notes]}
     except ProposalError:
         # 진도 수치 변화 없이 증빙·체크인만 확정할 때는 현장 확인 규칙 건으로 승인함에 남긴다.
         note_rule = f"[현장 확인] {item.activity_id} {item.activity_name} — {item.response_note or '현황 확인 완료'}"[:190]

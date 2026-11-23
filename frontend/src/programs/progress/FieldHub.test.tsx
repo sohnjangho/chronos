@@ -167,3 +167,31 @@ test('a photo still over the limit after shrinking says so and is not sent (I-2)
   expect(screen.getByRole('button', { name: 'AI 사진 판독 실행' })).toBeDisabled();
   expect(photoPosts(spy)).toHaveLength(0);
 });
+
+// 리뷰: 현장 관리자가 올린 보고는 승인 수준과 상관없이 승인을 기다린다(서버) — 올린 뒤 그렇게 알린다.
+const WAITS = '승인함에 올렸습니다 — 승인되기 전에는 일정이 바뀌지 않습니다.';
+
+async function submitReport() {
+  const sent = { ...checkin, status: 'responded' as const, response_choice: 'on_track' };
+  stubFetch({
+    '/api/schedules/1/field': data([checkin]),
+    'POST /api/schedules/1/field/5/respond': data([sent]),
+    'POST /api/schedules/1/field/5/apply': data([{ ...sent, status: 'applied', approval_id: 18 }]),
+  });
+  render(<FieldHub scheduleId={1} />);
+  const card = await screen.findByRole('article', { name: checkin.title });
+  await userEvent.click(within(card).getByRole('button', { name: '✓ 정상 진행' }));
+  await userEvent.click(within(card).getByRole('button', { name: '현장 보고 제출 (저장·승인 반영)' }));
+  await screen.findByText('승인함 #18 상신');
+}
+
+test('a field manager is told the report waits for approval', async () => {
+  signInAsDemo('field', '박현장', 'site1', 3);
+  await submitReport();
+  expect(screen.getByText(WAITS)).toBeVisible();
+});
+
+test('other roles are not told it waits (their report may apply at once)', async () => {
+  await submitReport();
+  expect(screen.queryByText(WAITS)).toBeNull();
+});

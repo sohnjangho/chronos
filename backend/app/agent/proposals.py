@@ -5,6 +5,7 @@
 사유 = assess 사유 + extra_reasons, REASONS 차례·겹침 없음. Plan 다시 잡기 선택(reset_plan·plan_reset)은 없다 — Plan 은
 계획 변경을 반영한 버전이 새로 찍는다(store.approvals._plan_change, PM 11-20 밤). 승인 표의 reset_plan 칸은 늘 False 다.
 승인 수준: important = 사유가 하나라도 있으면 · all = 늘 · auto = condition_violated 가 있을 때. force_auto 면 늘 바로 반영.
+다만 현장 관리자(Proposal.requested_role 'field')가 낸 것은 승인 수준·force_auto 와 상관없이 늘 승인을 기다린다.
 쓰기는 flush 만 한다(commit·rollback 은 부르는 쪽). 분야 범위 내 규칙은 propose 를 거치지 않는다(Task 35).
 """
 
@@ -35,6 +36,7 @@ NO_CHANGE_MESSAGE = "바뀌는 것이 없습니다."
 USED_DRAFT_MESSAGE = "이미 저장한 초안입니다."
 SCENARIO_STALE_MESSAGE = "기준 일정이 바뀌었습니다. 복사본을 다시 만들어 주세요."
 SCENARIO_LOCKED_MESSAGE = "승인을 기다리거나 반영되었거나 버린 복사본은 낼 수 없습니다."
+FIELD_WAITS_NOTE = "현장 관리자가 올린 건이라 승인 수준과 상관없이 승인을 기다립니다 — 승인되기 전에는 일정이 바뀌지 않습니다."
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,8 @@ class Proposal:
     link_kind: Literal["scenario", "rule"] | None = None
     link_id: int | None = None
     rule_json: dict | None = None
+    # 낸 사람의 역할. 'field'(현장 관리자)가 낸 것은 승인 수준·force_auto 와 상관없이 늘 승인을 기다린다(리뷰, F4).
+    requested_role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -115,15 +119,17 @@ def propose(session: Session, p: Proposal, *, chat_session_id: int | None, reque
     result, changes, mode = _assess(session, p)
     found = {*result.decision.reasons, *extra_reasons}
     reasons = [r for r in REASONS if r in found]
+    field = p.requested_role == "field"  # 현장 관리자가 낸 것은 늘 기다린다 — 승인함 요약(알릴 것)에 그렇게 적는다
+    summary = {**result.summary, "notes": [FIELD_WAITS_NOTE]} if field else result.summary
     row = approvals.create(
         session, kind=p.kind, title=p.title, reasons_json=reasons, schedule_id=p.schedule_id, draft_id=p.draft_id,
-        base_version=p.base_version, summary_json=result.summary, diff_json=result.diff, snapshot_json=to_json(p.after),
+        base_version=p.base_version, summary_json=summary, diff_json=result.diff, snapshot_json=to_json(p.after),
         conditions_json=p.after_conditions, changes_json=changes, status="pending",
         request=approvals.last_request(session, chat_session_id), chat_session_id=chat_session_id,
         requested_by=requested_by, requested_kind=p.requested_kind, link_kind=p.link_kind, link_id=p.link_id,
         rule_json=p.rule_json,
     )
-    if not force_auto and _needs(mode, reasons):
+    if field or (not force_auto and _needs(mode, reasons)):
         emit(AgentEvent("approval", {"id": row.id, "title": row.title, "reasons": list(row.reasons_json),
                                      "summary": row.summary_json}))
         return ProposalResult(row, False, reasons)

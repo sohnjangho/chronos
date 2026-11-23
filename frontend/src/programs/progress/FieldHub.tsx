@@ -22,6 +22,9 @@ const SAMPLE_PHOTOS = [
   { key: 'mold', label: '샘플: 부품 라인 금형 세팅', file: 'press_mold_setup.jpg', note: '프레스 금형 장착 완료, 연속 가동 준비' },
 ] as const;
 
+/** 현장 관리자가 올린 보고는 승인 수준과 상관없이 승인을 기다린다(서버 agent/proposals) — 올린 뒤 알리는 글. */
+const FIELD_WAITS = '승인함에 올렸습니다 — 승인되기 전에는 일정이 바뀌지 않습니다.';
+
 function StatusBadge({ item }: { item: FieldItem }) {
   if (item.approval_id !== null) return <Badge tone="info">{`승인함 #${item.approval_id} 상신`}</Badge>;
   if (item.kind === 'handoff') {
@@ -464,6 +467,7 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
   const role = useSession((s) => s.session?.user.role ?? 'user');
   const device = useActiveDevice();
   const isSimpleField = role === 'field' || device === 'phone';
+  const waits = role === 'field' ? FIELD_WAITS : undefined; // 현장 관리자에게만 — 다른 역할은 바로 반영될 수 있다
   const [data, setData] = useState<FieldData | null>(null);
   const [tab, setTab] = useState<FieldKind>('checkin');
   const [busy, setBusy] = useState(false);
@@ -646,13 +650,13 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
                     });
                     if (saved.items.find((x) => x.id === item.id)?.approval_id !== null) return saved;
                     return fieldApi.apply(scheduleId, item.id);
-                  })
+                  }, waits)
                 }
               />
             );
           }
           if (item.kind === 'photo') {
-            return <PhotoCard key={item.id} item={item} busy={busy} onApply={() => run(() => fieldApi.apply(scheduleId, item.id))} />;
+            return <PhotoCard key={item.id} item={item} busy={busy} onApply={() => run(() => fieldApi.apply(scheduleId, item.id), waits)} />;
           }
           if (item.kind === 'poll') {
             return (
@@ -666,7 +670,7 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
                     const updated = saved.items.find((x) => x.id === item.id);
                     if (!note.trim() || !updated || updated.approval_id !== null) return saved;
                     return fieldApi.apply(scheduleId, item.id);
-                  })
+                  }, waits)
                 }
               />
             );
