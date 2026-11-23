@@ -1110,3 +1110,86 @@ def _deliver_callers() -> set[str]:
 def test_only_gate_calls_deliver():
     """Channel.deliver 를 부르는 코드는 나가는 문 하나뿐이다(backend/app 전체를 훑는다)."""
     assert _deliver_callers() == {"outreach/harness/gate.py"}
+
+
+# ── 사람이 고른 시각에 예약(gate.schedule) ─────────────────────────────
+
+
+@pytest.mark.parametrize(("origin", "mode"), [("user", ("manual", None)), ("agent", ("approved", "김공정"))])
+async def test_persons_schedule_records_the_decision_and_is_placed_when_due(session, sid, fake_channel, origin, mode):
+    """문만 send_mode 를 적는다: 사람의 예약은 문이 _mode 로 적고, 때가 되면 일꾼(system)이 그 방식으로 처음부터 다시 지난다."""
+    connect(session)
+    row = call(session, person(session, sid), origin=origin, origin_name="에이전트" if origin == "agent" else "김공정",
+               status="blocked_hours", fail_reason="근무시간 밖입니다")
+    session.commit()
+    at = MONDAY + timedelta(hours=1)
+
+    out = gate.schedule("call", row.id, USER, at, now=WORK)
+
+    assert (out.code, out.rule, out.scheduled_at) == ("scheduled", 3, at)
+    got = reread(session, row)
+    assert (got.status, as_utc(got.scheduled_at), (got.send_mode, got.approved_by), got.fail_reason) == (
+        "scheduled", as_utc(at), mode, None)
+    assert trail(session, row) == [("working_hours", "noted")]
+    assert fake_channel.delivered == []
+
+    due = await send(row, SYSTEM, at)
+
+    assert due.code == "queued" and [d.row_id for d in fake_channel.delivered] == [row.id]
+    assert trail(session, row) == [("working_hours", "noted"), ("channel_choice", "allowed"), ("delivery", "allowed")]
+
+
+@pytest.mark.parametrize("actor", [AGENT, SYSTEM, FIELD, Actor("user", 3, "모름", None)])
+def test_schedule_is_for_people_only(session, sid, actor):
+    connect(session)
+    row = call(session, person(session, sid))
+    session.commit()
+
+    out = gate.schedule("call", row.id, actor, MONDAY, now=WORK)
+
+    assert (out.code, out.rule) == ("not_sendable", 0)
+    got = reread(session, row)
+    assert (got.status, got.scheduled_at, got.send_mode, got.approved_by) == ("draft", None, None, None)
+    assert trail(session, row) == [("precheck", "blocked")]
+
+
+@pytest.mark.parametrize("status", ["queued", "dialing", "in_call", "completed", "no_answer", "failed", "blocked_test"])
+def test_schedule_takes_only_drafts_held_or_scheduled_calls(session, sid, status):
+    connect(session)
+    row = call(session, person(session, sid), status=status)
+    session.commit()
+
+    out = gate.schedule("call", row.id, USER, MONDAY, now=WORK)
+
+    assert (out.code, out.rule) == ("not_sendable", 0)
+    got = reread(session, row)
+    assert (got.status, got.scheduled_at, got.send_mode) == (status, None, None)
+
+
+def test_schedule_of_an_inbound_missing_or_message_row_is_not_sendable_without_events(session, sid):
+    connect(session)
+    who = person(session, sid)
+    inbound = call(session, who, direction="in", origin="peer")
+    text_row = message(session, who)
+    session.commit()
+
+    for kind, row_id in (("call", inbound.id), ("call", 999_999), ("message", text_row.id)):
+        assert gate.schedule(kind, row_id, USER, MONDAY, now=WORK).code == "not_sendable"
+    assert trail(session, inbound) == [] and trail(session, text_row) == []
+
+
+def test_schedule_that_cannot_get_the_lock_is_busy(session, sid, monkeypatch):
+    connect(session)
+    row = call(session, person(session, sid))
+    session.commit()
+    monkeypatch.setattr(gate, "BUSY_WAIT_MS", 50)
+    holder = sqlite3.connect(db_path(), timeout=0.05)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        out = gate.schedule("call", row.id, USER, MONDAY, now=WORK)
+    finally:
+        holder.rollback()
+        holder.close()
+
+    assert (out.code, out.message) == ("duplicate", BUSY)
+    assert reread(session, row).status == "draft"

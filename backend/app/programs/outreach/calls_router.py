@@ -68,9 +68,10 @@ async def place_call(schedule_id: int, call_id: int, session: SessionDep, user: 
 
 
 @calls_router.post(ONE + "/schedule")
-def schedule_call(schedule_id: int, call_id: int, body: ScheduleIn, session: SessionDep) -> CallOut:
-    """그 시각에 예약. 근무시간 밖 422 outside_hours, 지난 시각 422 past_time, 예약할 수 없는 상태 409 not_schedulable."""
-    return calls_service.schedule(session, schedule_id, call_id, body)
+def schedule_call(schedule_id: int, call_id: int, body: ScheduleIn, session: SessionDep, user: UserDep) -> CallOut:
+    """그 시각에 예약(문이 누른 사람의 결정을 적는다). 근무시간 밖 422 outside_hours, 지난 시각 422 past_time,
+    예약할 수 없는 상태·문이 예약하지 않음 409 not_schedulable."""
+    return calls_service.schedule(session, schedule_id, call_id, body, user)
 
 
 @calls_router.post(ONE + "/cancel")
@@ -80,8 +81,8 @@ def cancel_call(schedule_id: int, call_id: int, session: SessionDep) -> CallOut:
 
 
 @calls_router.post(ONE + "/hangup")
-async def hangup_call(schedule_id: int, call_id: int, session: SessionDep) -> CallOut:
-    """진행 중인 통화를 끊는다(통화 일꾼). 아니면 409 not_live. 일꾼과 같은 이벤트 루프에서 부르려고 async."""
+def hangup_call(schedule_id: int, call_id: int, session: SessionDep) -> CallOut:
+    """진행 중인 통화를 끊는다(통화 일꾼 — runner.hangup 은 동기이고 스레드에서 불러도 된다). 아니면 409 not_live."""
     return calls_service.hangup(session, schedule_id, call_id)
 
 

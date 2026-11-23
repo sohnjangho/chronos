@@ -9,8 +9,9 @@
 - **Actor 는 로그인한 사람에게서만**: `Actor("user", user.id, user.name, user.role)`.
 - **다시 걸기는 새 줄**[리뷰 판정 14]: 받지 않음·통화 중·실패로 끝난 줄은 다시 걸 수 없고(409), `redial` 이 같은 내용의 새 초안
   (`retry_of`)을 만든다. 걸지는 않는다.
-- **예약**: 사람이 고른 시각이 그 사람의 근무시간 안이어야 한다. **send_mode 는 문만 적는다** — 이 모듈은 예약할 때도 방식·승인한
-  사람을 비운다(None). 취소는 초안으로 돌리며 시각·방식·승인한 사람을 비운다. **PATCH 는 승인이 아니다**(approved_by 를 적지 않는다).
+- **예약**: 사람이 고른 시각이 그 사람의 근무시간 안이어야 한다(여기서 422). 예약은 `gate.schedule` 이 사람의 결정(자기 초안
+  manual, 에이전트 초안 approved + 누른 사람)을 적는다 — **send_mode 는 문만 적는다**. 때가 되면 일꾼이 그 방식으로 문을 처음부터
+  다시 지난다. 취소는 초안으로 돌리며 시각·방식·승인한 사람을 비운다. **PATCH 는 승인이 아니다**(approved_by 를 적지 않는다).
 - 상태를 바꾸는 쓰기는 `UPDATE/DELETE … WHERE status …` 한 문장 — 그 사이 문이나 일꾼이 줄을 가져갔으면 아무것도 바꾸지 않고 409.
 - 번호: 응답에 번호 칸이 없다. 받아쓰기·답·사건·보고·요약·제안된 결과는 hide_phones 를 거친다. 오류 글에 받은 값을 싣지 않는다.
 - 녹음: 그 일정의 녹음 폴더(`<data_dir>/recordings/<일정 id>/`) 안에 있는 파일만, 이름은 `call-<id>.<확장자>`. 없으면 「통화를 찾을
@@ -309,11 +310,10 @@ async def place(session: Session, schedule_id: int, call_id: int, user: User) ->
                       outcome=OutcomeOut(code=outcome.code, message=outcome.message, scheduled_at=outcome.scheduled_at))
 
 
-def schedule(session: Session, schedule_id: int, call_id: int, body: ScheduleIn) -> CallOut:
+def schedule(session: Session, schedule_id: int, call_id: int, body: ScheduleIn, user: User) -> CallOut:
     """초안·근무시간 밖으로 멈춘 줄(또는 예약을 다른 시각으로)을 그 시각에 예약한다. 시각은 앞날이고 그 사람의 근무시간 안이어야
-    한다(422). 그 사이 문·일꾼이 가져갔으면 409.
-    **보내는 방식은 적지 않는다**(send_mode 는 문만 적는다 — 컨트롤러 판정 11-24): send_mode·approved_by 는 비운다. 그래서 때가 된
-    이 줄을 일꾼(system)이 문에 넣으면 지금의 문은 needs_approval 로 초안에 돌린다 — 사람의 예약을 문에 적는 길이 필요하다(보고서)."""
+    한다(422). 예약은 문(gate.schedule)을 지나 사람의 결정(방식·승인한 사람)을 적는다 — 이 모듈은 send_mode 를 적지 않는다.
+    문이 예약하지 않으면(그 사이 일꾼이 가져감·DB 가 바쁨 …) 409 not_schedulable, 글은 문의 것."""
     row = _call(session, schedule_id, call_id)
     if row.direction != "out" or row.status not in SCHEDULABLE:
         raise ApiError(409, "not_schedulable", NOT_SCHEDULABLE)
@@ -327,13 +327,11 @@ def schedule(session: Session, schedule_id: int, call_id: int, body: ScheduleIn)
         working = False
     if not working:
         raise ApiError(422, "outside_hours", OUTSIDE_HOURS)
-    changed = session.execute(update(OutreachCall).where(
-        OutreachCall.id == row.id, OutreachCall.status.in_(SCHEDULABLE),
-    ).values(status="scheduled", scheduled_at=body.at, send_mode=None, approved_by=None, fail_reason=None)).rowcount
-    if changed != 1:
-        session.rollback()
-        raise ApiError(409, "not_schedulable", NOT_SCHEDULABLE)
-    session.commit()
+    session.commit()  # 읽기 트랜잭션을 닫는다 — 문은 자기 연결로 쓰기 잠금을 잡는다
+    outcome = gate.schedule("call", row.id, _actor(user), body.at, now=_now())
+    if outcome.code != "scheduled":
+        raise ApiError(409, "not_schedulable", outcome.message)
+    session.expire_all()
     return _one(session, schedule_id, row)
 
 

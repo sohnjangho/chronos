@@ -30,7 +30,8 @@ channel_choice allowed). 그 앞에 노트(GATE_NOTES)가 있을 수 있고, 통
 - 상한 숫자는 모두 store.outreach.limits(conn) 에서 검사할 때마다 읽는다(여기 숫자는 상한이 아닌 것뿐: 같은 글 시간 창,
   DB 기다림, 결과 적기 다시 하기).
 - 일꾼(system)은 **scheduled 줄만**, 줄에 적힌 send_mode 로만 보낸다(approved 는 approved_by 가 있어야 한다) — **문을 거치지
-  않고 scheduled 줄을 만드는 코드는 send_mode 를 적어야 한다**(비어 있으면 needs_approval).
+  않고 scheduled 줄을 만드는 코드는 send_mode 를 적어야 한다**(비어 있으면 needs_approval). 사람이 고른 시각의 통화 예약은
+  `schedule` 이 사람의 결정(_mode)을 적는다 — 프로그램 쪽은 send_mode 를 적지 않고 이 함수를 부른다.
 - 줄의 kind 를 그대로 믿지 않는다: dnc_confirm 은 글이 DNC_CONFIRM_TEXT 와 같아야 하고, auto_reply·notice 는 에이전트·일꾼만
   보낸다(사람이 보내거나 승인할 글은 kind normal 로 만든다).
 """
@@ -111,6 +112,7 @@ _Row = OutreachMessage | OutreachCall
 _Mode = tuple[str | None, str | None]  # (send_mode, approved_by)
 _MODELS: dict[str, type[OutreachMessage] | type[OutreachCall]] = {"message": OutreachMessage, "call": OutreachCall}
 _OPEN = {"message": ("draft", "scheduled"), "call": ("draft", "scheduled", "blocked_hours")}  # 문이 받는 상태
+_SCHEDULABLE = ("draft", "blocked_hours", "scheduled")  # 사람이 시각을 골라 예약할 수 있는 통화 상태(schedule)
 _LEAVING = {"message": "sending", "call": "queued"}  # 지나간 줄이 차지하는 상태
 _UNDER_WAY = {"message": ("sending",), "call": outreach.LIVE_CALL}
 # 「같은 글 두 번」에 견주는 앞 줄의 상태: 나가는 중·나갔음·확인 필요. 가지 않았음이 확실한 것(failed, 통화의 no_answer·busy)은
@@ -147,6 +149,45 @@ async def dispatch(kind: Literal["message", "call"], row_id: int, actor: Actor, 
     if stopped is not None or late is not None:
         raise stopped or late
     return outcome
+
+
+def schedule(kind: Literal["call"], row_id: int, actor: Actor, at: datetime, *, now: datetime | None = None) -> Outcome:
+    """사람이 고른 시각(at)에 통화를 예약한다: 그 사람의 결정(_mode — 자기 초안 manual, 에이전트 초안 approved + 그 사람)을
+    줄에 적는다. 때가 되면 일꾼이 그 방식으로 dispatch 해 처음부터 다시 검사받는다. 사람(역할 user·admin)만, 거는 통화의
+    draft·blocked_hours·scheduled 줄만. 근무시간·지난 시각은 부른 쪽(API)이 미리 본다. 판정 사건 하나(예약 working_hours noted,
+    거절 precheck blocked — 없는 줄·받은 줄은 사건 없음). DB 쓰기 잠금을 얻지 못하면 「잠시 뒤 다시」(duplicate)."""
+    now, at = as_utc(now or datetime.now(UTC)), as_utc(at)
+    with _session() as session:
+        try:
+            session.execute(text("BEGIN IMMEDIATE"))
+            outcome = _schedule(session, kind, row_id, actor, at, now)
+            session.commit()
+            return outcome
+        except OperationalError as exc:
+            if not _locked(exc):
+                raise
+            return Outcome("duplicate", BUSY, DUPLICATE)
+
+
+def _schedule(session: Session, kind: str, row_id: int, actor: Actor, at: datetime, now: datetime) -> Outcome:
+    row = session.get(OutreachCall, row_id) if kind == "call" else None
+    if row is None or row.direction != "out":
+        return Outcome("not_sendable", "보낼 수 있는 줄이 아닙니다", PRECHECK)
+    ref = Ref(kind, row_id)
+
+    def refuse(message: str) -> Outcome:
+        events.record(session, ref, GATE_RULES[PRECHECK], "blocked", message, now=now)
+        return Outcome("not_sendable", message, PRECHECK)
+
+    if row.status not in _SCHEDULABLE:
+        return refuse("초안이거나 근무시간 밖이라 멈춘 통화만 예약할 수 있습니다")
+    if actor.kind != "user" or actor.role not in ("user", "admin"):
+        return refuse("예약은 걸 수 있는 사람만 합니다")
+    send_mode, approved_by = _mode(actor, row, outreach.connection(session), {"call"})
+    session.execute(update(OutreachCall).where(OutreachCall.id == row_id, OutreachCall.status.in_(_SCHEDULABLE)).values(
+        status="scheduled", scheduled_at=at, send_mode=send_mode, approved_by=approved_by, fail_reason=None))
+    events.record(session, ref, GATE_RULES[WORKING_HOURS], "noted", "사람이 고른 시각에 겁니다", now=now)
+    return Outcome("scheduled", "고른 시각에 겁니다", WORKING_HOURS, at.astimezone(hours.KST))
 
 
 def may_reach(session: Session, number: str) -> bool:

@@ -5,6 +5,7 @@
 어디에도 없다(받아쓰기·답·사건·보고는 hide_phones). 끊기는 통화 일꾼(Task 88 runner)을 가짜로 끼워 본다.
 """
 
+import asyncio
 import json
 from datetime import datetime, timedelta
 
@@ -14,7 +15,7 @@ from sqlalchemy import func, select
 from app.config import Settings
 from app.outreach import hours
 from app.outreach.harness import events, gate
-from app.outreach.harness.types import Delivered, Ref
+from app.outreach.harness.types import Actor, Delivered, Ref
 from app.programs.outreach import calls_service
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
@@ -376,7 +377,7 @@ def test_schedule_without_a_time_zone_is_422(client, user, session, sid):
 
 
 def test_schedule_and_cancel(client, user, session, sid, conn, no_gate):
-    """예약은 시각만 적고 방식·승인은 적지 않는다(send_mode 는 문만 적는다 — 컨트롤러 11-24). 취소는 초안으로, 모두 비운다."""
+    """예약은 문(gate.schedule)을 지나 사람의 결정을 적는다 — 에이전트 초안은 approved + 누른 사람. 취소는 초안으로, 모두 비운다."""
     pid = _person(session, sid)
     row = _call(session, sid, pid, origin="agent", origin_name="에이전트", status="blocked_hours",
                 fail_reason="근무시간 밖입니다")
@@ -387,7 +388,8 @@ def test_schedule_and_cancel(client, user, session, sid, conn, no_gate):
     assert r.status_code == 200, r.json()
     call = r.json()
     assert (call["status"], datetime.fromisoformat(call["scheduled_at"])) == ("scheduled", at)
-    assert (call["send_mode"], call["approved_by"], call["fail_reason"]) == (None, None, None)
+    assert (call["send_mode"], call["approved_by"], call["fail_reason"]) == ("approved", USER_NAME, None)
+    assert [(e["rule"], e["verdict"]) for e in call["events"]] == [("working_hours", "noted")]
 
     r = client.post(_url(sid, f"/{row.id}/cancel"), headers=user)
 
@@ -404,7 +406,7 @@ def test_schedule_and_cancel(client, user, session, sid, conn, no_gate):
 
 
 def test_schedule_leaves_no_earlier_approval_on_the_row(client, user, session, sid):
-    """다른 시각으로 다시 예약해도 앞서 적힌 방식·승인한 사람이 남지 않는다(이 API 는 send_mode 를 적지 않고 비우기만 한다)."""
+    """사람의 초안을 다른 시각으로 다시 예약하면 manual — 앞서 적힌 승인한 사람이 남지 않는다."""
     pid = _person(session, sid)
     row = _call(session, sid, pid, status="scheduled", scheduled_at=MONDAY + timedelta(hours=1), send_mode="approved",
                 approved_by="누군가")
@@ -413,9 +415,54 @@ def test_schedule_leaves_no_earlier_approval_on_the_row(client, user, session, s
                     headers=user)
 
     assert r.status_code == 200, r.json()
-    assert (r.json()["send_mode"], r.json()["approved_by"]) == (None, None)
+    assert (r.json()["send_mode"], r.json()["approved_by"]) == ("manual", None)
     row = _reread(session, row.id)
-    assert (row.status, row.send_mode, row.approved_by) == ("scheduled", None, None)
+    assert (row.status, row.send_mode, row.approved_by) == ("scheduled", "manual", None)
+
+
+@pytest.mark.parametrize("origin", ["user", "agent"])
+def test_a_persons_schedule_is_placed_when_it_is_due(client, user, session, sid, conn, fake_channel, origin):
+    """끝에서 끝: 사람이 예약 → 때가 되면 일꾼(system)이 문에 넣고 → 줄에 들어간다(초안으로 돌아가지 않는다)."""
+    pid = _person(session, sid)
+    row = _call(session, sid, pid, origin=origin, origin_name=USER_NAME if origin == "user" else "에이전트")
+    at = MONDAY + timedelta(hours=2)
+    assert client.post(_url(sid, f"/{row.id}/schedule"), json={"at": at.isoformat()}, headers=user).status_code == 200
+
+    outcome = asyncio.run(gate.dispatch("call", row.id, Actor("system", None, "통화 일꾼", None), now=at))
+
+    assert outcome.code == "queued", outcome
+    row = _reread(session, row.id)
+    assert (row.status, row.send_mode, row.approved_by) == (
+        ("queued", "manual", None) if origin == "user" else ("queued", "approved", USER_NAME))
+    assert [(d.channel, d.row_id) for d in fake_channel.delivered] == [("call", row.id)]
+
+
+def test_schedule_the_gate_refuses_is_409_with_its_message(client, user, session, sid, monkeypatch):
+    pid = _person(session, sid)
+    row = _call(session, sid, pid)
+    monkeypatch.setattr(gate, "schedule", lambda *a, **k: gate.Outcome("duplicate", gate.BUSY, 6))
+
+    r = client.post(_url(sid, f"/{row.id}/schedule"), json={"at": (MONDAY + timedelta(hours=1)).isoformat()},
+                    headers=user)
+
+    assert (r.status_code, r.json()["code"], r.json()["message"]) == (409, "not_schedulable", gate.BUSY)
+
+
+def test_schedule_passes_the_session_user_to_the_gate(client, user, session, sid, monkeypatch):
+    pid = _person(session, sid)
+    row = _call(session, sid, pid)
+    at = MONDAY + timedelta(hours=1)
+    seen = []
+
+    def spy(kind, row_id, actor, when, *, now=None):
+        seen.append((kind, row_id, actor.kind, actor.name, actor.role, when, now))
+        return gate.Outcome("scheduled", "예약했습니다", 3, when)
+
+    monkeypatch.setattr(gate, "schedule", spy)
+
+    client.post(_url(sid, f"/{row.id}/schedule"), json={"at": at.isoformat()}, headers=user)
+
+    assert seen == [("call", row.id, "user", USER_NAME, "user", at, WORK)]
 
 
 @pytest.mark.parametrize("status", ["queued", "dialing", "completed", "no_answer"])
