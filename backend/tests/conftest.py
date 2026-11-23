@@ -14,6 +14,8 @@ from app.store.tables import User
 from tests import schedules
 from tests.helpers import auth
 
+pytest_plugins = ["tests.outreach_doubles", "tests.harness_doubles", "tests.provider_doubles"]
+
 
 @pytest.fixture(autouse=True)
 def test_env(monkeypatch, tmp_path):
