@@ -13,16 +13,16 @@ from app.programs.approvals.schemas import (
     DecideOut,
     ModeIO,
 )
-from app.security.deps import current_user, require_admin
+from app.security.deps import current_user, require_admin, require_editor
 from app.store.tables import User
 
-# 승인함은 팀이 같이 쓴다: 로그인한 누구나 보고 결정한다.
+# 승인함은 팀이 같이 쓴다: 로그인한 누구나 보고, 현장 관리자를 뺀 사람이 결정한다(F4).
 router = APIRouter(prefix="/api/approvals", tags=["approvals"], dependencies=[Depends(current_user)])
 # 승인 수준: 누구나 읽고, 관리자만 바꾼다.
 settings_router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
 
 SessionDep = Annotated[Session, Depends(get_session)]
-UserDep = Annotated[User, Depends(current_user)]
+EditorDep = Annotated[User, Depends(require_editor)]
 
 
 @router.get("")
@@ -41,7 +41,7 @@ def read_approval(approval_id: int, session: SessionDep) -> ApprovalDetail:
 
 
 @router.post("/{approval_id}/decide")
-def decide(approval_id: int, body: DecideIn, session: SessionDep, user: UserDep) -> DecideOut:
+def decide(approval_id: int, body: DecideIn, session: SessionDep, user: EditorDep) -> DecideOut:
     return service.decide(session, approval_id, body, user)
 
 

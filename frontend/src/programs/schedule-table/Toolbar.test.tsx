@@ -1,7 +1,9 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { useSession } from '../../os/session';
 import { forgetSchedules } from '../../shared/schedule/scheduleStore';
+import { signInAsDemo } from '../../test-helpers';
 import { cell, editCell, headers, makeView, mockPatch, renderSchedule, row, rowOrNull, schedule, server, setup, toolbar, writes } from './testKit';
 
 beforeEach(() => {
@@ -11,6 +13,7 @@ beforeEach(() => {
 afterEach(() => {
   forgetSchedules();
   vi.unstubAllGlobals();
+  useSession.getState().logout();
 });
 
 const button = (name: string | RegExp) => within(toolbar()).getByRole('button', { name });
@@ -211,5 +214,21 @@ describe('그 밖의 도구', () => {
     await renderSchedule();
     expect(within(toolbar()).queryByRole('button', { name: /CSV 가져오기/ })).toBeNull();
     expect(within(toolbar()).queryByRole('button', { name: /가중치 방식/ })).toBeNull();
+  });
+});
+
+describe('역할', () => {
+  test('현장 관리자(field)에게는 편집 단추(+ 행 추가·삭제)를 그리지 않는다 (F4)', async () => {
+    signInAsDemo('field', '박현장', 'site1', 3);
+    await renderSchedule();
+    expect(within(toolbar()).queryByRole('button', { name: '+ 행 추가' })).toBeNull();
+    expect(within(toolbar()).queryByRole('button', { name: '삭제' })).toBeNull();
+  });
+
+  test('사용자(user)에게는 편집 단추가 그대로 있다', async () => {
+    signInAsDemo('user');
+    await renderSchedule();
+    expect(button('+ 행 추가')).toBeVisible();
+    expect(button('삭제')).toBeVisible();
   });
 });

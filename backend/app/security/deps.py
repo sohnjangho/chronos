@@ -29,3 +29,10 @@ def require_admin(user: Annotated[User, Depends(current_user)]) -> User:
     if user.role != "admin":
         raise ApiError(403, "admin_only", "관리자만 할 수 있습니다.")
     return user
+
+
+def require_editor(user: Annotated[User, Depends(current_user)]) -> User:
+    """일정 쓰기·승인 결정. 현장 관리자(field)는 읽고 현장 회신만 남긴다(F4). 사용자·관리자는 그대로."""
+    if user.role == "field":
+        raise ApiError(403, "field_read_only", "현장 관리자는 일정을 고치거나 승인·거부할 수 없습니다.")
+    return user

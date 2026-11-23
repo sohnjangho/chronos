@@ -57,3 +57,21 @@ test('direct project creation creates schedule, updates currentSchedule, and ope
   expect(dialog).not.toBeInTheDocument();
   expect(useWindows.getState().wins.map((w) => w.programId)).toContain('gantt');
 });
+
+test('the field role (현장 관리자) sees no new-project buttons (F4)', async () => {
+  signInAsDemo('field', '박현장', 'site1', 3);
+  stubFetch({ '/api/schedules': schedules });
+  render(<ScheduleSelector />);
+  await userEvent.click(await screen.findByRole('button', { name: '일정 고르기' }));
+  expect(await screen.findByRole('option', { name: '물류센터 · L2' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: '+ 새 프로젝트 직접 만들기' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '✦ AI로 새 프로젝트 일정 생성' })).toBeNull();
+});
+
+test('the field role sees no + 새 프로젝트 when there are no schedules (F4)', async () => {
+  signInAsDemo('field', '박현장', 'site1', 3);
+  stubFetch({ '/api/schedules': [] });
+  render(<ScheduleSelector />);
+  expect(await screen.findByText('일정 없음')).toBeVisible();
+  expect(screen.queryByRole('button', { name: '+ 새 프로젝트' })).toBeNull();
+});

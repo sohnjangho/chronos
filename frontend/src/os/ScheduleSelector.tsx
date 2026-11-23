@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { api } from '../shared/api';
 import { useCurrentSchedule } from './currentSchedule';
 import PickList from './PickList';
+import { useSession } from './session';
 import { useWindows } from './windowStore';
 
 export interface ScheduleItem {
@@ -44,6 +45,8 @@ interface SitePopupProps {
   items: ScheduleItem[];
   failed: boolean;
   currentId: number | undefined;
+  /** 새 프로젝트 단추를 보일까(현장 관리자는 일정을 만들 수 없다, F4). */
+  canCreate: boolean;
   onPick(s: ScheduleItem): void;
   onCreateDirect(): void;
   onCreateAi(): void;
@@ -51,19 +54,21 @@ interface SitePopupProps {
 }
 
 /** 찾기 칸이 있는 일정 목록 + 새 프로젝트 생성 단추. */
-function SitePopup({ items, failed, currentId, onPick, onCreateDirect, onCreateAi, onClose }: SitePopupProps) {
+function SitePopup({ items, failed, currentId, canCreate, onPick, onCreateDirect, onCreateAi, onClose }: SitePopupProps) {
   const [query, setQuery] = useState('');
   const shown = items.filter((s) => scheduleText(s).toLowerCase().includes(query.trim().toLowerCase()));
   return (
     <div className="os-site-pop">
-      <div className="os-site-actions">
-        <button type="button" className="os-site-act-btn" onClick={onCreateDirect}>
-          + 새 프로젝트 직접 만들기
-        </button>
-        <button type="button" className="os-site-act-btn" onClick={onCreateAi}>
-          ✦ AI로 새 프로젝트 일정 생성
-        </button>
-      </div>
+      {canCreate && (
+        <div className="os-site-actions">
+          <button type="button" className="os-site-act-btn" onClick={onCreateDirect}>
+            + 새 프로젝트 직접 만들기
+          </button>
+          <button type="button" className="os-site-act-btn" onClick={onCreateAi}>
+            ✦ AI로 새 프로젝트 일정 생성
+          </button>
+        </div>
+      )}
       <PickList
         label="일정 찾기"
         placeholder="일정 찾기"
@@ -81,6 +86,7 @@ export default function ScheduleSelector() {
   const current = useCurrentSchedule((s) => s.current);
   const creatingNewProject = useCurrentSchedule((s) => s.creatingNewProject);
   const reloadToken = useCurrentSchedule((s) => s.reloadToken);
+  const canCreate = useSession((s) => s.session?.user.role !== 'field');
   const { items, failed, load } = useScheduleList(reloadToken);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -92,13 +98,15 @@ export default function ScheduleSelector() {
     return (
       <div className="os-site">
         <span className="os-site-none">{creatingNewProject ? '새 프로젝트 생성 중' : '일정 없음'}</span>
-        <button
-          type="button"
-          className="os-site-new-mini"
-          onClick={() => useCurrentSchedule.getState().openNewProjectModal('direct')}
-        >
-          + 새 프로젝트
-        </button>
+        {canCreate && (
+          <button
+            type="button"
+            className="os-site-new-mini"
+            onClick={() => useCurrentSchedule.getState().openNewProjectModal('direct')}
+          >
+            + 새 프로젝트
+          </button>
+        )}
       </div>
     );
   }
@@ -139,6 +147,7 @@ export default function ScheduleSelector() {
           items={items ?? []}
           failed={failed}
           currentId={current?.id}
+          canCreate={canCreate}
           onClose={close}
           onCreateDirect={() => {
             setOpen(false);
