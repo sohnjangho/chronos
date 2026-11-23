@@ -2,10 +2,12 @@
 
 import asyncio
 import logging
+from collections import Counter
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 
@@ -394,3 +396,73 @@ def test_task51_put_assignments_is_409_while_reindex_runs(client, admin, session
     r = client.put("/api/llm/assignments", json={"items": [_embedding_model_listed(session, ready)]}, headers=admin)
     assert r.status_code == 409 and r.json()["code"] == "already_running"
     assert session.scalar(select(ReindexJob.model).order_by(ReindexJob.id.desc())) == SMALL
+
+
+# ── A5: Qdrant 5xx·연결 실패 때 임베딩(과금)을 다시 부르지 않는다 ──────────
+
+
+class BrokenStore(vectors.Store):
+    """메모리 Qdrant. broken 에 든 컬렉션에 넣으면 Qdrant 가 실패한다(목록 보기는 되므로 available 은 참).
+    broken 을 비우면 나았다."""
+
+    def __init__(self, error: Exception, broken: set[str]) -> None:
+        super().__init__(":memory:", "t")
+        self.error, self.broken, self.tries = error, broken, 0
+
+    def upsert(self, collection, points):
+        self.tries += 1
+        if collection in self.broken:
+            raise self.error
+        super().upsert(collection, points)
+
+
+QDRANT_ERRORS = [
+    UnexpectedResponse(500, "Internal Server Error", b'{"status":{"error":"Too many open files"}}', httpx.Headers()),
+    ResponseHandlingException(httpx.ConnectError("connection refused")),
+]
+
+
+def _embedded(embedder) -> Counter:
+    """(모델, 글) 마다 임베딩을 부른 수."""
+    return Counter((b["model"], text) for b in embedder.bodies for text in b["input"])
+
+
+@pytest.mark.parametrize("error", QDRANT_ERRORS, ids=["5xx", "connection"])
+async def test_qdrant_failure_never_embeds_the_same_file_twice(session, ready, put, embedder, monkeypatch, error):
+    monkeypatch.setattr(jobs, "RETRY_S", 0)
+    broken = BrokenStore(error, {OLD})
+    monkeypatch.setattr(vectors, "STORE", broken)
+    f = put("동절기 타설")
+    await jobs.drain()  # 처음 + 다시 하기 MAX_RETRIES 번 → 다시 넣기 줄
+    assert broken.tries == 1 + jobs.MAX_RETRIES and len(embedder.requests) == 1 and jobs.waiting() == [f.id]
+
+    assert await jobs.recheck() == 1  # 다시 넣기 줄을 한 번 훑는다(Qdrant 는 아직 실패)
+    await jobs.drain()
+    session.expire_all()
+    assert broken.tries == 2 + jobs.MAX_RETRIES and len(embedder.requests) == 1
+    assert jobs.waiting() == [f.id] and (f.status, f.reason) == ("extracted", NOT_READY)  # 잃지 않고 기다린다
+
+    broken.broken.clear()  # Qdrant 가 나았다
+    assert await jobs.recheck() == 1
+    await jobs.drain()
+    session.expire_all()
+    assert len(embedder.requests) == 1 and (f.status, f.reason) == ("indexed", None) and jobs.waiting() == []
+    assert broken.search(OLD, vector("겨울", SMALL), 5) == [(_chunk_ids(session, f.id)[0], pytest.approx(1.0))]
+
+
+async def test_qdrant_failure_during_reindex_embeds_each_piece_once_per_model(session, ready, put, embedder,
+                                                                             monkeypatch):
+    monkeypatch.setattr(jobs, "RETRY_S", 0)
+    broken = BrokenStore(QDRANT_ERRORS[0], set())
+    monkeypatch.setattr(vectors, "STORE", broken)
+    put("철근 배근 검측")
+    await jobs.drain()
+    jobs.enqueue_reindex(LARGE)
+    broken.broken.add(NEW)  # 새 컬렉션만 실패한다: 다시 넣기 한 걸음 · 그 사이 올린 파일의 두 번째 넣기
+    late = put("동절기 타설")
+    embedder.bodies.clear()
+    await jobs.drain()
+    session.expire_all()
+    # 다시 넣기는 다 써서 failed, 늦은 파일은 그 뒤 다시 할 때 옛 컬렉션에만 넣어 indexed
+    assert session.get(ReindexJob, 1).status == "failed" and late.status == "indexed"
+    assert set(_embedded(embedder).values()) == {1}  # 다시 하기마다 옛 모델로도 새 모델로도 다시 부르지 않는다

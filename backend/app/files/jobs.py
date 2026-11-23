@@ -14,6 +14,8 @@
   시작할 때 바로 새 모델이 되므로, 검색·파일 넣기는 배정이 아니라 이것을 따른다.
 - 파일마다 임베딩을 해 본 뒤(성공·실패·뜻 검색 꺼짐 모두) 분류 단계(files.classify.after_index — 요약이 없을 때 한 번)를
   부른다. 이미 분류된 파일이 뒤에 임베딩되면 indexed 가 아니라 classified. 뜻 검색이 꺼져도 일꾼은 돈다.
+- Qdrant 에 넣다 실패하면(5xx·연결) 임베딩한 벡터를 store.unsaved 에 남겨, 다시 할 때(RETRY_S 뒤·다시 넣기 줄) 임베딩을
+  다시 부르지 않고 그것을 넣는다. 파일·다시 넣기 한 걸음을 다 넣으면 버린다(A5).
 - DB 쓰기·읽기 묶음은 asyncio.to_thread 로(이벤트 루프를 SQLite 잠금 기다림에 묶지 않게), 묶음마다 새 세션.
 """
 
@@ -189,9 +191,13 @@ def forget(file_id: int) -> None:
 
 
 async def _store_vectors(store: vectors.Store, model: str, pieces: list[tuple[int, int, str]]) -> str:
-    """pieces [(조각 id, 파일 id, 글)] 를 model 로 임베딩해 그 모델 컬렉션에 넣고 컬렉션 이름을 돌려준다."""
-    with _db() as session:  # embed 는 배정·연결을 읽기만 한다(기록은 따로 스레드에서)
-        found = await embed(session, [text for _, _, text in pieces], model=model)
+    """pieces [(조각 id, 파일 id, 글)] 를 model 로 임베딩해 그 모델 컬렉션에 넣고 컬렉션 이름을 돌려준다.
+    지난번에 넣지 못한 벡터가 store.unsaved 에 있으면 임베딩하지 않고 그것을 넣는다(맨 위 설명)."""
+    found = store.unsaved.get(model, tuple(pieces))
+    if found is None:
+        with _db() as session:  # embed 는 배정·연결을 읽기만 한다(기록은 따로 스레드에서)
+            found = await embed(session, [text for _, _, text in pieces], model=model)
+        store.unsaved.put(model, tuple(pieces), found)
     collection = store.collection_for(model, len(found[0]))
     points = [vectors.Point(chunk_id, file_id, v) for (chunk_id, file_id, _), v in zip(pieces, found, strict=True)]
     await asyncio.to_thread(store.upsert, collection, points)
@@ -235,6 +241,7 @@ async def _index_file(file_id: int) -> None:
         if job is not None and job[1] != model:  # 다시 넣기 중이면 새 컬렉션에도
             collection = await _store_vectors(store, job[1], pieces)
     await asyncio.to_thread(_mark_indexed, file_id, job[0] if job else None, collection)
+    store.unsaved.drop(tuple(pieces))
 
 
 def _step_work(job_id: int) -> tuple[str, list[tuple[int, int, str]], int] | None:
@@ -268,6 +275,7 @@ async def _reindex_step(job_id: int) -> None:
         return
     collection = await _store_vectors(store, model, pieces)
     await asyncio.to_thread(_record_step, job_id, collection, len(pieces))
+    store.unsaved.drop(tuple(pieces))
     with _lock:
         _cursors[job_id] = (pieces[-1][0], top)
     _push(_Item("reindex", job_id))  # 줄 끝으로 — 그 사이 들어온 파일 작업이 먼저

@@ -8,16 +8,19 @@
 - 거리는 코사인. 컬렉션은 처음 넣을 때 벡터 길이로 만든다.
 - STORE: 서버가 쓰는 Store. jobs.start 가 CHRONOS_QDRANT_URL 로 만든다(빈 값이면 None = 뜻 검색 끔). 시험이 바꿔 끼운다.
 - 메서드는 막히는(sync) 호출이다. 이벤트 루프 안에서는 asyncio.to_thread 로 부른다.
+- unsaved: 임베딩했지만 아직 다 넣지 못한 벡터(A5). jobs 가 다시 할 때 임베딩(과금)을 다시 부르지 않고 이것을 넣는다.
 """
 
 import re
 import warnings
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from qdrant_client import QdrantClient, models
 
 PREFIX = "chunks__"
 TIMEOUT_S = 5
+KEEP = 1024  # unsaved 가 들고 있을 벡터 수. 넘으면 오래된 묶음부터 버린다(그 묶음은 다시 임베딩한다)
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,26 @@ def collection_for(model: str, dim: int, instance: str) -> str:
     return f"{PREFIX}{instance}__{name}__{dim}"
 
 
+class Unsaved:
+    """(모델, 조각들) → 벡터. 조각들은 무엇이든 hashable 한 묶음(jobs 의 (조각 id, 파일 id, 글) 들)."""
+
+    def __init__(self) -> None:
+        self._kept: OrderedDict[tuple, list[list[float]]] = OrderedDict()
+
+    def get(self, model: str, pieces: tuple) -> list[list[float]] | None:
+        return self._kept.get((model, pieces))
+
+    def put(self, model: str, pieces: tuple, found: list[list[float]]) -> None:
+        self._kept[(model, pieces)] = found
+        while len(self._kept) > 1 and sum(map(len, self._kept.values())) > KEEP:
+            self._kept.popitem(last=False)
+
+    def drop(self, pieces: tuple) -> None:
+        """그 조각들을 다 넣었다 — 모든 모델의 벡터를 버린다."""
+        for key in [key for key in self._kept if key[1] == pieces]:
+            del self._kept[key]
+
+
 class Store:
     """url 이 ":memory:" 면 메모리 Qdrant(시험), 아니면 Qdrant 서버(http). client 를 주면 그것을 함께 쓴다(시험).
 
@@ -40,6 +63,7 @@ class Store:
 
     def __init__(self, url: str, instance: str, *, client: QdrantClient | None = None) -> None:
         self.instance = instance
+        self.unsaved = Unsaved()
         if client is not None:
             self.client = client
         elif url == ":memory:":
