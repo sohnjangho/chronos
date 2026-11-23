@@ -686,8 +686,7 @@ def test_stored_voice_diagnosis_has_no_key_or_number(client, admin, session, fak
     assert rows["P6"]["data"]["readable"] is True and rows["P6"]["data"]["tool_calls"] == 2
     assert rows["P6"]["data"]["roles"] == {"user": 1} and "deep" not in rows["P6"]["data"]
     saved = stored(session, cid)
-    assert saved["real"] is False and set(saved) == {"state", "part", "ran_at", "by", "steps", "real", "call_unknown",
-                                                      "calls"}
+    assert saved["real"] is False and set(saved) == {"state", "part", "ran_at", "by", "steps", "real", "calls"}
     assert all(set(c) == {"at", "by", "outcome"} for c in saved["calls"])
 
 
@@ -855,9 +854,12 @@ def test_call_of_unknown_outcome_blocks_an_immediate_repeat(client, admin, fake_
     again = diag(client, admin, cid, call_body(conn))
     assert again.status_code == 409 and again.json()["code"] == "call_unknown_pending"
     assert len(unsure.calls) == 1 and [c["outcome"] for c in stored(session, cid)["calls"]] == ["unknown"]
-    assert diag(client, admin, cid, {}).status_code == 200  # 걸지 않는 진단은 막지 않는다
-    assert diag(client, admin, cid, inbound_body(conn)).status_code == 200
-    assert last(client, admin, cid).json()["calls"][-1]["outcome"] == "unknown"
+    for body in ({}, inbound_body(conn)):  # 걸지 않는 진단은 막지 않는다 — 그래도 「모름」 표시는 그대로 남는다
+        other = diag(client, admin, cid, body)
+        assert other.status_code == 200 and other.json()["call_unknown"] is True and other.json()["called_real"] is False
+    shown = last(client, admin, cid).json()
+    assert shown["calls"][-1]["outcome"] == "unknown" and shown["call_unknown"] is True
+    assert "call_unknown" not in stored(session, cid)  # 저장하지 않는다 — 통화 기록의 마지막 줄에서만 읽는다
 
     fine = Spy()
     monkeypatch.setattr(dv, "run_voice_checks", fine)
@@ -930,7 +932,75 @@ def test_a_call_left_unfinished_reads_as_unknown_and_blocks_a_repeat(client, adm
     assert diag(client, admin, cid, call_body(conn, confirm_recall=True)).status_code == 200
 
 
-def test_ceiling_keeps_finished_steps_and_marks_the_rest(client, admin, fake_provider, monkeypatch, session):
+@pytest.mark.parametrize("minutes", [1, 7])
+@pytest.mark.parametrize("kind", ["connection", "inbound"])
+def test_leftover_calling_record_stays_unknown_after_another_diagnosis(client, admin, fake_provider, spy, session,
+                                                                       minutes, kind):
+    """서버가 걸다가 죽어 「거는 중」 기록이 남았다. 그 뒤에 걸지 않는 진단을 돌려도 「모름」 표시와 409 가 어긋나지 않는다."""
+    conn = ready(client, admin)
+    cid = conn["id"]
+    at = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
+    found = session.get(VoiceSettings, cid)
+    found.last_diagnosis_json = {"state": "calling", "part": "call", "ran_at": at, "by": "관리자", "steps": [], "real": False,
+                                 "calls": [{"at": at, "by": "관리자", "outcome": "calling"}]}
+    session.commit()
+    before = last(client, admin, cid).json()
+    assert (before["state"], before["call_unknown"]) == (("running", False) if minutes == 1 else ("done", True))
+
+    r = diag(client, admin, cid, {} if kind == "connection" else inbound_body(conn))
+    assert r.status_code == 200, r.text
+    for shown in (r.json(), last(client, admin, cid).json()):
+        assert shown["state"] == "done" and shown["call_unknown"] is True and shown["called_real"] is False
+        assert [c["outcome"] for c in shown["calls"]] == ["unknown"]
+        rows = {s["id"]: s for s in shown["steps"]}
+        assert rows["P6"]["code"] == "not_finished" and rows["P6"]["maybe_sent"] is True and rows["P6"]["ok"] is False
+        assert rows["P5"]["code"] == "ok" and rows["P5"]["ran_at"] == shown["ran_at"]
+    saved = stored(session, cid)
+    assert saved["state"] == "done" and [c["outcome"] for c in saved["calls"]] == ["unknown"]
+    again = diag(client, admin, cid, call_body(conn))  # 화면의 경고와 서버의 거절이 같은 말을 한다
+    assert again.status_code == 409 and again.json()["code"] == "call_unknown_pending"
+    spy.calls.clear()
+    confirmed = diag(client, admin, cid, call_body(conn, confirm_recall=True))
+    assert confirmed.status_code == 200 and confirmed.json()["call_unknown"] is False
+    assert [c["outcome"] for c in confirmed.json()["calls"]] == ["unknown", "placed"]
+    assert {s["id"]: s for s in confirmed.json()["steps"]}["P6"]["code"] == "ok"
+
+
+@pytest.mark.parametrize(("maybe_live", "placed", "outcome"), [(True, 1, "unknown"), (False, 1, "placed"),
+                                                               (False, 0, "not_placed")])
+async def test_cancelled_call_request_closes_its_record_with_what_the_module_knew(client, admin, fake_provider, monkeypatch,
+                                                                                  maybe_live, placed, outcome):
+    """요청이 끊겨도(취소) 진단 모듈은 통화를 끊고 「살아 있을 수 있는가」를 남긴다 — 그것으로 「거는 중」 기록을 닫는다."""
+    conn = ready(client, admin)
+    cid = conn["id"]
+    started = asyncio.Event()
+
+    async def dial_then_hang(seen) -> None:
+        seen["budget"].placed, seen["budget"].maybe_live = placed, maybe_live
+        started.set()
+        await asyncio.wait_for(asyncio.Event().wait(), 5)
+
+    monkeypatch.setattr(dv, "run_voice_checks", Spy(during=dial_then_hang))
+    session = next(get_session())
+    task = asyncio.create_task(voice.run(session, cid, voice.VoiceDiagnoseIn(**call_body(conn)), "관리자"))
+    async with asyncio.timeout(2):
+        await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    session.close()
+    assert not diagnose_mod._RUNNING and not voice._VOICE_RUNNING
+    shown = last(client, admin, cid).json()
+    assert shown["state"] == "done" and [c["outcome"] for c in shown["calls"]] == [outcome]
+    assert shown["call_unknown"] is (outcome == "unknown") and shown["called_real"] is (outcome == "placed")
+    p6 = {s["id"]: s for s in shown["steps"]}["P6"]
+    assert (p6["code"], p6["maybe_sent"]) == (("not_finished", True) if outcome == "unknown" else ("skipped_not_requested", False))
+    monkeypatch.setattr(dv, "run_voice_checks", Spy())
+    again = diag(client, admin, cid, call_body(conn))
+    assert again.status_code == (409 if outcome == "unknown" else 200)
+
+
+def test_ceiling_keeps_finished_chunks_and_marks_cut_steps_as_unconfirmed(client, admin, fake_provider, monkeypatch):
     conn = ready(client, admin)
     cid = conn["id"]
     asked = []
@@ -946,9 +1016,12 @@ def test_ceiling_keeps_finished_steps_and_marks_the_rest(client, admin, fake_pro
     assert r.status_code == 200, r.text
     body = r.json()
     rows = {s["id"]: s for s in body["steps"]}
-    assert [rows[i]["code"] for i in ("P5", "P6", "P7", "P8", "P11")] == ["ok"] * 5  # 끝난 걸음은 그대로
+    assert [rows[i]["code"] for i in ("P5", "P6", "P7", "P8", "P11")] == ["ok"] * 5  # 끝난 덩어리의 걸음은 그대로
+    assert not any(rows[i]["pending"] for i in ("P5", "P6", "P7", "P8", "P11"))
     assert rows["P10"]["code"] == "timeout" and rows["P10"]["ok"] is False and rows["P10"]["skipped"] is False
-    assert rows["P10"]["maybe_sent"] is True and dv.MAYBE_PLACED in rows["P10"]["detail"]
+    assert rows["P10"]["pending"] is True and rows["P10"]["maybe_sent"] is True  # 확인 필요 + 걸렸을 수 있음
+    assert voice.TIMED_OUT in rows["P10"]["detail"] and dv.MAYBE_PLACED in rows["P10"]["detail"]
+    assert client.get(f"{BASE}/{cid}/voice", headers=admin).json()["status"] == "ok"  # P5·P11·P6 은 확인됐다
     assert body["call_unknown"] is True and [c["outcome"] for c in body["calls"]] == ["unknown"]
     assert asked == [((5, 6, 7, 8, 11), 90), ((10,), 90)] and not diagnose_mod._RUNNING
     assert diag(client, admin, cid, call_body(conn)).status_code == 409  # 다시 걸어 보지 않는다
@@ -957,11 +1030,38 @@ def test_ceiling_keeps_finished_steps_and_marks_the_rest(client, admin, fake_pro
         await asyncio.wait_for(asyncio.Event().wait(), 5)
 
     monkeypatch.setattr(dv, "run_voice_checks", Spy(during=hang))
-    r = diag(client, admin, cid, {})  # 걸지 않는 진단이 상한에 걸리면 「모름」이 아니다
+    r = diag(client, admin, cid, {})  # 상한에 걸린 덩어리의 걸음은 실패가 아니라 「확인하지 못함」 — 걸지 않았으니 통화 「모름」도 아니다
     rows = {s["id"]: s for s in r.json()["steps"]}
-    assert [rows[i]["code"] for i in ("P5", "P9", "P11")] == ["timeout"] * 3
-    assert not any(rows[i]["maybe_sent"] for i in ("P5", "P9", "P11")) and rows["P6"]["code"] == "ok"
-    assert "넘겨" in rows["P5"]["detail"] and client.get(f"{BASE}/{cid}/voice", headers=admin).json()["status"] == "failed"
+    for i in ("P5", "P9", "P11"):
+        assert rows[i]["code"] == "timeout" and rows[i]["pending"] is True and rows[i]["maybe_sent"] is False
+        assert rows[i]["ok"] is False and rows[i]["skipped"] is False and rows[i]["detail"] == voice.TIMED_OUT
+    assert "확인하지 못했습니다" in voice.TIMED_OUT and rows["P6"]["code"] == "ok" and rows["P6"]["pending"] is False
+
+
+@pytest.mark.parametrize(("before", "status"), [({}, "ok"), ({5: ("bad_key", False)}, "failed")])
+def test_timed_out_connection_check_leaves_status_unchanged(client, admin, fake_provider, monkeypatch, before, status):
+    cid = ready(client, admin)["id"]
+    made = {n: row(n, code, "결과입니다.", skipped=skipped) for n, (code, skipped) in before.items()}
+    monkeypatch.setattr(dv, "run_voice_checks", Spy(made))
+    assert diag(client, admin, cid, {}).status_code == 200
+    was = client.get(f"{BASE}/{cid}/voice", headers=admin).json()
+    assert was["status"] == status
+
+    async def hang(_seen) -> None:
+        await asyncio.wait_for(asyncio.Event().wait(), 5)
+
+    monkeypatch.setattr(voice, "_ceiling", lambda steps, wait: 0.3)
+    monkeypatch.setattr(dv, "run_voice_checks", Spy(during=hang))
+    cut = diag(client, admin, cid, {}).json()
+    assert {s["id"]: s for s in cut["steps"]}["P5"]["pending"] is True
+    now = client.get(f"{BASE}/{cid}/voice", headers=admin).json()
+    assert (now["status"], now["checked_at"]) == (was["status"], was["checked_at"])  # 모르는 결과로 상태를 바꾸지 않는다
+    monkeypatch.setattr(dv, "run_voice_checks", Spy({9: row(9, "not_supported", "없음", skipped=True)}))
+    assert diag(client, admin, cid, {"steps": ["P9"]}).status_code == 200  # P5 를 다시 확인하기 전에는 그대로
+    assert client.get(f"{BASE}/{cid}/voice", headers=admin).json()["status"] == status
+    monkeypatch.setattr(dv, "run_voice_checks", Spy())
+    assert diag(client, admin, cid, {}).status_code == 200
+    assert client.get(f"{BASE}/{cid}/voice", headers=admin).json()["status"] == "ok"
 
 
 def test_ceilings_come_from_the_diagnostics_caps():
@@ -1102,6 +1202,11 @@ async def test_running_marker_is_cleared_on_cancel_and_error(client, admin, fake
 
     monkeypatch.setattr(dv, "run_voice_checks", Spy(during=hang))
     session = next(get_session())
+    at = datetime.now(UTC).isoformat()  # 앞선 시험 전화의 결과를 모르는 채로 다른 진단을 돌린다
+    session.get(VoiceSettings, cid).last_diagnosis_json = {"state": "done", "part": "call", "ran_at": at, "by": "관리자",
+                                                           "steps": [], "real": False,
+                                                           "calls": [{"at": at, "by": "관리자", "outcome": "unknown"}]}
+    session.commit()
     task = asyncio.create_task(voice.run(session, cid, voice.VoiceDiagnoseIn(), "관리자"))
     async with asyncio.timeout(2):
         await started.wait()
@@ -1110,6 +1215,7 @@ async def test_running_marker_is_cleared_on_cancel_and_error(client, admin, fake
     shown = voice.last(reader, cid)  # 걸지 않는 진단도 도는 동안은 「도는 중」으로 읽힌다(미리 적은 기록이 없어도)
     reader.close()
     assert shown.state == "running" and shown.part == "connection" and shown.steps == [] and shown.by == "관리자"
+    assert shown.call_unknown is True  # 도는 동안에도 「모름」 표시는 그대로다
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task

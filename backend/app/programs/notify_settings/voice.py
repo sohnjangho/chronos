@@ -8,8 +8,11 @@
   지금 목록과 같을 때만 건다. 걸기 전에 `last_diagnosis_json` 에 「거는 중」 기록(state "calling")과 통화 기록(`calls`, 최근 20개,
   번호 없음)을 남기고 끝나면 결과로 바꾼다. 마지막 통화의 결과를 모르고 10분이 안 됐으면 `confirm_recall` 없이는 다시 걸지 않는다.
 - 연결마다 진단 하나 — 연결 진단(P1~P4)과도 겹치지 않게 같은 표시(`diagnose._RUNNING`)를 쓴다. 표시는 끝·실패·끊김 모두에서 지운다.
-- 걸음은 덩어리마다 따로 부르고 덩어리마다 시간 상한(`_ceiling` — 진단 모듈의 상한을 더한 값)을 건다. 상한에 걸려도 끝난 걸음은
-  실제 결과로 남고, 건 통화의 끝이 확인되지 않았으면 「모름」으로 남긴다. 다시 걸어 보지 않는다.
+- 걸음은 덩어리마다 따로 부르고 덩어리마다 시간 상한(`_ceiling` — 진단 모듈의 상한을 더한 값)을 건다. 상한에 걸려도 **끝난 덩어리**의
+  걸음은 실제 결과로 남는다. 상한에 걸린 덩어리의 걸음은 실패가 아니라 「확인하지 못함」(`pending`)이고 상태(`status`)를 바꾸지 않는다.
+  건 통화의 끝이 확인되지 않았으면 「모름」으로 남긴다. 다시 걸어 보지 않는다.
+- 「마지막 시험 전화의 결과를 모름」(`call_unknown`)은 저장하지 않고 통화 기록의 마지막 줄에서만 읽는다(`_unknown`) — 화면의 경고와 409 가
+  어긋나지 않게. 끝나지 못하고 남은 「거는 중」은 `_closed` 한 곳에서 「모름」으로 닫는다(읽을 때·다음 진단이 저장할 때·요청이 끊겼을 때).
 - SDK 를 부르는 동안 DB 트랜잭션을 쥐지 않는다(부르기 전에 끝내고, 부른 뒤 줄을 다시 읽어 쓴다). DB 일은 스레드에서 한다.
 - 결과 글은 한 번 더 지운다(키·Account ID·번호). 아무것도 설치하지 않는다 — SDK 가 없으면 진단 모듈의 P5 가 그 까닭을 낸다.
 """
@@ -18,6 +21,7 @@ import asyncio
 import importlib.util
 import re
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -77,7 +81,7 @@ RECALL = ("앞서 건 시험 전화가 걸렸는지·끊겼는지 아직 모릅�
           "확인한 뒤에도 다시 걸려면 다시 걸기를 골라 주세요.")
 VERSION_NEEDED = "시험 전화와 받는 통화 확인에는 허용 번호 목록 판(allow_numbers_version)을 함께 보내 주세요."
 INVALID_VOICE = "음성 이름은 영문으로 시작하고 영문·숫자·점(.)·줄표(-)·밑줄(_)만 쓸 수 있습니다."
-TIMED_OUT = "진단 시간이 상한을 넘겨 이 걸음을 끝내지 못했습니다."
+TIMED_OUT = "시간 안에 끝나지 않아 결과를 확인하지 못했습니다."
 NOT_FINISHED = ("전화가 걸렸는지·끊겼는지 알 수 없음 — 요청이 끝나지 않은 채 남았습니다. 휴대전화를 확인해 주세요"
                 "(통화 중이면 끊어 주세요).")
 _MODEL = re.compile(r"[A-Za-z0-9._\-]{1,80}")  # 진단 모듈이 받는 꼴과 같다
@@ -480,7 +484,7 @@ def _mark_calling_sync(session: Session, conn_id: int, data: VoiceDiagnoseIn, by
         row = _settings(session, conn_id, fresh=True)
         _call_target(conn, row, data)
         record = _record(row)
-        calls = _calls(record)
+        calls = _calls(record)  # 앞서 끝나지 못하고 남은 「거는 중」도 다시 걸기를 막는다(끝나면 _save_sync 가 「모름」으로 닫는다)
         if not data.confirm_recall and _open_call(calls, now):
             raise ApiError(409, "call_unknown_pending", RECALL)
     except ApiError:
@@ -488,17 +492,17 @@ def _mark_calling_sync(session: Session, conn_id: int, data: VoiceDiagnoseIn, by
         raise
     calls = (calls + [{"at": now.isoformat(), "by": by, "outcome": "calling"}])[-CALLS_KEPT:]
     row.last_diagnosis_json = {"state": "calling", "part": "call", "ran_at": now.isoformat(), "by": by,
-                               "steps": record.get("steps") or [], "real": False, "call_unknown": False, "calls": calls}
+                               "steps": record.get("steps") or [], "real": False, "calls": calls}
     session.commit()
 
 
 # ── 진단: 돌리기 ─────────────────────────────────────────────────────
 
 
-async def _checks(prep: _Prep) -> tuple[dict[int, diagnostics.DiagnosticStep], str, diagnostics_voice.VoiceBudget]:
-    """({걸음 번호: 결과}, 멈춘 까닭, 통화 수). 까닭: "" · "timeout"(상한) · "unlinked"(연결 실패) · "stopped"(앞 통화의 끝을 모름)."""
+async def _checks(prep: _Prep, budget: diagnostics_voice.VoiceBudget) -> tuple[dict[int, diagnostics.DiagnosticStep], str]:
+    """({걸음 번호: 결과}, 멈춘 까닭). 까닭: "" · "timeout"(상한) · "unlinked"(연결 실패) · "stopped"(앞 통화의 끝을 모름).
+    통화 수는 `budget` 에 남는다 — 도중에 끊겨도(취소) 진단 모듈이 통화를 끊고 `maybe_live` 를 적어 둔다."""
     rows: dict[int, diagnostics.DiagnosticStep] = {}
-    budget = diagnostics_voice.VoiceBudget()
     busy = worker_connected(prep.agent_number)
     for steps in prep.chunks:
         try:
@@ -507,24 +511,23 @@ async def _checks(prep: _Prep) -> tuple[dict[int, diagnostics.DiagnosticStep], s
                     prep.conn, prep.voice, agent_number=prep.agent_number, steps=steps, call_to=prep.call_to,
                     wait_inbound_s=prep.wait, worker_connected=busy, budget=budget)
         except TimeoutError:
-            return rows, "timeout", budget
+            return rows, "timeout"
         by_id = {step.id: step for step in found}
         got = {n: by_id[f"P{n}"] for n in steps if f"P{n}" in by_id}
         rows.update(got)
         if (5 in got and got[5].ok is not True) or any(s.code == "skipped_not_connected" for s in got.values()):
-            return rows, "unlinked", budget
+            return rows, "unlinked"
         if budget.maybe_live or any(s.maybe_sent is True or s.code in HALTED for s in got.values()):
-            return rows, "stopped", budget
-    return rows, "", budget
-
+            return rows, "stopped"
+    return rows, ""
 
 
 def _line(n: int, *, ran_at: str | None, code: str, detail: str, ok: bool = False, skipped: bool = False,
           latency_ms: int | None = None, notes: list[str] | None = None, maybe_sent: bool = False,
-          data: dict | None = None) -> dict:
+          pending: bool = False, data: dict | None = None) -> dict:
     """걸음 줄 하나(저장하는 꼴 = 내보내는 꼴). 이름표는 늘 우리 것."""
     return {"id": f"P{n}", "label": diagnostics_voice.LABELS[f"P{n}"], "ok": ok, "skipped": skipped, "detail": detail,
-            "latency_ms": latency_ms, "notes": notes or [], "code": code, "maybe_sent": maybe_sent, "pending": False,
+            "latency_ms": latency_ms, "notes": notes or [], "code": code, "maybe_sent": maybe_sent, "pending": pending,
             "data": data or {}, "ran_at": ran_at}
 
 
@@ -555,7 +558,8 @@ def _data(raw: object, clean: Callable[..., str]) -> dict:
 
 def _fresh(prep: _Prep, rows: dict[int, diagnostics.DiagnosticStep], halt: str, budget: diagnostics_voice.VoiceBudget,
            now: datetime) -> dict[int, dict]:
-    """이번 요청이 돌린 걸음의 줄 {걸음 번호: 줄}. 글은 한 번 더 지우고, 끝나지 못한 걸음은 까닭을 적는다."""
+    """이번 요청이 돌린 걸음의 줄 {걸음 번호: 줄}. 글은 한 번 더 지우고, 끝나지 못한 걸음은 까닭을 적는다. 상한에 걸린 덩어리의 걸음은
+    결과를 모르는 것이라 실패가 아니라 `pending`(확인하지 못함)이다 — 그 가운데 걸렸을 수 있는 통화 걸음에는 `maybe_sent` 도 선다."""
     clean = partial(diagnostics.scrub, secrets=[prep.conn.key, prep.conn.account_id, prep.voice.key],
                     numbers=[n for n in (prep.agent_number, prep.call_to, prep.conn.sender) if n])
     stamp, out = now.isoformat(), {}
@@ -574,7 +578,7 @@ def _fresh(prep: _Prep, rows: dict[int, diagnostics.DiagnosticStep], halt: str, 
         elif halt == "timeout":
             maybe = n == unsure
             detail = f"{TIMED_OUT} {diagnostics_voice.MAYBE_PLACED}" if maybe else TIMED_OUT
-            out[n] = _line(n, ran_at=stamp, code="timeout", detail=detail, maybe_sent=maybe)
+            out[n] = _line(n, ran_at=stamp, code="timeout", detail=detail, maybe_sent=maybe, pending=True)
         elif halt == "unlinked":
             out[n] = _line(n, ran_at=stamp, code="skipped_not_connected", detail=diagnostics_voice.NOT_LINKED, skipped=True)
         else:
@@ -605,49 +609,85 @@ def _steps(record: dict, fresh: dict[int, dict] | None = None) -> list[dict]:
     return out
 
 
-def _status(steps: list[dict]) -> str:
-    """걸음마다의 마지막 결과 가운데 연결(P5)·번호 묶기(P11)·통화(P6)로 정한다."""
-    by_id = {line["id"]: line for line in steps}
-    if any(by_id[i]["ran_at"] and not by_id[i]["ok"] and not by_id[i]["skipped"] for i in ("P5", "P11", "P6")):
+def _status(steps: list[dict]) -> str | None:
+    """걸음마다의 마지막 결과 가운데 연결(P5)·번호 묶기(P11)·통화(P6)로 정한다. 셋 가운데 결과를 확인하지 못한 줄(`pending` —
+    시간 상한에 걸림)이 있으면 None: 모르는 결과로 상태를 바꾸지 않는다."""
+    judged = [line for line in steps if line["id"] in ("P5", "P11", "P6")]
+    if any(line["pending"] for line in judged):
+        return None
+    if any(line["ran_at"] and not line["ok"] and not line["skipped"] for line in judged):
         return "failed"
-    return "ok" if by_id["P5"]["ok"] else "unknown"
+    return "ok" if steps[0]["ok"] else "unknown"
+
+
+def _closed(record: dict, stamp: str = "", outcome: str | None = None) -> dict:
+    """「거는 중」으로 남은 통화를 닫은 기록(state "done"). 이번 통화(`stamp`)는 `outcome` 으로, 그 밖에 남은 것은 끝을 알 수 없으므로
+    「모름」으로 닫는다. 기록 자신의 통화가 「모름」이 되면 P6 줄을 not_finished 로 바꾼다. 남은 「거는 중」을 닫는 곳은 여기뿐이다."""
+    calls, ran = _calls(record), record.get("ran_at")
+    for call in calls:
+        if call.get("outcome") == "calling":
+            call["outcome"] = outcome if outcome and call.get("at") == stamp else "unknown"
+    steps = record.get("steps") or []
+    if record.get("state") == "calling" and any(c.get("at") == ran and c.get("outcome") == "unknown" for c in calls):
+        steps = _steps(record, {6: _line(6, ran_at=ran, code="not_finished", detail=NOT_FINISHED, maybe_sent=True)})
+    return {**record, "state": "done", "steps": steps, "calls": calls, "real": outcome == "placed"}
 
 
 def _save_sync(session: Session, conn_id: int, part: str, fresh: dict[int, dict], outcome: str | None, now: datetime,
                by: str) -> VoiceDiagnosisOut:
-    """결과로 바꾼다(쓰기 트랜잭션 하나, 줄은 다시 읽는다). 통화 기록은 이어 쓰고 이번 것은 결과로 고친다."""
+    """결과로 바꾼다(쓰기 트랜잭션 하나, 줄은 다시 읽는다). 통화 기록은 이어 쓰고 이번 것은 결과로 고친다. 걸지 않는 진단이
+    앞서 끝나지 못한 「거는 중」 기록 위에 쓸 때는 그 통화를 「모름」으로 닫아 남긴다(P6 줄도) — 표시가 지워지지 않게."""
     service.begin_write(session)
     row = session.get(VoiceSettings, conn_id, populate_existing=True)
-    record = _record(row)
-    calls = _calls(record)
-    for call in calls:
-        if outcome is not None and call.get("at") == now.isoformat():
-            call["outcome"] = outcome
-    unknown = outcome == "unknown" if outcome is not None else record.get("call_unknown") is True
-    steps = _steps(record, fresh)
+    previous = _record(row)
+    closed = _closed(previous, now.isoformat(), outcome)
+    steps = _steps(closed if outcome is None else previous, fresh)
     record = {"state": "done", "part": part, "ran_at": now.isoformat(), "by": by, "steps": steps,
-              "real": outcome == "placed", "call_unknown": unknown, "calls": calls}
+              "real": outcome == "placed", "calls": closed["calls"]}
     if row is None:  # 그사이 지워졌다 — 저장하지 않고 결과만 돌려준다
         session.rollback()
         return _shown(record, now)
     row.last_diagnosis_json = record
-    if fresh.get(5, {}).get("code") != "worker_connected":  # 일꾼이 붙어 있어 연결해 보지 않은 진단은 상태를 바꾸지 않는다
-        row.status, row.checked_at = _status(steps), now
+    status = _status(steps)
+    if status is not None and fresh.get(5, {}).get("code") != "worker_connected":  # 일꾼이 붙어 연결해 보지 않은 진단도 그대로
+        row.status, row.checked_at = status, now
     session.commit()
     return _shown(record, datetime.now(UTC))
+
+
+def _settle_cancelled(conn_id: int, stamp: str, budget: diagnostics_voice.VoiceBudget) -> None:
+    """끊긴(취소된) 시험 전화 요청의 「거는 중」 기록을 닫는다. 진단 모듈은 취소돼도 통화를 끊고 끝을 확인했는지(`maybe_live`)를
+    남긴다 — 그것으로 정한다. 취소된 뒤에는 await 를 믿을 수 없어 새 세션으로 곧바로 쓴다. 쓰지 못하면 기록은 「거는 중」으로 남아
+    뒤에 「모름」으로 읽힌다(닫힌 쪽)."""
+    outcome = "unknown" if budget.maybe_live else "placed" if budget.placed else "not_placed"
+    try:
+        with contextmanager(get_session)() as session:
+            service.begin_write(session)
+            row = session.get(VoiceSettings, conn_id)
+            record = _record(row)
+            if record.get("state") == "calling" and record.get("ran_at") == stamp:
+                row.last_diagnosis_json = _closed(record, stamp, outcome)
+            session.commit()
+    except Exception:  # noqa: BLE001, S110 — 취소를 가리지 않는다
+        pass
 
 
 async def run(session: Session, conn_id: int, data: VoiceDiagnoseIn, by: str) -> VoiceDiagnosisOut:
     prep = await run_in_threadpool(_prepare_sync, session, conn_id, data)
     if conn_id in diagnose._RUNNING:  # 연결 진단(P1~P4)과도 겹치지 않는다
         raise ApiError(409, "diagnosis_running", RUNNING)
-    now = datetime.now(UTC)
+    now, budget = datetime.now(UTC), diagnostics_voice.VoiceBudget()
     diagnose._RUNNING.add(conn_id)
     _VOICE_RUNNING[conn_id] = {"part": prep.part, "at": now, "by": by}
     try:
         if prep.part == "call":
             await run_in_threadpool(_mark_calling_sync, session, conn_id, data, by, now)
-        rows, halt, budget = await _checks(prep)
+        try:
+            rows, halt = await _checks(prep, budget)
+        except asyncio.CancelledError:
+            if prep.part == "call":
+                _settle_cancelled(conn_id, now.isoformat(), budget)
+            raise
         fresh = _fresh(prep, rows, halt, budget, now)
         outcome = _outcome(fresh, halt, budget) if prep.part == "call" else None
         return await run_in_threadpool(_save_sync, session, conn_id, prep.part, fresh, outcome, now, by)
@@ -674,21 +714,26 @@ def _records(calls: list[dict], now: datetime) -> list[CallRecord]:
     return out
 
 
+def _unknown(calls: list[CallRecord]) -> bool:
+    """마지막 시험 전화의 결과를 모르는가. `call_unknown` 은 여기 한 곳에서만 정한다(저장하지 않는다)."""
+    return bool(calls) and calls[-1].outcome == "unknown"
+
+
 def _shown(record: dict, now: datetime) -> VoiceDiagnosisOut | None:
     ran_at = diagnose._when(record.get("ran_at"))
     if ran_at is None:
         return None
+    calling = record.get("state") == "calling"
+    dialing = calling and now - ran_at <= timedelta(seconds=STALE_CALL_S)  # 걸고 있다(다른 프로세스이거나 방금 죽었을 수도 있다)
+    if calling and not dialing:
+        record = _closed(record)  # 끝나지 못한 채 상한보다 오래 남았다 — 「모름」
+    calls = _records(_calls(record), now)
     base = {"part": record.get("part") if record.get("part") in PARTS else None, "ran_at": ran_at,
-            "by": record.get("by") if isinstance(record.get("by"), str) else None,
-            "calls": _records(_calls(record), now)}
-    if record.get("state") != "calling":
-        return VoiceDiagnosisOut(state="done", steps=_steps(record), called_real=record.get("real") is True,
-                                 call_unknown=record.get("call_unknown") is True, **base)
-    if now - ran_at <= timedelta(seconds=STALE_CALL_S):  # 걸고 있다(다른 프로세스이거나 방금 죽었을 수도 있다)
-        return VoiceDiagnosisOut(state="running", steps=[], called_real=False, call_unknown=False, **base)
-    unfinished = _line(6, ran_at=ran_at.isoformat(), code="not_finished", detail=NOT_FINISHED, maybe_sent=True)
-    return VoiceDiagnosisOut(state="done", steps=_steps(record, {6: unfinished}), called_real=False, call_unknown=True,
-                             **base)
+            "by": record.get("by") if isinstance(record.get("by"), str) else None, "calls": calls,
+            "call_unknown": _unknown(calls)}
+    if dialing:
+        return VoiceDiagnosisOut(state="running", steps=[], called_real=False, **base)
+    return VoiceDiagnosisOut(state="done", steps=_steps(record), called_real=record.get("real") is True, **base)
 
 
 def last(session: Session, conn_id: int) -> VoiceDiagnosisOut | None:
@@ -696,8 +741,9 @@ def last(session: Session, conn_id: int) -> VoiceDiagnosisOut | None:
     record, now = _record(session.get(VoiceSettings, conn_id)), datetime.now(UTC)
     running = _VOICE_RUNNING.get(conn_id)
     if running is not None:
+        calls = _records(_calls(record), now)
         return VoiceDiagnosisOut(state="running", part=running["part"], ran_at=running["at"], by=running["by"],
-                                 steps=[], called_real=False, call_unknown=False, calls=_records(_calls(record), now))
+                                 steps=[], called_real=False, call_unknown=_unknown(calls), calls=calls)
     return _shown(record, now)
 
 
