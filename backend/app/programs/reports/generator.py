@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 _RESP_LABEL = {"owner": "발주처", "ours": "시공사/우리", "force": "불가항력", "undecided": "미정"}
 _STATUS_LABEL = {"open": "열림(검토 중)", "reflected": "반영됨"}
+OPEN_DELAYS = "기록된 지연 {}건 · 지연 일수 합 {}일"  # 간트 「기록된 지연」 띠와 같은 말
+OPEN_DELAYS_STATUS = "승인 전(일정에 반영되지 않음)"
 _SCEN_STATUS = {"open": "검토 중", "submitted": "승인 대기", "applied": "반영 완료", "discarded": "폐기"}
 
 
@@ -270,7 +272,11 @@ async def generate_report_blocks(
     keep = {prog.version} | {next((s.base_version for s in scen_rows if s.status == "applied"), prog.version)}
     scen_rows = [s for s in scen_rows if s.base_version in keep]
     # 지연 반영안은 그 사건이 모두 반영됐으면(다른 안과 함께 일정에 들어갔으면) 반영된 만회안처럼 「반영 완료」로 보인다.
-    reflected = {e.id for e in delays_store.listed(session, schedule_id) if e.status == "reflected"}
+    recorded = delays_store.listed(session, schedule_id)
+    reflected = {e.id for e in recorded if e.status == "reflected"}
+    # 기록만 하고 반영하지 않은 지연(보이는 안에 들지 않은 것) — 간트 띠처럼 만회 표에 한 줄로(재확인 2). 수치는 바꾸지 않는다.
+    in_rows = {i for s in scen_rows for i in (s.delay_event_ids or [])}
+    open_delays = [e for e in recorded if e.status == "open" and e.id not in in_rows]
 
     def scen_status(sc) -> str:
         if sc.source == "delay" and sc.status != "applied" and sc.delay_event_ids and set(sc.delay_event_ids) <= reflected:
@@ -413,6 +419,9 @@ async def generate_report_blocks(
                     scen_status(sc),
                 ]
                 rows.append(_pick(std_row, picks))
+            if open_delays:
+                line = OPEN_DELAYS.format(len(open_delays), sum(e.days for e in open_delays))
+                rows.append(_pick([line, "—", "—", "—", OPEN_DELAYS_STATUS], picks))
             blocks.append(
                 ReportBlock(
                     id=sec.id,

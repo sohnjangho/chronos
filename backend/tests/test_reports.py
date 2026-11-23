@@ -538,6 +538,29 @@ async def test_delay_plan_whose_delays_are_already_in_the_schedule_is_shown_appl
     assert rows["one_open"]["지연 반영안 (2건)"] == "검토 중"
 
 
+async def test_open_recorded_delays_get_their_own_line_in_the_plan_table(session):
+    """재확인 2: 기록만 하고 아직 반영하지 않은(열린) 지연은 간트의 띠처럼 보고서 만회 표에 한 줄로 — 「기록된 지연 n건 ·
+    지연 일수 합 n일」 · 「승인 전(일정에 반영되지 않음)」. 계산한 수치(준공·차이·크리티컬)는 바꾸지 않는다."""
+    from datetime import date
+
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory, TemplateSection
+    from app.store.tables import DelayEvent
+
+    sid = schedules.store(session, schedules.sample())
+    session.commit()
+    _scenario(session, sid, 1, "만회안 A", "open", "2027-10-30", 1, 12)
+    sec = TemplateSection(id="s", heading="만회", block_kind="table", data_binding="scenario_compare")
+    _, _, _, before = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
+    session.add(DelayEvent(schedule_id=sid, activity_id="A", start_date=date(2027, 3, 2), days=2, cause="자재 반입 지연",
+                           created_by="김공정", status="open"))
+    session.commit()
+    _, _, _, blocks = await generator.generate_report_blocks(session, sid, "monthly", "2027년 4월", [sec], StyleMemory())
+    rows = blocks[0].table["rows"]
+    assert rows[:-1] == before[0].table["rows"]  # 있던 줄·수치는 그대로
+    assert rows[-1] == ["기록된 지연 1건 · 지연 일수 합 2일", "—", "—", "—", "승인 전(일정에 반영되지 않음)"]
+
+
 async def test_prose_drops_heading_line_and_markdown_stars(session, monkeypatch):
     """R3: 서술·수정 답의 첫 줄이 절 제목이면 빼고 ** 를 지운다. 두 프롬프트에 금지 문장이 있다."""
     from types import SimpleNamespace
