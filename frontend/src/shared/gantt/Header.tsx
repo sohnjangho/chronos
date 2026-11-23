@@ -111,48 +111,52 @@ export default function Header({ scale, marks = [] }: { scale: Scale; marks?: He
   const step = Math.max(1, Math.ceil(36 / (7 * scale.pxPerDay)));
   const placed = placeMarks(marks, w);
   return (
-    <svg className="gantt-svg gantt-header" width={w} height={HEADER_H} aria-hidden="true">
-      <rect className="gantt-head-bg" width={w} height={HEADER_H} />
-      {monthLabels(scale).map((m, i) => (
-        <g key={`m${i}`}>
-          <line className="gantt-head-line" x1={m.x} x2={m.x} y1={0} y2={42} />
-          <text className="gantt-month" x={m.x + 6} y={15}>
-            {m.label}
-          </text>
-        </g>
-      ))}
-      <line className="gantt-head-line" x1={0} x2={w} y1={22} y2={22} />
-      {weeks(scale).map((t, i) => (
-        <g key={t.x}>
-          <line className="gantt-head-tick" x1={t.x} x2={t.x} y1={22} y2={42} />
-          {i % step === 0 && (
-            <text className="gantt-week" x={t.x + 3} y={36}>
-              {t.label}
+    <>
+      <svg className="gantt-svg gantt-header" width={w} height={HEADER_H} aria-hidden="true">
+        <rect className="gantt-head-bg" width={w} height={HEADER_H} />
+        {monthLabels(scale).map((m, i) => (
+          <g key={`m${i}`}>
+            <line className="gantt-head-line" x1={m.x} x2={m.x} y1={0} y2={42} />
+            <text className="gantt-month" x={m.x + 6} y={15}>
+              {m.label}
             </text>
-          )}
-        </g>
-      ))}
-      <line className="gantt-head-line" x1={0} x2={w} y1={42} y2={42} />
-      {marks.map((m, i) => {
-        // 오른쪽 끝을 넘을 이름표(차트 끝 가까운 기한 등)는 선 왼쪽에 끝을 맞춘다 — 머리 밖으로 잘리지 않게.
-        // 다른 이름표와 겹치면 날짜만 남긴다(전체 이름은 title) — placeMarks.
-        const p = placed[i];
-        if (!p) return null;
-        const title = m.title ?? (p.text !== m.label ? m.label : undefined);
-        return (
-          <text
-            key={m.key}
-            className={`gantt-mark is-${m.tone}`}
-            data-mark={m.key}
-            x={p.left ? m.x - 3 : m.x + 3}
-            y={55}
-            textAnchor={p.left ? 'end' : undefined}
-          >
-            {title && <title>{title}</title>}
-            {p.text}
-          </text>
-        );
-      })}
-    </svg>
+          </g>
+        ))}
+        <line className="gantt-head-line" x1={0} x2={w} y1={22} y2={22} />
+        {weeks(scale).map((t, i) => (
+          <g key={t.x}>
+            <line className="gantt-head-tick" x1={t.x} x2={t.x} y1={22} y2={42} />
+            {i % step === 0 && (
+              <text className="gantt-week" x={t.x + 3} y={36}>
+                {t.label}
+              </text>
+            )}
+          </g>
+        ))}
+        <line className="gantt-head-line" x1={0} x2={w} y1={42} y2={42} />
+        {marks.map((m, i) => {
+          // 오른쪽 끝을 넘을 이름표(차트 끝 가까운 기한 등)는 선 왼쪽에 끝을 맞춘다 — 머리 밖으로 잘리지 않게.
+          // 다른 이름표와 겹치면 날짜만 남긴다(전체 이름은 title) — placeMarks.
+          const p = placed[i];
+          if (!p) return null;
+          const title = m.title ?? (p.text !== m.label ? m.label : undefined);
+          return (
+            <text
+              key={m.key}
+              className={`gantt-mark is-${m.tone}`}
+              data-mark={m.key}
+              x={p.left ? m.x - 3 : m.x + 3}
+              y={55}
+              textAnchor={p.left ? 'end' : undefined}
+            >
+              {title && <title>{title}</title>}
+              {p.text}
+            </text>
+          );
+        })}
+      </svg>
+      {/* svg 는 aria-hidden — 세로선 이름(전체)은 보이지 않는 글로 보조 기술에 알린다(화면은 그대로) */}
+      {marks.length > 0 && <span className="os-sr-only">{`세로선: ${marks.map((m) => m.label).join(' · ')}`}</span>}
+    </>
   );
 }

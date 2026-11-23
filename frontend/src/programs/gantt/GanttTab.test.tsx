@@ -189,7 +189,7 @@ test('Data Date line and weekend shading', async () => {
 test('deadline line appears only with a finish_by condition', async () => {
   setupGantt(makeView(), [FINISH_BY]);
   await renderGantt();
-  expect(await screen.findByText(/기한 11\.30/)).toBeVisible();
+  expect(await screen.findByText(/기한 11\.30/, { selector: '.gantt-mark' })).toBeVisible(); // 머리 이름표(세로선 요약 글 말고)
   expect(document.querySelector('[data-vline="deadline"]')).toBeInTheDocument();
 });
 

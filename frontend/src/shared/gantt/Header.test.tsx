@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { expect, test } from 'vitest';
 import Header from './Header';
 import { makeScale } from './scale';
@@ -126,4 +126,26 @@ test('labels far apart keep their full names', () => {
     />,
   );
   expect([...container.querySelectorAll('.gantt-mark')].map((e) => e.textContent)).toEqual(['Data Date 04.17', '준공 기한 12.24']);
+});
+
+// 리뷰: 머리 svg 는 aria-hidden 이라 이름표의 title 이 보조 기술에 닿지 않는다 — svg 밖에 세로선 요약 글(보이지 않게)을 둔다.
+test('the marks are summarised for assistive tech outside the hidden svg', () => {
+  const { container } = render(
+    <Header
+      scale={makeScale('2027-03-01', '2027-12-31', 165, 0)}
+      marks={[
+        { key: 'data', x: 30, label: 'Data Date 04.17', tone: 'data' },
+        { key: 'deadline', x: 162, label: '준공 기한 12.24', tone: 'deadline' },
+      ]}
+    />,
+  );
+  const summary = screen.getByText('세로선: Data Date 04.17 · 준공 기한 12.24');
+  expect(summary).toHaveClass('os-sr-only');
+  expect(summary.closest('[aria-hidden="true"]')).toBeNull();
+  expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+});
+
+test('no marks, no summary', () => {
+  render(<Header scale={makeScale('2027-03-01', '2027-03-28', 560, 0)} />);
+  expect(screen.queryByText(/^세로선:/)).toBeNull();
 });
