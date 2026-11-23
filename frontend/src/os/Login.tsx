@@ -103,7 +103,7 @@ export default function Login() {
               회원가입
             </Button>
           </div>
-          <p className="os-card-note">계정은 관리자가 만듭니다. 등급은 관리자와 사용자 두 가지입니다.</p>
+          <p className="os-card-note">계정은 회원가입 신청 뒤 관리자가 승인합니다. 등급은 관리자 · 사용자 · 현장 관리자 세 가지입니다.</p>
         </form>
 
         <div className="os-login-foot">2026 .EXE-THON 출품작 · Liner API로 동작합니다</div>

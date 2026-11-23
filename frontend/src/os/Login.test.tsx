@@ -41,7 +41,7 @@ test('login failure shows the server message', async () => {
 test('login screen follows the mockup wording', () => {
   render(<Login />);
   expect(screen.getByText('일정을 만들고, 지키고, 고치는 에이전트 OS')).toBeVisible();
-  expect(screen.getByText('계정은 관리자가 만듭니다. 등급은 관리자와 사용자 두 가지입니다.')).toBeVisible();
+  expect(screen.getByText('계정은 회원가입 신청 뒤 관리자가 승인합니다. 등급은 관리자 · 사용자 · 현장 관리자 세 가지입니다.')).toBeVisible();
 });
 
 test('login screen lets a tablet user choose 데스크톱 or 태블릿 and preserves the choice after sign-in', async () => {
