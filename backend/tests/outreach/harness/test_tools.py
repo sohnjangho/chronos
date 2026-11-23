@@ -153,10 +153,14 @@ def ref_of(row) -> Ref:
 
 
 def boxed(scope: Scope, row, cls: str, *, names=None, now: datetime = WORK) -> Toolbox:
-    """그 줄에 붙은 Toolbox. names 를 주지 않으면 그 등급·매체의 묶음. 부르기 전에 session.commit() 을 해 둘 것."""
+    """그 줄에 붙은 Toolbox(그 등급·매체의 묶음). 부르기 전에 session.commit() 을 해 둘 것.
+    names 를 주면 만든 **뒤에** 그것으로 바꿔 넣는다 — 생성자는 등급 밖 도구를 받지 않는다. 세션이 묶음을 잘못 넘긴 것과 같은
+    상태를 억지로 만들어, 도구가 그래도 범위를 지키는지 보려는 것이다."""
     medium = "call" if isinstance(row, OutreachCall) else "sms"
-    return Toolbox(scope, medium, ref_of(row), names=for_class(cls, medium) if names is None else frozenset(names),
-                   caller_class=cls, clock=lambda: now)
+    box = Toolbox(scope, medium, ref_of(row), names=for_class(cls, medium), caller_class=cls, clock=lambda: now)
+    if names is not None:
+        box.names = frozenset(names)
+    return box
 
 
 def inbound(session: Session, medium: str, number: str | None, *, names=None, now: datetime = WORK, **over):
@@ -422,6 +426,41 @@ async def test_calls_on_one_box_run_one_at_a_time(session):
     assert trail(session, row) == [("tool:record_answer", "allowed")] * 6
 
 
+@pytest.mark.parametrize("trouble", ["row_deleted", "events_not_a_list", "followup_fails", "tool_bug"])
+async def test_no_exception_leaves_the_toolbox(session, fake_channel, monkeypatch, caplog, trouble):
+    """통화·응대 도중 일정이 지워져 줄이 사라지거나, 사건 칸이 깨졌거나, 후속·도구가 무엇으로 터져도 — 예외는 나가지 않고
+    모델에게는 정해 둔 한 줄만 간다(예외 글은 결과에도 로그에도 없다)."""
+    w = world(session)
+    connect(session, agent_sms="delegate")
+    box, row = inbound(session, "sms", PHONE)
+    calls = [("take_message", {"text": "저 최철근입니다", "claimed_name": "최철근"}), ("schedule_fact", {"activity": "철근"}),
+             ("lookup_everything", {}), ("schedule_fact", {"schedule_id": 1})]
+    if trouble == "row_deleted":
+        store.purge_schedule(session, w.a)  # 일정을 지우면 그 일정의 줄도 지워진다
+    elif trouble == "events_not_a_list":
+        row.harness_json = {"broken": NEW}
+    elif trouble == "followup_fails":
+        async def broken(*_args, **_kwargs):
+            raise RuntimeError(f"gate exploded for {NEW}")
+
+        monkeypatch.setattr(tools.gate, "dispatch", broken)
+        calls = calls[:1]
+    else:
+        monkeypatch.setattr(tools.facts, "find", lambda *a, **k: [][NEW_DIGITS.index("9")])  # IndexError
+        calls = calls[1:2]
+    session.commit()
+
+    for name, args in calls:
+        r = await box.call(name, args)
+        assert r == {"error": "지금은 처리하지 못했습니다. 잠시 뒤 다시 해 주세요"}, name
+
+    if trouble == "row_deleted":  # 붙을 줄이 없으면 아무것도 만들지 않는다(메모도, 회신도)
+        assert count(session, ContactReport) == 0 and count(session, OutreachMessage) == 0 and fake_channel.delivered == []
+    assert box.results == [{"error": "지금은 처리하지 못했습니다. 잠시 뒤 다시 해 주세요"}] * len(calls)
+    assert not has_digits(caplog.text, NEW_DIGITS) and "exploded" not in caplog.text
+    assert [record.levelname for record in caplog.records if record.name.endswith("harness.tools")] == ["WARNING"] * len(calls)
+
+
 def test_toolbox_is_built_closed(session):
     w = world(session)
     row = incoming(session, "sms", w.park)
@@ -443,6 +482,26 @@ def test_toolbox_is_built_closed(session):
     with pytest.raises(TypeError):
         Toolbox(scope, "sms", Ref("message", row.id), names=frozenset({"take_message"}))  # 등급을 빼먹을 수 없다
     Toolbox(CLOSED, "sms", Ref("message", row.id), names=frozenset(), caller_class="internal")  # 닫힌 빈 범위는 어느 등급에나
+
+
+@pytest.mark.parametrize("cls, medium, names", [
+    ("unknown", "sms", {"take_message", "schedule_fact"}),  # 모르는 번호에게 일정 도구
+    ("withheld", "call", {"find_contact"}),
+    ("do_not_contact", "sms", {"take_message", "propose_contact"}),
+    ("internal", "sms", {"my_requests"}),
+    ("contact", "sms", {"end_call"}),  # 문자에 통화 도구
+    ("contact", "call", {"confirm_person"}),  # 받는 통화에 거는 통화의 도구
+    ("blocked", "call", {"take_message"}),  # 받지 않는 등급에는 어떤 도구도
+])
+def test_toolbox_refuses_a_bundle_wider_than_the_class_gets(session, cls, medium, names):
+    """세션이 묶음을 잘못 넘겨도 모르는 번호에게 일정 도구가 가지 않는다 — names 는 그 등급·매체의 묶음 안이어야 한다."""
+    row = incoming(session, medium, None, STRANGER)
+    session.commit()
+    ref = Ref("call" if medium == "call" else "message", row.id)
+    with pytest.raises(ValueError):
+        Toolbox(CLOSED, medium, ref, names=frozenset(names), caller_class=cls)
+    Toolbox(CLOSED, medium, ref, names=for_class(cls, medium), caller_class=cls)
+    Toolbox(CLOSED, medium, ref, names=frozenset(sorted(for_class(cls, medium))[:1]), caller_class=cls)  # 더 좁은 것은 된다
 
 
 # ── 범위를 다시 보는 도구 ────────────────────────────────────────────
@@ -685,20 +744,55 @@ async def test_find_contact_stays_in_own_company_for_callers(session):
     assert other == elsewhere == {"items": [], "redirected": False}
 
 
+@pytest.mark.parametrize("delegated", [False, True])
+async def test_outbound_callee_cannot_find_or_redirect_to_another_company(session, fake_channel, delegated):
+    """우리가 건 통화의 상대도 자기 협력사 사람만 찾는다 — 어떤 말로 찾아도 다른 협력사 사람은 「없음」과 같은 답이고,
+    redirect 를 켜도 그 사람 앞으로 줄이 생기지 않는다(받은 사람이 누구인지 확인된 것도 아니다)."""
+    w = world(session)
+    connect(session, agent_call="delegate" if delegated else "approve")
+    kim = who(session, w.rebar_a, "김철근", "01000000122", role_title="철근 기사")
+    box, row = outbound(session, w.park, purpose="타설 인원 확인", questions_json=["토요일 인원"], activity_id="R")
+
+    missing = await box.call("find_contact", {"query": "없는사람", "redirect": True})
+    for query in ("이설비", "이", "설", "설비", "소장", "설비 소장", "가람설비", "비"):  # 한 글자씩 훑어도
+        assert await box.call("find_contact", {"query": query, "redirect": True}) == missing, query
+        assert await box.call("find_contact", {"query": query}) == missing, query
+    own = await box.call("find_contact", {"query": "철근"})
+
+    assert missing == {"items": [], "redirected": False}
+    assert [item["contact_id"] for item in own["items"]] == [kim.id, w.park.id]
+    assert count(session, OutreachCall, OutreachCall.id != row.id) == 0 and count(session, OutreachMessage) == 0
+    assert count(session, OutreachCall, OutreachCall.contact_id == w.lee.id) == 0
+    assert fake_channel.delivered == []
+    assert {e["detail"].split(" → ")[1] for e in log(session, row)[:-1]} == {"0명"}  # 사건도 「없음」과 같다
+
+
+async def test_redirect_target_must_be_in_the_callers_own_company(session, fake_channel):
+    """내부 계정은 그 현장 주소록 전체에서 찾지만, 「담당은 그 사람」으로 줄을 만드는 것은 상대 자신의 협력사 사람에게만이다."""
+    w = world(session)
+    connect(session, agent_call="delegate")
+    account(session, STRANGER)
+    box, row = inbound(session, "call", STRANGER, purpose="타설 인원 확인")
+
+    r = await box.call("find_contact", {"query": "이설비", "site": SITE_A, "redirect": True})
+
+    assert [item["contact_id"] for item in r["items"]] == [w.lee.id] and r["redirected"] is False
+    assert count(session, OutreachCall, OutreachCall.id != row.id) == 0 and fake_channel.delivered == []
+
+
 async def test_notes_and_reasons_are_hidden_before_model(session):
     """find_contact 결과에는 note·dnc_reason 이 없고, 이름·담당·협력사 이름에 적힌 번호는 가려서 나간다."""
     w = world(session)
     connect(session)
-    w.lee.note = f"개인 번호 {NEW}"
-    w.lee.dnc_reason = f"{NEW} 로만 연락"
-    w.lee.role_title = f"설비 소장 {NEW}"
-    w.mep_a.name = f"가람설비 {NEW}"
+    kim = who(session, w.rebar_a, "김철근", LEE, role_title=f"철근 기사 {NEW}", note=f"개인 번호 {NEW}",
+              dnc_reason=f"{NEW} 로만 연락")
+    w.rebar_a.name = f"가람철근 {NEW}"
     box, _ = outbound(session, w.park)
 
-    r = await box.call("find_contact", {"query": "이설비"})
+    r = await box.call("find_contact", {"query": "김철근"})
 
-    assert r["items"] == [{"contact_id": w.lee.id, "name": "이설비", "role_title": "설비 소장 [번호]",
-                           "company": "가람설비 [번호]"}]
+    assert r["items"] == [{"contact_id": kim.id, "name": "김철근", "role_title": "철근 기사 [번호]",
+                           "company": "가람철근 [번호]"}]
     assert not has_digits(r, NEW_DIGITS) and not has_digits(r, LEE)
     assert "note" not in json.dumps(r) and "dnc" not in json.dumps(r)
 
@@ -976,6 +1070,136 @@ async def test_claim_never_reaches_people_who_cannot_be_contacted(session, fake_
     session.expire_all()
     drafts = session.scalars(select(OutreachMessage).where(OutreachMessage.direction == "out")).all()
     assert len(drafts) == 3 and {d.schedule_id for d in drafts} == {w.b}
+
+
+# ── 대화당 줄 상한 ───────────────────────────────────────────────────
+
+
+def test_row_caps_are_the_ruled_numbers():
+    assert (tools.MAX_CLAIM_ROWS, tools.MAX_REPORTS, tools.MAX_PROPOSALS, tools.MAX_ANSWERS) == (3, 5, 5, 20)
+
+
+async def test_identity_claim_rows_are_capped_per_conversation_not_per_name(session, fake_channel):
+    """모르는 사람이 이름을 바꿔 가며 대도 한 대화에서 등록된 번호로 가는 회신 줄은 모두 합쳐 셋 — 넷째부터는 답은 같고 줄이 없다."""
+    w = world(session)
+    connect(session, agent_sms="delegate")
+    for n in range(3):
+        who(session, w.elec_b, f"전기공 {'가나다'[n]}", f"0100000030{n}")
+    box, row = inbound(session, "sms", STRANGER)
+
+    said = [await box.call("take_message", {"text": "저예요", "claimed_name": name})
+            for name in ("박현장", "이설비", "최철근", "전기공 가")]
+
+    assert said == [{"say": "등록된 번호로 다시 연락드리겠습니다"}] * 4
+    sent = lambda: count(session, OutreachMessage, OutreachMessage.direction == "out")
+    assert sent() == 3 and len(fake_channel.delivered) == 3
+    assert ["상한" in e["detail"] for e in log(session, row)] == [False, False, False, True]
+    assert trail(session, row) == [("tool:take_message", "allowed")] * 4
+
+    again = boxed(box.scope, row, "unknown")  # 같은 대화의 다음 차례 — 상자를 새로 만들어도 저장된 줄로 이어서 센다
+    assert await again.call("take_message", {"text": "저예요", "claimed_name": "전기공 나"}) == said[0]
+    assert sent() == 3 and len(fake_channel.delivered) == 3 and "상한" in log(session, row)[-1]["detail"]
+
+    other, _ = inbound(session, "sms", "01000000133")  # 다른 대화는 따로 센다
+    await other.call("take_message", {"text": "저예요", "claimed_name": "전기공 다"})
+    assert sent() == 4
+
+
+@pytest.mark.parametrize("medium", ["sms", "call"])
+async def test_other_followups_do_not_use_up_the_claim_cap(session, fake_channel, medium):
+    """상한은 신원 주장 회신 줄만 센다 — 같은 대화의 다시 연락 예약 줄은 세지 않는다."""
+    w = world(session)
+    connect(session)
+    who(session, w.elec_b, "전기공 가", "01000000300")
+    box, row = inbound(session, medium, PHONE)
+
+    await box.call("schedule_callback", {"day_offset": 1, "hour": 10, "minute": 0})
+    for name in ("이설비", "최철근", "전기공 가"):
+        await box.call("take_message", {"text": "저예요", "claimed_name": name})
+
+    model = OutreachCall if medium == "call" else OutreachMessage
+    assert count(session, model, model.direction == "out", model.origin == "agent") == 4
+    assert not any("상한" in e["detail"] for e in log(session, row))
+
+
+@pytest.mark.parametrize("medium", ["sms", "call"])
+async def test_reports_are_capped_per_conversation(session, medium):
+    """보고·메모·긴급 알림은 한 대화에 다섯 줄까지 — 여섯째부터는 답은 같고 줄이 없다."""
+    world(session)
+    connect(session)
+    box, row = inbound(session, medium, PHONE)
+    memo = ("take_message", {"text": "내일 다시 연락 주세요"}, {"say": "담당자가 확인 후 연락드리겠습니다"})
+    told = ("report_from_contact", {"kind": "delay", "text": "자재가 늦습니다", "quote": "모레 옵니다"},
+            {"say": "담당자가 확인하도록 전달했습니다"})
+    help_ = ("handoff_to_human", {"reason": "emergency", "note": "사람이 다쳤습니다"},
+             {"transferred": False, "say": "담당자가 다시 연락드리겠습니다"})
+
+    for name, args, answer in (memo, told, help_, told, memo):
+        assert await box.call(name, args) == answer
+    assert count(session, ContactReport) == 5
+
+    for name, args, answer in (told, memo, help_):
+        assert await box.call(name, args) == answer  # 답은 그대로
+    again = boxed(box.scope, row, "contact")
+    assert await again.call(*told[:2]) == told[2]
+
+    assert count(session, ContactReport) == 5
+    assert ["상한" in e["detail"] for e in log(session, row)] == [False] * 5 + [True] * 4
+    assert {e["verdict"] for e in log(session, row)} == {"allowed"}
+
+
+@pytest.mark.parametrize("medium", ["sms", "call"])
+async def test_proposals_are_capped_per_conversation(session, medium):
+    world(session)
+    connect(session)
+    box, row = inbound(session, medium, STRANGER)
+
+    for n in range(7):
+        r = await box.call("propose_contact", {"name": f"새사람 {'가나다라마바사'[n]}", "role_title": "반장", "phone": f"010-0000-040{n}"})
+        assert r == {"saved": True, "note": "담당자가 확인한 뒤 주소록에 넣습니다"}
+    again = boxed(box.scope, row, "unknown")
+    await again.call("propose_contact", {"name": "새사람 아", "role_title": "반장", "phone": "010-0000-0408"})
+
+    assert count(session, ContactProposal) == 5
+    assert ["상한" in e["detail"] for e in log(session, row)] == [False] * 5 + [True] * 3
+    assert not has_digits(log(session, row), "01000000406")
+
+
+async def test_language_proposal_shares_the_proposal_cap(session):
+    w = world(session)
+    connect(session)
+    box, row = outbound(session, w.park)
+    for n in range(5):
+        await box.call("propose_contact", {"name": f"새사람 {'가나다라마'[n]}", "role_title": "", "phone": f"010-0000-040{n}"})
+
+    assert await box.call("end_call", {"reason": "done", "language": "vi"}) == {"ok": True}
+
+    assert count(session, ContactProposal) == 5 and count(session, ContactProposal, ContactProposal.kind == "language") == 0
+    assert "상한" in log(session, row)[-1]["detail"]
+
+
+async def test_answers_are_capped_by_the_questions_of_the_row(session):
+    """답은 그 줄의 질문 수까지, 질문이 없는 줄은 스무 개까지 — 넘으면 답은 같고 적지 않는다."""
+    w = world(session)
+    connect(session)
+    box, row = outbound(session, w.park, questions_json=["토요일 인원", "장비"])
+
+    for n in range(4):
+        assert await box.call("record_answer", {"question": f"물음 {'가나다라'[n]}", "answer": "답", "quote": "네"}) == {"ok": True}
+
+    session.expire_all()
+    assert [a["question"] for a in session.get(OutreachCall, row.id).answers_json] == ["물음 가", "물음 나"]
+    assert ["상한" in e["detail"] for e in log(session, row)] == [False, False, True, True]
+
+    text_box, text_row = inbound(session, "sms", LEE)  # 질문이 없는 줄
+    for n in range(22):
+        if n == 11:
+            text_box = boxed(text_box.scope, text_row, "contact")  # 상자를 새로 만들어도 이어서 센다
+        assert await text_box.call("record_answer", {"question": "물음", "answer": f"답 {n}", "quote": "네"}) == {"ok": True}
+
+    session.expire_all()
+    assert len(session.get(OutreachMessage, text_row.id).answers_json) == 20
+    assert ["상한" in e["detail"] for e in log(session, text_row)] == [False] * 20 + [True] * 2
 
 
 # ── 회신 예약 ────────────────────────────────────────────────────────

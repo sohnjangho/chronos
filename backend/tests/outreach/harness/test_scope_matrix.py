@@ -68,7 +68,7 @@ A_OWN = {"A.R", "A.Z", "A.R.start", "A.R.finish", "A.Z.day", "who.park", "who.ki
 B_OWN = {"B.R", "B.Z", "B.R.start", "B.R.finish", "B.Z.day", "who.park", "who.choi", "firm.rebar_b"}
 # 등급마다 결과에 나와도 되는 것(그 밖의 SECRETS 는 어느 결과에도 없어야 한다)
 MAY_SEE = {
-    "outbound": A_OWN | {"asked.park", "who.lee", "firm.mep_a"},  # 우리가 건 상대: 자기 공종 + 그 현장 주소록의 이름
+    "outbound": A_OWN | {"asked.park"},  # 우리가 건 상대도 자기 협력사까지 — 받은 사람이 누구인지 확인된 것도 아니다
     "contact": A_OWN | {"asked.park"},
     "shared": A_OWN,  # 대표번호: 개인에게 온 요청은 없다
     "contact_multi": B_OWN | {"asked.park_b", "site.A", "site.B"},  # 나래 현장을 고른 뒤 — 가람 현장 것은 없다
@@ -104,7 +104,8 @@ ATTACKS = [
 
 
 def arrange(session, cls: str, medium: str, *, names=ALL):
-    """그 등급의 상대와 그 매체의 (Toolbox, 줄). names 를 주지 않으면 **모든** 도구를 억지로 넣는다(묶음 밖 도구도 범위를 지키는지)."""
+    """그 등급의 상대와 그 매체의 (Toolbox, 줄). names 를 주지 않으면 **모든** 도구를 억지로 넣는다(묶음 밖 도구도 범위를 지키는지
+    — 생성자는 등급 밖 도구를 받지 않으므로 test_tools.boxed 가 만든 뒤에 names 를 바꿔 넣는다)."""
     w = world(session)
     connect(session, handoff_number=HANDOFF)
     old = WORK - timedelta(days=1)
@@ -282,7 +283,7 @@ async def test_store_filters_are_never_left_open_by_an_empty_list(session, monke
     await box.call("schedule_fact", {"activity": "철근", "site": SITE_B})
 
     assert len(searches) == len(finds) == 1
-    whole_book = cls in ("outbound", "internal")  # 우리가 건 상대·내부는 그 현장 주소록 전체에서 찾는다
+    whole_book = cls == "internal"  # 그 현장 주소록 전체에서 찾는 것은 내부뿐 — 우리가 건 상대도 자기 협력사 안에서만
     assert (searches[0][1] is None) == whole_book and (whole_book or len(searches[0][1]) == 1)
     assert (finds[0][1] is None) == (cls == "internal")  # 사실 전부는 내부뿐
     assert cls == "internal" or finds[0][1] == {"R", "Z"}
