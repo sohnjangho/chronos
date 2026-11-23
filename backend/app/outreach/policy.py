@@ -12,10 +12,14 @@ from typing import Literal
 from sqlalchemy.orm import Session
 
 from app.store import outreach
+from app.store.tables import User
 from app.store.tables_outreach import NotifyConnection
+from app.tools import registry
 
 Permission = Literal["approve", "delegate"]
 _WORDS = {"approve": "승인 받기", "delegate": "위임"}
+_CONTACT_TOOLS = ("contacts.", "notify.")  # 연락처를 쓰는 대화 도구 이름의 앞
+SEND_MESSAGE, PLACE_CALL = "notify.send_message", "notify.place_call"  # 위임일 때만 보이는 보내기 도구(Task 81)
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,18 @@ def _of(conn: NotifyConnection | None) -> AgentPolicy:
         return AgentPolicy(ready=False, test_mode=True, sms="approve", kakao="approve", call="approve")
     return AgentPolicy(ready=conn.status == "ok", test_mode=bool(conn.test_mode), sms=_permission(conn.agent_sms),
                        kakao=_permission(conn.agent_kakao), call=_permission(conn.agent_call))
+
+
+def hidden_tools(session: Session, user: User | None) -> frozenset[str]:
+    """이번 턴에 모델에게 보이지 않을 도구 이름. 현장 관리자이거나 기본 연결이 없으면 contacts.*·notify.* 전부. 아니면 위임이
+    아닌 쪽의 보내기 도구 — 문자·카카오톡이 둘 다 승인 받기면 notify.send_message, 전화가 승인 받기면 notify.place_call(모르는
+    값은 승인 받기). 첫 겹일 뿐이다: 그래도 불리면 나가는 문이 권한 차례에서 막는다. 쿼리는 기본 연결 하나(현장 관리자는 0)."""
+    conn = None if user is not None and user.role == "field" else outreach.connection(session)
+    if conn is None:
+        return frozenset(s.name for s in registry.list_tools(enabled_only=False) if s.name.startswith(_CONTACT_TOOLS))
+    p = _of(conn)
+    return frozenset(name for name, shown in ((SEND_MESSAGE, "delegate" in (p.sms, p.kakao)),
+                                              (PLACE_CALL, p.call == "delegate")) if not shown)
 
 
 def line(session: Session) -> str | None:

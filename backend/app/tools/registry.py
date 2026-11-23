@@ -132,8 +132,9 @@ def set_enabled(name: str, enabled: bool) -> None:
     _specs[name] = replace(_specs[name], enabled=enabled)
 
 
-def as_llm_tools() -> list[dict]:
-    """켜진 도구를 OpenAI tools 형식으로. 이름은 LLM 쪽 이름(schedule__read)."""
+def as_llm_tools(hidden: frozenset[str] = frozenset()) -> list[dict]:
+    """켜진 도구를 OpenAI tools 형식으로. 이름은 LLM 쪽 이름(schedule__read). hidden(등록부 이름)은 빼고 —
+    대화 루프가 권한에 따라 이번 턴에 보이지 않을 것(outreach.policy.hidden_tools)을 준다. 부르는 길(call)은 막지 않는다."""
     return [
         {
             "type": "function",
@@ -144,6 +145,7 @@ def as_llm_tools() -> list[dict]:
             },
         }
         for spec in list_tools()
+        if spec.name not in hidden
     ]
 
 

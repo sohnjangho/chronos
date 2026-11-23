@@ -41,6 +41,7 @@ from app.agent.workflow_log import TITLE_LIMIT, WorkflowLog
 from app.files import schedule_import
 from app.llm import assignments
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply, Usage
+from app.outreach import policy
 from app.store import approvals, chats, questionnaires, skills
 from app.store import settings as settings_store
 from app.store.llm_usage import UsageSum, last_call_id, usage_since
@@ -216,6 +217,7 @@ class _Turn:
         self.ran = False  # 지금 도구를 실제로 실행했는가(거절한 호출은 실패 횟수에 넣지 않는다)
         self.failures: dict[tuple[str, str], tuple[str, int]] = {}  # 이 턴: (도구, 인자) → (마지막 오류, 연달아 같은 오류 수)
         self.guard_refused: set[tuple[str, str]] = set()  # 이 턴에 되풀이 실패로 한 번 거절한 (도구, 인자)
+        self.hidden: frozenset[str] = frozenset()  # 이 턴에 모델에게 보이지 않는 도구(권한 — policy.hidden_tools)
 
     # ── 시작·끝 ──
 
@@ -256,7 +258,8 @@ class _Turn:
             self.messages[0]["content"] += "\n\n" + skills.skill_prompt_block(self.matched_skill)
             skills.record_use(self.session, self.matched_skill.id)
         self.vision.start(self.messages, picked)
-        tools = registry.as_llm_tools()
+        self.hidden = policy.hidden_tools(self.session, self.user)
+        tools = registry.as_llm_tools(hidden=self.hidden)
         parts = context_parts(self.session, self.user, self.chat_id, ui, tools, history_limit=self.history_limit)
         self.trace.context(parts, len(self.messages) - 1, len(tools))
         self.trace.skill(self.matched_skill)
@@ -314,7 +317,8 @@ class _Turn:
                     self.session.commit()  # llm 사건(ms 없음)을 호출 전에 쓴다
                     self.llm_t0 = time.perf_counter()
                     with assignments.using_chat_model(self.chat_model):  # 이 호출 작업에만(도구 안 호출은 배정 그대로)
-                        self.start(self.llm.chat(self.vision.purpose, self.messages, tools=registry.as_llm_tools(),
+                        self.start(self.llm.chat(self.vision.purpose, self.messages,
+                                                 tools=registry.as_llm_tools(hidden=self.hidden),
                                                  chat_session_id=self.chat_id))
                     while (event := await self.waiting()) is not None:
                         yield event

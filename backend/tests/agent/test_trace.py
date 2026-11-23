@@ -209,12 +209,14 @@ async def test_trace_failure_only_warns(run, session, monkeypatch, caplog):
 
 
 async def test_context_event_lists_the_parts(run, session):
-    await run(ScriptedLlm([reply("네")]), "안녕")
+    llm = ScriptedLlm([reply("네")])
+    await run(llm, "안녕")
     ctx = traced(session)[0]
     body = json.loads(ctx.input_text)
     assert ctx.kind == "context" and ctx.label == "컨텍스트 조립" and ctx.ms is not None
     assert [p["name"] for p in body["parts"]] == list(CONTEXT_PARTS)
-    assert body["history_count"] == 1 and body["tool_count"] == len(registry.as_llm_tools())
+    # 모델이 받은 도구 수 — 권한에 따라 숨긴 도구(Task 81 policy.hidden_tools)는 빠진다
+    assert body["history_count"] == 1 and body["tool_count"] == len(llm.last_body["tools"])
     assert all(p["chars"] > 0 for p in body["parts"] if p["name"] != "붙인 파일")
 
 
