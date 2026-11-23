@@ -77,6 +77,8 @@ let status: Reply;
 let details: Map<number, PersonDetail>;
 let revealReply: Reply;
 let writeQueue: Reply[];
+/** 들어온 문자 화면(Task 85)의 읽기 — 모르는 번호 묶음·그 번호의 줄·일정의 보고·일정 없는 보고·제안. 기본은 모두 빈 목록. */
+let inbox: { unknown: unknown[]; peers: Map<string, unknown>; reports: unknown[]; loose: unknown[]; proposals: unknown[] };
 let calls: Call[];
 
 const SID = '/api/schedules/1/contacts';
@@ -99,6 +101,15 @@ function route(method: string, url: string): Reply {
     const contact = BOOK.companies.flatMap((c) => c.people).find((p) => p.id === Number(thread[1])) ?? person({ id: Number(thread[1]) });
     return { status: 200, body: { contact: { ...contact, unread: 0 }, messages: [], has_more: false } };
   }
+  if (method === 'GET' && url === '/api/outreach/unknown') return { status: 200, body: inbox.unknown };
+  const peer = /^\/api\/outreach\/unknown\/([0-9a-f]{12})$/.exec(url);
+  if (method === 'GET' && peer) {
+    const found = inbox.peers.get(peer[1]);
+    return found ? { status: 200, body: found } : { status: 404, body: { code: 'peer_not_found', message: '그 상대를 찾을 수 없습니다.' } };
+  }
+  if (method === 'GET' && /^\/api\/schedules\/\d+\/outreach\/reports(\?.*)?$/.test(url)) return { status: 200, body: inbox.reports };
+  if (method === 'GET' && url.startsWith('/api/outreach/reports?')) return { status: 200, body: inbox.loose };
+  if (method === 'GET' && /^\/api\/schedules\/\d+\/contacts\/proposals$/.test(url)) return { status: 200, body: inbox.proposals };
   const queued = writeQueue.shift();
   if (queued) return queued;
   if (one) return { status: 200, body: details.get(Number(one[1])) };
@@ -116,6 +127,7 @@ export function stubContacts(role: Role = 'admin') {
   details.set(JUNG.id, detail(JUNG, { dnc_reason: '본인 요청' }));
   revealReply = { status: 200, body: { phone: '010-0000-0000' } };
   writeQueue = [];
+  inbox = { unknown: [], peers: new Map(), reports: [], loose: [], proposals: [] };
   calls = [];
   vi.stubGlobal(
     'fetch',
@@ -139,3 +151,8 @@ export const contactCalls = () => calls;
 export const writes = () => calls.filter((c) => c.method !== 'GET' && !c.url.endsWith('/reveal'));
 export const lastWrite = () => writes().at(-1);
 export const reveals = () => calls.filter((c) => c.url.endsWith('/reveal'));
+/** 들어온 문자 화면의 읽기 응답을 바꾼다(주지 않은 것은 그대로). */
+export function mockInbox(over: { unknown?: unknown[]; peers?: Record<string, unknown>; reports?: unknown[]; loose?: unknown[]; proposals?: unknown[] }) {
+  const { peers, ...rest } = over;
+  inbox = { ...inbox, ...rest, peers: peers ? new Map(Object.entries(peers)) : inbox.peers };
+}

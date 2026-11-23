@@ -1,6 +1,7 @@
 // 왼쪽 주소록: 찾기(이름·담당) · 협력사별 묶음(접기) · 사람 줄(이름·담당·새 회신·번호 없음·수신 거부·번호 오류·휴대전화가 아닌 번호 종류) ·
 // 아래 [+ 사람 추가][협력사 추가][CSV 가져오기][다른 프로젝트에서 복사 — 관리자] · 숨긴 사람 보기. 번호는 여기 나오지 않는다.
-import { useState } from 'react';
+// above·below: 목록 위(「확인할 연락처 n」「확인할 보고 n」)와 아래(「모르는 번호」 묶음)에 들어오는 칸(Task 85) — 목록과 함께 스크롤한다.
+import { useState, type ReactNode } from 'react';
 import Button from '../../shared/ui/Button';
 import { KIND_LABEL, type AddressBook as Book, type CompanyGroup, type PersonBrief } from './contactsApi';
 
@@ -18,6 +19,10 @@ interface Props {
   /** CSV 가져오기·다른 프로젝트에서 복사(Task 77). 없으면 단추가 꺼져 있다. */
   onImport?: () => void;
   onCopy?: () => void;
+  /** 목록 맨 위(찾기 칸 아래)에 그릴 것 */
+  above?: ReactNode;
+  /** 목록 맨 아래(협력사 묶음 뒤)에 그릴 것 */
+  below?: ReactNode;
 }
 
 const matches = (p: PersonBrief, q: string) => p.name.toLowerCase().includes(q) || p.role_title.toLowerCase().includes(q);
@@ -52,7 +57,7 @@ function Row({ p, current, onSelect }: { p: PersonBrief; current: boolean; onSel
 }
 
 export default function AddressBook(props: Props) {
-  const { book, error, selectedId, onSelect, onAddPerson, onAddCompany, onEditCompany, showHidden, onShowHidden, isAdmin, onImport, onCopy } = props;
+  const { book, error, selectedId, onSelect, onAddPerson, onAddCompany, onEditCompany, showHidden, onShowHidden, isAdmin, onImport, onCopy, above, below } = props;
   const [query, setQuery] = useState('');
   const [closed, setClosed] = useState<Set<number>>(() => new Set());
   const q = query.trim().toLowerCase();
@@ -79,6 +84,7 @@ export default function AddressBook(props: Props) {
         />
       </div>
       <div className="ct-book-list">
+        {above}
         {error ? (
           <p className="ct-error ct-pad" role="alert">
             {error}
@@ -118,6 +124,7 @@ export default function AddressBook(props: Props) {
             );
           })
         )}
+        {below}
       </div>
       <div className="ct-book-foot">
         <div className="ct-foot-btns">
@@ -141,9 +148,6 @@ export default function AddressBook(props: Props) {
           숨긴 사람 보기
         </label>
         <p className="ct-hint ct-foot-note">{`이 프로젝트의 주소록입니다${!onImport ? ' · CSV 가져오기·복사는 준비 중입니다' : ''}`}</p>
-        {book && (book.proposals_pending > 0 || book.reports_open > 0) && (
-          <p className="ct-hint">{`확인할 연락처 제안 ${book.proposals_pending}건 · 확인하지 않은 보고 ${book.reports_open}건`}</p>
-        )}
       </div>
     </nav>
   );

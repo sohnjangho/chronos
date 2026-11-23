@@ -1,0 +1,59 @@
+/* 들어온 문자 화면(Task 85): 주소록 위 「확인할 …」 줄 · 주소록 아래 「모르는 번호」 묶음 · 오른쪽 칸의 목록. 색은 tokens.css 변수만(두 테마).
+   긴 글은 칸 안에서 줄을 바꾸고(넘침 없음), 처리 기록은 접어 둔다. contacts.css 의 ct-* 부품(줄·태그·단추)을 그대로 쓴다. */
+.ct-ib-entries { display: flex; flex-direction: column; gap: 4px; padding: 0 10px 8px; }
+.ct-ib-entry {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 6px 10px; border-radius: var(--radius-3);
+  border: 1px solid var(--warning); background: var(--tone-warning-bg); color: var(--warning-text); font: inherit; font-size: var(--fs-13);
+  font-weight: 700; text-align: left; cursor: pointer;
+}
+.ct-ib-entry:hover { filter: brightness(0.97); }
+.ct-ib-entry[aria-current="true"] { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ct-ib-count {
+  margin-left: auto; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 6px; border-radius: 10px; display: grid;
+  place-items: center; background: var(--warning-strong); color: var(--on-accent); font-size: var(--fs-11);
+}
+.ct-ib-unknown { margin-top: 6px; }
+.ct-ib-find { display: flex; align-items: center; gap: 6px; padding: 6px 10px; }
+.ct-ib-find .ct-input { flex: 1; height: 28px; }
+.ct-ib-when { flex: none; color: var(--fg-muted); font-size: var(--fs-11); font-variant-numeric: tabular-nums; }
+
+/* 오른쪽 칸 */
+.ct-ib-pane { display: flex; flex-direction: column; gap: 12px; padding: 14px 18px 20px; min-width: 0; box-sizing: border-box; max-width: 960px; }
+.ct-ib-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.ct-ib-title { margin: 0; font-size: var(--fs-15); font-weight: 700; }
+.ct-ib-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.ct-ib-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ct-ib-tools .ct-input { flex: 1 1 220px; max-width: 360px; }
+.ct-ib-sec { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ct-ib-sec-title { margin: 6px 0 0; font-size: var(--fs-12); font-weight: 700; color: var(--fg-muted); }
+.ct-ib-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ct-ib-card {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-3); background: var(--bg-panel);
+}
+.ct-ib-card.is-urgent { border-color: var(--danger); }
+.ct-ib-card.is-review { border-style: dashed; border-color: var(--warning); }
+.ct-ib-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; color: var(--fg-muted); font-size: var(--fs-12); }
+.ct-ib-text { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.5; }
+.ct-ib-quote { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--fg-muted); font-size: var(--fs-12); }
+.ct-ib-quote q { quotes: none; overflow-wrap: anywhere; color: var(--fg); }
+.ct-tag.ct-ib-tag-ok { background: var(--tone-success-bg); color: var(--success-text); border-color: transparent; }
+.ct-ib-done { margin: 0; color: var(--success-text); font-size: var(--fs-12); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ct-ib-form { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--bg-panel-alt); }
+.ct-ib-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 12px; min-width: 0; }
+
+/* 한 번호의 줄 */
+.ct-ib-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ct-ib-line {
+  display: flex; flex-direction: column; gap: 4px; max-width: min(640px, 92%); min-width: 0; padding: 8px 12px;
+  border-radius: var(--radius-3); background: var(--bg-panel-alt); border: 1px solid var(--border);
+}
+.ct-ib-line.is-out { align-self: flex-end; background: var(--bg-selected); }
+.ct-ib-events { font-size: var(--fs-12); color: var(--fg-muted); }
+.ct-ib-events summary { cursor: pointer; }
+.ct-ib-events ul { margin: 4px 0 0; padding-left: 18px; }
+
+@container (max-width: 720px) {
+  .ct-ib-pane { padding: 10px 12px 16px; }
+  .ct-ib-acts { margin-left: 0; }
+}

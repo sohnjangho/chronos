@@ -1,6 +1,7 @@
 // 「연락처」 창(Task 75, 시안 ①②⑤). 머리 띠(시험 모드 · 허용 번호 n개) · 왼쪽 주소록(협력사별) · 오른쪽 고른 사람의 머리와 대화 자리(ThreadSlot).
 // 사람·협력사 양식은 오른쪽 칸을 잠깐 차지한다. 주소록은 프로젝트(일정)마다 따로이고 현장 관리자는 열 수 없다.
 // params: id(일정) · contact(고를 사람) · tab('messages' | 'calls') · compose · activity · call(대화 칸에 그대로 넘김).
+// 들어온 문자 화면(Task 85): 주소록 위 「확인할 연락처 n」「확인할 보고 n」, 아래 「모르는 번호」 묶음 — 누르면 오른쪽 칸에 그 목록.
 import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import type { ProgramProps } from '../../os/registry';
@@ -13,6 +14,9 @@ import AddressBook from './AddressBook';
 import CompanyForm from './CompanyForm';
 import CopyFromProject from './CopyFromProject';
 import CsvImport from './CsvImport';
+import { ProposalsPane, useProposals } from './Proposals';
+import { ReportsPane, useReports } from './Reports';
+import { UnknownGroup, UnknownPane, useUnknown } from './UnknownPeers';
 import { getBook, getNotifyStatus, KIND_LABEL, type AddressBook as Book, type Company, type NotifyStatus, type PersonBrief } from './contactsApi';
 import PersonForm from './PersonForm';
 import ThreadPane from './ThreadPane';
@@ -39,7 +43,61 @@ export interface ThreadSlotProps {
 /** 대화 칸 자리 — 문자·카카오톡 대화와 통화 탭(Task 78 ThreadPane). */
 const ThreadSlot: ComponentType<ThreadSlotProps> = ThreadPane;
 
-type Mode = { kind: 'none' } | { kind: 'person'; id: number | null; companyId: number | null } | { kind: 'company'; company: Company | null };
+type Mode =
+  | { kind: 'none' }
+  | { kind: 'person'; id: number | null; companyId: number | null }
+  | { kind: 'company'; company: Company | null }
+  | { kind: 'reports' }
+  | { kind: 'proposals' }
+  | { kind: 'unknown'; key: string };
+type InboxMode = Extract<Mode, { kind: 'reports' | 'proposals' | 'unknown' }>;
+const isInbox = (m: Mode): m is InboxMode => m.kind === 'reports' || m.kind === 'proposals' || m.kind === 'unknown';
+
+/** 들어온 문자 화면의 세 목록(제안·보고는 이 프로젝트 것 + 일정 없는 것, 모르는 번호는 일정 없는 줄). */
+function useInbox(scheduleId: number) {
+  return { unknown: useUnknown(), reports: useReports(scheduleId), proposals: useProposals(scheduleId) };
+}
+type Inbox = ReturnType<typeof useInbox>;
+
+/** 주소록 위 「확인할 연락처 n」「확인할 보고 n」 — 기다리는 것이 있을 때만. */
+function InboxEntries({ inbox, mode, onOpen }: { inbox: Inbox; mode: Mode; onOpen: (m: InboxMode) => void }) {
+  const entries = [
+    { kind: 'proposals' as const, label: '확인할 연락처', n: inbox.proposals.items.length },
+    { kind: 'reports' as const, label: '확인할 보고', n: inbox.reports.items.length },
+  ].filter((e) => e.n > 0);
+  if (entries.length === 0) return null;
+  return (
+    <div className="ct-ib-entries">
+      {entries.map((e) => (
+        <button key={e.kind} type="button" className="ct-ib-entry" aria-current={mode.kind === e.kind ? 'true' : undefined} onClick={() => onOpen({ kind: e.kind })}>
+          {`${e.label} `}
+          <span className="ct-ib-count">{e.n}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 오른쪽 칸의 들어온 문자 목록. 사람을 열면(초안 보기·사람 보기) 그 사람의 대화로 간다. */
+function InboxPane({ mode, scheduleId, book, isAdmin, inbox, setMode, openPerson, reload }: {
+  mode: InboxMode;
+  scheduleId: number;
+  book: Book | null;
+  isAdmin: boolean;
+  inbox: Inbox;
+  setMode: (m: Mode) => void;
+  openPerson: (id: number, tab?: ThreadTab) => void;
+  reload: () => void;
+}) {
+  const companies = book?.companies ?? [];
+  if (mode.kind === 'reports')
+    return <ReportsPane scheduleId={scheduleId} items={inbox.reports.items} onChanged={inbox.reports.reload} onOpenPerson={openPerson} onOpenPeer={(key) => setMode({ kind: 'unknown', key })} />;
+  if (mode.kind === 'proposals')
+    return <ProposalsPane scheduleId={scheduleId} items={inbox.proposals.items} companies={companies} onChanged={() => (inbox.proposals.reload(), reload())} onOpenPerson={openPerson} />;
+  return (
+    <UnknownPane key={mode.key} scheduleId={scheduleId} peerKey={mode.key} companies={companies} isAdmin={isAdmin} onChanged={() => (inbox.unknown.reload(), reload())} onOpenPerson={openPerson} />
+  );
+}
 
 function StatusStrip({ status, projectName }: { status: NotifyStatus | null | undefined; projectName: string | null }) {
   const badge =
@@ -156,11 +214,13 @@ interface PaneProps {
   setTab: (t: ThreadTab) => void;
   params: Params;
   reload: () => void;
+  inbox: Inbox;
 }
 
 /** 오른쪽 칸: 사람·협력사 양식, 또는 고른 사람의 머리 + 대화 자리, 또는 고르라는 글. */
-function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projectName, isAdmin, kakaoReady, tab, setTab, params, reload }: PaneProps) {
+function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projectName, isAdmin, kakaoReady, tab, setTab, params, reload, inbox }: PaneProps) {
   const close = () => setMode({ kind: 'none' });
+  const openPerson = (id: number, to: ThreadTab = 'messages') => (setSelectedId(id), setTab(to), close());
   // 넘겨받은 글·작업(params.compose·activity)은 params.contact 인 사람의 입력창에만, 한 번만 — 그 입력창이 처음 그려진 뒤에는
   // 다시 넘기지 않는다(다른 사람에게 가거나, 보낸 뒤 돌아와도 다시 채워지지 않게). 같은 내용을 다시 넘겨받아도 다시 채우지 않는다.
   const handKey = `${params?.contact ?? ''}\u0000${params?.compose ?? ''}\u0000${params?.activity ?? ''}`;
@@ -169,6 +229,8 @@ function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projec
   useEffect(() => {
     if (handing && tab === 'messages') setUsedKey(handKey);
   }, [handing, tab, handKey]);
+  if (isInbox(mode))
+    return <InboxPane mode={mode} scheduleId={scheduleId} book={book} isAdmin={isAdmin} inbox={inbox} setMode={setMode} openPerson={openPerson} reload={reload} />;
   if (mode.kind === 'person')
     return (
       <PersonForm
@@ -244,6 +306,7 @@ function ContactsBody({ windowId, scheduleId, params, projectName }: { windowId:
   const role = useSession((s) => s.session?.user.role ?? 'user');
   const [showHidden, setShowHidden] = useState(false);
   const { book, error, reload } = useBook(scheduleId, showHidden);
+  const inbox = useInbox(scheduleId);
   const status = useNotifyStatus();
   const [mode, setMode] = useState<Mode>({ kind: 'none' });
   const [xfer, setXfer] = useState<'import' | 'copy' | null>(null); // 이 몸은 일정마다 새로 그려진다 → 프로젝트를 바꾸면 대화상자도 닫힌다
@@ -280,6 +343,8 @@ function ContactsBody({ windowId, scheduleId, params, projectName }: { windowId:
           isAdmin={isAdmin}
           onImport={() => setXfer('import')}
           onCopy={isAdmin ? () => setXfer('copy') : undefined}
+          above={<InboxEntries inbox={inbox} mode={mode} onOpen={setMode} />}
+          below={<UnknownGroup items={inbox.unknown.items} current={mode.kind === 'unknown' ? mode.key : null} onOpen={(key) => setMode({ kind: 'unknown', key })} />}
         />
         <section className="ct-pane" aria-label={selected && mode.kind === 'none' ? `${selected.name} 대화` : '연락처 자세히'}>
           {mode.kind !== 'none' && (
@@ -301,6 +366,7 @@ function ContactsBody({ windowId, scheduleId, params, projectName }: { windowId:
             setTab={setTab}
             params={params}
             reload={reload}
+            inbox={inbox}
           />
         </section>
       </div>
