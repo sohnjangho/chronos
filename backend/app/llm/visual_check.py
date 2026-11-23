@@ -17,6 +17,7 @@ import html as html_lib
 import re
 from collections import Counter
 from dataclasses import dataclass
+from contextlib import suppress
 from datetime import date, timedelta
 
 from app.store.visuals import VisualTable
@@ -192,13 +193,65 @@ def _value(text: str) -> float:
     return float(text.replace("−", "-").replace(",", ""))
 
 
+_KO_YMD = re.compile(r"(?<!\d)(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일")
+_KO_YM = re.compile(r"(?<!\d)(\d{4})\s*년\s*(\d{1,2})\s*월")
+_KO_MD = re.compile(r"(?<!\d)(\d{1,2})\s*월\s*(\d{1,2})\s*일")
+_KO_Y = re.compile(r"(?<!\d)(\d{4})\s*년")
+_KO_M = re.compile(r"(?<!\d)(\d{1,2})\s*월")
+_SEP_YMD = re.compile(r"(?<!\d)(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?!\d)")
+_SEP_YM = re.compile(r"(?<!\d)(\d{4})[./-](\d{1,2})(?!\d)")
+_DOT_MD = re.compile(r"(?<![\d.])(\d{1,2})\.(\d{2})(?![\d.])")
+_SLASH_MD = re.compile(r"(?<!\d)(\d{1,2})/(\d{1,2})(?!\d)")
+_YEAR_4 = re.compile(r"(?<!\d)(\d{4})(?!\d)")
+
+
+def _known_dates(table: VisualTable) -> tuple[set[date], bool]:
+    row_dates: set[date] = set()
+    for row in table.rows:
+        for v in row:
+            if isinstance(v, str):
+                for m in _DATE.findall(v):
+                    with suppress(ValueError):
+                        row_dates.add(date.fromisoformat(m))
+    dates = set(row_dates)
+    if table.data_date is not None:
+        dates.add(table.data_date)
+    return dates, bool(row_dates)
+
+
+def _strip_known_dates(text: str, dates: set[date], has_row_dates: bool) -> str:
+    """표 날짜(및 data_date)에서 파생된 로캘·축약 날짜 표현만 제거한다(임의 숫자는 남긴다)."""
+    rest = _DATE.sub(" ", text)
+    if not dates:
+        return rest
+    ymd = {(d.year, d.month, d.day) for d in dates}
+    ym = {(d.year, d.month) for d in dates}
+    md = {(d.month, d.day) for d in dates}
+    years = {d.year for d in dates}
+    months = {d.month for d in dates}
+
+    rest = _KO_YMD.sub(lambda m: " " if (int(m[1]), int(m[2]), int(m[3])) in ymd else m.group(0), rest)
+    rest = _KO_YM.sub(lambda m: " " if (int(m[1]), int(m[2])) in ym else m.group(0), rest)
+    rest = _KO_MD.sub(lambda m: " " if (int(m[1]), int(m[2])) in md else m.group(0), rest)
+    rest = _KO_Y.sub(lambda m: " " if int(m[1]) in years else m.group(0), rest)
+    rest = _SEP_YMD.sub(lambda m: " " if (int(m[1]), int(m[2]), int(m[3])) in ymd else m.group(0), rest)
+    rest = _SEP_YM.sub(lambda m: " " if (int(m[1]), int(m[2])) in ym else m.group(0), rest)
+    rest = _DOT_MD.sub(lambda m: " " if (int(m[1]), int(m[2])) in md else m.group(0), rest)
+    rest = _SLASH_MD.sub(lambda m: " " if (int(m[1]), int(m[2])) in md else m.group(0), rest)
+    if has_row_dates:
+        rest = _KO_M.sub(lambda m: " " if int(m[1]) in months else m.group(0), rest)
+        rest = _YEAR_4.sub(lambda m: " " if int(m[1]) in years else m.group(0), rest)
+    return rest
+
+
 def _check_visible(page: str, scripts: list[str], table: VisualTable, problems: list[str]) -> None:
-    """(e) 보이는 글의 숫자: 날짜와 표의 글·열 이름·제목을 지운 뒤 남은 숫자는 표의 숫자여야 한다."""
+    """(e) 보이는 글의 숫자: 표의 날짜 표기와 표의 글·열 이름·제목을 지운 뒤 남은 숫자는 표의 숫자여야 한다."""
     cells = [v for row in table.rows for v in row if v is not None]
     known = sorted({v for v in cells if isinstance(v, str)} | set(table.columns) | {table.title}, key=len, reverse=True)
     numbers = {float(v) for v in cells if isinstance(v, int | float) and not isinstance(v, bool)}
+    dates, has_row_dates = _known_dates(table)
     for text in _shown_texts(page, scripts):
-        rest = _DATE.sub(" ", text)
+        rest = _strip_known_dates(text, dates, has_row_dates)
         for k in known:
             rest = rest.replace(k, " ") if k else rest
         for n in _SHOWN_NUMBER.findall(rest):

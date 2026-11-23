@@ -258,3 +258,19 @@ def test_code_literals_and_our_numbers_are_fine():
 def test_only_the_seen_cdn_paths_are_allowed(url):
     html = chart_html(ROWS).replace("</head>", f'<script src="{url}"></script></head>')
     assert f"허용하지 않은 외부 주소: {url}" in verify(html, TABLE).problems
+
+
+def test_localized_date_fragments_from_table_dates_are_allowed():
+    # SC has 2027-03-01, 2027-03-08, 2027-03-15, 2027-03-22 and data_date=2027-03-10
+    titled = HEAD + (
+        "<p>2027년 3월 기준 (기준일 03.10, 예정 2027.03.15, 3월 22일 완료)</p>"
+        + LINE
+    )
+    v = verify(titled, SC)
+    assert v.ok, v.problems
+
+    # Hallucinated dates/numbers outside table dates must still fail
+    bad = HEAD + "<p>2029년 5월 기준 달성 99.9%</p>" + LINE
+    bad_v = verify(bad, SC)
+    assert not bad_v.ok
+    assert any("2029" in p or "99.9" in p for p in bad_v.problems)
