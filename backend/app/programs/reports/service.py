@@ -370,7 +370,9 @@ async def revise_report_block(session: Session, schedule_id: int, report_id: int
     if idx < 0:
         raise ApiError(404, "not_found", "수정할 보고서 항목을 찾을 수 없습니다.")
     style = StyleMemory.model_validate(row.style_json or {})
-    new_text = await generator.revise_block_text(session, blocks[idx], body.instruction, style)
+    new_text = await generator.revise_block_text(
+        session, blocks[idx], body.instruction, style, schedule_id=schedule_id
+    )
 
     updated = dict(blocks[idx])
     updated["text"] = new_text

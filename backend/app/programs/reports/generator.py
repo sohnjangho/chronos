@@ -5,6 +5,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from app.errors import ApiError
 from app.llm import fake
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady
 from app.programs.progress import service as progress_service
@@ -118,6 +119,26 @@ def _deterministic_summary(
     return "\n".join(lines)
 
 
+def _progress_facts_text(
+    project_name: str,
+    prog: ProgressOut,
+    delay_count: int,
+    style: StyleMemory,
+) -> str:
+    return (
+        f"프로젝트: {project_name}\n"
+        f"Data Date: {format_date(prog.data_date, style.date_format)}\n"
+        f"계획 공정률: {prog.plan_now:.{style.number_precision}f}%\n"
+        f"실적 공정률: {prog.actual_now:.{style.number_precision}f}%\n"
+        f"공정 차이: {prog.gap:+.{style.number_precision}f}%p\n"
+        f"SPI: {f'{prog.spi:.2f}' if prog.spi is not None else '미산출'}\n"
+        f"현재 예상 준공: {format_date(prog.finish.current, style.date_format)} "
+        f"(Plan 대비 {prog.finish.delta if prog.finish.delta is not None else '미정'}일)\n"
+        f"액티비티: 전체 {prog.counts.total}, 완료 {prog.counts.done}, 진행 {prog.counts.in_progress}, 지연 {prog.counts.late}\n"
+        f"지연 사건 수: {delay_count}건\n"
+    )
+
+
 async def _draft_prose_with_llm(
     session: Session,
     fallback_text: str,
@@ -135,17 +156,8 @@ async def _draft_prose_with_llm(
 
     rules_txt = "\n".join(f"- {r}" for r in style.learned_rules) or "- 별도 추가 규칙 없음"
     facts = (
-        f"프로젝트: {project_name}\n"
         f"주기: {'분기별' if cadence == 'quarterly' else '월간'} ({period_label})\n"
-        f"Data Date: {format_date(prog.data_date, style.date_format)}\n"
-        f"계획 공정률: {prog.plan_now:.{style.number_precision}f}%\n"
-        f"실적 공정률: {prog.actual_now:.{style.number_precision}f}%\n"
-        f"공정 차이: {prog.gap:+.{style.number_precision}f}%p\n"
-        f"SPI: {f'{prog.spi:.2f}' if prog.spi is not None else '미산출'}\n"
-        f"현재 예상 준공: {format_date(prog.finish.current, style.date_format)} "
-        f"(Plan 대비 {prog.finish.delta if prog.finish.delta is not None else '미정'}일)\n"
-        f"액티비티: 전체 {prog.counts.total}, 완료 {prog.counts.done}, 진행 {prog.counts.in_progress}, 지연 {prog.counts.late}\n"
-        f"지연 사건 수: {len(delay_events)}건\n"
+        + _progress_facts_text(project_name, prog, len(delay_events), style)
     )
     prompt = (
         f"다음 검증된 공정 수치만을 사용해 보고서의 「{section.heading}」 항목 문단을 3~5문장으로 작성하라.\n"
@@ -165,8 +177,11 @@ async def _draft_prose_with_llm(
                 {"role": "user", "content": prompt},
             ],
             timeout_s=35,
-            max_tokens=800,
+            max_tokens=4000,
         )
+        if reply.finish_reason == "length":
+            logger.warning("보고서 서술 LLM 토큰 상한 절단 → 결정론적 문안 폴백 (heading=%s)", section.heading)
+            return fallback_text
         cleaned = (reply.text or "").strip()
         return cleaned or fallback_text
     except (LlmNotReady, LlmFailed, ValueError) as exc:
@@ -397,6 +412,8 @@ async def revise_block_text(
     block: dict,
     instruction: str,
     style: StyleMemory,
+    *,
+    schedule_id: int | None = None,
 ) -> str:
     """사용자의 지시에 따라 특정 보고서 문단 블록을 고친다."""
     current_text = str(block.get("text") or "")
@@ -404,11 +421,24 @@ async def revise_block_text(
     if fake.enabled():
         return f"{current_text}\n[반영됨: {instruction}]".strip()
 
+    facts_section = ""
+    if schedule_id is not None:
+        try:
+            rec = get_record(session, schedule_id)
+            prog = progress_service.progress(session, schedule_id, "month")
+            delay_events = delays_store.list_events(session, schedule_id)
+            facts_section = (
+                "\n\n[프로젝트 공정 수치]\n"
+                + _progress_facts_text(rec.name, prog, len(delay_events), style)
+            )
+        except Exception as exc:  # noqa: BLE001 — 수치 보조 조회 실패 시에도 문단 다듬기는 계속 시도
+            logger.debug("보고서 수정 참고 수치 조회 생략: %s", type(exc).__name__)
+
     prompt = (
         f"아래 보고서 항목「{heading}」의 내용을 사용자 요청대로 다듬어라.\n"
         f"- 말투 규칙: {style.tone}\n"
         f"- 기억된 규칙: {', '.join(style.learned_rules) or '없음'}\n"
-        f"- 기존 숫자와 날짜는 절대 바꾸지 마라.\n\n"
+        f"- 숫자와 날짜를 임의로 지어내지 말고, 기존 내용 또는 아래 [프로젝트 공정 수치]의 값만 인용하라.{facts_section}\n\n"
         f"[기존 내용]\n{current_text or '(비어 있음)'}\n\n"
         f"[수정 지시]\n{instruction}"
     )
@@ -420,11 +450,15 @@ async def revise_block_text(
                 {"role": "user", "content": prompt},
             ],
             timeout_s=30,
-            max_tokens=800,
+            max_tokens=4000,
         )
-        text = (reply.text or "").strip()
-        if text:
-            return text
-    except (LlmNotReady, LlmFailed, ValueError) as exc:
-        logger.info("보고서 수정 LLM 폴백: %s", type(exc).__name__)
-    return f"{current_text}\n[수정 반영: {instruction}]".strip()
+    except LlmNotReady:
+        logger.info("보고서 수정 LLM 미연결 → 오프라인 지침 반영 폴백")
+        return f"{current_text}\n[수정 반영: {instruction}]".strip()
+    except (LlmFailed, ValueError) as exc:
+        logger.warning("보고서 수정 LLM 실패: %s", type(exc).__name__)
+        raise ApiError(502, "llm_revise_failed", "AI 문단 수정에 실패했습니다. 잠시 후 다시 시도해 주세요.") from None
+    text = (reply.text or "").strip()
+    if reply.finish_reason == "length" or not text:
+        raise ApiError(502, "llm_revise_failed", "AI 문단 수정 응답이 불완전하여 기존 내용을 유지했습니다.")
+    return text

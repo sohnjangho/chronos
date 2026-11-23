@@ -110,7 +110,7 @@ def _infer_binding(heading: str, has_table: bool) -> tuple[BlockKind, DataBindin
         return "table", "delay_table"
     if any(k in h for k in ("마일스톤", "주요이정표", "준공전망", "milestone")):
         return "table", "milestone_table"
-    if any(k in h for k in ("익월", "차월", "차분기", "다음", "추진계획", "주요예정", "예정작업", "lookahead")):
+    if any(k in h for k in ("익월", "차월", "차분기", "다음", "추진계획", "주요예정", "예정작업", "lookahead", "룩어헤드", "3주", "향후", "착수예정")):
         return "table", "lookahead_3w"
     if any(k in h for k in ("wbs", "공종", "공정률", "진도", "진척", "실적현황", "세부일정")):
         return "table", "wbs_table"
@@ -202,6 +202,30 @@ def _heuristic_learn(
     return suggested_name, cadence, sections, style, summary
 
 
+_BINDING_KIND_MAP: dict[str, BlockKind] = {
+    "summary_prose": "prose",
+    "kpi_summary": "kpi",
+    "s_curve_month": "chart",
+    "spi_trend": "chart",
+    "milestone_table": "table",
+    "wbs_table": "table",
+    "delay_table": "table",
+    "lookahead_3w": "table",
+    "scenario_compare": "table",
+    "manual_input": "manual",
+}
+
+
+def _match_fallback_cols(heading: str, fallback_sections: list[TemplateSection]) -> list[str]:
+    norm = heading.lower().replace(" ", "")
+    for sec in fallback_sections:
+        sh = sec.heading.lower().replace(" ", "")
+        if sh == norm or (len(norm) >= 3 and (norm in sh or sh in norm)):
+            if sec.table_columns:
+                return list(sec.table_columns)
+    return []
+
+
 def _sanitize_llm_result(
     parsed: dict,
     file_name: str,
@@ -224,6 +248,14 @@ def _sanitize_llm_result(
         if binding not in _VALID_BINDINGS:
             binding = "manual_input"
         cols = [str(c).strip() for c in (item.get("table_columns") or []) if str(c).strip()][:8]
+        if not cols:
+            cols = _match_fallback_cols(heading, fallback[2])
+        if binding == "manual_input":
+            inf_kind, inf_binding = _infer_binding(heading, bool(cols))
+            if inf_binding != "manual_input":
+                kind, binding = inf_kind, inf_binding
+        else:
+            kind = _BINDING_KIND_MAP.get(binding, kind)
         sections.append(
             TemplateSection(
                 id=f"s{i + 1}",
@@ -251,7 +283,11 @@ def _sanitize_llm_result(
         header_note=f"원본 양식: {file_name}",
         learned_rules=[str(r).strip() for r in (parsed.get("learned_rules") or []) if str(r).strip()][:10],
     )
-    summary = str(parsed.get("analysis_summary") or "").strip() or fallback[4]
+    connected = sum(1 for s in sections if s.data_binding != "manual_input")
+    summary = (
+        str(parsed.get("analysis_summary") or "").strip()
+        or f"「{file_name}」에서 항목 {len(sections)}개를 추출하고, ChronOS 일정 자료 {connected}개와 자동 연결했습니다."
+    )
     return name[:150], cadence, sections, style, summary
 
 
@@ -279,8 +315,18 @@ async def learn_from_file(
     system_prompt = (
         "너는 건설·플랜트 공정 보고서 양식 분석기다. 사용자가 올린 기존 월간/분기별 보고서에서 "
         "목차(sections), 각 항목의 형태(block_kind)와 ChronOS 자료 슬롯(data_binding), 표 열 이름(table_columns), "
-        "문체(tone), 날짜 표기(date_format), 작성 규칙(learned_rules)을 정확히 추출해 JSON으로 답한다. "
-        "연결할 ChronOS 자료가 없는 항목은 block_kind='manual', data_binding='manual_input'으로 둔다."
+        "문체(tone), 날짜 표기(date_format), 작성 규칙(learned_rules)을 정확히 추출해 JSON으로 답한다.\n\n"
+        "[data_binding 슬롯 매핑 기준 — 해당하는 슬롯이 있으면 반드시 연결하고 manual_input을 남발하지 마라]\n"
+        "- summary_prose (block_kind='prose'): 핵심 요약·경영 요약·총평·개요·금월 추진 요약 서술 문단\n"
+        "- kpi_summary (block_kind='kpi'): 계획/실적 공정률, SPI, 예상 준공일, 잔여일 등 핵심 KPI 지표 카드\n"
+        "- s_curve_month (block_kind='chart'): 월별/누적 공정률 S-커브 추이 그래프\n"
+        "- spi_trend (block_kind='chart'): SPI·공정 효율 추이 그래프\n"
+        "- milestone_table (block_kind='table'): 주요 마일스톤·이정표·준공 전망 표\n"
+        "- wbs_table (block_kind='table'): WBS·공종별 진도/공정률/실적 현황 표\n"
+        "- delay_table (block_kind='table'): 지연 작업·지연 원인 분석·만회 대책·리스크/이슈 표\n"
+        "- lookahead_3w (block_kind='table'): 3주 룩어헤드·차기/익월/향후 착수 예정 작업 표\n"
+        "- scenario_compare (block_kind='table'): 만회안·단축안·시나리오 비교 표\n"
+        "- manual_input (block_kind='manual'): 위 ChronOS 공정 데이터와 무관한 순수 자유 기입란(예: 현장 안전 특기사항, 발주처 일반 전달메모)에만 사용"
     )
     user_text = (
         f"파일 이름: {row.name}\n"

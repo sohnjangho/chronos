@@ -245,3 +245,122 @@ async def test_report_agent_tools(client, session):
     assert res.output["period_label"] == "2027년 3분기"
     assert any(e.type == "card" and e.data["kind"] == "report" for e in events)
     assert service.list_reports(session, sid, "quarterly").items
+
+
+async def test_learn_from_file_fixes_llm_manual_input_misbinding(session, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.llm import fake as llm_fake
+    from app.llm.client import LlmClient
+    from app.programs.reports import learner
+    from app.store import files as files_store
+
+    user = session.scalars(select(User).where(User.login_id == "admin")).one()
+    md = (
+        "# 발주처 월간공정보고 양식\n\n"
+        "## 1. 금월 프로젝트 핵심 요약\n요약 본문\n\n"
+        "## 2. 마일스톤 표\n| 마일스톤 | 계획일 | 전망 | 상태 |\n|---|---|---|---|\n| 착공 | 2027-03-01 | 2027-03-01 | 완료 |\n\n"
+        "## 3. 지연 원인 분석\n| 작업 | 지연일 | 원인 |\n|---|---|---|\n| 골조 | 3일 | 우천 |\n\n"
+        "## 4. 3주 룩어헤드\n| 작업 | 착수예정 |\n|---|---|\n| 외장 | 2027-04-20 |\n\n"
+        "## 5. 현장 특기사항\n안전 무재해 달성\n"
+    ).encode()
+    row = files_store.save_upload(session, md, "발주처_월간공정보고_양식.md", user)
+    monkeypatch.setattr(llm_fake, "enabled", lambda: False)
+
+    async def fake_chat(self, purpose, messages, **kwargs):
+        return SimpleNamespace(
+            finish_reason="stop",
+            text="",
+            parsed={
+                "suggested_name": "발주처 월간 표준 양식",
+                "suggested_cadence": "monthly",
+                "analysis_summary": "초안",
+                "tone": "~습니다",
+                "date_format": "YYYY.MM.DD",
+                "sections": [
+                    {"heading": "1. 금월 프로젝트 핵심 요약", "block_kind": "manual", "data_binding": "manual_input", "table_columns": [], "section_prompt": ""},
+                    {"heading": "2. 마일스톤 표", "block_kind": "manual", "data_binding": "manual_input", "table_columns": [], "section_prompt": ""},
+                    {"heading": "3. 지연 원인 분석", "block_kind": "manual", "data_binding": "manual_input", "table_columns": [], "section_prompt": ""},
+                    {"heading": "4. 3주 룩어헤드", "block_kind": "manual", "data_binding": "manual_input", "table_columns": [], "section_prompt": ""},
+                    {"heading": "5. 현장 특기사항", "block_kind": "manual", "data_binding": "manual_input", "table_columns": [], "section_prompt": ""},
+                ],
+                "learned_rules": [],
+            },
+        )
+
+    monkeypatch.setattr(LlmClient, "chat", fake_chat)
+    _, _, _, sections, _, _ = await learner.learn_from_file(session, row.id, "monthly")
+    bindings = {s.heading: s.data_binding for s in sections}
+    assert bindings == {
+        "1. 금월 프로젝트 핵심 요약": "summary_prose",
+        "2. 마일스톤 표": "milestone_table",
+        "3. 지연 원인 분석": "delay_table",
+        "4. 3주 룩어헤드": "lookahead_3w",
+        "5. 현장 특기사항": "manual_input",
+    }
+    ms_sec = next(s for s in sections if s.heading == "2. 마일스톤 표")
+    assert ms_sec.table_columns == ["마일스톤", "계획일", "전망", "상태"]
+
+
+async def test_prose_length_cutoff_and_revise_failure_protect_content(client, session, admin, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.llm import fake as llm_fake
+    from app.llm.client import LlmClient, LlmFailed
+    from app.llm.errors import LlmError
+    from app.programs.reports import generator
+    from app.programs.reports.schemas import StyleMemory, TemplateSection
+
+    sid = create_schedule(
+        session,
+        name="5층 사무동 테스트",
+        domain="construction",
+        level="L3",
+        schedule=schedules.sample(),
+        conditions=[],
+        by_kind="agent",
+        by_name="에이전트",
+        note="보고서 테스트",
+    )
+    session.commit()
+
+    rep = client.post(
+        f"/api/schedules/{sid}/reports",
+        headers=admin,
+        json={"cadence": "monthly", "period_label": "2027년 4월"},
+    ).json()
+    prose_blk = next(b for b in rep["blocks"] if b["block_kind"] == "prose")
+    orig_text = prose_blk["text"]
+
+    monkeypatch.setattr(llm_fake, "enabled", lambda: False)
+
+    async def truncated_chat(self, purpose, messages, **kwargs):
+        assert kwargs.get("max_tokens", 0) >= 4000
+        return SimpleNamespace(finish_reason="length", text="2027.04.17 기준 계획 대비 -2.1%p를", parsed=None)
+
+    monkeypatch.setattr(LlmClient, "chat", truncated_chat)
+    _, _, _, blocks = await generator.generate_report_blocks(
+        session,
+        sid,
+        "monthly",
+        "2027년 4월",
+        [TemplateSection(id="s1", heading="요약", block_kind="prose", data_binding="summary_prose")],
+        StyleMemory(),
+    )
+    assert not blocks[0].text.endswith("-2.1%p를")
+    assert len(blocks[0].text) > 40
+
+    async def failing_chat(self, purpose, messages, **kwargs):
+        raise LlmFailed(LlmError("server_error", "일시 오류"))
+
+    monkeypatch.setattr(LlmClient, "chat", failing_chat)
+    rev = client.post(
+        f"/api/schedules/{sid}/reports/{rep['id']}/revise",
+        headers=admin,
+        json={"block_id": prose_blk["id"], "instruction": "핵심 수치 강조", "remember_rule": False},
+    )
+    assert rev.status_code == 502
+    after = client.get(f"/api/schedules/{sid}/reports/{rep['id']}", headers=admin).json()
+    after_blk = next(b for b in after["blocks"] if b["id"] == prose_blk["id"])
+    assert after_blk["text"] == orig_text
+    assert "[수정 반영:" not in after_blk["text"]

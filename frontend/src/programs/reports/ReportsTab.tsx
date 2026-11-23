@@ -858,6 +858,15 @@ export default function ReportsTab() {
           </div>
 
           <div className="rp-ins-scroll">
+            {!readOnlyTpl && inspected.mode === 'new' && (
+              <div className="rp-cross-banner" role="status">
+                <div>
+                  <b>분석된 양식 초안입니다 (아직 저장 전)</b>
+                  <p>항목별 자료 연결을 확인·수정한 뒤 아래 「이 프로젝트에 양식 기억」 버튼을 눌러 저장하세요.</p>
+                </div>
+              </div>
+            )}
+
             {inspected.mode === 'readonly' && !inspected.isBuiltin && (
               <div className="rp-cross-banner">
                 <div>
