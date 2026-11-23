@@ -1,6 +1,6 @@
 """연락 근무시간 — 순수 계산. 시각은 모두 KST 로 판정한다."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -10,6 +10,7 @@ from app.outreach.hours import (
     DEFAULT_END,
     DEFAULT_START,
     KST,
+    NoWorkingTime,
     clamp,
     is_working,
     label,
@@ -20,8 +21,8 @@ KR = CalendarSpec(days_per_week=5, holidays=KOREA_HOLIDAYS)  # 프로젝트 달�
 NIGHT = {"days": [0, 1, 2, 3, 4], "start": "22:00", "end": "06:00"}  # 월~금 밤, 자정을 넘음
 
 
-def kst(y: int, mo: int, d: int, h: int = 0, mi: int = 0) -> datetime:
-    return datetime(y, mo, d, h, mi, tzinfo=KST)
+def kst(y: int, mo: int, d: int, h: int = 0, mi: int = 0, s: int = 0) -> datetime:
+    return datetime(y, mo, d, h, mi, s, tzinfo=KST)
 
 
 def test_defaults_are_eight_to_six():
@@ -29,11 +30,20 @@ def test_defaults_are_eight_to_six():
     assert (DEFAULT_END.hour, DEFAULT_END.minute) == (18, 0)
 
 
-def test_start_minute_is_inside_end_minute_is_outside():
-    assert not is_working(None, KR, kst(2026, 11, 27, 7, 59))
-    assert is_working(None, KR, kst(2026, 11, 27, 8, 0))
-    assert is_working(None, KR, kst(2026, 11, 27, 17, 59))
-    assert not is_working(None, KR, kst(2026, 11, 27, 18, 0))
+@pytest.mark.parametrize(
+    "now,inside",
+    [
+        (kst(2026, 11, 27, 7, 59), False),
+        (kst(2026, 11, 27, 7, 59, 59), False),
+        (kst(2026, 11, 27, 8, 0), True),
+        (kst(2026, 11, 27, 17, 59), True),
+        (kst(2026, 11, 27, 17, 59, 59), True),
+        (kst(2026, 11, 27, 18, 0), False),
+        (kst(2026, 11, 27, 18, 0, 1), False),
+    ],
+)
+def test_start_minute_is_inside_end_minute_is_outside(now, inside):
+    assert is_working(None, KR, now) is inside
 
 
 def test_empty_hours_use_project_calendar_days():
@@ -67,9 +77,35 @@ def test_holiday_is_skipped(now, expected):
     assert next_start(None, KR, now) == expected
 
 
-@pytest.mark.parametrize("day", [date(2026, 12, 25), date(2026, 6, 3), date(2028, 10, 4), date(2028, 4, 12)])
-def test_holiday_daytime_is_not_working(day):
-    assert not is_working(None, KR, kst(day.year, day.month, day.day, 10))
+@pytest.mark.parametrize(
+    "now",
+    [
+        kst(2026, 12, 25, 10),  # 2026 성탄절
+        kst(2026, 6, 3, 10),  # 2026 지방선거
+        kst(2027, 2, 8, 10),  # 2027 설날 연휴(월)
+        kst(2027, 2, 9, 12),  # 2027 설날 대체 공휴일(화)
+        kst(2028, 1, 27, 10),  # 2028 설날(목)
+        kst(2028, 10, 4, 10),  # 2028 추석 연휴
+        kst(2028, 4, 12, 10),  # 2028 국회의원선거
+    ],
+)
+def test_holiday_daytime_is_not_working(now):
+    assert not is_working(None, KR, now)
+
+
+TUE_THU = {"days": [1, 3], "start": "09:00", "end": "17:00"}
+
+
+@pytest.mark.parametrize(
+    "now,expected",
+    [
+        (kst(2026, 11, 23, 10), kst(2026, 11, 24, 9)),  # 월 10:00 → 화 09:00
+        (kst(2026, 11, 26, 17), kst(2026, 12, 1, 9)),  # 목 17:00(끝) → 다음 화 09:00
+    ],
+)
+def test_some_weekdays_only(now, expected):
+    assert not is_working(TUE_THU, KR, now)
+    assert next_start(TUE_THU, KR, now) == expected
 
 
 def test_overnight_hours():
@@ -86,9 +122,42 @@ def test_overnight_hours():
 
 
 def test_overnight_shift_belongs_to_the_day_it_starts():
-    assert is_working(NIGHT, KR, kst(2026, 12, 25, 3))  # 목(평일) 밤에 시작해 성탄절 새벽까지
+    assert is_working(NIGHT, KR, kst(2026, 11, 28, 5, 59))  # 금 밤 근무는 쉬는 토요일 새벽까지 이어짐
     assert not is_working(NIGHT, KR, kst(2026, 12, 25, 23))  # 성탄절 밤에는 시작하지 않음
     assert next_start(NIGHT, KR, kst(2026, 12, 25, 6)) == kst(2026, 12, 28, 22)
+
+
+def test_overnight_shift_ends_at_midnight_before_a_holiday():
+    assert is_working(NIGHT, KR, kst(2026, 12, 24, 23))  # 목 밤 — 근무 중
+    assert label(NIGHT, KR, kst(2026, 12, 24, 23)) == "근무 중 · 00:00 까지"
+    assert not is_working(NIGHT, KR, kst(2026, 12, 25, 0))  # 성탄절 자정에 끝남
+    assert not is_working(NIGHT, KR, kst(2026, 12, 25, 3))  # 공휴일 아침은 근무 아님
+    assert next_start(NIGHT, KR, kst(2026, 12, 25, 3)) == kst(2026, 12, 28, 22)
+
+
+@pytest.mark.parametrize(
+    "now,inside",
+    [
+        (datetime(2026, 11, 23, 14, 0), True),  # 시간대 없음 = UTC → 월 23:00 KST
+        (datetime(2026, 11, 23, 20, 59), True),  # → 화 05:59 KST
+        (datetime(2026, 11, 23, 21, 0), False),  # → 화 06:00 KST
+        (datetime(2026, 12, 24, 18, 0), False),  # → 성탄절 03:00 KST
+        (datetime(2026, 11, 23, 14, 0, tzinfo=UTC), True),
+        (datetime(2026, 11, 23, 21, 0, tzinfo=UTC), False),
+        (datetime(2026, 12, 24, 18, 0, tzinfo=UTC), False),
+    ],
+)
+def test_overnight_naive_and_utc_input(now, inside):
+    assert is_working(NIGHT, KR, now) is inside
+
+
+def test_naive_input_at_kst_midnight():
+    midnight = datetime(2026, 11, 26, 15, 0)  # 시간대 없음 = UTC → 금 00:00 KST
+    assert not is_working(None, KR, midnight)
+    assert next_start(None, KR, midnight) == kst(2026, 11, 27, 8)
+    tue_midnight = datetime(2026, 11, 23, 15, 0)  # → 화 00:00 KST, 월 밤 근무 안
+    assert is_working(NIGHT, KR, tue_midnight)
+    assert label(NIGHT, KR, tue_midnight) == "근무 중 · 06:00 까지"
 
 
 def test_utc_input_is_judged_in_kst():
@@ -138,8 +207,13 @@ def test_equal_start_and_end_is_a_full_day():
     assert not is_working(mon_all_day, KR, kst(2026, 11, 24, 9))
 
 
-def test_no_working_day_raises():
+def test_no_working_time():
     never = {"days": [], "start": "09:00", "end": "18:00"}
-    assert not is_working(never, KR, kst(2026, 11, 23, 10))
-    with pytest.raises(ValueError):
-        next_start(never, KR, kst(2026, 11, 23, 10))
+    now = kst(2026, 11, 23, 10)
+    assert not is_working(never, KR, now)
+    assert issubclass(NoWorkingTime, ValueError)
+    with pytest.raises(NoWorkingTime, match="근무 시간대를 찾지 못했습니다"):
+        next_start(never, KR, now)
+    with pytest.raises(NoWorkingTime, match="근무 시간대를 찾지 못했습니다"):
+        clamp(never, KR, now)
+    assert label(never, KR, now) == "근무시간 없음"

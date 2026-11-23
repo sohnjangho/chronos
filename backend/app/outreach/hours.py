@@ -3,7 +3,10 @@
 - `hours` 가 비면(None·{}) 프로젝트 달력의 근무일(`WorkCalendar.is_workday`) + 08:00~18:00.
 - `hours = {"days": [0..6](월=0), "start": "HH:MM", "end": "HH:MM"}` 이면 그 요일·시각. 프로젝트 공휴일은 그래도 쉰다.
 - 끝이 시작보다 이르거나 같으면 자정을 넘는 근무(같으면 꼭 하루). 근무 시간대는 시작한 날에 속한다
-  — 시작한 날이 근무일이어야 하고, 끝자락이 다음 날(공휴일이어도) 새벽에 걸칠 수 있다.
+  — 시작한 날이 근무일이어야 하고, 끝자락은 다음 날 새벽에 걸친다. 단 다음 날이 프로젝트 공휴일이면
+  그 자정에 끝난다(공휴일 아침은 근무 아님). 공휴일이 아닌 쉬는 요일(토요일 등) 새벽에는 그대로 걸친다.
+- 근무 시간대가 없는 사람(예: `days: []` — 약 2년 안에 근무 시작이 없음): `is_working` 은 False,
+  `next_start`·`clamp` 는 `NoWorkingTime`(ValueError) 을 낸다, `label` 은 「근무시간 없음」.
 - 시작 시각은 안, 끝 시각은 밖. 받은 시각은 KST 로 바꿔 본다(시간대가 없으면 UTC — SQLite 규칙).
   돌려주는 시각은 모두 KST 시간대가 붙어 있다.
 """
@@ -22,6 +25,10 @@ DEFAULT_END = time(18, 0)
 _DAY = timedelta(days=1)
 _MAX_DAYS = 732  # 다음 근무 시작을 찾아 훑는 한도(약 2년)
 _WEEKDAYS = "월화수목금토일"
+
+
+class NoWorkingTime(ValueError):
+    """이 사람에게는 근무 시간대가 없다(훑는 한도 안에)."""
 
 
 def _to_kst(at: datetime) -> datetime:
@@ -54,9 +61,12 @@ def _period(d: date, start: time, end: time) -> tuple[datetime, datetime]:
 def _current(hours: dict | None, calendar: CalendarSpec, k: datetime) -> tuple[datetime, datetime] | None:
     """k(KST) 가 들어 있는 근무 시간대. 어제 시작해 자정을 넘은 것도 본다."""
     works, start, end = _rule(hours, calendar)
+    holidays = frozenset(calendar.holidays)
     for day in (k.date() - _DAY, k.date()):
         if works(day):
             begin, finish = _period(day, start, end)
+            if finish.date() > day and finish.date() in holidays:  # 공휴일 아침은 근무 아님
+                finish = datetime.combine(finish.date(), time(0, 0), tzinfo=KST)
             if begin <= k < finish:
                 return begin, finish
     return None
@@ -67,7 +77,7 @@ def is_working(hours: dict | None, calendar: CalendarSpec, now: datetime) -> boo
 
 
 def next_start(hours: dict | None, calendar: CalendarSpec, now: datetime) -> datetime:
-    """지금 근무 중이면 now(KST), 아니면 그 뒤 첫 근무 시작. 약 2년 안에 없으면 ValueError."""
+    """지금 근무 중이면 now(KST), 아니면 그 뒤 첫 근무 시작. 약 2년 안에 없으면 NoWorkingTime."""
     k = _to_kst(now)
     if _current(hours, calendar, k) is not None:
         return k
@@ -77,7 +87,7 @@ def next_start(hours: dict | None, calendar: CalendarSpec, now: datetime) -> dat
         begin = _period(day, start, end)[0]
         if works(day) and begin > k:
             return begin
-    raise ValueError("근무 시간대를 찾지 못했습니다")
+    raise NoWorkingTime("근무 시간대를 찾지 못했습니다")
 
 
 def clamp(hours: dict | None, calendar: CalendarSpec, at: datetime) -> datetime:
@@ -86,10 +96,13 @@ def clamp(hours: dict | None, calendar: CalendarSpec, at: datetime) -> datetime:
 
 
 def label(hours: dict | None, calendar: CalendarSpec, now: datetime) -> str:
-    """「근무 중 · 18:00 까지」 / 「근무 밖 · 월 08:00 부터」."""
+    """「근무 중 · 18:00 까지」 / 「근무 밖 · 월 08:00 부터」 / 근무 시간대가 없으면 「근무시간 없음」."""
     k = _to_kst(now)
     current = _current(hours, calendar, k)
     if current is not None:
         return f"근무 중 · {current[1]:%H:%M} 까지"
-    begin = next_start(hours, calendar, k)
+    try:
+        begin = next_start(hours, calendar, k)
+    except NoWorkingTime:
+        return "근무시간 없음"
     return f"근무 밖 · {_WEEKDAYS[begin.weekday()]} {begin:%H:%M} 부터"
