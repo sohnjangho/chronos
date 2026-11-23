@@ -97,3 +97,37 @@ def test_data_date_is_after_start(session):
     seed.seed_demo(session)
     schedule, _, _ = load(session, _demo(session).id)
     assert schedule.start == date(2027, 3, 2) < seed.DATA_DATE
+
+
+# ── 시연 일정을 다시 만들 때 연락 자료(계획 4 Task 61) ──────────────────────
+
+
+def test_reseed_clears_the_old_address_book_but_keeps_do_not_contact(session):
+    from app.store import contacts, outreach
+    from app.store.tables_outreach import Contact, ContactCompany
+
+    old = seed.seed_demo(session)[0]
+    company = ContactCompany(schedule_id=old, name="가상건설")
+    session.add(company)
+    session.flush()
+    session.add(Contact(schedule_id=old, company_id=company.id, name="김가상", phone="01000000199",
+                        do_not_contact=True))
+    session.commit()
+
+    again = seed.seed_demo(session)[0]
+
+    assert again == old  # 같은 id 가 다시 쓰인다
+    assert contacts.listed(session, again, include_hidden=True) == []
+    assert outreach.is_do_not_contact(session, "010-0000-0199") is True
+
+
+def test_seed_module_registers_outreach_tables():
+    """`python -m app.seed demo` 는 app.db 를 import 하지 않는다 — seed 가 스스로 연락 표를 올려야 지운다."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    code = "import app.seed; from app.store.tables import Base; print('contacts' in Base.metadata.tables)"
+    out = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[1], capture_output=True,
+                         text=True, check=True)
+    assert out.stdout.strip() == "True"

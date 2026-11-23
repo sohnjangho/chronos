@@ -2,6 +2,8 @@
 
 app.db 가 import 해서 create_all 전에 Base 에 올린다. 이 표들은 계획 4 전 DB 에는 없어서 create_all 이 만들고,
 나중에 더하는 칸은 store.upgrade 가 기존 DB 에 더한다(NULL 가능이거나 글·숫자·참거짓 기본값이 있는 칸만).
+id 를 FK 없이 다른 곳에 적는 표(협력사·연락처·메시지·통화·알림 연결·알림톡 문안)는 sqlite_autoincrement — 지운 뒤에도 같은
+id 를 다시 쓰지 않는다(SQLite 는 가장 큰 id 를 지우면 그 id 를 다시 준다). 이미 만들어진 표에는 ALTER 로 더할 수 없다.
 시각 칸은 모두 UtcDateTime: 시간대가 붙은 값(예: KST)은 같은 순간의 UTC 로 바꿔 저장한다. 읽으면 다른 표와 같이
 시간대 없는 UTC 값이다(내보낼 때 app.store.timeutil.as_utc 로 UTC 를 붙인다).
 
@@ -31,6 +33,10 @@ class UtcDateTime(TypeDecorator):
         return None if value is None else as_utc(value).replace(tzinfo=None)
 
 
+# id 를 FK 없이 다른 곳에 적는 표: 지운 뒤에도 같은 id 를 다시 쓰지 않는다(SQLite AUTOINCREMENT)
+_NO_ID_REUSE = {"sqlite_autoincrement": True}
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -39,6 +45,7 @@ class ContactCompany(Base):
     """협력사 하나(일정마다 따로)."""
 
     __tablename__ = "contact_companies"
+    __table_args__ = _NO_ID_REUSE
 
     id: Mapped[int] = mapped_column(primary_key=True)
     schedule_id: Mapped[int] = mapped_column(index=True)
@@ -54,6 +61,7 @@ class Contact(Base):
     None 이면 프로젝트 달력의 기본 근무시간. voice_mode 'auto' 는 성별로 음성을 고른다(voice_id 는 'manual' 일 때)."""
 
     __tablename__ = "contacts"
+    __table_args__ = _NO_ID_REUSE
 
     id: Mapped[int] = mapped_column(primary_key=True)
     schedule_id: Mapped[int] = mapped_column(index=True)
@@ -109,6 +117,7 @@ class OutreachMessage(Base):
     """
 
     __tablename__ = "outreach_messages"
+    __table_args__ = _NO_ID_REUSE
 
     id: Mapped[int] = mapped_column(primary_key=True)
     schedule_id: Mapped[int | None] = mapped_column(default=None, index=True)
@@ -158,6 +167,7 @@ class OutreachCall(Base):
     answers_json 한 줄 {question, answer, quote, quote_found}. purpose_key 는 같은 목적의 통화를 묶는 손잡이."""
 
     __tablename__ = "outreach_calls"
+    __table_args__ = _NO_ID_REUSE
 
     id: Mapped[int] = mapped_column(primary_key=True)
     schedule_id: Mapped[int | None] = mapped_column(default=None, index=True)
@@ -275,6 +285,7 @@ class NotifyConnection(Base):
     """
 
     __tablename__ = "notify_connections"
+    __table_args__ = _NO_ID_REUSE
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
@@ -307,6 +318,7 @@ class KakaoTemplate(Base):
     """알림톡 문안 하나(제공사에서 맞춰 옴). status: approved | reviewing | rejected | dormant."""
 
     __tablename__ = "kakao_templates"
+    __table_args__ = _NO_ID_REUSE
 
     id: Mapped[int] = mapped_column(primary_key=True)
     connection_id: Mapped[int] = mapped_column(index=True)

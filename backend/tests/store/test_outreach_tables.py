@@ -37,6 +37,7 @@ from app.store.tables_outreach import (
     UtcDateTime,
     VoiceSettings,
 )
+from app.store.upgrade import add_missing_columns
 from tests import schedules
 
 NEW_TABLES = {
@@ -272,6 +273,49 @@ def test_mark_do_not_contact_refuses_a_bad_number_without_echoing_it(session):
     with pytest.raises(ValueError) as err:
         outreach.mark_do_not_contact(session, "010-12-3456", reason="")
     assert "3456" not in str(err.value)
+
+
+AUTOINCREMENT_TABLES = {  # id 가 FK 없이 다른 곳에 적히는 표 — 지운 뒤 같은 id 를 다시 쓰지 않는다
+    "contact_companies", "contacts", "outreach_messages", "outreach_calls", "notify_connections", "kakao_templates",
+}
+
+
+def test_ids_are_not_reused_after_a_purge(session, sid, sid2):
+    company = _company(session, sid2)
+    person = _person(session, company, "김공정")
+    message = _message(session, schedule_id=sid2, contact_id=person.id)
+    call = _call(session, schedule_id=sid2, contact_id=person.id)
+    old = [company.id, person.id, message.id, call.id]
+    session.commit()
+    outreach.purge_schedule(session, sid2)
+    session.commit()
+
+    company = _company(session, sid)
+    person = _person(session, company, "이반장")
+    new = [company.id, person.id, _message(session, schedule_id=sid).id, _call(session, schedule_id=sid).id]
+    assert all(n > o for n, o in zip(new, old, strict=True))
+
+
+def test_autoincrement_tables_and_upgrade_is_unaffected(session):
+    engine = session.get_bind()
+    with engine.connect() as conn:
+        sql = dict(conn.exec_driver_sql("SELECT name, sql FROM sqlite_master WHERE type = 'table'").all())
+    assert {name for name in NEW_TABLES if "AUTOINCREMENT" in sql[name]} == AUTOINCREMENT_TABLES
+    assert add_missing_columns(engine, Base.metadata) == []  # 칸 더하기는 그대로(더할 것 없음)
+
+
+def test_claim_never_moves_a_failed_row_back_out(session):
+    """실패한 줄을 다시 차지하지 않는다 — 다시 보내기는 새 줄로(claimed_at 이 옮겨 가 그날 셈에서 빠지지 않게)."""
+    first = datetime(2026, 11, 24, 1, 0, tzinfo=UTC)
+    message = _message(session, status="failed", claimed_at=first)
+    call = _call(session, status="failed", claimed_at=first)
+    session.commit()
+    assert outreach.claim(session, "message", message.id, ("draft", "failed"), "sending") is False
+    assert outreach.claim(session, "call", call.id, ("failed",), "queued") is False
+    assert outreach.claim(session, "message", message.id, ("failed",), "draft") is True  # 나가는 상태가 아니면 그대로
+    session.commit()
+    session.expire_all()
+    assert session.get(OutreachCall, call.id).claimed_at == datetime(2026, 11, 24, 1, 0)
 
 
 def test_unknown_messages_and_calls_are_rows_without_a_schedule(session, sid):

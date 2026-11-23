@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.seed.factory import FACTORY, parts_factory
 from app.seed.office import CRANE_CONDITION, DATA_DATE, OFFICE, office_building
+from app.store import outreach
 from app.store.tables import Base, ChatSession, ScheduleRecord
 from app.store.upgrade import add_missing_columns
 
@@ -29,10 +30,14 @@ DEMO: tuple[tuple[str, Callable[[Session], int]], ...] = ((OFFICE, office_buildi
 
 
 def _clear(session: Session, name: str) -> None:
-    """그 이름의 일정과 일정에 딸린 줄(schedule_id 칸이 있는 모든 표)을 지운다. 대화는 남기고 일정 연결만 끊는다."""
+    """그 이름의 일정과 일정에 딸린 줄(schedule_id 칸이 있는 모든 표)을 지운다. 대화는 남기고 일정 연결만 끊는다.
+    주소록·연락 기록은 먼저 outreach.purge_schedule 로 지운다(수신 거부 번호는 번호 기준으로 남긴다). outreach 를 import 하면
+    연락 표도 Base 에 오른다 — `python -m app.seed` 는 app.db 를 거치지 않으므로 여기서 올려야 create_all 이 만든다."""
     ids = list(session.scalars(select(ScheduleRecord.id).where(ScheduleRecord.name == name)))
     if not ids:
         return
+    for schedule_id in ids:
+        outreach.purge_schedule(session, schedule_id)
     session.execute(update(ChatSession).where(ChatSession.schedule_id.in_(ids)).values(schedule_id=None))
     for table in reversed(Base.metadata.sorted_tables):
         column = table.columns.get("schedule_id")

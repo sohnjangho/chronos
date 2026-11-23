@@ -136,3 +136,16 @@ def test_a_deleted_schedules_contacts_do_not_reappear_when_its_id_is_reused(clie
     assert contacts.listed(session, reused, include_hidden=True) == []
     assert session.scalars(select(OutreachMessage.schedule_id)).all() == [None]
     assert contacts.listed(session, sid) == []
+
+
+def test_deleting_a_schedule_with_an_unnormalizable_refused_number_still_works(client, admin, sid, session):
+    """저장된 번호가 정리되지 않아도(예전 입력 0101234) 일정 지우기는 실패하지 않는다 — 그 번호는 옮기지 않고 넘어간다."""
+    company = ContactCompany(schedule_id=sid, name="가상건설")
+    session.add(company)
+    session.flush()
+    session.add(Contact(schedule_id=sid, company_id=company.id, name="김가상", phone="0101234", do_not_contact=True))
+    session.commit()
+
+    assert client.delete(f"/api/schedules/{sid}", headers=admin).status_code == 200
+    session.expire_all()
+    assert session.scalars(select(Contact)).all() == []

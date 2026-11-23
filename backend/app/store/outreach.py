@@ -230,6 +230,10 @@ def claim(
     status·claimed_at 은 비워 두어 다음에 읽을 때 DB 의 참값을 본다. 다른 일꾼이 쓰기를 쥐고 있어 SQLite 가
     「database is locked」 이면 그쪽이 가진 것으로 보고 이 세션을 되돌린(rollback — 커밋 안 한 쓰기도 사라진다) 뒤
     False. 그 밖의 DB 오류는 그대로 올린다. **그러니 부를 때 같은 세션에 커밋 안 한 다른 쓰기를 쥐고 있지 않는다.**
+    False 는 「다른 일꾼이 이겼다」와 「DB 가 바빴다」를 가르지 않는다 — 사람이 누른 보내기·걸기에서 False 를 받으면
+    「이미 보냄」이 아니라 「다시 해 보세요」로 다룬다.
+    줄은 나가려고 한 번만 차지한다. **`failed` 줄을 나가는 상태로 되돌리지 않는다**(False) — 다시 보내기·다시 걸기는 새 줄로
+    만든다. 같은 줄을 다시 차지하면 claimed_at 이 옮겨 가 첫 시도가 그날 셈에서 빠지기 때문이다.
     나가는 상태(메시지 sending, 통화 queued·dialing·in_call)로 들어오면 claimed_at 을 now(없으면 지금)로 찍는다 —
     이미 그 안에서 옮기는 것(queued → dialing)은 처음 찍은 시각을 둔다. 하루 셈(sent_count)은 이 시각으로 한다.
     """
@@ -239,6 +243,8 @@ def claim(
         stamp = literal(now or datetime.now(UTC), UtcDateTime())
         values["claimed_at"] = case((model.status.in_(_LEAVING[kind]), model.claimed_at), else_=stamp)
     stmt = update(model).where(model.id == row_id, model.status.in_(from_states)).values(**values)
+    if to_state in _LEAVING[kind]:
+        stmt = stmt.where(model.status != "failed")
     try:
         result = session.execute(stmt.execution_options(synchronize_session=False))
     except OperationalError as exc:
@@ -255,12 +261,15 @@ def claim(
 def purge_schedule(session: Session, schedule_id: int) -> None:
     """지우는 일정의 주소록과 연락 기록(협력사·연락처·연락처 제안·메시지·통화·보고)을 지운다 — 일정 id 가 다시 쓰여도
     새 일정에 나타나지 않게. 지우기 전에 수신 거부한 연락처의 번호를 번호 기준 수신 거부로 옮겨 둔다(번호 기준이라 남는다).
-    일정 없는 줄·사용량·알림 연결·차단 목록은 남는다. commit 은 부른 쪽(일정 지우기와 한 트랜잭션)."""
+    저장된 번호가 정리되지 않으면(예전 입력) 그 번호는 옮기지 않고 넘어간다 — 지우기는 실패하지 않는다(번호는 기록하지 않음).
+    일정 없는 줄·사용량·알림 연결·차단 목록은 남는다. commit 은 부른 쪽(일정 지우기와 한 트랜잭션).
+    오늘 나간 줄도 함께 지워지므로 그날의 셈(sent_count)이 줄어든다 — 관리자만 하는 일이라 받아들인다."""
     refused = select(Contact.phone, Contact.dnc_reason).where(
         Contact.schedule_id == schedule_id, Contact.do_not_contact.is_(True), Contact.phone.is_not(None)
     )
     for number, reason in session.execute(refused).all():
-        mark_do_not_contact(session, number, reason=reason or "")
+        if normalize(number) is not None:
+            mark_do_not_contact(session, number, reason=reason or "")
     for model in (ContactCompany, Contact, ContactProposal, OutreachMessage, OutreachCall, ContactReport):
         session.execute(delete(model).where(model.schedule_id == schedule_id))
 
