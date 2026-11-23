@@ -4,7 +4,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import DevConsole from './DevConsole';
-import { done, mockTurn, setup } from './testKit';
+import { done, mockCatalog, mockTurn, setup } from './testKit';
 
 const structure = () => screen.findByRole('group', { name: '에이전트 구조' });
 const show = (tab?: string) => render(<DevConsole windowId="w1" params={tab ? { tab } : undefined} />);
@@ -16,6 +16,75 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+const rule = (id: string, group: string, title: string, counts: [number | null, number | null] = [0, 0]) => ({
+  id, group, area: '도구', title, description: `${title} 설명`, code: 'app/x.py', mode: '코드', feedback_sample: '{}',
+  passed_count: counts[0], blocked_count: counts[1],
+});
+
+describe('하네스 — 묶음과 찾기', () => {
+  beforeEach(() =>
+    mockCatalog((c) => {
+      c.harness = [
+        rule('H-CPM-01', '일정 계산', '선후행 순환 차단'),
+        rule('H-DATE-01', '일정 계산', '「착수 후 N주」 기한 날짜 계산', [null, null]),
+        rule('H-INFO-02', '바깥 정보', '응답에 키가 되돌아와도 남기지 않음', [5, 1]),
+        rule('H-ROLE-01', '권한', '현장 관리자 편집 거절'),
+      ] as never;
+    }),
+  );
+
+  test('rules are grouped with a header row per group, and a group chip narrows the list', async () => {
+    show('harness');
+    const table = await screen.findByRole('table', { name: '하네스 규칙 목록' });
+    expect(within(table).getAllByRole('rowgroup').map((g) => g.getAttribute('aria-label')).filter(Boolean)).toEqual([
+      '일정 계산 규칙', '바깥 정보 규칙', '권한 규칙',
+    ]);
+    await userEvent.click(screen.getByRole('button', { name: '권한 1' }));
+    expect(within(screen.getByRole('table', { name: '하네스 규칙 목록' })).queryByText('H-CPM-01')).toBeNull();
+    expect(screen.getByText('H-ROLE-01')).toBeVisible();
+  });
+
+  test('search finds a rule by its words and says so when nothing matches', async () => {
+    show('harness');
+    await screen.findByRole('table', { name: '하네스 규칙 목록' });
+    await userEvent.type(screen.getByRole('searchbox', { name: '규칙 찾기' }), '키가');
+    expect(screen.getByText('H-INFO-02')).toBeVisible();
+    expect(screen.queryByText('H-CPM-01')).toBeNull();
+    await userEvent.type(screen.getByRole('searchbox', { name: '규칙 찾기' }), '없는 말');
+    expect(screen.getByText('찾는 규칙이 없습니다.')).toBeVisible();
+  });
+
+  test('a rule without a session record says 기록 없음 instead of a made-up count', async () => {
+    show('harness');
+    const table = await screen.findByRole('table', { name: '하네스 규칙 목록' });
+    const row = within(table).getByText('H-DATE-01').closest('tr')!;
+    expect(within(row).getByText('기록 없음')).toBeVisible();
+    expect(within(row).queryByText(/통과/)).toBeNull();
+    const counted = within(table).getByText('H-INFO-02').closest('tr')!;
+    expect(within(counted).getByText('통과 5')).toBeVisible();
+    expect(within(counted).getByText('차단 1')).toBeVisible();
+  });
+
+  test('a test result shows its observed values folded', async () => {
+    show('harness');
+    const table = await screen.findByRole('table', { name: '하네스 규칙 목록' });
+    const row = within(table).getByText('H-INFO-02').closest('tr')!;
+    await userEvent.click(within(row).getByRole('button', { name: '차단 시험' }));
+    const res = await within(row).findByRole('status');
+    expect(within(res).getByRole('button', { name: '관측값 펼치기' })).toBeVisible();
+    expect(within(res).queryByRole('group', { name: '관측값 내용' })).toBeNull();
+  });
+
+  test('an older server (no group) still groups by area', async () => {
+    mockCatalog((c) => {
+      c.harness = [{ ...rule('H-LIM-01', '', '한도'), group: undefined, area: '루프' }] as never;
+    });
+    show('harness');
+    const table = await screen.findByRole('table', { name: '하네스 규칙 목록' });
+    expect(within(table).getByRole('rowgroup', { name: '에이전트 루프 규칙' })).toBeVisible();
+  });
 });
 
 describe('실행 추적 — 11-23 신호', () => {

@@ -1,10 +1,8 @@
 // AX 인재전쟁(약속선) 스타일 하네스 카탈로그, 실시간 에이전트 실행 설정 및 [차단 시험] 탭.
 import { useState } from 'react';
 import { ApiError } from '../../shared/api';
-import Badge from '../../shared/ui/Badge';
-import { devApi, type AgentConfig, type ApprovalMode, type CatalogOut, type HarnessRule, type HarnessTestOut } from './devApi';
-
-const AREAS = ['전체', '입력', '조건 점검', '승인', '루프'] as const;
+import { devApi, type AgentConfig, type ApprovalMode, type CatalogOut } from './devApi';
+import HarnessRules from './HarnessRules';
 
 const DEFAULT_AGENT_CONFIG: AgentConfig = {
   approval_mode: 'important',
@@ -194,80 +192,7 @@ function AgentConfigPanel({ initial, onSaved }: { initial?: AgentConfig; onSaved
   );
 }
 
-function RuleRow({
-  rule,
-  tested,
-  testing,
-  onTest,
-}: {
-  rule: HarnessRule;
-  tested: HarnessTestOut | undefined;
-  testing: boolean;
-  onTest(id: string): void;
-}) {
-  const [openFeedback, setOpenFeedback] = useState(false);
-  return (
-    <tr className="dc-cat-row">
-      <td className="dc-cat-id">
-        <b>{rule.id}</b>
-      </td>
-      <td className="dc-cat-area">{rule.area}</td>
-      <td className="dc-cat-main">
-        <div className="dc-cat-title">{rule.title}</div>
-        <p className="dc-muted">{rule.description}</p>
-        <button type="button" className="dc-link" onClick={() => setOpenFeedback((o) => !o)}>
-          {`${openFeedback ? '▼' : '▶'} 막을 때 모델이 받는 글`}
-        </button>
-        {openFeedback && <pre className="dc-code-block">{rule.feedback_sample}</pre>}
-        {tested && (
-          <div className="dc-harness-test-res" role="status">
-            <div className="dc-harness-test-head">
-              {tested.blocked ? <Badge tone="danger">차단 시험 완료</Badge> : <Badge tone="warning">차단 안 됨</Badge>}
-              {tested.engine === 'live_harness' && <Badge tone="success">실엔진 검증</Badge>}
-              {tested.elapsed_ms !== undefined && <Badge tone="neutral">{`${tested.elapsed_ms}ms`}</Badge>}
-              <span>{`시뮬레이션 입력: ${tested.simulated_input}`}</span>
-            </div>
-            <pre className="dc-code-block">{JSON.stringify(tested.model_feedback, null, 2)}</pre>
-          </div>
-        )}
-      </td>
-      <td className="dc-cat-code">
-        <code>{rule.code}</code>
-        <span className="dc-tag is-warn">{rule.mode}</span>
-      </td>
-      <td className="dc-cat-stat">
-        <Badge tone="success">구현</Badge>
-      </td>
-      <td className="dc-cat-counts">
-        <Badge tone="success">{`통과 ${rule.passed_count}`}</Badge>
-        {rule.blocked_count > 0 && <Badge tone="danger">{`차단 ${rule.blocked_count}`}</Badge>}
-      </td>
-      <td className="dc-cat-act">
-        <button type="button" className="dc-btn" disabled={testing} onClick={() => onTest(rule.id)}>
-          {testing ? '시험 중…' : '차단 시험'}
-        </button>
-      </td>
-    </tr>
-  );
-}
-
 export default function HarnessTab({ catalog, onSaved }: { catalog: CatalogOut; onSaved?: () => void }) {
-  const [area, setArea] = useState<string>('전체');
-  const [results, setResults] = useState<Record<string, HarnessTestOut>>({});
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  const rules = area === '전체' ? catalog.harness : catalog.harness.filter((r) => r.area === area);
-
-  async function runTest(ruleId: string) {
-    setBusyId(ruleId);
-    try {
-      const res = await devApi.testHarness(ruleId);
-      setResults((prev) => ({ ...prev, [ruleId]: res }));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   return (
     <div className="dc-scroll dc-cat-wrap">
       <div className="dc-cat-header">
@@ -289,31 +214,7 @@ export default function HarnessTab({ catalog, onSaved }: { catalog: CatalogOut; 
           ))}
         </ul>
       </div>
-      <div className="dc-chip-bar" role="group" aria-label="하네스 위치 필터">
-        {AREAS.map((a) => (
-          <button key={a} type="button" className={`dc-mode-btn${area === a ? ' is-on' : ''}`} aria-pressed={area === a} onClick={() => setArea(a)}>
-            {a}
-          </button>
-        ))}
-      </div>
-      <table className="dc-cat-table" aria-label="하네스 규칙 목록">
-        <thead>
-          <tr>
-            <th>번호</th>
-            <th>위치</th>
-            <th>규칙과 강제 방식</th>
-            <th>코드</th>
-            <th>상태</th>
-            <th>세션 기록</th>
-            <th>시험</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rules.map((r) => (
-            <RuleRow key={r.id} rule={r} tested={results[r.id]} testing={busyId === r.id} onTest={(id) => void runTest(id)} />
-          ))}
-        </tbody>
-      </table>
+      <HarnessRules rules={catalog.harness} />
     </div>
   );
 }

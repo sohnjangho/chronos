@@ -1,42 +1,32 @@
 """개발 콘솔 원천 카탈로그: 하네스 규칙·실엔진 차단 시험, 프롬프트/파이프라인/가이드/도메인 원문, 도구/스킬 등록부."""
 
-import asyncio
 import json
-import tempfile
 import time
 from datetime import date
-from pathlib import Path
 from typing import Any
 
-import httpx
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agent import context as agent_context
-from app.agent import loop
 from app.agent.approval import assess
-from app.agent.context import UiContext
 from app.agent.loop import MAX_STEPS
 from app.core.model import Activity, CalendarSpec, Relation, Resource, Schedule, WbsNode
 from app.domains.loader import domains, levels_prompt, load
 from app.errors import ApiError
 from app.harness.checks import check as check_schedule
 from app.harness.conditions import BASE_RULES, Condition
-from app.llm.client import LlmClient
-from app.llm.names import to_llm_name
-from app.programs.devconsole.service import APPROVAL_TOOLS, CHECK_TOOLS
-from app.security.crypto import encrypt
+from app.programs.devconsole import harness_live
+from app.programs.devconsole.harness_db import (
+    LOOP_TOOL,
+    ScriptedLiner,
+    run_isolated_turn,
+)
+from app.programs.devconsole.service import APPROVAL_TOOLS, CHECK_TOOLS, step_signals
 from app.store import settings as settings_store
 from app.store import skills as skill_store
 from app.store.drafts import violation_json
-from app.store.tables import (
-    Base,
-    ChatSession,
-    LlmConnection,
-    User,
-    WorkflowRun,
-    WorkflowStep,
-)
+from app.store.tables import WorkflowStep
 from app.tools import registry
 from app.tools.registry import ToolResult
 
@@ -51,6 +41,7 @@ HARNESS_PRINCIPLES: list[str] = [
 HARNESS_RULES: list[dict[str, Any]] = [
     {
         "id": "H-CPM-01",
+        "group": "일정 계산",
         "area": "조건 점검",
         "title": "선후행 순환 참조(Cycle) 및 날짜 역전 차단",
         "description": "선행·후행 관계에 순환 고리가 있거나 ES/EF 계산이 불가능한 일정 변경을 차단하고 위반 액티비티를 반환합니다.",
@@ -60,6 +51,7 @@ HARNESS_RULES: list[dict[str, Any]] = [
     },
     {
         "id": "H-RES-01",
+        "group": "일정 계산",
         "area": "조건 점검",
         "title": "주요 자원(타워크레인·핵심 설비) 일일 용량 초과 차단",
         "description": "동일 날짜에 고정 배치된 액티비티들의 자원 합계가 자원 용량(capacity)을 넘으면 위반 구간과 액티비티를 반환합니다.",
@@ -69,6 +61,7 @@ HARNESS_RULES: list[dict[str, Any]] = [
     },
     {
         "id": "H-CAL-01",
+        "group": "일정 계산",
         "area": "조건 점검",
         "title": "작업 금지 기간(동절기·우천·야간 금지 꼬리표) 침범 차단",
         "description": "금지 기간(blocked period) 꼬리표가 달린 액티비티가 해당 금지 날짜 구간에 놓이면 위반으로 판정해 지연을 막습니다.",
@@ -78,6 +71,7 @@ HARNESS_RULES: list[dict[str, Any]] = [
     },
     {
         "id": "H-FIN-01",
+        "group": "일정 계산",
         "area": "조건 점검",
         "title": "프로젝트 준공 기한(finish_by) 및 마일스톤 기한 초과 차단",
         "description": "전체 완료 예정일(EF) 또는 주요 마일스톤이 등록된 기한 조건을 넘기면 초과 일수와 관련 액티비티를 돌려줍니다.",
@@ -87,6 +81,7 @@ HARNESS_RULES: list[dict[str, Any]] = [
     },
     {
         "id": "H-APP-01",
+        "group": "권한",
         "area": "승인",
         "title": "승인 전 원본 일정·시나리오·내 규칙 직접 확정 차단",
         "description": "에이전트는 원본 일정을 직접 덮어쓰지 못하고 반드시 승인함(out.submit_change, scenario.submit, rules.propose)으로 상신해야 합니다.",
@@ -96,6 +91,7 @@ HARNESS_RULES: list[dict[str, Any]] = [
     },
     {
         "id": "H-LOOP-01",
+        "group": "에이전트 루프",
         "area": "루프",
         "title": "도구 실패 시 DB 롤백 및 자가 점검(Self-Reflection) 지시 주입",
         "description": "도구 실행이 실패하면 그 도구가 남긴 DB 변경을 즉시 rollback 하고, 오류 원인과 reflection 지시를 JSON으로 돌려보냅니다.",
@@ -105,6 +101,7 @@ HARNESS_RULES: list[dict[str, Any]] = [
     },
     {
         "id": "H-LIM-01",
+        "group": "에이전트 루프",
         "area": "루프",
         "title": f"ReAct 루프 단계 한도({MAX_STEPS}바퀴) 및 하네스 재시도 한도(5회) 강제",
         "description": "무한 루프나 과도한 토큰 소모를 막기 위해 턴당 최대 모델 호출 바퀴 수와 조건 점검 재시도 횟수를 코드로 제한합니다.",
@@ -114,6 +111,7 @@ HARNESS_RULES: list[dict[str, Any]] = [
     },
     {
         "id": "H-IN-01",
+        "group": "에이전트 루프",
         "area": "입력",
         "title": "도구 결과 길이 상한(4,000자) 절단 및 API 비밀키 추적 차단",
         "description": "과도한 도구 출력이 컨텍스트를 덮지 않도록 상한에서 자르고, LLM API 키는 어떤 실행 추적(TraceEvent)에도 남기지 않습니다.",
@@ -121,10 +119,11 @@ HARNESS_RULES: list[dict[str, Any]] = [
         "mode": "구조로 강제 — 입력 절단·키 마스킹",
         "feedback_sample": '{"content": "...(앞 4,000자)...\\n(뒤는 생략)"}',
     },
+    *harness_live.RULES,  # 11-23: 정보 API·근거 다시 쓰기·역할·가져오기·생성·사진 판독·기한
 ]
 
 
-def _harness_stats(session: Session) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, Any]]]:
+def _harness_stats(session: Session) -> tuple[dict[str, dict[str, int | None]], dict[str, dict[str, Any]]]:
     steps = list(session.scalars(select(WorkflowStep)))
     check_steps = [s for s in steps if s.tool in CHECK_TOOLS]
     check_pass = 0
@@ -149,6 +148,7 @@ def _harness_stats(session: Session) -> tuple[dict[str, dict[str, int]], dict[st
         "H-LOOP-01": {"passed": max(0, len(steps) - failed_tools), "blocked": failed_tools},
         "H-LIM-01": {"passed": len(steps), "blocked": 0},
         "H-IN-01": {"passed": len(steps), "blocked": 0},
+        **harness_live.session_counts(session, steps, lambda step: step_signals(step, None)),
     }
 
     tool_acc: dict[str, dict[str, Any]] = {}
@@ -178,11 +178,8 @@ def get_catalog(session: Session) -> dict[str, Any]:
     stats, tool_stats = _harness_stats(session)
     harness = []
     for rule in HARNESS_RULES:
-        entry = {
-            **rule,
-            "passed_count": stats.get(rule["id"], {}).get("passed", 0),
-            "blocked_count": stats.get(rule["id"], {}).get("blocked", 0),
-        }
+        counts = stats.get(rule["id"], {"passed": 0, "blocked": 0})  # None = 세션 기록이 없는 규칙(수를 지어내지 않는다)
+        entry = {**rule, "passed_count": counts["passed"], "blocked_count": counts["blocked"]}
         if rule["id"] == "H-LIM-01":
             entry["title"] = f"ReAct 루프 단계 한도({cfg['max_steps']}바퀴) 및 하네스 재시도 한도({cfg['max_check_retries']}회) 강제"
         elif rule["id"] == "H-IN-01":
@@ -384,74 +381,8 @@ def _run_live_scenario(rule_id: str) -> tuple[str, dict[str, Any], str]:
 
 # ── 루프 규칙(H-LOOP-01·H-LIM-01): 임시 DB 에서 진짜 에이전트 루프(loop.run_turn)를 대본 LLM 으로 돌린다 ──
 
-LOOP_TOOL = "schedule.read"  # 일정 없는 대화에서 부르면 늘 실패하는 읽기 도구("대상 일정이 없습니다.")
-HARNESS_CHAT_ID = 2**62  # 임시 DB 의 대화 id — 운영 대화의 멈춤 표시(app.agent.turns)와 겹치지 않게
 
-
-class _ScriptedLiner:
-    """네트워크 없이 대본대로 답하는 가짜 Liner. 앞의 tool_turns 번은 LOOP_TOOL 을 부르고, 그 뒤는 글로 답한다
-    (루프의 한도가 빠져도 시험이 끝나게)."""
-
-    def __init__(self, tool_turns: int) -> None:
-        self.tool_turns = tool_turns
-        self.bodies: list[dict] = []
-
-    def handle(self, request: httpx.Request) -> httpx.Response:
-        self.bodies.append(json.loads(request.content))
-        n = len(self.bodies)
-        message: dict[str, Any] = {"role": "assistant", "content": "하네스 시험을 마칩니다."}
-        if n <= self.tool_turns:
-            call = {"id": f"call_{n}", "type": "function", "function": {"name": to_llm_name(LOOP_TOOL), "arguments": "{}"}}
-            message = {"role": "assistant", "content": None, "tool_calls": [call]}
-        body = {"model": "harness-script", "choices": [{"index": 0, "message": message}],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
-        return httpx.Response(200, json=body)
-
-
-async def _drain(events: Any) -> list[Any]:
-    return [e async for e in events]
-
-
-def _run_isolated_turn(cfg: dict[str, Any], llm: _ScriptedLiner) -> dict[str, Any]:
-    """운영 DB 와 따로인 임시 SQLite 에 지금 에이전트 설정을 옮기고 loop.run_turn 한 턴을 끝까지 돌려 관측값을 돌려준다."""
-    with tempfile.TemporaryDirectory(prefix="chronos-harness-") as tmp:
-        engine = create_engine(f"sqlite:///{Path(tmp) / 'harness.db'}")
-        try:
-            Base.metadata.create_all(engine)
-            with Session(engine) as s:
-                settings_store.set_agent_config(s, cfg)
-                user = User(login_id="harness", name="하네스 시험", role="admin", password_hash="-")
-                s.add(user)
-                s.add(LlmConnection(name="하네스 대본", provider="liner", base_url="https://harness.invalid",
-                                    secret_ciphertext=encrypt("harness-not-sent"), secret_last4="sent",
-                                    is_default=True, status="ok"))
-                s.flush()
-                s.add(ChatSession(id=HARNESS_CHAT_ID, user_id=user.id, title=""))
-                s.commit()
-                rollbacks = [0]
-                real_rollback = s.rollback
-
-                def counted_rollback() -> None:  # 루프가 실패한 도구 뒤에 부르는 session.rollback 을 센다
-                    rollbacks[0] += 1
-                    real_rollback()
-
-                s.rollback = counted_rollback  # type: ignore[method-assign]
-                client = LlmClient(s, transport=httpx.MockTransport(llm.handle))
-                turn = loop.run_turn(s, user, HARNESS_CHAT_ID, "하네스 차단 시험", UiContext(), llm=client)
-                events = asyncio.run(_drain(turn))
-                error = next((e.data for e in events if e.type == "error"), None)
-                return {
-                    "rollback_calls": rollbacks[0],
-                    "run_status": s.scalar(select(WorkflowRun.status)),
-                    "step_statuses": list(s.scalars(select(WorkflowStep.status).order_by(WorkflowStep.n))),
-                    "step_count": s.scalar(select(func.count()).select_from(WorkflowStep)),
-                    "error": error,
-                }
-        finally:
-            engine.dispose()
-
-
-def _model_saw_tool_result(llm: _ScriptedLiner) -> dict[str, Any]:
+def _model_saw_tool_result(llm: ScriptedLiner) -> dict[str, Any]:
     """도구 실패 뒤 모델이 다음 호출에서 받은 tool 메시지(JSON)."""
     if len(llm.bodies) < 2:
         return {}
@@ -465,8 +396,8 @@ def _model_saw_tool_result(llm: _ScriptedLiner) -> dict[str, Any]:
 def _run_loop_scenario(rule_id: str, cfg: dict[str, Any]) -> tuple[str, dict[str, Any], bool]:
     """(시뮬레이션 입력, 관측값, 하네스가 실제로 막았는가)."""
     if rule_id == "H-LOOP-01":
-        llm = _ScriptedLiner(tool_turns=1)
-        seen = _run_isolated_turn(cfg, llm)
+        llm = ScriptedLiner(tool_turns=1)
+        seen = run_isolated_turn(cfg, llm)
         sent = _model_saw_tool_result(llm)
         step_status = seen["step_statuses"][0] if seen["step_statuses"] else None
         reflection = sent.get("reflection")
@@ -487,8 +418,8 @@ def _run_loop_scenario(rule_id: str, cfg: dict[str, Any]) -> tuple[str, dict[str
         return sim, fb, held
 
     limit = int(cfg["max_steps"])
-    llm = _ScriptedLiner(tool_turns=limit + 1)
-    seen = _run_isolated_turn(cfg, llm)
+    llm = ScriptedLiner(tool_turns=limit + 1)
+    seen = run_isolated_turn(cfg, llm)
     error = seen["error"] or {}
     fb = {
         "ok": False,
@@ -514,6 +445,9 @@ def run_harness_test(rule_id: str, session: Session) -> dict[str, Any]:
     t0 = time.perf_counter()
     if rule_id in ("H-LOOP-01", "H-LIM-01"):
         sim_input, feedback, blocked = _run_loop_scenario(rule_id, settings_store.get_agent_config(session))
+        engine = "live_harness"
+    elif rule_id in harness_live.RUNNERS:
+        sim_input, feedback, blocked = harness_live.run(rule_id, settings_store.get_agent_config(session))
         engine = "live_harness"
     else:
         sim_input, feedback, engine = _run_live_scenario(rule_id)

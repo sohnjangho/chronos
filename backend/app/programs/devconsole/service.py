@@ -224,7 +224,7 @@ def _button_file(request: str) -> str | None:
     return found.group(1) if found else None
 
 
-def _step_signals(step: WorkflowStep, button_file: str | None) -> list[str]:
+def step_signals(step: WorkflowStep, button_file: str | None) -> list[str]:
     """단계 하나의 기록(입력·출력·오류)이 보여 주는 오늘(11-23) 더한 신호. 기록에 없으면 켜지 않는다."""
     signals: list[str] = []
     out = _parsed_output(step)
@@ -265,7 +265,7 @@ def _branch_signals(llms: list[TraceEvent], steps: list[WorkflowStep], skill_ev:
         lit.append("vision_tool")
     button_file = _button_file(request)
     for s in steps:
-        lit += [flag for flag in _step_signals(s, button_file) if flag not in lit]
+        lit += [flag for flag in step_signals(s, button_file) if flag not in lit]
     if any(s.tool.startswith("files.") or s.tool == "schedule.import" for s in steps):
         lit.append("files_used")
     if any(s.tool == "info.weather" for s in steps):
@@ -387,7 +387,7 @@ def _step_item(step: WorkflowStep, start: datetime, group: int | None, button_fi
     return TimelineItem(
         seq=0, kind="tool", label=step.tool, started_at=start, ms=step.ms, model=None, input_tokens=0,
         output_tokens=0, cost=None, ok=ok, error=None if ok else _step_error(step), input_text=step.input_json,
-        output_text=step.output_json or "", parallel_group=group, signals=_step_signals(step, button_file),
+        output_text=step.output_json or "", parallel_group=group, signals=step_signals(step, button_file),
     )
 
 

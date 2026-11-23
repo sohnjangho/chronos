@@ -118,14 +118,17 @@ export interface UsageOut {
 
 export interface HarnessRule {
   id: string;
+  /** 묶음(일정 계산·에이전트 루프·바깥 정보·권한·가져오기·생성·현장). 예전 서버는 없다 — area 로 묶는다. */
+  group?: string;
   area: string;
   title: string;
   description: string;
   code: string;
   mode: string;
   feedback_sample: string;
-  passed_count: number;
-  blocked_count: number;
+  /** 세션 기록 수. 기록에 남는 값이 없는 규칙은 null(지어내지 않는다). */
+  passed_count: number | null;
+  blocked_count: number | null;
 }
 
 export interface HarnessTestOut {

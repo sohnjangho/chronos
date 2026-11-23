@@ -8,25 +8,25 @@ const at = (base: number, ms: number) => new Date(base + ms).toISOString();
 
 export function turn(over: Partial<Turn> = {}): Turn {
   return {
-    turn_id: 41,
-    chat_session_id: 7,
-    user_name: '김하늘',
-    request: '골조가 4일 밀렸어. 만회 계획 세워 줘',
-    started_at: new Date(Date.now() - 12_800).toISOString(),
-    status: 'running',
-    llm_calls: 4,
-    tool_calls: 5,
-    tokens: 21_400,
-    cost: null,
-    ms: null,
-    ...over,
-  };
-}
+      turn_id: 41,
+      chat_session_id: 7,
+      user_name: '김하늘',
+      request: '골조가 4일 밀렸어. 만회 계획 세워 줘',
+      started_at: new Date(Date.now() - 12_800).toISOString(),
+      status: 'running',
+      llm_calls: 4,
+      tool_calls: 5,
+      tokens: 21_400,
+      cost: null,
+      ms: null,
+      ...over,
+    };
+  }
 
-const LABELS: Record<NodeKey, string> = {
-  request: '요청 받기', context: '컨텍스트 조립', skill: '스킬 찾기', plan: '워크플로우 짜기', judge: '판단 (모델)',
-  tool: '도구 실행', check: '조건 점검', approval: '승인 판단', respond: '응답·기록',
-};
+  const LABELS: Record<NodeKey, string> = {
+    request: '요청 받기', context: '컨텍스트 조립', skill: '스킬 찾기', plan: '워크플로우 짜기', judge: '판단 (모델)',
+    tool: '도구 실행', check: '조건 점검', approval: '승인 판단', respond: '응답·기록',
+  };
 const FLOW: NodeKey[] = ['request', 'context', 'plan', 'judge', 'tool', 'check', 'approval', 'respond'];
 
 const PARTS = [
@@ -135,16 +135,9 @@ let harnessPatch: Partial<HarnessTestOut> = {};
 const byId = new Map<number, TurnDetail>();
 export let fetchMock: ReturnType<typeof vi.fn>;
 
-/** 가짜 개발 콘솔 서버. 상세는 queue 를 차례로(마지막 하나는 계속), 다른 턴은 byId 로. */
-export function setup(role: 'admin' | 'user' = 'admin') {
-  signInAsDemo(role);
-  queue = [running()];
-  list = [turn(), OLDER];
-  byId.clear();
-  byId.set(38, done({ turn_id: 38, request: OLDER.request, started_at: OLDER.started_at }, { unpaired: true }));
-  usageBody = usage();
-  harnessPatch = {};
-  const sampleCatalog = {
+/** 가짜 카탈로그(예전 서버 모양: group·roles·mutates 없음). mockCatalog 로 고친다. */
+function catalogSample() {
+  return {
     principles: ['원칙 1'],
     harness: [
       {
@@ -206,7 +199,11 @@ export function setup(role: 'admin' | 'user' = 'admin') {
       ],
     },
   };
-  const sampleHealth = {
+}
+
+/** 가짜 시스템 진단(예전 서버 모양). mockHealth 로 칸을 더한다. */
+function healthSample() {
+  return {
     llm: {
       status: 'ok',
       connections_count: 1,
@@ -238,6 +235,22 @@ export function setup(role: 'admin' | 'user' = 'admin') {
     },
     active_turns: [{ chat_session_id: 7, title: '골조 지연 만회', stop_requested: false }],
   };
+}
+
+let sampleCatalog = catalogSample();
+let sampleHealth: Record<string, unknown> = healthSample();
+
+/** 가짜 개발 콘솔 서버. 상세는 queue 를 차례로(마지막 하나는 계속), 다른 턴은 byId 로. */
+export function setup(role: 'admin' | 'user' = 'admin') {
+  signInAsDemo(role);
+  queue = [running()];
+  list = [turn(), OLDER];
+  byId.clear();
+  byId.set(38, done({ turn_id: 38, request: OLDER.request, started_at: OLDER.started_at }, { unpaired: true }));
+  usageBody = usage();
+  harnessPatch = {};
+  sampleCatalog = catalogSample();
+  sampleHealth = healthSample();
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === '/api/devconsole/turns?limit=30') return json(200, list);
@@ -278,21 +291,25 @@ function detailResponse(d: TurnDetail | number) {
 /** 차단 시험 응답: 실엔진(live_harness)으로 막았다. mockHarness 로 칸을 덮어쓴다. */
 function harnessOut(ruleId: string): HarnessTestOut {
   return {
-    rule_id: ruleId,
-    title: ruleId,
-    blocked: true,
-    engine: 'live_harness',
-    elapsed_ms: 12,
-    simulated_input: '임시 DB 에서 에이전트 루프(loop.run_turn) 실실행',
-    model_feedback: { rule_id: ruleId, llm_calls: 12, limit: 12 },
-    ...harnessPatch,
-  };
-}
+      rule_id: ruleId,
+      title: ruleId,
+      blocked: true,
+      engine: 'live_harness',
+      elapsed_ms: 12,
+      simulated_input: '임시 DB 에서 에이전트 루프(loop.run_turn) 실실행',
+      model_feedback: { rule_id: ruleId, llm_calls: 12, limit: 12 },
+      ...harnessPatch,
+    };
+  }
 
-export const mockTurn = (d: TurnDetail) => void (queue = [d]);
-export const mockTurnSequence = (ds: (TurnDetail | number)[]) => void (queue = [...ds]);
-export const mockUsage = (u: Partial<UsageOut>) => void (usageBody = usage(u));
-export const mockHarness = (patch: Partial<HarnessTestOut>) => void (harnessPatch = patch);
-export const urls = () => fetchMock.mock.calls.map(([u]) => String(u));
-export const fetchCount = () => urls().filter((u) => u === '/api/devconsole/turns/41').length;
-export const lastUrl = () => urls().at(-1) ?? '';
+  export const mockTurn = (d: TurnDetail) => void (queue = [d]);
+  export const mockTurnSequence = (ds: (TurnDetail | number)[]) => void (queue = [...ds]);
+  export const mockUsage = (u: Partial<UsageOut>) => void (usageBody = usage(u));
+  export const mockHarness = (patch: Partial<HarnessTestOut>) => void (harnessPatch = patch);
+/** 카탈로그를 고친다(새 서버의 칸 — group·roles·mutates 등). */
+export const mockCatalog = (edit: (c: ReturnType<typeof catalogSample>) => void) => edit(sampleCatalog);
+/** 시스템 진단에 칸을 더한다(새 서버의 info_api·evidence_reuse·holidays·vision). */
+export const mockHealth = (extra: Record<string, unknown>) => void (sampleHealth = { ...sampleHealth, ...extra });
+  export const urls = () => fetchMock.mock.calls.map(([u]) => String(u));
+  export const fetchCount = () => urls().filter((u) => u === '/api/devconsole/turns/41').length;
+  export const lastUrl = () => urls().at(-1) ?? '';

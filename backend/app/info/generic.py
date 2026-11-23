@@ -54,6 +54,9 @@ FORBIDDEN_KEY_HEADERS = frozenset({"host", "content-length", "transfer-encoding"
 
 # 시험이 가짜 transport 를 바꿔 끼운다.
 TRANSPORT: httpx.AsyncBaseTransport | None = None
+# 개발 콘솔 하네스 시험(programs/devconsole/harness_live)이 제 작업 맥락 안에서만 끼우는 가짜 transport.
+# ContextVar 라 같은 때 도는 다른 요청(에이전트의 실제 info.call)에는 보이지 않는다. 기본 None 이면 TRANSPORT 그대로.
+HARNESS_TRANSPORT: ContextVar[httpx.AsyncBaseTransport | None] = ContextVar("info_harness_transport", default=None)
 
 BAD_START = "path 는 / 로 시작하는 상대 경로만 됩니다(예: /getRestDeInfo)."
 BAD_PART = "path 에 「{part}」는 쓸 수 없습니다 — 연결 주소 밖으로 나가는 경로는 부르지 않습니다."
@@ -523,7 +526,7 @@ async def fetch(conn: GenericConn, path: str, params: dict[str, str]) -> Fetched
                 headers["Host"] = base.netloc.decode("ascii")
                 url = url.copy_with(host=pinned)
             async with (
-                httpx.AsyncClient(transport=TRANSPORT, timeout=TIMEOUT_S, trust_env=False,
+                httpx.AsyncClient(transport=HARNESS_TRANSPORT.get() or TRANSPORT, timeout=TIMEOUT_S, trust_env=False,
                                   follow_redirects=False) as http,
                 http.stream("GET", url, headers=headers) as response,
             ):

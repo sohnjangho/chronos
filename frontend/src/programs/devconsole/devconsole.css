@@ -760,3 +760,27 @@
   margin-left: auto;
   flex-shrink: 0;
 }
+
+/* 하네스 규칙 · 도구 등록부: 묶음 필터 + 찾기, 묶음 머리줄 */
+.dc-harness-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.dc-search {
+  flex: 0 1 280px;
+  min-width: 160px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--fs-12);
+}
+.dc-cat-table .dc-cat-group th {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-app);
+  color: var(--fg);
+  font-size: var(--fs-12);
+  font-weight: 700;
+}
+.dc-harness-test-res .dc-raw { margin-top: 6px; }
