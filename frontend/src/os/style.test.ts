@@ -135,3 +135,13 @@ test('white text on every filled tone reaches 4.5:1 in both themes', () => {
     }
   }
 });
+
+test('every var(--name) used without a fallback is defined somewhere (an unknown name turns a background transparent) (U2)', () => {
+  const defined = new Set<string>();
+  for (const css of Object.values(uiCssFiles)) for (const [, name] of css.matchAll(/(--[\w-]+)\s*:/g)) defined.add(name);
+  const missing = new Set<string>();
+  for (const [file, css] of Object.entries(uiCssFiles)) {
+    for (const [, name] of css.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)) if (!defined.has(name)) missing.add(`${name} (${file})`);
+  }
+  expect([...missing].sort()).toEqual([]);
+});

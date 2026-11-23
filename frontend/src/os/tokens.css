@@ -7,6 +7,11 @@
   --bg-panel: #ffffff;
   --bg-panel-alt: #f4f7fb;
   --bg-selected: #dceafe;
+  /* 대화·자료함·개발 콘솔이 쓰는 별칭. 같은 :root 에서 풀리므로 어두운 테마 값을 저절로 따른다. */
+  --bg-surface: var(--bg-panel);
+  --bg-elevated: var(--bg-panel-alt);
+  --text-primary: var(--fg);
+  --text-secondary: var(--fg-muted);
   --bg-desktop:
     radial-gradient(circle at 18% 16%, #ffffff 0%, transparent 46%),
     radial-gradient(circle at 84% 20%, #bae6fd 0%, transparent 52%),
