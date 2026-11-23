@@ -48,6 +48,7 @@ export function reader(id: number, get: GetState, set: SetState, q: Queue) {
     try {
       const view = await sapi.getSchedule(id);
       if (seq !== q.loadSeq) return;
+      if ((get().view?.version ?? 0) > view.version) return; // 그 사이 쓰기가 더 새 버전을 줬다 — 옛 답으로 덮지 않는다
       apply(view);
       set({ lastChange: null }); // 다시 읽은 일정(409·다른 곳의 고침)에는 이 창 고침의 지연 알림을 두지 않는다
     } catch (e) {

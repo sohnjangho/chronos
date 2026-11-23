@@ -329,7 +329,7 @@ test('open delays show as a band, and the dotted line says it holds only approve
       : inner(input, init),
   );
   show();
-  expect(await screen.findByRole('note', { name: '기록된 지연' })).toHaveTextContent('기록된 지연 1건 · +3일 · 승인 전');
+  expect(await screen.findByRole('note', { name: '기록된 지연' })).toHaveTextContent('기록된 지연 1건 · 지연 일수 합 3일 · 승인 전');
   expect(screen.getByText('예측(승인·반영된 지연만)')).toBeVisible();
   expect(screen.getByText('Plan 대비 실적 · 아직 안 온 것은 예측(승인·반영된 지연만)')).toBeVisible();
   expect(screen.queryByText(/지연 영향 반영/)).toBeNull();

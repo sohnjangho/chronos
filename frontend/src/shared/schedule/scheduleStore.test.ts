@@ -239,3 +239,12 @@ test('a reload takes the last change away (409 refetch or a version from elsewhe
   await store().patchActivity('A2020', { progress: 0.4 });
   expect(store().lastChange).toBeNull();
 });
+
+// 리뷰 W1: 늦게 온 읽기 답이 이미 가진 것보다 낮은 버전이면 버린다(새 버전을 옛 것으로 덮지 않는다).
+test('a read answer older than the held version is ignored', async () => {
+  await store().load();
+  scheduleStore(1).setState({ view: makeView({ version: 3, finish: '2027-10-29' }) }); // 그 사이 쓰기가 버전 3을 돌려줬다
+  server.view = makeView({ version: 2 });
+  await store().load();
+  expect(store().view).toMatchObject({ version: 3, finish: '2027-10-29' });
+});

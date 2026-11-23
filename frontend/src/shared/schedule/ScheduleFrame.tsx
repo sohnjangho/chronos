@@ -59,16 +59,17 @@ function NoticeBar({ windowId }: { windowId: string }) {
 const DELAY_BAND = new Set(['gantt', 'progress']);
 
 /**
- * 열린(기록했지만 승인·반영 전) 지연의 건수와 일수 합 — 지연 기록 API 의 사건 그대로. 일정을 다시 읽을 때마다(view 가 바뀜:
- * 에이전트 도구 뒤·창 열기·되돌리기)와 지연 기록 창에서 사건이 바뀔 때(delaysToken) 다시 묻는다. 못 읽으면 띠를 보이지 않는다.
+ * 열린(기록했지만 승인·반영 전) 지연의 건수와 일수 합 — 지연 기록 API 의 사건 그대로. 일정 버전이 바뀔 때(승인·되돌리기)와
+ * 사건이 바뀔 때(delaysToken: 지연 기록 창·에이전트 지연 도구) 다시 묻는다. 같은 버전을 다시 읽었다고는 묻지 않는다.
+ * 못 읽으면 띠를 보이지 않는다.
  */
 function useOpenDelays(on: boolean): { count: number; days: number } | null {
   const scheduleId = useSchedule((s) => s.scheduleId);
-  const view = useSchedule((s) => s.view);
+  const version = useSchedule((s) => s.view?.version ?? null);
   const delaysToken = useCurrentSchedule((s) => s.delaysToken);
   const [open, setOpen] = useState<{ count: number; days: number } | null>(null);
   useEffect(() => {
-    if (!on || !view) return;
+    if (!on || version === null) return;
     let live = true;
     api<{ events: { status: string; days: number }[] }>(`/api/schedules/${scheduleId}/delays`).then(
       (d) => {
@@ -80,7 +81,7 @@ function useOpenDelays(on: boolean): { count: number; days: number } | null {
     return () => {
       live = false;
     };
-  }, [on, scheduleId, view, delaysToken]);
+  }, [on, scheduleId, version, delaysToken]);
   return on ? open : null;
 }
 
@@ -90,7 +91,7 @@ function OpenDelayBand({ programId }: { programId: string }) {
   return (
     <div className="sch-notice is-info" role="note" aria-label="기록된 지연">
       <span>
-        <b>{`기록된 지연 ${open.count}건 · +${open.days}일 · 승인 전`}</b>
+        <b>{`기록된 지연 ${open.count}건 · 지연 일수 합 ${open.days}일 · 승인 전`}</b>
         {' — 일정·공정률 계산에는 승인해 반영한 지연만 들어갑니다'}
       </span>
     </div>
@@ -204,8 +205,9 @@ export default function ScheduleFrame(props: FrameProps) {
     const release = holdSchedule(store, windowId);
     void reread(store);
     // 화면 단추로 버전이 바뀐 곳(탐색기 되돌리기·승인함 승인)은 reloadToken 을 올린다 — 열린 창도 다시 읽는다.
+    // 올라갈 때만(로그아웃은 0 으로 되돌린다), 버전이 그대로면 지연 알림을 둔다(reread).
     const stop = useCurrentSchedule.subscribe((s, prev) => {
-      if (s.reloadToken !== prev.reloadToken) void store.getState().load();
+      if (s.reloadToken > prev.reloadToken) void reread(store);
     });
     return () => {
       stop();

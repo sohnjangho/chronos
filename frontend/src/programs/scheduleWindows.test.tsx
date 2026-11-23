@@ -191,7 +191,7 @@ test('the gantt shows a band with the count and days of open delays, not the ref
   delayEvents = [delayEvent(1, 3, 'open'), delayEvent(2, 2, 'open'), delayEvent(3, 4, 'reflected')];
   stubDelays();
   render(<Gantt windowId="w2" params={{ id: '1' }} />);
-  await waitFor(() => expect(band()).toHaveTextContent('기록된 지연 2건 · +5일 · 승인 전'));
+  await waitFor(() => expect(band()).toHaveTextContent('기록된 지연 2건 · 지연 일수 합 5일 · 승인 전'));
   expect(band()).toHaveTextContent('일정·공정률 계산에는 승인해 반영한 지연만 들어갑니다');
 });
 
@@ -203,21 +203,36 @@ test('no band without open delays, and none in the schedule table', async () => 
   await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u) === '/api/schedules/1/delays')).toBe(true));
   expect(band()).toBeNull();
   delayEvents = [delayEvent(1, 3, 'open')];
+  act(() => useCurrentSchedule.getState().bumpDelays()); // 사건이 생겼다
+  await waitFor(() => expect(band()).not.toBeNull());
   render(<ScheduleTable windowId="w1" params={{ id: '1' }} />);
   await screen.findByRole('table', { name: '스케줄표' });
-  await waitFor(() => expect(band()).not.toBeNull()); // 간트는 다시 읽고 띠를 보인다
   expect(screen.getAllByRole('note', { name: '기록된 지연' })).toHaveLength(1); // 스케줄 창에는 없다
 });
 
-test('the band follows a reload of the schedule (a delay recorded in the chat)', async () => {
-  delayEvents = [];
+const delayReads = () => fetchMock.mock.calls.filter(([u]) => String(u) === '/api/schedules/1/delays').length;
+
+test('the band follows a new version of the schedule (an approval that reflected a delay)', async () => {
+  delayEvents = [delayEvent(1, 3, 'open')];
   stubDelays();
   render(<Gantt windowId="w2" params={{ id: '1' }} />);
-  await screen.findByRole('toolbar', { name: '간트 도구' });
-  expect(band()).toBeNull();
+  await waitFor(() => expect(band()).toHaveTextContent('기록된 지연 1건 · 지연 일수 합 3일 · 승인 전'));
+  delayEvents = [delayEvent(1, 3, 'reflected')];
+  server.view = makeView({ version: 2 });
+  await act(() => schedule().load());
+  await waitFor(() => expect(band()).toBeNull());
+});
+
+// 리뷰 W2: 같은 버전을 다시 읽었다고(뷰 객체만 바뀜) 지연 목록을 다시 묻지 않는다.
+test('reading the same version again does not ask for the delays again', async () => {
   delayEvents = [delayEvent(1, 3, 'open')];
-  await act(() => schedule().load()); // 에이전트 도구가 끝나면 지금 일정 저장소를 다시 읽는다
-  await waitFor(() => expect(band()).toHaveTextContent('기록된 지연 1건 · +3일 · 승인 전'));
+  stubDelays();
+  render(<Gantt windowId="w2" params={{ id: '1' }} />);
+  await waitFor(() => expect(band()).not.toBeNull());
+  const asked = delayReads();
+  await act(() => schedule().load());
+  await act(() => schedule().load());
+  expect(delayReads()).toBe(asked);
 });
 
 // W2 후속: 지연 기록 창에서 사건을 등록·고치면(delaysToken) 일정을 다시 읽지 않고 띠만 다시 센다.
@@ -231,6 +246,34 @@ test('the band counts again when the delays window changes an event, without rea
   const reads = loadSpy.mock.calls.length;
   delayEvents = [delayEvent(1, 3, 'open'), delayEvent(2, 1, 'open')];
   act(() => useCurrentSchedule.getState().bumpDelays());
-  await waitFor(() => expect(band()).toHaveTextContent('기록된 지연 2건 · +4일 · 승인 전'));
+  await waitFor(() => expect(band()).toHaveTextContent('기록된 지연 2건 · 지연 일수 합 4일 · 승인 전'));
   expect(loadSpy).toHaveBeenCalledTimes(reads);
+});
+
+
+// 리뷰 W1: 로그아웃(reloadToken 0 으로)에는 열린 창이 다시 읽지 않고, 다시 읽기 신호에도 버전이 그대로면 지연 알림을 둔다.
+test('a reload token going back to 0 (logout) does not make open windows read', async () => {
+  render(<Gantt windowId="w2" params={{ id: '1' }} />);
+  await screen.findByRole('toolbar', { name: '간트 도구' });
+  act(() => useCurrentSchedule.getState().bumpReload());
+  await waitFor(() => expect(loadSpy).toHaveBeenCalledTimes(2));
+  act(() => useCurrentSchedule.setState({ reloadToken: 0 }));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(loadSpy).toHaveBeenCalledTimes(2);
+});
+
+test('a reload signal at the same version keeps the delay notice of the table window', async () => {
+  const tableWin = render(<ScheduleTable windowId="w1" params={{ id: '1' }} />);
+  await screen.findByRole('table', { name: '스케줄표' });
+  const late = makeView({ version: 2 });
+  late.activities = late.activities.map((a) => (a.id === 'A3010' ? { ...a, status: 'late +2' } : a));
+  mockPatch(late);
+  await editCell('A3010', 'OD', '40');
+  expect(await within(tableWin.container).findByText(/늦어졌습니다/)).toBeVisible();
+  server.view = late;
+  const reads = loadSpy.mock.calls.length;
+  act(() => useCurrentSchedule.getState().bumpReload());
+  await waitFor(() => expect(loadSpy).toHaveBeenCalledTimes(reads + 1));
+  await waitFor(() => expect(schedule().view?.version).toBe(2));
+  expect(within(tableWin.container).getByText(/늦어졌습니다/)).toBeVisible();
 });

@@ -21,3 +21,17 @@ describe('새 에이전트 도구의 화면 이름(A6)', () => {
     expect(labelOf('info.call', null)).toBe('정보 API 조회');
   });
 });
+
+// 리뷰 W2: 에이전트가 지연을 기록하면(버전은 그대로) 간트·공정률의 기록된 지연 띠가 다시 센다.
+describe('onToolEnd delay signal', () => {
+  it('a successful delay tool bumps the delays token, other tools and failures do not', async () => {
+    const { useCurrentSchedule } = await import('./currentSchedule');
+    const token = () => useCurrentSchedule.getState().delaysToken;
+    const before = token();
+    useAgentView.getState().onToolEnd({ tool: 'delay.record', ok: true, n: 1 });
+    expect(token()).toBe(before + 1);
+    useAgentView.getState().onToolEnd({ tool: 'delay.record', ok: false, n: 2 });
+    useAgentView.getState().onToolEnd({ tool: 'schedule.read', ok: true, n: 3 });
+    expect(token()).toBe(before + 1);
+  });
+});

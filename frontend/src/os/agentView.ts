@@ -571,6 +571,8 @@ export const useAgentView = create<AgentViewState>((set, get) => {
         const store = scheduleStore(sid);
         if (store.getState().view) void store.getState().load();
       }
+      // 지연 기록 도구는 버전을 바꾸지 않는다 — 기록된 지연 띠가 다시 세게 따로 알린다.
+      if (data.ok === true && typeof data.tool === 'string' && data.tool.startsWith('delay.')) useCurrentSchedule.getState().bumpDelays();
       const stepN = typeof data.n === 'number' ? data.n : null;
       const ok = data.ok !== false;
       set((s) => ({
