@@ -86,6 +86,17 @@ class VoiceOut(BaseModel):
     test_call_index: int | None
     key_notice: KeyNotice | None
     call_limits: dict[str, int]
+    saved: bool  # 음성 설정 줄이 있는가(없으면 화면은 넣기 폼을, 있으면 카드를 보인다)
+    model_effective: str  # 실제로 쓰는 모델(구글은 빈 값이면 기본 Live 모델, 다른 공급자는 빈 값 = SDK 기본 "")
+    agent_number_effective_masked: str | None  # 실제로 쓰는 AI 전화 번호(가린 꼴) — 비었으면 알림 연결의 발신번호
+    agent_number_source: Literal["voice", "connection"] | None
+
+
+class VoiceModelsOut(BaseModel):
+    models: list[str]
+    default: str
+    fallback: bool  # 구글에서 읽은 목록이 아니라 고정 목록
+    reason: str | None  # fallback 의 까닭(쉬운 한국어)
 
 
 class VoiceStepOut(StepOut):

@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -37,7 +37,7 @@ from app.db import get_session
 from app.errors import ApiError
 from app.notify import diagnostics, diagnostics_voice
 from app.outreach import phone, provider, redact
-from app.outreach.voice import runner
+from app.outreach.voice import live_models, numbers, runner
 from app.programs.notify_settings import diagnose, service
 from app.programs.notify_settings.voice_schemas import (
     SLOT_FIELDS,
@@ -47,6 +47,7 @@ from app.programs.notify_settings.voice_schemas import (
     KeyNotice,
     VoiceDiagnoseIn,
     VoiceDiagnosisOut,
+    VoiceModelsOut,
     VoiceOut,
     VoiceStepOut,
     VoiceUpdate,
@@ -79,6 +80,7 @@ RECALL = ("앞서 건 시험 전화가 걸렸는지·끊겼는지 아직 모릅�
           "확인한 뒤에도 다시 걸려면 다시 걸기를 골라 주세요.")
 VERSION_NEEDED = "시험 전화와 받는 통화 확인에는 허용 번호 목록 판(allow_numbers_version)을 함께 보내 주세요."
 TIMED_OUT = "시간 안에 끝나지 않아 결과를 확인하지 못했습니다."
+MODEL_UNUSABLE = "AI 음성 모델 〈{model}〉을 이 키로 쓸 수 없습니다 — 모델을 다시 골라 주세요"
 NOT_FINISHED = ("전화가 걸렸는지·끊겼는지 알 수 없음 — 요청이 끝나지 않은 채 남았습니다. 휴대전화를 확인해 주세요"
                 "(통화 중이면 끊어 주세요).")
 _WORD = re.compile(r"[a-z_]{1,40}")
@@ -215,6 +217,7 @@ def save(session: Session, conn_id: int, data: VoiceUpdate) -> VoiceOut:
 
 def _out(conn: NotifyConnection, row: VoiceSettings | None) -> VoiceOut:
     number = row.agent_number if row is not None else None
+    effective = numbers.effective_agent_number(conn, row)
     allow = list(conn.allow_numbers_json or [])
     name = row.provider if row is not None else "google"
     by_language = row.voices_by_language_json if row is not None else None
@@ -229,10 +232,39 @@ def _out(conn: NotifyConnection, row: VoiceSettings | None) -> VoiceOut:
                             for lang, slots in (by_language if isinstance(by_language, dict) else {}).items()
                             if isinstance(slots, dict)},
         status=row.status if row is not None else "unknown", checked_at=row.checked_at if row is not None else None,
-        sdk_installed=sdk_installed(), test_call_index=0 if allow and phone.can_call(allow[0]) and number else None,
+        sdk_installed=sdk_installed(), test_call_index=0 if allow and phone.can_call(allow[0]) and effective else None,
         key_notice=KeyNotice(code="google_free_tier", message=FREE_TIER_NOTICE) if name == "google" else None,
-        call_limits=CALL_LIMITS,
+        call_limits=CALL_LIMITS, saved=row is not None,
+        model_effective=numbers.effective_model(name, row.model if row is not None else "") or "",
+        agent_number_effective_masked=phone.mask(effective) if effective else None,
+        agent_number_source=numbers.agent_number_source(conn, row),
     )
+
+
+def remove(session: Session, conn_id: int) -> None:
+    """음성 설정 줄과 그 키를 지운다(없으면 그대로). 진단이 도는 동안은 받지 않는다. 키는 다른 곳이 쓰지 않을 때만 거르개에서 내린다."""
+    service.get(session, conn_id)
+    service.begin_write(session)
+    if conn_id in diagnose._RUNNING:
+        session.rollback()
+        raise ApiError(409, "diagnosis_running", RUNNING)
+    row = session.get(VoiceSettings, conn_id, populate_existing=True)
+    old_key = _plain(row.secret_ciphertext) if row is not None else None
+    if row is not None:
+        session.delete(row)
+    session.commit()
+    _drop_unused(session, old_key)
+
+
+def models(session: Session, conn_id: int) -> VoiceModelsOut:
+    """저장된 구글 키로 쓸 수 있는 Live 모델(요청 한 번). 구글 키가 없거나 읽지 못하면 고정 목록과 까닭. DB 는 부르기 전에 놓는다."""
+    service.get(session, conn_id)
+    row = session.get(VoiceSettings, conn_id)
+    key = _plain(row.secret_ciphertext) if row is not None and row.provider == "google" else None
+    session.rollback()
+    found = live_models.list_live_models(key)
+    return VoiceModelsOut(models=list(found.models), default=numbers.DEFAULT_LIVE_MODEL, fallback=found.fallback,
+                          reason=found.reason)
 
 
 # ── 진단: 걸기 전 검사·기록 ──────────────────────────────────────────
@@ -270,7 +302,7 @@ def _call_target(conn: NotifyConnection, row: VoiceSettings, data: VoiceDiagnose
     service.check_allow_version(conn, version if version is None or version.isascii() else "", VERSION_NEEDED)
     if not phone.can_call(allow[0]):
         raise ApiError(422, "test_number_not_callable", "첫 허용 번호가 전화를 걸 수 없는 번호입니다.")
-    if not row.agent_number:
+    if not numbers.effective_agent_number(conn, row):
         raise ApiError(422, "no_agent_number", "AI 전화 번호를 먼저 넣어 주세요.")
     return allow[0]
 
@@ -298,10 +330,12 @@ def _prepare_sync(session: Session, conn_id: int, data: VoiceDiagnoseIn) -> _Pre
     provider.register_secrets(key, conn.account_id)  # 풀자마자, SDK 를 건드리기 전에 로그 거르개에 올린다
     redact.add_secrets(voice_key)
     prep = _Prep(
-        part=part, chunks=chunks, wait=data.wait_inbound_s, agent_number=row.agent_number, call_to=call_to,
+        part=part, chunks=chunks, wait=data.wait_inbound_s, agent_number=numbers.effective_agent_number(conn, row),
+        call_to=call_to,
         conn=diagnostics.DiagnosticConn(base_url=conn.base_url, key=key, account_id=conn.account_id,
                                         sender=conn.sender_number or ""),
-        voice=diagnostics_voice.VoiceDiag(provider=row.provider, key=voice_key, model=row.model or None))
+        voice=diagnostics_voice.VoiceDiag(provider=row.provider, key=voice_key,
+                                          model=numbers.effective_model(row.provider, row.model)))
     session.rollback()  # 트랜잭션을 끝내고 부른다
     return prep
 
@@ -529,6 +563,19 @@ def _settle_cancelled(conn_id: int, stamp: str, budget: diagnostics_voice.VoiceB
         pass
 
 
+async def _model_refused(prep: _Prep, budget: diagnostics_voice.VoiceBudget, now: datetime) -> dict[int, dict] | None:
+    """구글이면 걸기·연결 전에 이 키의 Live 모델 목록을 본다. 목록을 읽었는데 고른 모델이 없으면 P5 를 실패로 둔 줄(나머지는
+    연결 안 됨으로 건너뜀), 아니면(읽지 못했거나 목록에 있음·다른 공급자) None — 그때는 전처럼 돈다."""
+    if prep.voice.provider != "google" or not prep.voice.model:
+        return None
+    found = await run_in_threadpool(live_models.list_live_models, prep.voice.key)
+    if found.fallback or prep.voice.model in found.models:
+        return None
+    step = diagnostics_voice.VoiceStep(id="P5", label=diagnostics_voice.LABELS["P5"], ok=False,
+                                       detail=MODEL_UNUSABLE.format(model=prep.voice.model), code="model_not_available")
+    return _fresh(prep, {5: step}, "unlinked", budget, now)
+
+
 async def run(session: Session, conn_id: int, data: VoiceDiagnoseIn, by: str) -> VoiceDiagnosisOut:
     prep = await run_in_threadpool(_prepare_sync, session, conn_id, data)
     if conn_id in diagnose._RUNNING:  # 연결 진단(P1~P4)과도 겹치지 않는다
@@ -537,6 +584,9 @@ async def run(session: Session, conn_id: int, data: VoiceDiagnoseIn, by: str) ->
     diagnose._RUNNING.add(conn_id)
     _VOICE_RUNNING[conn_id] = {"part": prep.part, "at": now, "by": by}
     try:
+        refused = await _model_refused(prep, budget, now)
+        if refused is not None:  # 이 키로 쓸 수 없는 모델 — 연결도 전화도 하지 않는다
+            return await run_in_threadpool(_save_sync, session, conn_id, prep.part, refused, None, now, by)
         if prep.part == "call":
             await run_in_threadpool(_mark_calling_sync, session, conn_id, data, by, now)
         try:
@@ -615,6 +665,17 @@ def get_voice(conn_id: int, session: SessionDep) -> VoiceOut:
 @router.put("/connections/{conn_id}/voice", dependencies=[AdminOnly])
 def put_voice(conn_id: int, body: VoiceUpdate, session: SessionDep) -> VoiceOut:
     return save(session, conn_id, body)
+
+
+@router.delete("/connections/{conn_id}/voice", status_code=204, dependencies=[AdminOnly])
+def delete_voice(conn_id: int, session: SessionDep) -> Response:
+    remove(session, conn_id)
+    return Response(status_code=204)
+
+
+@router.get("/connections/{conn_id}/voice/models", dependencies=[AdminOnly])
+def voice_models(conn_id: int, session: SessionDep) -> VoiceModelsOut:
+    return models(session, conn_id)
 
 
 @router.post("/connections/{conn_id}/voice/diagnose")

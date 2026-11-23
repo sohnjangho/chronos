@@ -352,7 +352,7 @@ function headText(part: VoicePart, ids: VoiceStepId[], diag: VoiceDiagnosis | nu
 }
 
 /** 단추 하나와 그 걸음 줄. 줄에는 판정과 서버 글만, 코드는 접어서. */
-function PartGroup({ title, part, ids, diag, children }: { title: string; part: VoicePart; ids: VoiceStepId[]; diag: VoiceDiagnosis | null; children: ReactNode }) {
+function PartGroup({ title, part, ids, diag, children }: { title: string; part: VoicePart; ids: VoiceStepId[]; diag: VoiceDiagnosis | null; children?: ReactNode }) {
   return (
     <div className="st-vc-part" role="group" aria-label={title}>
       <div className="st-vc-part-head">
@@ -386,8 +386,19 @@ function CallRecords({ calls }: { calls: CallRecord[] }) {
   );
 }
 
-/** 띠 · 「실제 통화 포함」 · 확인 창 · 도는 중 · 경고 · 세 묶음(단추 + 걸음 줄) · 시험 전화 기록. */
-export function VoiceDiagnostics({ conn, voice, d, r, hold }: { conn: NotifyConnection; voice: VoiceSettings; d: Diag; r: Real; hold: boolean }) {
+/**
+ * 단추 줄([음성 진단][시험 전화] + 카드의 extra) · below(카드의 고치기 폼·지우기 확인) · 띠 · 「실제 통화 포함」 · 확인 창 · 도는 중 · 경고 ·
+ * 세 묶음(걸음 줄, 받는 통화는 그 단추와 함께) · 시험 전화 기록.
+ */
+export function VoiceDiagnostics({ conn, voice, d, r, hold, extra, below }: {
+  conn: NotifyConnection;
+  voice: VoiceSettings;
+  d: Diag;
+  r: Real;
+  hold: boolean;
+  extra?: ReactNode;
+  below?: ReactNode;
+}) {
   const busy = hold || r.pending !== null;
   const why = diagWhy(voice);
   const band = bandOf(voice, d.diag);
@@ -397,6 +408,16 @@ export function VoiceDiagnostics({ conn, voice, d, r, hold }: { conn: NotifyConn
   const serverRunning = !d.running && d.diag?.state === 'running' ? d.diag : null;
   return (
     <>
+      <div className="st-actions">
+        <Button disabled={busy || !!why} onClick={() => void d.run('connection', [{ phase: null, body: {} }])}>
+          음성 진단
+        </Button>
+        <Button disabled={callOff || callUnknown} onClick={() => r.ask('call')}>
+          시험 전화
+        </Button>
+        {extra}
+      </div>
+      {below}
       {band && (
         <div className="st-vc-band" role="note">
           {band}
@@ -406,6 +427,10 @@ export function VoiceDiagnostics({ conn, voice, d, r, hold }: { conn: NotifyConn
         <label className="st-nt-switch">
           <input type="checkbox" role="switch" checked={r.real && !callBlock} disabled={!!callBlock || busy} onChange={(e) => r.setReal(e.target.checked)} />
           <span>{`실제 통화 포함${r.target ? ` — ${r.target}` : ''}`}</span>
+        </label>
+        <label className="st-nt-switch st-vc-p10">
+          <input type="checkbox" checked={r.p10} disabled={callOff} onChange={(e) => r.setP10(e.target.checked)} />
+          <span>영어 첫마디(P10)도 — 한 통 더</span>
         </label>
         <span className="st-muted st-nt-real-why">
           {callBlock ?? '켜면 [시험 전화]·[받는 통화 확인]을 쓸 수 있습니다. 첫 허용 번호로만 걸고, 그 번호에서 걸려 온 전화만 받습니다.'}
@@ -432,20 +457,9 @@ export function VoiceDiagnostics({ conn, voice, d, r, hold }: { conn: NotifyConn
         </div>
       )}
       <section className="st-vc-diag" aria-label="음성 진단 결과">
-        <PartGroup title="연결 확인" part={GROUPS[0].part} ids={GROUPS[0].ids} diag={d.diag}>
-          <Button disabled={busy || !!why} onClick={() => void d.run('connection', [{ phase: null, body: {} }])}>
-            음성 진단
-          </Button>
-        </PartGroup>
+        <PartGroup title="연결 확인" part={GROUPS[0].part} ids={GROUPS[0].ids} diag={d.diag} />
         <PartGroup title="시험 전화" part={GROUPS[1].part} ids={GROUPS[1].ids} diag={d.diag}>
           {d.diag?.state === 'done' && d.diag.part === 'call' && d.diag.called_real && <Badge tone="info">실제 전화 걸림</Badge>}
-          <label className="st-nt-switch st-vc-p10">
-            <input type="checkbox" checked={r.p10} disabled={callOff} onChange={(e) => r.setP10(e.target.checked)} />
-            <span>영어 첫마디(P10)도 — 한 통 더</span>
-          </label>
-          <Button disabled={callOff || callUnknown} onClick={() => r.ask('call')}>
-            시험 전화
-          </Button>
         </PartGroup>
         <PartGroup title="받는 통화" part={GROUPS[2].part} ids={GROUPS[2].ids} diag={d.diag}>
           <Button disabled={callOff} onClick={() => r.ask('inbound')}>

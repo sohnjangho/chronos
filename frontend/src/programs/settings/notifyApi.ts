@@ -182,6 +182,21 @@ export interface VoiceSettings {
     inbound_wait_min: number;
     inbound_wait_max: number;
   };
+  /** 음성 설정을 저장한 적이 있는가 — 없으면 넣기 폼, 있으면 카드. */
+  saved: boolean;
+  /** 실제로 쓰는 모델(구글은 비우면 기본 Live 모델). 다른 공급자는 비우면 "" = SDK 기본. */
+  model_effective: string;
+  /** 실제로 쓰는 AI 전화 번호(가린 꼴). 따로 넣지 않으면 한국AI통신 연결의 발신번호. */
+  agent_number_effective_masked: string | null;
+  agent_number_source: 'voice' | 'connection' | null;
+}
+
+/** 이 키로 쓸 수 있는 구글 Live 모델. fallback = 구글에서 읽지 못해 고정 목록(reason 에 까닭). */
+export interface VoiceModels {
+  models: string[];
+  default: string;
+  fallback: boolean;
+  reason: string | null;
 }
 
 /** 보낸 칸만 바꾼다. 공급자를 google·openai 로 바꾸면 secret 도 꼭. */
@@ -240,6 +255,10 @@ const voicePath = (id: number) => `${BASE}/${id}/voice`;
 export const voiceApi = {
   get: (id: number) => api<VoiceSettings>(voicePath(id)),
   save: (id: number, body: VoicePatch) => api<VoiceSettings>(voicePath(id), send('PUT', body)),
+  /** 음성 설정과 그 키를 지운다(관리자, 진단 중이면 409). */
+  remove: (id: number) => api<void>(voicePath(id), send('DELETE')),
+  /** 저장된 구글 키로 쓸 수 있는 Live 모델(못 읽으면 고정 목록 + 까닭). */
+  models: (id: number) => api<VoiceModels>(`${voicePath(id)}/models`),
   diagnose: (id: number, body: VoiceDiagnoseIn, signal?: AbortSignal) =>
     api<VoiceDiagnosis>(`${voicePath(id)}/diagnose`, send('POST', body, signal)),
   /** 마지막 음성 진단. 아직 돌린 적이 없으면 null. */

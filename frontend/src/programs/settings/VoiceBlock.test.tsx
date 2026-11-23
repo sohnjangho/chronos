@@ -3,8 +3,9 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test } from 'vitest';
 import { json } from '../../test-helpers';
-import type { NotifyConnection, VoiceDiagnosis, VoiceSettings, VoiceStep, VoiceStepId } from './notifyApi';
+import type { NotifyConnection, VoiceDiagnosis, VoiceModels, VoiceSettings, VoiceStep, VoiceStepId } from './notifyApi';
 import { renderAs, resetAll, sent } from './testKit';
+import { voiceStatus } from './VoiceBlock';
 
 const SENTINEL_KEY = 'gemini-test-key-QQQQ7777';
 const LIST = '/api/notify/connections';
@@ -65,6 +66,10 @@ function voice(over: Partial<VoiceSettings> = {}): VoiceSettings {
     test_call_index: 0,
     key_notice: { code: 'google_free_tier', message: FREE },
     call_limits: { calls_per_request: 2, ring_seconds: 20, call_seconds: 60, inbound_wait_default: 90, inbound_wait_min: 10, inbound_wait_max: 180 },
+    saved: true,
+    model_effective: 'gemini-3.8-live',
+    agent_number_effective_masked: '070-****-0456',
+    agent_number_source: 'voice',
     ...over,
   };
 }
@@ -130,15 +135,24 @@ function open(over: Record<string, unknown> = {}) {
     [`${ONE}/limits`]: { values: LIMITS, defaults: LIMITS, ranges: {} },
     [VOICE]: voice(),
     [`${VOICE}/diagnosis`]: () => json(200, null),
+    [`${VOICE}/models`]: MODELS,
     ...over,
   });
 }
 
-/** 음성 설정을 읽어 칸이 그려질 때까지 기다린다. */
+const MODELS: VoiceModels = { models: ['gemini-3.8-live', 'gemini-x-live'], default: 'gemini-3.8-live', fallback: false, reason: null };
+
+/** 저장된 음성 설정을 읽어 카드가 그려질 때까지 기다린다. */
 async function findBlock() {
   const b = await screen.findByRole('region', { name: 'AI 전화' });
-  await within(b).findByRole('combobox', { name: '음성 모델 공급자' });
+  await within(b).findByRole('button', { name: '변경' });
   return b;
+}
+
+/** 카드의 [변경]으로 고치기 폼을 연다. */
+async function editForm(b: HTMLElement) {
+  await userEvent.click(within(b).getByRole('button', { name: '변경' }));
+  return within(b).getByRole('group', { name: 'AI 전화 설정 고치기' });
 }
 
 /** 「실제 통화 포함」을 켜고 단추를 누른다(확인 창까지). */
@@ -149,30 +163,42 @@ async function askReal(b: HTMLElement, button: '시험 전화' | '받는 통화 
 
 afterEach(resetAll);
 
-test('at rest the block shows the provider, only the last four of the key, the model, the masked 070 number and the call limit', async () => {
+test('saved settings are a card: provider · model, the number and its source, only the last four of the key, status and buttons', async () => {
   open();
   const b = await findBlock();
-  expect(within(b).getByRole('combobox', { name: '음성 모델 공급자' })).toHaveDisplayValue('구글 Gemini Live');
-  expect(within(b).getByText('끝 4자리 ••••1234')).toBeVisible();
-  const key = within(b).getByLabelText(/^음성 모델 키/);
+  expect(within(b).queryByRole('combobox')).toBeNull(); // 폼은 [변경]으로만 연다
+  expect(within(b).queryByLabelText(/^음성 모델 키/)).toBeNull();
+  expect(within(b).getByText('구글 Gemini Live')).toBeVisible();
+  expect(within(b).getByText('gemini-3.8-live · 기본값')).toBeVisible();
+  expect(within(b).getByText('070-****-0456 · 따로 넣은 번호')).toBeVisible();
+  expect(within(b).getByText('••••••••••••1234')).toBeVisible();
+  expect(within(b).getByText('아직 진단 안 함', { selector: '.ui-badge' })).toBeVisible();
+  expect(within(b).getByText(/300초/)).toBeVisible();
+  expect(within(b).getByText(FREE)).toBeVisible();
+  for (const name of ['음성 진단', '변경', '삭제']) expect(within(b).getByRole('button', { name })).toBeEnabled();
+  expect(within(b).getByRole('button', { name: '시험 전화' })).toBeDisabled(); // 「실제 통화 포함」을 켜야 열린다(그대로)
+  const form = await editForm(b);
+  expect(within(form).getByRole('combobox', { name: '음성 모델 공급자' })).toHaveDisplayValue('구글 Gemini Live');
+  expect(within(form).getByText('끝 4자리 ••••1234')).toBeVisible();
+  const key = within(form).getByLabelText(/^음성 모델 키/);
   expect(key).toHaveAttribute('type', 'password');
   expect(key).toHaveAttribute('autocomplete', 'off');
   expect(key).toHaveValue('');
-  expect(within(b).getByText(/070-\*\*\*\*-0456/)).toBeVisible();
-  expect(within(b).getByText(/300초/)).toBeVisible();
-  expect(within(b).getByText(FREE)).toBeVisible();
-  expect(within(b).getByLabelText('모델')).toHaveAttribute('placeholder', expect.stringContaining('기본 모델'));
+  expect(await within(form).findByRole('combobox', { name: '모델' })).toHaveValue('gemini-3.8-live');
+  for (const name of ['음성 진단', '시험 전화', '변경', '삭제']) expect(within(b).getByRole('button', { name })).toBeDisabled();
 });
 
 test('saving a key sends only the key, empties the field and never shows it back', async () => {
   const { fetchMock } = open({ [`PUT ${VOICE}`]: voice({ secret_last4: '7777' }) });
   const b = await findBlock();
-  const key = within(b).getByLabelText(/^음성 모델 키/);
+  const form = await editForm(b);
+  await within(form).findByRole('combobox', { name: '모델' });
+  const key = within(form).getByLabelText(/^음성 모델 키/);
   await userEvent.type(key, SENTINEL_KEY);
-  await userEvent.click(within(b).getByRole('button', { name: '저장' }));
-  expect(await within(b).findByText('끝 4자리 ••••7777')).toBeVisible();
+  await userEvent.click(within(form).getByRole('button', { name: '저장' }));
+  expect(await within(b).findByText('••••••••••••7777')).toBeVisible();
   expect(sent(fetchMock, `PUT ${VOICE}`)).toEqual([{ secret: SENTINEL_KEY }]);
-  expect(key).toHaveValue('');
+  expect(key).not.toBeInTheDocument(); // 저장하면 폼이 닫히고 카드로 돌아간다
   expect(document.body.innerHTML).not.toContain(SENTINEL_KEY);
   expect(fetchMock.mock.calls.some(([url]) => String(url).includes(SENTINEL_KEY))).toBe(false);
 });
@@ -181,9 +207,10 @@ test('a refused key shows the server reason under the key field, empties it and 
   const message = '음성 모델 키는 8자 이상이고 공백·줄바꿈 같은 글자가 없어야 합니다.';
   open({ [`PUT ${VOICE}`]: () => json(422, { code: 'invalid_secret', message, detail: null }) });
   const b = await findBlock();
-  const key = within(b).getByLabelText(/^음성 모델 키/);
+  const form = await editForm(b);
+  const key = within(form).getByLabelText(/^음성 모델 키/);
   await userEvent.type(key, 'bad key 1');
-  await userEvent.click(within(b).getByRole('button', { name: '저장' }));
+  await userEvent.click(within(form).getByRole('button', { name: '저장' }));
   const field = key.closest('.ui-field') as HTMLElement;
   expect(await within(field).findByText(message)).toBeVisible();
   expect(key).toHaveValue('');
@@ -194,9 +221,10 @@ test('a refused 070 number is reported under the number field', async () => {
   const message = '번호 형식이 올바르지 않거나 쓸 수 없는 번호입니다.';
   open({ [`PUT ${VOICE}`]: () => json(422, { code: 'invalid_number', message, detail: { field: 'agent_number' } }) });
   const b = await findBlock();
-  const num = within(b).getByLabelText('AI 전화 번호');
+  const form = await editForm(b);
+  const num = within(form).getByLabelText('AI 전화 번호');
   await userEvent.type(num, '060-0000-0000');
-  await userEvent.click(within(b).getByRole('button', { name: '저장' }));
+  await userEvent.click(within(form).getByRole('button', { name: '저장' }));
   const field = num.closest('.ui-field') as HTMLElement;
   expect(await within(field).findByText(message)).toBeVisible();
 });
@@ -204,11 +232,13 @@ test('a refused 070 number is reported under the number field', async () => {
 test('changing the provider asks for the key again before it can be saved', async () => {
   const { fetchMock } = open({ [`PUT ${VOICE}`]: voice({ provider: 'openai', key_notice: null, secret_last4: '7777' }) });
   const b = await findBlock();
-  await userEvent.selectOptions(within(b).getByRole('combobox', { name: '음성 모델 공급자' }), 'OpenAI Realtime');
-  expect(within(b).getByText(/공급자를 바꾸면 음성 모델 키를 다시 넣어 주세요/)).toBeVisible();
-  const save = within(b).getByRole('button', { name: '저장' });
+  const form = await editForm(b);
+  await userEvent.selectOptions(within(form).getByRole('combobox', { name: '음성 모델 공급자' }), 'OpenAI Realtime');
+  expect(within(form).getByText(/공급자를 바꾸면 음성 모델 키를 다시 넣어 주세요/)).toBeVisible();
+  expect(within(form).getByLabelText('모델')).toHaveAttribute('placeholder', expect.stringContaining('기본 모델')); // OpenAI 는 지금처럼 글 칸
+  const save = within(form).getByRole('button', { name: '저장' });
   expect(save).toBeDisabled();
-  await userEvent.type(within(b).getByLabelText(/^음성 모델 키/), SENTINEL_KEY);
+  await userEvent.type(within(form).getByLabelText(/^음성 모델 키/), SENTINEL_KEY);
   await userEvent.click(save);
   await waitFor(() => expect(sent(fetchMock, `PUT ${VOICE}`)).toEqual([{ provider: 'openai', secret: SENTINEL_KEY }]));
   await waitFor(() => expect(within(b).queryByText(FREE)).toBeNull());
@@ -291,7 +321,7 @@ test('while a voice diagnosis runs every diagnosis button of both blocks is disa
   const status = within(b).getByRole('status', { name: '음성 진단 진행' });
   expect(status).toHaveTextContent(/P5 · P9 · P11/);
   expect(status).toHaveTextContent(/0:0\d/);
-  for (const name of ['음성 진단', '시험 전화', '받는 통화 확인', '저장']) expect(within(b).getByRole('button', { name })).toBeDisabled();
+  for (const name of ['음성 진단', '시험 전화', '받는 통화 확인', '변경', '삭제']) expect(within(b).getByRole('button', { name })).toBeDisabled();
   expect(within(card()).getByRole('button', { name: '연결 진단' })).toBeDisabled();
   expect(within(card()).getByRole('switch', { name: /실제 문자 1건 보내기/ })).toBeDisabled();
   release();
@@ -449,7 +479,7 @@ test('without the voice SDK the band is shown, the call buttons are locked and t
   expect(within(b).getByRole('button', { name: '시험 전화' })).toBeDisabled();
   expect(within(b).getByRole('button', { name: '받는 통화 확인' })).toBeDisabled();
   expect(within(b).getByRole('button', { name: '음성 진단' })).toBeEnabled();
-  expect(within(b).getByRole('combobox', { name: '음성 모델 공급자' })).toBeEnabled();
+  expect(within(await editForm(b)).getByRole('combobox', { name: '음성 모델 공급자' })).toBeEnabled();
   const band = within(b).getByText(BAND);
   expect(band.compareDocumentPosition(results()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
@@ -476,6 +506,8 @@ test('an open confirm dialog in the notify block locks the voice buttons, and th
   open();
   const b = await findBlock();
   const c = card();
+  // 알림 연결 카드 자신의 단추(「AI 전화」 카드에도 [삭제]가 있다)
+  const own = (name: string) => within(c).getAllByRole('button', { name }).find((el) => !b.contains(el)) as HTMLElement;
   await userEvent.click(within(c).getByRole('switch', { name: /실제 문자 1건 보내기/ }));
   await userEvent.click(within(c).getByRole('button', { name: '시험 문자' }));
   expect(within(c).getByRole('group', { name: '실제 문자 확인' })).toBeVisible();
@@ -483,7 +515,7 @@ test('an open confirm dialog in the notify block locks the voice buttons, and th
   expect(within(b).getByRole('switch', { name: /실제 통화 포함/ })).toBeDisabled();
   await userEvent.click(within(within(c).getByRole('group', { name: '실제 문자 확인' })).getByRole('button', { name: '취소' }));
   expect(within(b).getByRole('button', { name: '음성 진단' })).toBeEnabled();
-  await userEvent.click(within(c).getByRole('button', { name: '삭제' }));
+  await userEvent.click(own('삭제'));
   expect(within(c).getByRole('group', { name: '연결 삭제 확인' })).toBeVisible();
   expect(within(b).getByRole('button', { name: '음성 진단' })).toBeDisabled();
   await userEvent.click(within(within(c).getByRole('group', { name: '연결 삭제 확인' })).getByRole('button', { name: '취소' }));
@@ -491,7 +523,7 @@ test('an open confirm dialog in the notify block locks the voice buttons, and th
   await askReal(b, '시험 전화');
   expect(within(b).getByRole('group', { name: '실제 통화 확인' })).toBeVisible();
   expect(within(c).getByRole('button', { name: '연결 진단' })).toBeDisabled();
-  expect(within(c).getByRole('button', { name: '삭제' })).toBeDisabled();
+  expect(own('삭제')).toBeDisabled();
 });
 
 test('a diagnosis read back as running shows 도는 중 in its group, never 안 돌림', async () => {
@@ -504,4 +536,149 @@ test('a diagnosis read back as running shows 도는 중 in its group, never 안 
   expect(within(results()).queryByText('안 돌림')).toBeNull();
   expect(within(results()).queryByText(/아직 돌리지 않/)).toBeNull();
   expect(within(b).getByRole('button', { name: '음성 진단' })).toBeDisabled();
+});
+
+// ── 11-24 손보기: 모델은 목록에서 · 번호는 연결에서 · 저장하면 카드 ──
+
+const FRESH = voice({
+  saved: false,
+  has_secret: false,
+  secret_last4: '',
+  agent_number_masked: null,
+  agent_number_kind: '',
+  agent_number_effective_masked: '070-****-0123',
+  agent_number_source: 'connection',
+});
+
+/** 저장 전: 넣기 폼이 그려질 때까지. */
+async function findAddForm() {
+  const b = await screen.findByRole('region', { name: 'AI 전화' });
+  return { b, form: await within(b).findByRole('group', { name: 'AI 전화 설정 넣기' }) };
+}
+
+test('before anything is saved the add form shows the Live model list with gemini-3.8-live first and 직접 입력', async () => {
+  const { fetchMock } = open({ [VOICE]: FRESH, [`PUT ${VOICE}`]: voice({ model: 'gemini-x-live', model_effective: 'gemini-x-live', agent_number_source: 'connection' }) });
+  const { b, form } = await findAddForm();
+  expect(within(b).queryByRole('button', { name: '변경' })).toBeNull();
+  expect(within(b).queryByRole('region', { name: '음성 진단 결과' })).toBeNull();
+  const select = await within(form).findByRole('combobox', { name: '모델' });
+  await waitFor(() => expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['gemini-3.8-live (기본)', 'gemini-x-live', '직접 입력']));
+  expect(select).toHaveValue('gemini-3.8-live');
+  expect(within(form).getByText('이 키로 쓸 수 있는 실시간 음성 모델 2개')).toBeVisible();
+  await userEvent.selectOptions(select, '직접 입력');
+  expect(within(form).getByLabelText('모델 이름')).toHaveFocus();
+  await userEvent.selectOptions(select, 'gemini-x-live');
+  const save = within(form).getByRole('button', { name: '저장' });
+  expect(save).toBeDisabled(); // 키 없이는 저장하지 않는다
+  await userEvent.type(within(form).getByLabelText(/^음성 모델 키/), SENTINEL_KEY);
+  await userEvent.click(save);
+  await waitFor(() => expect(sent(fetchMock, `PUT ${VOICE}`)).toEqual([{ secret: SENTINEL_KEY, model: 'gemini-x-live' }]));
+  expect(await within(b).findByRole('button', { name: '변경' })).toBeVisible();
+  expect(document.body.innerHTML).not.toContain(SENTINEL_KEY);
+});
+
+test('the default model is not sent when it was left as it is', async () => {
+  const { fetchMock } = open({ [VOICE]: FRESH, [`PUT ${VOICE}`]: voice() });
+  const { form } = await findAddForm();
+  await within(form).findByRole('combobox', { name: '모델' });
+  await userEvent.type(within(form).getByLabelText(/^음성 모델 키/), SENTINEL_KEY);
+  await userEvent.click(within(form).getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(sent(fetchMock, `PUT ${VOICE}`)).toEqual([{ secret: SENTINEL_KEY }]));
+});
+
+test('when the list could not be read the select still offers the default and says why', async () => {
+  const reason = '구글이 시간 안에 답하지 않아 기본 목록을 보여 줍니다.';
+  open({ [VOICE]: FRESH, [`${VOICE}/models`]: { models: ['gemini-3.8-live'], default: 'gemini-3.8-live', fallback: true, reason } });
+  const { form } = await findAddForm();
+  expect(await within(form).findByText(reason)).toBeVisible();
+  expect(within(form).getByRole('combobox', { name: '모델' })).toHaveValue('gemini-3.8-live');
+});
+
+test('a stored model the key cannot use is kept visible and marked', async () => {
+  open({ [VOICE]: voice({ model: 'gemini-3.1-flash-live-preview', model_effective: 'gemini-3.1-flash-live-preview' }) });
+  const b = await findBlock();
+  const select = await within(await editForm(b)).findByRole('combobox', { name: '모델' });
+  await waitFor(() => expect(select).toHaveDisplayValue('gemini-3.1-flash-live-preview — 이 키로 쓸 수 없음'));
+});
+
+test('the AI call number defaults to the KoreaAITel number and [다른 번호 쓰기] reveals the field', async () => {
+  const { fetchMock } = open({ [VOICE]: FRESH, [`PUT ${VOICE}`]: voice() });
+  const { form } = await findAddForm();
+  const line = within(form).getByRole('group', { name: 'AI 전화 번호' });
+  expect(line).toHaveTextContent('한국AI통신 연결의 번호(070-****-0123)를 씁니다');
+  expect(within(form).queryByRole('textbox', { name: 'AI 전화 번호' })).toBeNull();
+  await userEvent.click(within(line).getByRole('button', { name: '다른 번호 쓰기' }));
+  const field = within(form).getByLabelText('AI 전화 번호');
+  expect(field).toHaveFocus();
+  await userEvent.type(field, '070-0000-0456');
+  await userEvent.type(within(form).getByLabelText(/^음성 모델 키/), SENTINEL_KEY);
+  await userEvent.click(within(form).getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(sent(fetchMock, `PUT ${VOICE}`)).toEqual([{ secret: SENTINEL_KEY, agent_number: '070-0000-0456' }]));
+});
+
+test('the card names the number in use and where it comes from', async () => {
+  open({ [VOICE]: voice({ agent_number_masked: null, agent_number_effective_masked: '070-****-0123', agent_number_source: 'connection' }) });
+  const b = await findBlock();
+  expect(within(b).getByText('070-****-0123 · 한국AI통신 연결의 번호')).toBeVisible();
+});
+
+test('a stored own number can be put back to the KoreaAITel number', async () => {
+  const { fetchMock } = open({ [`PUT ${VOICE}`]: voice({ agent_number_masked: null, agent_number_source: 'connection' }) });
+  const b = await findBlock();
+  const form = await editForm(b);
+  await userEvent.click(within(form).getByRole('button', { name: '연결의 번호(070-****-0123) 쓰기' }));
+  expect(within(form).getByRole('group', { name: 'AI 전화 번호' })).toHaveTextContent('저장하면 바뀝니다');
+  await userEvent.click(within(form).getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(sent(fetchMock, `PUT ${VOICE}`)).toEqual([{ agent_number: null }]));
+});
+
+test('[변경] then 취소 closes the form without sending anything', async () => {
+  const { fetchMock } = open();
+  const b = await findBlock();
+  const form = await editForm(b);
+  await userEvent.click(within(form).getByRole('button', { name: '취소' }));
+  expect(within(b).queryByRole('group', { name: 'AI 전화 설정 고치기' })).toBeNull();
+  expect(sent(fetchMock, `PUT ${VOICE}`)).toEqual([]);
+  expect(within(b).getByRole('button', { name: '음성 진단' })).toBeEnabled();
+});
+
+test('[삭제] asks first, sends DELETE and shows the add form again', async () => {
+  let gone = false;
+  const { fetchMock } = open({
+    [VOICE]: () => json(200, gone ? FRESH : voice()),
+    [`DELETE ${VOICE}`]: () => ((gone = true), new Response(null, { status: 204 })),
+  });
+  const b = await findBlock();
+  await userEvent.click(within(b).getByRole('button', { name: '삭제' }));
+  const confirm = within(b).getByRole('group', { name: 'AI 전화 삭제 확인' });
+  expect(confirm).toHaveTextContent('음성 모델 키·AI 전화 번호');
+  expect(within(card()).getByRole('button', { name: '연결 진단' })).toBeDisabled(); // 확인 창이 열려 있으면 알림 쪽도 잠근다
+  await userEvent.click(within(confirm).getByRole('button', { name: '취소' }));
+  expect(sent(fetchMock, `DELETE ${VOICE}`)).toHaveLength(0);
+  await userEvent.click(within(b).getByRole('button', { name: '삭제' }));
+  await userEvent.click(within(within(b).getByRole('group', { name: 'AI 전화 삭제 확인' })).getByRole('button', { name: '삭제' }));
+  expect(await screen.findByRole('group', { name: 'AI 전화 설정 넣기' })).toBeVisible();
+  expect(sent(fetchMock, `DELETE ${VOICE}`)).toHaveLength(1);
+});
+
+test('a refused delete (diagnosis running) is shown and the card stays', async () => {
+  open({ [`DELETE ${VOICE}`]: () => json(409, { code: 'diagnosis_running', message: RUNNING, detail: null }) });
+  const b = await findBlock();
+  await userEvent.click(within(b).getByRole('button', { name: '삭제' }));
+  await userEvent.click(within(within(b).getByRole('group', { name: 'AI 전화 삭제 확인' })).getByRole('button', { name: '삭제' }));
+  expect(await within(b).findByText(RUNNING)).toBeVisible();
+  expect(within(b).getByRole('button', { name: '변경' })).toBeVisible();
+});
+
+test('the card status: 연결됨 · 실패 · 확인 필요(never 실패 for an unknown call) · 아직 진단 안 함', () => {
+  const ran = diag({ P5: { ok: true, skipped: false, code: 'ok', detail: '연결됐습니다.' } });
+  expect(voiceStatus(voice({ status: 'ok' }), ran)).toEqual({ tone: 'success', text: '연결됨' });
+  expect(voiceStatus(voice({ status: 'failed' }), ran)).toEqual({ tone: 'danger', text: '실패' });
+  expect(voiceStatus(voice({ status: 'unknown' }), null)).toEqual({ tone: 'neutral', text: '아직 진단 안 함' });
+  expect(voiceStatus(voice({ status: 'unknown' }), diag())).toEqual({ tone: 'neutral', text: '아직 진단 안 함' });
+  expect(voiceStatus(voice({ status: 'unknown' }), ran)).toEqual({ tone: 'warning', text: '확인 필요' });
+  const unknownCall = diag({ P6: { ok: false, skipped: false, maybe_sent: true, code: 'cut_unconfirmed', detail: '모름' } }, { call_unknown: true });
+  expect(voiceStatus(voice({ status: 'ok' }), unknownCall)).toEqual({ tone: 'warning', text: '확인 필요' });
+  const pending = diag({ P5: { ok: false, skipped: false, pending: true, code: 'timeout', detail: '확인하지 못했습니다.' } });
+  expect(voiceStatus(voice({ status: 'unknown' }), pending).text).toBe('확인 필요');
 });

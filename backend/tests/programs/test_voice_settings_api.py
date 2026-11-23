@@ -24,6 +24,7 @@ from app.notify import diagnostics
 from app.notify import diagnostics_voice as dv
 from app.notify.diagnostics import DiagnosticStep
 from app.outreach import redact
+from app.outreach.voice import live_models
 from app.programs.notify_settings import diagnose as diagnose_mod
 from app.programs.notify_settings import router as router_mod
 from app.programs.notify_settings import voice
@@ -138,6 +139,15 @@ def world() -> World:
     return World()
 
 
+@pytest.fixture(autouse=True)
+def no_google(monkeypatch):
+    """구글 모델 목록은 부르지 않는다 — 읽지 못한 것으로 둔다(그때 진단은 전처럼 돈다). 모델 확인은 test_voice_settings_ux.py 가 본다."""
+    def refuse(key: str, timeout_s: float):
+        raise ConnectionError("시험에서는 구글을 부르지 않습니다")
+
+    monkeypatch.setattr(live_models, "google_client", refuse)
+
+
 def scripted(monkeypatch, world: World, sdk: FakeSdk) -> None:
     """실제 `run_voice_checks` 를 대본 가짜 SDK·대본 시계로 돌린다."""
     async def run(conn, voice_diag, **kw):
@@ -205,10 +215,13 @@ def test_defaults_before_anything_is_saved(client, admin, fake_provider, session
         "connection_id": conn["id"], "provider": "google", "has_secret": False, "secret_last4": "", "model": "",
         "agent_number_masked": None, "agent_number_kind": "", "voice_male_contact": None,
         "voice_female_contact": None, "voice_unknown": None, "voices_by_language": {}, "status": "unknown",
-        "checked_at": None, "sdk_installed": body["sdk_installed"], "test_call_index": None,
+        "checked_at": None, "sdk_installed": body["sdk_installed"], "test_call_index": 0,
         "key_notice": {"code": "google_free_tier", "message": voice.FREE_TIER_NOTICE},
         "call_limits": {"calls_per_request": 2, "ring_seconds": dv.RING_TIMEOUT_S, "call_seconds": dv.CALL_CUT_S,
                         "inbound_wait_default": 90, "inbound_wait_min": 10, "inbound_wait_max": dv.MAX_WAIT_INBOUND_S},
+        "saved": False, "model_effective": "gemini-3.8-live",
+        # AI 전화 번호가 비면 알림 연결의 발신번호를 쓴다(PM 11-24) — 그래서 처음부터 시험 전화를 걸 수 있다
+        "agent_number_effective_masked": "070-****-0123", "agent_number_source": "connection",
     }
     assert isinstance(body["sdk_installed"], bool) and "구글" in voice.FREE_TIER_NOTICE
     assert session.get(VoiceSettings, conn["id"]) is None  # 읽기만으로 줄을 만들지 않는다
@@ -287,7 +300,8 @@ def test_agent_number_is_validated_masked_and_its_own_setting(client, admin, fak
     for empty in (None, ""):
         assert put(client, admin, cid, agent_number=AGENT).status_code == 200
         gone = put(client, admin, cid, agent_number=empty).json()
-        assert gone["agent_number_masked"] is None and gone["agent_number_kind"] == "" and gone["test_call_index"] is None
+        assert gone["agent_number_masked"] is None and gone["agent_number_kind"] == ""
+        assert gone["agent_number_source"] == "connection" and gone["test_call_index"] == 0  # 알림 연결의 번호로
 
 
 def test_provider_change_needs_the_key_again(client, admin, fake_provider, session):
@@ -492,6 +506,8 @@ def test_calls_are_refused_before_anything_runs(client, admin, fake_provider, sp
     conn = connection(client, admin, SENTINEL_PHONE)
     cid = conn["id"]
     assert put(client, admin, cid, secret=GOOGLE_KEY).status_code == 200
+    session.get(NotifyConnection, cid).sender_number = None  # AI 전화 번호도, 대신 쓸 연결의 번호도 없다
+    session.commit()
     for make in (call_body, inbound_body):
         r = diag(client, admin, cid, {k: v for k, v in make(conn).items() if k != "allow_numbers_version"})
         assert r.status_code == 422 and r.json()["code"] == "allow_version_required"
@@ -1335,7 +1351,8 @@ def test_result_of_a_deleted_connection_is_returned_but_not_saved(client, admin,
 def test_voice_routes_answer_in_the_real_app(client):
     """`app/main.py` 는 프로그램의 router.py 가 내보낸 라우터만 붙인다 — 그 한 줄이 빠지면 네 길이 모두 404 가 된다."""
     assert router_mod.voice_router is voice.router
-    for method, tail in (("GET", "/voice"), ("PUT", "/voice"), ("POST", "/voice/diagnose"), ("GET", "/voice/diagnosis")):
+    for method, tail in (("GET", "/voice"), ("PUT", "/voice"), ("POST", "/voice/diagnose"), ("GET", "/voice/diagnosis"),
+                         ("DELETE", "/voice"), ("GET", "/voice/models")):
         r = client.request(method, f"{BASE}/1{tail}", json={})
         assert r.status_code == 401 and r.json()["code"] == "unauthorized", (method, tail, r.status_code)  # 404 가 아니다
 
@@ -1344,8 +1361,11 @@ def test_routes_are_mounted_admin_only_and_database_routes_are_plain_functions()
     paths = {(method.upper(), path) for path, ops in app.openapi()["paths"].items() if "/voice" in path for method in ops}
     assert paths == {("GET", "/api/notify/connections/{conn_id}/voice"), ("PUT", "/api/notify/connections/{conn_id}/voice"),
                      ("POST", "/api/notify/connections/{conn_id}/voice/diagnose"),
-                     ("GET", "/api/notify/connections/{conn_id}/voice/diagnosis")}
-    assert not [n for n in ("get_voice", "put_voice", "last_voice_diagnosis") if inspect.iscoroutinefunction(getattr(voice, n))]
+                     ("GET", "/api/notify/connections/{conn_id}/voice/diagnosis"),
+                     ("DELETE", "/api/notify/connections/{conn_id}/voice"),
+                     ("GET", "/api/notify/connections/{conn_id}/voice/models")}
+    assert not [n for n in ("get_voice", "put_voice", "last_voice_diagnosis", "delete_voice", "voice_models")
+                if inspect.iscoroutinefunction(getattr(voice, n))]
     assert inspect.iscoroutinefunction(voice.run_voice_diagnosis)
     source = FILE.read_text()
     assert "diagnostics_voice.run_voice_checks(" in source and "print(" not in source

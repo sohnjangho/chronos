@@ -42,6 +42,7 @@ getting-started · voice-agent/providers · call-blocking · call-failure-causes
 import asyncio
 import importlib
 import inspect
+import logging
 import re
 import sys
 import time
@@ -52,7 +53,7 @@ from functools import partial
 
 from app.notify import diagnostics
 from app.notify.diagnostics import NOT_REQUESTED, DiagnosticConn, DiagnosticStep, scrub
-from app.notify.voice_sdk_logs import _quiet_sdk
+from app.notify.voice_sdk_logs import _quiet_sdk, session_failure
 from app.outreach import phone, redact
 
 SDK_MODULE = "clawops.agent"  # 배포 이름은 koreaaitel, import 이름은 clawops
@@ -121,6 +122,10 @@ BAD_WAIT = "기다릴 시간을 읽지 못해 걸려 오는 전화를 확인하�
 NOT_SUPPORTED = "음성 목록은 SDK 가 제공하지 않습니다 — 음성 이름은 설정에서 직접 고릅니다"
 NO_RESPONSE_TIME = "첫 응답 시간은 재지 못했습니다(받아쓰기가 오지 않음)"
 CRASHED = "진단 중 오류가 나 이 걸음을 끝내지 못했습니다."
+NO_MODEL = "AI 음성 모델에 연결하지 못했습니다"
+NO_MODEL_HINT = {404: " 모델을 다시 골라 주세요.", 400: " 음성 모델 키를 확인해 주세요.", 401: " 음성 모델 키를 확인해 주세요.",
+                 403: " 음성 모델 키를 확인해 주세요."}
+NO_MODEL_SKIP = "AI 음성 모델에 연결되지 않아 확인하지 못했습니다."
 REASONS = {"no-answer": ("no_answer", "전화를 받지 않았습니다."), "busy": ("busy", "통화 중이었습니다."),
            "rejected": ("declined", "상대가 전화를 거절했습니다."), "canceled": ("canceled", "전화가 취소됐습니다."),
            "failed": ("call_failed", "전화 연결에 실패했습니다.")}
@@ -259,7 +264,21 @@ class _Run:
         self.caught: str | None = None  # 창에서 잡은(허용 번호의) 통화 id
         self.seen: Counter[str] = Counter()  # 창에서 본 통화: match · stranger · unreadable · over
         self.restricted = self.reject_seen = False  # 번호 표시 제한 · 거절을 부른 뒤 SDK 가 거절로 표시했는가
+        self.no_model: dict[str, int | None] = {}  # AI 음성 모델 세션을 열지 못한 통화 id → HTTP 상태(SDK 로그 줄에서)
         self.out: dict[int, VoiceStep] = {}
+
+    def saw(self, record: logging.LogRecord) -> None:
+        """SDK 로그 가운데 AI 음성 모델 세션을 열지 못한 줄만 — 통화 id 와 HTTP 상태만 남긴다."""
+        found = session_failure(record)
+        if found is not None:
+            self.no_model[found[0]] = found[1]
+
+    def model_failed(self, call: _Call) -> str | None:
+        """그 통화에서 SDK 가 AI 음성 모델 세션을 열지 못했으면 사람이 읽을 까닭(HTTP 상태만), 아니면 None."""
+        if call.session is None or _call_id(call.session) not in self.no_model:
+            return None
+        status = self.no_model[_call_id(call.session)]
+        return f"{NO_MODEL}(응답 코드 {status}).{NO_MODEL_HINT.get(status, '')}" if status else f"{NO_MODEL}."
 
     def clean(self, text: object, limit: int = 200) -> str:
         return scrub(text, secrets=self.secrets, numbers=self.numbers, limit=limit)
@@ -547,6 +566,10 @@ class _Run:
             return self.put(n, call.error.code, call.error.detail, notes=[call.error.note], maybe=call.maybe)
         if not call.ended:
             return self.put(n, "cut_unconfirmed", CUT_UNCONFIRMED, maybe=True)
+        no_model = self.model_failed(call)
+        if no_model is not None:
+            status = self.no_model[_call_id(call.session)]
+            return self.put(n, "model_connect_failed", no_model, data={"http_status": status})
         if call.started is None:
             code, text = REASONS.get(call.failed, REASONS["failed"])
             return self.put(n, code, text, notes=[f"call_failed: {call.failed or '-'}"])
@@ -560,6 +583,8 @@ class _Run:
         """P7(전사 이벤트의 수와 역할) · P8(도구 호출 수)."""
         if call.error is not None or call.started is None:
             return self.skip(n, "skipped_no_call", NO_CALL, maybe=call.maybe)
+        if self.model_failed(call) is not None:
+            return self.skip(n, "skipped_no_model", NO_MODEL_SKIP)
         total = sum(call.roles.values())
         if n == 8 and call.tools:
             return self.put(8, "ok", f"통화 중 진단 도구가 {call.tools}번 불렸습니다.", ok=True, data={"tool_calls": call.tools})
@@ -742,7 +767,7 @@ async def run_voice_checks(conn: DiagnosticConn, voice: VoiceDiag, *, agent_numb
     crash = ""
     if picked:
         redact.add_secrets(*run.secrets)  # SDK 를 건드리기 전에 로그 거르개에 올린다
-        with _quiet_sdk(run.clean, SDK_LOGGERS, READY_ENV):
+        with _quiet_sdk(run.clean, SDK_LOGGERS, READY_ENV, watch=run.saw):
             try:
                 try:
                     await run.go(set(picked), sdk, lang2, wait_inbound_s, worker_connected)
