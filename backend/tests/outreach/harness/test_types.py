@@ -1,5 +1,7 @@
-"""하네스 낱말(Task 64): 꼴, 판정 코드·문 차례 이름, 범위의 현장 짝·현장 고르기, 값 검사, 도구 정의 읽기 전용."""
+"""하네스 낱말(Task 64): 꼴, 판정 코드·사건 이름 상수, 범위의 현장 짝과 「현장을 고르기 전에는 닫힘」, 값 검사,
+도구 정의 읽기 전용, 통로 결과 셋 갈래."""
 
+import dataclasses
 import json
 from dataclasses import FrozenInstanceError, fields
 from typing import get_args
@@ -7,9 +9,19 @@ from typing import get_args
 import pytest
 
 from app.outreach.harness.types import (
+    ADMIT_REASONS,
+    CALL_RESULTS,
+    CHANNELS,
+    DELIVERY_UPDATES,
+    DELIVERY_VERDICT,
     EVENT_RULES,
+    FIXED_DETAILS,
+    GATE_NOTES,
     GATE_RULES,
+    GRANT_CEILING,
+    REVIEW_FLAGS,
     SHARED_TOOLS,
+    TOOL_REFUSALS,
     VOICE_ONLY_TOOLS,
     Actor,
     Caller,
@@ -36,11 +48,12 @@ PLAN_SHARED_TOOLS = ("find_contact", "propose_contact", "schedule_fact", "my_req
 # 일정 A(협력사 21, 철근)·B(협력사 22, 전기)에 같은 사람(연락처 11·12)이 있다
 A, B = 101, 202
 IN_A, IN_B = Candidate(A, 11, 21), Candidate(B, 12, 22)
+ALL_CLASSES = get_args(CallerClass)
 
 
 def test_words_have_the_plan_shapes():
     assert get_args(Medium) == ("sms", "call")
-    assert get_args(CallerClass) == (
+    assert ALL_CLASSES == (
         "internal", "contact", "contact_multi", "shared", "do_not_contact", "unknown", "withheld", "blocked",
         "outside_test", "outbound",
     )
@@ -49,7 +62,7 @@ def test_words_have_the_plan_shapes():
         Outcome: ["code", "message", "rule", "scheduled_at"],
         Candidate: ["schedule_id", "contact_id", "company_id"],
         Caller: ["caller_class", "candidates", "user_id"],
-        Scope: ["caller_class", "schedule_ids", "candidates", "personal", "granted", "site_required"],
+        Scope: ["caller_class", "schedule_ids", "candidates", "grant_personal", "grant_facts"],
         Ref: ["kind", "row_id"],
         Delivered: ["state", "provider_id", "fail_code", "fail_text"],
         ToolDef: ["name", "description", "parameters"],
@@ -60,14 +73,223 @@ def test_words_have_the_plan_shapes():
     assert Delivered("sent") == Delivered("sent", None, None, None)
     scope = Scope("contact", (A,), (IN_A,), True, "trade")
     with pytest.raises(FrozenInstanceError):
-        scope.granted = "all"  # 범위는 만든 뒤 바꿀 수 없다
+        scope.grant_facts = "all"  # 범위는 만든 뒤 바꿀 수 없다
     assert hash(scope) == hash(Scope("contact", [A], [IN_A], True, "trade"))
+
+
+# ── 판정 코드·사건 이름 ──────────────────────────────────────────────
 
 
 def test_outcome_codes_equal_the_plan_list():
     # 이름표 14개 + unsure(보내기 요청은 나갔는데 결과를 모름 — 「보냈는지 확인 필요」, 제공사 리뷰 11-23 더함)
     assert set(get_args(OutcomeCode)) == {code.strip() for code in PLAN_OUTCOME_CODES.split("|")} | {"unsure"}
     assert len(get_args(OutcomeCode)) == 15
+
+
+def test_outcome_checks_code_and_rule():
+    assert Outcome("blocked_hours", "근무시간 밖", rule=3).rule == 3
+    with pytest.raises(ValueError):
+        Outcome("sent", "없는 판정 코드")
+    with pytest.raises(ValueError):
+        Outcome("duplicate", "없는 차례", rule=9)
+
+
+def test_gate_rules_follow_the_design_order():
+    # 설계 규칙 1: 시험 모드 → 차단·수신 거부 → 근무시간 → 상한 → 권한 → 중복, 그리고 채널 고르기(0 은 앞 확인)
+    assert list(GATE_RULES) == list(range(8))
+    assert [GATE_RULES[n] for n in range(8)] == [
+        "precheck", "test_mode", "blocked_or_dnc", "working_hours", "limits", "permission", "duplicate", "channel_choice",
+    ]
+    assert not set(GATE_RULES.values()) & EVENT_RULES  # 이름이 겹치지 않는다
+
+
+def test_constant_maps_are_read_only():
+    for mapping in (GATE_RULES, GRANT_CEILING, DELIVERY_VERDICT, FIXED_DETAILS):
+        with pytest.raises(TypeError):
+            mapping["x"] = "y"
+    for name_set in (EVENT_RULES, GATE_NOTES, TOOL_REFUSALS, REVIEW_FLAGS, ADMIT_REASONS, CALL_RESULTS, DELIVERY_UPDATES):
+        assert isinstance(name_set, frozenset)
+    assert all(isinstance(codes, frozenset) for codes in FIXED_DETAILS.values())
+
+
+def test_event_vocabulary_is_complete():
+    assert GATE_NOTES == {"reply_within_grace", "kakao_not_ready"}
+    assert TOOL_REFUSALS == {"tool:unknown", "tool_not_allowed", "tool_bad_args", "scope_denied"}
+    assert REVIEW_FLAGS == {"unsupported_date", "unsupported_answer", "out_of_scope_said", "money_said",
+                            "disclosed_to_unknown"}
+    assert EVENT_RULES == GATE_NOTES | REVIEW_FLAGS | (TOOL_REFUSALS - {"tool:unknown"}) | {
+        "delivery", "delivery_update", "no_answer_retry", "admission", "site_pinned", "reply_failed", "held_for_review",
+        "recheck_before_dial", "silence", "time_limit", "call_result", "hangup_by_person", "server_restart",
+    }
+    assert DELIVERY_UPDATES == {"delivered", "failed", "gave_up"}
+    assert CALL_RESULTS == {"no_answer", "busy", "failed", "backend_error"}
+    assert dict(DELIVERY_VERDICT) == {"sent": "allowed", "failed": "blocked", "unsure": "noted"}
+    assert dict(FIXED_DETAILS) == {"channel_choice": frozenset(CHANNELS), "admission": ADMIT_REASONS,
+                                   "call_result": CALL_RESULTS, "delivery_update": DELIVERY_UPDATES}
+    assert CHANNELS == ("sms", "kakao", "call")
+
+
+def test_admit_reasons_cover_the_door_table():
+    # 계획 Task 66 의 받기 차례 표 아홉 줄(전화·문자 갈래 포함)
+    assert ADMIT_REASONS == {
+        "inbound_off",  # 1 받는 범위 「받지 않음」
+        "outside_test", "blocked_number",  # 2 시험 모드 밖 · 차단 번호
+        "burst_limit", "auto_reply_limit",  # 3 잦은 전화 · 자동 답 상한
+        "stop_word",  # 4 수신 거부 말
+        "machine_text", "media_attached",  # 5 기계 문자 · 사진
+        "do_not_contact",  # 6 수신 거부 연락처
+        "unknown_not_accepted", "unknown_accepted",  # 7 모르는 번호·번호 숨김(모드에 따라)
+        "line_busy",  # 8 동시 통화 한도
+        "known_caller",  # 9 내부·연락처 등급
+    }
+
+
+def test_event_rules_cover_the_names_later_tasks_record():
+    assert {
+        "reply_within_grace", "kakao_not_ready", "delivery", "no_answer_retry", "admission", "scope_denied",
+        "unsupported_date", "out_of_scope_said", "money_said", "disclosed_to_unknown", "reply_failed",
+        "held_for_review", "recheck_before_dial", "silence", "time_limit", "server_restart",
+    } <= EVENT_RULES
+
+
+def test_tool_names_are_the_plan_list():
+    assert SHARED_TOOLS == PLAN_SHARED_TOOLS
+    assert VOICE_ONLY_TOOLS == ("end_call", "confirm_person")
+
+
+# ── 범위: 현장 짝과 「현장을 고르기 전에는 닫힘」 ─────────────────────
+
+
+def test_pinned_scope_keeps_only_that_site_pairing():
+    multi = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "trade")
+    at_a = multi.pinned(A)
+    assert at_a.schedule_ids == (A,)
+    assert at_a.company_ids == (21,) and at_a.contact_ids == (11,)
+    assert at_a.facts == "trade" and at_a.personal is True and at_a.site_required is False
+    assert multi.company_ids == (21, 22)  # 고르기 전에는 두 짝이 다 있지만
+    assert multi.facts == "none"  # 사실은 하나도 말하지 않는다
+
+
+def test_site_required_is_derived_not_an_argument():
+    forgot = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "trade")  # 만드는 쪽이 아무것도 적지 않아도
+    assert forgot.site_required is True and forgot.facts == "none"
+    with pytest.raises(TypeError):
+        Scope("contact_multi", (A, B), (IN_A, IN_B), True, "trade", site_required=False)  # 받는 칸이 없다
+    assert Scope("contact", (A,), (IN_A,), True, "trade").site_required is False
+
+
+def test_personal_is_closed_until_a_site_is_pinned():
+    multi = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "trade")
+    assert multi.personal is False  # 두 프로젝트의 「내게 온 요청」이 섞이지 않게
+    assert multi.grant_personal is True and multi.pinned(B).personal is True
+
+
+def test_pinning_outside_the_candidates_raises():
+    multi = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "trade")
+    with pytest.raises(ValueError):
+        multi.pinned(303)
+    with pytest.raises(ValueError):
+        multi.pinned(A).pinned(B)  # 굳힌 뒤에는 다른 현장으로 넓힐 수 없다
+    with pytest.raises(ValueError):
+        multi.pinned(True)
+
+
+def test_internal_scope_requires_a_site_when_it_sees_several():
+    internal = Scope("internal", (A, B), (), False, "all")
+    assert internal.site_required is True and internal.facts == "none"
+    assert internal.pinned(B).schedule_ids == (B,) and internal.pinned(B).facts == "all"
+    assert internal.pinned(B).contact_ids == ()
+    assert Scope("internal", (A,), (), False, "all").facts == "all"
+
+
+def test_replace_cannot_widen_a_scope():
+    multi = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "trade")
+    with pytest.raises(TypeError):
+        dataclasses.replace(multi, site_required=False)
+    with pytest.raises(ValueError):
+        dataclasses.replace(multi, grant_facts="all")  # 연락처 쪽의 끝은 trade
+    shared = Scope("shared", (A,), (IN_A, Candidate(A, 13, 21)), False, "trade")
+    with pytest.raises(ValueError):
+        dataclasses.replace(shared, grant_personal=True)  # 대표번호는 개인 요청을 말하지 않는다
+    unknown = Scope("unknown", (), (), False, "none")
+    with pytest.raises(ValueError):
+        dataclasses.replace(unknown, grant_facts="trade")
+    with pytest.raises(ValueError):
+        dataclasses.replace(multi, schedule_ids=(A, B, 303))  # 짝 없는 일정을 끼워 넣음
+
+
+@pytest.mark.parametrize("cls", ALL_CLASSES)
+def test_grant_never_exceeds_the_class_ceiling(cls):
+    ceiling = GRANT_CEILING[cls]
+    order = ("none", "trade", "all")
+    pairs = () if cls == "internal" else (IN_A,)
+    ids = (A,)
+    for level in order:
+        if order.index(level) <= order.index(ceiling):
+            assert Scope(cls, ids, pairs, False, level).grant_facts == level
+        else:
+            with pytest.raises(ValueError):
+                Scope(cls, ids, pairs, False, level)
+    assert set(GRANT_CEILING) == set(ALL_CLASSES)
+
+
+def test_class_ceilings():
+    assert dict(GRANT_CEILING) == {
+        "internal": "all", "contact": "trade", "contact_multi": "trade", "shared": "trade", "outbound": "trade",
+        "do_not_contact": "none", "unknown": "none", "withheld": "none", "blocked": "none", "outside_test": "none",
+    }
+    for cls in ("internal", "shared", "do_not_contact", "unknown", "withheld", "blocked", "outside_test"):
+        with pytest.raises(ValueError):
+            Scope(cls, (A,), () if cls == "internal" else (IN_A,), True, "none")  # 개인 요청은 연락처 본인 등급만
+    for cls in ("contact", "contact_multi", "outbound"):
+        assert Scope(cls, (A,), (IN_A,), True, "none").grant_personal is True
+
+
+def test_contact_side_schedules_must_equal_the_pair_schedules():
+    with pytest.raises(ValueError):
+        Scope("contact", (A, B), (IN_A,), True, "trade")  # B 에 짝이 없다 — 굳히면 협력사 없는 trade 가 된다
+    with pytest.raises(ValueError):
+        Scope("contact", (A,), (IN_A, IN_B), True, "trade")  # 짝의 일정이 범위에 없다
+    with pytest.raises(ValueError):
+        Scope("internal", (A,), (IN_A,), False, "all")  # 내부 계정은 연락처 짝이 없다
+    with pytest.raises(ValueError):
+        Scope("contact", (A, A), (IN_A,), True, "trade")  # 같은 일정 두 번
+    assert Scope("unknown", (), (), False, "none").facts == "none"
+
+
+def test_scope_and_caller_coerce_and_validate():
+    scope = Scope("contact", [A], [IN_A], True, "trade")
+    assert scope.schedule_ids == (A,) and scope.candidates == (IN_A,)
+    caller = Caller("contact", [IN_A], None)
+    assert caller.candidates == (IN_A,)
+    base = {"caller_class": "contact", "schedule_ids": (A,), "candidates": (IN_A,), "grant_personal": True,
+            "grant_facts": "trade"}
+    bad_scopes = [
+        {"caller_class": "friend"},  # 등급표 밖
+        {"grant_facts": "everything"},  # 사실 수준 밖
+        {"schedule_ids": ("101",)},  # 정수가 아님
+        {"candidates": ((A, 11, 21),)},  # Candidate 가 아님
+        {"grant_personal": "yes"},
+    ]
+    for bad in bad_scopes:
+        with pytest.raises(ValueError):
+            Scope(**{**base, **bad})
+    with pytest.raises(ValueError):
+        Caller("friend", (), None)
+    with pytest.raises(ValueError):
+        Caller("contact", ((A, 11, 21),), None)
+    with pytest.raises(ValueError):
+        Candidate(A, "11", 21)
+
+
+# ── 그 밖의 낱말 ─────────────────────────────────────────────────────
+
+
+def test_ref_checks_its_kind():
+    with pytest.raises(ValueError, match="message"):
+        Ref("letter", 1)
+    with pytest.raises(ValueError):
+        Ref("call", "7")
 
 
 def test_unsure_delivery_is_distinguishable_from_failed():
@@ -82,100 +304,6 @@ def test_unsure_delivery_is_distinguishable_from_failed():
         Delivered("maybe")
     with pytest.raises(ValueError):
         Delivered(True)  # 옛 꼴(ok: bool)은 받지 않는다
-
-
-def test_outcome_checks_code_and_rule():
-    assert Outcome("blocked_hours", "근무시간 밖", rule=3).rule == 3
-    with pytest.raises(ValueError):
-        Outcome("sent", "없는 판정 코드")
-    with pytest.raises(ValueError):
-        Outcome("duplicate", "없는 차례", rule=9)
-
-
-def test_gate_rules_follow_the_design_order():
-    # 설계 규칙 1: 시험 모드 → 차단·수신 거부 → 근무시간 → 상한 → 권한 → 중복, 그리고 채널 고르기(0 은 앞 확인)
-    assert list(GATE_RULES) == list(range(8))
-    assert [GATE_RULES[n] for n in range(1, 8)] == [
-        "test_mode", "blocked_or_dnc", "working_hours", "limits", "permission", "duplicate", "channel_choice",
-    ]
-    assert GATE_RULES[0] == "ready"
-    assert not set(GATE_RULES.values()) & EVENT_RULES  # 이름이 겹치지 않는다
-
-
-def test_event_rules_cover_the_names_later_tasks_record():
-    # Task 65·66·67·68·71·84·88·95 의 글에 나오는 사건 이름
-    assert {
-        "reply_within_grace", "kakao_not_ready", "delivery", "no_answer_retry", "admit", "scope_denied",
-        "unsupported_date", "out_of_scope_said", "money_said", "disclosed_to_unknown", "reply_failed",
-        "held_for_review", "recheck_before_dial", "silence", "time_limit", "server_restart",
-    } <= EVENT_RULES
-
-
-def test_tool_names_are_the_plan_list():
-    assert SHARED_TOOLS == PLAN_SHARED_TOOLS
-    assert VOICE_ONLY_TOOLS == ("end_call", "confirm_person")
-
-
-def test_pinned_scope_keeps_only_that_site_pairing():
-    multi = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "trade", site_required=True)
-    at_a = multi.pinned(A)
-    assert at_a.schedule_ids == (A,)
-    assert at_a.company_ids == (21,) and at_a.contact_ids == (11,)
-    assert at_a.facts == "trade" and at_a.site_required is False
-    assert multi.company_ids == (21, 22)  # 고르기 전에는 두 짝이 다 있지만
-    assert multi.facts == "none"  # 사실은 하나도 말하지 않는다
-
-
-def test_unpinned_multi_site_scope_has_no_facts():
-    multi = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "all", site_required=True)
-    assert multi.facts == "none"
-    assert multi.granted == "all"  # 고른 뒤에 줄 수준은 남아 있다
-    assert multi.pinned(B).facts == "all"
-
-
-def test_pinning_outside_the_candidates_raises():
-    multi = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "trade", site_required=True)
-    with pytest.raises(ValueError):
-        multi.pinned(303)
-    with pytest.raises(ValueError):
-        multi.pinned(A).pinned(B)  # 굳힌 뒤에는 다른 현장으로 넓힐 수 없다
-
-
-def test_internal_scope_pins_to_a_schedule_without_pairs():
-    internal = Scope("internal", (A, B), (), False, "all")
-    assert internal.pinned(B).schedule_ids == (B,) and internal.pinned(B).contact_ids == ()
-
-
-def test_scope_and_caller_coerce_and_validate():
-    scope = Scope("contact", [A], [IN_A], True, "trade")
-    assert scope.schedule_ids == (A,) and scope.candidates == (IN_A,)
-    caller = Caller("contact", [IN_A], None)
-    assert caller.candidates == (IN_A,)
-    bad_scopes = [
-        {"caller_class": "friend"},  # 등급표 밖
-        {"granted": "everything"},  # 사실 수준 밖
-        {"schedule_ids": (B,)},  # 짝의 일정이 범위에 없음
-        {"schedule_ids": ("101",)},  # 정수가 아님
-        {"candidates": ((A, 11, 21),)},  # Candidate 가 아님
-        {"personal": "yes"},
-    ]
-    base = {"caller_class": "contact", "schedule_ids": (A,), "candidates": (IN_A,), "personal": True, "granted": "trade"}
-    for bad in bad_scopes:
-        with pytest.raises(ValueError):
-            Scope(**{**base, **bad})
-    with pytest.raises(ValueError):
-        Caller("friend", (), None)
-    with pytest.raises(ValueError):
-        Caller("contact", ((A, 11, 21),), None)
-    with pytest.raises(ValueError):
-        Candidate(A, "11", 21)
-
-
-def test_ref_checks_its_kind():
-    with pytest.raises(ValueError, match="message"):
-        Ref("letter", 1)
-    with pytest.raises(ValueError):
-        Ref("call", "7")
 
 
 def test_tool_parameters_are_read_only():

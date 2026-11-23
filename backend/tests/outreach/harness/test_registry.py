@@ -13,7 +13,7 @@ import pytest
 
 from app.outreach.harness import registry
 from app.outreach.harness.types import Delivered, NotReady
-from tests.harness_doubles import Delivery, faked_channels
+from tests.harness_doubles import Delivery, RealChannelGuard, faked_channels
 
 BACKEND = Path(__file__).resolve().parents[3]
 HARNESS = BACKEND / "app" / "outreach" / "harness"
@@ -125,7 +125,7 @@ class _Lane:
         return Delivered("sent", provider_id=f"p-{row_id}")
 
 
-@pytest.mark.real_channel
+@pytest.mark.real_channel("sms")
 async def test_registered_channel_is_found_by_name(monkeypatch):
     monkeypatch.setattr(registry, "_CHANNELS", {})
     sms = _Lane("sms")
@@ -158,7 +158,7 @@ def test_register_checks_the_name(monkeypatch):
     assert registry.registered() == []
 
 
-@pytest.mark.real_channel
+@pytest.mark.real_channel("sms")
 async def test_fake_stays_in_front_when_a_real_channel_registers_mid_test(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "_CHANNELS", {})
     name = "late_sms_channel_t64"
@@ -247,3 +247,187 @@ async def test_fake_channel_can_return_unsure(fake_channel):
     assert fake_channel.delivered == [Delivery("sms", 8)]
     fake_channel.result = None
     assert (await registry.channel("sms").deliver(9)).state == "sent"  # 기본은 보냄
+
+
+# ── 가짜 통로는 시험(또는 밝힌 모래상자 프로세스)에서만 ─────────────────
+
+
+def _pin_in_fresh_process(extra_env: dict[str, str]) -> str:
+    code = textwrap.dedent("""
+        import sys
+        from app.outreach.harness import registry
+        assert "pytest" not in sys.modules
+        try:
+            with registry.pinned({}):
+                pass
+        except RuntimeError as exc:
+            print("REFUSED", exc)
+        else:
+            print("ALLOWED")
+    """)
+    env = {k: v for k, v in os.environ.items() if k != registry.SANDBOX_ENV} | extra_env
+    done = subprocess.run([sys.executable, "-c", code], check=False, cwd=BACKEND, capture_output=True, text=True,
+                          timeout=120, env=env)
+    assert done.returncode == 0, done.stderr[-2000:]
+    return done.stdout.strip()
+
+
+def test_pinning_is_refused_outside_tests_and_sandbox():
+    assert _pin_in_fresh_process({}).startswith("REFUSED")  # 서버 프로세스: 진짜 예약 문자가 가짜로 가면 안 된다
+    assert _pin_in_fresh_process({registry.SANDBOX_ENV: "0"}).startswith("REFUSED")
+    assert _pin_in_fresh_process({registry.SANDBOX_ENV: "1"}) == "ALLOWED"  # 격자 칸을 돌리는 자식 프로세스
+
+
+def _pins(source: str) -> list[str]:
+    """registry.pinned(…)·faked_channels(…) 부름과 registry 에서 pinned 를 꺼내 오는 import. Scope.pinned 는 아니다."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("harness.registry"):
+            found += [f"import {a.name}" for a in node.names if a.name == "pinned"]
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == "faked_channels":
+                found.append("faked_channels()")
+            if isinstance(func, ast.Attribute) and func.attr == "faked_channels":
+                found.append("faked_channels()")
+            if isinstance(func, ast.Attribute) and func.attr == "pinned":
+                owner = func.value
+                name = owner.id if isinstance(owner, ast.Name) else getattr(owner, "attr", "")
+                if name == "registry":
+                    found.append("registry.pinned()")
+    return found
+
+
+def test_no_app_module_pins_channels():
+    planted = textwrap.dedent("""
+        from app.outreach.harness import registry
+        from app.outreach.harness.registry import pinned
+        from tests.harness_doubles import faked_channels
+        with registry.pinned({}): pass
+        with app.outreach.harness.registry.pinned({}): pass
+        with faked_channels(): pass
+        scope.pinned(3)
+    """)
+    assert sorted(_pins(planted)) == ["faked_channels()", "import pinned", "registry.pinned()", "registry.pinned()"]
+    assert registry.SANDBOX_MODULES == frozenset()  # 뒤 작업이 모래상자 실행 모듈 이름을 여기에 더한다
+    app_dir = BACKEND / "app"
+    offenders = {}
+    for path in sorted(app_dir.rglob("*.py")):
+        module = ".".join(path.relative_to(BACKEND).with_suffix("").parts)
+        if module in registry.SANDBOX_MODULES or path == HARNESS / "registry.py":
+            continue
+        hits = _pins(path.read_text(encoding="utf-8"))
+        if hits:
+            offenders[module] = hits
+    assert offenders == {}
+
+
+def test_session_floor_sits_under_every_test(no_real_channels):
+    floor = registry._PINNED[0]
+    assert isinstance(floor, RealChannelGuard) and floor is not no_real_channels
+    assert no_real_channels in registry._PINNED[1:]
+
+
+# ── 가드: 시험 밖 호출·표지 쓰는 법 (새 pytest 프로세스에서 확인) ──────────
+
+
+def _run_pytest(tmp_path: Path, source: str) -> tuple[dict[str, str], str]:
+    test_file = tmp_path / "test_guard_t64.py"
+    test_file.write_text(textwrap.dedent(source), encoding="utf-8")
+    env = {**os.environ, "PYTHONPATH": str(BACKEND)}
+    done = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-rA", "-p", "no:cacheprovider", "-p", "tests.harness_doubles",
+         "-c", str(BACKEND / "pyproject.toml"), "--rootdir", str(tmp_path), str(test_file)],
+        check=False, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=180,
+    )
+    outcomes = {}
+    for line in done.stdout.splitlines():
+        for word in ("PASSED", "FAILED", "ERROR"):
+            if line.startswith(word + " ") and "::" in line:
+                name = line.split("::", 1)[1].split(" ")[0]
+                outcomes[name] = outcomes.get(name, word) if word == "PASSED" else word
+    return outcomes, done.stdout + done.stderr
+
+
+REAL_SMS = """
+    import asyncio, threading, time
+    import pytest
+    from app.outreach.harness import registry
+    from app.outreach.harness.types import Delivered
+
+    CALLS = []
+
+    class Real:
+        name = "sms"
+
+        async def deliver(self, row_id):
+            CALLS.append(row_id)
+            return Delivered("sent")
+
+    registry.register_channel("sms", Real())
+"""
+
+
+def test_marker_frees_only_named_channels_and_only_on_the_test_itself(tmp_path):
+    outcomes, output = _run_pytest(tmp_path, REAL_SMS + """
+    @pytest.mark.real_channel("sms")
+    def test_named_channel_is_free():
+        asyncio.run(registry.channel("sms").deliver(1))
+        assert CALLS == [1]
+
+    @pytest.mark.real_channel("call")
+    def test_other_name_does_not_free_sms():
+        asyncio.run(registry.channel("sms").deliver(2))
+
+    @pytest.mark.real_channel
+    def test_marker_without_names_is_refused():
+        pass
+
+    @pytest.mark.real_channel("fax")
+    def test_marker_with_unknown_name_is_refused():
+        pass
+
+    class TestInClass:
+        pytestmark = pytest.mark.real_channel("sms")
+
+        def test_class_mark_does_not_free(self):
+            asyncio.run(registry.channel("sms").deliver(3))
+    """)
+    assert outcomes["test_named_channel_is_free"] == "PASSED", output[-3000:]
+    assert outcomes["test_other_name_does_not_free_sms"] == "FAILED"
+    assert outcomes["test_marker_without_names_is_refused"] in ("FAILED", "ERROR")
+    assert outcomes["test_marker_with_unknown_name_is_refused"] in ("FAILED", "ERROR")
+    assert outcomes["TestInClass::test_class_mark_does_not_free"] == "FAILED"
+    assert "시험 함수에 직접" in output and "통로 이름" in output
+
+
+def test_module_mark_does_not_switch_the_guard_off(tmp_path):
+    outcomes, output = _run_pytest(tmp_path, REAL_SMS + """
+    pytestmark = pytest.mark.real_channel("sms")
+
+    def test_any_test_in_module_reaches_real():
+        asyncio.run(registry.channel("sms").deliver(99))
+    """)
+    assert outcomes["test_any_test_in_module_reaches_real"] == "FAILED", output[-3000:]
+    assert "시험 함수에 직접" in output
+
+
+def test_real_call_after_a_test_ends_is_reported_at_session_end(tmp_path):
+    _outcomes, output = _run_pytest(tmp_path, REAL_SMS + """
+    @pytest.fixture(scope="module")
+    def slow_end():
+        yield
+        time.sleep(1.0)  # 시험이 끝난 뒤(모듈 고정물 정리) — 시험마다의 가드는 이미 걷혔다
+
+    def test_leaves_a_thread(slow_end):
+        def later():
+            time.sleep(0.3)
+            try:
+                asyncio.run(registry.channel("sms").deliver(7))
+            except BaseException:
+                pass
+
+        threading.Thread(target=later, daemon=True).start()
+    """)
+    assert "1 passed, 1 error" in output, output[-3000:]  # 시험 몸통은 통과, 세션 끝 정리에서 실패로 드러난다
+    assert "시험 밖" in output and "「sms」" in output

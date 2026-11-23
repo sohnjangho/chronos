@@ -3,8 +3,13 @@
 
 - rule 은 코드가 정한 이름만(KNOWN_RULES — types 의 GATE_RULES·EVENT_RULES·`tool:<도구>`·`tool:unknown`). 모델이 준 도구
   이름은 tool_rule 로 바꿔 넣는다(모르는 이름은 `tool:unknown`). 틀린 이름은 ValueError(받은 값은 오류 글에 싣지 않는다).
-- detail·evidence 는 저장하기 전에 redact.scrub(redact.secrets() 의 비밀 — 키·Account ID — 과 번호)을 거친 뒤 DETAIL_MAX·
-  EVIDENCE_MAX 로 자른다. 비밀 목록을 읽지 못하면 그 글을 HIDDEN_TEXT 로 바꾼다. redact 의 밑줄 이름은 쓰지 않는다.
+  한 번에 몇 줄을 남기는지(보내기 한 번·도구 한 번)는 types 머리 글.
+- 꼴이 정해진 detail: FIXED_DETAILS 의 이름은 그 코드 하나만, TOOL_REFUSALS 의 이름은 tool_detail 꼴(`tool=<이름> …`)만 —
+  어기면 ValueError(코드를 잘못 쓴 것이므로).
+- 자유 글 detail·evidence 는 저장하기 전에 redact.scrub(redact.secrets() 의 비밀 — 키·Account ID — 과 번호)을 거친 뒤
+  DETAIL_MAX·EVIDENCE_MAX 로 자른다. 글이 아니거나(None 등)·비밀 목록을 읽지 못하거나·지우다 실패하면 그 글만 HIDDEN_TEXT 로
+  바꾸고 **사건은 남긴다**(이름과 판정은 늘 남는다 — record 를 멈추는 것은 이름·판정·코드를 잘못 쓴 것과 DB 오류뿐).
+  redact 의 밑줄 이름은 쓰지 않는다.
 - 한 줄 더하기는 UPDATE 한 문장(SQLite json_insert, harness_json 이 JSON 목록일 때만)이라 두 세션이 같은 줄에 남겨도 어느
   것도 잃지 않는다. 목록이 아니면(JSON null·객체) 바꾸지 않고 ValueError. 같은 세션에 읽혀 있던 그 줄 객체의 harness_json 은
   만료돼 다음에 다시 읽힌다.
@@ -16,7 +21,7 @@
 import json
 import re
 from datetime import UTC, datetime
-from typing import Literal, get_args
+from typing import get_args
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -24,16 +29,18 @@ from sqlalchemy.orm import Session
 from app.outreach import redact
 from app.outreach.harness.types import (
     EVENT_RULES,
+    FIXED_DETAILS,
     GATE_RULES,
     SHARED_TOOLS,
+    TOOL_REFUSALS,
     VOICE_ONLY_TOOLS,
+    EventVerdict,
     Ref,
 )
 from app.store.outreach import NotFound
 from app.store.tables_outreach import OutreachCall, OutreachMessage
 from app.store.timeutil import as_utc
 
-EventVerdict = Literal["blocked", "allowed", "noted"]
 TOOL_NAMES = frozenset(SHARED_TOOLS + VOICE_ONLY_TOOLS)
 UNKNOWN_TOOL = "tool:unknown"
 RULE_PATTERN = re.compile(r"[a-z_]+(?::[a-z_]+)?")  # 모든 사건 이름의 꼴(시험이 KNOWN_RULES 전부를 견준다)
@@ -42,8 +49,9 @@ KNOWN_RULES: frozenset[str] = (
 )
 OMITTED = "omitted"  # 생략 표식의 rule — 이 모듈만 쓴다(record 로는 남길 수 없다)
 DETAIL_MAX, EVIDENCE_MAX, MAX_EVENTS = 300, 500, 200
-HIDDEN_TEXT = "(비밀 목록을 읽지 못해 숨겼습니다)"
+HIDDEN_TEXT = "(이 글을 안전하게 남기지 못해 숨겼습니다)"
 _VERDICTS = get_args(EventVerdict)
+_TOOL_HEADS = frozenset({f"tool={name}" for name in TOOL_NAMES} | {"tool=unknown"})
 _ROWS: dict[str, type[OutreachMessage] | type[OutreachCall]] = {"message": OutreachMessage, "call": OutreachCall}
 _OMITTED_TEXT = re.compile(r"앞선 사건 (\d+)개 생략됨")
 
@@ -51,6 +59,12 @@ _OMITTED_TEXT = re.compile(r"앞선 사건 (\d+)개 생략됨")
 def tool_rule(name: str) -> str:
     """도구 호출 사건의 이름. 묶음의 도구면 `tool:<이름>`, 아니면(모델이 지어낸 이름 포함) `tool:unknown`."""
     return f"tool:{name}" if name in TOOL_NAMES else UNKNOWN_TOOL
+
+
+def tool_detail(name: str, note: str = "") -> str:
+    """도구 사건의 detail 머리 `tool=<이름>`(묶음에 없는 이름은 `tool=unknown`) + 덧붙일 글. 거절 사건은 이 꼴만 받는다."""
+    head = f"tool={name}" if name in TOOL_NAMES else "tool=unknown"
+    return f"{head} {note}" if note else head
 
 
 def _registered_secrets() -> tuple[str, ...] | None:
@@ -63,9 +77,22 @@ def _registered_secrets() -> tuple[str, ...] | None:
         return None
 
 
-def _clean(text: str, limit: int, secrets: tuple[str, ...] | None) -> str:
-    cleaned = HIDDEN_TEXT if secrets is None else redact.scrub(text, secrets)
+def _clean(text: object, limit: int, secrets: tuple[str, ...] | None) -> str:
+    """비밀·번호를 지우고 자른 글. 글이 아니거나 목록을 못 읽었거나 지우다 실패하면 HIDDEN_TEXT(사건은 그대로 남는다)."""
+    if not isinstance(text, str) or secrets is None:
+        return HIDDEN_TEXT
+    try:
+        cleaned = redact.scrub(text, secrets)
+    except Exception:  # noqa: BLE001 — 지우기가 무엇으로 실패하든 원문을 남기지 않는다
+        return HIDDEN_TEXT
     return cleaned if len(cleaned) <= limit else cleaned[: limit - 1] + "…"
+
+
+def _check_detail(rule: str, detail: object) -> None:
+    if rule in FIXED_DETAILS and detail not in FIXED_DETAILS[rule]:
+        raise ValueError("이 사건의 detail 은 정해 둔 코드(types.FIXED_DETAILS)만 씁니다")
+    if rule in TOOL_REFUSALS and not (isinstance(detail, str) and detail.split(" ", 1)[0] in _TOOL_HEADS):
+        raise ValueError("도구 거절 사건의 detail 은 events.tool_detail 꼴(tool=<이름> …)만 씁니다")
 
 
 def record(
@@ -73,22 +100,24 @@ def record(
     ref: Ref,
     rule: str,
     verdict: EventVerdict,
-    detail: str,
+    detail: str | None,
     evidence: str | None = None,
     *,
     now: datetime | None = None,
 ) -> None:
     """그 줄의 harness_json 끝에 사건 한 줄(모듈 머리 글). now 는 시험이 시각을 고정할 때(시간대 없으면 UTC).
-    줄이 없으면 NotFound, 이름·판정이 틀렸거나 harness_json 이 목록이 아니면 ValueError. commit 은 부른 쪽이 곧바로."""
+    줄이 없으면 NotFound, 이름·판정·정해 둔 detail 꼴이 틀렸거나 harness_json 이 목록이 아니면 ValueError.
+    commit 은 부른 쪽이 곧바로."""
     if rule not in KNOWN_RULES:
         raise ValueError("사건 이름은 코드가 정한 이름(events.KNOWN_RULES)만 씁니다")
     if verdict not in _VERDICTS:
         raise ValueError(f"사건 판정은 {_VERDICTS} 가운데 하나입니다")
+    _check_detail(rule, detail)
     secrets = _registered_secrets()
     event = {
         "rule": rule,
         "verdict": verdict,
-        "detail": _clean(detail, DETAIL_MAX, secrets),
+        "detail": detail if rule in FIXED_DETAILS else _clean(detail, DETAIL_MAX, secrets),
         "evidence": None if evidence is None else _clean(evidence, EVIDENCE_MAX, secrets),
         "at": as_utc(now or datetime.now(UTC)).isoformat(timespec="milliseconds"),
     }
