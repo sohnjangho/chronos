@@ -5,7 +5,7 @@
 // 않는다. 새 초안은 다시 읽은 대화에 점선 말풍선으로 보이고, 오류는 서버 글 그대로다.
 // 글은 서버가 줄을 만들었다고 답했을 때만 비운다. 결과 줄은 서버 판정 그대로(labels.ts 의 statusLabel·outcomeLabel) — 미리 「보냄」을
 // 그리지 않고, 「확인 필요」를 보냄으로, 「잠시 뒤 다시」를 「이미 보냈습니다」로 바꾸지 않는다. 줄의 상태는 다시 읽은 대화가 그린다.
-import { useEffect, useId, useRef, useState } from 'react';
+import { useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { channelLabel, outcomeLabel, SEND_UNKNOWN, statusLabel, type Label } from '../../shared/outreach/labels';
 import { ApiError } from '../../shared/api';
 import { outreachApi, sendOutcomeUnknown, type AgentDraftIn, type MessageChannel, type MessageIn, type MessageResult } from '../../shared/outreach/outreachApi';
@@ -14,6 +14,7 @@ import ActivityPicker from './ActivityPicker';
 import { getNotifyStatus, KIND_LABEL, type NotifyStatus, type PersonBrief } from './contactsApi';
 import { SMS_BYTES, smsLength } from './smsLength';
 import type { ComposerSlotProps } from './ThreadPane';
+import { ContactsLayoutContext } from './useNarrow';
 import './composer.css';
 
 export const KAKAO_LOCKED = '카카오톡은 채널·문안 승인 뒤 쓸 수 있습니다 — 지금은 문자로 보냅니다';
@@ -116,6 +117,36 @@ function useSend(scheduleId: number, onSent: () => Promise<void>) {
   return { busy, result, send, draft };
 }
 
+/** 잠긴 까닭 줄. 폰·좁은 창(Task 105 후속)에서는 카카오톡 안내를 한 줄(…)로 줄이고 그 옆에 글자 수를 둔다 — 첫 줄의 「연결할 작업」이
+ *  잘리지 않게. 안내 글 전체는 title 과 카카오톡 단추의 설명(aria-describedby)에 그대로 남는다. */
+function Reasons({ lock, locks, single, count, id }: {
+  lock: string | null;
+  locks: Record<MessageChannel, string | null>;
+  single: boolean;
+  count: ReactNode;
+  id: (c: MessageChannel | 'lock') => string;
+}) {
+  if (lock) return <p id={id('lock')} className="cmp-lock">{lock}</p>;
+  const beside = single && locks.kakao !== null;
+  return (
+    <>
+      {CHANNELS.filter((c) => locks[c] && !(beside && c === 'kakao')).map((c) => (
+        <p key={c} id={id(c)} className="cmp-reason">{locks[c]}</p>
+      ))}
+      {single && (beside || count) && (
+        <div className="cmp-line cmp-sub">
+          {beside && (
+            <p id={id('kakao')} className="cmp-reason is-kakao" title={locks.kakao ?? undefined}>
+              {locks.kakao}
+            </p>
+          )}
+          {count}
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function Composer({ scheduleId, person, compose, activity, blocked, onSent }: ComposerSlotProps) {
   const [status, setStatus] = useState<NotifyStatus | null | undefined>(undefined);
   const [text, setText] = useState(compose ?? '');
@@ -146,6 +177,7 @@ export default function Composer({ scheduleId, person, compose, activity, blocke
   const reasonOf = (c: MessageChannel) => (lock ? lock : locks[c]);
   const reasonId = (c: MessageChannel | 'lock') => `${ids}-${c}`;
   const describe = lock ? reasonId('lock') : channel === null ? reasonId('sms') : undefined;
+  const single = useContext(ContactsLayoutContext) === 'single'; // 폰·좁은 창(Task 105 후속) — Reasons 참고
   const canSend = !busy && channel !== null && smsLength(text).chars > 0;
   const hint = text.trim();
   const hintTooLong = [...hint].length > HINT_MAX;
@@ -163,6 +195,7 @@ export default function Composer({ scheduleId, person, compose, activity, blocke
     await draft(body, () => setText('')); // 적은 요청은 초안이 되었다 — 초안은 대화에 있다
   }
 
+  const count = channel !== null && <span className="cmp-count" data-testid="sms-count" title={COUNT_RULE}>{counterText(text, channel)}</span>;
   return (
     <section className="cmp" aria-label="메시지 입력">
       {status?.test_mode && channel !== null && <p className="th-strip is-warn cmp-band">{TEST_BAND}</p>}
@@ -184,15 +217,9 @@ export default function Composer({ scheduleId, person, compose, activity, blocke
             ))}
           </div>
           <ActivityPicker scheduleId={scheduleId} value={activityId} onChange={setActivityId} disabled={busy || channel === null} />
-          {channel !== null && <span className="cmp-count" data-testid="sms-count" title={COUNT_RULE}>{counterText(text, channel)}</span>}
+          {!single && count}
         </div>
-        {lock ? (
-          <p id={reasonId('lock')} className="cmp-lock">{lock}</p>
-        ) : (
-          CHANNELS.filter((c) => locks[c]).map((c) => (
-            <p key={c} id={reasonId(c)} className="cmp-reason">{locks[c]}</p>
-          ))
-        )}
+        <Reasons lock={lock} locks={locks} single={single} count={count} id={reasonId} />
         <textarea
           className="ct-input ct-textarea cmp-text"
           aria-label="보낼 글"

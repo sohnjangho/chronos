@@ -3,6 +3,8 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 // 연락처 — 태블릿·스마트폰 화면(Task 105). 폰 390×844: 아래 탭 「연락처」 → 목록 → 대화 한 화면씩(「‹ 이름」 으로 돌아감),
 // 입력창은 아래 탭 바로 위에 붙고 넘치지 않음, 통화 카드는 요약이 먼저. 태블릿 1180×820: PC 와 같은 두 칸. 820×1180: 고른 뒤
 // 주소록이 접히고 [주소록]으로 펼침. 두 테마 모두 넘침 없음 · 전체 번호 없음.
+// 후속: 폰 입력창이 낮아 대화가 360px 이상 보임 · 통화 카드 DOM 차례가 요약 → 목적 · 긴급 보고 토스트가 폰·태블릿 머리 아래에 뜨고
+// 아래 탭·입력창을 가리지 않음(긴급 보고 읽기도 가상 줄).
 // 자료: 씨앗 일정(python -m app.seed demo) + 이 시험이 API 로 넣는 가상 협력사·사람(번호는 010-0000-01xx 꼴). 대화·통화 목록은
 // 알림 연결 없이 만들 수 없어 그 두 읽기만 가상 줄로 바꿔 답한다(주소록·사람·로그인·일정은 실제 서버).
 // 실행: bash scripts/e2e-local.sh e2e/contacts-mobile.spec.ts (서버에 CHRONOS_OUTREACH_WORKER=off). 화면은 E2E_SHOTS_DIR 에.
@@ -109,6 +111,7 @@ async function fits(page: Page) {
     const clipped = all
       .filter((e) => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX !== 'visible')
       .filter((e) => !e.classList.contains('ct-ellipsis') && !e.classList.contains('ct-sr') && !e.closest('.ct-ellipsis'))
+      .filter((e) => getComputedStyle(e).textOverflow !== 'ellipsis' && !e.closest('.cmp-pick-btn'))
       .map((e) => `${e.tagName}.${e.className} ${e.scrollWidth}>${e.clientWidth}`);
     const outside = all
       .filter((e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && (b.right > vw + 1 || b.left < -1); })
@@ -121,6 +124,19 @@ async function fits(page: Page) {
   expect(r.outside).toEqual([]);
   expect(await page.locator('body').innerText()).not.toMatch(FULL_NUMBER);
 }
+
+/** 긴급 보고 읽기를 가상 줄 하나로(처음 한 번만 — 다음 물음부터는 빈 목록). */
+async function fakeUrgent(page: Page) {
+  let first = true;
+  await page.route(/\/api\/outreach\/alerts(\?.*)?$/, (route) => {
+    const items = first
+      ? [{ id: 77, schedule_id: null, schedule_name: OFFICE, medium: 'call', contact_name: '박가상', created_at: new Date().toISOString() }]
+      : [];
+    first = false;
+    return route.fulfill({ json: { now: new Date().toISOString(), items } });
+  });
+}
+const URGENT = '긴급 보고 — 5층 사무동 신축 · 박가상 · 전화로 받은 보고';
 
 const book = (page: Page) => page.getByRole('navigation', { name: '주소록' });
 const person = (page: Page, name: string) => book(page).getByRole('button', { name: new RegExp(name) }).first();
@@ -164,6 +180,7 @@ test.describe('phone 390×844', () => {
       expect(at.y + at.height).toBeLessThanOrEqual(navBox.y + 1);
       expect(navBox.y - (at.y + at.height)).toBeLessThan(4); // 붙어 있다
       expect(await log.evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true); // 긴 대화는 대화 칸 안에서만 밀린다
+      expect((await log.boundingBox())!.height).toBeGreaterThanOrEqual(360); // 입력창이 낮아 대화가 360px 이상 보인다
       await log.evaluate((e) => e.scrollTo(0, 0));
       expect((await box()).y).toBeCloseTo(at.y, 0);
       await fits(page);
@@ -178,6 +195,7 @@ test.describe('phone 390×844', () => {
       const head = (await card.locator('.th-meta').first().boundingBox())!;
       expect(head.y).toBeLessThan(summary.y);
       expect(summary.y).toBeLessThan(purpose.y);
+      await expect(card.locator('.cl-text b')).toHaveText(['요약', '목적']); // DOM 차례도 같다(읽는 차례)
       await card.scrollIntoViewIfNeeded();
       await fits(page);
       await shot(page, `phone-${theme}-3-calls`);
@@ -187,6 +205,36 @@ test.describe('phone 390×844', () => {
       await expect(person(page, '박가상')).toBeVisible();
       await expect(page.getByRole('region', { name: /대화$/ })).toBeHidden();
     });
+
+    test(`urgent report toast on the phone sits under the header, clear of the composer and the tab bar (${theme})`, async ({ page, request }) => {
+      await seedBook(request);
+      await fakeThreadAndCalls(page);
+      await page.clock.install();
+      await login(page);
+      await expect(page.getByTestId('mobile-shell')).toBeVisible();
+      await setTheme(page, theme);
+      await pickOffice(page);
+      const nav = page.getByRole('navigation', { name: '모바일 탐색' });
+      await nav.getByRole('button', { name: /연락처/ }).click();
+      await person(page, '박가상').click();
+      await expect(page.locator('[data-slot="composer"]')).toBeVisible();
+      await fakeUrgent(page);
+      await page.clock.runFor(21_000); // 다음 물음(20초)
+      const toast = page.getByRole('button', { name: URGENT });
+      await expect(toast).toBeVisible();
+      await expect.poll(async () => (await toast.evaluate((e) => getComputedStyle(e).transform))).toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/); // 들어오는 움직임 끝
+      const t = (await toast.boundingBox())!;
+      const head = (await page.locator('.mob-head').boundingBox())!;
+      const cmp = (await page.locator('[data-slot="composer"]').boundingBox())!;
+      expect(t.y).toBeGreaterThanOrEqual(head.y + head.height);
+      expect(t.y + t.height).toBeLessThanOrEqual(cmp.y);
+      expect(t.x).toBeGreaterThanOrEqual(0);
+      expect(t.x + t.width).toBeLessThanOrEqual(390);
+      expect(await page.locator('body').innerText()).not.toMatch(FULL_NUMBER);
+      await shot(page, `phone-${theme}-4-urgent-toast`);
+      await toast.click(); // 누르면 닫힌다
+      await expect(toast).toBeHidden();
+    });
   }
 });
 
@@ -194,10 +242,11 @@ test.describe('tablet', () => {
   test.use({ userAgent: IPAD_UA, hasTouch: true });
 
   for (const theme of THEMES) {
-    test(`landscape 1180×820: two panes like the PC (${theme})`, async ({ page, request }) => {
+    test(`landscape 1180×820: two panes like the PC, urgent toast under the header (${theme})`, async ({ page, request }) => {
       await page.setViewportSize({ width: 1180, height: 820 });
       await seedBook(request);
       await fakeThreadAndCalls(page);
+      await page.clock.install();
       await login(page);
       await expect(page.getByTestId('tablet-shell')).toBeVisible();
       await setTheme(page, theme);
@@ -212,6 +261,17 @@ test.describe('tablet', () => {
       await page.getByRole('tab', { name: '통화 2' }).click();
       await fits(page);
       await shot(page, `tablet-${theme}-2-calls`);
+
+      // 긴급 보고 토스트(후속): 머리 아래 오른쪽
+      await fakeUrgent(page);
+      await page.clock.runFor(21_000);
+      const toast = page.getByRole('button', { name: URGENT });
+      await expect(toast).toBeVisible();
+      await expect.poll(async () => (await toast.evaluate((e) => getComputedStyle(e).transform))).toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
+      const t = (await toast.boundingBox())!;
+      expect(t.y).toBeGreaterThanOrEqual((await page.locator('.tab-head').boundingBox())!.height);
+      expect(t.x + t.width).toBeLessThanOrEqual(1180);
+      await shot(page, `tablet-${theme}-3-urgent-toast`);
     });
 
     test(`portrait 820×1180: the book folds after picking and [주소록] unfolds it (${theme})`, async ({ page, request }) => {

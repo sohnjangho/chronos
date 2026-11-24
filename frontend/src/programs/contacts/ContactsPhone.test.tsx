@@ -9,6 +9,9 @@ import { useDeviceMode } from '../../os/useIsMobile';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
 import Contacts from './Contacts';
+import { call, stubCalls } from './callKit';
+import cmpCss from './composer.css?raw';
+import { KAKAO_LOCKED } from './Composer';
 import css from './contacts.css?raw';
 import { stubContacts } from './testKit';
 import { contactsLayout } from './useNarrow';
@@ -115,10 +118,42 @@ describe('phone 390×844', () => {
     expect(css).toMatch(/\.ct-book-slot\[hidden\][^{]*\{[^}]*display:\s*none/);
   });
 
-  test('call cards put the summary first on a narrow screen (right after the who/status line)', () => {
-    expect(css).toMatch(/\.ct-root\.is-single \.cl-card > \.cl-text\s*\{[^}]*order:\s*-1/);
-    expect(css).toMatch(/\.ct-root\.is-single \.cl-card > \.th-meta:first-child\s*\{[^}]*order:\s*-2/);
-    expect(css).toMatch(/\.ct-root\.is-single \.cl-card > \.th-meta:first-child \+ \.cl-text\s*\{[^}]*order:\s*0/);
+  test('call cards put the summary before the purpose in the DOM, so reading order matches (후속)', async () => {
+    stubCalls([call({ id: 5 })]);
+    show();
+    await screen.findByRole('button', { name: /박현장/ });
+    await pick(/박현장/);
+    await userEvent.click(await screen.findByRole('tab', { name: '통화 1' }));
+    const card = await within(screen.getByRole('log', { name: '통화 기록' })).findByRole('article');
+    const texts = Array.from(card.querySelectorAll('.cl-text')).map((p) => p.querySelector('b')?.textContent);
+    expect(texts).toEqual(['요약', '목적']);
+    expect(css).not.toMatch(/order:\s*-/); // 보이는 차례를 CSS 로 바꾸지 않는다
+  });
+
+  test('the composer is compact on a phone: one-line KakaoTalk notice with the full text kept, low text box, one button row (후속)', async () => {
+    show();
+    await screen.findByRole('button', { name: /박현장/ });
+    await pick(/박현장/);
+    const note = await screen.findByText(KAKAO_LOCKED);
+    expect(note).toHaveClass('is-kakao');
+    expect(note).toHaveAttribute('title', KAKAO_LOCKED);
+    expect(screen.getByText('시험 모드 — 허용 번호가 아니면 실제로 나가지 않고 기록만 남습니다')).toBeVisible();
+    expect(screen.getByTestId('sms-count')).toBeVisible();
+    expect(cmpCss).toMatch(/\.ct-root\.is-single \.cmp-reason\.is-kakao\s*\{[^}]*text-overflow:\s*ellipsis/);
+    expect(cmpCss).toMatch(/\.ct-root\.is-single \.cmp-text\s*\{[^}]*min-height:\s*36px/);
+    expect(cmpCss).toMatch(/\.ct-root\.is-single \.cmp-line[^{]*\{[^}]*flex-wrap:\s*nowrap/);
+  });
+});
+
+describe('PC two panes keep the old card order', () => {
+  test('purpose comes before the summary when the window is wide', async () => {
+    stubCalls([call({ id: 5 })]);
+    show();
+    await screen.findByRole('button', { name: /박현장/ });
+    await pick(/박현장/);
+    await userEvent.click(await screen.findByRole('tab', { name: '통화 1' }));
+    const card = await within(screen.getByRole('log', { name: '통화 기록' })).findByRole('article');
+    expect(Array.from(card.querySelectorAll('.cl-text')).map((p) => p.querySelector('b')?.textContent)).toEqual(['목적', '요약']);
   });
 });
 

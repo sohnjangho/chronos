@@ -4,12 +4,14 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { useAgentView } from './agentView';
 import { useApprovalPolling, useApprovals } from './approvals';
 import { ChronosMark, MoonIcon, PanelIcon, SunIcon } from './icons';
+import { useOutreachAlerts } from './outreachAlerts';
 import ProgramIcon, { SystemIcon } from './ProgramIcon';
 import { getProgram, programs, type ProgramManifest } from './registry';
 import ScheduleSelector from './ScheduleSelector';
 import { useSession } from './session';
 import { defaultTabletRailIds, resolveTabletRail, tabletCatalog, useTabletRail } from './tabletRailStore';
 import { useTheme } from './theme';
+import ToastStack from './ToastStack';
 import { useDeviceMode } from './useIsMobile';
 import { useWindows } from './windowStore';
 import WorkflowRibbon from './WorkflowRibbon';
@@ -190,6 +192,7 @@ function TabletWorkflowBadge() {
 
 export default function TabletShell() {
   useApprovalPolling();
+  useOutreachAlerts(); // 긴급 보고 토스트 — 바탕화면과 같게(현장 관리자는 묻지 않음)
   const role = useSession((s) => s.session?.user.role ?? 'user');
   const isFieldRole = role === 'field';
   const logout = useSession((s) => s.logout);
@@ -509,6 +512,7 @@ export default function TabletShell() {
           )}
         </div>
       </div>
+      <ToastStack />
     </div>
   );
 }

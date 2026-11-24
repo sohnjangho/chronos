@@ -2,7 +2,7 @@
 // 않습니다」) · 요약 · 결과(에이전트 제안 · 사람이 확정) · 질문별 답과 근거(근거 없는 답은 「확인 필요」) · 연결된 작업 · 하네스 사건 접힌 줄 /
 // 단추: [받아쓰기 보기][녹음 듣기][결과 확정][다시 걸기] · 걸고 있으면 [통화 끊기] · 초안 [버리기][전화 걸기 창 열기] · 예약 [예약 취소].
 // 상태는 서버가 준 줄에서만 읽는다 — 누른 뒤의 모습은 다시 읽은 줄이 정한다. 번호는 서버가 모든 글(사람이 쓴 목적·결과 포함)에서 가려 준다.
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { getProgram } from '../../os/registry';
 import { useWindows } from '../../os/windowStore';
 import {
@@ -12,6 +12,7 @@ import { outreachApi, type Call } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import { activityLabel } from './thread';
 import TranscriptPanel from './TranscriptPanel';
+import { ContactsLayoutContext } from './useNarrow';
 
 export const REDIALABLE: ReadonlySet<string> = new Set(['no_answer', 'busy', 'failed']);
 export const RESULT_MAX = 2000; // 서버의 확정 결과 길이(Task 91)
@@ -195,9 +196,12 @@ export default function CallCard(p: CallCardProps) {
   const draft = c.status === 'draft';
   const cls = ['cl-card', draft && 'is-draft', c.origin === 'agent' && 'is-ai', live && 'is-live'].filter(Boolean).join(' ');
   const showTranscript = live || (transcript && c.status !== 'draft');
+  const summaryFirst = useContext(ContactsLayoutContext) === 'single'; // 좁은 화면은 요약이 먼저(DOM 차례 — 읽는 차례도 같게)
+  const summary = c.summary_ko ? <p className="cl-text"><b>요약</b>{c.summary_ko}</p> : null;
   return (
     <article className={cls} aria-label={`${draft ? '통화 초안' : callSender(c).tag} AI 전화 ${kstTime(c.started_at ?? c.created_at)}`}>
       <Head c={c} />
+      {summaryFirst && summary}
       <p className="cl-text">
         <b>목적</b>
         {c.purpose}
@@ -208,12 +212,7 @@ export default function CallCard(p: CallCardProps) {
       )}
       {(draft || c.status === 'blocked_hours') && c.fail_reason && <p className="th-why">{`걸지 않은 까닭: ${c.fail_reason}`}</p>}
       {c.status === 'blocked_hours' && aheadOf(c.scheduled_at) && <p className="cl-small">{`다음 근무 시작 ${kstShort(c.scheduled_at!)}`}</p>}
-      {c.summary_ko && (
-        <p className="cl-text">
-          <b>요약</b>
-          {c.summary_ko}
-        </p>
-      )}
+      {!summaryFirst && summary}
       {result && <p className="cl-small">{result}</p>}
       <Answers c={c} />
       {c.activity && (

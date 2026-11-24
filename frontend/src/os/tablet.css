@@ -553,3 +553,13 @@
     padding: 8px 14px 12px;
   }
 }
+
+/* 토스트(긴급 보고 등, Task 105 후속): 머리 바로 아래 오른쪽 — 바탕화면과 같은 자리. */
+.tab-root .os-toasts {
+  position: fixed;
+  top: calc(var(--topbar-h) + 10px);
+  right: 16px;
+  z-index: 30;
+  max-width: min(480px, calc(100vw - 32px));
+}
+.tab-root .os-toast { text-align: left; overflow-wrap: anywhere; }

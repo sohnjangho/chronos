@@ -7,10 +7,12 @@ import { signInAsDemo, stubFetch } from '../test-helpers';
 import { useAgentView } from './agentView';
 import App from './App';
 import { useApprovals } from './approvals';
+import { resetOutreachAlerts } from './outreachAlerts';
 import { useSession } from './session';
 import { resetShellState } from './shellReset';
 import { programs } from './registry';
 import { defaultTabletRailIds, resolveTabletRail, useTabletRail } from './tabletRailStore';
+import { pushToast, useToast } from './ToastStack';
 import { detectClientDevice, useDeviceMode } from './useIsMobile';
 import { useWindows } from './windowStore';
 
@@ -36,6 +38,8 @@ afterEach(() => {
   useApprovals.setState({ pending: 0 });
   useTabletRail.getState().load(null);
   useSession.getState().logout();
+  useToast.setState({ items: [] });
+  resetOutreachAlerts();
 });
 
 test('renders MobileShell on <=768px and switches tabs, schedule sub-tabs, and more grid by role', async () => {
@@ -330,4 +334,48 @@ test('tablet opens primary Chat in PC-style 3-pane wide layout with collapsible 
 
   await userEvent.click(screen.getByRole('button', { name: '컨텍스트' }));
   expect(container.querySelector('.tab-primary .ch-ctx')).toBeNull();
+});
+
+// 긴급 보고 토스트(Task 105 후속 — 현장 사람은 폰을 쓴다): 폰·태블릿 껍데기도 바탕화면처럼 묻고 토스트를 그린다. 현장 관리자는 묻지 않는다.
+const URGENT = { id: 7, schedule_id: 1, schedule_name: '5층 사무동 신축', medium: 'call', contact_name: '박현장', created_at: '2026-11-24T00:00:00Z' };
+const URGENT_TEXT = '긴급 보고 — 5층 사무동 신축 · 박현장 · 전화로 받은 보고';
+
+function stubWithAlerts() {
+  return stubFetch({
+    '/api/approvals/count': { pending: 0 },
+    '/api/schedules': [],
+    '/api/chat/sessions': [],
+    '/api/outreach/alerts': { now: '2026-11-24T00:00:10Z', items: [URGENT] },
+  });
+}
+
+test('the phone shell shows urgent report toasts, under the header and away from the bottom tab bar (Task 105 후속)', async () => {
+  stubWithAlerts();
+  render(<App />);
+  const shell = screen.getByTestId('mobile-shell');
+  const toast = await within(shell).findByRole('button', { name: URGENT_TEXT });
+  expect(toast.closest('.os-toasts')).not.toBeNull();
+  expect(within(screen.getByRole('navigation', { name: '모바일 탐색' })).queryByText(URGENT_TEXT)).toBeNull();
+});
+
+test('the tablet shell shows urgent report toasts too (Task 105 후속)', async () => {
+  vi.stubGlobal('innerWidth', 1024);
+  vi.stubGlobal('innerHeight', 1366);
+  stubWithAlerts();
+  render(<App />);
+  const shell = screen.getByTestId('tablet-shell');
+  expect(await within(shell).findByRole('button', { name: URGENT_TEXT })).toBeVisible();
+});
+
+test('a field manager on the phone is never asked for urgent reports, but other toasts still show (Task 105 후속)', async () => {
+  signInAsDemo('field', '박현장', 'site1', 3);
+  const fetch = stubWithAlerts();
+  render(<App />);
+  act(() => pushToast('사진을 올렸습니다'));
+  expect(within(screen.getByTestId('mobile-shell')).getByRole('button', { name: '사진을 올렸습니다' })).toBeVisible();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(fetch.mock.calls.map((c) => String(c[0])).filter((u) => u.startsWith('/api/outreach/alerts'))).toEqual([]);
+  expect(screen.queryByText(URGENT_TEXT)).toBeNull();
 });

@@ -510,3 +510,20 @@
   min-height: 0;
   padding: 6px 12px;
 }
+
+/* 토스트(긴급 보고 등, Task 105 후속): 머리 바로 아래, 화면 폭 안에서 오른쪽 정렬. 아래 탭과 그 바로 위 입력창(연락처)을 가리지 않는다.
+   누르면 닫힌다(3.2초 뒤 저절로). */
+.mob-root .os-toasts {
+  position: fixed;
+  top: calc(56px + 8px + env(safe-area-inset-top, 0px));
+  left: 12px;
+  right: 12px;
+  z-index: 30;
+  align-items: flex-end;
+}
+.mob-root .os-toast {
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  overflow-wrap: anywhere;
+}

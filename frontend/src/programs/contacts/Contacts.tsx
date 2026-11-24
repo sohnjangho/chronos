@@ -19,7 +19,7 @@ import CopyFromProject from './CopyFromProject';
 import CsvImport from './CsvImport';
 import { ProposalsPane, useProposals } from './Proposals';
 import { ReportsPane, useReports } from './Reports';
-import { useNarrow } from './useNarrow';
+import { ContactsLayoutContext, useNarrow } from './useNarrow';
 import { UnknownGroup, UnknownPane, useUnknown } from './UnknownPeers';
 import { getBook, getNotifyStatus, KIND_LABEL, type AddressBook as Book, type Company, type NotifyStatus, type PersonBrief } from './contactsApi';
 import PersonForm from './PersonForm';
@@ -388,59 +388,61 @@ function ContactsBody({ windowId, scheduleId, params, projectName }: { windowId:
   const fold = folded ? { open: bookOpen, toggle: () => setBookOpen((o) => !o) } : null;
 
   return (
-    <div ref={rootRef} className={`ct-root is-${layout}${paneOpen ? ' has-pane' : ''}${bookHidden || paneHidden ? ' is-one' : ''}`}>
-      <StatusStrip status={status} projectName={projectName} fold={fold} />
-      <div className="ct-main">
-        <div className="ct-book-slot" hidden={bookHidden}>
-          <AddressBook
-            book={book}
-            error={error}
-            selectedId={selectedId}
-            onSelect={(p) => {
-              setSelectedId(p.id);
-              setMode({ kind: 'none' });
-              setBookOpen(false);
-            }}
-            onAddPerson={(companyId) => setMode({ kind: 'person', id: null, companyId })}
-            onAddCompany={() => setMode({ kind: 'company', company: null })}
-            onEditCompany={(c) => setMode({ kind: 'company', company: c })}
-            showHidden={showHidden}
-            onShowHidden={setShowHidden}
-            isAdmin={isAdmin}
-            onImport={() => setXfer('import')}
-            onCopy={isAdmin ? () => setXfer('copy') : undefined}
-            above={<InboxEntries inbox={inbox} mode={mode} onOpen={setMode} />}
-            below={<UnknownGroup items={inbox.unknown.items} current={mode.kind === 'unknown' ? mode.key : null} onOpen={(key) => setMode({ kind: 'unknown', key })} />}
-          />
+    <ContactsLayoutContext.Provider value={layout}>
+      <div ref={rootRef} className={`ct-root is-${layout}${paneOpen ? ' has-pane' : ''}${bookHidden || paneHidden ? ' is-one' : ''}`}>
+        <StatusStrip status={status} projectName={projectName} fold={fold} />
+        <div className="ct-main">
+          <div className="ct-book-slot" hidden={bookHidden}>
+            <AddressBook
+              book={book}
+              error={error}
+              selectedId={selectedId}
+              onSelect={(p) => {
+                setSelectedId(p.id);
+                setMode({ kind: 'none' });
+                setBookOpen(false);
+              }}
+              onAddPerson={(companyId) => setMode({ kind: 'person', id: null, companyId })}
+              onAddCompany={() => setMode({ kind: 'company', company: null })}
+              onEditCompany={(c) => setMode({ kind: 'company', company: c })}
+              showHidden={showHidden}
+              onShowHidden={setShowHidden}
+              isAdmin={isAdmin}
+              onImport={() => setXfer('import')}
+              onCopy={isAdmin ? () => setXfer('copy') : undefined}
+              above={<InboxEntries inbox={inbox} mode={mode} onOpen={setMode} />}
+              below={<UnknownGroup items={inbox.unknown.items} current={mode.kind === 'unknown' ? mode.key : null} onOpen={(key) => setMode({ kind: 'unknown', key })} />}
+            />
+          </div>
+          <section className="ct-pane" hidden={paneHidden} aria-label={selected && mode.kind === 'none' ? `${selected.name} 대화` : '연락처 자세히'}>
+            {single && mode.kind !== 'none' && (
+              <button type="button" className="ct-back ct-back-form" onClick={() => setMode({ kind: 'none' })}>
+                ‹ 목록
+              </button>
+            )}
+            <Pane
+              mode={mode}
+              setMode={setMode}
+              scheduleId={scheduleId}
+              book={book}
+              selected={selected}
+              setSelectedId={setSelectedId}
+              projectName={projectName}
+              isAdmin={isAdmin}
+              kakaoReady={status?.kakao_ready === true}
+              tab={tab}
+              setTab={setTab}
+              params={params}
+              reload={reload}
+              inbox={inbox}
+              single={single}
+            />
+          </section>
         </div>
-        <section className="ct-pane" hidden={paneHidden} aria-label={selected && mode.kind === 'none' ? `${selected.name} 대화` : '연락처 자세히'}>
-          {single && mode.kind !== 'none' && (
-            <button type="button" className="ct-back ct-back-form" onClick={() => setMode({ kind: 'none' })}>
-              ‹ 목록
-            </button>
-          )}
-          <Pane
-            mode={mode}
-            setMode={setMode}
-            scheduleId={scheduleId}
-            book={book}
-            selected={selected}
-            setSelectedId={setSelectedId}
-            projectName={projectName}
-            isAdmin={isAdmin}
-            kakaoReady={status?.kakao_ready === true}
-            tab={tab}
-            setTab={setTab}
-            params={params}
-            reload={reload}
-            inbox={inbox}
-            single={single}
-          />
-        </section>
+        {xfer === 'import' && <CsvImport scheduleId={scheduleId} onClose={() => setXfer(null)} onDone={reload} />}
+        {xfer === 'copy' && <CopyFromProject scheduleId={scheduleId} onClose={() => setXfer(null)} onDone={reload} />}
       </div>
-      {xfer === 'import' && <CsvImport scheduleId={scheduleId} onClose={() => setXfer(null)} onDone={reload} />}
-      {xfer === 'copy' && <CopyFromProject scheduleId={scheduleId} onClose={() => setXfer(null)} onDone={reload} />}
-    </div>
+    </ContactsLayoutContext.Provider>
   );
 }
 

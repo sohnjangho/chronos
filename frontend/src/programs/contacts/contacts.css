@@ -156,13 +156,12 @@
 
 /* 한 칸씩(폰·좁은 창) */
 .ct-root.is-single .ct-book { border-right: 0; }
-.ct-root.is-single .ct-head { padding: 8px 12px; }
+/* 폰에서 대화가 더 보이게(후속) — 머리 띠·사람 머리·탭을 낮게 */
+.ct-root.is-single .ct-strip { padding: 2px 12px; }
+.ct-root.is-single .ct-head { padding: 4px 12px; gap: 2px 8px; }
 .ct-root.is-single .ct-head-acts { margin-left: 0; width: 100%; justify-content: space-between; }
 .ct-root.is-single .ct-form { padding: 12px 14px 16px; }
-/* 통화 카드는 요약이 먼저 — 누가·상태 줄 바로 아래 요약, 그 뒤 목적과 나머지(보이는 차례만 바꾼다). */
-.ct-root.is-single .cl-card > .th-meta:first-child { order: -2; }
-.ct-root.is-single .cl-card > .cl-text { order: -1; }
-.ct-root.is-single .cl-card > .th-meta:first-child + .cl-text { order: 0; }
+/* 통화 카드의 「요약이 먼저」는 CallCard 가 DOM 차례로 한다(읽는 차례와 같게 — ContactsLayoutContext). */
 /* 폰: 목록이 화면 절반도 안 되지 않게 아래 설명 줄은 뺀다(꺼진 단추가 같은 것을 말한다). */
 @container (max-width: 480px) {
   .ct-foot-note { display: none; }
