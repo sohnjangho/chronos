@@ -15,18 +15,20 @@ router = APIRouter(prefix="/api/schedules", tags=["points"], dependencies=[Depen
 
 SessionDep = Annotated[Session, Depends(get_session)]
 ContactsUser = Annotated[User, Depends(require_contacts)]
+UserDep = Annotated[User, Depends(current_user)]
 
 
 @router.get("/{schedule_id}/points")
-def get_points(schedule_id: int, session: SessionDep, what_if: Annotated[bool, Query()] = False) -> dict:
-    """지금 버전의 포인트·마지막 차이·바깥 위험·근거 문장 상태·카드(바뀜이 없으면 null). what_if = 지연 분석의 가정."""
-    return service.view(session, schedule_id, what_if=what_if)
+def get_points(schedule_id: int, session: SessionDep, user: UserDep, what_if: Annotated[bool, Query()] = False) -> dict:
+    """지금 버전의 포인트·마지막 차이·바깥 위험·근거 문장 상태·카드(바뀜이 없으면 null). what_if = 지연 분석의 가정.
+    현장 관리자에게는 카드 actions 에 contact 가 없다."""
+    return service.view(session, schedule_id, what_if=what_if, field=user.role == "field")
 
 
 @router.post("/{schedule_id}/points/risks/retry")
-def retry_risks(schedule_id: int, body: RetryIn, session: SessionDep) -> dict:
+def retry_risks(schedule_id: int, body: RetryIn, session: SessionDep, user: UserDep) -> dict:
     """「다시 찾기」: 실패(멈춘 것 포함)한 바깥 위험 찾기만 다시 띄운다 → 조회와 같은 꼴. 아니면 409 not_failed."""
-    return service.retry_risks(session, schedule_id, body)
+    return service.retry_risks(session, schedule_id, body, field=user.role == "field")
 
 
 @router.post("/{schedule_id}/points/{activity_id}/quotes/{kind}")

@@ -5,7 +5,10 @@ danger = 음수 여유 > 0 이거나 위반 > 0, warning = 늦은 task > 0 이�
 날짜·여유는 app.store.view, 위반은 harness check 가 센다. 여기서는 세고 가르기만 한다.
 관리 포인트 수·바뀜(계획 5)은 세기만 하고 등급에 넣지 않는다: 수 = 지금 버전의 저장한 포인트(없으면 같은 계산 값으로 센다),
 바뀜 = 카드 줄(app.points.card)의 새 포인트 + 여유가 준 포인트 — 열린 지연이 있고 가정 줄이 있으면 그것, 아니면 버전 줄.
+그 차이를 적은 지 RECENT(3일 — 설정 없는 상수) 안일 때만 센다(오래된 바뀜으로 늘 주의에 남지 않게).
 """
+
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -21,9 +24,11 @@ from app.store.delays import open_events
 from app.store.schedules import list_records, load, run
 from app.store.settings import points_config
 from app.store.tables import ScheduleRecord
+from app.store.timeutil import as_utc
 from app.store.view import plan_of, view_of
 
 _ORDER = {"danger": 0, "warning": 1, "ok": 2}
+RECENT = timedelta(days=3)  # 관리 포인트 바뀜을 「최근」으로 세는 기간(설정값 아님)
 
 
 def _level(negative: int, violations: int, late: int, open_delays: int) -> str:
@@ -66,7 +71,7 @@ def _compute(session: Session, record: ScheduleRecord, open_delays: int) -> Atte
 def _changed(session: Session, schedule_id: int, n: int, open_delays: int) -> int:
     row = (card.get(session, schedule_id, n, what_if=True) if open_delays else None) or card.get(
         session, schedule_id, n, what_if=False)
-    if row is None:
+    if row is None or row.changed_at is None or datetime.now(UTC) - as_utc(row.changed_at) > RECENT:
         return 0
     data = row.data_json
     return len({i["activity_id"] for i in data["new"]} | {i["activity_id"] for i in data["tightened"]}) + data["more"]

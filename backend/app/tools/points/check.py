@@ -60,7 +60,8 @@ def check(args: PointsCheckIn, ctx: ToolContext) -> PointsCheckOut:
             if look:
                 card.launch(schedule_id, n, what_if=True)
         try:
-            got = service.view(session, schedule_id, what_if=args.what_if)
+            got = service.view(session, schedule_id, what_if=args.what_if,
+                               field=ctx.user is not None and ctx.user.role == "field")
         except ApiError as e:
             raise ToolError(e.message) from None
     payload = got.pop("card")

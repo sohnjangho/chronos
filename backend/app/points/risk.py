@@ -375,10 +375,12 @@ def _jobs(session: Session, point: Point, pick: _Pick, on: set[str], address: st
     return out
 
 
-async def look(session: Session, schedule_id: int, version: int, points: Sequence[Point]) -> list[Risk]:
+async def look(session: Session, schedule_id: int, version: int, points: Sequence[Point],
+               outdoor: dict[str, bool] | None = None) -> list[Risk]:
     """새 포인트 앞에서 points_max_new 개만, 포인트 차례·갈래 차례(weather·materials·fx·business)로 위험 줄을 낸다.
 
     분야에 켜진 갈래가 없으면 LLM 도 부르지 않는다. 고르기가 실패한 포인트는 줄이 없다.
+    outdoor 를 주면 고르기가 된 포인트마다 LLM 의 weather_sensitive(실외 작업인가)를 채운다(카드의 「실외 작업」).
     부르는 쪽(Task 5) 약속: look 앞에서 commit(쌓인 쓰기 없이 부른다), 뒤에서 commit. look 은 읽기·LLM·바깥 호출을
     모두 끝낸 뒤 맨 끝에 근거 줄을 한꺼번에 넣고 flush 만 한다 — 바깥 응답을 기다리는 동안 쓰기 잠금을 쥐지 않는다.
     """
@@ -396,6 +398,8 @@ async def look(session: Session, schedule_id: int, version: int, points: Sequenc
     profile = session.get(ProjectProfile, schedule_id)
     address = profile.site_address if profile is not None else ""
     picks = [(p, await _pick(session, _brief(schedule, p, domain))) for p in chosen]
+    if outdoor is not None:
+        outdoor.update({p.activity_id: pick.weather_sensitive for p, pick in picks if pick is not None})
     today = weather._now().date()
     rows: list[_Job | Risk] = [j for point, pick in picks if pick is not None
                                for j in _jobs(session, point, pick, on, address, today)]

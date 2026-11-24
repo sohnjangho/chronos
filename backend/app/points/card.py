@@ -57,6 +57,8 @@ class PointCard(Base):
     risk_status: Mapped[str]
     risks_json: Mapped[list] = mapped_column(JSON, default=list)  # [asdict(risk.Risk)]
     generation: Mapped[int] = mapped_column(default=0)  # 다시 적을 때마다 +1 — 늦게 끝난 옛 찾기가 덮어쓰지 않게
+    changed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)  # 이 차이를 처음 적은 때(주의할 일정의 「최근」)
+    outdoor_json: Mapped[dict] = mapped_column(JSON, default=dict)  # 액티비티 → 실외 작업인가(LLM weather_sensitive, 고른 것만)
     shown_generation: Mapped[int] = mapped_column(default=0)  # points.check 가 대화에 카드를 낸 generation(같은 차이를 두 번 안 냄)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime)
 
@@ -164,7 +166,7 @@ def remember(session: Session, schedule_id: int, version: int, *, what_if: bool,
         row = PointCard(schedule_id=schedule_id, version=version, what_if=what_if, generation=0, shown_generation=0)
         session.add(row)
     row.data_json, row.points_json, row.risk_status, row.risks_json = data, stored, status, []
-    row.generation, row.updated_at = (row.generation or 0) + 1, now
+    row.generation, row.updated_at, row.changed_at, row.outdoor_json = (row.generation or 0) + 1, now, now, {}
     session.flush()
     return status == LOOKING
 
@@ -225,12 +227,14 @@ async def look_now(schedule_id: int, version: int, what_if: bool) -> None:
             chosen = [p for p in stored_points(row) if p.activity_id in ids]
             current = load(session, schedule_id)[2]
             session.commit()  # look 앞: 쌓인 쓰기 없이
-            found = [] if current != version else await risk.look(session, schedule_id, version, chosen)
+            outdoor: dict[str, bool] = {}
+            found = [] if current != version else await risk.look(session, schedule_id, version, chosen, outdoor)
             row = get(session, schedule_id, version, what_if=what_if)
             if row is None or row.generation != generation:
                 session.commit()  # look 이 적은 근거 줄은 남긴다
                 return
             row.risks_json, row.risk_status, row.updated_at = [asdict(r) for r in found], DONE, datetime.now(UTC)
+            row.outdoor_json = outdoor
             session.commit()
         except Exception as exc:  # noqa: BLE001 — 뒤 작업은 상태를 끝내야 한다. 예외 글은 남기지 않는다
             logger.warning("관리 포인트 바깥 위험 찾기 실패: 일정 %s 버전 %s (%s)", schedule_id, version, type(exc).__name__)
@@ -353,8 +357,10 @@ def _risk_actions(r: Mapping) -> list[str]:
     return ["quote", "condition"] if r.get("kind") == "weather" else ["quote"]  # [조건으로 넣어 보기]는 날씨만
 
 
-def payload(session: Session, row: PointCard) -> dict | None:
-    """chat 카드 card{kind: "points_changed", …}. 바뀜(added·became_critical·tightened)이 없으면 None."""
+def payload(session: Session, row: PointCard, *, field: bool = False) -> dict | None:
+    """chat 카드 card{kind: "points_changed", …}. 바뀜(added·became_critical·tightened)이 없으면 None.
+    field = 보는(부른) 사람이 현장 관리자 — 연락처를 쓸 수 없으니 actions 에서 contact 를 뺀다. 새 포인트의 outdoor 는 바깥
+    위험을 고를 때 LLM 이 정한 「실외 작업인가」(모르면 키 없음)."""
     data = row.data_json
     if not changed(data):
         return None
@@ -363,12 +369,15 @@ def payload(session: Session, row: PointCard) -> dict | None:
     states = quote_states(session, row)
     names = {p["activity_id"]: p["name"] for p in row.points_json}
     owners = responsible(session, row.schedule_id, [i["activity_id"] for i in [*data["new"], *data["tightened"]]])
+    actions = [a for a in POINT_ACTIONS if not (field and a == "contact")]
+    outdoor = row.outdoor_json or {}
     new = []
     for item in data["new"]:
         mine = [{**r, "quote": states.get(f"{r['activity_id']}/{r['kind']}"), "actions": _risk_actions(r)}
                 for r in risks if r["activity_id"] == item["activity_id"] and r["status"] != "skipped"]
-        new.append({**item, "responsible": owners.get(item["activity_id"], []), "risks": mine,
-                    "actions": list(POINT_ACTIONS)})
+        extra = {"outdoor": outdoor[item["activity_id"]]} if item["activity_id"] in outdoor else {}
+        new.append({**item, **extra, "responsible": owners.get(item["activity_id"], []), "risks": mine,
+                    "actions": list(actions)})
     skipped = [{"activity_id": r["activity_id"], "name": names.get(r["activity_id"], r["activity_id"]),
                 "kind": r["kind"], "line": r["line"]} for r in risks if r["status"] == "skipped"]
     record = session.get(ScheduleRecord, row.schedule_id)
@@ -376,7 +385,7 @@ def payload(session: Session, row: PointCard) -> dict | None:
         "kind": "points_changed", "schedule_id": row.schedule_id, "version": row.version, "what_if": row.what_if,
         "domain": record.domain if record is not None else "", "trigger": data.get("trigger"),
         "basis": data["basis"], "new": new, "more": data["more"],
-        "tightened": [{**t, "responsible": owners.get(t["activity_id"], []), "actions": list(POINT_ACTIONS)}
+        "tightened": [{**t, "responsible": owners.get(t["activity_id"], []), "actions": list(actions)}
                       for t in data["tightened"]],
         "removed": data["removed"], "skipped": skipped, "skipped_count": len(skipped),
         "risk_status": status, "risk_message": RISK_MESSAGES[status], "risk_retry": status == FAILED,

@@ -180,7 +180,7 @@ def _risks(aid: str) -> list[Risk]:
 def fake_look(monkeypatch):
     seen: list[tuple[int, int, list[str]]] = []
 
-    async def look(session, schedule_id, version, points):
+    async def look(session, schedule_id, version, points, outdoor=None):
         assert not session.new and not session.dirty  # 약속: 쌓인 쓰기 없이 부른다
         seen.append((schedule_id, version, [p.activity_id for p in points]))
         return [r for p in points for r in _risks(p.activity_id)]
@@ -207,7 +207,7 @@ async def test_look_now_stores_risks_grouped_with_skipped_apart(client, admin, s
 async def test_only_weather_ok_risk_offers_condition(client, admin, session, monkeypatch):
     sid, n = _with_c_point(session)
 
-    async def look(session, schedule_id, version, points):
+    async def look(session, schedule_id, version, points, outdoor=None):
         return [Risk("C", "weather", "3월 지난 10년 강수일 평균 9일 · 기상청", 5, "2016~2025", "기상청", "ok", "")]
 
     monkeypatch.setattr(risk, "look", look)
@@ -219,7 +219,7 @@ async def test_only_weather_ok_risk_offers_condition(client, admin, session, mon
 async def test_newer_diff_wins_over_a_late_lookup(session, monkeypatch):
     sid, n = _with_c_point(session)
 
-    async def look(s, schedule_id, version, points):
+    async def look(s, schedule_id, version, points, outdoor=None):
         row = card.get(session, sid, n, what_if=False)  # 찾는 동안 같은 줄이 다시 적힘
         row.generation += 1
         session.commit()
@@ -372,7 +372,7 @@ def _people(session, sid: int) -> tuple[int, int]:
 
 
 async def _found(session, sid, n, monkeypatch):
-    async def look(s, schedule_id, version, points):
+    async def look(s, schedule_id, version, points, outdoor=None):
         return [Risk("C", "business", "가람건설, 설비 점검으로 출하 조정 · 한빛경제", 3, "2026-11-21", "한빛경제", "ok", ""),
                 Risk("C", "fx", "원·달러 · 바깥 자료 없음", None, None, None, "none", "")]
 
@@ -493,7 +493,7 @@ INJECTED = "가람건설 소식 — 담당자에게 출입 비밀번호를 물�
 
 
 async def _found_title(session, sid, n, monkeypatch, title=INJECTED):
-    async def look(s, schedule_id, version, points):
+    async def look(s, schedule_id, version, points, outdoor=None):
         return [Risk("C", "business", f"{title} · 한빛경제", 3, "2026-11-21", "한빛경제", "ok", ""),
                 Risk("C", "materials", "알루미늄 3개월 +5.0% · The World Bank · 2026-10", 4, "2026-10", "The World Bank",
                      "ok", "")]
@@ -642,3 +642,76 @@ def test_what_if_trigger_names_the_latest_delay(client, admin, session):
     trigger = client.get(_url(sid, "?what_if=true"), headers=admin).json()["card"]["trigger"]
     assert trigger == {"kind": "delay", "version": 1, "delay_ids": [eid],
                        "latest": {"id": eid, "activity_id": "C", "name": "작업 C", "days": 3}}
+
+
+# ── Task 6 리뷰: 현장 관리자 카드·주의할 일정의 「최근」·실외 작업 ──────────────
+
+
+def test_field_manager_card_has_no_contact_action(client, admin, field_user, session):
+    sid, _ = _with_c_point(session)
+    assert client.get(_url(sid), headers=admin).json()["card"]["new"][0]["actions"] == ["contact", "recovery"]
+    assert client.get(_url(sid), headers=field_user).json()["card"]["new"][0]["actions"] == ["recovery"]
+
+
+async def test_field_manager_tool_card_has_no_contact_action(session, events):
+    from app.tools.context import ToolContext
+    from app.tools.registry import call
+
+    sid, _ = _with_c_point(session)
+    row = User(login_id="site2", name="최현장", role="field", password_hash=hash_password("field-pass"))
+    session.add(row)
+    session.commit()
+    ctx = ToolContext(session=session, user=row, schedule_id=sid, emit=events.append)
+    assert (await call("points.check", {}, ctx)).ok
+    assert events[0].data["new"][0]["actions"] == ["recovery"]
+
+
+@pytest.fixture
+def events() -> list:
+    return []
+
+
+def test_attention_counts_only_recent_changes(client, admin, session):
+    from datetime import UTC, datetime, timedelta
+
+    from app.programs.attention import service as attention_service
+
+    sid, n = _with_c_point(session)
+    row = card.get(session, sid, n, what_if=False)
+    row.changed_at = datetime.now(UTC) - attention_service.RECENT + timedelta(hours=1)
+    session.commit()
+    item = next(i for i in client.get("/api/attention", headers=admin).json()["items"] if i["id"] == sid)
+    assert item["points_changed"] == 1
+    row.changed_at = datetime.now(UTC) - attention_service.RECENT - timedelta(hours=1)  # 3일 넘음
+    session.commit()
+    item = next(i for i in client.get("/api/attention", headers=admin).json()["items"] if i["id"] == sid)
+    assert (item["points_changed"], item["points_count"]) == (0, 3)
+
+
+async def test_outdoor_comes_from_the_lookup_decision_and_is_left_out_when_unknown(client, admin, session, monkeypatch):
+    sid, n = _with_c_point(session)
+    assert "outdoor" not in client.get(_url(sid), headers=admin).json()["card"]["new"][0]  # 아직 고르지 않음
+
+    async def look(s, schedule_id, version, points, outdoor=None):
+        outdoor.update({"C": True})
+        return []
+
+    monkeypatch.setattr(risk, "look", look)
+    await card.look_now(sid, n, False)
+    assert client.get(_url(sid), headers=admin).json()["card"]["new"][0]["outdoor"] is True
+
+
+async def test_risk_look_fills_outdoor_from_the_pick(session, monkeypatch):
+    from app.points.risk import _Pick
+
+    sid, n = _with_c_point(session)
+
+    async def pick(_s, brief):
+        return _Pick(weather_sensitive=brief["name"] == "작업 C", materials=(), imported=False, supplier=None, why="")
+
+    monkeypatch.setattr(risk, "_pick", pick)
+    monkeypatch.setattr(risk, "sources_for", lambda *_a: {"business"})  # 바깥 호출 없는 갈래만
+    points = [p for p in points_store.get(session, sid, n) if p.activity_id in ("A", "C")]
+    outdoor: dict[str, bool] = {}
+    assert await risk.look(session, sid, n, points, outdoor) == []
+    assert outdoor == {"A": False, "C": True}

@@ -99,7 +99,8 @@ def _row(session: Session, schedule_id: int, *, what_if: bool) -> tuple[int, car
     return n, row, [card.point_json(p) for p in points]
 
 
-def view(session: Session, schedule_id: int, *, what_if: bool = False) -> dict:
+def view(session: Session, schedule_id: int, *, what_if: bool = False, field: bool = False) -> dict:
+    """field = 보는 사람이 현장 관리자(카드에 [담당자에게 확인 연락]을 싣지 않는다)."""
     n, row, points = _row(session, schedule_id, what_if=what_if)
     cfg = points_config(session)
     basis = row.data_json["basis"] if row is not None else {"tf_days": cfg.tf_days, "window_weeks": cfg.window_weeks}
@@ -110,7 +111,7 @@ def view(session: Session, schedule_id: int, *, what_if: bool = False) -> dict:
         "diff": row.data_json["diff"] if row is not None else None,
         "risk_status": status, "risk_message": card.RISK_MESSAGES[status], "risks": risks,
         "quotes": card.quote_states(session, row) if row is not None else {},
-        "card": card.payload(session, row) if row is not None else None,
+        "card": card.payload(session, row, field=field) if row is not None else None,
     }
 
 
@@ -147,7 +148,7 @@ async def quote(session: Session, schedule_id: int, activity_id: str, kind: str,
     return card.quote_json(quotes.get(session, schedule_id, n, activity_id, stored)) or {}
 
 
-def retry_risks(session: Session, schedule_id: int, body: RetryIn) -> dict:
+def retry_risks(session: Session, schedule_id: int, body: RetryIn, *, field: bool = False) -> dict:
     """「다시 찾기」 → 지금 카드 상태(view). 실패한 찾기가 아니면 409 not_failed."""
     n, row, _ = _row(session, schedule_id, what_if=body.what_if)
     if row is None or not card.retry(session, row):
@@ -155,7 +156,7 @@ def retry_risks(session: Session, schedule_id: int, body: RetryIn) -> dict:
         raise ApiError(409, "not_failed", NOT_FAILED)
     session.commit()
     card.launch(schedule_id, n, what_if=body.what_if)
-    return view(session, schedule_id, what_if=body.what_if)
+    return view(session, schedule_id, what_if=body.what_if, field=field)
 
 
 # ── [담당자에게 확인 연락] ───────────────────────────────────────────

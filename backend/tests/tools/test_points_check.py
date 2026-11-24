@@ -50,7 +50,7 @@ async def test_changed_points_emit_the_card_with_engine_values(ctx, session, eve
     sid = store(session, _base())
     n = _save(session, sid, _c(4), 1)
 
-    async def look(s, schedule_id, version, points):
+    async def look(s, schedule_id, version, points, outdoor=None):
         return [Risk("C", "materials", "구리 3개월 +2.0% · The World Bank · 2026-10", 1, "2026-10", "The World Bank",
                      "ok", "")]
 
