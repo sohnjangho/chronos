@@ -171,15 +171,13 @@ def get_activity_detail(args: ActivityDetailIn, ctx: ToolContext) -> ActivityDet
     matched: list[ActivityMatchSummary] = []
     for row in view["activities"]:
         model = act_model[row["id"]]
-        if res_q is not None:
-            if not any(
-                res_q in rid.lower() or res_q in res_names.get(rid, "").lower()
-                for rid in model.resources
-            ):
-                continue
-        if tag_q is not None:
-            if not any(tag_q in t.lower() for t in model.tags):
-                continue
+        if res_q is not None and not any(
+            res_q in rid.lower() or res_q in res_names.get(rid, "").lower()
+            for rid in model.resources
+        ):
+            continue
+        if tag_q is not None and not any(tag_q in t.lower() for t in model.tags):
+            continue
         matched.append(
             ActivityMatchSummary(
                 id=row["id"],

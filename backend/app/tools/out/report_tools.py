@@ -7,7 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.agent.events import AgentEvent
 from app.errors import ApiError
 from app.programs.reports import service
-from app.programs.reports.schemas import ReportGenerateIn, ReportReviseIn, TemplateLearnIn, TemplateOut
+from app.programs.reports.schemas import (
+    ReportGenerateIn,
+    ReportReviseIn,
+    TemplateLearnIn,
+    TemplateOut,
+)
 from app.store.tables import User
 from app.tools.context import ToolContext, ToolError
 from app.tools.registry import tool

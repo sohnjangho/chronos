@@ -220,9 +220,8 @@ def _match_fallback_cols(heading: str, fallback_sections: list[TemplateSection])
     norm = heading.lower().replace(" ", "")
     for sec in fallback_sections:
         sh = sec.heading.lower().replace(" ", "")
-        if sh == norm or (len(norm) >= 3 and (norm in sh or sh in norm)):
-            if sec.table_columns:
-                return list(sec.table_columns)
+        if (sh == norm or (len(norm) >= 3 and (norm in sh or sh in norm))) and sec.table_columns:
+            return list(sec.table_columns)
     return []
 
 

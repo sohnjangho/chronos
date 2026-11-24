@@ -7,7 +7,14 @@ from app.agent import loop
 from app.errors import ApiError
 from app.llm.client import LlmClient
 from app.store import chats
-from app.store.tables import Approval, ChangeLog, ScheduleDraft, ScheduleRecord, User, WorkflowRun
+from app.store.tables import (
+    Approval,
+    ChangeLog,
+    ScheduleDraft,
+    ScheduleRecord,
+    User,
+    WorkflowRun,
+)
 from tests.approval_doubles import crane, make_draft, submit
 from tests.llm_doubles import add_connection
 from tests.loop_doubles import ScriptedLlm, calls, reply

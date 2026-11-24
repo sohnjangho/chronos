@@ -6,7 +6,13 @@
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.programs.workflow.schemas import RunDetail, RunOut, SkillCreateIn, SkillOut, StepOut
+from app.programs.workflow.schemas import (
+    RunDetail,
+    RunOut,
+    SkillCreateIn,
+    SkillOut,
+    StepOut,
+)
 from app.store import skills as skill_store
 from app.store import workflows as store
 from app.store.tables import SkillRow, User, WorkflowRun, WorkflowStep

@@ -15,7 +15,14 @@ from sqlalchemy.orm import Session
 from app.core.cpm import ScheduleError
 from app.store import links
 from app.store.drafts import get_draft
-from app.store.schedules import NotFound, create_schedule, from_json, load, plan_snapshot, run
+from app.store.schedules import (
+    NotFound,
+    create_schedule,
+    from_json,
+    load,
+    plan_snapshot,
+    run,
+)
 from app.store.tables import Approval, ChangeLog, ChatMessage, ChatSession, Scenario
 from app.store.versions import mark_plan, save_new_version
 from app.store.view import plan_changed

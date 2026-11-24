@@ -8,7 +8,6 @@
 import argparse
 import re
 import tempfile
-from dataclasses import replace
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -16,8 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.core.cpm import compute
 from app.core.delay import DelayEvent, analyze, insert_delay
-from app.core.resources import level as level_schedule
 from app.core.points import compute_points, diff_points
+from app.core.resources import level as level_schedule
 from app.harness.assemble import prepare_stored
 from app.seed.office import office_building
 from app.store.schedules import load

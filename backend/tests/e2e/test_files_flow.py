@@ -54,8 +54,8 @@ def test_plan3_files_chat_model_and_info_api_flow(client, env):
     h = _login(client)
 
     # 1. 파일 올리기(텍스트 시방서 + CSV 표)
-    spec_bytes = "동절기 콘크리트 타설 기준: 외기온도 4도 이하일 때 한중 콘크리트 양생 적용.\n".encode("utf-8")
-    csv_bytes = "ID,작업명,기간\nA10,가설,5\nA20,토공,10\n".encode("utf-8")
+    spec_bytes = "동절기 콘크리트 타설 기준: 외기온도 4도 이하일 때 한중 콘크리트 양생 적용.\n".encode()
+    csv_bytes = "ID,작업명,기간\nA10,가설,5\nA20,토공,10\n".encode()
     uploaded = _ok(
         client.post(
             "/api/files",

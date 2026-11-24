@@ -28,7 +28,14 @@ from app.programs.schedule.schemas import (
 )
 from app.programs.schedule.view import build_view
 from app.store.messages import SCHEDULE_ERROR_MESSAGES
-from app.store.schedules import NotFound, create_empty_project, get_record, get_version, list_records, load
+from app.store.schedules import (
+    NotFound,
+    create_empty_project,
+    get_record,
+    get_version,
+    list_records,
+    load,
+)
 from app.store.tables import User
 from app.store.versions import VersionConflict, list_versions, restore, save_new_version
 from app.store.view import plan_changed, run

@@ -2,8 +2,6 @@
 
 from dataclasses import replace
 
-import pytest
-
 import app.tools.generate as generate_tools
 from app.core.model import Relation, Resource, WbsNode
 from app.harness.conditions import Condition

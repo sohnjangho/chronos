@@ -117,7 +117,9 @@ def _finish_waiting_workflow(session: Session, row: Approval, status: str, retry
     if retry or row.chat_session_id is None:
         return
     from datetime import UTC, datetime
+
     from sqlalchemy import select
+
     from app.store.tables import WorkflowRun
 
     waiting = session.scalars(

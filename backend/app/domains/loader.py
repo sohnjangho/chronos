@@ -5,10 +5,10 @@
 분야 규칙은 app.harness.conditions.Condition 으로 읽혀야 하고 겹 "domain"·출처 "분야 규칙" 이어야 한다.
 """
 
+import re
 from collections import Counter
 from functools import cache
 from pathlib import Path
-import re
 from typing import Annotated, Literal
 
 import yaml

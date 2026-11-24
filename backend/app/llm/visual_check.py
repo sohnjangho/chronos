@@ -16,8 +16,8 @@ DB·네트워크를 쓰지 않는다. 규칙(컨트롤러 판정 11-20 · 리뷰
 import html as html_lib
 import re
 from collections import Counter
-from dataclasses import dataclass
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from app.store.visuals import VisualTable
