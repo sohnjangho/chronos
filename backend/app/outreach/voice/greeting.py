@@ -8,8 +8,8 @@
   (FIRST_LINES·INBOUND_LINES·INBOUND_LINES_NO_SITE·MUST_SAY·MUST_NOT_SAY)를 함께 채운다 — 한국어 문장의 뜻 그대로, AI 임과
   「이 통화는 기록됩니다」를 넣고, 틀에는 숫자를 쓰지 않는다. 표에 있어도 통화가 되는지는 languages.CALLABLE 이 정한다(통화 일꾼이
   languages.call_language 로 고른다 — 안 되는 언어는 한국어 문장으로 건다).
-- discloses(language, spoken) — 음성 모델이 **실제로 한** 말(받아쓰기)에 AI 임과 기록됨이 들어 있고(MUST_SAY 묶음마다 하나) 부정
-  말(MUST_NOT_SAY — 「AI 가 아니고」「기록되지 않습니다」 · not · 不是 · không phải …)이 없는가. SDK 에는 「이 문장을 그대로
+- discloses(language, spoken) — 음성 모델이 **실제로 한** 말(받아쓰기)이 AI 임(AI 낱말이 있고 NOT_AI — AI 를 바로 꾸미는 부정 — 가
+  없음)과 기록됨(기록 낱말이 든 마디 가운데 같은 마디에 MUST_NOT_SAY 부정 말이 없는 것 하나)을 밝히는가(고침 1 — 부정은 그 마디 안에서만). SDK 에는 「이 문장을 그대로
   말하라」가 없어 첫마디를 모델이 말하므로, 통화 일꾼이 통화의 첫 발화(session 의 약속 2)를 이것으로 본다(call_run._discloses).
   한국어·중국어는 빈칸을 빼고 글자 조각으로, 영어·베트남어는 **낱말로** 본다(「wait」 속의 ai 는 AI 가 아니고, 「Nottingham」 속의
   not 은 부정이 아니다).
@@ -50,13 +50,26 @@ MUST_SAY = {
     "zh": (("ai", "人工智能"), ("录音", "记录", "錄音", "記錄")),
     "vi": (("ai", "trí tuệ nhân tạo"), ("ghi âm", "ghi lại")),
 }
-# 하면 안 되는 말(부정): 하나라도 들어 있으면 밝힌 것이 아니다 — 「AI 가 아니고 … 기록되지 않습니다」를 밝힌 것으로 치지 않는다.
+# 기록 마디의 부정 말: 기록 낱말(MUST_SAY 의 둘째 묶음)과 **같은 마디**에 있으면 그 마디는 「기록됨」을 밝힌 것이 아니다
+# (「이 통화는 기록되지 않습니다」 · No recording is made · 不被录音 · không bị ghi âm). 다른 마디의 부정(「사람이 아니라 AI 비서입니다」 ·
+# 「not a human」)은 상관없다(고침 1). 한국어는 띄어 쓴 「안 하」「안 됩」「못 하」도 본다(_KO_SPACED_NOT — 「안녕하세요」는 아니다).
 MUST_NOT_SAY = {
-    "ko": ("아니", "아닙", "아닌", "않"),
-    "en": ("not", "never", "n't", "n’t"),
-    "zh": ("不是", "不会", "不會", "没有", "沒有", "不录", "不錄", "不记录", "不記錄", "并非", "並非"),
-    "vi": ("không phải", "không được ghi", "không ghi", "chẳng"),
+    "ko": ("아니", "아닙", "아닌", "아님", "않", "없"),
+    "en": ("not", "never", "n't", "n’t", "no", "cannot", "without", "neither"),
+    "zh": ("不是", "不会", "不會", "没有", "沒有", "不录", "不錄", "不记录", "不記錄", "并非", "並非", "不被", "无", "無"),
+    "vi": ("không phải", "không được ghi", "không ghi", "chẳng", "không bị", "không có"),
 }
+_KO_SPACED_NOT = re.compile(r"(?<![가-힣])(?:안|못)\s*(?:하|함|합|했|할|해|됩|돼|되|됨|된|될)")
+_AI_EN = r"(?:ai|a\.\s?i|artificial intelligence)(?!\w)"
+# AI 를 **바로 꾸미는** 부정(「not an AI」 · 「AI 가 아닙니다」 · 「AI 아님」 · 不是AI · không phải là trợ lý AI) — 있으면 AI 임을 밝힌 것이 아니다.
+# 한국어·중국어는 빈칸을 뺀 글에, 영어·베트남어는 빈칸 한 칸으로 고른 글에 건다.
+NOT_AI = {
+    "ko": re.compile(r"(?:ai|에이아이|인공지능)(?:비서|어시스턴트)?(?:가|이|는|은|도)?(?:아니|아닙|아님|아닌)"),
+    "en": re.compile(rf"(?:(?<!\w)(?:not|never|no|neither)\s+|n['’]t\s+)(?:(?:a|an|the|real|actual)\s+)*{_AI_EN}"),
+    "zh": re.compile(r"(?:不是|并非|並非)(?:一个|一個|一位)?(?:ai|人工智能)"),
+    "vi": re.compile(r"(?<!\w)(?:không phải|chẳng phải)\s+(?:là\s+)?(?:một\s+)?(?:trợ lý\s+)?(?:ai|trí tuệ nhân tạo)(?!\w)"),
+}
+_CLAUSE = re.compile(r"[.!?;,。！？；，、\n]+")  # 마디 나누기(「A.I.」의 점도 나누지만 AI 낱말은 글 전체에서 찾는다)
 _CONTRACTIONS = ("n't", "n’t")
 _BY_WORD = frozenset({"en", "vi"})  # 빈칸으로 낱말을 가르는 언어 — 낱말(조각이 아니라)로 견준다
 _SPACE_LIKE = frozenset({"Cc", "Cf", "Zl", "Zp"})  # 제어·보이지 않는 글자·줄 나눔
@@ -105,10 +118,23 @@ def _has(code: str, heard: str, word: str) -> bool:
     return bool(_word(word).search(heard)) if code in _BY_WORD else "".join(word.split()) in heard
 
 
+def _recorded(code: str, clause: str) -> bool:
+    """이 마디가 기록됨을 밝히는가: 기록 낱말이 있고 같은 마디에 부정 말이 없다."""
+    heard = clause.strip() if code in _BY_WORD else "".join(clause.split())
+    if not any(_has(code, heard, word) for word in MUST_SAY[code][1]):
+        return False
+    if any(_has(code, heard, word) for word in MUST_NOT_SAY[code]):
+        return False
+    return not (code == "ko" and _KO_SPACED_NOT.search(clause))
+
+
 def discloses(language: str, spoken: str) -> bool:
-    """실제로 한 말에 그 언어의 「꼭 하는 말」(AI 임 · 기록됨)이 모두 들어 있고 부정 말이 없는가. 모르는 언어는 한국어 기준."""
+    """실제로 한 말이 그 언어로 AI 임(글 전체에 AI 낱말 · AI 를 바로 꾸미는 부정 없음)과 기록됨(부정 없는 마디 하나)을 밝히는가.
+    모르는 언어는 한국어 기준."""
     code = _language(language)
     text = unicodedata.normalize("NFKC", spoken).lower() if isinstance(spoken, str) else ""
-    heard = " ".join(text.split()) if code in _BY_WORD else "".join(text.split())
-    return (all(any(_has(code, heard, word) for word in group) for group in MUST_SAY[code])
-            and not any(_has(code, heard, word) for word in MUST_NOT_SAY[code]))
+    spaced = " ".join(text.split())
+    whole = spaced if code in _BY_WORD else "".join(text.split())
+    if not any(_has(code, whole, word) for word in MUST_SAY[code][0]) or NOT_AI[code].search(whole):
+        return False
+    return any(_recorded(code, clause) for clause in _CLAUSE.split(spaced))

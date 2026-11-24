@@ -10,6 +10,7 @@
 import json
 import re
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -20,6 +21,7 @@ from app.outreach.harness import review, rules_text
 from app.outreach.text import instructions as text_instructions
 from app.outreach.voice import after, call_run, greeting
 from app.outreach.voice import instructions as voice_instructions
+from app.outreach.voice.simulated import Ring
 from app.security import crypto
 from app.store.tables import ScheduleRecord
 from app.store.tables_outreach import (
@@ -34,6 +36,7 @@ from tests.outreach.harness.test_gate import call, connect, person
 from tests.outreach.harness.test_review import row as review_row
 from tests.outreach.harness.test_review import run as review_run
 from tests.outreach.test_worker import NOW, inbound_rows, receive, text_in
+from tests.outreach.voice.test_inbound import fresh_inbound, world  # noqa: F401 — 받는 통화 시험의 세상(fixture)
 from tests.outreach.voice.test_runner import (
     AGENT_NUMBER,
     place,
@@ -359,3 +362,104 @@ def test_non_korean_reply_is_never_clean(session):
     session.expire_all()
     detail = [e["detail"] for e in session.get(OutreachMessage, ref.row_id).harness_json]
     assert detail and all(review.FOREIGN in d for d in detail)
+
+
+# ── 고침 1: 밝힘 검사는 그 문장 안의 부정만 · 섞인 글과 다른 언어 연락처는 늘 깃발 · 받는 통화 언어 기록 ──────────
+
+
+@pytest.mark.parametrize("code,spoken,expected", [
+    # 기록됨: 기록 낱말과 같은 마디 안의 부정은 「기록됨」을 무효로 한다
+    ("en", "Hello, this is the ChronOS AI assistant. No recording is made of this call.", False),
+    ("en", "Hello, this is the ChronOS AI assistant. This call cannot be recorded.", False),
+    ("en", "Hello, this is the ChronOS AI assistant, and we talk without recording.", False),
+    ("en", "Hello, this is the ChronOS AI assistant. Neither this call is recorded nor kept.", False),
+    # AI 임: 부정이 AI 를 바로 꾸밀 때만 무효 — 다른 마디의 부정은 상관없다
+    ("en", "I'm an AI assistant, not a human. This call is recorded.", True),
+    ("en", "Hello, I am no AI. This call is recorded.", False),
+    ("en", "Hello, this is not an AI assistant. This call is recorded.", False),
+    ("ko", "안녕하세요, AI 비서입니다. 이 통화는 기록 안 합니다.", False),
+    ("ko", "AI 아님. 이 통화는 기록됩니다.", False),
+    ("ko", "AI 비서입니다. 이 통화는 녹음이 없습니다.", False),
+    ("ko", "AI 비서입니다. 이 통화는 기록 못 합니다.", False),
+    ("ko", "AI 비서가 아닙니다. 이 통화는 기록됩니다.", False),
+    ("ko", "안녕하세요 이 통화는 기록됩니다 AI 비서입니다", True),  # 「안녕하세요」의 안은 부정이 아니다
+    ("ko", "사람이 아니라 AI 비서입니다. 이 통화는 기록됩니다.", True),  # 부정이 AI 를 꾸미지 않는다
+    ("zh", "我是AI助理。本次通话不被录音。", False),
+    ("zh", "我是AI助理。本次通话无录音。", False),
+    ("zh", "我是AI助理，不是真人。本次通话将被录音。", True),
+    ("vi", "Tôi là trợ lý AI. Cuộc gọi này không bị ghi âm.", False),
+    ("vi", "Tôi là trợ lý AI. Cuộc gọi này không có ghi âm.", False),
+    ("vi", "Tôi là trợ lý AI, không phải người thật. Cuộc gọi này được ghi âm.", True),
+])
+def test_negation_counts_only_inside_the_disclosure_clause(code, spoken, expected):
+    assert greeting.discloses(code, spoken) is expected
+    assert call_run._discloses(code, spoken) is expected
+
+
+@pytest.mark.parametrize("value", [*languages.SUPPORTED, "EN", " vi ", "zh-CN", "en_US", "ko-KR", "ja", "", None, 3])
+def test_greeting_reads_language_codes_like_languages_code(value):
+    assert greeting._language(value) == languages.code(value)
+
+
+def test_frontend_callable_languages_mirror_the_server_set():
+    """화면의 CALLABLE_LANGUAGES(걸기 창·사람 양식 안내)는 서버 languages.CALLABLE 과 같아야 한다 — 하나를 고치면 여기서 걸린다."""
+    source = (Path(__file__).resolve().parents[3] / "frontend" / "src" / "programs" / "contacts" / "CallDialog.tsx").read_text(
+        encoding="utf-8")
+    found = re.search(r"CALLABLE_LANGUAGES[^=]*=\s*new Set\(\[([^\]]*)\]\)", source)
+    assert found is not None
+    assert set(re.findall(r"'([a-z]{2})'", found.group(1))) == set(languages.CALLABLE)
+
+
+FACT_28 = [{"items": [{"id": "R", "name": "가람동 철근 배근", "start": "2026-11-28", "finish": "2026-12-01"}]}]
+
+
+def test_mixed_korean_and_english_reply_is_flagged(session):
+    """한글 현장·작업 이름이 든 영어 답(한글이 절반 넘어도) — 영어 날짜를 읽지 못하므로 깃발."""
+    got = review_run(session, review_row(session, "message"), ["철근 배근 at 가상 물류센터 starts on November 30"], tools=FACT_28)
+    assert got.clean is False and "unsupported_date" in got.flags
+    for word in ("토요일 Saturday 에 시작합니다", "11월 28일 시작, OK? thanks"):
+        assert review_run(session, review_row(session, "message"), [word], tools=FACT_28).clean is False
+
+
+@pytest.mark.parametrize("said", ["ChronOS AI 비서입니다. 철근 배근은 11월 28일에 시작합니다",
+                                  "A1210 철근 배근은 11월 28일 시작, 30kg 자재 OK", "철근 배근은 11월 28일에 시작합니다(RC30)"])
+def test_korean_reply_with_allowed_latin_stays_clean(session, said):
+    assert review_run(session, review_row(session, "message"), [said], tools=FACT_28).clean is True
+
+
+def test_contact_or_call_language_other_than_korean_is_always_flagged(session):
+    from tests.outreach.harness.test_review import world as review_world
+    w = review_world(session)
+    w.park.language = "en"
+    session.commit()
+    got = review_run(session, review_row(session, "message", to=w.park), ["철근 배근은 11월 28일에 시작합니다"], tools=FACT_28,
+                     peer=["네 토요일은 6명 가능합니다"])
+    assert got.clean is False and {"unsupported_date", "unsupported_answer"} <= set(got.flags)
+    english_call = review_row(session, "call", language="en")
+    assert review_run(session, english_call, ["철근 배근은 11월 28일에 시작합니다"], tools=FACT_28).clean is False
+    # 통화가 안 되는 언어로 적힌 통화는 한국어로 걸렸다(call_language) — 한국어 규칙으로 본다
+    korean_call = review_row(session, "call", language="zh")
+    assert review_run(session, korean_call, ["철근 배근은 11월 28일에 시작합니다"], tools=FACT_28).clean is True
+
+
+@pytest.mark.parametrize("code,stored", [("en", "en"), ("zh", "ko")])
+async def test_inbound_call_row_keeps_the_language_it_was_answered_in(session, world, code, stored):  # noqa: F811
+    from tests.outreach.voice.test_inbound import AT, TALK, calls_in, ring
+    world.who.language = code
+    world.conn.inbound_mode = "all"
+    session.commit()
+    await ring(Ring(world.who.phone, AT), *TALK)
+    [row] = calls_in(session)
+    assert row.language == stored
+
+
+async def test_summary_language_line_is_the_language_the_call_ran_in(session, sid, voice_world, monkeypatch):
+    who = person(session, sid, language="zh")
+    row = call(session, who, status="completed", duration_s=10, language="zh", answers_json=[],
+               transcript_json=[{"role": "peer", "text": "토요일에 6명 갑니다", "t": 1.0}])
+    session.commit()
+    add_connection(session)
+    fake = ScriptedLlm([reply(json.dumps({"summary_ko": "상대가 토요일 6명이라고 했다.", "result": "6명"}, ensure_ascii=False))])
+    monkeypatch.setattr(after, "client_for", lambda s: LlmClient(s, transport=fake.transport))
+    await after.finish(row.id)
+    assert '"통화 언어": "한국어"' in fake.last_body["messages"][-1]["content"]

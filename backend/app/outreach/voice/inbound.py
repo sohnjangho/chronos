@@ -207,6 +207,8 @@ def _decide(incoming: Incoming, live: int, at: datetime) -> "_Engage | int | Non
                 status, why = "missed", NOT_READY  # 받을 명세를 지을 수 없다(번호 없음·글에 번호) — 받지 않는다
         row = _row(caller, incoming.caller_number, status=status, fail_reason=why, created_at=at,
                    ended_at=None if spec is not None else at)
+        if spec is not None:
+            row.language = spec.language  # 받은 언어(Task 100 — 통화 뒤 요약·뒤 확인이 이 언어로 본다)
         session.add(row)
         session.flush()
         events.record(session, Ref("call", row.id), "admission", _VERDICT.get(verdict, "blocked"), admitted.reason, now=at)

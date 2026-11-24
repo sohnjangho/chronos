@@ -7,8 +7,10 @@
 - 예외가 나면 판정이 없다 — 부른 쪽은 「깨끗하지 않음」으로 다뤄야 한다.
 
 **한국어가 아닌 말**(Task 100 — languages.is_korean): 아래 읽기는 모두 한국어 규칙이라 영어·중국어·베트남어의 흐린 말·부정·날짜·
-금액·옮긴 작업 이름을 읽지 못한다. 그래서 우리 말(said)이 한국어가 아니면 said 검사(날짜·범위 밖 이름·금액·모르는 상대)마다,
-상대 말이 한국어가 아니면 unsupported_answer 에 FOREIGN 깃발 — 다른 언어의 대화는 늘 「내용 확인 필요」(문자 자동 답은 초안에
+금액·옮긴 작업 이름을 읽지 못한다. 그래서 대화 언어(check 의 language — 주지 않으면 통화 줄의 languages.call_language(language),
+문자 줄은 연락처의 언어, 연락처가 없으면 한국어)가 한국어가 아니면 늘, 한국어여도 우리 말(said)이 한국어가 아니거나 3자 이상 라틴
+낱말(languages.has_foreign_words — 「starts on November 30」)이 섞였으면 said 검사(날짜·범위 밖 이름·금액·모르는 상대)마다, 상대
+말이 한국어가 아니면 unsupported_answer 에 FOREIGN 깃발 — 다른 언어의 대화는 늘 「내용 확인 필요」(문자 자동 답은 초안에
 남고, 통화는 보고 한 줄)이고 「깨끗함」이 되지 않는다.
 
 깃발(types.REVIEW_FLAGS 만 쓴다)과 규칙:
@@ -66,6 +68,7 @@ from app.outreach.harness.types import (
 from app.store import outreach, schedules
 from app.store.tables import ScheduleRecord
 from app.store.tables_outreach import (
+    Contact,
     ContactReport,
     OutreachCall,
     OutreachMessage,
@@ -501,12 +504,21 @@ def _strict(scope: Scope, caller_class: str | None) -> bool:
     return "none" in (GRANT_CEILING[scope.caller_class], GRANT_CEILING.get(caller_class or scope.caller_class))
 
 
+def _talk_language(session: Session, row: OutreachMessage | OutreachCall) -> str:
+    """대화 언어: 통화는 실제로 건 언어(languages.call_language — 통화가 안 되는 언어는 한국어로 걸렸다), 문자는 연락처의 언어."""
+    if isinstance(row, OutreachCall):
+        return languages.call_language(row.language)
+    person = session.get(Contact, row.contact_id) if row.contact_id is not None else None
+    return languages.code(person.language) if person is not None else languages.DEFAULT
+
+
 def check(session: Session, ref: Ref, *, said: list[str], peer_lines: list[str], tool_results: list[dict], scope: Scope,
-          caller_class: CallerClass | None = None, now: datetime | None = None) -> Verdict:
+          caller_class: CallerClass | None = None, now: datetime | None = None, language: str | None = None) -> Verdict:
     """뒤 확인 한 번(모듈 머리 글). said 는 통화면 받아쓰기의 에이전트 말, 문자면 보내려는 글. peer_lines 는 상대 말·글만,
     tool_results 는 그 통화·응대의 도구 결과(Toolbox.results), scope 는 지금의 범위(현장을 굳혔으면 굳은 것 — box.scope),
     caller_class 는 Caller.caller_class(주지 않으면 범위의 등급 — 닫힌 범위의 등급은 unknown 이라 더 엄해질 뿐이다),
-    now 는 「오늘」(서울 날짜)을 정하는 시각(시험용 — 없으면 지금).
+    now 는 「오늘」(서울 날짜)을 정하는 시각(시험용 — 없으면 지금). language 는 대화 언어(주지 않으면 _talk_language) — ko 가
+    아니면 늘 FOREIGN 깃발.
 
     quote_found·사건·보고 한 줄을 적고 **commit 한다.** 줄이 없으면 NotFound, 범위·등급이 틀리면 TypeError·ValueError."""
     if not isinstance(scope, Scope) or not isinstance(ref, Ref):
@@ -519,6 +531,7 @@ def check(session: Session, ref: Ref, *, said: list[str], peer_lines: list[str],
     today = as_utc(now or datetime.now(UTC)).astimezone(outreach.KST).date()
     notes: dict[str, str] = {}
 
+    other_language = languages.code(language) != "ko" if language is not None else _talk_language(session, row) != "ko"
     peers = _lines(peer_lines)
     unheard = _mark_answers(row, peers) + _mark_reports(session, ref, peers)
     spoke = _spoke(peer_lines)
@@ -526,11 +539,13 @@ def check(session: Session, ref: Ref, *, said: list[str], peer_lines: list[str],
     # (답·보고 — 날짜는 따로)이 있을 때만 그 검사로 깃발이 선다(Task 86 고침 — 「혹시 내일 작업 있나요?」에 답만 해도 걸리던 것)
     if not spoke or unheard:
         notes["unsupported_answer"] = f"{unheard}건" if spoke else NO_PEER
-    elif not languages.is_korean("\n".join(raw for raw in _listed(peer_lines)[:MAX_PEER_LINES] if isinstance(raw, str))):
+    elif other_language or not languages.is_korean(
+            "\n".join(raw for raw in _listed(peer_lines)[:MAX_PEER_LINES] if isinstance(raw, str))):
         notes["unsupported_answer"] = FOREIGN  # 「maybe」「not sure」를 흐린 말·뒤집는 말로 읽지 못한다 — 근거로 믿지 않는다
 
     text, whole = _said_text(said)
-    foreign = not languages.is_korean(text)  # 한국어가 아닌 말: 날짜·금액·이름 검사를 다 했다고 하지 않는다(깃발)
+    # 한국어가 아닌 말·영어가 섞인 말·다른 언어의 대화: 날짜·금액·이름 검사를 다 했다고 하지 않는다(깃발)
+    foreign = other_language or not languages.is_korean(text) or languages.has_foreign_words(text)
     flat = "".join(ch for ch in text if ch.isalnum())
     counts = {"unsupported_date": _unsupported_dates(text, tool_results, today), "money_said": _money(text)}
     read = {}

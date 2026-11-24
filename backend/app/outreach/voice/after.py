@@ -211,7 +211,7 @@ def _material(session: Session, row: OutreachCall, ended: datetime) -> dict:
         "현장": _hide(record.name if record is not None else ""),
         "상대": _peer(session, row),
         "방향": "우리가 건 통화" if row.direction == "out" else "받은 통화",
-        "통화 언어": languages.name(row.language),  # 받아쓰기는 이 언어 그대로, 요약은 한국어(Task 100)
+        "통화 언어": languages.name(languages.call_language(row.language)),  # 실제로 건 언어 — 받아쓰기는 그대로, 요약은 한국어
         "목적": _hide(row.purpose),
         "물어볼 것": [_hide(q) for q in questions[:MAX_QUESTIONS]],
         "답": _answers(row),

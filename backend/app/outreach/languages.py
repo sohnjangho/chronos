@@ -7,8 +7,12 @@
 - line(code, verb): 모델 지시문(음성·글·초안 모두 같은 상수)에 넣는 「상대의 언어: en(영어). 영어로 말합니다/씁니다.」 한 줄.
   지시문 자체는 한국어로 쓴다.
 - is_korean(text): 글의 글자 가운데 한글이 충분한가 — 받은 문자를 번역할지, 뒤 확인(한국어 규칙)을 믿을지 정할 때 쓴다.
+- has_foreign_words(text): 한국어 글에 섞인 라틴 낱말(3자 이상, LATIN_OK 밖) — 「철근 배근 at 가상 물류센터 starts on November 30」처럼
+  한글이 많아도 영어 날짜·말이 든 글을 뒤 확인이 한국어로 믿지 않게(고침 1). 2자(AI·OK·kg·mm)와 숫자가 붙은 코드(A1210·RC30·30MPa)는
+  세지 않는다.
 """
 
+import re
 import unicodedata
 
 DEFAULT = "ko"
@@ -64,3 +68,15 @@ def is_korean(text: object) -> bool:
     letters = [char for char in unicodedata.normalize("NFC", text) if char.isalpha()]
     hangul = sum(1 for char in letters if _hangul(char))
     return 2 * hangul >= len(letters) - hangul
+
+
+LATIN_OK: frozenset[str] = frozenset({"chronos", "mpa", "kgf", "ton", "tons", "rpm", "sms", "mms",
+                                   "won", "usd", "krw"})  # 한국어 글에 써도 되는 3자+ 낱말(통화 낱말은 금액 검사가 읽는다)
+_LATIN_WORD = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{3,}(?![A-Za-z0-9])")
+
+
+def has_foreign_words(text: object) -> bool:
+    """3자 이상 라틴 낱말이 LATIN_OK 밖에 하나라도 있는가(영어 달·요일 이름 포함 — 모두 3자 이상이다)."""
+    if not isinstance(text, str):
+        return False
+    return any(word.lower() not in LATIN_OK for word in _LATIN_WORD.findall(unicodedata.normalize("NFKC", text)))
