@@ -152,6 +152,11 @@ p{margin:0}
 .dg{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.025);border-radius:12px;padding:3mm 3.5mm}
 .dg .af2{margin-top:2.5mm}
 .bub.nt::after{display:none}
+.hlt{position:absolute;display:inline-flex;align-items:center;gap:1.5mm;background:#0b1220;border:1.5px solid #fbbf24;color:#fff;font-size:8.2pt;font-weight:800;padding:.6mm 2.4mm .6mm .8mm;border-radius:999px;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,.5)}
+.hlt i{position:static!important;transform:none!important}
+.ct{display:flex;align-items:center;gap:2mm;font-size:10pt;font-weight:800;color:#fff;margin-bottom:1mm}
+.ct i{font-style:normal;width:18px;height:18px;border-radius:50%;background:#fbbf24;color:#05070d;font:800 10pt/18px sans-serif;text-align:center}
+.hl.line{background:none}
 </style></head><body>
 
 <!-- 1 표지 (와우 1 모양, PM 11-24) -->
@@ -160,17 +165,9 @@ p{margin:0}
   <div class="eyebrow" style="margin-top:8mm">일정 에이전트 OS</div>
   <h1 style="font-size:60pt;margin-top:1mm">Chron<span class="c">OS</span></h1>
   <div style="font-size:21pt;font-weight:800;color:#fff;letter-spacing:-.02em;margin-top:2mm">에이전트가 <span style="color:#7dd3fc">일정을 관리한다.</span></div>
-  <p class="sub" style="font-size:10.6pt">일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트. 대화창에 "커튼월 공장 제작이 3일 늦어졌어"라고 쓰면 에이전트가 스케줄, 지연 기록, 비교판 창을 직접 열어 일하고, 사람은 마지막에 승인한다. 건설, 생산, 연구 과제, 시스템 구축처럼 마감이 있는 모든 일정에 쓴다.</p>
-  <div class="stage" style="height:150mm;margin-top:8mm;zoom:.86;margin-left:12mm">
-    <div class="shot" style="position:absolute;left:62mm;top:0;width:118mm"><img src="img/os1-스케줄.jpg"></div>
-    <div class="shot" style="position:absolute;left:68mm;top:40mm;width:114mm"><img src="img/os2-지연.jpg"></div>
-    <div class="shot glow-amber" style="position:absolute;left:74mm;top:80mm;width:108mm"><img src="img/os3-비교판.jpg"></div>
-    <div class="shot" style="position:absolute;left:0;top:4mm;width:58mm;z-index:8"><img src="img/os-대화.jpg"></div>
-    <div class="chip2 white" style="left:2mm;top:-4mm"><i>0</i>대화로 요청</div>
-    <div class="chip2" style="left:64mm;top:-4mm"><i>1</i>스케줄에서 작업을 찾고</div>
-    <div class="chip2" style="left:70mm;top:36mm"><i>2</i>지연 기록에서 영향을 재고</div>
-    <div class="chip2 amber" style="left:76mm;top:76mm"><i>3</i>비교판에 만회안을 띄운다</div>
-  </div>
+  <p class="sub" style="font-size:10.6pt">일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트. 대화창에 "커튼월 공장 제작이 3일 늦어졌어"라고 쓰면 에이전트가 CPM, 스케줄, 간트차트 창을 직접 열어 일하고, 사람은 마지막에 승인한다. 건설, 생산, 연구 과제, 시스템 구축처럼 마감이 있는 모든 일정에 쓴다.</p>
+  <div class="os" style="margin-top:7mm"><img src="img/cap/cover-os.jpg"><div class="hl line" style="left:0.63%;top:5.56%;width:36.46%;height:84.72%"><span class="hlt" style="left:2mm;top:2mm"><i>1</i>에이전트 대화 · 말 한 줄로 요청</span></div><div class="hl line" style="left:37.76%;top:5.56%;width:36.46%;height:39.81%"><span class="hlt" style="left:2mm;top:2mm"><i>2</i>CPM · 크리티컬 패스</span></div><div class="hl line" style="left:61.46%;top:5.56%;width:37.76%;height:43.52%"><span class="hlt" style="right:2mm;top:2mm"><i>3</i>스케줄 · 작업 찾기</span></div><div class="hl line" style="left:37.76%;top:43.52%;width:61.46%;height:47.04%"><span class="hlt" style="left:2mm;bottom:2mm"><i>4</i>간트차트 · 영향과 완료일정</span></div></div>
+  <p class="small" style="margin-top:2mm">실제 ChronOS 화면 한 장. 에이전트가 대화를 받아 CPM, 스케줄, 간트차트 창을 직접 열어 일한다. 창은 겹쳐 있어도 사람과 에이전트가 같은 화면을 본다.</p>
   <div class="facts" style="margin-top:4mm">
     <div><b>에이전트 OS 시스템</b>채팅창 하나가 아니라 OS. 에이전트가 스케줄·간트·CPM 창을 직접 열어 일하고, 사람이 고른 작업을 에이전트도 본다.</div>
     <div><b>AGI 시스템</b>무엇을 할지 스스로 정한다. 도구 40여 개에서 골라 워크플로우를 짜고, 틀리면 다시 돌고, 잘 된 순서는 스킬로 남긴다.</div>
@@ -292,7 +289,7 @@ p{margin:0}
     <div class="card amber"><div class="k">둘 · 따져 본다</div><h4>이걸 당기면 준공이 당겨지나</h4><p class="small">당긴 일수 가운데 준공에 반영되는 일수와 그다음 좌우하는 작업을 코드가 계산한다.</p>
       <div class="shot glow-amber" style="margin-top:3mm"><img src="img/s4-당김효과.jpg" style="height:46mm;object-fit:cover;object-position:top"></div></div>
     <div class="card blue"><div class="k">셋 · 먼저 묻는다</div><h4>그 작업의 담당자에게 먼저 확인한다</h4><p class="small">외부 영향을 출처와 함께 찾고, 문자와 AI 전화로 묻고, 답마다 근거를 남긴다.</p>
-      <div class="shot" style="margin-top:3mm"><img src="img/s3-통화카드.jpg" style="height:46mm;object-fit:cover;object-position:top left"></div></div>
+      <div class="shot" style="margin-top:3mm"><img src="img/cap/contact-qa-crop.jpg" style="height:46mm;object-fit:cover;object-position:top left"></div></div>
   </div>
   <div style="font-size:13pt;font-weight:800;color:#fff;margin-top:6mm">에이전트의 한 바퀴 <span style="font-size:9pt;color:#94a3b8;font-weight:600">변동 하나마다 이 고리가 한 번 돈다</span></div>
   <div class="dg" style="margin-top:3mm"><!--D:loop--><svg viewBox="0 0 720 300" width="100%" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif"><defs><marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker><marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fbbf24"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#38bdf8"/></marker><marker id="agr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4ade80"/></marker></defs><ellipse cx="360" cy="152" rx="262" ry="112" fill="none" stroke="rgba(251,191,36,.10)" stroke-width="16"/><path d="M128.1,99.8 A262,112 0 0 1 189.5,67.0" fill="none" stroke="#fbbf24" stroke-width="2.4" marker-end="url(#aa)"/><path d="M310.8,42.0 A262,112 0 0 1 409.2,42.0" fill="none" stroke="#fbbf24" stroke-width="2.4" marker-end="url(#aa)"/><path d="M530.5,67.0 A262,112 0 0 1 591.9,99.8" fill="none" stroke="#fbbf24" stroke-width="2.4" marker-end="url(#aa)"/><path d="M621.8,156.0 A262,112 0 0 1 600.0,197.0" fill="none" stroke="#fbbf24" stroke-width="2.4" marker-end="url(#aa)"/><path d="M516.0,242.0 A262,112 0 0 1 427.4,260.2" fill="none" stroke="#fbbf24" stroke-width="2.4" marker-end="url(#aa)"/><path d="M292.6,260.2 A262,112 0 0 1 204.0,242.0" fill="none" stroke="#fbbf24" stroke-width="2.4" marker-end="url(#aa)"/><path d="M120.0,197.0 A262,112 0 0 1 98.2,156.0" fill="none" stroke="#4ade80" stroke-width="2.4" marker-end="url(#agr)"/><rect x="29.568887008362225" y="105.07765539689278" width="150" height="44" rx="9" fill="#0f172a" stroke="#94a3b8" stroke-width="1.2"/><text x="104.56888700836222" y="124.07765539689278" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">① 변동 감지</text><text x="104.56888700836222" y="139.0776553968928" font-size="8.4" fill="#94a3b8" text-anchor="middle">대화 · 현장 · 문자 · 엑셀</text><rect x="171.3224603511998" y="29.091486794929054" width="150" height="44" rx="9" fill="#0f172a" stroke="#38bdf8" stroke-width="1.2"/><text x="246.3224603511998" y="48.091486794929054" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">② 영향 계산</text><text x="246.3224603511998" y="63.091486794929054" font-size="8.4" fill="#94a3b8" text-anchor="middle">날짜 · 여유 · 자원 (코드)</text><rect x="398.6775396488003" y="29.091486794929068" width="150" height="44" rx="9" fill="#0f172a" stroke="#38bdf8" stroke-width="2.2"/><text x="473.6775396488003" y="48.09148679492907" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">③ 관리 포인트</text><text x="473.6775396488003" y="63.09148679492907" font-size="8.4" fill="#94a3b8" text-anchor="middle">크리티컬 · 여유 적은 작업 (코드)</text><rect x="540.4311129916377" y="105.07765539689278" width="150" height="44" rx="9" fill="#0f172a" stroke="#fbbf24" stroke-width="1.2"/><text x="615.4311129916377" y="124.07765539689278" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">④ 외부 영향 찾기</text><text x="615.4311129916377" y="139.0776553968928" font-size="8.4" fill="#94a3b8" text-anchor="middle">그 작업만 · Liner Search</text><rect x="489.8398484066238" y="199.83085780817817" width="150" height="44" rx="9" fill="#0f172a" stroke="#fbbf24" stroke-width="1.2"/><text x="564.8398484066238" y="218.83085780817817" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">⑤ 담당자에게 묻기</text><text x="564.8398484066238" y="233.83085780817817" font-size="8.4" fill="#94a3b8" text-anchor="middle">문자 · AI 전화 · Liner Model</text><rect x="284.9999999999999" y="242.0" width="150" height="44" rx="9" fill="#0f172a" stroke="#38bdf8" stroke-width="1.2"/><text x="359.9999999999999" y="261.0" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">⑥ 만회안 · 당김 효과</text><text x="359.9999999999999" y="276.0" font-size="8.4" fill="#94a3b8" text-anchor="middle">코드 계산 · Liner 설명</text><rect x="80.16015159337621" y="199.83085780817817" width="150" height="44" rx="9" fill="#0f172a" stroke="#4ade80" stroke-width="2.2"/><text x="155.1601515933762" y="218.83085780817817" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">⑦ 사람이 승인</text><text x="155.1601515933762" y="233.83085780817817" font-size="8.4" fill="#94a3b8" text-anchor="middle">새 버전 · 기록에 쌓임</text><rect x="242" y="116" width="236" height="72" rx="14" fill="rgba(251,191,36,.07)" stroke="#fbbf24" stroke-opacity=".6"/><text x="360" y="136" font-size="10" font-weight="800" fill="#fbbf24" text-anchor="middle">에이전트 루프 · Liner Model</text><text x="360" y="155" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">판단 → 도구 실행 → 자가 점검</text><text x="360" y="172" font-size="9" fill="#cbd5e1" text-anchor="middle">단계마다 이 작은 고리가 돈다 · 틀리면 다시, 최대 12단계</text><path d="M452,178 q20,-28 0,-50" fill="none" stroke="#fbbf24" stroke-width="1.6" marker-end="url(#aa)"/><circle cx="162.3224603511998" cy="31.091486794929054" r="9" fill="#fbbf24" stroke="#05070d" stroke-width="1.5"/><text x="162.3224603511998" y="35.091486794929054" font-size="11" font-weight="800" fill="#05070d" text-anchor="middle">1</text><circle cx="557.6775396488003" cy="31.091486794929068" r="9" fill="#fbbf24" stroke="#05070d" stroke-width="1.5"/><text x="557.6775396488003" y="35.09148679492907" font-size="11" font-weight="800" fill="#05070d" text-anchor="middle">2</text><circle cx="699.4311129916377" cy="107.07765539689278" r="9" fill="#fbbf24" stroke="#05070d" stroke-width="1.5"/><text x="699.4311129916377" y="111.07765539689278" font-size="11" font-weight="800" fill="#05070d" text-anchor="middle">3</text><circle cx="648.8398484066238" cy="209.83085780817817" r="9" fill="#fbbf24" stroke="#05070d" stroke-width="1.5"/><text x="648.8398484066238" y="213.83085780817817" font-size="11" font-weight="800" fill="#05070d" text-anchor="middle">4</text><circle cx="71.16015159337621" cy="209.83085780817817" r="9" fill="#fbbf24" stroke="#05070d" stroke-width="1.5"/><text x="71.16015159337621" y="213.83085780817817" font-size="11" font-weight="800" fill="#05070d" text-anchor="middle">5</text><circle cx="232" cy="122" r="9" fill="#fbbf24" stroke="#05070d" stroke-width="1.5"/><text x="232" y="126" font-size="11" font-weight="800" fill="#05070d" text-anchor="middle">6</text><text x="360" y="296" font-size="9" fill="#94a3b8" text-anchor="middle">⑦ 승인하면 새 버전이 되고, 에이전트는 ①로 돌아가 관리 포인트를 다시 뽑는다. 고리는 변동마다 돈다.</text></svg><ul class="af2 dl" style="grid-template-columns:repeat(3,1fr)"><li><i>1</i><span><b>날짜는 코드만</b> 공휴일, 선후 관계, 자원까지 엔진이 계산한다. AI 가 낸 날짜는 버린다.</span></li><li><i>2</i><span><b>옮겨 갔는지 먼저 본다</b> 변동마다 관리 포인트를 다시 뽑고, 바뀌었으면 카드로 알린다.</span></li><li><i>3</i><span><b>그곳만 찾는다</b> 새 관리 포인트에 대해서만 Liner Search 가 출처와 함께 찾으니 호출이 적다.</span></li><li><i>4</i><span><b>직접 연락한다</b> 연락 하네스 6가지 검사를 통과해야 문자와 AI 전화가 나간다.</span></li><li><i>5</i><span><b>사람이 정한다</b> 승인해야 일정이 바뀐다. 승인 기록과 버전이 남는다.</span></li><li><i>6</i><span><b>안쪽 고리</b> 각 단계 안에서 에이전트가 도구를 고르고 결과를 스스로 점검한다.</span></li></ul><!--/D--></div>
@@ -347,20 +344,15 @@ p{margin:0}
   <div class="toprow"><div class="eyebrow">03 · 에이전트가 쓰는 OS</div><span class="wow">WOW 1 · OS + COMPUTER USE</span></div>
   <h1 style="font-size:28pt">채팅창 하나가 아니라 OS.<br><span class="c">워크플로우를 그 자리에서 짠다</span></h1>
   <p class="sub" style="font-size:10pt">에이전트는 자기 OS 의 창을 도구(<span class="mono" style="font-size:8.6pt">ui.open_window</span>)로 정확히 연다. 스크린샷을 보고 마우스를 흉내 내지 않아서 빠르고, 권한이 없는 창은 열지 못한다. 요청마다 워크플로우 창에 단계가 하나씩 생기고, 단계를 누르면 도구, 까닭, 모델, 비용이 나온다.</p>
-  <div class="stage" style="height:100mm;margin-top:8mm">
-    <div class="shot" style="position:absolute;left:0;top:0;width:92mm"><img src="img/wf1.jpg"></div>
-    <div class="shot" style="position:absolute;left:24mm;top:19mm;width:92mm"><img src="img/wf2.jpg"></div>
-    <div class="shot" style="position:absolute;left:48mm;top:38mm;width:92mm"><img src="img/wf3.jpg"></div>
-    <div class="shot" style="position:absolute;right:0;top:0;width:36mm;z-index:8"><img src="img/wf4-상세.jpg" style="height:96mm;object-fit:cover;object-position:top"></div>
-    <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>단계 1개</div>
-    <div class="chip2" style="left:26mm;top:15mm"><i>2</i>단계가 자란다</div>
-    <div class="chip2 amber" style="left:50mm;top:34mm"><i>3</i>완료</div>
-    <div class="chip2" style="right:2mm;top:-4mm"><i>i</i>단계 상세</div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin-top:6mm;align-items:start">
-    <div><div style="font-size:11pt;font-weight:800;color:#fff">[스킬로 저장]</div><p class="small" style="color:#cbd5e1;margin:1mm 0 2.5mm">잘 된 순서는 스킬로 남긴다. 비슷한 요청이 오면 에이전트가 꺼내 쓴다. 베테랑의 일하는 순서가 회사에 남는다.</p><div class="shot"><img src="img/wf5-스킬.jpg"></div></div>
-    <div><div style="font-size:11pt;font-weight:800;color:#fff">보여 주는 정도는 사람이 고른다</div><p class="small" style="color:#cbd5e1;margin:1mm 0 2.5mm">스테이지 창 전환 · 워크플로우 창만 · 끄기. 조용히 쓰고 싶으면 끈다.</p><div class="shot"><img src="img/os4-설정.jpg"></div></div>
-  </div>
+  <div class="os" style="margin-top:7mm"><img src="img/cap/wow1-os.jpg"><div class="hl line" style="left:0.63%;top:5.56%;width:29.17%;height:84.72%"><span class="hlt" style="left:2mm;top:2mm"><i>1</i>요청</span></div><div class="hl line" style="left:17.19%;top:27.78%;width:65.1%;height:62.96%"><span class="hlt" style="left:2mm;bottom:2mm"><i>2</i>워크플로우</span></div><div class="hl line" style="left:31.88%;top:37.87%;width:32.66%;height:18.33%"><span class="hlt" style="left:2mm;top:2mm"><i>3</i>단계가 자란다</span></div><div class="hl line" style="left:64.53%;top:31.3%;width:17.71%;height:59.35%"><span class="hlt" style="right:2mm;bottom:2mm"><i>4</i>단계 상세</span></div><div class="hl line" style="left:56.6%;top:32.22%;width:4.2%;height:2.59%"><i style="left:-3px;top:-3px;transform:translateY(-100%)">5</i></div><div class="hl line" style="left:52.6%;top:5.56%;width:46.61%;height:55.56%"><span class="hlt" style="right:2mm;top:2mm"><i>6</i>저장된 스킬</span></div></div>
+  <ul class="af2" style="margin-top:3mm">
+    <li><i>1</i><span><b>요청</b> 대화 한 줄. 에이전트가 할 일을 스스로 정한다.</span></li>
+    <li><i>2</i><span><b>워크플로우</b> 요청마다 단계가 하나씩 생긴다.</span></li>
+    <li><i>3</i><span><b>단계가 자란다</b> 액티비티 찾기 → 지연 기록 → 관리 포인트 → 영향 분석.</span></li>
+    <li><i>4</i><span><b>단계 상세</b> 누르면 도구, 까닭, 모델, 비용, 받은 것과 돌려준 것.</span></li>
+    <li><i>5</i><span><b>[스킬로 저장]</b> 잘 된 순서를 스킬로 남긴다.</span></li>
+    <li><i>6</i><span><b>저장된 스킬</b> 비슷한 요청이 오면 에이전트가 꺼내 쓴다. 베테랑의 순서가 회사에 남는다.</span></li>
+  </ul>
   <div style="margin-top:6mm"><div class="small" style="margin-bottom:2mm">Dock 의 앱 19개. 모두 같은 승인함, 하네스, 버전, 도구 등록부를 쓴다.</div><div class="shot"><img src="img/os0-dock.jpg"></div></div>
   <div class="facts" style="margin-top:5mm">
     <div><b>보인다</b>에이전트가 한 일을 글로 설명받지 않고 화면에서 본다. 책임이 큰 일에서는 이것이 신뢰다.</div>
@@ -426,29 +418,17 @@ p{margin:0}
   <div class="toprow"><div class="eyebrow">04 · 실제로 도는 시연 · 장면 3</div><span class="wow">WOW 3 · AI 문자·전화</span></div>
   <h1 style="font-size:30pt">에이전트가 <span class="c">담당자에게 먼저 묻는다</span></h1>
   <p class="sub" style="font-size:10.2pt">[담당자에게 확인 연락]을 누르면 에이전트가 물어볼 것을 써 오고 사람이 고친다. 여기서는 「2교대 가능 여부」를 더하고, 말하지 않을 것에 「금액, 다른 업체」를 적었다.</p>
-  <div style="display:grid;grid-template-columns:74mm 1fr;gap:6mm;margin-top:7mm;align-items:start">
-    <div>
-      <div class="say ai"><b>비서 · 0:00</b>안녕하세요, 성수동 사무동 신축현장 일정 담당 ChronOS AI 비서입니다. 이 통화는 기록됩니다.</div>
-      <div class="say ai"><b>비서</b>커튼월 공장 제작이 7월 10일까지 끝나야 하는 일정인데, 제시간에 끝낼 수 있을까요?</div>
-      <div class="say p"><b>김 과장</b>3일 늦어졌지만 7월 10일은 맞출 수 있습니다.</div>
-      <div class="say p"><b>김 과장</b>그런데 2교대 하면 단가는 얼마나 올라요?</div>
-      <div class="say no"><b>비서 · 범위 밖 질문</b>그 부분은 제가 말씀드릴 수 없어서, 담당자께 전달하겠습니다.</div>
-      <div class="say p"><b>김 과장</b>2교대는 다음 주부터 가능합니다.</div>
-    </div>
-    <div class="stage" style="height:120mm">
-      <div class="shot" style="position:absolute;left:0;top:4mm;width:96mm"><img src="img/s3b-통화중.jpg"></div>
-      <div class="shot glow-amber" style="position:absolute;left:14mm;top:58mm;width:86mm;z-index:3"><img src="img/s3-통화카드.jpg"></div>
-      <div class="chip2 white" style="left:2mm;top:0"><i>1</i>통화 중</div>
-      <div class="chip2 amber" style="left:16mm;top:54mm"><i>2</i>질문마다 답과 근거</div>
-    </div>
+  <div class="g2" style="margin-top:6mm;gap:6mm 5mm"><div><div class="ct"><i>1</i>에이전트가 문자 초안을 쓴다</div><div class="os" style=""><img src="img/cap/contact-1-sms-draft.jpg"><div class="hl" style="left:61.61%;top:25.09%;width:29.17%;height:15.14%"><i style="left:-3px;top:-3px;transform:translateY(-100%)">1</i></div></div></div><div><div class="ct"><i>2</i>사람이 승인하면 나가고, 답장이 붙는다</div><div class="os" style=""><img src="img/cap/contact-2-sms-sent-reply.jpg"><div class="hl" style="left:61.61%;top:25.09%;width:29.17%;height:11.25%"><i style="left:-3px;top:-3px;transform:translateY(-100%)">2</i></div><div class="hl" style="left:24.32%;top:37.27%;width:21.41%;height:9.77%"><i style="left:-3px;top:-3px;transform:translateY(-100%)">2</i></div></div></div><div><div class="ct"><i>3</i>AI 전화 · 통화하며 받아쓴다</div><div class="os" style=""><img src="img/cap/contact-3-call-incall.jpg"><div class="hl" style="left:24.32%;top:25.09%;width:66.46%;height:36.53%"><i style="left:-3px;top:-3px;transform:translateY(-100%)">3</i></div></div></div><div><div class="ct"><i>4</i>질문마다 답과 근거 발화</div><div class="os" style=""><img src="img/cap/contact-4-call-summary.jpg"><div class="hl" style="left:25%;top:38.94%;width:65.1%;height:26.3%"><i style="left:-3px;top:-3px;transform:translateY(-100%)">4</i></div></div></div></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:5mm;margin-top:5mm;align-items:start">
+    <div><div class="small" style="margin-bottom:1.5mm"><b style="color:#fbbf24">1·2 확대</b> 에이전트가 쓴 문자와 받은 답장</div><div class="shot glow-amber"><img src="img/cap/z-sms.jpg"></div><div class="shot" style="margin-top:2mm"><img src="img/cap/z-reply.jpg"></div></div>
+    <div><div class="small" style="margin-bottom:1.5mm"><b style="color:#fbbf24">4 확대</b> 질문마다 답, 그리고 근거가 된 발화</div><div class="shot glow-amber"><img src="img/cap/contact-qa-crop.jpg" style="height:52mm;object-fit:cover;object-position:top left"></div></div>
   </div>
-  <div style="margin-top:4mm"><div class="small" style="margin-bottom:2mm">받아쓰기. 누가 언제 무슨 말을 했는지 그대로 남는다.</div><div class="shot"><img src="img/s3c-받아쓰기.jpg" style="height:22mm;object-fit:cover;object-position:top"></div></div>
   <div class="facts">
     <div><b>사람이 정한다</b>무엇을 묻고 무엇을 말하지 않을지 사람이 고친다. 보내기 기본값은 「승인 받기」.</div>
     <div><b>번호를 모른다</b>AI 모델은 전화번호를 보지 않는다. 연락처 id 와 이름만 보고 번호는 코드가 붙인다.</div>
     <div><b>근거가 남는다</b>81초 통화 뒤 받아쓰기와 답을 대조한다. 근거 없는 답은 사실로 남기지 않는다.</div>
   </div>
-  <p class="small" style="margin-top:4mm">시연 통화는 AI 두 세션을 이은 시험 통화 녹음이다. 실제 전화망 통화도 따로 시험해 첫 응답 약 1.1초, 받아쓰기, 걸려 온 전화 받기를 확인했다. 나가는 연락은 시험 모드, 차단, 근무시간, 상한, 권한, 중복 검사를 거친다.</p>
+  <p class="small" style="margin-top:4mm">위 문자·통화 화면은 촬영용 사본에서 찍은 연출이다. 문자 발송과 답장은 가상 번호로 넣은 기록이고, 통화 카드는 11-24 시험 통화 기록이다. 실제 발송은 없었다. 시연 통화는 AI 두 세션을 이은 시험 통화 녹음이다. 실제 전화망 통화도 따로 시험해 첫 응답 약 1.1초, 받아쓰기, 걸려 온 전화 받기를 확인했다. 나가는 연락은 시험 모드, 차단, 근무시간, 상한, 권한, 중복 검사를 거친다.</p>
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
 </section>
 
@@ -581,12 +561,12 @@ p{margin:0}
     <div class="card blue"><div class="k">연결 · 3</div><h4>현장과 사람에 닿는다</h4><p class="small" style="color:#cbd5e1;line-height:1.9">17 프로젝트 관리<br>18 연락처(문자, AI 전화)<br>19 자료함</p></div>
   </div>
   <div style="font-size:12pt;font-weight:800;color:#fff;margin-top:8mm">기기마다</div>
-  <div style="display:grid;grid-template-columns:1fr 32mm;gap:5mm;margin-top:3mm;align-items:start">
-    <div><div class="shot"><img src="img/app/20-태블릿.jpg" style="height:68mm;object-fit:cover;object-position:top"></div>
-      <p class="small" style="margin-top:2mm"><b style="color:#fff">PC</b> 창을 여러 개 띄우는 OS 화면. 에이전트가 창을 차례로 연다. <b style="color:#fff">태블릿</b> 좌우 분할, 왼쪽 레일에서 편집(위 화면).</p></div>
-    <div><div class="shot" style="border-radius:14px"><img src="img/app/21-폰.jpg"></div>
-      <p class="small" style="margin-top:2mm"><b style="color:#fff">스마트폰</b> 아래 탭 5개. 현장 계정은 현장 점검, 일정, 현장 AI 만 본다.</p></div>
+  <div style="display:grid;grid-template-columns:1fr 30mm 30mm;gap:4mm;margin-top:3mm;align-items:start">
+    <div><div class="shot"><img src="img/cap/device-ipad-chat.jpg"></div><p class="small" style="margin-top:2mm"><b style="color:#fff">태블릿 (iPad Pro 11, 가로)</b> 좌우 분할. 왼쪽 레일에서 앱을 고르고, 대화와 결과 카드를 크게 본다.</p></div>
+    <div><div class="shot" style="border-radius:12px"><img src="img/cap/device-iphone-chat.jpg"></div><p class="small" style="margin-top:2mm"><b style="color:#fff">폰 · 대화</b></p></div>
+    <div><div class="shot" style="border-radius:12px"><img src="img/cap/device-iphone-field.jpg"></div><p class="small" style="margin-top:2mm"><b style="color:#fff">폰 · 현장 점검</b> 아래 탭 5개. 현장 계정은 점검, 일정, 현장 AI 만 본다.</p></div>
   </div>
+  <p class="small" style="margin-top:2mm"><b style="color:#fff">PC</b> 창을 여러 개 띄우는 OS 화면(1쪽, 7쪽). 에이전트가 창을 차례로 연다.</p>
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
 </section>
 
