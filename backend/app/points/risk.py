@@ -5,7 +5,7 @@
 - 날씨 = 기상청(info.weather 안의 조회 함수): ES 가 오늘부터 3일 안이면 단기예보, 뒤면 ES 달의 지난 n년 통계.
   프로젝트 주소(프로젝트 관리)가 없거나 기상청 지점을 모르면 skipped. 자재·환율 = Liner Search `include_knowledge: true`
   (Premium Data — The World Bank 월별 금속, Xignite 환율). 업체 = Liner MCP `search_business` 첫 줄을 자재·공종 낱말
-  (「알루미늄 커튼월 공급 동향」)로 찾는다 — 회사·사람 이름은 질의에 넣지 않는다(씨앗 협력사는 가상이라 비슷한 이름의 실제 회사
+  (「알루미늄 커튼월 공급 동향」 — 공종은 TRADES 에서만, 금속은 TRADE_METAL 로 맞을 때만)으로 찾는다 — 회사·사람 이름은 질의에 넣지 않는다(씨앗 협력사는 가상이라 비슷한 이름의 실제 회사
   소식이 붙는다. 실제 회사라는 표시가 연락처에 생기기 전까지는 이름을 쓰지 않는다).
 - 숫자는 받은 표에서 코드가 읽고 계산한다. 없거나 숫자가 아니면 status none 「… · 바깥 자료 없음」(숫자 없음).
 - 결과는 근거 표에 출처와 함께 남긴다(날씨 mode weather, 나머지 mode knowledge, 대화 없음). 같은 질의를
@@ -61,7 +61,13 @@ TREND_MONTHS = 3
 HISTORY_YEARS = 10
 LLM_TIMEOUT_S = 30.0
 KNOWLEDGE_URL, KNOWLEDGE_HOST = "https://liner.com", "liner.com"  # Premium Data 표에는 링크가 없다
-_TRADE, _WHY = 30, 120
+_WHY = 120
+# 업체 갈래의 공종 낱말(정해진 낱말만 — LLM 의 trade 는 이 목록에 맞춰 보는 힌트일 뿐). 건설·제조 둘 다.
+TRADES = ("커튼월", "창호", "외장 패널", "철골", "철근", "골조", "콘크리트", "레미콘", "방수", "단열", "전기", "설비", "배관",
+          "승강기", "도장", "조립", "가공", "부품", "금형", "포장", "용접", "사출", "도금", "주조")
+TRADE_METAL = {"커튼월": "aluminum", "창호": "aluminum", "외장 패널": "aluminum", "철골": "iron ore", "철근": "iron ore",
+               "전기": "copper", "배관": "copper"}  # 공종 → 질의 앞에 붙일 금속(LLM 이 그 금속을 골랐을 때만)
+_COMPANY_MARKS = re.compile(r"\(주\)|㈜|주식회사|\s+")
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _PAIR = re.compile(r"\(([A-Z]{3})\)\s*to\s.*\(([A-Z]{3})\)")
 
@@ -70,8 +76,8 @@ SYSTEM = (
     "- weather_sensitive: 실외 작업이거나 비·눈·바람·추위에 멈추는 작업(타설·골조·외벽·방수·토공·양중 등)이면 true.\n"
     "- materials: 이 작업에 많이 드는 금속만, 목록 copper·aluminum·iron ore 에서(철근·철골은 iron ore). 없으면 [].\n"
     "- imported: 자재·장비를 외국에서 들여올 가능성이 크면 true(환율을 본다).\n"
-    "- trade: 공급 소식을 볼 공종·제작 낱말 하나(예: 커튼월·창호·철골) — 이름·WBS 에 있는 낱말 그대로, 회사 이름은 "
-    "안 된다. 공급 걱정이 없으면 null.\n"
+    f"- trade: 공급 소식을 볼 공종 낱말 하나, 목록 {'·'.join(TRADES)} 에서만(이름·WBS 에 그 낱말이 있을 때). "
+    "회사 이름은 안 된다. 공급 걱정이 없으면 null.\n"
     "- why: 고른 까닭 한 줄(한국어)."
 )
 
@@ -95,7 +101,8 @@ class _Pick:
     imported: bool
     supplier: str | None = None  # 늘 None — 업체 이름은 쓰지 않는다(옛 칸, 부르는 쪽 시험이 이 이름으로 만든다)
     why: str = ""
-    trade: str | None = None  # 업체 갈래의 공종 낱말(이름·WBS 에 있는 것, 아는 회사·사람 이름과 겹치지 않음)
+    trade: str | None = None  # 업체 갈래의 공종 낱말(TRADES 의 것, 이름·WBS 에 있음, 아는 회사·사람 이름과 겹치지 않음)
+    trade_asked: bool = False  # LLM 이 공종을 냈으나 받지 않았다(그 포인트 업체 줄은 none)
 
 
 @dataclass(frozen=True)
@@ -135,16 +142,17 @@ def _checked(parsed: object, seen: str, trade_from: str) -> _Pick | None:
     raw = parsed.get("materials")
     materials = tuple(dict.fromkeys(m for m in raw if isinstance(m, str) and m in MATERIALS)) if isinstance(
         raw, list) else ()
-    trade = parsed.get("trade")
-    trade = (trade.strip()[:_TRADE] or None) if isinstance(trade, str) else None
-    if trade is not None and trade.casefold() not in trade_from.casefold():
+    hint = parsed.get("trade")
+    asked = isinstance(hint, str) and bool(hint.strip())
+    trade = next((t for t in TRADES if asked and _norm(t) == _norm(hint)), None)
+    if trade is not None and _norm(trade) not in _norm(trade_from):
         trade = None
     why = parsed.get("why")
     why = why.strip().splitlines()[0].strip()[:_WHY] if isinstance(why, str) and why.strip() else ""
     if any(n not in set(_NUMBER.findall(seen)) for n in _NUMBER.findall(why)):
         why = ""
     return _Pick(weather_sensitive=parsed.get("weather_sensitive") is True, materials=materials,
-                 imported=parsed.get("imported") is True, why=why, trade=trade)
+                 imported=parsed.get("imported") is True, why=why, trade=trade, trade_asked=asked and trade is None)
 
 
 def _brief(schedule: Schedule | None, point: Point, domain: str) -> dict:
@@ -178,17 +186,22 @@ def _known_names(session: Session, schedule_id: int, schedule: Schedule | None) 
     names = [r.name for r in schedule.resources] if schedule is not None else []
     names += session.scalars(select(ContactCompany.name).where(ContactCompany.schedule_id == schedule_id)).all()
     names += session.scalars(select(Contact.name).where(Contact.schedule_id == schedule_id)).all()
-    return [n.strip().casefold() for n in names if n and len(n.strip()) >= 2]
+    return [n for n in map(_norm, names) if len(n) >= 2]
+
+
+def _norm(text: str) -> str:
+    """견주기용: 「(주)」·「㈜」·「주식회사」·빈칸을 빼고 대소문자를 맞춘다."""
+    return _COMPANY_MARKS.sub("", text).casefold()
 
 
 def _without_names(pick: _Pick | None, names: list[str], brief: dict) -> _Pick | None:
-    """trade 는 이름·WBS 글에서 아는 이름을 지운 나머지에 있어야 하고 아는 이름을 품지 않아야 한다(이름 조각도 막는다)."""
+    """둘째 지킴: trade 는 이름·WBS 글에서 아는 이름을 지운 나머지에 있어야 하고 아는 이름을 품지 않아야 한다."""
     if pick is None or pick.trade is None:
         return pick
-    t, rest = pick.trade.casefold(), f"{brief['name']} {brief['wbs']}".casefold()
+    t, rest = _norm(pick.trade), _norm(f"{brief['name']} {brief['wbs']}")
     for n in sorted(names, key=len, reverse=True):
-        rest = rest.replace(n, " ")
-    return pick if t in rest and not any(n in t for n in names) else replace(pick, trade=None)
+        rest = rest.replace(n, "|")
+    return pick if t in rest and not any(n in t for n in names) else replace(pick, trade=None, trade_asked=True)
 
 
 def _place(address: str) -> places.Place | None:
@@ -395,10 +408,13 @@ def _jobs(session: Session, point: Point, pick: _Pick, on: set[str], address: st
         out.append(_Job(point.activity_id, "fx", KNOWLEDGE_MODE, FX_QUERY, f"{FX_LABEL} · {NO_DATA}",
                         lambda: _fx(session), pick.why))
     if "business" in on and pick.trade:
-        metal = f"{MATERIAL_NAMES[pick.materials[0]]} " if pick.materials else ""
-        label = f"{metal}{pick.trade} 공급 동향"
+        metal = TRADE_METAL.get(pick.trade)
+        prefix = f"{MATERIAL_NAMES[metal]} " if metal is not None and metal in pick.materials else ""
+        label = f"{prefix}{pick.trade} 공급 동향"
         out.append(_Job(point.activity_id, "business", KNOWLEDGE_MODE, f"business: {label}", f"{label} · {NO_DATA}",
                         lambda q=label: _business(session, q), pick.why))
+    elif "business" in on and pick.trade_asked:  # 정해진 공종 낱말에 맞지 않음 — 부르지 않는다
+        out.append(Risk(point.activity_id, "business", f"공급 동향 · {NO_DATA}", None, None, None, "none", pick.why))
     return out
 
 

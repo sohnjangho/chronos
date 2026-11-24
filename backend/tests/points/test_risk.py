@@ -5,6 +5,7 @@
 import json
 import logging
 import re
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -13,7 +14,7 @@ import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.core.model import Resource
+from app.core.model import Resource, WbsNode
 from app.core.points import Point
 from app.info import kma
 from app.llm import search
@@ -150,7 +151,9 @@ async def test_off_sources_are_not_called(session, fakes):
     risks = await risk.look(session, sid, 1, [SOON])
     assert "weather" not in _by_kind(risks) and len(fakes.kma.requests) == 0
     other = _schedule(session, domain="software")  # 업체만
-    fakes.classify({**ALL, "materials": []})  # 같은 질의면 6시간 재사용이라 부르지 않는다 — 질의를 바꾼다
+    session.execute(update(EvidenceSearch).values(created_at=_hours_ago(7)))  # 같은 질의 재사용을 끝낸다
+    session.commit()
+    fakes.classify(ALL)
     before = fakes.calls()
     risks = await risk.look(session, other, 1, [SOON])
     assert [r.kind for r in risks] == ["business"]
@@ -213,7 +216,7 @@ async def test_trade_and_why_must_come_from_what_llm_saw(session, fakes, trade, 
     fakes.classify({**NOTHING, "weather_sensitive": True, "trade": trade, "why": why})
     risks = await risk.look(session, sid, 1, [SOON])
     assert risks[0].why == kept[1]
-    assert [r.kind for r in risks] == (["weather", "business"] if kept[0] else ["weather"])
+    assert [(r.kind, r.status) for r in risks][1:] == [("business", "ok" if kept[0] else "none")]
     assert [c["params"]["arguments"]["query"].split(" ")[0] for c in fakes.mcp.bodies("tools/call")] == (
         [kept[0]] if kept[0] else [])
 
@@ -345,10 +348,10 @@ async def test_business_first_result_line(session, fakes):
     risks = await risk.look(session, sid, 1, [SOON])
     r = _by_kind(risks)["business"][0]
     # 회사 이름은 출처 제목에 있을 때만 줄에 보인다
-    assert r.line == "알루미늄 골조 공급 동향 · 한빛창호, 알루미늄 창호 납기 2주 늦어져 · news.example.com"
+    assert r.line == "골조 공급 동향 · 한빛창호, 알루미늄 창호 납기 2주 늦어져 · news.example.com"  # 골조에 붙는 금속 없음
     assert (r.status, r.source, r.as_of) == ("ok", "news.example.com", "2026-11-20")
     call = fakes.mcp.bodies("tools/call")[0]["params"]
-    assert call["name"] == "search_business" and call["arguments"]["query"] == "알루미늄 골조 공급 동향"
+    assert call["name"] == "search_business" and call["arguments"]["query"] == "골조 공급 동향"
 
 
 async def test_business_no_result_is_none(session, fakes):
@@ -358,6 +361,51 @@ async def test_business_no_result_is_none(session, fakes):
     fakes.classify({**NOTHING, "trade": "골조"})
     [r] = await risk.look(session, sid, 1, [SOON])
     assert (r.status, r.line, r.evidence_id) == ("none", f"골조 공급 동향 · {NO_DATA}", None)
+
+
+def _one(session, name: str, wbs: str = "골조", companies: tuple[str, ...] = ()) -> int:
+    s = make([task("A", 3, name=name)])
+    s = replace(s, wbs=(WbsNode("1", wbs, None),))
+    sid = store(session, s)
+    session.add_all([ContactCompany(schedule_id=sid, name=c) for c in companies])
+    session.commit()
+    return sid
+
+
+async def _queries(session, fakes, sid, name: str, pick: dict) -> tuple[list[str], list[Risk]]:
+    fakes.classify({**NOTHING, **pick})
+    risks = await risk.look(session, sid, 1, [Point("A", name, True, 0, SOON.es, SOON.ef)])
+    return [c["params"]["arguments"]["query"] for c in fakes.mcp.bodies("tools/call")], risks
+
+
+@pytest.mark.parametrize("hint,want", [("대한커튼월", []), ("커튼월", ["커튼월 공급 동향"]), ("제작", []), ("3.1.2", [])])
+async def test_trade_only_from_fixed_words(session, fakes, hint, want):
+    """모르는 회사 이름(연락처에 없음)도 질의에 들지 않는다 — 공종은 정해진 낱말에서만."""
+    sid = _one(session, "대한커튼월 커튼월 제작", wbs="3.1.2 외장")
+    queries, risks = await _queries(session, fakes, sid, "대한커튼월 커튼월 제작", {"trade": hint})
+    assert queries == want and all("대한" not in q for q in queries)
+    assert [(r.kind, r.status) for r in risks] == [("business", "ok" if want else "none")]
+
+
+@pytest.mark.parametrize("hint", ["창호", "한빛창호", "한빛"])
+async def test_company_mark_variants_never_leak(session, fakes, hint):
+    sid = _one(session, "한빛창호 설치", companies=("(주)한빛창호",))
+    queries, _ = await _queries(session, fakes, sid, "한빛창호 설치", {"trade": hint})
+    assert set(queries) <= {"창호 공급 동향"} and all("한빛" not in q for q in queries)
+
+
+async def test_curtain_wall_gets_aluminum_prefix(session, fakes):
+    sid = _one(session, "커튼월 공장 제작", wbs="외장")  # 씨앗 A1404 꼴
+    queries, _ = await _queries(session, fakes, sid, "커튼월 공장 제작", {"materials": ["aluminum"], "trade": "커튼월"})
+    assert queries == ["알루미늄 커튼월 공급 동향"]
+
+
+@pytest.mark.parametrize("materials,want", [(["copper", "aluminum"], "알루미늄 커튼월 공급 동향"),
+                                            (["copper"], "커튼월 공급 동향"), ([], "커튼월 공급 동향")])
+async def test_metal_prefix_only_when_it_fits_the_trade(session, fakes, materials, want):
+    sid = _one(session, "커튼월 설치")
+    queries, _ = await _queries(session, fakes, sid, "커튼월 설치", {"materials": materials, "trade": "커튼월"})
+    assert queries == [want]
 
 
 @pytest.mark.parametrize("trade", ["한빛창호", "한빛창호 창호", "한빛", "김하늘", "창호"])
