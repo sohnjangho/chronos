@@ -68,6 +68,23 @@ test('an old made-up photo reading shows as unread and asks for the photo again 
   expect(within(card).getByRole('button', { name: '승인함 상신 · 증빙 확정' })).toBeDisabled();
 });
 
+// PM 11-24: 모델이 못 읽은 사진은 서버가 숫자 없이 까닭만 남긴다. 진도 값이 없는 줄은 0% 로 채우지 않는다.
+test('a photo the model could not read shows its reason and never 0%', async () => {
+  const card = await photoCard(
+    item({ response_choice: 'unread', payload_json: { photo_name: 'night.jpg', ai_progress: null, unread_reason: '사진이 어두워 작업 상태가 보이지 않습니다.' } }),
+  );
+  expect(within(card).getByText('판독하지 않음 — 사진이 어두워 작업 상태가 보이지 않습니다.')).toBeVisible();
+  expect(within(card).queryByText(/\d+%/)).toBeNull();
+});
+
+test('a photo row with no progress value is shown as unread, not 0%', async () => {
+  const card = await photoCard(item({ response_choice: 'verified', reported_progress: null, payload_json: { photo_name: 'x.jpg' } }));
+  expect(within(card).getByText('판독하지 않음 — 진도 값이 없습니다.')).toBeVisible();
+  expect(within(card).queryByRole('progressbar')).toBeNull();
+  expect(within(card).queryByText(/\d+%/)).toBeNull();
+  expect(within(card).getByRole('button', { name: '승인함 상신 · 증빙 확정' })).toBeDisabled();
+});
+
 test('a photo read by the vision model shows its percentage and one-sentence reason (F1)', async () => {
   const card = await photoCard(
     item({ reported_progress: 40, payload_json: { photo_name: 'rebar.jpg', ai_progress: 40, ai_reason: '철근 배근은 끝났고 거푸집은 절반쯤 섰다.', ai_risks: [] } }),

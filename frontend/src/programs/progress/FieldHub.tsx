@@ -297,9 +297,10 @@ function PhotoUploader({
 
 function PhotoCard({ item, busy, onApply }: { item: FieldItem; busy: boolean; onApply(): Promise<void> }) {
   const p = item.payload_json || {};
-  // 판독하지 않은 사진(사진 없음·모델 호출 실패): 진도 숫자를 보이지 않고 까닭만 보이며 상신할 수 없다(F1).
-  const unread = item.response_choice === 'unread';
-  const aiProgress = typeof p.ai_progress === 'number' ? p.ai_progress : (item.reported_progress ?? 0);
+  // 판독하지 않은 사진(사진 없음·모델 호출 실패·모델이 못 읽음): 진도 숫자를 보이지 않고 까닭만 보이며 상신할 수 없다(F1).
+  // 진도 값이 없으면 0% 로 채우지 않고 판독하지 않음으로 본다(PM 11-24).
+  const aiProgress = typeof p.ai_progress === 'number' ? p.ai_progress : item.reported_progress;
+  const unread = item.response_choice === 'unread' || aiProgress === null;
   const aiReason = typeof p.ai_reason === 'string' ? p.ai_reason : typeof p.ai_stage === 'string' ? p.ai_stage : item.response_note;
   const risks = Array.isArray(p.ai_risks) ? (p.ai_risks as string[]) : [];
   const tag = typeof p.evidence_tag === 'string' ? p.evidence_tag : `#${item.activity_id}`;
@@ -319,7 +320,7 @@ function PhotoCard({ item, busy, onApply }: { item: FieldItem; busy: boolean; on
       </div>
       {unread ? (
         <div className="pg-ai-result">
-          <p className="pg-risk-line">{`판독하지 않음 — ${String(p.unread_reason ?? '')}`}</p>
+          <p className="pg-risk-line">{`판독하지 않음 — ${String(p.unread_reason ?? '진도 값이 없습니다.')}`}</p>
         </div>
       ) : (
         <div className="pg-ai-result">

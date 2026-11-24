@@ -131,6 +131,59 @@ def test_failed_vision_call_leaves_the_photo_unread_with_its_reason(client, admi
     assert client.post(f"/api/schedules/{sid}/field/{item['id']}/apply", headers=admin).status_code == 422
 
 
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"readable": False, "unreadable_reason": "사진이 어두워 작업 상태가 보이지 않습니다.", "progress": 30,
+         "reason": "야간이라 보가 매달린 것만 보인다.", "risks": []},
+        {"readable": True, "unreadable_reason": "사진이 어두워 작업 상태가 보이지 않습니다.", "progress": None,
+         "reason": "야간이라 보가 매달린 것만 보인다.", "risks": []},
+        {"readable": False, "unreadable_reason": "사진이 어두워 작업 상태가 보이지 않습니다.", "progress": 0,
+         "reason": "판독 불가", "risks": []},
+    ],
+    ids=["unreadable-with-a-number", "null-progress", "unreadable-zero"],
+)
+def test_a_photo_the_model_cannot_read_stores_no_number_and_no_zero(client, admin, session, sid, liner, answer):
+    """PM 11-24: 모델이 못 읽는다고 하거나(readable=false) 진도를 비우면 숫자를 남기지 않는다 — 0% 도 아니다."""
+    liner.push(chat_body(json.dumps(answer, ensure_ascii=False)))
+
+    r = _upload(client, admin, sid, photo_data_url=PHOTO)
+
+    assert r.status_code == 200, r.json()
+    item = _newest_photo(r)
+    assert (item["response_choice"], item["reported_progress"], item["reported_rd"]) == ("unread", None, None)
+    assert item["payload_json"]["ai_progress"] is None
+    assert item["payload_json"]["unread_reason"] == "사진이 어두워 작업 상태가 보이지 않습니다."
+    assert "%" not in item["prompt_text"]
+    session.expire_all()
+    row = session.get(FieldItem, item["id"])
+    assert row.reported_progress is None and row.payload_json["ai_progress"] is None
+    assert client.post(f"/api/schedules/{sid}/field/{item['id']}/apply", headers=admin).status_code == 422
+
+
+def test_reading_prompt_leaves_out_the_recorded_progress_and_says_when_to_leave_it_empty(client, admin, sid, liner):
+    """PM 11-24: 「지금 기록된 진도」는 답을 끌어당겨 지시문에서 뺀다. 근거가 부족하면 진도를 비운다는 규칙이 있다."""
+    liner.push(chat_body(json.dumps({"readable": True, "unreadable_reason": "", "progress": 40, "reason": "철근 배근이 끝났다.",
+                                     "risks": []}, ensure_ascii=False)))
+
+    _upload(client, admin, sid, photo_data_url=PHOTO)
+
+    sent = json.dumps(liner.last_body["messages"], ensure_ascii=False)
+    assert "기록된 진도" not in sent and "지금 기록" not in sent
+    assert "사진에 보이는 근거가 부족하면(어두움·가림·너무 가까움·공정과 관계없음) 진도율을 비운다" in field.VISION_PROMPT
+    assert "readable" in field.VISION_PROMPT and "unreadable_reason" in field.VISION_PROMPT
+
+
+def test_vision_schema_is_strict_with_a_nullable_progress():
+    """strict 모드: 모든 속성이 required, additionalProperties false. 진도는 정수 또는 null."""
+    s = field.VISION_SCHEMA
+    assert set(s["required"]) == set(s["properties"]) == {"readable", "unreadable_reason", "progress", "reason", "risks"}
+    assert s["additionalProperties"] is False
+    assert s["properties"]["readable"] == {"type": "boolean"}
+    assert s["properties"]["progress"]["type"] == ["integer", "null"]
+    assert s["properties"]["unreadable_reason"]["type"] == "string"
+
+
 def test_a_phone_photo_shrunk_to_1280px_fits_the_upload_limit(client, admin, sid, liner):
     """리뷰 I-2: 브라우저가 긴 변 1280px·JPEG 0.7 로 줄인 휴대폰 사진(base64 ~1MB)이 422 없이 판독까지 간다.
     한도는 그림 읽기 한도(agent.image_turn.IMAGE_MAX_BYTES, 5MiB) 안이다."""

@@ -49,23 +49,32 @@ SKIPPED_CHECKINS = ("체크인 {}건을 보냈습니다. {}건은 건너뛰었�
 LEGACY_PHOTO = "이전 방식으로 만든 항목입니다. 사진을 다시 올려 주세요"  # F1 이전 항목(숫자를 지어냈다, 리뷰 I-3)
 VISION_PROMPT = (
     "너는 건설·제조 현장 사진을 보고 한 작업의 진도를 판독한다. 사진에 보이는 것만 근거로 삼고, 보이지 않는 것은 짐작하지 않는다. "
-    "progress: 이 작업의 진도율(0~100 정수). reason: 그 진도로 본 까닭 한 문장(한국어). "
+    "사진에 보이는 근거가 부족하면(어두움·가림·너무 가까움·공정과 관계없음) 진도율을 비운다: progress 는 null, readable 은 false, "
+    "unreadable_reason 에 그 까닭 한 문장(한국어, 짧게)을 적는다. "
+    "readable: 이 사진으로 이 작업의 진도를 판독할 수 있으면 true. unreadable_reason: 판독할 수 있으면 빈 글. "
+    "progress: 이 작업의 진도율(0~100 정수, 판독할 수 없으면 null). reason: 그 진도로 본(또는 판독하지 못한) 까닭 한 문장(한국어). "
     "risks: 사진에 보이는 안전·품질·일정 위험(한국어 짧은 문장, 없으면 빈 목록)."
 )
+# 판독 불가를 숫자 없이 낼 수 있게 한다(PM 11-24): 예전 스키마는 progress 가 필수 정수라 「판독 불가」가 0%로 남았다.
 VISION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "progress": {"type": "integer"},
+        "readable": {"type": "boolean"},
+        "unreadable_reason": {"type": "string"},
+        "progress": {"type": ["integer", "null"]},
         "reason": {"type": "string"},
         "risks": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["progress", "reason", "risks"],
+    "required": ["readable", "unreadable_reason", "progress", "reason", "risks"],
     "additionalProperties": False,
 }
+UNREADABLE = "사진에 진도를 판단할 근거가 부족합니다."
 
 
 class VisionAnswer(BaseModel):
-    progress: int = Field(ge=0, le=100)
+    readable: bool = True
+    unreadable_reason: str = ""
+    progress: int | None = Field(ge=0, le=100)
     reason: str = Field(min_length=1)
     risks: list[str]
 
@@ -424,9 +433,10 @@ def _waiting_activities(session: Session, schedule_id: int) -> set[str]:
 async def _read_photo(
     session: Session, act: dict[str, Any], data_url: str, note: str
 ) -> tuple[VisionAnswer | None, str | None]:
-    """그림 읽기 모델로 사진을 한 번 읽는다(llm_calls 에 남는다). (답, None) 또는 (None, 판독하지 않은 까닭)."""
-    base_pct = round(float(act.get("progress") or 0.0) * 100)
-    text = f"작업: {act['id']} {act['name']}\n지금 기록된 진도: {base_pct}%\n현장 소견: {note or '(없음)'}"
+    """그림 읽기 모델로 사진을 한 번 읽는다(llm_calls 에 남는다). (답, None) 또는 (None, 판독하지 않은 까닭).
+    모델이 못 읽는다고 하거나(readable=false) 진도를 비우면 숫자 없이 그 까닭만 돌려준다(0% 로 두지 않는다).
+    지금 기록된 진도는 보내지 않는다 — 답이 그 값에 끌린다(PM 11-24)."""
+    text = f"작업: {act['id']} {act['name']}\n현장 소견: {note or '(없음)'}"
     messages = [
         {"role": "system", "content": VISION_PROMPT},
         {"role": "user", "content": [{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": data_url}}]},
@@ -438,9 +448,12 @@ async def _read_photo(
     except LlmFailed as e:
         return None, f"판독하지 못했습니다: {e.error.message}"
     try:
-        return VisionAnswer.model_validate(reply.parsed), None
+        answer = VisionAnswer.model_validate(reply.parsed)
     except ValidationError:
         return None, BAD_ANSWER
+    if not answer.readable or answer.progress is None:
+        return None, answer.unreadable_reason.strip() or UNREADABLE
+    return answer, None
 
 
 async def upload_photo(session: Session, schedule_id: int, body: PhotoUploadIn) -> FieldListOut:
