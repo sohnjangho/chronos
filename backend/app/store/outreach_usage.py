@@ -53,6 +53,8 @@ class UsageSummary:
     calls_rejected: int
     by_kind: dict[str, KindUsage]
     provider_cost: float | None
+    fallback_sms: int = 0  # sms 가운데 카카오톡 요청이 문자로 대신 나간 것(Task 111)
+    kakao_not_ready: int = 0  # 그 가운데 하네스 사건 kakao_not_ready 가 남은 것
 
 
 def _window(days: int, now: datetime | None) -> tuple[datetime, datetime]:
@@ -88,6 +90,10 @@ def summary(session: Session, *, days: int, now: datetime | None = None) -> Usag
             func.count(m.id).filter(m.kind.in_(AUTO_REPLY_KINDS)),
         ).where(sent_m)
     ).one()
+
+    instead = session.scalars(select(m.harness_json).where(sent_m, m.channel == "kakao", m.fallback_sms.is_(True))).all()
+    not_ready = sum(1 for log in instead if isinstance(log, list)
+                    and any(isinstance(e, dict) and e.get("rule") == "kakao_not_ready" for e in log))
 
     c = OutreachCall
     sent_c, received_c = _sent(c, start, end), _received(c, start, end)
@@ -127,5 +133,5 @@ def summary(session: Session, *, days: int, now: datetime | None = None) -> Usag
     return UsageSummary(
         sms=sms, long=long, kakao=kakao, auto_replies=auto, call_seconds=seconds, calls_placed=placed,
         calls_answered=answered, calls_rejected=rejected, by_kind=by_kind,
-        provider_cost=sum(known) if known else None,
+        provider_cost=sum(known) if known else None, fallback_sms=len(instead), kakao_not_ready=not_ready,
     )

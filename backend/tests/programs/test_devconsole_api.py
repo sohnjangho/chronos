@@ -501,6 +501,7 @@ def test_usage_when_nothing_happened(client, admin):
                               "searches": {"calls": 0, "failed": 0}, "reuses": {"calls": 0},
                               "vision": zero, "embedding": zero},
                  "outreach": {"sms": 0, "long": 0, "kakao": 0, "auto_replies": 0, "provider_cost": None,
+                              "fallback_sms": 0, "kakao_not_ready": 0,
                               "text_models": [{"kind": k, "count": 0, "input_tokens": 0, "output_tokens": 0, "cost": None}
                                               for k in ("text_reply", "draft", "translation")],
                               "calls": {"call_seconds": 0, "calls_placed": 0, "models": [

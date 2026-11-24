@@ -141,7 +141,8 @@ function OutreachUsageTable({ o }: { o: OutreachUsage }) {
   const lines: [string, string, string][] = [
     ['문자 (단문·장문)', count(o.sms), '대신 문자로 나간 카카오톡 포함'],
     ['그 가운데 장문', count(o.long), ''],
-    ['카카오톡', count(o.kakao), ''],
+    ['카카오톡(알림톡)', count(o.kakao), o.kakao === 0 ? '아직 쓰지 않습니다' : ''],
+    ['문자로 대신 나간 수', count(o.fallback_sms ?? 0), `카카오톡 요청이 준비 안 됨으로 문자로 나간 것(문자 수에 이미 들어 있음) · 「준비 안 됨」 사건 ${count(o.kakao_not_ready ?? 0)}건`],
     ['자동 답·고정 안내', count(o.auto_replies), '문자 수에 이미 들어 있음'],
     ['제공사 요금', o.provider_cost === null ? FEE_UNREPORTED : cost(o.provider_cost), '메시지마다의 요금은 제공사가 주지 않습니다'],
   ];

@@ -102,7 +102,7 @@ export default function NotifyHealthCard({ n }: { n: NotifyHealth }) {
           <Row k="발신번호" v={n.sender_masked ?? '없음'} />
           <Row k="받는 범위" v={INBOUND[n.inbound_mode ?? ''] ?? n.inbound_mode ?? '—'} />
           <Row k="에이전트 권한" v={`문자 ${AGENT[agent.sms] ?? '—'} · 카카오톡 ${AGENT[agent.kakao] ?? '—'} · 전화 ${AGENT[agent.call] ?? '—'}`} />
-          <Row k="카카오톡" v={NOT_YET} />
+          <Row k="카카오톡" v={n.kakao ? '아래 「카카오톡」 칸' : NOT_YET} />
           <Row k="AI 전화" v={n.voice ? '설정됨 — 아래 「AI 전화」 칸' : NOT_YET} />
         </dl>
         <Worker w={n.worker} />

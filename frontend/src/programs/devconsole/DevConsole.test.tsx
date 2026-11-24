@@ -623,7 +623,7 @@ describe('연락 — 실행 추적 · 알림 연결 · 문자 사용량 (Task 10
     mockUsage({ outreach: { sms: 12, long: 3, kakao: 0, auto_replies: 2, provider_cost: null } });
     await openUsage();
     const table = screen.getByRole('table', { name: '연락 사용량' });
-    expect(within(table).getByRole('row', { name: /^문자/ })).toHaveTextContent('12');
+    expect(within(table).getByRole('row', { name: /^문자 \(/ })).toHaveTextContent('12');
     expect(within(table).getByRole('row', { name: /^그 가운데 장문/ })).toHaveTextContent('3');
     expect(within(table).getByRole('row', { name: /제공사 요금/ })).toHaveTextContent('제공사가 알려 주지 않음');
   });

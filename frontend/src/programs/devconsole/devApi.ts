@@ -210,6 +210,9 @@ export interface OutreachUsage {
   kakao: number;
   auto_replies: number;
   provider_cost: number | null;
+  /** 카카오톡 요청이 문자로 대신 나간 수(Task 111, sms 에 들어 있음)와 그 가운데 「준비 안 됨」 사건이 남은 수. 예전 서버는 없다. */
+  fallback_sms?: number;
+  kakao_not_ready?: number;
   /** 글 쪽 모델 사용(text_reply · draft · translation). cost 는 모델이 알려 준 것만. 예전 서버는 없다. */
   text_models?: { kind: string; count: number; input_tokens: number; output_tokens: number; cost: number | null }[];
   /** 통화 사용량(Task 110). models: voice_model · transcription(기록이 있을 때만) · summary — 알려 준 값만. */
@@ -483,6 +486,15 @@ export interface NotifyStep {
   outcome: 'ok' | 'failed' | 'check' | 'skipped';
 }
 
+/** 카카오톡 채널·문안 상태 — 저장된 값 그대로(콘솔은 제공사를 부르지 않는다). channel 이 null 이면 연결된 채널 없음. */
+export interface KakaoHealth {
+  available: boolean;
+  channel: string | null;
+  templates: { approved: number; reviewing: number; rejected: number; dormant: number };
+  synced_at: string | null;
+  ready: boolean;
+}
+
 /** 기본 알림 연결(키·Account ID 없음, 발신번호는 가린 꼴). 연결이 없으면 connected false 뿐. */
 export interface NotifyHealth {
   connected: boolean;
@@ -497,7 +509,8 @@ export interface NotifyHealth {
   worker: Record<string, unknown> | null;
   needs_check: number;
   last_diagnosis: NotifyDiagnosis | null;
-  kakao: null;
+  /** 저장된 카카오톡 채널·문안 상태(Task 111). 예전 서버는 null. */
+  kakao?: KakaoHealth | null;
   voice?: VoiceHealth | null;
 }
 

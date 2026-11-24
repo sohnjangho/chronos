@@ -266,6 +266,8 @@ class OutreachUsageOut(BaseModel):
     kakao: int
     auto_replies: int
     provider_cost: float | None
+    fallback_sms: int = 0  # 카카오톡 요청이 문자로 대신 나간 수(Task 111) — sms 에 들어 있다
+    kakao_not_ready: int = 0  # 그 가운데 「카카오톡 준비 안 됨」 사건이 남은 수
     text_models: list[TextModelUsageOut] = Field(default_factory=list)  # 글 쪽 모델 사용(Task 109)
     calls: CallUsageOut | None = None  # 통화 사용량(Task 110)
 
@@ -408,6 +410,23 @@ class VoiceHealthOut(BaseModel):
     worker: dict[str, Any] | None  # app.outreach.voice.runner.status()
 
 
+class KakaoTemplateCountsOut(BaseModel):
+    approved: int = 0
+    reviewing: int = 0
+    rejected: int = 0
+    dormant: int = 0
+
+
+class KakaoHealthOut(BaseModel):
+    """카카오톡 채널·문안 상태(저장된 값 그대로). channel 이 null 이면 연결된 채널이 없다."""
+
+    available: bool  # 목록 읽는 길이 확인됐는가
+    channel: str | None = None
+    templates: KakaoTemplateCountsOut
+    synced_at: datetime | None = None
+    ready: bool
+
+
 class NotifyHealthOut(BaseModel):
     """기본 알림 연결(키·Account ID 없음, 발신번호는 가린 꼴). 연결이 없으면 connected false 뿐."""
 
@@ -422,7 +441,7 @@ class NotifyHealthOut(BaseModel):
     worker: dict[str, Any] | None = None  # app.outreach.worker.status()
     needs_check: int = 0  # 보냈는지 확인 필요(unconfirmed) 메시지 수
     last_diagnosis: NotifyDiagnosisOut | None = None  # 저장된 것 그대로(다시 돌리지 않음)
-    kakao: None = None  # Task 111
+    kakao: KakaoHealthOut | None = None  # Task 111 — 저장된 채널·문안 상태(제공사를 부르지 않음), 연결이 없으면 null
     voice: VoiceHealthOut | None = None  # Task 110 — 음성 설정이 없으면 null
 
 

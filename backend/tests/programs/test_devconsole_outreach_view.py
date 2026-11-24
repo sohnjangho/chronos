@@ -297,7 +297,7 @@ def test_health_shows_worker_last_run_times(client, admin, session, monkeypatch)
     assert w["running"] is True
     for key in ("last_tick_at", "last_due_at", "last_status_poll_at", "last_inbound_poll_at"):
         assert datetime.fromisoformat(w[key]) == at
-    assert notify["kakao"] is None and notify["voice"] is None
+    assert notify["kakao"]["channel"] is None and notify["voice"] is None  # 카카오톡 칸은 test_devconsole_outreach_kakao
 
 
 def test_health_shows_last_diagnosis_lines_without_rerunning(client, admin, session, monkeypatch):
@@ -329,6 +329,7 @@ def test_usage_counts_sms_and_long_and_hides_cost_when_unreported(client, admin,
     out = client.get("/api/devconsole/usage?days=7", headers=admin).json()["outreach"]
     out.pop("text_models")  # 글 쪽 모델 사용(Task 109 — test_devconsole_outreach_branches 가 본다)
     out.pop("calls")  # 통화 사용량(Task 110 — test_devconsole_outreach_calls 가 본다)
+    out.pop("fallback_sms"), out.pop("kakao_not_ready")  # 알림톡 건수(Task 111 — test_devconsole_outreach_kakao 가 본다)
     assert out == {"sms": 3, "long": 1, "kakao": 1, "auto_replies": 1, "provider_cost": None}
 
 

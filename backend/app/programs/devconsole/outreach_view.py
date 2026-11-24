@@ -25,7 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.outreach import phone, redact
+from app.outreach import kakao, phone, provider, redact
 from app.outreach.harness import events
 from app.outreach.harness.types import (
     CALL_RESULTS,
@@ -46,6 +46,8 @@ from app.programs.devconsole.schemas import (
     EventGroupCount,
     HarnessItem,
     HarnessMark,
+    KakaoHealthOut,
+    KakaoTemplateCountsOut,
     NotifyDiagnosisOut,
     NotifyHealthOut,
     NotifyStepOut,
@@ -63,6 +65,7 @@ from app.store.tables import ScheduleRecord
 from app.store.tables_outreach import (
     Contact,
     ContactCompany,
+    KakaoTemplate,
     OutreachCall,
     OutreachMessage,
     VoiceSettings,
@@ -442,7 +445,23 @@ def notify_health(session: Session) -> NotifyHealthOut:
         sender_masked=phone.mask(conn.sender_number) if conn.sender_number else None, inbound_mode=conn.inbound_mode,
         agent=dict(zip(CHANNELS, (conn.agent_sms, conn.agent_kakao, conn.agent_call), strict=True)),
         worker=_worker_status(), needs_check=unsure, last_diagnosis=_diagnosis(conn), voice=_voice(session, conn),
+        kakao=_kakao(session, conn),
     )
+
+
+def _kakao(session: Session, conn) -> KakaoHealthOut:
+    """저장된 채널·문안 상태(Task 111) — 제공사를 부르지 않는다. 채널 이름은 번호·키를 한 번 더 지운다."""
+    channels = [c for c in conn.kakao_channels_json or [] if isinstance(c, dict) and isinstance(c.get("name"), str)]
+    chosen = next((c for c in channels if c.get("status") == "connected"), None)
+    rows = session.execute(select(KakaoTemplate.status, func.count(), func.max(KakaoTemplate.synced_at))
+                           .where(KakaoTemplate.connection_id == conn.id).group_by(KakaoTemplate.status)).all()
+    counts = {status: n for status, n, _ in rows}
+    synced = max((at for _, _, at in rows if at is not None), default=None)
+    return KakaoHealthOut(
+        available=provider.KAKAO_LISTING_CONFIRMED,
+        channel=redact.scrub(chosen["name"], [*redact.secrets(), *_conn_secrets(conn)])[:100] if chosen else None,
+        templates=KakaoTemplateCountsOut(**{k: counts.get(k, 0) for k in KakaoTemplateCountsOut.model_fields}),
+        synced_at=as_utc(synced) if synced else None, ready=kakao.ready(session))
 
 
 def _voice(session: Session, conn) -> VoiceHealthOut | None:
@@ -471,5 +490,5 @@ def _voice(session: Session, conn) -> VoiceHealthOut | None:
 def usage(session: Session, days: int) -> OutreachUsageOut:
     s = outreach_usage.summary(session, days=days)
     return OutreachUsageOut(sms=s.sms, long=s.long, kakao=s.kakao, auto_replies=s.auto_replies,
-                            provider_cost=s.provider_cost, text_models=outreach_branches.text_models(s),
+                            provider_cost=s.provider_cost, fallback_sms=s.fallback_sms, kakao_not_ready=s.kakao_not_ready, text_models=outreach_branches.text_models(s),
                             calls=outreach_branches.call_usage(s))

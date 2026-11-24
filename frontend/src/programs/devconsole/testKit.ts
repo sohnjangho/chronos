@@ -7,6 +7,7 @@ import type {
   HarnessTestOut,
   NodeKey,
   NodeState,
+  KakaoHealth,
   NotifyHealth,
   NotifyStep,
   OutreachDetail,
@@ -255,6 +256,10 @@ export function harnessTool(name: string, classes: string[], media: string[]) {
 }
 
 /** 시스템 진단의 알림 연결(가상). 실패 한 걸음 · 확인 필요 한 걸음. */
+export const kakaoHealth = (over: Partial<KakaoHealth> = {}): KakaoHealth => ({
+  available: false, channel: '한빛 현장 채널', templates: { approved: 2, reviewing: 1, rejected: 1, dormant: 3 }, synced_at: '2026-11-24T05:06:07+00:00', ready: false, ...over,
+});
+
 export function notifyHealth(over: Partial<NotifyHealth> = {}): NotifyHealth {
   const step = (id: string, label: string, outcome: NotifyStep['outcome'], detail: string, code: string): NotifyStep => ({
     id, label, ok: outcome === 'ok', skipped: outcome === 'skipped', detail, code, maybe_sent: outcome === 'check' && id === 'P2',
