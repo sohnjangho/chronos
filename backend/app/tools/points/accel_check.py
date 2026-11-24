@@ -10,8 +10,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent.events import AgentEvent
-from app.core.accel import AccelRefused, AccelResult, accel_effect, pull_request
-from app.core.model import Schedule
+from app.core.accel import (
+    AccelRefused,
+    AccelResult,
+    accel_effect,
+    chain_items,
+    pull_request,
+)
 from app.harness.assemble import prepare_stored
 from app.store.delays import delayed_base
 from app.store.settings import accel_warn_ratio, points_config
@@ -52,13 +57,6 @@ class AccelCheckOut(BaseModel):
     finish_after: str
     next_chain: list[ChainItem]  # 다음에 약속을 정하는 줄(위상 순)
     same_chain: bool  # 당긴 뒤에도 같은 줄이 약속을 정한다
-
-
-def chain_items(schedule: Schedule, result: AccelResult) -> list[dict]:
-    """다음 결정 줄을 이름·관리 포인트 표시와 함께(만회안 카드·비교판도 같은 꼴)."""
-    names = {a.id: a.name for a in schedule.activities}
-    points = set(result.next_chain_points)
-    return [{"activity_id": i, "name": names[i], "point": i in points} for i in result.next_chain]
 
 
 def warn_line(result: AccelResult) -> str | None:

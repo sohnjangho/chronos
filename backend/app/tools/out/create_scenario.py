@@ -2,7 +2,8 @@
 
 지금 일정(base_version 이 지금 버전이어야 함)에 고침(changes)과 입력 조건(conditions)을 넣은 사본을 복사본 표에 둔다.
 요약(준공·차이·위반·자원 최대)은 코드가 계산한다(store.scenarios.summarize). 반영은 비교판이나 scenario.submit 으로.
-사건: card {kind: "scenario_created", scenario_id, schedule_id, name, summary} 와
+당김 효과(accel·accel_reason)는 바탕 버전과 견줘 끌어낸 이동으로 코드가 계산한다(store.scenarios.copy_accel).
+사건: card {kind: "scenario_created", scenario_id, schedule_id, name, summary, accel, accel_reason} 와
 open_window {program: "compare", params: {id, base: "current", other: "s:<id>"}}.
 """
 
@@ -29,6 +30,8 @@ class CreateScenarioIn(Strict):
 class CreateScenarioOut(BaseModel):
     scenario_id: int
     summary: dict  # store.scenarios.summarize 의 요약
+    accel: dict | None = None  # 당김 효과 {pulled_days, finish_gain, warn, next_chain}. 당김이 아니거나 셀 수 없으면 None
+    accel_reason: str | None = None  # 여러 가지를 함께 바꿔 셀 수 없을 때의 까닭
 
 
 @tool(
@@ -58,8 +61,10 @@ def create_scenario(args: CreateScenarioIn, ctx: ToolContext) -> CreateScenarioO
             ctx.session, schedule_id=schedule_id, base_version=n, name=args.name, source="agent", schedule=after,
             conditions=conditions, created_by=ctx.user.name if ctx.user else approvals.AGENT_NAME,
         )
+        accel, reason = scenarios.copy_accel(ctx.session, schedule_id, n, after, conditions)
     ctx.emit(AgentEvent("card", {"kind": "scenario_created", "scenario_id": row.id, "schedule_id": schedule_id,
-                                 "name": row.name, "summary": row.summary_json}))
+                                 "name": row.name, "summary": row.summary_json, "accel": accel,
+                                 "accel_reason": reason}))
     ctx.emit(AgentEvent("open_window", {"program": "compare",
                                         "params": {"id": str(schedule_id), "base": "current", "other": f"s:{row.id}"}}))
-    return CreateScenarioOut(scenario_id=row.id, summary=row.summary_json)
+    return CreateScenarioOut(scenario_id=row.id, summary=row.summary_json, accel=accel, accel_reason=reason)

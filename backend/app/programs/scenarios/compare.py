@@ -8,8 +8,9 @@ store.view.plan_source, PM 결정 11-20 밤. 옛 버전이면 지금 버전을 �
   deadline = 켜진 finish_by 가운데 가장 이른 기한(ISO, 없으면 None), deadline_float = 이 안 준공 → 그 기한
   (없으면 None, 늦으면 음수). 차이는 모두 이 안의 조건 넣은 달력의 근무일. violations·uncheckable 은 하네스 점검의 개수,
   peak 는 store.scenarios 요약과 같은 자원 최고 부하. changes: 복사본은 이동 글, 버전은 그 버전의 note.
-  accel: 만회안 복사본의 당김 효과(만들 때 core.accel 로 계산해 요약에 둔 값 — 「준공 반영」 finish_gain/pulled_days,
-  「다음 결정 줄」 next_chain). 그 밖의 안(현재·Plan·버전·이동을 모르는 만약에 복사본)은 None.
+  accel: 복사본의 당김 효과 — 「준공 반영」 finish_gain/pulled_days, 「다음 결정 줄」 next_chain. 만회안은 만들 때
+  core.accel 로 계산해 요약에 둔 값, 만약에 복사본(source agent)은 바탕 버전과 견줘 끌어낸 이동으로 지금 계산한 값
+  (store.scenarios.copy_accel — 셀 수 없게 바뀌었으면 None 과 accel_reason). 현재·Plan·버전·지연 반영안은 None.
 - 줄: 기준 차례, 다음 비교에만 있는 것. 차이는 기준 쪽 달력(그 액티비티의 꼬리표)의 근무일로 other − base.
 계산이 안 되는 안이 있으면 422 schedule_invalid(detail = ScheduleError.detail).
 """
@@ -64,11 +65,11 @@ class _Side:
 
     def __init__(self, ref: str, label: str, version: int, schedule: Schedule, conditions: list[dict], *,
                  changes: list[str], stale: bool = False, status: str | None = None,
-                 accel: dict | None = None) -> None:
+                 accel: dict | None = None, accel_reason: str | None = None) -> None:
         self.ref, self.label, self.version = ref, label, version
         self.schedule, self.conditions = schedule, conditions
         self.changes, self.stale, self.status = changes, stale, status
-        self.accel = accel
+        self.accel, self.accel_reason = accel, accel_reason
         self.ready: Schedule | None = None
         self.lv: LevelResult | None = None
 
@@ -131,9 +132,12 @@ class _Board:
             raise _invalid(ref) from None
         if sc.schedule_id != self.schedule_id:
             raise _invalid(ref)
-        return _Side(ref, sc.name, sc.base_version, from_json(sc.snapshot_json), list(sc.conditions_json),
+        schedule, conditions = from_json(sc.snapshot_json), list(sc.conditions_json)
+        accel, reason = (scenarios.copy_accel(self.session, self.schedule_id, sc.base_version, schedule, conditions)
+                         if sc.source == "agent" else (_accel(sc.summary_json), None))
+        return _Side(ref, sc.name, sc.base_version, schedule, conditions,
                      changes=[m["text"] for m in sc.moves_json], stale=sc.base_version != n, status=sc.status,
-                     accel=_accel(sc.summary_json))
+                     accel=accel, accel_reason=reason)
 
     def out(self, ref: str) -> dict:
         """안 요약(SideOut). 이 안이 계산되지 않으면 ScheduleError(Plan 이 계산되지 않으면 plan_delta 만 None)."""
@@ -152,7 +156,7 @@ class _Board:
             "critical_count": sum(row.critical for row in side.lv.cpm.rows.values()),
             "violations": len(report.violations), "uncheckable": len(report.uncheckable),
             "peak": _peak(side.schedule, side.lv), "changes": side.changes, "stale": side.stale,
-            "status": side.status, "accel": side.accel,
+            "status": side.status, "accel": side.accel, "accel_reason": side.accel_reason,
         }
 
 

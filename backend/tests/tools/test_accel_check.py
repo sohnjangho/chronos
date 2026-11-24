@@ -9,8 +9,11 @@ from datetime import date
 import pytest
 
 from app.agent import context
+from app.core.accel import MIXED_REASON
 from app.core.model import Relation
 from app.programs.scenarios import compare
+from app.store import scenarios
+from app.store.schedules import load
 from app.store.settings import accel_warn_ratio
 from app.store.tables import Setting
 from app.tools.registry import call, list_tools
@@ -46,7 +49,7 @@ async def check(ctx, session, schedule, **args):
 def test_system_prompt_asks_to_check_pull_effect_first():
     prompt = context.system_prompt()
     assert "작업을 당기거나 자원을 더하자는 요청에는 먼저 당김 효과를 확인해 보여 준다" in prompt
-    assert "points__accel_check" in prompt
+    assert "points__accel_check" in prompt and "scenario__create" in prompt
 
 
 def test_spec_is_read_only():
@@ -129,3 +132,35 @@ async def test_recovery_options_and_compare_summary_carry_accel(ctx, session):
     assert sides["current"]["accel"] is None
     got = sides[f"s:{a['scenario_id']}"]["accel"]
     assert got == {"pulled_days": 3, "finish_gain": 3, "warn": False, "next_chain": a["next_chain"]}
+
+
+def _agent_copy(session, sid: int, schedule) -> int:
+    _, conditions, n = load(session, sid)
+    row = scenarios.create(session, schedule_id=sid, base_version=n, name="만약에", source="agent", schedule=schedule,
+                           conditions=conditions, created_by="관리자")
+    session.commit()
+    return row.id
+
+
+def test_compare_summary_derives_accel_for_what_if_copies(session):
+    sid = store(session, side())
+    base = load(session, sid)[0]
+    pulled = replace(base, activities=tuple(replace(a, od=1) if a.id == "B" else a for a in base.activities))
+    mixed = replace(pulled, activities=tuple(replace(a, od=7) if a.id == "A" else a for a in pulled.activities))
+    good, bad = _agent_copy(session, sid, pulled), _agent_copy(session, sid, mixed)
+    sides = {s["ref"]: s for s in compare.summary(session, sid)["sides"]}
+    got = sides[f"s:{good}"]
+    assert got["accel"] == {"pulled_days": 3, "finish_gain": 1, "warn": True,
+                            "next_chain": [{"activity_id": "X", "name": "X 작업", "point": True},
+                                           {"activity_id": "D", "name": "D 작업", "point": True}]}
+    assert got["accel_reason"] is None
+    assert (sides[f"s:{bad}"]["accel"], sides[f"s:{bad}"]["accel_reason"]) == (None, MIXED_REASON)
+
+
+async def test_scenario_create_returns_accel(ctx, session, events):
+    sid = store(session, side())
+    args = {"name": "B 1일", "base_version": 1, "changes": [{"op": "update_activity", "id": "B", "od": 1}]}
+    r = await call("scenario.create", args, replace(ctx, schedule_id=sid))
+    assert r.ok, r.error
+    assert (r.output["accel"]["pulled_days"], r.output["accel"]["finish_gain"], r.output["accel_reason"]) == (3, 1, None)
+    assert events[0].data["accel"] == r.output["accel"]

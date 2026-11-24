@@ -75,11 +75,12 @@ def test_sides(client, admin, sid_chain, scenario_A):
     assert r["base"] == {"ref": "current", "label": "현재 일정 (버전 1)", "version": 1, "finish": "2027-03-19",
                          "plan_delta": 0, "deadline": "2027-03-16", "deadline_float": -3, "critical_count": 3, "violations": 1,
                          "uncheckable": 0, "peak": None, "changes": [], "stale": False, "status": None,
-                         "accel": None}
+                         "accel": None, "accel_reason": None}
     assert r["other"] == {"ref": f"s:{scenario_A}", "label": "만회안 A · 병행 우선", "version": 1,
                           "finish": "2027-03-16", "plan_delta": -3, "deadline": "2027-03-16", "deadline_float": 0, "critical_count": 3,
                           "violations": 0, "uncheckable": 0, "peak": None, "changes": [A_MOVE], "stale": False,
-                          "status": "open", "accel": None}  # 당김 효과 칸 없이 만든 복사본
+                          "status": "open", "accel": None,
+                          "accel_reason": None}  # 당김 효과 칸 없이 만든 만회안
 
 
 def test_versions_added_and_removed(client, admin, session, sid_chain):

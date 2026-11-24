@@ -11,6 +11,7 @@ from math import inf
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.accel import MIXED_REASON, accel_effect, accel_view, derive_moves
 from app.core.calendar import WorkCalendar
 from app.core.cpm import CpmResult, compute
 from app.core.model import Schedule
@@ -21,11 +22,20 @@ from app.harness.checks import check
 from app.harness.conditions import condition_problem, read_conditions
 from app.store.diff import pred_json
 from app.store.drafts import violation_json
-from app.store.schedules import NotFound, activity_json, load, run, to_json
+from app.store.schedules import (
+    NotFound,
+    activity_json,
+    from_json,
+    get_version,
+    load,
+    run,
+    to_json,
+)
+from app.store.settings import accel_warn_ratio, points_config
 from app.store.tables import Scenario
 from app.store.view import plan_of
 
-__all__ = ["NotFound", "create", "get", "listed", "set_status", "summarize"]
+__all__ = ["NotFound", "copy_accel", "create", "get", "listed", "set_status", "summarize"]
 
 
 def _peak(schedule: Schedule, lv: LevelResult) -> dict | None:
@@ -83,6 +93,27 @@ def summarize(session: Session, schedule_id: int, schedule: Schedule, conditions
         "note": "",
         "recommended": False,
     }
+
+
+def copy_accel(
+    session: Session, schedule_id: int, base_version: int, schedule: Schedule, conditions: list[dict]
+) -> tuple[dict | None, str | None]:
+    """만약에 복사본의 당김 효과: (core.accel.accel_view 칸 또는 None, 셀 수 없을 때의 까닭 또는 None).
+
+    바탕 = 그 복사본을 뜬 버전(저장 조건 넣음), 이동 = core.accel.derive_moves. 당김이 없으면(이동 없음)
+    (None, None), 당김과 다른 바뀜이 함께 있으면 (None, MIXED_REASON).
+    """
+    row = get_version(session, schedule_id, base_version)
+    base = prepare_stored(from_json(row.snapshot_json), list(row.conditions_json))
+    moves = derive_moves(base, prepare_stored(schedule, conditions))
+    if moves is None:
+        return None, MIXED_REASON
+    if not moves:
+        return None, None
+    cfg = points_config(session)
+    result = accel_effect(base, moves, warn_ratio=accel_warn_ratio(session), tf_days=cfg.tf_days,
+                          window_weeks=cfg.window_weeks)
+    return accel_view(base, result), None
 
 
 def create(

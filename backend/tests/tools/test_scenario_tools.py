@@ -49,7 +49,7 @@ async def test_scenario_events(ctx_sid, events, sid):
     assert events[-1].data["params"]["other"].startswith("s:")
     sc = r.output["scenario_id"]
     assert events[0].data == {"kind": "scenario_created", "scenario_id": sc, "schedule_id": sid, "name": "B 4일",
-                              "summary": r.output["summary"]}
+                              "summary": r.output["summary"], "accel": None, "accel_reason": None}  # 늘리기만 — 당김 없음
     assert events[1].data == {"program": "compare", "params": {"id": str(sid), "base": "current", "other": f"s:{sc}"}}
 
 

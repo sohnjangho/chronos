@@ -5,9 +5,9 @@ from datetime import date
 
 import pytest
 
-from app.core.accel import AccelRefused, accel_effect, pull_request
+from app.core.accel import AccelRefused, accel_effect, derive_moves, pull_request
 from app.core.cpm import compute
-from app.core.model import Relation, Resource
+from app.core.model import Activity, CalendarSpec, Relation, Resource
 from app.core.shorten import Move, apply_moves
 from tests.core.helpers import act, sched
 
@@ -16,7 +16,7 @@ CHAIN = sched([act("A", 6), act("B", 4), act("C", 5)], [Relation("A", "B"), Rela
 SIDE = sched([act("A", 6), act("B", 4), act("X", 9), act("D", 2)],
              [Relation("A", "B"), Relation("B", "D"), Relation("X", "D")])
 CRANE = Resource("crane", "타워크레인", "대", 1)
-# C 10 은 혼자, A 5·B 5 는 크레인 1대를 나눠 쓴다 — 맞추면 A 다음 B 라 준공은 크레인 줄이 정한다.
+# C 10 은 혼자, A 5·B 5 는 크레인 1대를 나눠 쓴다 — 맞추면 A 다음 B(10일)라 C 와 크레인 줄이 함께 준공을 정한다.
 CRANED = replace(sched([act("C", 10), act("A", 5, resources=("crane",)), act("B", 5, resources=("crane",))], []),
                  resources=(CRANE,))
 
@@ -89,3 +89,65 @@ def test_pull_request_refuses_started_or_unknown_work():
         pull_request(CHAIN, "Z", 1)
     with pytest.raises(AccelRefused):
         pull_request(sched([act("A", 1)], []), "A", 1)  # 더 줄일 기간이 없다
+
+
+def test_holiday_inside_the_pulled_range_counts_workdays():
+    s = replace(CHAIN, calendar=CalendarSpec(days_per_week=5, holidays=(date(2027, 3, 18),)))  # C 3/15~3/22(3/18 쉼)
+    r = _effect(s, pull_request(s, "C", 2))
+    assert (r.finish_before, r.finish_after, r.pulled_days, r.finish_gain) == (date(2027, 3, 22), date(2027, 3, 17), 2, 2)
+
+
+def test_finished_work_is_not_in_next_chain():
+    s = replace(sched([act("A", 6, actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 8)), act("B", 4),
+                       act("C", 5)], [Relation("A", "B"), Relation("B", "C")]), data_date=date(2027, 3, 9))
+    assert "A" in compute(s).critical_path  # 엔진은 끝난 A 도 크리티컬로 둔다
+    assert _effect(s, pull_request(s, "C", 1)).next_chain == ("B",)
+
+
+def test_pull_request_refuses_milestones():
+    s = sched([act("A", 3), Activity(id="M", name="준공", kind="finish_ms", wbs="1", od=0)], [Relation("A", "M")])
+    with pytest.raises(AccelRefused, match="마일스톤"):
+        pull_request(s, "M", 1)
+
+
+def test_finish_later_keeps_negative_gain_and_warns():
+    # 크레인 1대: C 1 → D 6 이 먼저 크레인을 쓴다. D 를 3일 당기면 맞춤 차례가 A 먼저로 바뀌어 하루 늦어진다.
+    s = replace(sched([act("A", 4, resources=("crane",)), act("C", 1, resources=("crane",)), act("D", 6)],
+                      [Relation("C", "D")]), resources=(CRANE,))
+    r = _effect(s, pull_request(s, "D", 3))
+    assert (r.pulled_days, r.finish_gain, r.warn) == (3, -1, True)
+    assert r.ratio == pytest.approx(-1 / 3) and r.finish_after > r.finish_before
+
+
+def test_compress_with_add_resource_can_exceed_one():
+    lone = replace(CRANED, activities=CRANED.activities[1:])  # A 5·B 5 크레인 1대 → 10일
+    moves = [*pull_request(lone, "A", 1), Move("res:crane", "add_resource", (), "", resource_id="crane", capacity=2)]
+    r = _effect(lone, moves)
+    assert (r.pulled_days, r.finish_gain, r.ratio, r.warn) == (1, 5, 5.0, False)
+
+
+def test_parallel_after_compress_is_not_counted_twice():
+    cmp = Move("cmp:A", "compress", ("A",), "", od=4)
+    par = Move("par:A>B", "parallel", ("A", "B"), "", relation=Relation("A", "B", "SS", 2))
+    assert _effect(CHAIN, [cmp, par]).pulled_days == 2 + (4 - 2)  # 병행은 줄인 뒤 A 4일 기준
+
+
+def test_derive_moves_from_a_what_if_copy():
+    copy = replace(CRANED, activities=(replace(CRANED.activities[0], od=7), *CRANED.activities[1:]),
+                   resources=(replace(CRANE, capacity=2),))
+    moves = derive_moves(CRANED, copy)
+    assert [(m.id, m.od, m.capacity) for m in moves] == [("cmp:C", 7, None), ("res:crane", None, 2)]
+    par = replace(CHAIN, relations=(Relation("A", "B", "SS", 3), Relation("B", "C")))
+    assert [(m.id, m.relation) for m in derive_moves(CHAIN, par)] == [("par:A>B", Relation("A", "B", "SS", 3))]
+    assert derive_moves(CHAIN, CHAIN) == ()
+
+
+def test_derive_moves_mixed_or_nothing_to_pull():
+    longer = replace(CHAIN, activities=(CHAIN.activities[0], replace(CHAIN.activities[1], od=6), CHAIN.activities[2]))
+    assert derive_moves(CHAIN, longer) == ()  # 늘리기만 — 당김 없음
+    mixed = replace(longer, activities=(*longer.activities[:2], replace(CHAIN.activities[2], od=3)))
+    assert derive_moves(CHAIN, mixed) is None  # B 늘림 + C 줄임
+    added = replace(CHAIN, activities=(*CHAIN.activities[:2], replace(CHAIN.activities[2], od=3), act("E", 1)))
+    assert derive_moves(CHAIN, added) is None
+    lag = replace(CHAIN, relations=(Relation("A", "B", "FS", 2), Relation("B", "C", "SS", 1)))
+    assert derive_moves(CHAIN, lag) is None  # FS lag 바꿈 + 병행

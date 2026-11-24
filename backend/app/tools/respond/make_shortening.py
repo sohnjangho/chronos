@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.agent.context import PROMPT
 from app.agent.events import AgentEvent
-from app.core.accel import accel_effect
+from app.core.accel import accel_effect, chain_items
 from app.core.calendar import WorkCalendar
 from app.core.cpm import compute
 from app.core.model import Schedule
@@ -41,7 +41,7 @@ from app.store.settings import accel_warn_ratio, points_config
 from app.store.tables import Scenario
 from app.store.view import plan_of
 from app.tools.context import ToolContext, ToolError, explained_schedule_errors
-from app.tools.points.accel_check import ChainItem, chain_items
+from app.tools.points.accel_check import ChainItem
 from app.tools.registry import tool
 
 NO_TARGET_MESSAGE = "줄일 목표가 없습니다. 며칠 당길지 알려 주세요(target_days)."
