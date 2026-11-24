@@ -271,7 +271,7 @@ def scope_of(session: Session, caller: Caller) -> Scope:
     if _mixed(pairs):
         facts = "none"
     elif cls in _MANAGER_WIDENS and _all_managers(session, pairs):
-        facts = "all"
+        return Scope(cls, tuple(dict.fromkeys(pair.schedule_id for pair in pairs)), pairs, personal, "all", manager=True)
     return Scope(cls, tuple(dict.fromkeys(pair.schedule_id for pair in pairs)), pairs, personal, facts)
 
 
@@ -288,8 +288,9 @@ def outbound_scope(session: Session, schedule_id: int, contact_id: int) -> Scope
     연락처나 그 협력사가 그 일정 것이 아니면 NotFound."""
     person = contacts.get_contact(session, schedule_id, contact_id)
     company = contacts.get_company(session, schedule_id, person.company_id)
-    facts: FactLevel = "all" if person.access_level == MANAGER_LEVEL else "trade"
-    return Scope("outbound", (schedule_id,), (Candidate(schedule_id, person.id, company.id),), True, facts)
+    manager = person.access_level == MANAGER_LEVEL
+    return Scope("outbound", (schedule_id,), (Candidate(schedule_id, person.id, company.id),), True,
+                 "all" if manager else "trade", manager=manager)
 
 
 # ── 받기 판정 ───────────────────────────────────────────────────────

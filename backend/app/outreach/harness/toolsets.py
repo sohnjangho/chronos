@@ -29,7 +29,7 @@ ALL = SHARED + VOICE_ONLY
 
 _MEMO = frozenset({"take_message", "propose_contact", "handoff_to_human"})  # 모르는 번호: 메모·새 연락처·긴급 알림
 _BY_CLASS: Mapping[str, frozenset[str]] = MappingProxyType({
-    "outbound": frozenset(SHARED),  # 도구는 다 받지만 사실 범위는 그 협력사·공종까지(Scope.facts "trade")
+    "outbound": frozenset(SHARED),  # 도구는 다 받지만 사실 범위는 그 협력사·공종까지(Scope.facts "trade" — 관리자 등급 연락처만 "all")
     "contact": frozenset(SHARED), "contact_multi": frozenset(SHARED), "shared": frozenset(SHARED),
     "internal": frozenset({"find_contact", "schedule_fact", "take_message", "handoff_to_human"}),
     "do_not_contact": frozenset({"take_message"}),

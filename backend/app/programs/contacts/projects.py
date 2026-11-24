@@ -99,7 +99,8 @@ def add(session: Session, schedule_id: int, contact_id: int, body: ProjectAdd, u
         raise ApiError(422, "company_required", COMPANY_REQUIRED)
     if row is None and (clash := _same_number(session, target, src.phone, key)) is not None:
         raise ApiError(409, "same_number_there", SAME_NUMBER_THERE, detail={"contact_id": clash.id})
-    before = row.access_level if row is not None else None
+    # 숨긴 줄을 다시 보이는 것은 그 프로젝트에 등급을 새로 주는 것과 같다(before None — 관리자 등급이면 관리자만·기록)
+    before = row.access_level if row is not None and not row.hidden else None
     links.check_level(user, [before], src.access_level)
     if row is None:
         row = Contact(schedule_id=target, company_id=body.company_id, person_key=key, phone=src.phone,

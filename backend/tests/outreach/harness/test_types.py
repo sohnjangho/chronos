@@ -64,7 +64,7 @@ def test_words_have_the_plan_shapes():
         Outcome: ["code", "message", "rule", "scheduled_at"],
         Candidate: ["schedule_id", "contact_id", "company_id"],
         Caller: ["caller_class", "candidates", "user_id"],
-        Scope: ["caller_class", "schedule_ids", "candidates", "grant_personal", "grant_facts"],
+        Scope: ["caller_class", "schedule_ids", "candidates", "grant_personal", "grant_facts", "manager"],  # manager 11-24
         Ref: ["kind", "row_id"],
         Delivered: ["state", "provider_id", "fail_code", "fail_text"],
         ToolDef: ["name", "description", "parameters"],
@@ -209,9 +209,9 @@ def test_replace_cannot_widen_a_scope():
     multi = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "trade")
     with pytest.raises(TypeError):
         dataclasses.replace(multi, site_required=False)
-    shared = Scope("shared", (A,), (IN_A, Candidate(A, 13, 21)), False, "trade")
     with pytest.raises(ValueError):
-        dataclasses.replace(shared, grant_facts="all")  # 공유 번호의 끝은 trade(한 사람 등급은 관리자 등급 때문에 all — 11-24)
+        dataclasses.replace(multi, grant_facts="all")  # 연락처 쪽의 끝은 trade(관리자 표시 없이는)
+    shared = Scope("shared", (A,), (IN_A, Candidate(A, 13, 21)), False, "trade")
     with pytest.raises(ValueError):
         dataclasses.replace(shared, grant_personal=True)  # 대표번호는 개인 요청을 말하지 않는다
     unknown = Scope("unknown", (), (), False, "none")
@@ -238,8 +238,7 @@ def test_grant_never_exceeds_the_class_ceiling(cls):
 
 def test_class_ceilings():
     assert dict(GRANT_CEILING) == {
-        # 한 사람 등급의 끝은 all(관리자 등급 연락처 — 11-24). 주는 수준은 door 가 access_level 로 정한다(test_door_manager)
-        "internal": "all", "contact": "all", "contact_multi": "all", "shared": "trade", "outbound": "all",
+        "internal": "all", "contact": "trade", "contact_multi": "trade", "shared": "trade", "outbound": "trade",
         "do_not_contact": "none", "unknown": "none", "withheld": "none", "blocked": "none", "outside_test": "none",
     }
     for cls in ("internal", "shared", "do_not_contact", "unknown", "withheld", "blocked", "outside_test"):
@@ -365,3 +364,33 @@ def test_event_groups_are_read_only_and_known():
     assert EVENT_GROUPS["test_mode"] == "gate_decision" and EVENT_GROUPS["tool:find_contact"] == "tool"
     assert EVENT_GROUPS["kakao_not_ready"] == "gate_note" and EVENT_GROUPS["scope_denied"] == "tool"
     assert EVENT_GROUPS["delivery_update"] == "channel_result" and EVENT_GROUPS["server_restart"] == "recovery"
+
+
+# ── 관리자 등급 연락처(11-24): manager 표시가 있을 때만 한 사람 등급의 끝이 all ──────────────────
+
+
+@pytest.mark.parametrize("cls", ["contact", "contact_multi", "outbound"])
+def test_manager_flag_is_the_only_way_to_all_for_a_contact(cls):
+    with pytest.raises(ValueError):
+        Scope(cls, (A,), (IN_A,), True, "all")
+    manager = Scope(cls, (A,), (IN_A,), True, "all", manager=True)
+    assert manager.facts == "all" and manager.manager
+    plain = Scope(cls, (A,), (IN_A,), True, "trade")
+    with pytest.raises(ValueError):
+        dataclasses.replace(plain, grant_facts="all")
+    assert dataclasses.replace(plain, manager=True, grant_facts="all").facts == "all"
+
+
+@pytest.mark.parametrize("cls", ["internal", "shared", "do_not_contact", "unknown", "withheld", "blocked", "outside_test"])
+def test_manager_flag_is_refused_on_other_classes(cls):
+    pairs = () if cls == "internal" or GRANT_CEILING[cls] == "none" else (IN_A,)
+    ids = (A,) if pairs or cls == "internal" else ()
+    with pytest.raises(ValueError):
+        Scope(cls, ids, pairs, False, "none", manager=True)
+
+
+def test_manager_flag_survives_pinning_and_is_a_bool():
+    multi = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "all", manager=True)
+    assert multi.facts == "none" and multi.pinned(B).facts == "all" and multi.pinned(B).manager
+    with pytest.raises(ValueError):
+        Scope("contact", (A,), (IN_A,), True, "all", manager=1)

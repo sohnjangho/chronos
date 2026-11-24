@@ -459,7 +459,8 @@ def _spec(session: Session, row: OutreachCall, contact: Contact, number: str, ag
     stored = row.voice_id if voices.well_formed(row.voice_id) else None
     voice_id = stored or voices.pick(contact.gender, contact.voice_mode, contact.voice_id, language, settings)
     text = instructions.outbound(site, contact.name, contact.role_title, company.name, row.purpose, row.questions_json,
-                                 row.avoid_json, language, reference=site_name.reference(session, row.schedule_id))
+                                 row.avoid_json, language, reference=site_name.reference(session, row.schedule_id),
+                                 facts=door.outbound_scope(session, row.schedule_id, contact.id).grant_facts)
     return CallSpec(direction="out", to_number=number, from_number=agent_number, language=language, voice_id=voice_id,
                     first_line=greeting.first_line(language, site, contact.name), instructions=text,
                     tools=toolsets.tool_defs(_NAMES), max_seconds=outreach.limits(conn).max_call_seconds,

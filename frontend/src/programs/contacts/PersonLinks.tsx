@@ -12,7 +12,9 @@ import {
   type AccessLevel, type Company, type PersonDetail, type ProjectChoice,
 } from './contactsApi';
 
-export const LEVEL_CONFIRM = '관리자 등급은 이 사람이 등록된 프로젝트의 모든 협력사 일정을 전화·문자로 들을 수 있게 합니다. 계속할까요?';
+/** 관리자 등급으로 올릴 때의 확인 — 등급은 참여 프로젝트 모두에 함께 저장되므로 그 수를 말한다. */
+export const levelConfirm = (projects: number) =>
+  `관리자 등급은 이 사람이 등록된 프로젝트의 모든 협력사 일정을 전화·문자로 들을 수 있게 합니다. 참여 프로젝트 ${projects}곳 모두에 적용됩니다. 계속할까요?`;
 const SEARCH_FROM = 7; // 프로젝트가 이보다 많으면 찾기 칸
 const NEW_COMPANY = 'new';
 

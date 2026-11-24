@@ -9,7 +9,7 @@ import re
 
 from app.outreach import languages, redact, site_name
 from app.outreach.harness import rules_text
-from app.outreach.harness.types import CallerClass
+from app.outreach.harness.types import CallerClass, FactLevel
 
 HEAD = "당신은 ChronOS 의 AI 비서입니다. 건설 현장 일정 담당 쪽으로 들어온 문자에 답합니다."
 TEXT_RULES = (
@@ -29,16 +29,17 @@ def _clean(text: str | None, limit: int) -> str:
 
 
 def inbound(caller_class: CallerClass, site: str | None, name: str | None, language: str, request: str | None,
-            reference: dict[str, str] | None = None) -> str:
-    """들어온 문자 응대의 지시문. caller_class 는 범위 단락을 고르는 데만 쓴다(글에 이름이 나오지 않는다). 등급표 밖이면 ValueError.
+            reference: dict[str, str] | None = None, facts: FactLevel = "trade") -> str:
+    """들어온 문자 응대의 지시문. caller_class·facts(범위의 Scope.grant_facts — 관리자 등급이면 all)는 범위 단락·고정 줄을 고르는 데만
+    쓴다(글에 이름이 나오지 않는다). 등급표 밖이면 ValueError.
     site 는 부를 이름(site_name.spoken), reference 는 현장 참고 자료(현장이 있을 때만 — 지시가 아닌 자료 칸으로)."""
-    paragraph = rules_text.scope_paragraph(caller_class)
+    paragraph = rules_text.scope_paragraph(caller_class, facts)
     lines = [HEAD]
     if site and (shown := _clean(site, NAME_CHARS)):
         lines += [f"현장: {shown}", *site_name.reference_lines(reference)]
     if name and (shown := _clean(name, NAME_CHARS)):
         lines.append(f"상대 이름(주소록): {shown}")
-    lines += ["", paragraph, "", "지킬 것:", *(f"- {line}" for line in rules_text.FIXED.values()),
+    lines += ["", paragraph, "", "지킬 것:", *(f"- {line}" for line in rules_text.fixed_lines(caller_class, facts)),
               *(f"- {line}" for line in TEXT_RULES), "",
               # 「상대의 언어: vi(베트남어). 베트남어로 씁니다.」 — 음성 쪽과 같은 상수(Task 100). 모르는 언어는 한국어
               f"{languages.line(language, languages.WRITE)} 한국어가 아닌 언어로 답하면 text_ko 에 그 뜻을 한국어로 적습니다."]

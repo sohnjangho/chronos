@@ -329,12 +329,22 @@ def create_company(session: Session, schedule_id: int, body: CompanyIn) -> Compa
     return _company_out(row)
 
 
-def patch_company(session: Session, schedule_id: int, company_id: int, body: CompanyPatch) -> CompanyOut:
+def patch_company(session: Session, schedule_id: int, company_id: int, body: CompanyPatch,
+                  user: User | None = None) -> CompanyOut:
+    """보낸 칸만. 숨긴 협력사를 다시 보이면 그 협력사의 (숨기지 않은) 관리자 등급 사람이 다시 범위에 든다 — 관리자만, 기록."""
     fields = body.model_dump(exclude_unset=True)
     check_texts(fields)
     row = _company(session, schedule_id, company_id)
+    managers = []
+    if fields.get("hidden") is False and row.hidden:
+        managers = list(session.scalars(select(Contact).where(
+            Contact.schedule_id == schedule_id, Contact.company_id == row.id, Contact.hidden.is_(False),
+            Contact.access_level != links.DEFAULT_LEVEL)))
+        links.check_level(user, [None] * len(managers), links.MANAGER_LEVEL)
     for column, value in fields.items():
         setattr(row, column, value)
+    for person in managers if user is not None else []:  # 관리자 등급 사람이 있으면 user 는 관리자다(check_level)
+        links.record_level(session, person, None, user)
     session.commit()
     return _company_out(row)
 
@@ -383,9 +393,12 @@ def patch_person(
     shown_others = {other.id: _shows_do_not_contact(session, other) for other in others}
     if body.do_not_contact is False and (shown or any(shown_others.values())) and user.role != "admin":
         raise ApiError(403, "admin_only", ADMIN_CLEARS)
-    levels = {r.id: r.access_level for r in (row, *others)}
+    levels: dict[int, str | None] = {r.id: r.access_level for r in (row, *others)}
     if "access_level" in given:
         links.check_level(user, list(levels.values()), given["access_level"])
+    if given.get("hidden") is False and row.hidden:  # 다시 보이기는 이 프로젝트에 등급을 새로 주는 것과 같다
+        links.check_level(user, [None], given.get("access_level", row.access_level))
+        levels[row.id] = None
     if number != old:
         fields.update(phone=number, phone_invalid=False)
     for column, value in fields.items():

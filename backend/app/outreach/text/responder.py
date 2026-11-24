@@ -172,7 +172,7 @@ async def _answer(message_id: int, clock: Callable[[], datetime], fixed: datetim
     if given is None:
         return
     prompt = instructions.inbound(prep.caller_class, given.site, given.name, given.language, given.request,
-                                  reference=given.reference)
+                                  reference=given.reference, facts=prep.scope.grant_facts)
     with Session(db._engine) as llm_session:  # LLM 배정을 읽기만 한다(쓰기를 쥐지 않는다)
         chosen = text_session.session_for(llm_session)
         try:

@@ -426,3 +426,60 @@ def test_existing_contacts_table_gets_both_columns(tmp_path):
         assert "contact_access_changes" in {row[0] for row in session.execute(
             text("SELECT name FROM sqlite_master WHERE type='table'"))}
     engine.dispose()
+
+
+# ── 고침 1: 숨긴 관리자 등급 줄을 다시 보이는 것은 관리자만(등급을 새로 주는 것과 같다) ─────────────────
+
+
+def test_re_registering_a_hidden_manager_row_needs_an_admin(client, user, admin, session, sid, sid2):
+    pid = _person(client, admin, sid, _company(client, admin, sid), access_level="manager")["id"]
+    other = _link(client, admin, sid, pid, sid2, _company(client, admin, sid2)).json()["project_links"][1]["contact_id"]
+    assert client.delete(_url(sid, f"/people/{pid}/projects/{sid2}"), headers=user).status_code == 200  # 빼기는 누구나
+    audited = len(_audit(session))
+
+    refused = _link(client, user, sid, pid, sid2)
+    assert (refused.status_code, _err(refused)) == (403, ADMIN_LEVEL)
+    assert _row(session, other).hidden is True and len(_audit(session)) == audited
+
+    ok = _link(client, admin, sid, pid, sid2)
+    assert ok.status_code == 201 and _row(session, other).hidden is False
+    assert len(_audit(session)) == audited + 1 and _audit(session)[-1] == (sid2, other, "admin", None, "manager")
+
+
+def test_unhiding_a_manager_row_by_patch_needs_an_admin(client, user, admin, session, sid):
+    pid = _person(client, admin, sid, _company(client, admin, sid), access_level="manager")["id"]
+    assert client.patch(_url(sid, f"/people/{pid}"), json={"hidden": True}, headers=user).status_code == 200
+    audited = len(_audit(session))
+
+    refused = client.patch(_url(sid, f"/people/{pid}"), json={"hidden": False}, headers=user)
+    assert (refused.status_code, _err(refused)) == (403, ADMIN_LEVEL)
+    assert _row(session, pid).hidden is True and len(_audit(session)) == audited
+
+    ok = client.patch(_url(sid, f"/people/{pid}"), json={"hidden": False}, headers=admin)
+    assert ok.status_code == 200 and _row(session, pid).hidden is False
+    assert len(_audit(session)) == audited + 1 and _audit(session)[-1] == (sid, pid, "admin", None, "manager")
+
+
+def test_unhiding_a_trade_row_or_a_company_without_managers_needs_no_admin(client, user, session, sid):
+    company = _company(client, user, sid)
+    pid = _person(client, user, sid, company)["id"]
+    client.patch(_url(sid, f"/people/{pid}"), json={"hidden": True}, headers=user)
+    client.patch(_url(sid, f"/companies/{company}"), json={"hidden": True}, headers=user)
+
+    assert client.patch(_url(sid, f"/people/{pid}"), json={"hidden": False}, headers=user).status_code == 200
+    assert client.patch(_url(sid, f"/companies/{company}"), json={"hidden": False}, headers=user).status_code == 200
+    assert _audit(session) == []
+
+
+def test_unhiding_a_company_with_a_manager_needs_an_admin(client, user, admin, session, sid):
+    company = _company(client, admin, sid)
+    pid = _person(client, admin, sid, company, access_level="manager")["id"]
+    assert client.patch(_url(sid, f"/companies/{company}"), json={"hidden": True}, headers=user).status_code == 200
+    audited = len(_audit(session))
+
+    refused = client.patch(_url(sid, f"/companies/{company}"), json={"hidden": False}, headers=user)
+    assert (refused.status_code, _err(refused)) == (403, ADMIN_LEVEL)
+    assert len(_audit(session)) == audited
+    ok = client.patch(_url(sid, f"/companies/{company}"), json={"hidden": False}, headers=admin)
+    assert ok.status_code == 200 and len(_audit(session)) == audited + 1
+    assert _audit(session)[-1] == (sid, pid, "admin", None, "manager")

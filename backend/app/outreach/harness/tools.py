@@ -257,7 +257,7 @@ def _live(session: Session, scope: Scope, caller_class: str) -> Scope:
     if not pairs:
         return _CLOSED
     return Scope(caller_class, tuple(dict.fromkeys(pair.schedule_id for pair in pairs)), pairs,
-                 scope.grant_personal, scope.grant_facts)
+                 scope.grant_personal, scope.grant_facts, scope.manager)
 
 
 def _delegated(conn: NotifyConnection | None, lane: str) -> bool:
@@ -555,7 +555,8 @@ def _finding(box: Toolbox, session: Session, a) -> _Step:
     if (ask := _asking(box, session, a.site)) is not None:
         return ask
     scope, sid = box.scope, box.sid
-    whole = scope.facts == "all"  # 그 현장 주소록 전체는 내부뿐 — 우리가 건 통화의 상대도 자기 협력사 안에서만 찾는다
+    # 그 현장 주소록 전체는 내부뿐 — 관리자 등급 연락처(일정 사실만 all)와 우리가 건 통화의 상대도 자기 협력사 안에서만 찾는다
+    whole = scope.caller_class == "internal" and scope.facts == "all"
     if scope.facts == "none" or (not whole and not scope.company_ids):
         return nobody
     found = contacts.search(session, sid, a.query, FIND_LIMIT, company_ids=None if whole else list(scope.company_ids))

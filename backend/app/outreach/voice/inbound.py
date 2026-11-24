@@ -254,7 +254,8 @@ def _spec(session, caller: Caller) -> tuple[CallSpec, str | None]:
     spec = CallSpec(direction="in", to_number=None, from_number=agent_number, language=language, voice_id=voice_id,
                     first_line=greeting.inbound_line(language, site),
                     instructions=instructions.inbound(cls, site, who.name if who is not None else None, language,
-                                                      reference=site_name.reference(session, place) if site else None),
+                                                      reference=site_name.reference(session, place) if site else None,
+                                                      facts=door.scope_of(session, caller).grant_facts),
                     tools=toolsets.tool_defs(toolsets.for_class(cls, "call")),
                     max_seconds=limits.max_call_seconds_unknown if cls in LOW_CLASSES else limits.max_call_seconds,
                     record_to=None)

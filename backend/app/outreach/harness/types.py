@@ -38,15 +38,16 @@ CallerClass = Literal[
 ]
 FactLevel = Literal["none", "trade", "all"]  # 일정 사실을 어디까지: 없음 · 그 협력사·공종 · 전부(좁은 것부터)
 # 등급마다 줄 수 있는 사실 수준의 끝(Scope 가 이보다 넓으면 ValueError — 만드는 쪽의 실수가 열린 쪽으로 가지 않게).
-# 한 사람 등급(contact·contact_multi·outbound)의 끝이 all 인 것은 관리자 등급 연락처(11-24) 때문이다 — 실제로 줄 수준은
-# 들어오는 문(door.scope_of·outbound_scope)이 그 연락처 줄의 access_level 로 정한다(trade 가 기본, manager 만 all).
 GRANT_CEILING: Mapping[str, str] = MappingProxyType({
     "internal": "all",
-    "contact": "all", "contact_multi": "all", "shared": "trade", "outbound": "all",
+    "contact": "trade", "contact_multi": "trade", "shared": "trade", "outbound": "trade",
     "do_not_contact": "none", "unknown": "none", "withheld": "none", "blocked": "none", "outside_test": "none",
 })
 PERSONAL_CLASSES: frozenset[str] = frozenset({"contact", "contact_multi", "outbound"})  # 「본인에게 온 요청」을 말해도 되는 등급
 ONE_PERSON_CLASSES: frozenset[str] = frozenset({"contact", "contact_multi", "outbound"})  # 일정마다 짝이 꼭 하나(둘이면 shared)
+# 관리자 등급 연락처(11-24): Scope.manager 가 참일 때만 이 등급의 끝이 all 이다(그 프로젝트의 모든 협력사 일정 사실).
+# 그 표시는 들어오는 문(door.scope_of·outbound_scope)만 연락처 줄의 access_level 로 켠다.
+MANAGER_CLASSES: frozenset[str] = frozenset({"contact", "contact_multi", "outbound"})
 OutcomeCode = Literal[  # 이름표의 판정 코드
     "accepted", "queued", "scheduled", "blocked_test", "blocked_hours", "blocked_number", "do_not_contact", "limit_daily",
     "limit_person", "needs_approval", "duplicate", "held_for_review", "not_ready", "not_sendable",
@@ -234,6 +235,8 @@ class Scope:
       (PERSONAL_CLASSES·GRANT_CEILING)보다 넓으면 ValueError — dataclasses.replace 로 넓혀도 같다. 한 일정에서 짝들이
       두 협력사 이상에 걸치면(대표번호를 두 협력사 사람이 씀) 끝은 none 이고 company_ids 는 비어 있다.
     ONE_PERSON_CLASSES 는 일정마다 짝이 꼭 하나다(같은 일정에 둘이면 shared). 일정이 0개인 범위는 끝이 none 인 등급만.
+    manager — 관리자 등급 연락처(MANAGER_CLASSES 만). 참일 때만 그 등급의 끝이 trade 에서 all 로 넓어진다(그 밖의 등급에
+      참을 넣으면 ValueError). 들어오는 문만 켠다. pinned 는 그대로 물려준다.
     site_required — 인자가 아니라 **계산**한다: 일정이 둘 이상이면 참. 그동안 facts 는 "none", personal 은 False 이고,
       pinned(일정) 이 한 현장으로 좁혀야 열린다.
     """
@@ -243,6 +246,7 @@ class Scope:
     candidates: tuple[Candidate, ...]
     grant_personal: bool
     grant_facts: FactLevel
+    manager: bool = False
 
     def __post_init__(self) -> None:
         cls = self.caller_class
@@ -263,7 +267,9 @@ class Scope:
             _check(all(len(pairs) == 1 for pairs in per_schedule.values()), "한 사람 등급은 일정마다 짝이 하나입니다")
         _check(bool(schedule_ids) or GRANT_CEILING[cls] == "none", "빈 범위는 아무것도 보이지 않는 등급만 만들 수 있습니다")
         mixed = any(len({pair.company_id for pair in pairs}) > 1 for pairs in per_schedule.values())
-        ceiling = "none" if mixed else GRANT_CEILING[cls]
+        _check(type(self.manager) is bool and (not self.manager or cls in MANAGER_CLASSES),
+               "관리자 등급 표시는 연락처 본인 등급에만 둘 수 있습니다")
+        ceiling = "none" if mixed else "all" if self.manager else GRANT_CEILING[cls]
         order = get_args(FactLevel)
         _check(order.index(self.grant_facts) <= order.index(ceiling), "그 등급에 줄 수 없는 사실 수준입니다")
         _check(not self.grant_personal or cls in PERSONAL_CLASSES, "그 등급에는 본인 요청을 말할 수 없습니다")
@@ -303,7 +309,7 @@ class Scope:
         """그 현장 하나로 좁힌 범위(그 일정의 짝만). 이 범위의 일정이 아니면 ValueError — 고른 뒤에 넓히지 못한다."""
         _check(type(schedule_id) is int and schedule_id in self.schedule_ids, "그 현장은 이 범위의 후보가 아닙니다")
         pairs = tuple(c for c in self.candidates if c.schedule_id == schedule_id)
-        return Scope(self.caller_class, (schedule_id,), pairs, self.grant_personal, self.grant_facts)
+        return Scope(self.caller_class, (schedule_id,), pairs, self.grant_personal, self.grant_facts, self.manager)
 
 
 @dataclass(frozen=True)

@@ -32,6 +32,7 @@ SHARED_COPIED = ("name", "gender", "language", "voice_mode", "voice_id", "can_sm
 SHARED_INPUT = frozenset({*SHARED_COPIED, "phone", "do_not_contact", "dnc_reason"})
 ADMIN_LEVEL = "관리자 등급은 관리자만 정하거나 바꿀 수 있습니다."
 DEFAULT_LEVEL = "trade"
+MANAGER_LEVEL = "manager"
 
 
 def ensure_key(row: Contact) -> str:

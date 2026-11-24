@@ -11,7 +11,7 @@ import {
   type AccessLevel, type Company, type Gender, type Hours, type Language, type PersonBody, type PersonDetail, type VoiceMode,
 } from './contactsApi';
 import HoursField from './HoursField';
-import { LEVEL_CONFIRM, LevelField, ProjectsField } from './PersonLinks';
+import { LevelField, levelConfirm, ProjectsField } from './PersonLinks';
 
 type ErrKey = 'name' | 'role_title' | 'company' | 'phone' | 'channels' | 'hours' | 'voice' | 'dnc' | 'dnc_reason' | 'note' | 'level' | 'form';
 type Errors = Partial<Record<ErrKey, string>>;
@@ -320,7 +320,7 @@ function Form(props: FormProps) {
           : `이 프로젝트${projectName ? `(${projectName})` : ''}에만 저장됩니다. ${linkedText}`}
       </p>
       <Err text={errors.form} />
-      {f.confirm && <ConfirmBox kind={f.confirm} onCancel={() => f.setConfirm(null)} onClear={() => void f.save(f.body())} onPick={f.pick} onLevel={f.confirmLevel} />}
+      {f.confirm && <ConfirmBox kind={f.confirm} onCancel={() => f.setConfirm(null)} onClear={() => void f.save(f.body())} onPick={f.pick} onLevel={f.confirmLevel} projects={projects} />}
       <div className="ct-actions">
         {detail && (
           <Button onClick={f.toggleHidden} disabled={f.busy}>
@@ -537,16 +537,17 @@ interface ConfirmProps {
   onClear: () => void;
   onPick: (dnc: boolean) => void;
   onLevel: () => void;
+  /** 참여 프로젝트 수(관리자 등급 확인 글) */
+  projects: number;
 }
 
 const CONFIRM_LABEL = { number: '새 번호와 수신 거부', clear: '수신 거부 풀기', level: '관리자 등급' } as const;
 const CONFIRM_TEXT = {
   number: '예전 번호는 계속 수신 거부로 남습니다. 새 번호도 수신 거부로 둘까요?',
   clear: '이 번호가 있는 모든 프로젝트에서 수신 거부가 풀립니다. 풀까요?',
-  level: LEVEL_CONFIRM,
 } as const;
 
-function ConfirmBox({ kind, onCancel, onClear, onPick, onLevel }: ConfirmProps) {
+function ConfirmBox({ kind, onCancel, onClear, onPick, onLevel, projects }: ConfirmProps) {
   const first = useRef<HTMLButtonElement>(null);
   const box = useRef<HTMLDivElement>(null);
   // 양식 아래에 열리므로 상자 전체가 보이게 굴린 뒤 첫 단추에 초점(jsdom 에는 scrollIntoView 가 없다).
@@ -557,7 +558,7 @@ function ConfirmBox({ kind, onCancel, onClear, onPick, onLevel }: ConfirmProps) 
   return (
     <div ref={box} className="ct-confirm" role="alertdialog" aria-label={CONFIRM_LABEL[kind]} aria-describedby="ct-confirm-text">
       <p id="ct-confirm-text" className="ct-confirm-text">
-        {CONFIRM_TEXT[kind]}
+        {kind === 'level' ? levelConfirm(projects) : CONFIRM_TEXT[kind]}
       </p>
       <div className="ct-actions">
         {kind === 'level' ? (

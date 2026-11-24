@@ -47,8 +47,9 @@ def create_company(schedule_id: int, body: CompanyIn, session: SessionDep) -> Co
 
 
 @router.patch("/{schedule_id}/contacts/companies/{company_id}")
-def patch_company(schedule_id: int, company_id: int, body: CompanyPatch, session: SessionDep) -> CompanyOut:
-    return service.patch_company(session, schedule_id, company_id, body)
+def patch_company(schedule_id: int, company_id: int, body: CompanyPatch, session: SessionDep, user: UserDep) -> CompanyOut:
+    """숨긴 협력사를 다시 보이면서 그 안에 관리자 등급 사람이 있으면 관리자만(403 admin_only_level)."""
+    return service.patch_company(session, schedule_id, company_id, body, user)
 
 
 @router.post("/{schedule_id}/contacts/people", status_code=201)

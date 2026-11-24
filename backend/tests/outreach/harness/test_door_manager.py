@@ -36,7 +36,7 @@ async def test_manager_inbound_hears_other_companies_in_their_project(session, m
     w.park.access_level = "manager"  # 가람철근 박현장 — 마감 작업(설비)은 자기 공종이 아니다
     box, _ = inbound(session, medium, PHONE)
 
-    assert (box.scope.caller_class, box.scope.facts, box.scope.personal) == ("contact", "all", True)
+    assert (box.scope.caller_class, box.scope.facts, box.scope.personal, box.scope.manager) == ("contact", "all", True, True)
     other = await box.call("schedule_fact", {"activity": f"{MARK_A} 마감 작업"})
     own = await box.call("schedule_fact", {"activity": f"{MARK_A} 철근 배근"})
     elsewhere = await box.call("schedule_fact", {"activity": f"{MARK_B} 마감 작업", "site": SITE_B})
@@ -52,7 +52,7 @@ async def test_trade_contact_is_unchanged(session, medium):
     connect(session)
     box, _ = inbound(session, medium, PHONE)
 
-    assert (box.scope.caller_class, box.scope.facts) == ("contact", "trade")
+    assert (box.scope.caller_class, box.scope.facts, box.scope.manager) == ("contact", "trade", False)
     other = await box.call("schedule_fact", {"activity": f"{MARK_A} 마감 작업"})
 
     assert "items" not in other and MARK_A not in _text(other)
@@ -64,7 +64,8 @@ async def test_manager_outbound_hears_other_companies_but_not_other_projects(ses
     w.park.access_level = "manager"
     box, _ = outbound(session, w.park)
 
-    assert (box.scope.caller_class, box.scope.schedule_ids, box.scope.facts) == ("outbound", (w.a,), "all")
+    assert (box.scope.caller_class, box.scope.schedule_ids, box.scope.facts, box.scope.manager) == (
+        "outbound", (w.a,), "all", True)
     await box.call("confirm_person", {"is_person": True})  # 신원 확인 전에는 아무 사실도 가지 않는다(H1)
     other = await box.call("schedule_fact", {"activity": f"{MARK_A} 마감 작업"})
     elsewhere = await box.call("schedule_fact", {"activity": f"{MARK_B} 마감 작업", "site": SITE_B})
@@ -117,7 +118,7 @@ def test_shared_number_is_not_widened_by_a_manager(session):
     w.park.access_level = "manager"
     scope = door.scope_of(session, door.resolve(session, PHONE, now=WORK))
 
-    assert scope.caller_class == "shared" and scope.facts == "trade"
+    assert scope.caller_class == "shared" and scope.facts == "trade" and not scope.manager
 
 
 def test_hidden_manager_row_does_not_widen(session):
@@ -127,3 +128,50 @@ def test_hidden_manager_row_does_not_widen(session):
     caller = door.resolve(session, PHONE, now=WORK)
 
     assert door.scope_of(session, caller).facts == "none"
+
+
+# ── 고침 1: 사람 찾기는 자기 협력사 · 통화 중 짝이 줄어도 관리자 표시는 그대로 ──────────────────────
+
+
+@pytest.mark.parametrize("medium", MEDIA)
+async def test_manager_find_contact_sees_only_their_own_company(session, medium):
+    """관리자 등급은 일정 사실만 넓힌다 — 다른 협력사 사람(가람설비 이설비)은 찾지 못한다."""
+    w = world(session)
+    connect(session)
+    w.park.access_level = "manager"
+    who(session, w.rebar_a, "김철근", "01000000166")  # 같은 협력사 사람
+    box, _ = inbound(session, medium, PHONE)
+
+    other = await box.call("find_contact", {"query": "이설비"})
+    own = await box.call("find_contact", {"query": "김철근"})
+
+    assert other["items"] == [] and "이설비" not in _text(other)
+    assert [item["name"] for item in own["items"]] == ["김철근"]
+
+
+async def test_manager_outbound_find_contact_sees_only_their_own_company(session):
+    w = world(session)
+    connect(session)
+    w.park.access_level = "manager"
+    box, _ = outbound(session, w.park)
+    await box.call("confirm_person", {"is_person": True})
+
+    other = await box.call("find_contact", {"query": "이설비"})
+
+    assert other["items"] == [] and "이설비" not in _text(other)
+
+
+async def test_manager_scope_keeps_its_flag_when_a_pair_goes_away_mid_call(session):
+    """통화 중에 한 프로젝트 줄이 숨겨져 짝이 줄면 도구 상자가 범위를 다시 만든다 — 관리자 표시가 빠져 터지지 않는다."""
+    w = world(session)
+    connect(session)
+    park_b = who(session, w.rebar_b, "박현장", PHONE, access_level="manager", person_key="park")
+    w.park.access_level, w.park.person_key = "manager", "park"
+    box, _ = inbound(session, "call", PHONE)
+    w.park.hidden = True
+    session.commit()
+
+    r = await box.call("schedule_fact", {"activity": f"{MARK_B} 마감 작업", "site": SITE_B})
+
+    assert [item["name"] for item in r["items"]] == [f"{MARK_B} 마감 작업"]
+    assert box.scope.contact_ids == (park_b.id,) and box.scope.manager and box.scope.facts == "all"

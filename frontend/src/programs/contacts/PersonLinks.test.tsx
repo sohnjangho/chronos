@@ -8,7 +8,7 @@ import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
 import Contacts from './Contacts';
-import { LEVEL_CONFIRM } from './PersonLinks';
+import { levelConfirm } from './PersonLinks';
 import ThreadHeader from './ThreadHeader';
 import {
   BOOK, detail, EMPTY, lastWrite, mockBook, mockDetail, mockOtherBook, mockProjects, mockWrite, PARK, PROJECTS, stubContacts, writes,
@@ -52,12 +52,25 @@ test('admin raises the level: a confirm with the exact words, then PATCH access_
   await userEvent.click(within(f).getByRole('button', { name: '저장' }));
 
   const box = await within(f).findByRole('alertdialog', { name: '관리자 등급' });
-  expect(within(box).getByText(LEVEL_CONFIRM)).toBeVisible();
-  expect(LEVEL_CONFIRM).toBe('관리자 등급은 이 사람이 등록된 프로젝트의 모든 협력사 일정을 전화·문자로 들을 수 있게 합니다. 계속할까요?');
+  const words = '관리자 등급은 이 사람이 등록된 프로젝트의 모든 협력사 일정을 전화·문자로 들을 수 있게 합니다. 참여 프로젝트 1곳 모두에 적용됩니다. 계속할까요?';
+  expect(within(box).getByText(words)).toBeVisible();
+  expect(levelConfirm(1)).toBe(words);
   expect(writes()).toEqual([]);
   await userEvent.click(within(box).getByRole('button', { name: '계속' }));
   await waitFor(() => expect(lastWrite()?.method).toBe('PATCH'));
   expect(lastWrite()?.body).toEqual({ access_level: 'manager' });
+});
+
+test('the level confirm names how many projects it applies to', async () => {
+  mockDetail(LINKED);
+  mockProjects([PROJECTS[0], { ...PROJECTS[1], linked: true, contact_id: 31, company_id: 210, company_name: '나래설비' }]);
+  const f = await editForm();
+  await userEvent.click(within(f).getByRole('radio', { name: '관리자 등급' }));
+  await userEvent.click(within(f).getByRole('button', { name: '저장' }));
+  const box = await within(f).findByRole('alertdialog', { name: '관리자 등급' });
+  expect(within(box).getByText(/참여 프로젝트 2곳 모두에 적용됩니다/)).toBeVisible();
+  await userEvent.click(within(box).getByRole('button', { name: '취소' }));
+  expect(writes()).toEqual([]);
 });
 
 test('cancelling the level confirm sends nothing; lowering the level needs no confirm', async () => {
