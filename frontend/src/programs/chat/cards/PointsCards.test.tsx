@@ -37,7 +37,7 @@ function card(over: Record<string, unknown> = {}) {
         risks: [
           risk('A1500', 'materials', '알루미늄 3개월 +5.0%', { why: '커튼월 프레임 자재' }),
           risk('A1500', 'business', '(주)새솔커튼월, 압출 설비 점검으로 출하 조정', { source: '한빛경제', as_of: '2026-11-21', quote: READY }),
-          risk('A1500', 'fx', '원·달러 · 바깥 자료 없음', { status: 'none', source: null, as_of: null, evidence_id: null, actions: [], why: '수입 자재' }),
+          risk('A1500', 'fx', '원·달러 · 외부 자료 없음', { status: 'none', source: null, as_of: null, evidence_id: null, actions: [], why: '수입 자재' }),
         ],
         actions: ['contact', 'recovery'],
       },
@@ -53,7 +53,7 @@ function card(over: Record<string, unknown> = {}) {
       { activity_id: 'A1400', name: '경량 벽체 1~3층', reason: 'relief', label: '여유가 늘어남', before_tf: 3, tf: 6 },
       { activity_id: 'A1450', name: '설비 배관 4층', reason: 'out_of_window', label: '창 밖으로 밀림', before_tf: 2 },
     ],
-    skipped: [{ activity_id: 'A1600', name: '커튼월·외장 패널 1~3층', kind: 'materials', line: '외장 패널 · 바깥 자료를 건너뜀' }],
+    skipped: [{ activity_id: 'A1600', name: '커튼월·외장 패널 1~3층', kind: 'materials', line: '외장 패널 · 외부 자료를 건너뜀' }],
     skipped_count: 1,
     risk_status: 'done',
     risk_message: '',
@@ -94,7 +94,7 @@ describe('points_changed card', () => {
     expect(within(a).getByText('알루미늄 3개월 +5.0%')).toBeVisible();
     expect(within(a).getByText('The World Bank · 2026-10')).toBeVisible();
     expect(within(a).getByText('커튼월 프레임 자재')).toBeVisible();
-    const fx = within(a).getByText('원·달러 · 바깥 자료 없음').closest('li')!;
+    const fx = within(a).getByText('원·달러 · 외부 자료 없음').closest('li')!;
     expect(within(fx as HTMLElement).queryByRole('button')).toBeNull();
     expect(within(a).getAllByRole('button', { name: '근거 문장 보기' })).toHaveLength(2);
   });
@@ -103,9 +103,9 @@ describe('points_changed card', () => {
     renderCard(card());
     const summary = screen.getByText('건너뛴 자료 1개');
     expect(summary.closest('details')).not.toHaveAttribute('open');
-    expect(screen.getByText(/외장 패널 · 바깥 자료를 건너뜀/)).not.toBeVisible();
+    expect(screen.getByText(/외장 패널 · 외부 자료를 건너뜀/)).not.toBeVisible();
     await userEvent.click(summary);
-    expect(screen.getByText(/외장 패널 · 바깥 자료를 건너뜀/)).toBeVisible();
+    expect(screen.getByText(/외장 패널 · 외부 자료를 건너뜀/)).toBeVisible();
   });
 
   test('removed points show the reason; only relief shows the float change', () => {
@@ -154,13 +154,13 @@ describe('points_changed card', () => {
   test('polling stops on 404 (the what-if is gone)', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     routes['/api/schedules/1/points?what_if=true'] = () => json(404, { code: 'no_what_if', message: '가정 관리 포인트가 없습니다.', detail: null });
-    renderCard(card({ what_if: true, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' }));
-    expect(screen.getByText('바깥 위험 찾는 중')).toBeVisible();
+    renderCard(card({ what_if: true, risk_status: 'looking', risk_message: '외부 영향 찾는 중' }));
+    expect(screen.getByText('외부 영향 찾는 중')).toBeVisible();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_MS + 10);
     });
     expect(await screen.findByText('지난 버전 카드 —')).toBeVisible();
-    expect(screen.queryByText('바깥 위험 찾는 중')).toBeNull();
+    expect(screen.queryByText('외부 영향 찾는 중')).toBeNull();
     const n = callsTo('/api/schedules/1/points?what_if=true').length;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_MS * 3);
@@ -174,7 +174,7 @@ describe('points_changed card', () => {
     let hold = true;
     routes['/api/schedules/1/points?what_if=false'] = () =>
       hold ? new Promise<Response>((r) => (release = () => r(json(200, view(card({ risk_status: 'looking' })))))) : json(200, view(card({ risk_status: 'looking' })));
-    renderCard(card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중' }));
+    renderCard(card({ risk_status: 'looking', risk_message: '외부 영향 찾는 중' }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_MS * 4 + 10);
     });
@@ -198,10 +198,10 @@ describe('points_changed card', () => {
     let reads = 0;
     routes['/api/schedules/1/points?what_if=false'] = () => {
       reads += 1;
-      return json(200, view(card({ risk_status: 'failed', risk_message: '바깥 위험을 찾지 못했습니다', risk_retry: true }), { 'A1500/materials': PENDING }));
+      return json(200, view(card({ risk_status: 'failed', risk_message: '외부 영향을 찾지 못했습니다', risk_retry: true }), { 'A1500/materials': PENDING }));
     };
     routes['/api/schedules/1/delays'] = { events: [] };
-    renderCard(card({ risk_status: 'failed', risk_message: '바깥 위험을 찾지 못했습니다', risk_retry: true }));
+    renderCard(card({ risk_status: 'failed', risk_message: '외부 영향을 찾지 못했습니다', risk_retry: true }));
     const a = point('커튼월 공장 제작');
     fireEvent.click(within(a).getAllByRole('button', { name: '근거 문장 보기' })[0]); // 찾는 중 → 폴링
     await screen.findByText(/근거 문장 찾는 중/);
@@ -209,13 +209,13 @@ describe('points_changed card', () => {
       await vi.advanceTimersByTimeAsync(POLL_CAP_MS + POLL_MS);
     });
     expect(await screen.findByText('오래 걸려 다시 읽기를 멈췄습니다 —')).toBeVisible();
-    // 새로 찾는 단추(POST)는 없고 「다시 불러오기」만: 근거 문장 · 실패한 근거 문장 · 바깥 위험 다시 찾기 자리
-    expect(screen.queryByRole('button', { name: '바깥 위험 다시 찾기' })).toBeNull();
+    // 새로 찾는 단추(POST)는 없고 「다시 불러오기」만: 근거 문장 · 실패한 근거 문장 · 외부 영향 다시 찾기 자리
+    expect(screen.queryByRole('button', { name: '외부 영향 다시 찾기' })).toBeNull();
     expect(within(a).queryByRole('button', { name: '근거 문장 보기' })).not.toBeNull(); // 찾은 적 있는 줄(ready)은 그대로 펼침
     fireEvent.click(within(point('커튼월·외장 패널 1~3층')).getByRole('button', { name: '근거 문장 보기' })); // 실패한 줄
     expect(within(point('커튼월·외장 패널 1~3층')).queryByRole('button', { name: '다시 찾기' })).toBeNull();
     const reloads = screen.getAllByRole('button', { name: '다시 불러오기' });
-    expect(reloads.length).toBeGreaterThanOrEqual(4); // 멈춤 줄 · 찾는 중이던 줄 · 실패한 줄 · 바깥 위험
+    expect(reloads.length).toBeGreaterThanOrEqual(4); // 멈춤 줄 · 찾는 중이던 줄 · 실패한 줄 · 외부 영향
     const posts = bodies('/api/schedules/1/points/A1500/quotes/materials', 'POST').length;
     const before = reads;
     fireEvent.click(reloads[0]);
@@ -233,9 +233,9 @@ describe('points_changed card', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     let looking = true;
     routes['/api/schedules/1/points?what_if=false'] = () =>
-      json(200, view(looking ? card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중' }) : card()));
+      json(200, view(looking ? card({ risk_status: 'looking', risk_message: '외부 영향 찾는 중' }) : card()));
     routes['POST /api/schedules/1/points/A1500/quotes/materials'] = () => json(200, PENDING);
-    renderCard(card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중' }));
+    renderCard(card({ risk_status: 'looking', risk_message: '외부 영향 찾는 중' }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_CAP_MS + POLL_MS);
     });
@@ -265,8 +265,8 @@ describe('points_changed card', () => {
     routes['/api/schedules/1/points?what_if=false'] = () =>
       hold
         ? new Promise<Response>((r) => (release = () => r(json(200, view(card())))))
-        : json(200, view(card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중' })));
-    const r = renderCard(card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중' }));
+        : json(200, view(card({ risk_status: 'looking', risk_message: '외부 영향 찾는 중' })));
+    const r = renderCard(card({ risk_status: 'looking', risk_message: '외부 영향 찾는 중' }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_CAP_MS + POLL_MS);
     });
@@ -384,18 +384,18 @@ describe('points_changed card', () => {
     expect(await screen.findByText(/근거 문장 찾는 중/)).toBeVisible();
   });
 
-  test('risk search still running → 「바깥 위험 찾는 중」, polling swaps in the finished card', async () => {
+  test('risk search still running → 「외부 영향 찾는 중」, polling swaps in the finished card', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const looking = card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중', new: card().new.map((n) => ({ ...n, risks: [] })) });
+    const looking = card({ risk_status: 'looking', risk_message: '외부 영향 찾는 중', new: card().new.map((n) => ({ ...n, risks: [] })) });
     routes['/api/schedules/1/points?what_if=false'] = view(card());
     renderCard(looking);
-    expect(screen.getByText('바깥 위험 찾는 중')).toBeVisible();
+    expect(screen.getByText('외부 영향 찾는 중')).toBeVisible();
     expect(screen.queryByText('알루미늄 3개월 +5.0%')).toBeNull();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_MS + 10);
     });
     expect(await screen.findByText('알루미늄 3개월 +5.0%')).toBeVisible();
-    expect(screen.queryByText('바깥 위험 찾는 중')).toBeNull();
+    expect(screen.queryByText('외부 영향 찾는 중')).toBeNull();
   });
 
   test('what-if card says it is an assumption and asks the API with what_if=true', async () => {
@@ -485,21 +485,21 @@ describe('points_changed card', () => {
     expect(screen.getByText(/버전 7 → 8 · 기준/)).toBeVisible();
   });
 
-  test('not_started (written outside the server): no 「찾는 중」, no polling, [바깥 위험 찾기] on press only', async () => {
+  test('not_started (written outside the server): no 「찾는 중」, no polling, [외부 영향 찾기] on press only', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const idle = card({ risk_status: 'not_started', risk_message: '바깥 위험을 아직 찾지 않았습니다', risk_retry: true, new: card().new.map((n) => ({ ...n, risks: [] })) });
-    routes['POST /api/schedules/1/points/risks/retry'] = () => json(200, view({ ...idle, risk_status: 'looking', risk_message: '바깥 위험 찾는 중', risk_retry: false }));
+    const idle = card({ risk_status: 'not_started', risk_message: '외부 영향을 아직 찾지 않았습니다', risk_retry: true, new: card().new.map((n) => ({ ...n, risks: [] })) });
+    routes['POST /api/schedules/1/points/risks/retry'] = () => json(200, view({ ...idle, risk_status: 'looking', risk_message: '외부 영향 찾는 중', risk_retry: false }));
     routes['/api/schedules/1/points?what_if=false'] = view(card());
     renderCard(idle);
-    expect(screen.getByText('바깥 위험을 아직 찾지 않았습니다')).toBeVisible();
+    expect(screen.getByText('외부 영향을 아직 찾지 않았습니다')).toBeVisible();
     expect(screen.queryByText(/찾는 중/)).toBeNull();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_MS * 3);
     });
     expect(callsTo('/api/schedules/1/points?what_if=false')).toHaveLength(0); // 폴링 없음
     expect(bodies('/api/schedules/1/points/risks/retry', 'POST')).toHaveLength(0); // 누르기 전엔 찾지 않음
-    fireEvent.click(screen.getByRole('button', { name: '바깥 위험 찾기' }));
-    expect(await screen.findByText('바깥 위험 찾는 중')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '외부 영향 찾기' }));
+    expect(await screen.findByText('외부 영향 찾는 중')).toBeVisible();
     expect(bodies('/api/schedules/1/points/risks/retry', 'POST')).toEqual([{ what_if: false }]);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_MS + 10);
@@ -507,31 +507,31 @@ describe('points_changed card', () => {
     expect(await screen.findByText('알루미늄 3개월 +5.0%')).toBeVisible(); // 찾는 중이 되면 폴링
   });
 
-  test('[바깥 위험 찾기] is hidden on a frozen (past-version) card', async () => {
+  test('[외부 영향 찾기] is hidden on a frozen (past-version) card', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     routes['POST /api/schedules/1/points/A1500/quotes/materials'] = () => json(200, PENDING);
     routes['/api/schedules/1/points?what_if=false'] = { ...view(null), version: 9 };
-    renderCard(card({ version: 51, risk_status: 'not_started', risk_message: '바깥 위험을 아직 찾지 않았습니다', risk_retry: true }));
-    expect(screen.getByRole('button', { name: '바깥 위험 찾기' })).toBeVisible();
+    renderCard(card({ version: 51, risk_status: 'not_started', risk_message: '외부 영향을 아직 찾지 않았습니다', risk_retry: true }));
+    expect(screen.getByRole('button', { name: '외부 영향 찾기' })).toBeVisible();
     fireEvent.click(within(point('커튼월 공장 제작')).getAllByRole('button', { name: '근거 문장 보기' })[0]);
     await screen.findByText(/근거 문장 찾는 중/);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_MS * 2 + 10);
     });
     expect(await screen.findByText('지난 버전 카드 —')).toBeVisible();
-    expect(screen.getByText('바깥 위험을 아직 찾지 않았습니다')).toBeVisible();
-    expect(screen.queryByRole('button', { name: '바깥 위험 찾기' })).toBeNull();
+    expect(screen.getByText('외부 영향을 아직 찾지 않았습니다')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '외부 영향 찾기' })).toBeNull();
   });
 
   test('failed risk search offers 「다시 찾기」 (risk_retry) and polls the new state', async () => {
-    const failed = card({ risk_status: 'failed', risk_message: '바깥 위험을 찾지 못했습니다', risk_retry: true, new: card().new.map((n) => ({ ...n, risks: [] })) });
-    routes['POST /api/schedules/1/points/risks/retry'] = () => json(200, view({ ...failed, risk_status: 'looking', risk_message: '바깥 위험 찾는 중', risk_retry: false }));
+    const failed = card({ risk_status: 'failed', risk_message: '외부 영향을 찾지 못했습니다', risk_retry: true, new: card().new.map((n) => ({ ...n, risks: [] })) });
+    routes['POST /api/schedules/1/points/risks/retry'] = () => json(200, view({ ...failed, risk_status: 'looking', risk_message: '외부 영향 찾는 중', risk_retry: false }));
     renderCard(failed);
-    expect(screen.getByText('바깥 위험을 찾지 못했습니다')).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: '바깥 위험 다시 찾기' }));
-    expect(await screen.findByText('바깥 위험 찾는 중')).toBeVisible();
+    expect(screen.getByText('외부 영향을 찾지 못했습니다')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: '외부 영향 다시 찾기' }));
+    expect(await screen.findByText('외부 영향 찾는 중')).toBeVisible();
     expect(bodies('/api/schedules/1/points/risks/retry', 'POST')[0]).toEqual({ what_if: false });
-    expect(screen.queryByRole('button', { name: '바깥 위험 다시 찾기' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '외부 영향 다시 찾기' })).toBeNull();
   });
 
   test('tightened points are listed; buttons follow the allowed actions', () => {

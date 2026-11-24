@@ -1,4 +1,4 @@
-// 고른 포인트의 자세히(시안 공통 오른쪽 칸): 여유·기간·담당 → 여유 흐름(버전별) → 바깥 위험(+ 건너뛴 자료 접힘, 근거 문장) →
+// 고른 포인트의 자세히(시안 공통 오른쪽 칸): 여유·기간·담당 → 여유 흐름(버전별) → 외부 영향(+ 건너뛴 자료 접힘, 근거 문장) →
 // 「당겨도 소용 있나」(서버 계산, 읽기) → [담당자에게 확인 연락](현장 관리자에게는 없음) · [만회안 보기].
 // [준비 상태 확인 요청]은 그 기능(G)이 생길 때까지 숨긴다(PM 11-24). 숫자·날짜·문장은 모두 서버 값 그대로.
 import { useEffect, useState, type FormEvent } from 'react';
@@ -168,7 +168,7 @@ export default function PointDetail(props: DetailProps) {
       )}
       <div className="pt-sec">여유 흐름</div>
       <FloatFlow sid={sid} aid={point.activity_id} version={version} k={k} entries={entries} />
-      <div className="pt-sec">바깥 위험</div>
+      <div className="pt-sec">외부 영향</div>
       {(failed || notStarted) && <RiskRetry message={riskMessage} notStarted={notStarted} onRetry={onRetry} />}
       <Risks sid={sid} aid={point.activity_id} risks={risks} quotes={quotes} looking={looking} whatIf={whatIf} onQuote={onQuote} />
       <div className="pt-sec">당겨도 소용 있나</div>

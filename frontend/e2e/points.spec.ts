@@ -13,7 +13,7 @@ const OFFICE = '5층 사무동 신축';
 const CHAT_ID = 99101;
 const TITLE = '커튼월 도면 승인 3일 지연';
 const NOW = new Date('2026-11-24T17:12:00+09:00');
-const DRAFT = '[5층 사무동 신축] 최가상 님, 「커튼월 공장 제작」(06.03~06.18) 여유가 4일에서 1일로 줄었습니다. 참고한 바깥 소식: 알루미늄 3개월 +5.0%; 원·달러 1,350원. 일정대로 진행할 수 있는지 알려 주시겠어요?';
+const DRAFT = '[5층 사무동 신축] 최가상 님, 「커튼월 공장 제작」(06.03~06.18) 여유가 4일에서 1일로 줄었습니다. 참고한 외부 소식: 알루미늄 3개월 +5.0%; 원·달러 1,350원. 일정대로 진행할 수 있는지 알려 주시겠어요?';
 const FULL_NUMBER = /(?:\+82|0)1\d[-. ]?\d{3,4}[-. ]?\d{4}/;
 const SIZES = [
   { name: 'fhd', width: 1920, height: 1080 },
@@ -59,7 +59,7 @@ function pointsCard(sid: number, quote: unknown) {
         activity_id: 'A1600', name: '커튼월·외장 패널 1~3층 — 아주 긴 이름이 줄을 바꾸는지 보는 가상 작업 이름', critical: true, tf: 0, es: '2027-06-21', ef: '2027-07-09', became_critical: true, responsible: ['(주)가상외장'],
         risks: [
           risk('A1600', 'business', '(주)가상외장, 수도권 현장 세 곳 동시 착수', { source: '가상건설신문', as_of: '2026-11-19', quote: FAILED }),
-          risk('A1600', 'materials', '외장 패널 · 바깥 자료 없음', { status: 'none', source: null, as_of: null, evidence_id: null, actions: [], why: '외장 패널 단가 자료를 받지 못함' }),
+          risk('A1600', 'materials', '외장 패널 · 외부 자료 없음', { status: 'none', source: null, as_of: null, evidence_id: null, actions: [], why: '외장 패널 단가 자료를 받지 못함' }),
         ],
         actions: ['contact', 'recovery'],
       },

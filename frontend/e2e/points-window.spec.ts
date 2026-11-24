@@ -3,7 +3,7 @@ import { expect, test, type APIRequestContext, type Locator, type Page, type Rou
 // 「관리 포인트」 창(계획 5 Task 11, 시안 B 3주 보드) 끝에서 끝까지 — 가짜 답으로(FHD 밝게·어둡게 + 1280×800 + 폰 390×844).
 // 로그인·일정 목록은 실제 시험 서버(가짜 LLM, 밖 연결 막힘). 관리 포인트 조회·바뀜 기록·당김 효과·근거 문장·연락은 브라우저에서
 // 가짜 답(page.route — 서버까지 가지 않음, 꼴은 backend/app/programs/points · points_board 그대로).
-// 장면: Dock「관리 포인트」 → 보드(이번 주·다음 주·그다음 주) → 카드 → 자세히(여유 흐름 · 바깥 위험 · [근거 문장 보기] 찾는 중 → 문장 ·
+// 장면: Dock「관리 포인트」 → 보드(이번 주·다음 주·그다음 주) → 카드 → 자세히(여유 흐름 · 외부 영향 · [근거 문장 보기] 찾는 중 → 문장 ·
 // 당겨도 소용 있나 3일 → 결과·다음 줄) → [담당자에게 확인 연락] 미리 보기 → 바뀜 기록 모두 보기. 폰은 주 하나씩 → 자세히. 넘침 없음.
 // 실행: bash scripts/e2e-local.sh e2e/points-window.spec.ts (E2E_SHOTS_DIR=… 면 그 폴더에 p11-*.png). 숫자·회사·기사는 모두 가상.
 
@@ -32,7 +32,7 @@ const RISKS = [
   { activity_id: 'A1510', kind: 'fx', line: '원·달러 1,350원', as_of: '2026-11-24 16:58', source: 'Xignite', status: 'ok', why: '수입 유리·실란트' },
   { activity_id: 'A1510', kind: 'business', line: '(주)가상커튼월, 압출 설비 점검으로 6월 출하 일정 조정', as_of: '2026-11-21', source: '가상경제', status: 'ok' },
   { activity_id: 'A1510', kind: 'weather', line: '공장 안 작업이라 날씨를 보지 않음', as_of: null, source: null, status: 'skipped' },
-  { activity_id: 'A1520', kind: 'business', line: '자재 반입 · 바깥 자료 없음', as_of: null, source: null, status: 'none' },
+  { activity_id: 'A1520', kind: 'business', line: '자재 반입 · 외부 자료 없음', as_of: null, source: null, status: 'none' },
   { activity_id: 'A1600', kind: 'business', line: '(주)가상외장, 수도권 현장 세 곳 동시 착수', as_of: '2026-11-19', source: '가상건설신문', status: 'ok' },
 ];
 const READY = {
@@ -224,7 +224,7 @@ for (const size of SIZES) {
       await fits(page);
       await shot(page, `board-${tag}`);
 
-      // 2. 자세히: 여유 흐름 → 바깥 위험(건너뛴 자료 접힘) → 근거 문장(찾는 중 → 문장) → 당김 효과
+      // 2. 자세히: 여유 흐름 → 외부 영향(건너뛴 자료 접힘) → 근거 문장(찾는 중 → 문장) → 당김 효과
       await col('다음 주').getByRole('button', { name: /커튼월 공장 제작/ }).click();
       const d = w.getByRole('region', { name: '커튼월 공장 제작 자세히' });
       await expect(d.getByRole('list', { name: '여유 흐름' }).getByRole('listitem')).toHaveCount(4);

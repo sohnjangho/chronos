@@ -1,6 +1,6 @@
 // 「관리 포인트」(계획 5 Task 11, PM 이 고른 시안 B 「3주 보드」). 한 일정의 관리 포인트(크리티컬 + 여유 k일 이하, Data Date 부터 w 주 안에
 // 시작)를 주 칸(이번 주 · 다음 주 · 그다음 주 …)에 시작일 순 카드로 놓고, 아래 얇은 띠에 버전마다 들어옴·빠짐을 보인다.
-// 카드를 누르면 오른쪽 자세히(여유 흐름 · 바깥 위험 · 당겨도 소용 있나 · 담당자 연락 · 만회안). 폰·좁은 창은 주 하나씩(‹ › · 밀기) → 누르면 자세히.
+// 카드를 누르면 오른쪽 자세히(여유 흐름 · 외부 영향 · 당겨도 소용 있나 · 담당자 연락 · 만회안). 폰·좁은 창은 주 하나씩(‹ › · 밀기) → 누르면 자세히.
 // params: id(일정, 없으면 OS 지금 일정) · activity(고를 포인트). 모든 값은 서버 계산값 — 화면은 날짜를 계산하지 않는다.
 // 현장 관리자는 읽기만(담당자 연락 단추 없음). 기준 k·w 는 관리자가 개발 콘솔에서 바꾼다(Task 7 이 링크를 잇는다).
 import { useEffect, useRef, useState, type ReactNode, type RefObject, type TouchEvent } from 'react';
@@ -196,7 +196,7 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
           {strip}
         </div>
         <aside className="pt-side" aria-label="자세히">
-          {detail ?? <p className="pt-muted">카드를 누르면 여유 흐름 · 바깥 위험 · 당김 효과가 여기에 보입니다.</p>}
+          {detail ?? <p className="pt-muted">카드를 누르면 여유 흐름 · 외부 영향 · 당김 효과가 여기에 보입니다.</p>}
         </aside>
       </div>
     </>,

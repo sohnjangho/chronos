@@ -57,7 +57,7 @@ export async function getLatestPoints(sid: number): Promise<PointsView> {
 /** 「2027-06-03」 → 「06.03」(시안과 같은 월.일). 꼴이 다르면 그대로. */
 export const monthDay = (v: unknown) => (typeof v === 'string' ? v.replace(/^\d{4}-(\d{2})-(\d{2})$/, '$1.$2') : '');
 
-/** 실패(멈춘 것 포함)한 바깥 위험 찾기를 다시(사람의 「다시 찾기」) → 조회와 같은 꼴. 실패가 아니면 409. */
+/** 실패(멈춘 것 포함)한 외부 영향 찾기를 다시(사람의 「다시 찾기」) → 조회와 같은 꼴. 실패가 아니면 409. */
 export const retryRisks = (sid: number, whatIf: boolean) => api<PointsView>(`/api/schedules/${sid}/points/risks/retry`, post({ what_if: whatIf }));
 
 /** [근거 문장 보기]·「다시 찾기」(retry). 찾기는 서버가 뒤에서 한다. */

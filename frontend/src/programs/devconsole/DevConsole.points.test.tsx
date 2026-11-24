@@ -1,4 +1,4 @@
-// 개발 콘솔 — 관리 포인트(계획 5 Task 7): 하네스 탭의 설정 카드(기준 다섯 + 분야별 바깥 자료) · 실행 추적의 「관리 포인트」 단계 ·
+// 개발 콘솔 — 관리 포인트(계획 5 Task 7): 하네스 탭의 설정 카드(기준 다섯 + 분야별 외부 자료) · 실행 추적의 「관리 포인트」 단계 ·
 // 사용량의 Premium Data·MCP·Search Agent 수. 값은 가짜 서버(testKit) 그대로, 일정 이름은 가상이다.
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -27,11 +27,11 @@ describe('하네스 탭 — 관리 포인트 설정', () => {
     const c = await card();
     expect(within(c).getByRole('spinbutton', { name: '크리티컬 직전으로 볼 여유' })).toHaveValue(3);
     expect(within(c).getByRole('spinbutton', { name: '앞으로 볼 기간' })).toHaveValue(3);
-    expect(within(c).getByRole('spinbutton', { name: '바깥 위험을 찾을 새 포인트 수' })).toHaveValue(5);
-    expect(within(c).getByRole('spinbutton', { name: '찾은 바깥 자료를 다시 쓰는 시간' })).toHaveValue(6);
+    expect(within(c).getByRole('spinbutton', { name: '외부 영향을 찾을 새 포인트 수' })).toHaveValue(5);
+    expect(within(c).getByRole('spinbutton', { name: '찾은 외부 자료를 다시 쓰는 시간' })).toHaveValue(6);
     expect(within(c).getByRole('spinbutton', { name: '당김 효과 경고 비율' })).toHaveValue(0.5);
     expect(c).toHaveTextContent('여유가 이 일수 이하인 작업도 관리 포인트로 봅니다. 0이면 크리티컬만. (0~10)');
-    const table = within(c).getByRole('table', { name: '분야별 바깥 자료' });
+    const table = within(c).getByRole('table', { name: '분야별 외부 자료' });
     expect(within(table).getAllByRole('rowheader').map((h) => h.textContent)).toEqual(['건설', '제조·생산', '그 밖의 분야']);
     expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['분야', '날씨', '금속·원자재', '환율', '업체 소식']);
     expect(within(table).getByRole('checkbox', { name: '건설 날씨' })).toBeChecked();
@@ -119,7 +119,7 @@ describe('실행 추적 — 관리 포인트 단계', () => {
     expect(pick).toHaveTextContent('포인트 7 · 새로 2 · 겨냥 검색 4 · Search Agent 2');
     await userEvent.click(pick);
     const stage = await screen.findByRole('region', { name: '관리 포인트 — 5층 사무동 신축 · 가정 · 버전 4 · 지연 기록' });
-    expect(stage).toHaveTextContent('바깥 위험 찾는 중');
+    expect(stage).toHaveTextContent('외부 영향 찾는 중');
     expect(screen.queryByRole('list', { name: '실행 추적' })).toBeNull();
     expect(screen.getByRole('button', { name: /^관리 포인트: 5층 사무동 신축/ })).toBeVisible();
   });

@@ -1,4 +1,4 @@
-// 관리 포인트 설정 카드(계획 5 Task 7, 관리자만 — 개발 콘솔 자체가 관리자만): 기준 다섯과 분야별 바깥 자료 표.
+// 관리 포인트 설정 카드(계획 5 Task 7, 관리자만 — 개발 콘솔 자체가 관리자만): 기준 다섯과 분야별 외부 자료 표.
 // 범위는 서버가 준 bounds 로 먼저 막고, 저장할 때 서버가 다시 검사한다(틀리면 422 — 그 글을 그대로 보인다).
 // 「관리 포인트」 창의 [설정에서 바꾸기]는 이 카드로 연다(params focus=points).
 import { useEffect, useRef, useState } from 'react';
@@ -10,8 +10,8 @@ type NumKey = 'points_tf_days' | 'points_window_weeks' | 'points_max_new' | 'poi
 const FIELDS: { key: NumKey; label: string; unit: string; help: string; step?: number }[] = [
   { key: 'points_tf_days', label: '크리티컬 직전으로 볼 여유', unit: '일', help: '여유가 이 일수 이하인 작업도 관리 포인트로 봅니다. 0이면 크리티컬만.' },
   { key: 'points_window_weeks', label: '앞으로 볼 기간', unit: '주', help: 'Data Date부터 이 주 안에 시작하는 작업만 봅니다.' },
-  { key: 'points_max_new', label: '바깥 위험을 찾을 새 포인트 수', unit: '곳', help: '한 번 바뀔 때 새로 들어온 포인트 가운데 앞에서 이만큼만 바깥 자료를 찾습니다.' },
-  { key: 'points_forecast_reuse_hours', label: '찾은 바깥 자료를 다시 쓰는 시간', unit: '시간', help: '같은 질문을 이 시간 안에 했으면 다시 부르지 않고 그 값을 씁니다.' },
+  { key: 'points_max_new', label: '외부 영향을 찾을 새 포인트 수', unit: '곳', help: '한 번 바뀔 때 새로 들어온 포인트 가운데 앞에서 이만큼만 외부 자료를 찾습니다.' },
+  { key: 'points_forecast_reuse_hours', label: '찾은 외부 자료를 다시 쓰는 시간', unit: '시간', help: '같은 질문을 이 시간 안에 했으면 다시 부르지 않고 그 값을 씁니다.' },
   { key: 'accel_warn_ratio', label: '당김 효과 경고 비율', unit: '', step: 0.05, help: '당긴 일수 가운데 준공에 반영된 비율이 이보다 낮으면 「당겨도 소용이 적다」고 알립니다.' },
 ];
 
@@ -63,7 +63,7 @@ function NumberField({ f, value, bounds, why, busy, onChange }: {
   );
 }
 
-/** 분야(줄) × 바깥 자료 갈래(칸) 켜고 끄기. */
+/** 분야(줄) × 외부 자료 갈래(칸) 켜고 끄기. */
 function SourcesTable({ domains, sources, busy, onToggle }: {
   domains: PointsConfig['domains'];
   sources: Draft['points_sources'];
@@ -72,9 +72,9 @@ function SourcesTable({ domains, sources, busy, onToggle }: {
 }) {
   return (
     <div className="dc-pt-src">
-      <p className="dc-muted">분야마다 관리 포인트에 쓸 바깥 자료를 고릅니다. 표에 없는 분야는 「그 밖의 분야」를 따릅니다. 날씨는 기상청, 나머지는 Liner(비용 있음)입니다.</p>
+      <p className="dc-muted">분야마다 관리 포인트에 쓸 외부 자료를 고릅니다. 표에 없는 분야는 「그 밖의 분야」를 따릅니다. 날씨는 기상청, 나머지는 Liner(비용 있음)입니다.</p>
       <div className="dc-u-wrap">
-        <table className="dc-u dc-pt-table" aria-label="분야별 바깥 자료">
+        <table className="dc-u dc-pt-table" aria-label="분야별 외부 자료">
           <thead>
             <tr>
               <th scope="col">분야</th>

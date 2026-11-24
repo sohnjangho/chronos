@@ -58,7 +58,7 @@ export function KindIcon({ kind, label = false }: { kind: string; label?: boolea
   );
 }
 
-/** 포인트 카드에 보일 바깥 위험 갈래(자료가 있는 줄만, 한 번씩). */
+/** 포인트 카드에 보일 외부 영향 갈래(자료가 있는 줄만, 한 번씩). */
 export const riskKinds = (risks: Risk[], aid: string) => [...new Set(risks.filter((r) => r.activity_id === aid && r.status === 'ok').map((r) => r.kind))];
 
 export const matches = (p: Point, query: string) => {

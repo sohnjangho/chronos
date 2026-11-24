@@ -1,6 +1,6 @@
 // 관리 포인트 창의 자료: 포인트 조회(GET …/points — 열린 지연이 있으면 그 가정, 사람이 고르면 저장한 버전)와 바뀜 기록을 함께 읽고, 일정 버전이 바뀌거나
 // (에이전트 도구·승인·되돌리기 — 일정 창들과 같은 일정 저장소를 잡아 따라간다) 지연 기록이 바뀌면(delaysToken) 둘 다 다시 읽는다.
-// 바깥 위험이나 근거 문장을 찾는 중이면 POLL_MS 마다 포인트 조회만 다시 읽되, 버전이 바뀌면 그만두고(둘 다 다시 읽음)
+// 외부 영향이나 근거 문장을 찾는 중이면 POLL_MS 마다 포인트 조회만 다시 읽되, 버전이 바뀌면 그만두고(둘 다 다시 읽음)
 // POLL_CAP_MS 가 지나면 멈추고 「오래 걸려 … 다시 불러오기」를 보인다(상한은 둘 다 다시 읽을 때마다 — 새 버전·새 지연·다시 불러오기 —
 // 새로 잰다). 다시 읽기가 실패하면 한 번 더 해 보고, 또 실패하면 같은 줄로 알린다. 내가 누른 근거 문장 상태는 그 버전에서만,
 // 서버가 그 열쇠를 줄 때만 쓴다.
@@ -136,7 +136,7 @@ export function useBoard(sid: number, owner: string) {
     (key: string, q: QuoteState) => setMine((m) => (view && m.key === keyOf(view) ? { ...m, quotes: { ...m.quotes, [key]: q } } : { key: view ? keyOf(view) : '', quotes: { [key]: q } })),
     [view],
   );
-  /** 「다시 찾기」(사람이 누를 때만): 실패한 바깥 위험 찾기를 다시 띄운다 → 조회 꼴. 오류 글은 부른 쪽이 보인다. */
+  /** 「다시 찾기」(사람이 누를 때만): 실패한 외부 영향 찾기를 다시 띄운다 → 조회 꼴. 오류 글은 부른 쪽이 보인다. */
   const whatIf = view?.what_if === true;
   const onRetry = useCallback(async () => setView(await retryRisks(sid, whatIf)), [sid, whatIf]);
   /** 「다시 불러오기」: 둘 다 다시 읽고 폴링 상한을 새로 잰다(바깥 찾기를 새로 하지 않는다). */

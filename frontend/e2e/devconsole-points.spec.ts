@@ -93,7 +93,7 @@ for (const theme of ['light', 'dark'] as const) {
     await w.getByRole('tab', { name: '하네스·차단 시험' }).click();
     const card = w.getByRole('region', { name: '관리 포인트 설정' });
     await expect(card.getByRole('spinbutton', { name: '크리티컬 직전으로 볼 여유' })).toHaveValue('3');
-    await expect(card.getByRole('table', { name: '분야별 바깥 자료' }).getByRole('rowheader')).toHaveText(['건설', '제조·생산', '그 밖의 분야']);
+    await expect(card.getByRole('table', { name: '분야별 외부 자료' }).getByRole('rowheader')).toHaveText(['건설', '제조·생산', '그 밖의 분야']);
     await w.locator('.dc-cat-wrap').evaluate((el) => { // 카드가 그 칸 맨 위에 오게(창 바깥은 움직이지 않는다)
       const c = el.querySelector('#dc-points-config') as HTMLElement;
       el.scrollTop += c.getBoundingClientRect().top - el.getBoundingClientRect().top - 12;

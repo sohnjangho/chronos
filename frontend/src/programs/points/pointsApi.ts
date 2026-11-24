@@ -11,7 +11,7 @@ export interface Point {
   ef: string;
 }
 
-/** 바깥 위험 한 줄(app.points.risk.Risk). status: ok(자료 있음) · none(자료 없음, 본문에 그대로) · skipped(건너뜀, 접어 둠). */
+/** 외부 영향 한 줄(app.points.risk.Risk). status: ok(자료 있음) · none(자료 없음, 본문에 그대로) · skipped(건너뜀, 접어 둠). */
 export interface Risk {
   activity_id: string;
   kind: string;
@@ -150,7 +150,7 @@ export const postAccel = (sid: number, aid: string, days: number) => api<AccelRe
 /** [근거 문장 보기]·「다시 찾기」(retry) — 사람이 누를 때만. 찾기는 서버가 뒤에서 한다. */
 export const findQuote = (sid: number, aid: string, kind: string, retry: boolean, whatIf = false) =>
   api<QuoteState>(`${one(sid, aid)}/quotes/${encodeURIComponent(kind)}`, post({ what_if: whatIf, retry }));
-/** 「다시 찾기」: 실패한 바깥 위험 찾기를 다시 띄운다 → 포인트 조회와 같은 꼴(실패가 아니면 409). */
+/** 「다시 찾기」: 실패한 외부 영향 찾기를 다시 띄운다 → 포인트 조회와 같은 꼴(실패가 아니면 409). */
 export const retryRisks = (sid: number, whatIf = false) => api<PointsView>(`${root(sid)}/risks/retry`, post({ what_if: whatIf }));
 const wi = (whatIf: boolean) => (whatIf ? { what_if: true } : {});
 export const getPeople = (sid: number, aid: string, whatIf = false) =>

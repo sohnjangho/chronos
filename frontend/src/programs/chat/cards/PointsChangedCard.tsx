@@ -1,13 +1,13 @@
 // 「관리 포인트가 바뀌었습니다」 카드(계획 5 Task 6 — points.check·지연 분석의 card{kind:"points_changed"}, 서버
 // backend/app/points/card.py payload). PM 승인 시안 shots/mock-card/card.html·contact.html 꼴.
 // - 새 포인트(new = added + became_critical)·여유가 준 포인트(tightened): 여유 n일 → m일(before_tf 키가 없으면 「여유 m일」만),
-//   크리티컬 표시, 포인트마다 바깥 위험 줄(출처·기준 시각·고른 까닭). 「바깥 자료 없음」(none) 줄은 본문에 그대로, 숫자·단추 없음.
+//   크리티컬 표시, 포인트마다 외부 영향 줄(출처·기준 시각·고른 까닭). 「외부 자료 없음」(none) 줄은 본문에 그대로, 숫자·단추 없음.
 // - 건너뛴 자료(skipped)는 카드 아래 「건너뛴 자료 n개 ▸」로 접어 둔다(처음엔 닫힘, PM 11-24).
 // - [근거 문장 보기]: 아직 안 눌렀으면 POST(서버가 뒤에서 찾음) → 찾는 중이면 GET 으로만 다시 읽는다(채우기를 다시 부르지 않음).
 //   실패(멈춘 찾기 포함)면 「다시 찾기」(retry). [조건으로 넣어 보기]는 서버가 허락한 줄(날씨)에만.
 // - [담당자에게 확인 연락]: 그 포인트 안에서 담당 협력사 연락처(번호 없음)를 고르고 글을 미리 본 뒤 [초안 만들기] → 기존 초안 카드.
 //   보내지 않는다 — 보내기는 초안 카드의 [보내기]·연락처 창에서 사람이.
-// - 바깥 위험을 찾는 중(risk_status looking)이거나 근거 문장을 찾는 중이면 POLL_MS 마다 GET …/points 를 읽어 바꾼다(읽는 중이면
+// - 외부 영향을 찾는 중(risk_status looking)이거나 근거 문장을 찾는 중이면 POLL_MS 마다 GET …/points 를 읽어 바꾼다(읽는 중이면
 //   그 차례는 건너뜀). 다른 버전이 오거나 404(가정이 사라짐)면 「지난 버전 카드」로 멈추고, POLL_CAP_MS 가 지나면 멈춘다.
 //   멈춘 카드는 「지금 포인트 보기」로 지금 포인트 목록을 아래에 보인다. 지난 버전 카드에서는 근거 문장을 새로 찾지 않는다.
 // - 현장 관리자(role field)에게는 연락 단추를 보이지 않는다(서버도 403). 만든 초안 카드는 대화를 다시 열어도 그 자리에(이 탭 안).
@@ -129,7 +129,7 @@ function headline(c: Json, changed: number): [string, string] {
   return [`${why}관리 포인트 ${changed}곳이 바뀌었습니다`, meta];
 }
 
-/** 바깥 위험 찾기 상태 줄: 찾는 중 · 실패(서버가 허락하면 「다시 찾기」 → 조회와 같은 꼴을 받아 카드를 바꾸고 폴링이 이어 읽는다). */
+/** 외부 영향 찾기 상태 줄: 찾는 중 · 실패(서버가 허락하면 「다시 찾기」 → 조회와 같은 꼴을 받아 카드를 바꾸고 폴링이 이어 읽는다). */
 function RiskState({ c, frozen, onCard, onReload }: { c: Json; frozen: Frozen; onCard(card: Json): void; onReload(): void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -153,17 +153,17 @@ function RiskState({ c, frozen, onCard, onReload }: { c: Json; frozen: Frozen; o
     return (
       <p className="pc-wait" role="status">
         <span className="pc-spin" aria-hidden="true" />
-        {asText(c.risk_message) || '바깥 위험 찾는 중'}
+        {asText(c.risk_message) || '외부 영향 찾는 중'}
       </p>
     );
   if (status === 'not_started')
     // 서버 밖(씨앗·명령줄)에서 적은 카드 — 찾지 않았다. 사람이 누를 때만 같은 다시 찾기 API 로 처음 찾는다(멈춘 카드는 숨김).
     return (
       <p className="pc-fail ch-wrap">
-        {asText(c.risk_message) || '바깥 위험을 아직 찾지 않았습니다'}
+        {asText(c.risk_message) || '외부 영향을 아직 찾지 않았습니다'}
         {sid !== null && frozen === null && (
           <button type="button" className="pc-link" disabled={busy} onClick={() => void retry()}>
-            바깥 위험 찾기
+            외부 영향 찾기
           </button>
         )}
         {error && <span className="ch-error" role="alert">{error}</span>}
@@ -172,10 +172,10 @@ function RiskState({ c, frozen, onCard, onReload }: { c: Json; frozen: Frozen; o
   if (status !== 'failed') return null;
   return (
     <p className="pc-fail ch-wrap">
-      {asText(c.risk_message) || '바깥 위험을 찾지 못했습니다'}
+      {asText(c.risk_message) || '외부 영향을 찾지 못했습니다'}
       {c.risk_retry === true && sid !== null && frozen === 'cap' && <ReloadButton onReload={onReload} />}
       {c.risk_retry === true && sid !== null && frozen === null && (
-        <button type="button" className="pc-link" aria-label="바깥 위험 다시 찾기" disabled={busy} onClick={() => void retry()}>
+        <button type="button" className="pc-link" aria-label="외부 영향 다시 찾기" disabled={busy} onClick={() => void retry()}>
           다시 찾기
         </button>
       )}

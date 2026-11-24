@@ -1,4 +1,4 @@
-// 「관리 포인트」 창(계획 5 Task 11, 시안 B 3주 보드): 주 칸·카드·위 띠·바뀜 띠 → 카드를 누르면 자세히(여유 흐름·바깥 위험·근거 문장·
+// 「관리 포인트」 창(계획 5 Task 11, 시안 B 3주 보드): 주 칸·카드·위 띠·바뀜 띠 → 카드를 누르면 자세히(여유 흐름·외부 영향·근거 문장·
 // 당김 효과·담당자 연락·만회안). 현장 관리자는 읽기만. 폰은 주 하나씩. 서버는 가짜(fetch) — 회사·사람·기사는 모두 가상이다.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -29,7 +29,7 @@ const VIEW: PointsView = {
   risk_status: 'done', risk_message: '',
   risks: [
     { activity_id: 'A1510', kind: 'materials', line: '알루미늄 3개월 +5.0%', as_of: '2026-10', source: 'The World Bank', status: 'ok', why: '프레임이 알루미늄 압출재' },
-    { activity_id: 'A1510', kind: 'fx', line: '외장 유리 · 바깥 자료 없음', as_of: null, source: null, status: 'none' },
+    { activity_id: 'A1510', kind: 'fx', line: '외장 유리 · 외부 자료 없음', as_of: null, source: null, status: 'none' },
     { activity_id: 'A1510', kind: 'weather', line: '프로젝트 주소가 없어 날씨를 보지 않음', as_of: null, source: null, status: 'skipped' },
   ],
   quotes: { 'A1510/materials': null },
@@ -88,7 +88,7 @@ beforeEach(() => {
   accelReply = ACCEL;
   whatIfReply = null;
   histReply = () => HIST;
-  retryReply = { status: 200, body: { ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' } };
+  retryReply = { status: 200, body: { ...VIEW, risk_status: 'looking', risk_message: '외부 영향 찾는 중' } };
   signInAsDemo('admin');
   open.mockReset();
   useWindows.setState({ open, setTitle: vi.fn() } as never);
@@ -218,7 +218,7 @@ test('a card opens the detail: float by version, risk lines (none visible, skipp
   expect(d).toHaveTextContent('담당(주)가람커튼월');
   const flow = await within(d).findByRole('list', { name: '여유 흐름' });
   expect(within(flow).getAllByRole('listitem').map((r) => r.lastElementChild?.textContent)).toEqual(['6일', '4일', '1일']);
-  expect(within(d).getByText('외장 유리 · 바깥 자료 없음')).toBeVisible();
+  expect(within(d).getByText('외장 유리 · 외부 자료 없음')).toBeVisible();
   expect(within(d).queryByText('프로젝트 주소가 없어 날씨를 보지 않음')).toBeNull();
   await userEvent.click(within(d).getByRole('button', { name: '건너뛴 자료 1개 ▸' }));
   expect(within(d).getByText('날씨 · 프로젝트 주소가 없어 날씨를 보지 않음')).toBeVisible();
@@ -324,7 +324,7 @@ const gets = (url: string) => calls.filter((c) => c.method === 'GET' && c.url ==
 
 test('while risks are being looked up it re-reads only the points every 3 s, and stops after 15 minutes', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
-  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' });
+  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '외부 영향 찾는 중' });
   show();
   await screen.findByRole('region', { name: '이번 주' });
   expect(gets('/api/schedules/1/points')).toBe(1);
@@ -340,7 +340,7 @@ test('while risks are being looked up it re-reads only the points every 3 s, and
 
 test('when polling sees a new version it stops polling and re-reads the history too; my quote state is dropped', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
-  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' });
+  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '외부 영향 찾는 중' });
   show();
   await screen.findByRole('region', { name: '이번 주' });
   viewReply = () => ({ ...VIEW, version: 9, quotes: {} });
@@ -360,10 +360,10 @@ test('a delay change (delaysToken) re-reads the points and the history together'
 });
 
 test('a failed risk lookup shows the server message and [다시 찾기] retries only when pressed', async () => {
-  viewReply = () => ({ ...VIEW, risk_status: 'failed', risk_message: '바깥 위험을 찾지 못했습니다' });
+  viewReply = () => ({ ...VIEW, risk_status: 'failed', risk_message: '외부 영향을 찾지 못했습니다' });
   show({ activity: 'A1510' });
   const d = await screen.findByRole('region', { name: /자세히$/ });
-  expect(within(d).getByRole('alert')).toHaveTextContent('바깥 위험을 찾지 못했습니다');
+  expect(within(d).getByRole('alert')).toHaveTextContent('외부 영향을 찾지 못했습니다');
   expect(posts()).toEqual([]);
   await userEvent.click(within(d).getByRole('button', { name: '다시 찾기' }));
   await waitFor(() => expect(within(d).queryByRole('button', { name: '다시 찾기' })).toBeNull());
@@ -371,7 +371,7 @@ test('a failed risk lookup shows the server message and [다시 찾기] retries 
 });
 
 test('a refused retry shows why', async () => {
-  viewReply = () => ({ ...VIEW, risk_status: 'failed', risk_message: '바깥 위험을 찾지 못했습니다' });
+  viewReply = () => ({ ...VIEW, risk_status: 'failed', risk_message: '외부 영향을 찾지 못했습니다' });
   retryReply = { status: 409, body: { code: 'not_failed', message: '다시 찾을 것이 없습니다.' } };
   show({ activity: 'A1510' });
   const d = await screen.findByRole('region', { name: /자세히$/ });
@@ -383,7 +383,7 @@ const advance = async (ms: number) => act(async () => void (await vi.advanceTime
 
 test('after the 15-minute cap it says so with 다시 불러오기, and a new delay restarts the cap and the polling', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
-  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' });
+  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '외부 영향 찾는 중' });
   show();
   await screen.findByRole('region', { name: '이번 주' });
   await advance(16 * 60_000);
@@ -401,7 +401,7 @@ test('after the 15-minute cap it says so with 다시 불러오기, and a new del
 
 test('다시 불러오기 re-reads both and polls again', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
-  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' });
+  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '외부 영향 찾는 중' });
   show();
   await screen.findByRole('region', { name: '이번 주' });
   await advance(16 * 60_000);
@@ -414,7 +414,7 @@ test('다시 불러오기 re-reads both and polls again', async () => {
 
 test('a failed re-read after a new version tries once more on the next tick, then says it could not', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
-  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' });
+  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '외부 영향 찾는 중' });
   show();
   await screen.findByRole('region', { name: '이번 주' });
   viewReply = () => ({ ...VIEW, version: 9, quotes: {} });
@@ -468,17 +468,17 @@ test('without open delays (no preview) the board reads only the saved version', 
   expect(screen.queryByRole('button', { name: '지연 반영 미리 보기로' })).toBeNull();
 });
 
-test('risks not looked up yet (seed card): no polling, 「바깥 위험을 아직 찾지 않았습니다」 and [바깥 위험 찾기] only when pressed', async () => {
+test('risks not looked up yet (seed card): no polling, 「외부 영향을 아직 찾지 않았습니다」 and [외부 영향 찾기] only when pressed', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
-  viewReply = () => ({ ...VIEW, risk_status: 'not_started', risk_message: '바깥 위험을 아직 찾지 않았습니다' });
+  viewReply = () => ({ ...VIEW, risk_status: 'not_started', risk_message: '외부 영향을 아직 찾지 않았습니다' });
   show({ activity: 'A1510' });
   const d = await screen.findByRole('region', { name: /자세히$/ });
-  expect(within(d).getByText('바깥 위험을 아직 찾지 않았습니다')).toBeVisible();
+  expect(within(d).getByText('외부 영향을 아직 찾지 않았습니다')).toBeVisible();
   const reads = gets('/api/schedules/1/points');
   await advance(10_000);
   expect(gets('/api/schedules/1/points')).toBe(reads); // 찾는 중이 아니다 — 폴링 없음
   expect(posts()).toEqual([]);
-  await userEvent.click(within(d).getByRole('button', { name: '바깥 위험 찾기' }));
+  await userEvent.click(within(d).getByRole('button', { name: '외부 영향 찾기' }));
   await waitFor(() => expect(posts()).toEqual([{ method: 'POST', url: '/api/schedules/1/points/risks/retry', body: { what_if: false } }]));
-  await waitFor(() => expect(within(d).queryByRole('button', { name: '바깥 위험 찾기' })).toBeNull());
+  await waitFor(() => expect(within(d).queryByRole('button', { name: '외부 영향 찾기' })).toBeNull());
 });

@@ -6,9 +6,9 @@ import { count, dayGroup, hourMinute } from './format';
 import { estimate, per1k, stageTitle } from './pointsText';
 
 const RISK: Record<string, { label: string; tone: 'info' | 'success' | 'danger' | 'neutral' }> = {
-  looking: { label: '바깥 위험 찾는 중', tone: 'info' },
+  looking: { label: '외부 영향 찾는 중', tone: 'info' },
   done: { label: '찾기 끝', tone: 'success' },
-  failed: { label: '바깥 위험을 찾지 못함', tone: 'danger' },
+  failed: { label: '외부 영향을 찾지 못함', tone: 'danger' },
   none: { label: '새 포인트 없음 — 찾지 않음', tone: 'neutral' },
 };
 

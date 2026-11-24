@@ -1,4 +1,4 @@
-// 바깥 위험 줄과 [근거 문장 보기](사람이 누를 때만 찾기를 부른다). 자료 없음(none) 줄은 본문에 그대로, 건너뛴 자료(skipped)는
+// 외부 영향 줄과 [근거 문장 보기](사람이 누를 때만 찾기를 부른다). 자료 없음(none) 줄은 본문에 그대로, 건너뛴 자료(skipped)는
 // 「건너뛴 자료 n개 ▸」로 접어 둔다(처음엔 닫힘, PM 11-24). 줄·출처·문장은 서버 값 그대로.
 import { useState } from 'react';
 import { KindIcon, KINDS } from './format';
@@ -96,7 +96,7 @@ export function Risks({ sid, aid, risks, quotes, looking, whatIf, onQuote }: {
   const shown = mine.filter((r) => r.status !== 'skipped');
   const skipped = mine.filter((r) => r.status === 'skipped');
   if (mine.length === 0)
-    return <p className="pt-muted">{looking ? '바깥 위험 찾는 중…' : '바깥 위험은 이번 버전에 새로 들어온 포인트만 찾습니다. 이 포인트는 찾은 기록이 없습니다.'}</p>;
+    return <p className="pt-muted">{looking ? '외부 영향 찾는 중…' : '외부 영향은 이번 버전에 새로 들어온 포인트만 찾습니다. 이 포인트는 찾은 기록이 없습니다.'}</p>;
   return (
     <>
       {shown.length > 0 && (
@@ -125,8 +125,8 @@ export function Risks({ sid, aid, risks, quotes, looking, whatIf, onQuote }: {
   );
 }
 
-/** 바깥 위험 찾기가 실패했을 때(멈춘 것 포함): 서버 글과 [다시 찾기]. 아직 찾지 않았을 때(not_started — 씨앗·명령줄에서 적은 카드):
- * 「바깥 위험을 아직 찾지 않았습니다」와 [바깥 위험 찾기]. 둘 다 사람이 누를 때만 POST …/points/risks/retry. */
+/** 외부 영향 찾기가 실패했을 때(멈춘 것 포함): 서버 글과 [다시 찾기]. 아직 찾지 않았을 때(not_started — 씨앗·명령줄에서 적은 카드):
+ * 「외부 영향을 아직 찾지 않았습니다」와 [외부 영향 찾기]. 둘 다 사람이 누를 때만 POST …/points/risks/retry. */
 export function RiskRetry({ message, notStarted, onRetry }: { message: string; notStarted: boolean; onRetry(): Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -144,9 +144,9 @@ export function RiskRetry({ message, notStarted, onRetry }: { message: string; n
   };
   return (
     <div className={`pt-retry${notStarted ? ' is-idle' : ''}`} role={notStarted ? 'status' : 'alert'}>
-      <span>{message || (notStarted ? '바깥 위험을 아직 찾지 않았습니다' : '바깥 위험을 찾지 못했습니다')}</span>
+      <span>{message || (notStarted ? '외부 영향을 아직 찾지 않았습니다' : '외부 영향을 찾지 못했습니다')}</span>
       <button type="button" className="pt-link" disabled={busy} onClick={() => void press()}>
-        {notStarted ? '바깥 위험 찾기' : '다시 찾기'}
+        {notStarted ? '외부 영향 찾기' : '다시 찾기'}
       </button>
       {error && <span className="pt-error">{error}</span>}
     </div>

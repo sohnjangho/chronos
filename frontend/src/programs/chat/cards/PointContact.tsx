@@ -36,7 +36,7 @@ function People({ people, pick, onPick }: { people: Person[]; pick: Person | nul
 function PreviewBox({ preview }: { preview: Preview }) {
   return (
     <>
-      <span className="ch-meta">보낼 글 미리 보기 — 포인트와 바깥 위험을 넣었습니다</span>
+      <span className="ch-meta">보낼 글 미리 보기 — 포인트와 외부 영향을 넣었습니다</span>
       <div className="oc-draft">
         {preview.channel === 'sms' ? (
           <p className="oc-body">{preview.body}</p>
