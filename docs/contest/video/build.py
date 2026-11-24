@@ -115,7 +115,10 @@ if os.environ.get('CHRONOS_SUBMISSION') == '1' and _SUBMAP.exists():
 # 실사 영상 4컷(개발 세션이 Liner Videos API 로 만듦). 없으면 사진으로 대신한다.
 _RV = '../../chronos/docs/contest/assets/realvideo-rnd/'
 # (REC 기준 경로, 시작 초, 끝 초): 칸 길이에 맞춰 이 구간을 조금 빠르게 보인다. R&D 판 영상이 오면 채운다.
-OPEN_VIDEOS = []
+OPEN_VIDEOS = [(_RV + 'r1-cut1-a.mp4', 1.0, 4.6),   # 연구원이 떨어진 그래프를 가리킨다
+               (_RV + 'r1-cut2-a.mp4', 0.5, 4.1),
+               (_RV + 'r1-cut3-a.mp4', 0.0, 3.6),   # 전화를 내린다
+               (_RV + 'r1-cut4-b.mp4', 1.0, 4.6)]   # 머리를 감싼다
 
 
 # ── 그림 (카드·자막) ─────────────────────────────────────────────────
