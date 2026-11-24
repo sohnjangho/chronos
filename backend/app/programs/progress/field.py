@@ -7,7 +7,7 @@
 
 import secrets
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
@@ -32,6 +32,7 @@ from app.llm.client import LlmClient, LlmFailed, LlmNotReady
 from app.store import approvals
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound, get_record, load, run
+from app.store.settings import can_human_read
 from app.store.tables import Approval, FieldItem, User
 from app.store.timeutil import as_utc
 from app.store.view import view_data
@@ -69,6 +70,16 @@ VISION_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 UNREADABLE = "사진에 진도를 판단할 근거가 부족합니다."
+# 사람 판독(PM 11-24): AI 가 못 읽었다고 한 사진(readable=false·진도 null)은 「사람 판독 대기」. 호출 실패·사진 없음은 다시 올리면
+# 되는 것이라 대기에 넣지 않는다. 관리자(설정으로 사용자까지)가 진도·근거를 넣으면 현장 보고와 같은 길(apply_item)로 승인함에 간다.
+# status: human_wait → retake(다시 찍기 요청) → retaken(같은 작업 사진을 다시 올림) / human_wait·retake → applied(사람 판독, 승인함)
+HUMAN_WAIT = "human_wait"
+RETAKE = "retake"
+RETAKEN = "retaken"
+HUMAN = "human"  # response_choice: 사람이 넣은 진도
+HUMAN_READ_FORBIDDEN = "사진 사람 판독은 관리자만 할 수 있습니다(설정에서 사용자까지 넓힐 수 있습니다)."
+NOT_WAITING = "사람 판독을 기다리는 사진이 아닙니다."
+USE_HUMAN_READ = "사람 판독을 기다리는 사진은 사람 판독으로만 진도를 넣습니다."
 
 
 class VisionAnswer(BaseModel):
@@ -115,6 +126,15 @@ class RespondIn(StrictIn):
     response_note: str = Field(default="", max_length=1000)
 
 
+class HumanReadIn(StrictIn):
+    progress: int = Field(ge=0, le=100)
+    reason: str = Field(min_length=1, max_length=200)
+
+
+class RetakeIn(StrictIn):
+    reason: str = Field(min_length=1, max_length=200)
+
+
 class HandoffUpdateIn(StrictIn):
     pred_handover_ok: bool
     material: bool
@@ -149,6 +169,8 @@ class FieldSummary(BaseModel):
     checkin_total: int
     checkin_responded: int
     photo_total: int
+    photo_human_wait: int = 0  # 사람 판독 대기(PM 11-24)
+    photo_retake: int = 0  # 다시 찍기 요청을 받고 새 사진을 기다리는 것
     poll_total: int
     poll_feasible: int
     poll_conditional: int
@@ -164,6 +186,7 @@ class FieldListOut(BaseModel):
     summary: FieldSummary
     items: list[FieldItemOut]
     notice: str | None = None  # 이번 요청의 알림(체크인 일괄 발송에서 건너뛴 것 등)
+    can_human_read: bool = False  # 이 사람이 사진 사람 판독·다시 찍기 요청을 할 수 있는가(라우터가 채운다)
 
 
 def client_for(session: Session) -> LlmClient:
@@ -354,6 +377,8 @@ def _list_out(session: Session, schedule_id: int, view: dict[str, Any]) -> Field
         checkin_total=len(checkins),
         checkin_responded=sum(1 for r in checkins if r.status in ("responded", "applied")),
         photo_total=len(photos),
+        photo_human_wait=sum(1 for r in photos if r.status == HUMAN_WAIT),
+        photo_retake=sum(1 for r in photos if r.status == RETAKE),
         poll_total=len(polls),
         poll_feasible=sum(1 for r in polls if r.response_choice == "feasible"),
         poll_conditional=sum(1 for r in polls if r.response_choice == "conditional"),
@@ -433,8 +458,8 @@ def _waiting_activities(session: Session, schedule_id: int) -> set[str]:
 async def _read_photo(
     session: Session, act: dict[str, Any], data_url: str, note: str
 ) -> tuple[VisionAnswer | None, str | None]:
-    """그림 읽기 모델로 사진을 한 번 읽는다(llm_calls 에 남는다). (답, None) 또는 (None, 판독하지 않은 까닭).
-    모델이 못 읽는다고 하거나(readable=false) 진도를 비우면 숫자 없이 그 까닭만 돌려준다(0% 로 두지 않는다).
+    """그림 읽기 모델로 사진을 한 번 읽는다(llm_calls 에 남는다). (답, None) 또는 (None, 판독하지 않은 까닭 — 호출 실패·답 모양 틀림).
+    모델이 못 읽는다고 한 답(readable=false 또는 진도 null)도 답으로 돌려준다 — 부르는 쪽이 unreadable() 로 가려 숫자를 남기지 않는다.
     지금 기록된 진도는 보내지 않는다 — 답이 그 값에 끌린다(PM 11-24)."""
     text = f"작업: {act['id']} {act['name']}\n현장 소견: {note or '(없음)'}"
     messages = [
@@ -448,21 +473,26 @@ async def _read_photo(
     except LlmFailed as e:
         return None, f"판독하지 못했습니다: {e.error.message}"
     try:
-        answer = VisionAnswer.model_validate(reply.parsed)
+        return VisionAnswer.model_validate(reply.parsed), None
     except ValidationError:
         return None, BAD_ANSWER
-    if not answer.readable or answer.progress is None:
-        return None, answer.unreadable_reason.strip() or UNREADABLE
-    return answer, None
 
 
-async def upload_photo(session: Session, schedule_id: int, body: PhotoUploadIn) -> FieldListOut:
+def unreadable(answer: VisionAnswer | None) -> bool:
+    """모델이 못 읽는다고 했거나 진도를 비운 답(0% 로 두지 않는다)."""
+    return answer is not None and (not answer.readable or answer.progress is None)
+
+
+async def upload_photo(session: Session, schedule_id: int, body: PhotoUploadIn, user: User | None = None) -> FieldListOut:
     view = _load_view(session, schedule_id)
     act = next((a for a in view["activities"] if a["id"] == body.activity_id), None)
     if act is None:
         raise ApiError(422, "invalid_activity", f"없는 액티비티입니다: {body.activity_id}")
     photo = body.photo_data_url if body.photo_data_url and body.photo_data_url.startswith("data:image/") else None
     answer, why = await _read_photo(session, act, photo, body.note) if photo else (None, NO_PHOTO)
+    human_wait = unreadable(answer)
+    if answer is not None and human_wait:
+        answer, why = None, answer.unreadable_reason.strip() or UNREADABLE
     day_tag = str(context.today()).replace("-", "")
     payload: dict[str, Any] = {
         "photo_name": body.photo_name,
@@ -478,16 +508,17 @@ async def upload_photo(session: Session, schedule_id: int, body: PhotoUploadIn) 
         payload["photo_data_url"] = photo
     else:
         payload["sample_key"] = "custom"
+    if user is not None:
+        payload["uploaded_by"] = {"id": user.id, "name": user.name}
     rd_now = int(act.get("rd") or act.get("od") or 1)
     trade = body.trade.strip() or _guess_trade(act["name"])
-    session.add(
-        FieldItem(
+    row = FieldItem(
             schedule_id=schedule_id,
             kind="photo",
             activity_id=act["id"],
             activity_name=act["name"],
             trade=trade,
-            status="responded",
+            status=HUMAN_WAIT if human_wait else "responded",
             title=f"[AI 사진 판독] {act['id']} {act['name']}",
             prompt_text=(
                 f"사진({body.photo_name}) 그림 읽기 판독 · 진도 {answer.progress}%"
@@ -500,9 +531,49 @@ async def upload_photo(session: Session, schedule_id: int, body: PhotoUploadIn) 
             response_note=body.note or (answer.reason if answer else ""),
             payload_json=payload,
         )
-    )
+    session.add(row)
+    session.flush()
+    for old in session.scalars(select(FieldItem).where(  # 같은 작업 사진을 다시 올리면 다시 찍기 요청 줄을 닫는다
+            FieldItem.schedule_id == schedule_id, FieldItem.kind == "photo", FieldItem.activity_id == act["id"],
+            FieldItem.status == RETAKE)):
+        old.status = RETAKEN
+        old.payload_json = {**old.payload_json, "retake": {**old.payload_json.get("retake", {}), "replaced_by": row.id}}
     session.commit()
     return _list_out(session, schedule_id, view)
+
+
+def _waiting_photo(session: Session, schedule_id: int, item_id: int, user: User, *statuses: str) -> FieldItem:
+    if not can_human_read(session, user.role):
+        raise ApiError(403, "human_read_forbidden", HUMAN_READ_FORBIDDEN)
+    item = _get_item(session, schedule_id, item_id)
+    if item.kind != "photo" or item.status not in statuses:
+        raise ApiError(422, "not_waiting", NOT_WAITING)
+    return item
+
+
+def human_read(session: Session, schedule_id: int, item_id: int, body: HumanReadIn, user: User) -> FieldListOut:
+    """사람이 사진을 보고 진도·근거 한 줄을 넣는다 → 현장 보고와 같은 길(apply_item)로 승인함에 올린다(사유 human_read, 늘 기다림).
+    AI 숫자(ai_progress)는 null 그대로 두고 사람 값은 payload human_read 와 reported_progress 에만 적는다. 넣은 사람이 승인해도 된다(PM 11-24)."""
+    item = _waiting_photo(session, schedule_id, item_id, user, HUMAN_WAIT, RETAKE)
+    act = next((a for a in _load_view(session, schedule_id)["activities"] if a["id"] == item.activity_id), {})
+    item.response_choice = HUMAN
+    item.reported_progress = body.progress
+    item.reported_rd = 0 if body.progress >= 100 else max(1, int(act.get("rd") or act.get("od") or 1))
+    item.response_note = body.reason
+    item.payload_json = {**item.payload_json, "human_read": {
+        "by": user.name, "by_id": user.id, "progress": body.progress, "reason": body.reason, "at": datetime.now(UTC).isoformat()}}
+    item.status = "responded"
+    return apply_item(session, schedule_id, item_id, user)
+
+
+def retake(session: Session, schedule_id: int, item_id: int, body: RetakeIn, user: User) -> FieldListOut:
+    """다시 찍어 달라는 요청을 그 사진 줄에 남긴다(올린 사람이 현장 점검 화면에서 본다). 문자는 화면이 연락 창(ContactButton)으로 보낸다."""
+    item = _waiting_photo(session, schedule_id, item_id, user, HUMAN_WAIT, RETAKE)
+    item.status = RETAKE
+    item.payload_json = {**item.payload_json, "retake": {
+        "by": user.name, "by_id": user.id, "reason": body.reason, "at": datetime.now(UTC).isoformat()}}
+    session.commit()
+    return _list_out(session, schedule_id, _load_view(session, schedule_id))
 
 
 def create_poll(session: Session, schedule_id: int, body: CreatePollIn) -> FieldListOut:
@@ -538,6 +609,8 @@ def _get_item(session: Session, schedule_id: int, item_id: int) -> FieldItem:
 def respond_item(session: Session, schedule_id: int, item_id: int, body: RespondIn) -> FieldListOut:
     view = _load_view(session, schedule_id)
     item = _get_item(session, schedule_id, item_id)
+    if item.kind == "photo" and item.status in (HUMAN_WAIT, RETAKE):
+        raise ApiError(422, "photo_human_read", USE_HUMAN_READ)
     item.response_choice = body.response_choice
     if body.reported_progress is not None:
         item.reported_progress = body.reported_progress
@@ -652,6 +725,9 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
     after = replace(before, data_date=data_date, activities=tuple(new_acts))
     if (problem := actual_dates_problem(before, after)) is not None:  # Data Date 뒤·착공일 앞 실적은 올리지 않는다
         raise ApiError(422, "actual_dates", actuals_blocked(after, problem))
+    human = (item.payload_json or {}).get("human_read") if item.kind == "photo" and item.response_choice == HUMAN else None
+    if human:
+        notes.append(f"사람 판독 · {human['by']} — {human['reason']}")
     approval_row = None
     try:
         res = propose(
@@ -672,6 +748,7 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
             chat_session_id=None,
             requested_by=user.name,
             force_auto=False,
+            extra_reasons=["human_read"] if human else (),
         )
         approval_row = res.row
         if notes:  # 승인함 요약에 보인다(화면 approvals/ApprovalDetail 의 알릴 것)

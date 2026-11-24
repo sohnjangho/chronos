@@ -5,7 +5,8 @@
 사유 = assess 사유 + extra_reasons, REASONS 차례·겹침 없음. Plan 다시 잡기 선택(reset_plan·plan_reset)은 없다 — Plan 은
 계획 변경을 반영한 버전이 새로 찍는다(store.approvals._plan_change, PM 11-20 밤). 승인 표의 reset_plan 칸은 늘 False 다.
 승인 수준: important = 사유가 하나라도 있으면 · all = 늘 · auto = condition_violated 가 있을 때. force_auto 면 늘 바로 반영.
-다만 현장 관리자(Proposal.requested_role 'field')가 낸 것은 승인 수준·force_auto 와 상관없이 늘 승인을 기다린다.
+다만 현장 관리자(Proposal.requested_role 'field')가 낸 것과 사진 사람 판독(사유 human_read)은 승인 수준·force_auto 와 상관없이
+늘 승인을 기다린다.
 쓰기는 flush 만 한다(commit·rollback 은 부르는 쪽). 분야 범위 내 규칙은 propose 를 거치지 않는다(Task 35).
 """
 
@@ -195,7 +196,7 @@ def propose(session: Session, p: Proposal, *, chat_session_id: int | None, reque
         requested_by=requested_by, requested_kind=p.requested_kind, link_kind=p.link_kind, link_id=p.link_id,
         rule_json=p.rule_json,
     )
-    if field or (not force_auto and _needs(mode, reasons)):
+    if field or "human_read" in reasons or (not force_auto and _needs(mode, reasons)):
         emit(AgentEvent("approval", {"id": row.id, "title": row.title, "reasons": list(row.reasons_json),
                                      "summary": row.summary_json}))
         return ProposalResult(row, False, reasons)

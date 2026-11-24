@@ -11,6 +11,7 @@ from app.programs.approvals.schemas import (
     CountOut,
     DecideIn,
     DecideOut,
+    HumanReadRoleIO,
     ModeIO,
 )
 from app.security.deps import current_user, require_admin, require_editor
@@ -53,3 +54,13 @@ def read_approval_mode(session: SessionDep) -> ModeIO:
 @settings_router.put("/approval", dependencies=[Depends(require_admin)])
 def update_approval_mode(body: ModeIO, session: SessionDep) -> ModeIO:
     return service.put_mode(session, body)
+
+
+@settings_router.get("/human-read")
+def read_human_read_role(session: SessionDep) -> HumanReadRoleIO:
+    return service.get_human_read_role(session)
+
+
+@settings_router.put("/human-read", dependencies=[Depends(require_admin)])
+def update_human_read_role(body: HumanReadRoleIO, session: SessionDep) -> HumanReadRoleIO:
+    return service.put_human_read_role(session, body)

@@ -10,6 +10,7 @@ danger = 음수 여유 > 0 이거나 위반 > 0, warning = 늦은 task > 0 이�
 
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.calendar import WorkCalendar
@@ -22,8 +23,8 @@ from app.programs.attention.schemas import AttentionItem, AttentionOut
 from app.store import points as points_store
 from app.store.delays import open_events
 from app.store.schedules import list_records, load, run
-from app.store.settings import points_config
-from app.store.tables import ScheduleRecord
+from app.store.settings import can_human_read, points_config
+from app.store.tables import FieldItem, ScheduleRecord, User
 from app.store.timeutil import as_utc
 from app.store.view import plan_of, view_of
 
@@ -86,7 +87,16 @@ def _item(session: Session, record: ScheduleRecord) -> AttentionItem:
         return _broken(record, open_delays)
 
 
-def attention(session: Session) -> AttentionOut:
-    items = [_item(session, r) for r in list_records(session)]
+def _human_waits(session: Session) -> dict[int, int]:
+    """일정마다 사진 사람 판독 대기 수(progress.field 의 status human_wait)."""
+    rows = session.execute(select(FieldItem.schedule_id, func.count()).where(
+        FieldItem.kind == "photo", FieldItem.status == "human_wait").group_by(FieldItem.schedule_id))
+    return {sid: n for sid, n in rows}
+
+
+def attention(session: Session, user: User | None = None) -> AttentionOut:
+    """user 가 사진 사람 판독을 할 수 있으면 일정마다 그 대기 수(human_read_wait)를 붙인다(등급에는 넣지 않는다)."""
+    waits = _human_waits(session) if user is not None and can_human_read(session, user.role) else {}
+    items = [_item(session, r).model_copy(update={"human_read_wait": waits.get(r.id, 0)}) for r in list_records(session)]
     items.sort(key=lambda i: (_ORDER[i.level], i.name, i.id))
     return AttentionOut(items=items)

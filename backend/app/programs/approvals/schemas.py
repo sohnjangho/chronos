@@ -68,3 +68,9 @@ class CountOut(BaseModel):
 
 class ModeIO(Strict):
     mode: Mode
+
+
+class HumanReadRoleIO(Strict):
+    """사진 사람 판독을 할 수 있는 등급(PM 11-24): admin = 관리자만(기본), user = 사용자까지. 현장 관리자는 늘 못 한다."""
+
+    role: Literal["admin", "user"]

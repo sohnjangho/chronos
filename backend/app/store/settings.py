@@ -56,6 +56,28 @@ def set_approval_mode(session: Session, mode: str) -> None:
     session.commit()
 
 
+# 사진 사람 판독(PM 11-24): AI 가 못 읽은 사진에 진도를 넣을 수 있는 등급. 기본 관리자만, 넓히면 사용자까지. 현장 관리자는 늘 못 한다.
+HUMAN_READ_ROLE = "human_read_role"
+DEFAULT_HUMAN_READ_ROLE = "admin"
+VALID_HUMAN_READ_ROLES = frozenset({"admin", "user"})
+
+
+def human_read_role(session: Session) -> str:
+    row = session.get(Setting, HUMAN_READ_ROLE)
+    return row.value if row is not None and row.value in VALID_HUMAN_READ_ROLES else DEFAULT_HUMAN_READ_ROLE
+
+
+def set_human_read_role(session: Session, role: str) -> None:
+    """바꾸고 commit 한다. 값 확인은 부르는 쪽(API 의 요청 모델)이 한다."""
+    _upsert(session, HUMAN_READ_ROLE, role)
+    session.commit()
+
+
+def can_human_read(session: Session, role: str) -> bool:
+    """이 등급이 사람 판독(과 다시 찍기 요청)을 할 수 있는가. field 는 늘 False."""
+    return role == "admin" or (role == "user" and human_read_role(session) == "user")
+
+
 def _read_int(session: Session, key: str, lo: int, hi: int, default: int) -> int:
     row = session.get(Setting, key)
     if row is None:

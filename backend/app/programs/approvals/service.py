@@ -19,12 +19,18 @@ from app.programs.approvals.schemas import (
     CountOut,
     DecideIn,
     DecideOut,
+    HumanReadRoleIO,
     ModeIO,
 )
 from app.programs.progress.field import legacy_photo
 from app.store import approvals, chats, links
 from app.store.schedules import NotFound, from_json, load
-from app.store.settings import approval_mode, set_approval_mode
+from app.store.settings import (
+    approval_mode,
+    human_read_role,
+    set_approval_mode,
+    set_human_read_role,
+)
 from app.store.tables import Approval, FieldItem, User
 from app.store.versions import VersionConflict
 
@@ -182,3 +188,12 @@ def get_mode(session: Session) -> ModeIO:
 def put_mode(session: Session, body: ModeIO) -> ModeIO:
     set_approval_mode(session, body.mode)
     return get_mode(session)
+
+
+def get_human_read_role(session: Session) -> HumanReadRoleIO:
+    return HumanReadRoleIO(role=human_read_role(session))
+
+
+def put_human_read_role(session: Session, body: HumanReadRoleIO) -> HumanReadRoleIO:
+    set_human_read_role(session, body.role)
+    return get_human_read_role(session)
