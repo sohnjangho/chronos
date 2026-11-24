@@ -1,5 +1,6 @@
 // 스마트폰(<= 768px) · 태블릿(>= 600px 또는 수동 전환) 전용 앱 셸.
-// OS 다중 창·Dock 대신 상단 헤더(화면 형태 전환 포함) + 풀스크린 본문 + 하단 5개 탭바로 구성하며
+// OS 다중 창·Dock 대신 상단 헤더(화면 형태 전환 포함) + 풀스크린 본문 + 하단 5개 탭바(대화 · 일정·현장 · 승인 · 연락처 · 전체)로 구성하며
+// (자료함은 「전체」 안 — Task 105. 현장 관리자의 탭은 따로이고 연락처가 없다.)
 // 「일정」 탭 안의 「현장 점검」에서 일일 체크인·사진 AI 판독·만회안 의견·D-3 핸드오프를 바로 수행한다.
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useAgentView } from './agentView';
@@ -14,7 +15,7 @@ import { useDeviceMode, useResolvedDevice } from './useIsMobile';
 import { useWindows } from './windowStore';
 import './mobile.css';
 
-type TabId = 'chat' | 'schedule' | 'approvals' | 'library' | 'more';
+type TabId = 'chat' | 'schedule' | 'approvals' | 'contacts' | 'more';
 
 const SCHEDULE_SUBS = [
   { id: 'schedule-table', label: '스케줄' },
@@ -34,7 +35,7 @@ const SCHEDULE_IDS = new Set<string>(['schedule-table', 'gantt', 'progress', 'de
 function tabForProgram(programId: string): TabId {
   if (programId === 'chat') return 'chat';
   if (programId === 'approvals') return 'approvals';
-  if (programId === 'library') return 'library';
+  if (programId === 'contacts') return 'contacts';
   if (SCHEDULE_IDS.has(programId)) return 'schedule';
   return 'more';
 }
@@ -197,7 +198,7 @@ function MobileTabBar({
     { id: 'chat', label: '대화', programId: 'chat' },
     { id: 'schedule', label: '일정·현장', programId: 'schedule-table' },
     { id: 'approvals', label: '승인', programId: 'approvals', badge: pending },
-    { id: 'library', label: '자료함', programId: 'library' },
+    { id: 'contacts', label: '연락처', programId: 'contacts' },
     { id: 'more', label: '전체', systemId: 'apps' },
   ];
   return (
@@ -239,7 +240,7 @@ export default function MobileShell() {
   const lastTopRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (isFieldRole && (tab === 'approvals' || tab === 'library' || tab === 'more')) {
+    if (isFieldRole && (tab === 'approvals' || tab === 'contacts' || tab === 'more')) {
       setTab('schedule');
       setScheduleSub('field');
     }
@@ -270,8 +271,8 @@ export default function MobileShell() {
       ? 'chat'
       : tab === 'approvals'
         ? 'approvals'
-        : tab === 'library'
-          ? 'library'
+        : tab === 'contacts'
+          ? 'contacts'
           : tab === 'schedule'
             ? scheduleSub === 'field'
               ? 'progress'

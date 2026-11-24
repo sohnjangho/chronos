@@ -73,7 +73,7 @@ test('MobileShell replaces raw emojis with unified cross-device icons matching D
     chat: '/custom/chat.png',
     'schedule-table': '/custom/schedule-table.png',
     approvals: '/custom/approvals.png',
-    library: '/custom/library.png',
+    contacts: '/custom/contacts.png', // 아래 탭 「연락처」(Task 105 — 자료함 자리)
     apps: '/custom/apps.png',
   });
   signInAsDemo('user', '김현장', 'field-user', 2);
@@ -87,7 +87,7 @@ test('MobileShell replaces raw emojis with unified cross-device icons matching D
   const nav = screen.getByRole('navigation', { name: '모바일 탐색' });
 
   expect(nav.textContent).not.toMatch(/💬|📅|📁|☰/);
-  for (const id of ['chat', 'schedule-table', 'approvals', 'library', 'apps']) {
+  for (const id of ['chat', 'schedule-table', 'approvals', 'contacts', 'apps']) {
     const img = nav.querySelector(`[data-icon-id="${id}"] img.os-icon-img`) as HTMLImageElement | null;
     expect(img, `bottom tab icon ${id}`).not.toBeNull();
     expect(img!.getAttribute('src')).toBe(`/custom/${id}.png`);

@@ -2,6 +2,8 @@
 // 사람·협력사 양식은 오른쪽 칸을 잠깐 차지한다. 주소록은 프로젝트(일정)마다 따로이고 현장 관리자는 열 수 없다.
 // params: id(일정) · contact(고를 사람) · tab('messages' | 'calls') · compose · activity · call(대화 칸에 그대로 넘김).
 // 들어온 문자 화면(Task 85): 주소록 위 「확인할 연락처 n」「확인할 보고 n」, 아래 「모르는 번호」 묶음 — 누르면 오른쪽 칸에 그 목록.
+// 태블릿·스마트폰(Task 105, useNarrow): 폰·좁은 PC 창은 목록 → 대화 한 화면씩(위 「‹ 이름」 으로 돌아감), 태블릿은 두 칸이고
+// 세로로 세우면 사람을 고른 뒤 주소록이 접힌다(머리 띠의 [주소록]). 숨긴 칸은 hidden 으로 — 지우지 않아 찾기 글·펼침이 남는다.
 import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import type { ProgramProps } from '../../os/registry';
@@ -17,6 +19,7 @@ import CopyFromProject from './CopyFromProject';
 import CsvImport from './CsvImport';
 import { ProposalsPane, useProposals } from './Proposals';
 import { ReportsPane, useReports } from './Reports';
+import { useNarrow } from './useNarrow';
 import { UnknownGroup, UnknownPane, useUnknown } from './UnknownPeers';
 import { getBook, getNotifyStatus, KIND_LABEL, type AddressBook as Book, type Company, type NotifyStatus, type PersonBrief } from './contactsApi';
 import PersonForm from './PersonForm';
@@ -102,7 +105,13 @@ function InboxPane({ mode, scheduleId, book, isAdmin, inbox, setMode, openPerson
   );
 }
 
-function StatusStrip({ status, projectName }: { status: NotifyStatus | null | undefined; projectName: string | null }) {
+/** 접힌 주소록 펼치기(세로 태블릿) — 사람을 고른 동안에만. */
+interface Fold {
+  open: boolean;
+  toggle: () => void;
+}
+
+function StatusStrip({ status, projectName, fold }: { status: NotifyStatus | null | undefined; projectName: string | null; fold: Fold | null }) {
   const badge =
     status === undefined ? null : status && status.ready && status.test_mode ? (
       <span className="ct-badge is-warn">{`시험 모드 · 허용 번호 ${status.allow_count}개`}</span>
@@ -111,6 +120,11 @@ function StatusStrip({ status, projectName }: { status: NotifyStatus | null | un
     );
   return (
     <div className="ct-strip" role="status" aria-label="알림 연결 상태">
+      {fold && (
+        <button type="button" className="ct-fold" aria-expanded={fold.open} onClick={fold.toggle}>
+          주소록
+        </button>
+      )}
       <span className="ct-strip-title ct-ellipsis">{projectName ? `${projectName}의 주소록` : '이 프로젝트의 주소록'}</span>
       {badge}
     </div>
@@ -133,16 +147,23 @@ function PersonHead({ p, company, kakaoReady, tab, calls, onTab, onEdit, onBack 
   calls: number | null;
   onTab: (t: ThreadTab) => void;
   onEdit: () => void;
-  onBack: () => void;
+  /** 한 화면씩일 때만 — 이름 자리가 「‹ 이름」 단추가 되어 주소록으로 돌아간다. */
+  onBack?: () => void;
 }) {
   return (
     <div className="ct-head">
-      <button type="button" className="ct-back" onClick={onBack}>
-        ‹ 목록
-      </button>
       <div className="ct-head-main">
         <div className="ct-head-line">
-          <h2 className="ct-head-name ct-ellipsis" title={p.name}>{p.name}</h2>
+          {onBack ? (
+            <>
+              <h2 className="ct-sr">{p.name}</h2>
+              <button type="button" className="ct-back ct-back-name ct-ellipsis" aria-label={`${p.name} — 주소록으로 돌아가기`} title="주소록으로 돌아가기" onClick={onBack}>
+                {`‹ ${p.name}`}
+              </button>
+            </>
+          ) : (
+            <h2 className="ct-head-name ct-ellipsis" title={p.name}>{p.name}</h2>
+          )}
           <span className="ct-head-sub ct-ellipsis" title={[p.role_title, company].filter(Boolean).join(' · ')}>{[p.role_title, company].filter(Boolean).join(' · ')}</span>
         </div>
         <div className="ct-head-line ct-head-sub">
@@ -239,10 +260,12 @@ interface PaneProps {
   params: Params;
   reload: () => void;
   inbox: Inbox;
+  /** 한 화면씩(폰·좁은 창)인가 — 머리에 「‹ 이름」 */
+  single: boolean;
 }
 
 /** 오른쪽 칸: 사람·협력사 양식, 또는 고른 사람의 머리 + 대화 자리, 또는 고르라는 글. */
-function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projectName, isAdmin, kakaoReady, tab, setTab, params, reload, inbox }: PaneProps) {
+function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projectName, isAdmin, kakaoReady, tab, setTab, params, reload, inbox, single }: PaneProps) {
   const close = () => setMode({ kind: 'none' });
   const openPerson = (id: number, to: ThreadTab = 'messages') => (setSelectedId(id), setTab(to), close());
   // 넘겨받은 글·작업(params.compose·activity)은 params.contact 인 사람의 입력창에만, 한 번만 — 그 입력창이 처음 그려진 뒤에는
@@ -308,7 +331,7 @@ function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projec
         calls={callCount.calls}
         onTab={setTab}
         onEdit={() => setMode({ kind: 'person', id: selected.id, companyId: null })}
-        onBack={() => setSelectedId(null)}
+        onBack={single ? () => setSelectedId(null) : undefined}
       />
       <section className="ct-slot" aria-label="대화" data-tab={tab}>
         <ThreadSlot key={selected.id} scheduleId={scheduleId} person={selected} tab={tab} compose={handing ? params?.compose : undefined} activity={handing ? params?.activity : undefined} call={handingCall ? params?.call : undefined} onChanged={reload} onCallCount={callCount.report} />
@@ -344,6 +367,9 @@ function ContactsBody({ windowId, scheduleId, params, projectName }: { windowId:
   const [mode, setMode] = useState<Mode>({ kind: 'none' });
   const [xfer, setXfer] = useState<'import' | 'copy' | null>(null); // 이 몸은 일정마다 새로 그려진다 → 프로젝트를 바꾸면 대화상자도 닫힌다
   const { selectedId, setSelectedId, tab, setTab } = useParamSelection(params, setMode);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const layout = useNarrow(rootRef);
+  const [bookOpen, setBookOpen] = useState(false); // 세로 태블릿에서 접힌 주소록을 펼쳤나
 
   useEffect(() => {
     useWindows.getState().setTitle(windowId, projectName ? `${NAME} — ${projectName}` : NAME);
@@ -355,32 +381,40 @@ function ContactsBody({ windowId, scheduleId, params, projectName }: { windowId:
   const selected = book?.companies.flatMap((c) => c.people).find((p) => p.id === selectedId) ?? null;
   const paneOpen = mode.kind !== 'none' || selected !== null;
   const isAdmin = role === 'admin';
+  const single = layout === 'single';
+  const folded = layout === 'folded' && paneOpen;
+  const bookHidden = paneOpen && (single || (folded && !bookOpen));
+  const paneHidden = single && !paneOpen;
+  const fold = folded ? { open: bookOpen, toggle: () => setBookOpen((o) => !o) } : null;
 
   return (
-    <div className={`ct-root${paneOpen ? ' has-pane' : ''}`}>
-      <StatusStrip status={status} projectName={projectName} />
+    <div ref={rootRef} className={`ct-root is-${layout}${paneOpen ? ' has-pane' : ''}${bookHidden || paneHidden ? ' is-one' : ''}`}>
+      <StatusStrip status={status} projectName={projectName} fold={fold} />
       <div className="ct-main">
-        <AddressBook
-          book={book}
-          error={error}
-          selectedId={selectedId}
-          onSelect={(p) => {
-            setSelectedId(p.id);
-            setMode({ kind: 'none' });
-          }}
-          onAddPerson={(companyId) => setMode({ kind: 'person', id: null, companyId })}
-          onAddCompany={() => setMode({ kind: 'company', company: null })}
-          onEditCompany={(c) => setMode({ kind: 'company', company: c })}
-          showHidden={showHidden}
-          onShowHidden={setShowHidden}
-          isAdmin={isAdmin}
-          onImport={() => setXfer('import')}
-          onCopy={isAdmin ? () => setXfer('copy') : undefined}
-          above={<InboxEntries inbox={inbox} mode={mode} onOpen={setMode} />}
-          below={<UnknownGroup items={inbox.unknown.items} current={mode.kind === 'unknown' ? mode.key : null} onOpen={(key) => setMode({ kind: 'unknown', key })} />}
-        />
-        <section className="ct-pane" aria-label={selected && mode.kind === 'none' ? `${selected.name} 대화` : '연락처 자세히'}>
-          {mode.kind !== 'none' && (
+        <div className="ct-book-slot" hidden={bookHidden}>
+          <AddressBook
+            book={book}
+            error={error}
+            selectedId={selectedId}
+            onSelect={(p) => {
+              setSelectedId(p.id);
+              setMode({ kind: 'none' });
+              setBookOpen(false);
+            }}
+            onAddPerson={(companyId) => setMode({ kind: 'person', id: null, companyId })}
+            onAddCompany={() => setMode({ kind: 'company', company: null })}
+            onEditCompany={(c) => setMode({ kind: 'company', company: c })}
+            showHidden={showHidden}
+            onShowHidden={setShowHidden}
+            isAdmin={isAdmin}
+            onImport={() => setXfer('import')}
+            onCopy={isAdmin ? () => setXfer('copy') : undefined}
+            above={<InboxEntries inbox={inbox} mode={mode} onOpen={setMode} />}
+            below={<UnknownGroup items={inbox.unknown.items} current={mode.kind === 'unknown' ? mode.key : null} onOpen={(key) => setMode({ kind: 'unknown', key })} />}
+          />
+        </div>
+        <section className="ct-pane" hidden={paneHidden} aria-label={selected && mode.kind === 'none' ? `${selected.name} 대화` : '연락처 자세히'}>
+          {single && mode.kind !== 'none' && (
             <button type="button" className="ct-back ct-back-form" onClick={() => setMode({ kind: 'none' })}>
               ‹ 목록
             </button>
@@ -400,6 +434,7 @@ function ContactsBody({ windowId, scheduleId, params, projectName }: { windowId:
             params={params}
             reload={reload}
             inbox={inbox}
+            single={single}
           />
         </section>
       </div>

@@ -9,7 +9,8 @@ import App from './App';
 import { useApprovals } from './approvals';
 import { useSession } from './session';
 import { resetShellState } from './shellReset';
-import { useTabletRail } from './tabletRailStore';
+import { programs } from './registry';
+import { defaultTabletRailIds, resolveTabletRail, useTabletRail } from './tabletRailStore';
 import { detectClientDevice, useDeviceMode } from './useIsMobile';
 import { useWindows } from './windowStore';
 
@@ -46,7 +47,7 @@ test('renders MobileShell on <=768px and switches tabs, schedule sub-tabs, and m
   expect(within(nav).getByRole('button', { name: /대화/ })).toBeVisible();
   expect(within(nav).getByRole('button', { name: /일정/ })).toBeVisible();
   expect(within(nav).getByRole('button', { name: /승인/ })).toBeVisible();
-  expect(within(nav).getByRole('button', { name: /자료함/ })).toBeVisible();
+  expect(within(nav).getByRole('button', { name: /연락처/ })).toBeVisible();
   expect(within(nav).getByRole('button', { name: /전체/ })).toBeVisible();
 
   // 일정 탭 → 5개 세그먼트(스케줄·간트·공정률·지연·현장 점검)
@@ -63,11 +64,12 @@ test('renders MobileShell on <=768px and switches tabs, schedule sub-tabs, and m
   expect(within(main).getByRole('button', { name: '자료함' })).toBeVisible();
   expect(within(main).queryByRole('button', { name: '개발 콘솔' })).toBeNull();
 
-  // useWindows.open('library') 호출 시 자료함 탭으로 자동 이동
+  // useWindows.open('library') 호출 시 「전체」 탭 안의 자료함으로(Task 105 — 아래 탭에서 빠짐)
   act(() => {
     useWindows.getState().open('library');
   });
-  expect(within(nav).getByRole('button', { name: /자료함/ })).toHaveAttribute('aria-current', 'page');
+  expect(within(nav).getByRole('button', { name: /전체/ })).toHaveAttribute('aria-current', 'page');
+  expect(screen.getByRole('button', { name: '목록으로' })).toBeVisible();
 
   // 화면 형태 전환(스마트폰 → 태블릿 전용 셸 → PC 창)
   await userEvent.selectOptions(screen.getByRole('combobox', { name: '화면 형태' }), 'tablet');
@@ -136,7 +138,61 @@ test('field role boots into dedicated simplified mobile navigation without appro
   expect(within(fieldNav).getByRole('button', { name: '현장 점검' })).toBeVisible();
   expect(within(fieldNav).getByRole('button', { name: '일정·간트' })).toBeVisible();
   expect(within(fieldNav).getByRole('button', { name: '현장 AI' })).toBeVisible();
-  expect(within(fieldNav).queryByRole('button', { name: /승인|자료함|전체/ })).toBeNull();
+  expect(within(fieldNav).queryByRole('button', { name: /승인|자료함|연락처|전체/ })).toBeNull();
+});
+
+test('phone bottom tabs are 대화 · 일정·현장 · 승인 · 연락처 · 전체 in that order; 자료함 lives in 전체 (Task 105)', async () => {
+  render(<App />);
+  const nav = screen.getByRole('navigation', { name: '모바일 탐색' });
+  const labels = Array.from(nav.querySelectorAll('.mob-tab-label')).map((el) => el.textContent);
+  expect(labels).toEqual(['대화', '일정·현장', '승인', '연락처', '전체']);
+
+  const contactsTab = within(nav).getByRole('button', { name: /연락처/ });
+  await userEvent.click(contactsTab);
+  expect(contactsTab).toHaveAttribute('aria-current', 'page');
+  expect(screen.getByTestId('mobile-shell').querySelector('.mob-title')).toHaveTextContent('연락처');
+
+  // 전체 안에 자료함(누르면 전체 탭에서 열리고 「목록으로」로 돌아옴)
+  await userEvent.click(within(nav).getByRole('button', { name: /전체/ }));
+  await userEvent.click(within(screen.getByRole('main')).getByRole('button', { name: '자료함' }));
+  expect(within(nav).getByRole('button', { name: /전체/ })).toHaveAttribute('aria-current', 'page');
+  expect(screen.getByTestId('mobile-shell').querySelector('.mob-title')).toHaveTextContent('자료함');
+
+  // 다른 프로그램이 연락처 창을 열면 연락처 탭으로
+  act(() => {
+    useWindows.getState().open('contacts', { contact: '3' });
+  });
+  expect(contactsTab).toHaveAttribute('aria-current', 'page');
+});
+
+test('a field manager has no 연락처 tab, and an open(contacts) does not leave the field screens (Task 105)', () => {
+  signInAsDemo('field', '박현장', 'site1', 3);
+  render(<App />);
+  const fieldNav = screen.getByRole('navigation', { name: '모바일 현장 탐색' });
+  expect(within(fieldNav).queryByRole('button', { name: /연락처/ })).toBeNull();
+  act(() => {
+    useWindows.getState().open('contacts');
+  });
+  expect(within(fieldNav).getByRole('button', { name: '현장 점검' })).toHaveAttribute('aria-current', 'page');
+  expect(screen.queryByText('현장 관리자는 연락처를 열 수 없습니다.')).toBeNull();
+});
+
+test('the default tablet rail has 연락처 right after 승인함; the field rail never shows it (Task 105)', async () => {
+  const user = defaultTabletRailIds('user');
+  expect(user).toContain('contacts');
+  expect(user.indexOf('contacts')).toBe(user.indexOf('approvals') + 1);
+  expect(defaultTabletRailIds('admin')).toEqual(user);
+  expect(defaultTabletRailIds('field')).not.toContain('contacts');
+  // 현장 관리자가 저장한 레일에 contacts 가 있어도 보이지 않는다
+  expect(resolveTabletRail('field', programs('field'), ['contacts', 'field']).map((e) => e.id)).toEqual(['field']);
+
+  vi.stubGlobal('innerWidth', 1024);
+  vi.stubGlobal('innerHeight', 1366);
+  render(<App />);
+  const rail = screen.getByRole('navigation', { name: '태블릿 탐색' });
+  const contacts = within(rail).getByRole('button', { name: '연락처' });
+  await userEvent.click(contacts);
+  expect(contacts).toHaveAttribute('aria-current', 'page');
 });
 
 test('on the 현장 AI (chat) tab the phone stays put while the agent turn stages other windows (F5)', async () => {

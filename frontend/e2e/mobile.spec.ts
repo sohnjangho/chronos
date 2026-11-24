@@ -29,13 +29,15 @@ test('mobile viewport renders MobileShell with 5 bottom tabs and full-screen pro
   // 승인 탭
   await nav.getByRole('button', { name: /승인/ }).click();
 
-  // 자료함 탭
-  await nav.getByRole('button', { name: /자료함/ }).click();
-  await expect(page.getByRole('searchbox', { name: '자료 찾기' })).toBeVisible();
+  // 연락처 탭(Task 105 — 자료함 자리)
+  await nav.getByRole('button', { name: /연락처/ }).click();
+  await expect(page.locator('.ct-root')).toBeVisible();
 
-  // 전체 탭 → 개발 콘솔(관리자) 표시
+  // 전체 탭 → 개발 콘솔(관리자) 표시, 자료함은 여기 안에
   await nav.getByRole('button', { name: /전체/ }).click();
   await expect(page.getByRole('button', { name: '개발 콘솔' })).toBeVisible();
+  await page.getByRole('button', { name: '자료함' }).click();
+  await expect(page.getByRole('searchbox', { name: '자료 찾기' })).toBeVisible();
 });
 
 test('phone keeps the schedule tool ribbon to one row so gantt bars show, and the header and site list fit the screen (F3·F6)', async ({ page }) => {
