@@ -20,6 +20,8 @@ from tests.llm_doubles import KEY, add_connection
 ANSWER = "일 평균기온 4℃ 이하면 한중 콘크리트다 ((2)). 야간 작업은 22시까지다 ((1)) ((2))."
 # 실측(11-24) stream:false 응답을 줄인 것(키 없음). 원본은 .superpowers/sdd/2026-11-24-chronos-plan-5-points/
 SAMPLE = Path(__file__).resolve().parents[1] / "fixtures/search_agent_real_sample.json"
+# 리허설(11-24) 실측: referenceChunks 없이 sortedReferenceItems[{index, reason}] → references[index] 로 온 꼴(줄인 것)
+SORTED_SAMPLE = SAMPLE.with_name("search_agent_real_sample_sorted.json")
 
 
 class AgentMock(httpx.MockTransport):
@@ -217,3 +219,52 @@ async def test_cost_is_recorded(session, conn, use):
     assert (ok.ok, ok.cost, ok.error_code) == (True, search_agent.COST_PER_CALL, None)
     assert ok.model == ok.requested_model == search_agent.MODEL and ok.latency_ms >= 0
     assert (bad.ok, bad.error_code) == (False, "agent_error")
+
+
+def short(text: str) -> str:
+    return search_agent._short(text)
+
+
+async def test_real_sorted_sample_shape(session, conn, use):
+    body = json.loads(SORTED_SAMPLE.read_text(encoding="utf-8"))
+    use(AgentMock(body))
+    got = await ask(session, "알루미늄 가격 커튼월")
+    order = next(c for c in body["chunks"] if c["type"] == "data-search-chunks")["data"]["sortedReferenceItems"]
+    refs = [body["references"][i["index"]] for i in order[:3]]  # 인용 ((n)) 이 없어 Liner 가 정한 차례 그대로
+    assert got == [AgentQuote(short(r["description"]), r["url"], r["title"]) for r in refs]
+    assert all(body["answer"][:40] not in q.text and not q.text.startswith("요약:") for q in got)
+
+
+def ref(n: int, description: str = "", url: str | None = None) -> dict:
+    return {"title": f"자료 {n}", "url": url or f"https://r.example.com/{n}", "hostname": "r.example.com",
+            "description": description}
+
+
+async def test_sorted_references_cited_first_and_reason_is_labelled(session, conn, use):
+    references = [ref(0, "영 번 설명"), ref(1, ""), ref(2, "이 번 설명"), ref(3, "삼 번 설명", "javascript:x")]
+    items = [{"index": 0}, {"index": 3}, {"index": 99}, {"index": "1"},
+             {"index": 1, "reason": [{"value": "World Bank 자료라 "}, {"type": "underline", "value": "알루미늄 가격"},
+                                     {"value": " 과 맞다."}]},
+             {"index": 2}]
+    use(AgentMock({"answer": "앞 ((3)) 뒤", "references": references,
+                   "chunks": [{"type": "data-search-chunks", "data": {"sortedReferenceItems": items}}]}))
+    got = await ask(session, "q")
+    assert got == [AgentQuote("이 번 설명", "https://r.example.com/2", "자료 2"),  # ((3)) = references[2] 먼저
+                   AgentQuote("영 번 설명", "https://r.example.com/0", "자료 0"),
+                   AgentQuote("요약: World Bank 자료라 알루미늄 가격 과 맞다.", "https://r.example.com/1", "자료 1")]
+
+
+async def test_sorted_references_without_any_text_is_no_quotes(session, conn, use):
+    use(AgentMock({"references": [ref(0)], "chunks": [{"type": "data-search-chunks",
+                                                         "data": {"sortedReferenceItems": [{"index": 0}]}}]}))
+    with pytest.raises(SearchAgentFailed) as e:
+        await ask(session, "q")
+    assert e.value.code == "no_quotes"
+
+
+async def test_reference_chunks_win_over_sorted_references(session, conn, use):
+    use(AgentMock({"references": [ref(0, "참고 설명")], "chunks": [
+        {"type": "data-search-chunks", "data": {"sortedReferenceItems": [{"index": 0}]}},
+        {"type": "data-search-chunks", "data": CHUNKS}]}))
+    got = await ask(session, "q")
+    assert [q.url for q in got] == [REFS[0]["url"], REFS[1]["url"]]

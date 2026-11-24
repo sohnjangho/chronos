@@ -1,0 +1,329 @@
+{
+  "_note": "실측 11-24 리허설 Search Agent stream:false 응답을 줄인 것(키·id 없음, 글은 400자까지, references 는 앞 23개·칸 다섯).",
+  "answer": "Title: Publication: Commodity Markets Outlook, April 2026\nAbstract: Against this backdrop, overall commodity prices are expected to surge by 23 percent in 2026, led by a 32 percent increase in energy prices, with ...\nReason: This document provides a critical assessment of the global commodity market",
+  "references": [
+    {
+      "title": "Aluminum in Construction Market Industry Outlook 2024–2030: Growth Trends, Sustainability, and Technological Advancements",
+      "url": "https://zenodo.org/doi/10.5281/zenodo.18168831",
+      "hostname": "zenodo.org",
+      "description": "The global aluminum in construction market is witnessing steady growth, driven by rapid urbanization, infrastructure development, and increasing emphasis on sustainable building materials. Valued at USD 137.16 billion in 2024 and projected to reach USD 188.01 billion by 2030 at a CAGR of 5.39%, the market benefits from aluminum’s lightweight, durability, corrosion resistance, and high recyclabilit",
+      "date": "2026-01-07"
+    },
+    {
+      "title": "Aluminum Industry Five-Year Forecast—1980–1984",
+      "url": "https://saemobilus.sae.org/papers/aluminum-industry-five-year-forecast-1980-1984-800115",
+      "hostname": "saemobilus.sae.org",
+      "description": "This five-year forecast is based on what will be the most likely series of economic developments over the next several years, none of which anticipates an extreme or severe worldwide business recession similar to 1974–1975. Under the assumptions in the forecast, the long-term outlook for the aluminum industry is: (1) aluminum supply/demand will grow progressively tighter through 1983–1984, and (2)",
+      "date": "1980-02-01"
+    },
+    {
+      "title": "Identification of factors shaping tender prices for lightweight",
+      "url": "http://iks.pn.sggw.pl/PN84/A1/zeszyt84art1en.html",
+      "hostname": "iks.pn.sggw.pl",
+      "description": "A reliable estimation of the tender prices for lightweight curtain walls is a complex and time-consuming process for the contractor, as it depends on many factors related to both the technical parameters of the designed façade and the investor’s requirements for the solutions selected. The aim of the paper is to identify the factors affecting the costs of manufacturing lightweight curtain walls. D",
+      "date": "2019-06-30"
+    },
+    {
+      "title": "\"Architectural Aluminum Report: Aluminum in Curtain Wall Systems\"",
+      "url": "http://artic.contentdm.oclc.org/u?/mqc,68803",
+      "hostname": "artic.contentdm.oclc.org",
+      "description": "Schipporeit-Heinrich [Lake Point Tower]; Skidmore, Owings & Merrill [Hancock, Midland, Tenneco]; Graham, Bruce [Hancock]; Bunshaft, Gordon; Graham, John, and Associates [Plaza]; Architects Design Group [Three] [Midland]",
+      "date": "1958-01-01"
+    },
+    {
+      "title": "TREND: World Bank. Global Economic Monitor: Commodity Prices | Commodity: Aluminum, 1997 - 2015. Data Planet™ Statistical Datasets: A SAGE Publishing Resource Dataset-ID: 051-003-003",
+      "url": "https://data.sagepub.com/dataset/datasheet?id=16659115a0724&type=static&tombstone=true",
+      "hostname": "data.sagepub.com",
+      "description": "World Bank. Global Economic Monitor: Commodity Prices | Commodity: Aluminum, 1997 - 2015. Data Planet™ Statistical Datasets: A SAGE Publishing Resource Dataset-ID: 051-003-003 Dataset: Presents monthly and annual international averages for commodities prices and indices. The Global Economic Monitor (GEM) dataset includes economic indicators on 196 countries. Data are provided where available by co",
+      "date": "2018-01-01"
+    },
+    {
+      "title": "Aluminium: Outlook to 2006-07",
+      "url": "https://search.informit.com.au/documentSummary;dn=166572484071339;res=IELAPA",
+      "hostname": "search.informit.com.au",
+      "description": "Significant consumer restocking in the second half of 2002 is expected to lead to higher aluminium consumption. Australian export earnings from aluminium and alumina are forecast to increase over the next two years, before declining as world prices weaken in the face of rising world production.",
+      "date": "2002-03-01"
+    },
+    {
+      "title": "Has Futures Trading Affected the Volatility of Aluminium Transactions Prices",
+      "url": "http://www.ssrn.com/abstract=259791",
+      "hostname": "ssrn.com",
+      "description": "We consider how aluminium transactions prices have been affected by the development of futures trading in aluminium. Using a series for transactions prices constructed from a trade journal, we establish that both this series and the exchange cash price may be regarded as error-ridden measures of the same latent variables. Furthermore, the error associated with the exchange price has declined over ",
+      "date": "2000-12-01"
+    },
+    {
+      "title": "Have Aluminium and Copper Futures Markets Become More Volatile Over Time",
+      "url": "https://admin.research-repository.uwa.edu.au/en/publications/c81662b7-6a9a-4430-9f45-14601d79a3e6",
+      "hostname": "admin.research-repository.uwa.edu.au",
+      "description": "Changes in the prices of aluminium and copper are often closely aligned with changes in global industrial production, but also reflect market specific events, compliment and substitute relationships between the physical metals in production, and financial market type influences. Brunetti and Gilbert [1995] characterise two sources of volatility in non-ferrous metals markets, those related to finan",
+      "date": "2005-01-01"
+    },
+    {
+      "title": "Feasibility Study of Large-Sized Aluminum Facades by Using Wire Arc Additive Manufacturing",
+      "url": "https://repositories.lib.utexas.edu/handle/2152/117726",
+      "hostname": "repositories.lib.utexas.edu",
+      "description": "Over the past few years, there has been growing interest in the fabrication of construction components by using wire arc additive manufacturing (WAAM). We focused on the finishing materials as a potential application for WAAM and began to consider fabricating aluminum building facades. However, there are several issues, such as fabrication size of 4-5m, aesthetics, and structural performance. Ther",
+      "date": "2022-01-01"
+    },
+    {
+      "title": "Structural Analysis of Factors Influencing the Costs of Facade System Implementation",
+      "url": "https://www.mdpi.com/2076-3417/10/17/6021",
+      "hostname": "mdpi.com",
+      "description": "External facades of buildings and other structures shape the image of every building, creating the architecture of cities. Traditional concrete forms, as a symbol of durability and stability, have been replaced by lightweight enclosures—for example, in the form of aluminium–glass facades and ventilated facades. In this paper, the authors attempt to verify the strength of influence and relations be",
+      "date": "2020-08-31"
+    },
+    {
+      "title": "The Price of Aluminum: Trends, Factors, and Forecasts",
+      "url": "https://www.ryerson.com/metal-resources/metal-market-intelligence/what-is-the-price-of-aluminum",
+      "hostname": "ryerson.com",
+      "description": "Aluminum prices are high due to a combination of tight supply, elevated energy costs, tariffs, and sustained industrial demand. These factors have overlapped,",
+      "date": null
+    },
+    {
+      "title": "Aluminum Price Trend, Chart, Index and Forecast",
+      "url": "https://www.imarcgroup.com/aluminum-pricing-report",
+      "hostname": "imarcgroup.com",
+      "description": "Track Aluminum Price Trend, Chart & Index with forecast insights. Global Aluminum Prices reached 2.76 USD/KG, moving 1.5% Up in December ...",
+      "date": "2026-03-03"
+    },
+    {
+      "title": "Aluminum Curtain Wall Market Size & Forecast 2034",
+      "url": "https://www.theinsightpartners.com/reports/aluminum-curtain-wall-market",
+      "hostname": "theinsightpartners.com",
+      "description": "The aluminum curtain wall market size is expected to grow from US$ 45.60 Million in 2025 to US$ 75.70 Million by 2034.",
+      "date": "2026-07-13"
+    },
+    {
+      "title": "Aluminum Curtain Wall Market Size & Share Report, 2033",
+      "url": "https://www.grandviewresearch.com/industry-analysis/aluminum-curtain-wall-market",
+      "hostname": "grandviewresearch.com",
+      "description": "Aluminum curtain wall market size was valued at $41.3B in 2025 and is projected to grow from $45.1B in 2026 to $83.0B by 2033, at a CAGR of 9.1%",
+      "date": null
+    },
+    {
+      "title": "Commodity Markets",
+      "url": "https://www.worldbank.org/en/research/commodity-markets",
+      "hostname": "worldbank.org",
+      "description": "Metal and minerals prices are set to reach an all-time peak in 2026 as aluminum, copper, and tin prices hit record highs. Next update: April ...",
+      "date": "2026-11-03"
+    },
+    {
+      "title": "Publication: Commodity Markets Outlook, April 2026",
+      "url": "https://openknowledge.worldbank.org/entities/publication/3ede6f8c-ba03-4176-867c-40e604698570",
+      "hostname": "openknowledge.worldbank.org",
+      "description": "Against this backdrop, overall commodity prices are expected to surge by 23 percent in 2026, led by a 32 percent increase in energy prices, with ...",
+      "date": "2026-04-28"
+    },
+    {
+      "title": "Handle Construction Material Price Volatility as a Supplier (2026 tariffs)",
+      "url": "https://slabstack.com/resources/blogs/how-to-handle-construction-material-price-volatility/",
+      "hostname": "slabstack.com",
+      "description": "Tariffs on steel, aluminum, lumber, and imported cement, supply chain pressure, have pushed costs higher across 2025–2026.",
+      "date": "2025-06-13"
+    },
+    {
+      "title": "Material cost volatility and supply chain disruptions rank as the fourth ...",
+      "url": "https://www.linkedin.com/pulse/material-cost-volatility-supply-chain-disruptions-robinson-alcm-6lbje",
+      "hostname": "linkedin.com",
+      "description": "Steel and aluminum prices expected to rise due to new tariffs · Lumber experiencing fluctuations despite 2024 stability · Electrical components ...",
+      "date": null
+    },
+    {
+      "title": "The Price of Aluminum: What Affects Aluminum Pricing",
+      "url": "https://www.kloecknermetals.com/blog/factors-affecting-aluminum-pricing/",
+      "hostname": "kloecknermetals.com",
+      "description": "Exchange aluminum prices include both the energy costs for production as well as the transportation costs getting the metal to its destination.",
+      "date": "2021-06-14"
+    },
+    {
+      "title": "How Aluminum Price Fluctuations Impact Various Industries",
+      "url": "https://news.metal.com/newscontent/102842677-how-aluminum-price-fluctuations-impact-various-industries",
+      "hostname": "news.metal.com",
+      "description": "Technological advancements in aluminum production and recycling significantly impact prices. Innovations that reduce production costs, such ...",
+      "date": "2024-07-10"
+    },
+    {
+      "title": "S&P Global",
+      "url": "https://www.spglobal.com/energy/en/news-research/latest-news/metals/042926-world-banks-216-aluminum-price-growth-forecast-is-being-eclipsed",
+      "hostname": "spglobal.com",
+      "description": "Aluminum could average at $3,200/metric ton, up from last year's $2,632/mt, and then potentially cool to $3,000/mt in 2027, the bank says in its ...",
+      "date": "2026-04-29"
+    },
+    {
+      "title": "Changing patterns in aluminium production costs",
+      "url": "https://onlinelibrary.wiley.com/doi/10.1111/j.1477-8947.1993.tb00170.x",
+      "hostname": "onlinelibrary.wiley.com",
+      "description": "The average cost of producing aluminium fell slightly in nominal terms between 1982 and 1992, and there has thus been a sharp fall in real terms. The average cost also shows a marked cyclical fluctuation during individual years, partly as a result of the feedback effect from final metal prices to the cost curve. Between 1985 and 1992, exchange rate fluctuations produced a sharp change in the relat",
+      "date": "1993-05-01"
+    },
+    {
+      "title": "A Comparative Study on Environmental Life Cycle Impacts of Curtain Walls",
+      "url": "http://ascelibrary.org/doi/10.1061/9780784412329.162",
+      "hostname": "ascelibrary.org",
+      "description": "Design of glass curtain wall (CW) systems has long been under the influence of structural, thermal and daylighting performance requirements as well as cost and aesthetic concerns. However, environmental life-cycle impacts of the systems are usually ignored when selecting the suitable materials for mullions and glazing units. This paper intends to examine the effect of mullion material change on th",
+      "date": "2012-07-11"
+    }
+  ],
+  "chunks": [
+    {
+      "type": "data-search-decision",
+      "data": {
+        "isReferenceIntentAnswer": true
+      }
+    },
+    {
+      "type": "data-search-chunks",
+      "data": {
+        "sortedReferenceItems": [
+          {
+            "index": 15,
+            "reason": [
+              {
+                "value": "This document provides a critical assessment of the global commodity market landscape, directly referencing the "
+              },
+              {
+                "type": "underline",
+                "value": "World Bank's commodity market outlook"
+              },
+              {
+                "value": " and supply-demand tensions. It explains the economic factors influencing "
+              },
+              {
+                "type": "underline",
+                "value": "metal price volatility"
+              },
+              {
+                "value": " in 2026, which is directly relevant to planning for the "
+              },
+              {
+                "type": "underline",
+                "value": "aluminum supply"
+              },
+              {
+                "value": " needed for curtain wall production."
+              }
+            ]
+          },
+          {
+            "index": 14,
+            "reason": [
+              {
+                "value": "This resource from the World Bank offers historical and projected data on "
+              },
+              {
+                "type": "underline",
+                "value": "aluminum prices"
+              },
+              {
+                "value": " and market trends. It is valuable for identifying the "
+              },
+              {
+                "type": "underline",
+                "value": "global commodity price fluctuations"
+              },
+              {
+                "value": " that could affect procurement costs for "
+              },
+              {
+                "type": "underline",
+                "value": "curtain wall manufacturing"
+              },
+              {
+                "value": " during the requested period."
+              }
+            ]
+          },
+          {
+            "index": 9,
+            "reason": [
+              {
+                "value": "This research identifies key factors shaping the costs of "
+              },
+              {
+                "type": "underline",
+                "value": "aluminum-glass facades"
+              },
+              {
+                "value": ", which is essential for understanding the economic variables impacting "
+              },
+              {
+                "type": "underline",
+                "value": "curtain wall production"
+              },
+              {
+                "value": ". It provides a structural analysis of the influences on "
+              },
+              {
+                "type": "underline",
+                "value": "facade system implementation"
+              },
+              {
+                "value": " that can help project management teams anticipate supply chain risks."
+              }
+            ]
+          },
+          {
+            "index": 0
+          },
+          {
+            "index": 1
+          },
+          {
+            "index": 2
+          },
+          {
+            "index": 3
+          },
+          {
+            "index": 4
+          },
+          {
+            "index": 5
+          },
+          {
+            "index": 6
+          },
+          {
+            "index": 7
+          },
+          {
+            "index": 8
+          },
+          {
+            "index": 10
+          },
+          {
+            "index": 11
+          },
+          {
+            "index": 12
+          },
+          {
+            "index": 13
+          },
+          {
+            "index": 16
+          },
+          {
+            "index": 17
+          },
+          {
+            "index": 18
+          },
+          {
+            "index": 19
+          },
+          {
+            "index": 20
+          },
+          {
+            "index": 21
+          },
+          {
+            "index": 22
+          }
+        ]
+      }
+    }
+  ]
+}
