@@ -100,3 +100,26 @@
 
 - [ ] Step 1: 격리 복사본(임시 data, 빈 포트, worker off, `CHRONOS_QDRANT_URL=""`, 실제 Liner 키는 컨트롤러가 임시 DB 에 넣음)에서 Task 2 짝으로 장면을 끝까지: 3일 지연 A → 영향 0 / B → 카드 → 위험 줄 → [근거 문장 보기] → [담당자에게 확인 연락] 초안까지(실제 발송 없음).
 - [ ] Step 2: FHD 사진·호출 수·비용을 진행 기록에, 기획서 메모(붙인 Liner 기능·실측·한계) `docs/contest/` 에.
+
+---
+
+## 추가 (지시서 「F·G」, PM 승인 11-24, 커밋 9838626)
+
+### Task 9: 당김 효과 확인 (F — 꼭)
+
+**Files:** Create `backend/app/core/accel.py`, `backend/app/tools/points/accel_check.py`; Modify 만회안 카드 데이터(`app/tools/respond/make_shortening.py` 결과에 칸 둘), 비교판 요약 서버 쪽, settings(`accel_warn_ratio` 0.1~1.0 기본 0.5), 에이전트 지침 한 줄; Test `backend/tests/core/test_accel.py`, `backend/tests/tools/test_accel_check.py`
+**Interfaces:**
+- Consumes: `core.shorten.apply_moves(schedule, moves)`, `Move`, `core.resources.level`, `core.cpm.compute`; Task 1 `compute_points`(다음 줄 액티비티가 포인트인지).
+- Produces: `AccelResult(pulled_days: int, finish_before: date, finish_after: date, finish_gain: int, ratio: float, warn: bool, next_chain: tuple[str, ...], next_chain_points: tuple[str, ...], same_chain: bool)`; `accel_effect(schedule: Schedule, moves: Sequence[Move], *, warn_ratio: float) -> AccelResult` (pulled_days = 묶음이 줄인 기간 합 — compress 는 od 차, parallel 은 넣기 전 크리티컬에서 그 관계로 당겨진 일수, add_resource 는 0 으로 세고 finish_gain 만 본다); `pull_request(schedule, activity_id: str, days: int) -> Sequence[Move]` (od − days, 최소 1, 실적 있으면 `AccelRefused`); `next_chain` = 넣은 뒤 크리티컬 패스(위상 순) 가운데 묶음이 건드리지 않은 액티비티; 넣기 전 크리티컬과 같으면 `same_chain=True`.
+- [ ] Step 1: 실패 시험 — 크리티컬 하나만 당김 → finish_gain == pulled / 병렬 경로가 곧 막음 → 일부만·warn / 자원 맞춤에 막힘 / 실적 있는 액티비티 거절 / 비율 경계(== warn_ratio 는 경고 안 함) / same_chain.
+- [ ] Step 2~4: 실패 확인 → 구현(날짜·크리티컬은 엔진 값만, `level(..., shift=True)`) → 통과
+- [ ] Step 5: 도구 `points.accel_check(activity_id, days)` + 카드 데이터 kind `accel_check`; 만회안 묶음 A·B 결과에 `finish_gain/pulled_days`·`next_chain` 칸, 비교판 요약에도. 커밋 `feat: 당김 효과 확인 — 당긴 일수 중 준공 반영·다음 결정 줄(만회안·비교판·도구)`
+
+### Task 9b: F 시연 짝 (Task 2 스크립트 넓히기)
+- [ ] 골조 계열 액티비티마다 n=1~5 당김 × (finish_gain, next_chain) 표. 「골조를 당겨도 준공이 거의 안 당겨지고 다음 줄이 커튼월·외장」 경우를 찾아 `docs/demo/시나리오.md` 에. 씨앗을 고치지 않는다. 없으면 보고.
+
+### Task 10: 준비 상태 점검 요청 (G — 여유가 되면)
+- 카드 단추 [준비 상태 확인 요청](시작이 DD 부터 `points_ready_days` 근무일 안, 기본 10) → 기존 D-3 핸드오프 점검 항목 생성 + Task 5 연락 초안 길. 사람이 누를 때만.
+
+### Task 6 덧붙임
+- 시안 문구는 분야 중립(「프로젝트 주소」「담당」), 건설 일정에서만 「실외 작업」. 카드 하이라이트는 자재(커튼월 알루미늄)·환율·업체 소식, 날씨는 기능으로만(PM 11-24). F 카드(당김 효과) 시안을 함께.
