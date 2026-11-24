@@ -27,6 +27,29 @@ test.use({ actionTimeout: 15_000 });
 // 가로챈 읽기가 도는 중에 시험이 끝나면 그 읽기는 버린다.
 test.afterEach(async ({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
 
+// 바깥 연결 막이 둘(fail closed). ① 서버: e2e-local.sh 가 tests/e2e_server.py 로 띄워 내 컴퓨터 밖 연결·이름 풀이를 막고, 막은
+// 호스트를 CHRONOS_E2E_REFUSED_LOG 에 한 줄씩 적는다 — 끝에 그 파일이 비어 있지 않으면 실패. ② 브라우저: 시험 서버가 아닌
+// 곳으로 가는 요청은 끊는다(아래 guardOrigins). 위의 가짜 답들은 그대로 둔다.
+const REFUSED_LOG = process.env.CHRONOS_E2E_REFUSED_LOG;
+const LOCAL_ORIGIN = new URL(process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5700').origin;
+const outsideAsked: string[] = [];
+test.afterAll(async () => {
+  expect(REFUSED_LOG, '시험 서버는 scripts/e2e-local.sh(tests/e2e_server.py)로 띄웁니다').toBeTruthy();
+  const fs = (await import('node:fs' as string)) as { readFileSync: (path: string, encoding: string) => string };
+  expect(fs.readFileSync(REFUSED_LOG!, 'utf-8').trim(), '시험 서버가 내 컴퓨터 밖으로 나가려 했습니다').toBe('');
+  if (outsideAsked.length) console.log(`브라우저가 끊은 바깥 요청: ${[...new Set(outsideAsked)].join(', ')}`);
+});
+
+/** 시험 서버(E2E_BASE_URL 의 origin)가 아닌 곳으로의 브라우저 요청은 끊는다 — 가장 나중에 걸어 가장 먼저 본다. */
+async function guardOrigins(page: Page) {
+  await page.route('**/*', (route) => {
+    const origin = new URL(route.request().url()).origin;
+    if (origin === LOCAL_ORIGIN) return route.fallback();
+    outsideAsked.push(origin);
+    return route.abort('blockedbyclient');
+  });
+}
+
 const win = (page: Page, title: string): Locator => page.locator(`.os-win[aria-label^="${title}"]`);
 const dock = (page: Page, name: string): Locator => page.locator(`.os-dock-btn[aria-label="${name}"], .os-dock-btn[aria-label^="${name},"]`);
 
@@ -577,6 +600,7 @@ test('plan 4: contacts · texts · AI calls end to end (fake provider, fake voic
   const schedules: { id: number; name: string }[] = await (await request.get('/api/schedules', { headers: auth })).json();
   world.sid = schedules.find((s) => s.name === OFFICE)!.id;
   await fake(page, world);
+  await guardOrigins(page);
   await login(page);
   await pickProject(page, OFFICE);
   const flow: Flow = { page, world, request, auth };

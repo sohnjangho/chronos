@@ -43,7 +43,7 @@ from app.security.passwords import hash_password
 from app.security.tokens import issue_token
 from app.store import outreach_usage
 from app.store.tables import User
-from app.store.tables_outreach import OutreachMessage, VoiceSettings
+from app.store.tables_outreach import OutreachCall, OutreachMessage, VoiceSettings
 from app.tools.notify import list_contacts, send_message
 from tests import schedules
 from tests.helpers import auth
@@ -173,16 +173,25 @@ def _inbound(pid: str, sender: str, body: str, at: datetime) -> Inbound:
                    to_number=KAT_SENDER)
 
 
-async def _ring(sim: SimulatedVoice) -> None:
-    """가짜 음성으로 벨을 울리고, 통화 뒤 일(뒤 확인·요약)까지 기다린다."""
+async def _ring(session, sim: SimulatedVoice) -> None:
+    """가짜 음성으로 벨을 울리고, 통화 뒤 일(뒤 확인·요약)이 끝날 때까지 기다린다.
+
+    통화 뒤 일은 `inbound._behind` 가 띄우는 따로 도는 작업이다 — listen 이 돌아온 순간에 아직 없을 수 있어(뜨기 전이면 기다릴
+    것이 없다고 보고 일찍 나간다), 결과(받은 통화 줄의 요약)가 DB 에 보일 때까지 뒤 작업을 기다리며 짧게 다시 본다(최대 10초)."""
     with voice_session.pinned(sim):
         async with asyncio.timeout(10):
             await sim.listen(AGENT_NUMBER, inbound.on_incoming)
-            for _ in range(20):
+            while True:
                 pending = [task for task in inbound._state.follows if not task.done()]
-                if not pending:
+                if pending:
+                    await asyncio.wait(pending, timeout=5)
+                    continue
+                session.expire_all()
+                latest = session.scalars(select(OutreachCall).where(OutreachCall.direction == "in")
+                                         .order_by(OutreachCall.id.desc())).first()
+                if latest is not None and latest.summary_ko:
                     return
-                await asyncio.wait(pending, timeout=5)
+                await asyncio.sleep(0.05)
 
 
 def _sweep_db(session) -> dict[str, list[str]]:
@@ -190,7 +199,7 @@ def _sweep_db(session) -> dict[str, list[str]]:
     없는지, 그리고 **어느 표에도** 키가 평문으로 없는지(키는 암호문으로만 저장)."""
     found: dict[str, list[str]] = {}
     scoped = {"trace_events": "*", "chat_messages": "*", "llm_calls": "*", "contact_reports": "*", "outreach_usage": "*",
-              "outreach_messages": "harness_json", "outreach_calls": "harness_json, transcript_json, answers_json, summary_ko"}
+              "outreach_messages": "harness_json, body, fail_reason", "outreach_calls": "harness_json, transcript_json, answers_json, summary_ko"}
     for table, columns in scoped.items():
         for row in session.execute(text(f"SELECT {columns} FROM {table}")):
             if hit := leaks(json.dumps([str(v) for v in row], ensure_ascii=False)):
@@ -345,7 +354,7 @@ async def test_contacts_outreach_flow(client, session, admin, kim, fake_provider
         # ── 9. 받는 통화(가짜 Ring) → [상대 발신] · 「확인할 보고 1」 ──────────────
         liner.push(reply(json.dumps({"summary_ko": "박현장 팀장이 철근 반입이 내일 오후 2시로 늦어진다고 알렸습니다.",
                                      "result": "철근 반입 지연 보고"}, ensure_ascii=False)))
-        await _ring(SimulatedVoice([Ring(SENTINEL_DIGITS, clock.tick()),
+        await _ring(session, SimulatedVoice([Ring(SENTINEL_DIGITS, clock.tick()),
                                     Say("peer", "철근 반입이 내일 오후 2시로 늦어집니다", t=2),
                                     Tool("report_from_contact", {"kind": "delay", "text": "철근 반입 내일 오후 2시로 지연",
                                                                  "quote": "철근 반입이 내일 오후 2시로 늦어집니다"}),
@@ -390,7 +399,9 @@ async def test_contacts_outreach_flow(client, session, admin, kim, fake_provider
                 results[rule] = (console("post", f"/harness/{rule}/test")["passed"], cell["note_kind"])
         failed = {rule for rule, (passed, _) in results.items() if not passed}
         diverged = {rule for rule, (_, kind) in results.items() if kind == "diverged"}
-        assert len(results) == 96 and failed == diverged, (failed, diverged)  # 실패는 「하네스 갈라짐」 표시 칸뿐
+        # 실패는 정확히 「하네스 갈라짐」 표시 세 칸뿐(S-13 언어 제안 · S-20 되풀이 통화) — 나머지 93칸은 통과
+        assert failed == diverged == {"S-13@call_out", "S-13@call_in", "S-20@call_in"}, (failed, diverged)
+        assert (len(results), len(results) - len(failed)) == (96, 93)
 
         listing = console("get", "/outreach")["items"]
         rows = {(item["kind"], item["id"]): item for item in listing}
@@ -426,4 +437,4 @@ async def test_contacts_outreach_flow(client, session, admin, kim, fake_provider
     # ── 끝: DB 와 로그를 한 번 더 훑는다 ─────────────────────────────
     session.expire_all()
     assert _sweep_db(session) == {}
-    assert_clean(caplog)
+    assert_clean(caplog, KAT_ACCOUNT)  # Account ID 도 로그에 없다

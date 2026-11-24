@@ -74,8 +74,12 @@ engine.dispose()
 PY
 )
 
-echo "==> 백엔드 띄우기 (127.0.0.1:${API_PORT})"
-(cd "${ROOT}/backend" && exec "${PY}" -m uvicorn app.main:app --host 127.0.0.1 --port "${API_PORT}") \
+echo "==> 백엔드 띄우기 (127.0.0.1:${API_PORT}) — 시험 전용 감싸개: 내 컴퓨터 밖 연결은 막고 막은 호스트를 적는다"
+# tests/e2e_server.py 는 앱을 그대로 띄우되 127.0.0.0/8·localhost 밖으로의 연결·이름 풀이를 막고, 막을 때마다 한 줄을
+# CHRONOS_E2E_REFUSED_LOG 에 적는다. 화면 시험(contacts.spec.ts)은 끝에 그 파일이 비었는지 본다.
+export CHRONOS_E2E_REFUSED_LOG="${WORK}/refused-hosts.log"
+: >"${CHRONOS_E2E_REFUSED_LOG}"
+(cd "${ROOT}/backend" && exec "${PY}" -m tests.e2e_server --host 127.0.0.1 --port "${API_PORT}") \
   >"${WORK}/backend.log" 2>&1 &
 PIDS+=($!)
 
@@ -115,4 +119,8 @@ cd "${ROOT}/frontend"
 E2E_SHOTS_DIR="${SHOTS}" E2E_BASE_URL="http://127.0.0.1:${WEB_PORT}" E2E_LOGIN_ID="${CHRONOS_ADMIN_ID}" \
   E2E_PASSWORD="${CHRONOS_ADMIN_PASSWORD}" E2E_OUTPUT_DIR="${WORK}/playwright" \
   npx playwright test "$@"
+if [ -s "${CHRONOS_E2E_REFUSED_LOG}" ]; then
+  echo "알림: 시험 서버가 내 컴퓨터 밖 연결을 막았습니다:" >&2
+  cat "${CHRONOS_E2E_REFUSED_LOG}" >&2
+fi
 echo "끝에서 끝까지 시험 통과 — 화면: ${SHOTS}"
