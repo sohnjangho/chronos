@@ -10,6 +10,7 @@ import { useOutreachAlerts } from './outreachAlerts';
 import ProgramIcon, { SystemIcon } from './ProgramIcon';
 import { getProgram, programs, type ProgramManifest } from './registry';
 import ScheduleSelector from './ScheduleSelector';
+import { signOut } from './auth';
 import { useSession } from './session';
 import { defaultTabletRailIds, resolveTabletRail, tabletCatalog, useTabletRail } from './tabletRailStore';
 import { useTheme } from './theme';
@@ -197,7 +198,6 @@ export default function TabletShell() {
   useOutreachAlerts(); // 긴급 보고 토스트 — 바탕화면과 같게(현장 관리자는 묻지 않음)
   const role = useSession((s) => s.session?.user.role ?? 'user');
   const isFieldRole = role === 'field';
-  const logout = useSession((s) => s.logout);
   const theme = useTheme((s) => s.theme);
   const toggleTheme = useTheme((s) => s.toggle);
   const pending = useApprovals((s) => s.pending);
@@ -313,7 +313,7 @@ export default function TabletShell() {
           <button type="button" className="tab-icon-btn" aria-label={theme === 'dark' ? '밝은 테마' : '어두운 테마'} onClick={toggleTheme}>
             {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           </button>
-          <button type="button" className="tab-text-btn" onClick={logout}>
+          <button type="button" className="tab-text-btn" onClick={signOut}>
             나가기
           </button>
         </div>

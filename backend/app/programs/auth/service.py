@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.errors import ApiError
 from app.programs.auth.schemas import MeUpdate, SignupIn, UserCreate, UserUpdate
 from app.security.passwords import hash_password, verify_password
+from app.store import devices
+from app.store.devices import UserDevice
 from app.store.tables import User
 
 
@@ -116,8 +118,16 @@ def delete_user(session: Session, user_id: int, actor: User) -> None:
         raise ApiError(422, "cannot_delete_self", "본인 계정은 삭제할 수 없습니다.")
     if user.role == "admin" and user.status == "active" and _admin_count(session) == 1:
         raise ApiError(422, "last_admin", "관리자가 한 명은 있어야 합니다.")
+    devices.revoke_all(session, user.id, actor.id)  # 기기 줄은 감사 기록으로 남기고 닫는다
     session.delete(user)
     session.commit()
+
+
+def logout_device(session: Session, user: User, device_id: int) -> None:
+    """본인 로그아웃: 지금 기기 줄을 닫는다(revoked_by = 본인). current_user 가 방금 열린 줄임을 확인했다."""
+    row = session.get(UserDevice, device_id)
+    if row is not None:
+        devices.revoke(session, row, user.id)
 
 
 def update_me(session: Session, user: User, data: MeUpdate) -> User:

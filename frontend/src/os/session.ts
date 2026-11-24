@@ -19,11 +19,11 @@ export interface Session {
 interface SessionState {
   session: Session | null;
   locked: boolean;
+  /** 서버가 로그아웃시킨 까닭(401 의 code, 예: session_upgraded). 로그인 화면이 읽는다. 저장하지 않는다. */
+  signedOutReason: string | null;
   signIn(session: Session): void;
-  /** 같은 사람의 토큰만 바꿔 낀다(잠금 상태는 그대로). 그 사이 세션이 바뀌었으면(from 이 지금 토큰이 아니면) 그대로 둔다. */
-  replaceToken(from: string, token: string): void;
   lock(): void;
-  logout(): void;
+  logout(reason?: string): void;
 }
 
 const KEY = 'chronos.session';
@@ -57,17 +57,11 @@ function restore(): Pick<SessionState, 'session' | 'locked'> {
 
 export const useSession = create<SessionState>((set, get) => ({
   ...restore(),
+  signedOutReason: null,
   signIn(session) {
     notify(get().session, session);
     saveJson(KEY, { ...session, locked: false });
-    set({ session, locked: false });
-  },
-  replaceToken(from, token) {
-    const { session, locked } = get();
-    if (!session || session.token !== from) return;
-    const next = { ...session, token };
-    saveJson(KEY, { ...next, locked });
-    set({ session: next });
+    set({ session, locked: false, signedOutReason: null });
   },
   lock() {
     const { session } = get();
@@ -75,13 +69,13 @@ export const useSession = create<SessionState>((set, get) => ({
     saveJson(KEY, { ...session, locked: true });
     set({ locked: true });
   },
-  logout() {
+  logout(reason) {
     notify(get().session, null);
     saveJson(KEY, null);
-    set({ session: null, locked: false });
+    set({ session: null, locked: false, signedOutReason: reason ?? null });
   },
 }));
 
 export const getToken = (): string | null => useSession.getState().session?.token ?? null;
 
-export const logout = (): void => useSession.getState().logout();
+export const logout = (reason?: string): void => useSession.getState().logout(reason);

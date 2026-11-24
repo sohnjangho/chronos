@@ -16,6 +16,7 @@ from app.store.tables import User
 _bearer = HTTPBearer(auto_error=False)
 FIELD_NO_CONTACTS_MESSAGE = "현장 관리자는 연락처를 열 수 없습니다."
 DEVICE_LOGGED_OUT_MESSAGE = "이 기기는 로그아웃되었습니다. 다시 로그인해 주세요."
+SESSION_UPGRADED_MESSAGE = "보안 강화로 한 번 다시 로그인해 주세요."
 
 
 def current_user(
@@ -23,14 +24,16 @@ def current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     session: Annotated[Session, Depends(get_session)],
 ) -> User:
-    """토큰의 사용자. 토큰에 기기 세션(sid)이 있으면 그 줄이 닫히지 않았는지도 본다(기본 키로 한 번) — 그 sid 는
-    request.state.device_id 에 둔다(없으면 None: 기기 세션 전에 받은 토큰)."""
+    """토큰의 사용자. 토큰의 기기 세션(sid) 줄이 닫히지 않았는지도 본다(기본 키로 한 번) — 그 sid 는 request.state.device_id.
+    sid 없는 토큰(기기 세션 전에 받은 것)은 401 session_upgraded: 한 번 다시 로그인."""
     claims = read_claims(credentials.credentials) if credentials else None
     user = session.get(User, claims[0]) if claims is not None else None
     if user is None or user.status != "active":
         raise ApiError(401, "unauthorized", "다시 로그인해 주세요.")
     device_id = claims[1] if claims else None
-    if device_id is not None and active_device(session, device_id, user.id) is None:
+    if device_id is None:
+        raise ApiError(401, "session_upgraded", SESSION_UPGRADED_MESSAGE)
+    if active_device(session, device_id, user.id) is None:
         raise ApiError(401, "device_logged_out", DEVICE_LOGGED_OUT_MESSAGE)
     request.state.device_id = device_id
     return user

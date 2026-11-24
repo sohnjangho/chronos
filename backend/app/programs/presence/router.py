@@ -12,7 +12,6 @@ from app.programs.presence.schemas import (
     DeviceLogoutIn,
     DeviceOut,
     PresenceIn,
-    PresenceOut,
 )
 from app.security.deps import current_user, require_admin
 from app.store.tables import User
@@ -27,12 +26,11 @@ def _device_id(request: Request) -> int | None:
     return getattr(request.state, "device_id", None)
 
 
-@me_router.post("/presence")
+@me_router.post("/presence", status_code=204)
 def presence(body: PresenceIn, request: Request, session: SessionDep,
-             user: Annotated[User, Depends(current_user)]) -> PresenceOut:
-    token = service.heartbeat(session, user, _device_id(request), body.device_key, body.kind,
-                              request.headers.get("user-agent", ""))
-    return PresenceOut(token=token)
+             user: Annotated[User, Depends(current_user)]) -> None:
+    # device_key 는 화면 약속대로 받아 형식만 본다 — 어느 줄인지는 토큰의 sid 가 정한다
+    service.heartbeat(session, user, request.state.device_id, body.kind, request.headers.get("user-agent", ""))
 
 
 @admin_router.get("/accounts/devices")

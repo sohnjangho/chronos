@@ -12,6 +12,7 @@ import { useOutreachAlerts } from './outreachAlerts';
 import ProgramIcon, { SystemIcon } from './ProgramIcon';
 import { getProgram, programs, type ProgramManifest } from './registry';
 import ScheduleSelector from './ScheduleSelector';
+import { signOut } from './auth';
 import { useSession } from './session';
 import { useTheme } from './theme';
 import ToastStack from './ToastStack';
@@ -115,7 +116,6 @@ function MobileHeader({
 }) {
   const theme = useTheme((s) => s.theme);
   const toggleTheme = useTheme((s) => s.toggle);
-  const logout = useSession((s) => s.logout);
 
   return (
     <header className="mob-head">
@@ -138,7 +138,7 @@ function MobileHeader({
         <button type="button" className="mob-icon-btn" aria-label={theme === 'dark' ? '밝은 테마' : '어두운 테마'} onClick={toggleTheme}>
           {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
         </button>
-        <button type="button" className="mob-text-btn" onClick={logout}>
+        <button type="button" className="mob-text-btn" onClick={signOut}>
           나가기
         </button>
       </div>

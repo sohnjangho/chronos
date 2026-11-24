@@ -1,13 +1,15 @@
 """계정별 접속 상태·기기 목록·기기 로그아웃(관리자). 기기마다 서버 쪽 기기 세션 줄(user_devices)에 로그인을 묶는다."""
 
 import logging
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import inspect, select
 
 from app.security.passwords import hash_password
-from app.security.tokens import issue_token
+from app.security.tokens import _serializer, issue_token, read_claims
 from app.store import devices
 from app.store.devices import UserDevice
 from app.store.tables import User
@@ -93,7 +95,7 @@ def test_login_opens_a_device_and_the_heartbeat_updates_last_seen(client, sessio
     assert row.last_seen_at == T0.replace(tzinfo=None)
     clock.now = T0 + timedelta(minutes=1)
     r = _beat(client, headers)
-    assert r.status_code == 200 and r.json()["token"] is None
+    assert r.status_code == 204 and r.content == b""  # 접속 신호는 토큰을 주지 않는다
     session.expire_all()
     assert session.get(UserDevice, row.id).last_seen_at == clock.now.replace(tzinfo=None)
     assert session.scalars(select(UserDevice)).all() == [row]  # 같은 기기는 줄을 더 만들지 않는다
@@ -115,7 +117,7 @@ def test_online_only_within_two_minutes_of_the_last_heartbeat(client, admin, ses
     got = _accounts(client, admin)[uid]
     assert got["online"] is False and got["last_seen_at"] == "2026-11-24T05:12:00Z"
     clock.now = T0 + timedelta(minutes=3)
-    assert _beat(client, phone, key=KEY_B, kind="phone", ua=IPHONE).status_code == 200
+    assert _beat(client, phone, key=KEY_B, kind="phone", ua=IPHONE).status_code == 204
     assert _accounts(client, admin)[uid]["online"] is True
 
 
@@ -138,15 +140,28 @@ def test_presence_rejects_a_bad_device_key_or_kind(client, admin):
     assert client.post("/api/me/presence", json={"device_key": KEY_A, "kind": "phone"}).status_code == 401
 
 
-def test_a_token_from_before_device_sessions_gets_a_bound_token_from_the_heartbeat(client, admin, session, clock):
-    r = _beat(client, admin)  # admin 고정물은 기기 없는 예전 토큰
-    assert r.status_code == 200
-    bound = auth(r.json()["token"])
-    row = session.scalars(select(UserDevice)).one()
-    assert _beat(client, bound).json()["token"] is None
-    assert len(session.scalars(select(UserDevice)).all()) == 1
-    assert client.post(f"/api/admin/devices/{row.id}/logout", json={"confirm_self": True}, headers=bound).status_code == 200
-    assert client.get("/api/auth/me", headers=bound).status_code == 401
+def test_a_token_without_a_device_claim_must_sign_in_again(client, session):
+    """기기 세션 전에 받은 토큰(sid 없음)은 받지 않는다 — 한 번 다시 로그인. 접속 신호도 새 토큰을 주지 않고 기기 줄도 만들지 않는다."""
+    old = auth(_serializer().dumps({"uid": 1}))
+    for r in (client.get("/api/auth/me", headers=old), _beat(client, old)):
+        assert r.status_code == 401 and r.json()["code"] == "session_upgraded"
+        assert r.json()["message"] == "보안 강화로 한 번 다시 로그인해 주세요."
+    assert session.scalars(select(UserDevice)).all() == []
+
+
+def test_a_token_issued_without_a_device_is_still_bound_to_one(client, session):
+    """기기를 모르고 만든 토큰(시험·스크립트)도 이름 없는 기기 줄에 묶인다 — sid 없는 토큰은 만들지 않는다."""
+    _user(session)
+    uid = session.scalar(select(User.id).where(User.login_id == "kim"))
+    claims = read_claims(issue_token(uid))
+    assert claims is not None and claims[1] is not None
+    row = session.get(UserDevice, claims[1])
+    assert row.user_id == uid and row.revoked_at is None
+
+
+def test_user_devices_is_registered_with_the_models_app_db_creates():
+    code = "import app.db; from app.store.tables import Base; assert 'user_devices' in Base.metadata.tables"
+    assert subprocess.run([sys.executable, "-c", code], check=False, capture_output=True, timeout=60).returncode == 0
 
 
 def test_login_without_a_device_key_is_still_bound_to_a_device_session(client, session, clock):
@@ -193,6 +208,32 @@ def test_revoking_your_own_current_device_needs_a_confirmation(client, session, 
     assert client.get("/api/auth/me", headers=headers).status_code == 401
 
 
+def test_signing_out_closes_this_device_only(client, session, clock):
+    _user(session)
+    phone = _login(client, "kim", "user-pass", key=KEY_B, kind="phone", ua=IPHONE)
+    laptop = _login(client, "kim", "user-pass", key=KEY_A)
+    uid = session.scalar(select(User.id).where(User.login_id == "kim"))
+    clock.now = T0 + timedelta(minutes=1)
+    assert client.post("/api/auth/logout", headers=phone).status_code == 204
+    row = session.scalars(select(UserDevice).where(UserDevice.device_key == KEY_B)).one()
+    assert row.revoked_at == clock.now.replace(tzinfo=None) and row.revoked_by == uid
+    assert client.get("/api/auth/me", headers=phone).json()["code"] == "device_logged_out"
+    assert client.get("/api/auth/me", headers=laptop).status_code == 200
+    assert client.post("/api/auth/logout").status_code == 401
+
+
+def test_deleting_an_account_closes_its_devices(client, admin, session, clock):
+    _user(session)
+    phone = _login(client, "kim", "user-pass", key=KEY_B, kind="phone", ua=IPHONE)
+    uid = session.scalar(select(User.id).where(User.login_id == "kim"))
+    admin_id = session.scalar(select(User.id).where(User.login_id == "admin"))
+    assert client.delete(f"/api/auth/users/{uid}", headers=admin).status_code == 204
+    session.expire_all()
+    rows = session.scalars(select(UserDevice).where(UserDevice.user_id == uid)).all()
+    assert rows and all(r.revoked_at is not None and r.revoked_by == admin_id for r in rows)
+    assert client.get("/api/auth/me", headers=phone).status_code == 401
+
+
 def test_logout_of_an_unknown_device_is_404(client, admin):
     assert client.post("/api/admin/devices/999/logout", json={}, headers=admin).status_code == 404
 
@@ -201,7 +242,7 @@ def test_logout_of_an_unknown_device_is_404(client, admin):
 def test_admin_routes_are_403_for_user_and_field(client, session, user):
     _user(session, "site1", role="field", password="field-pass")
     field = _login(client, "site1", "field-pass")
-    row = session.scalars(select(UserDevice)).one()
+    row = session.scalars(select(UserDevice).where(UserDevice.device_key == KEY_A)).one()
     for headers in (user, field):
         assert client.get("/api/admin/accounts/devices", headers=headers).status_code == 403
         assert client.post(f"/api/admin/devices/{row.id}/logout", json={}, headers=headers).status_code == 403
@@ -226,15 +267,15 @@ def test_devices_without_a_heartbeat_for_30_days_are_hidden_but_kept(client, adm
     assert len(_accounts(client, admin)[uid]["devices"]) == 1
     clock.now = T0 + timedelta(days=30, minutes=1)
     assert uid not in _accounts(client, admin)
-    assert len(session.scalars(select(UserDevice)).all()) == 1
+    assert len(session.scalars(select(UserDevice).where(UserDevice.user_id == uid)).all()) == 1
 
 
 # ── 개발 콘솔 한 줄 ──
-def test_devconsole_health_counts_people_and_devices_online_now(client, admin, session, clock):
+def test_devconsole_health_counts_people_and_devices_online_now(client, session, clock):
     _user(session)
     _login(client, "kim", "user-pass", key=KEY_B, kind="phone", ua=IPHONE)
     _login(client, "kim", "user-pass", key=KEY_A)
-    _login(client, key=KEY_A)
+    admin = _login(client, key=KEY_A)
     clock.now = T0 + timedelta(minutes=1)
     assert client.get("/api/devconsole/health", headers=admin).json()["presence"] == {"online_users": 2, "online_devices": 3}
     clock.now = T0 + timedelta(minutes=3)
@@ -245,7 +286,7 @@ def test_a_token_for_another_users_device_is_refused(client, session, clock):
     """기기 줄의 주인과 토큰의 사용자가 다르면(지운 사용자 id 를 다시 쓴 때 등) 받지 않는다."""
     _user(session)
     _login(client, "kim", "user-pass", key=KEY_B)
-    row = session.scalars(select(UserDevice)).one()
+    row = session.scalars(select(UserDevice).where(UserDevice.device_key == KEY_B)).one()
     admin_id = session.scalar(select(User.id).where(User.login_id == "admin"))
     forged = auth(issue_token(admin_id, row.id))
     assert client.get("/api/auth/me", headers=forged).status_code == 401

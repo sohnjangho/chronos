@@ -1,7 +1,7 @@
 // 접속 신호(설정 → 계정의 「접속 중」·기기 목록): 로그인한 동안 POST /api/me/presence {device_key, kind}.
-// 불러올 때 한 번, 창이 보이는 동안 60초마다, 가려졌다 다시 보이면 한 번. 한 번에 하나만 보낸다. 잠근 화면은 보내지 않는다.
-// 관리자가 이 기기를 로그아웃하면 서버가 401 을 주고 api() 가 로그아웃한다 → 로그인 화면(세션이 없으면 보내지 않으니 되풀이 없음).
-// 기기 세션 전에 받은 토큰이면 서버가 이 기기에 묶인 새 토큰을 주고, 그것으로 바꿔 낀다.
+// 불러올 때 한 번, 창이 보이는 동안 60초마다, 가려졌다 다시 보이면 한 번(지난번에서 20초 안이면 건너뜀). 한 번에 하나만.
+// 잠근 화면은 보내지 않는다. 관리자가 이 기기를 로그아웃하면 서버가 401 을 주고 api() 가 로그아웃한다 → 로그인 화면
+// (세션이 없으면 보내지 않으니 되풀이 없음). 서버는 토큰을 주지 않는다(204).
 import { useEffect } from 'react';
 import { api } from '../shared/api';
 import { useSession } from './session';
@@ -9,6 +9,7 @@ import { loadJson, saveJson } from './storage';
 import { detectClientDevice } from './useIsMobile';
 
 export const PRESENCE_MS = 60_000;
+const MIN_GAP_MS = 20_000; // 창 보이기·가리기가 오락가락할 때
 const KEY = 'chronos.deviceKey';
 const VALID = /^[A-Za-z0-9_-]{16,64}$/;
 
@@ -36,14 +37,13 @@ export function usePresence(): void {
   useEffect(() => {
     if (userId === null || locked) return;
     let busy = false;
+    let last = -Infinity;
     const beat = async () => {
-      if (busy || document.visibilityState === 'hidden') return;
-      const sent = useSession.getState().session?.token;
-      if (!sent) return;
+      if (busy || document.visibilityState === 'hidden' || Date.now() - last < MIN_GAP_MS) return;
       busy = true;
+      last = Date.now();
       try {
-        const res = await api<{ token?: string | null }>('/api/me/presence', { method: 'POST', body: JSON.stringify(deviceInfo()) });
-        if (res?.token) useSession.getState().replaceToken(sent, res.token);
+        await api<void>('/api/me/presence', { method: 'POST', body: JSON.stringify(deviceInfo()) });
       } catch {
         // 연결 실패 등은 다음 차례에 다시. 401 이면 api() 가 이미 로그아웃했다.
       } finally {

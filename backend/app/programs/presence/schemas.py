@@ -12,11 +12,6 @@ class PresenceIn(BaseModel):
     kind: DeviceKind
 
 
-class PresenceOut(BaseModel):
-    # 기기 세션 전에 받은 토큰으로 부르면 이 기기에 묶인 새 토큰(화면이 바꿔 낀다). 이미 묶인 토큰이면 null
-    token: str | None = None
-
-
 class DeviceOut(BaseModel):
     """관리자가 보는 기기 한 줄. device_key 는 내보내지 않는다."""
 

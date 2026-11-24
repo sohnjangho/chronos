@@ -5,8 +5,7 @@ device_key 는 브라우저마다 화면이 만든 임의 값이다(관리자 �
 작은 고정 낱말로 줄여 둔다 — 접속 주소(IP)와 User-Agent 원문은 두지 않는다. 줄은 지우지 않는다(닫힌 줄이 감사 기록:
 revoked_at·revoked_by). 30일 넘게 신호가 없는 기기는 목록에서만 뺀다.
 
-표는 app.security.deps 가 이 모듈을 import 할 때 Base 에 오른다(모든 router 가 deps 를 import 하므로 init_db 의
-create_all 전) — 새 DB·기존 DB 모두 시작할 때 create_all 이 만든다.
+표는 app.db 가 import 해서 create_all 전에 Base 에 올린다 — 새 DB·기존 DB 모두 시작할 때 create_all 이 만든다.
 """
 
 import re
@@ -122,6 +121,14 @@ def revoke(session: Session, row: UserDevice, actor_id: int) -> UserDevice:
         row.revoked_by = actor_id
         session.commit()
     return row
+
+
+def revoke_all(session: Session, user_id: int, actor_id: int) -> None:
+    """그 사용자의 열린 기기 줄을 모두 닫는다(계정 삭제). 커밋은 부르는 쪽."""
+    now = utcnow()
+    for row in session.scalars(select(UserDevice).where(UserDevice.user_id == user_id, UserDevice.revoked_at.is_(None))):
+        row.revoked_at = now
+        row.revoked_by = actor_id
 
 
 def is_online(row: UserDevice, now: datetime) -> bool:

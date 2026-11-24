@@ -34,6 +34,12 @@ def login(body: LoginIn, request: Request, session: SessionDep) -> LoginOut:
     return LoginOut(token=issue_token(user.id, device.id), user=UserOut.model_validate(user))
 
 
+@router.post("/logout", status_code=204)
+def logout(request: Request, session: SessionDep, user: Annotated[User, Depends(current_user)]) -> None:
+    """이 기기 로그아웃: 토큰의 기기 줄을 닫는다(같은 브라우저의 다른 탭도 같은 줄이라 함께 로그아웃된다)."""
+    service.logout_device(session, user, request.state.device_id)
+
+
 @router.post("/signup", status_code=201)
 def signup(body: SignupIn, session: SessionDep) -> SignupOut:
     user = service.signup_user(session, body)

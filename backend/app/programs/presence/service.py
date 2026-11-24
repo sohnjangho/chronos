@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from app.errors import ApiError
 from app.programs.presence.schemas import AccountPresenceOut, DeviceOut
-from app.security.tokens import issue_token
 from app.store import devices
 from app.store.devices import UserDevice
 from app.store.tables import User
@@ -17,15 +16,11 @@ logger = logging.getLogger(__name__)
 OWN_DEVICE_MESSAGE = "지금 쓰고 있는 이 기기입니다. 로그아웃하면 바로 로그인 화면으로 갑니다."
 
 
-def heartbeat(session: Session, user: User, device_id: int | None, device_key: str, kind: str, ua: str) -> str | None:
-    """마지막 접속을 고친다. 기기 세션 전에 받은 토큰이면 이 브라우저의 기기 줄을 열고 그 줄에 묶인 새 토큰을 준다."""
-    if device_id is not None:
-        row = devices.active_device(session, device_id, user.id)
-        if row is not None:  # current_user 가 방금 본 줄
-            devices.touch(session, row, kind, ua)
-            return None
-    row = devices.open_device(session, user.id, device_key, kind, ua)
-    return issue_token(user.id, row.id)
+def heartbeat(session: Session, user: User, device_id: int, kind: str, ua: str) -> None:
+    """토큰의 기기 줄(current_user 가 방금 열린 줄임을 확인함)의 마지막 접속·모양을 고친다. 토큰은 주지 않는다."""
+    row = devices.active_device(session, device_id, user.id)
+    if row is not None:
+        devices.touch(session, row, kind, ua)
 
 
 def _device_out(row: UserDevice, now, current_id: int | None) -> DeviceOut:

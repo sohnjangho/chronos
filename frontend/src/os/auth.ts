@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ApiError, publicApi } from '../shared/api';
 import { deviceInfo } from './presence';
-import { useSession, type Session, type User } from './session';
+import { getToken, useSession, type Session, type User } from './session';
 
 export type SignupRole = 'user' | 'field';
 
@@ -33,6 +33,22 @@ export async function signIn(loginId: string, password: string): Promise<Session
     body: JSON.stringify({ login_id: loginId, password, ...deviceInfo() }),
   });
   return { token: res.token, user: res.user, loginId };
+}
+
+/**
+ * 본인 로그아웃(메뉴·잠금 화면). 서버에 이 기기 줄을 닫으라고 알리고(기다리지 않음, 실패해도 상관없음) 곧바로 로그아웃한다.
+ * 같은 브라우저의 다른 탭도 같은 기기 줄이라 다음 요청 때 함께 로그인 화면으로 간다.
+ */
+export function signOut(): void {
+  const token = getToken();
+  if (token) {
+    try {
+      void fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
+    } catch {
+      // fetch 를 부를 수 없어도 로그아웃은 한다
+    }
+  }
+  useSession.getState().logout();
 }
 
 /** POST /api/auth/signup. 관리자 승인 대기 상태로 가입 신청을 등록한다. */

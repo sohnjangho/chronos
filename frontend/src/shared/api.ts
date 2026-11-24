@@ -30,11 +30,11 @@ export function requestHeaders(init: RequestInit, withToken: boolean): { headers
 
 /**
  * 2xx 가 아닌 응답을 ApiError 로. 401 이고 보낸 토큰이 아직 지금 세션의 토큰이면 로그아웃한다
- * (그 사이 다시 로그인했으면 새 세션은 두고).
+ * (그 사이 다시 로그인했으면 새 세션은 두고). 로그아웃 까닭으로 서버의 code 를 남긴다(로그인 화면 안내).
  */
 export async function failure(res: Response, sentToken: string | null): Promise<ApiError> {
-  if (res.status === 401 && sentToken !== null && getToken() === sentToken) logout();
   const body = (await res.json().catch(() => null)) as { code?: string; message?: string; detail?: unknown } | null;
+  if (res.status === 401 && sentToken !== null && getToken() === sentToken) logout(body?.code);
   return new ApiError(
     res.status,
     body?.code ?? 'http_error',

@@ -1,4 +1,5 @@
 // 메뉴바 메뉴 만들기: 로고 · 앱 이름 · 프로그램 메뉴(+ 보기 배율) · 윈도우 · 도움말 · 사용자.
+import { signOut } from './auth';
 import { arrangeWindows, closeAllWindows, minimizeAllWindows } from './commands';
 import { AppsIcon } from './icons';
 import { SEPARATOR, type MenuAction, type MenuEntry, type MenuSpec } from './MenuGroup';
@@ -25,7 +26,7 @@ export function logoMenu(): MenuSpec {
       { label: '앱 목록', icon: AppsIcon({ size: 16 }), run: () => shell().setDrawer('open') },
       SEPARATOR,
       { label: '화면 잠금', run: () => useSession.getState().lock() },
-      { label: '로그아웃', run: () => useSession.getState().logout() },
+      { label: '로그아웃', run: signOut },
     ],
   };
 }
@@ -140,6 +141,6 @@ export function userMenuItems(user: User, loginId: string): MenuEntry[] {
     { label: ROLE_NAMES[user.role], disabled: true, run: noop },
     SEPARATOR,
     { label: '설정…', run: () => windows().open('settings') },
-    { label: '로그아웃', run: () => useSession.getState().logout() },
+    { label: '로그아웃', run: signOut },
   ];
 }

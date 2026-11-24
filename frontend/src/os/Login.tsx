@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import Button from '../shared/ui/Button';
 import Field from '../shared/ui/Field';
 import { useSignIn } from './auth';
+import { useSession } from './session';
 import SignupModal from './SignupModal';
 import { useDetectedDevice, useDeviceMode, type DeviceMode, type ResolvedDevice } from './useIsMobile';
 
@@ -17,6 +18,16 @@ const LOGIN_DEVICES: { id: DeviceMode; label: string }[] = [
   { id: 'tablet', label: '태블릿' },
   { id: 'phone', label: '스마트폰' },
 ];
+
+/** 예전 토큰(기기 세션 전)이 401 session_upgraded 로 로그아웃됐을 때의 부드러운 안내. */
+function UpgradedNote() {
+  const upgraded = useSession((s) => s.signedOutReason === 'session_upgraded');
+  return upgraded ? (
+    <p className="os-card-note" role="status">
+      보안 강화로 한 번 다시 로그인해 주세요
+    </p>
+  ) : null;
+}
 
 /** 시안 「로그인」: 우측 홀로그램 배경 동영상 + 좌측 브랜드 로고·글래스 로그인 패널. */
 export default function Login() {
@@ -95,6 +106,7 @@ export default function Login() {
               {error}
             </p>
           )}
+          {!error && <UpgradedNote />}
           <Button type="submit" variant="primary" className="os-card-submit" disabled={busy}>
             들어가기
           </Button>

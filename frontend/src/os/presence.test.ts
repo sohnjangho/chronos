@@ -100,15 +100,19 @@ test('a device logged out by an admin goes to the login screen once and stops be
   expect(beats()).toHaveLength(1);
 });
 
-test('a token from before device sessions is swapped for the bound one the server returns, lock state kept', async () => {
+test('visibility flapping within 20 seconds of the last beat sends nothing more', async () => {
   signInAsDemo('user');
-  reply = () => json(200, { token: 'bound-tok' });
   renderHook(() => usePresence());
   await later(0);
-  expect(useSession.getState().session?.token).toBe('bound-tok');
-  expect(JSON.parse(localStorage.getItem('chronos.session')!)).toMatchObject({ token: 'bound-tok', locked: false });
-  reply = () => json(200, { token: null });
-  await later(PRESENCE_MS);
-  const [, init] = beats()[1];
-  expect(new Headers(init.headers).get('Authorization')).toBe('Bearer bound-tok');
+  for (let i = 0; i < 4; i++) {
+    setHidden(true);
+    setHidden(false);
+    await later(4_000);
+  }
+  expect(beats()).toHaveLength(1);
+  await later(4_000); // 지난 신호에서 20초
+  setHidden(true);
+  setHidden(false);
+  await later(0);
+  expect(beats()).toHaveLength(2); // 20초가 지난 뒤에는 다시 보인 때 한 번
 });

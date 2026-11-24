@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import Button from '../shared/ui/Button';
 import Field from '../shared/ui/Field';
-import { useSignIn } from './auth';
+import { signOut, useSignIn } from './auth';
 import { useSession } from './session';
 
 /**
@@ -40,7 +40,7 @@ export default function LockScreen() {
           </p>
         )}
         <div className="os-card-actions">
-          <Button onClick={() => useSession.getState().logout()}>로그아웃</Button>
+          <Button onClick={signOut}>로그아웃</Button>
           <Button type="submit" variant="primary" className="os-card-submit" disabled={busy}>
             잠금 풀기
           </Button>
