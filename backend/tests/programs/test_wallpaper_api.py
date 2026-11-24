@@ -171,3 +171,19 @@ def test_sniff_dimensions_unit():
     body = b"WEBP" + b"VP8L" + struct.pack("<I", len(vp8l)) + vp8l
     assert image.sniff(b"RIFF" + struct.pack("<I", len(body)) + body) == ("image/webp", 50, 40)
     assert image.sniff(b"not an image") is None
+
+
+def test_etag_lets_the_browser_reuse_its_copy(client, user):
+    put(client, user, png(4, 3))
+    first = client.get("/api/me/wallpaper", headers=user)
+    etag = first.headers["etag"]
+    assert etag.startswith('"') and etag.endswith('"')
+    again = client.get("/api/me/wallpaper", headers={**user, "If-None-Match": etag})
+    assert again.status_code == 304 and again.content == b""
+    assert again.headers["etag"] == etag and "private" in again.headers["cache-control"]
+    # 새로 올리면 태그가 바뀌어 다시 받는다
+    put(client, user, jpeg(10, 20), content_type="image/jpeg")
+    fresh = client.get("/api/me/wallpaper", headers={**user, "If-None-Match": etag})
+    assert fresh.status_code == 200 and fresh.headers["etag"] != etag
+    # 맞지 않는 태그면 그대로 보낸다
+    assert client.get("/api/me/wallpaper", headers={**user, "If-None-Match": '"x"'}).status_code == 200

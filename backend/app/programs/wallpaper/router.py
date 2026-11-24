@@ -16,6 +16,7 @@ from app.programs.wallpaper.image import sniff
 from app.security.deps import current_user
 from app.store import wallpapers
 from app.store.tables import User
+from app.store.timeutil import as_utc
 
 router = APIRouter(prefix="/api/me/wallpaper", tags=["wallpaper"])
 
@@ -58,15 +59,16 @@ async def put_wallpaper(request: Request, session: SessionDep, user: UserDep) ->
 
 
 @router.get("")
-def get_wallpaper(session: SessionDep, user: UserDep) -> Response:
+def get_wallpaper(request: Request, session: SessionDep, user: UserDep) -> Response:
+    """no-cache + ETag: 브라우저가 가진 사본을 묻고(If-None-Match) 같으면 304 — 사진을 다시 받지 않는다."""
     row = wallpapers.get(session, user)
     if row is None:
         raise ApiError(404, "wallpaper_none", "올린 사진이 없습니다.")
-    return Response(
-        content=row.data,
-        media_type=row.mime,
-        headers={"Cache-Control": "private, no-cache", "X-Content-Type-Options": "nosniff"},
-    )
+    etag = f'"{int(as_utc(row.updated_at).timestamp() * 1_000_000)}-{len(row.data)}"'
+    headers = {"Cache-Control": "private, no-cache", "ETag": etag, "X-Content-Type-Options": "nosniff"}
+    if etag in (t.strip() for t in request.headers.get("if-none-match", "").split(",")):
+        return Response(status_code=304, headers=headers)
+    return Response(content=row.data, media_type=row.mime, headers=headers)
 
 
 @router.delete("", status_code=204)

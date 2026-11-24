@@ -39,7 +39,7 @@ function Preview() {
   );
 }
 
-/** 그림 칸들: 기본·8종(지금 테마의 판으로)·내 사진(없으면 누르면 사진 고르기). */
+/** 그림 칸들: 기본·8종(지금 테마의 판으로)·내 사진(없으면 누르면 사진 고르기). 올리는 동안은 모두 막는다. */
 function Tiles({ busy, onPickFile }: { busy: boolean; onPickFile(): void }) {
   const theme = useTheme((s) => s.theme);
   const wallpaper = useWallpaper((s) => s.wallpaper);
@@ -54,6 +54,7 @@ function Tiles({ busy, onPickFile }: { busy: boolean; onPickFile(): void }) {
           type="button"
           className="st-wp-tile"
           aria-pressed={wallpaper === w.id}
+          disabled={busy}
           onClick={() => useWallpaper.getState().choose(w.id)}
         >
           <span className="st-wp-thumb" aria-hidden="true" style={backgroundStyle(wallpaperSource(w.id, theme), 'fill') ?? undefined} />
@@ -77,7 +78,7 @@ function Tiles({ busy, onPickFile }: { busy: boolean; onPickFile(): void }) {
 }
 
 /** 배치 방식 5가지(사진·그림 파일일 때만). */
-function FitControl() {
+function FitControl({ busy }: { busy: boolean }) {
   const fit = useWallpaper((s) => s.fit);
   return (
     <div className="st-wp-fits" role="radiogroup" aria-label="배치 방식">
@@ -88,6 +89,7 @@ function FitControl() {
           role="radio"
           aria-checked={fit === f.id}
           className="st-wp-fit"
+          disabled={busy}
           onClick={() => useWallpaper.getState().setFit(f.id)}
         >
           {f.name}
@@ -95,6 +97,24 @@ function FitControl() {
       ))}
     </div>
   );
+}
+
+/** 배치 방식 또는 안내: 사진을 못 받음(다시 시도)·내 사진인데 사진 없음·그림 테마는 늘 채우기. */
+function PhotoNote({ wallpaper, photoStatus, imageSource, busy }: { wallpaper: string; photoStatus: string; imageSource: boolean; busy: boolean }) {
+  if (photoStatus === 'error') {
+    return (
+      <p className="st-error" role="alert">
+        <span>사진을 불러오지 못했습니다 — 다시 시도</span>
+        <Button disabled={busy} onClick={() => void useWallpaper.getState().loadPhoto()}>
+          다시 시도
+        </Button>
+      </p>
+    );
+  }
+  if (imageSource) return <FitControl busy={busy} />;
+  if (wallpaper === 'photo') return <p className="st-muted">올린 사진이 없습니다 — 사진을 올리거나 다른 배경을 고르세요</p>;
+  if (wallpaper === 'default') return null;
+  return <p className="st-muted">그림 테마는 늘 화면을 채웁니다. 밝게·어둡게는 테마를 따라 바뀝니다.</p>;
 }
 
 /** 사진 올리기·바꾸기·지우기와 그 오류(한국어). */
@@ -125,7 +145,8 @@ function usePhotoActions(input: RefObject<HTMLInputElement | null>) {
 /** 설정 → 화면의 「배경」: 그림 고르기, 내 사진 올리기·바꾸기·지우기, 사진(그림 파일)일 때 배치 방식, 미리보기. */
 export default function WallpaperCard() {
   const wallpaper = useWallpaper((s) => s.wallpaper);
-  const hasPhoto = useWallpaper((s) => s.photo.status === 'ready');
+  const photoStatus = useWallpaper((s) => s.photo.status);
+  const hasPhoto = photoStatus === 'ready';
   const { source } = useWallpaperBackground();
   const input = useRef<HTMLInputElement>(null);
   const { error, busy, clearError, upload, remove } = usePhotoActions(input);
@@ -167,11 +188,7 @@ export default function WallpaperCard() {
             )}
             <span className="st-muted">JPG·PNG·WebP, 10MB 까지. 이 계정에서만 보입니다.</span>
           </div>
-          {source?.kind === 'image' ? (
-            <FitControl />
-          ) : (
-            wallpaper !== 'default' && <p className="st-muted">그림 테마는 늘 화면을 채웁니다. 밝게·어둡게는 테마를 따라 바뀝니다.</p>
-          )}
+          <PhotoNote wallpaper={wallpaper} photoStatus={photoStatus} imageSource={source?.kind === 'image'} busy={busy} />
           {error && (
             <p className="st-error" role="alert">
               {error}

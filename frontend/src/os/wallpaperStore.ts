@@ -22,7 +22,8 @@ interface Cached {
   at: number;
   dirty: boolean;
 }
-export type Photo = { status: 'unknown' | 'loading' | 'none' } | { status: 'ready'; url: string };
+/** error: 받지 못함(연결·서버) — 설정에서 다시 시도. */
+export type Photo = { status: 'unknown' | 'loading' | 'none' | 'error' } | { status: 'ready'; url: string };
 
 interface WallpaperState {
   userId: number | null;
@@ -95,7 +96,7 @@ function send(): void {
     });
 }
 
-/** 내 사진 바이트(없으면 null). 연결·서버 오류는 던진다. */
+/** 내 사진 바이트(없으면 null). 연결·서버 오류는 던진다. no-cache: 브라우저 사본을 ETag 로 물어 같으면 304 — 다시 받지 않는다. */
 async function fetchPhoto(): Promise<Blob | null> {
   const { headers, token } = requestHeaders({}, true);
   const res = await fetch('/api/me/wallpaper', { headers, cache: 'no-cache' });
@@ -113,8 +114,7 @@ export const useWallpaper = create<WallpaperState>((set, get) => {
     send();
   };
 
-  const showPhoto = (userId: number | null, blob: Blob | null) => {
-    if (get().userId !== userId) return;
+  const showPhoto = (blob: Blob | null) => {
     setPhotoUrl(blob ? URL.createObjectURL(blob) : null);
     set({ photo: photoUrl ? { status: 'ready', url: photoUrl } : { status: 'none' } });
   };
@@ -165,8 +165,12 @@ export const useWallpaper = create<WallpaperState>((set, get) => {
       const { userId } = get();
       if (userId === null || get().photo.status === 'loading') return;
       set({ photo: { status: 'loading' } });
-      const blob = await fetchPhoto().catch(() => null); // 못 받으면 기본 바탕으로(다시 들어오면 다시 받는다)
-      showPhoto(userId, blob);
+      try {
+        const blob = await fetchPhoto();
+        if (get().userId === userId) showPhoto(blob);
+      } catch {
+        if (get().userId === userId) set({ photo: { status: 'error' } }); // 바탕은 기본으로, 설정에서 다시 시도
+      }
     },
 
     async uploadPhoto(file) {
@@ -174,13 +178,15 @@ export const useWallpaper = create<WallpaperState>((set, get) => {
       if (!PHOTO_TYPES.includes(file.type)) throw new Error(PHOTO_BAD_TYPE);
       const { userId } = get();
       await api('/api/me/wallpaper', { method: 'PUT', body: file }); // 서버 오류 글(한국어)이 그대로 올라간다
-      set({ photo: { status: 'loading' } });
-      showPhoto(userId, await fetchPhoto().catch(() => null));
+      if (get().userId !== userId) return; // 그새 사람이 바뀌었다
+      showPhoto(file); // 올린 파일을 그대로 — 다시 받지 않는다
       commit({ wallpaper: 'photo' });
     },
 
     async removePhoto() {
+      const { userId } = get();
       await api('/api/me/wallpaper', { method: 'DELETE' });
+      if (get().userId !== userId) return;
       setPhotoUrl(null);
       set({ photo: { status: 'none' } });
       if (get().wallpaper === 'photo') commit({ wallpaper: 'default' });

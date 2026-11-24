@@ -111,3 +111,46 @@ test('그림 파일 자리(jpg 등)를 넣은 테마는 그 그림을 쓰고 배
   await userEvent.click(within(group).getByRole('radio', { name: '바둑판' }));
   expect(preview().style.backgroundRepeat).toBe('repeat');
 });
+
+test('내 사진을 골랐는데 사진이 없으면 안내한다', async () => {
+  localStorage.setItem('chronos.wallpaper.1', JSON.stringify({ state: { v: 1, wallpaper: 'photo', fit: 'fill' }, at: 0, dirty: false }));
+  w().load(1);
+  render(<WallpaperCard />);
+  expect(await within(card()).findByText('올린 사진이 없습니다 — 사진을 올리거나 다른 배경을 고르세요')).toBeVisible();
+  expect(within(card()).queryByText(/그림 테마는 늘 화면을 채웁니다/)).toBeNull();
+});
+
+test('사진을 못 받으면 다시 시도할 수 있다', async () => {
+  let fail = true;
+  photoStored = true;
+  stubFetch({
+    '/api/me/wallpaper': () => (fail ? Promise.reject(new TypeError('offline')) : new Response(new Blob([new Uint8Array([1])]), { status: 200 })),
+  });
+  localStorage.setItem('chronos.wallpaper.1', JSON.stringify({ state: { v: 1, wallpaper: 'photo', fit: 'fill' }, at: 0, dirty: false }));
+  w().load(1);
+  render(<WallpaperCard />);
+  expect(await within(card()).findByRole('alert')).toHaveTextContent('사진을 불러오지 못했습니다');
+  fail = false;
+  await userEvent.click(within(card()).getByRole('button', { name: '다시 시도' }));
+  await waitFor(() => expect(preview().style.backgroundImage).toBe('url("blob:photo-1")'));
+  expect(within(card()).queryByRole('alert')).toBeNull();
+});
+
+test('올리는 동안에는 그림·배치 방식을 고를 수 없다', async () => {
+  let release!: (r: Response) => void;
+  setWallpaperFileOverrides({ 'orbits-light.jpg': '/o.jpg' });
+  stubFetch({
+    '/api/me/wallpaper': () => json(404, { code: 'wallpaper_none', message: '올린 사진이 없습니다.', detail: null }),
+    'PUT /api/me/wallpaper': () => new Promise<Response>((r) => (release = r)),
+    'PUT /api/me/ui-state/appearance': () => json(200, { mode: 'appearance', updated_at: new Date().toISOString() }),
+  });
+  w().choose('orbits');
+  render(<WallpaperCard />);
+  await userEvent.upload(within(card()).getByLabelText('사진 올리기'), new File([new Uint8Array([1])], 'x.png', { type: 'image/png' }));
+  await waitFor(() => expect(tile('기본')).toBeDisabled());
+  for (const name of ['프리즘 공정', '미니멀 쿨', '내 사진']) expect(tile(name)).toBeDisabled();
+  for (const r of within(card()).getAllByRole('radio')) expect(r).toBeDisabled();
+  release(json(200, { type: 'image/png', width: 1, height: 1, bytes: 1, updated_at: new Date().toISOString() }));
+  await waitFor(() => expect(tile('기본')).toBeEnabled());
+  expect(tile('내 사진')).toHaveAttribute('aria-pressed', 'true');
+});
