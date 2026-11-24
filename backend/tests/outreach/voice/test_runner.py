@@ -208,6 +208,28 @@ def test_both_directions_say_a_closing_line_before_end_call():
     assert instructions.ASKING_LINE in out and "TF" in instructions.ASKING_LINE  # 일정표 말 없이 묻는다(PM 녹음 확인)
 
 
+MONEY_WORDS = ("단가", "금액", "가격", "비용", "계약", "원")
+
+
+def test_the_refusal_never_voices_a_money_word_and_the_money_rule_stays():
+    """S7 셋째 판: 단가 물음에 「비용이나 단가 관련 내용은 말씀드리기 어렵습니다」 — 거절이 「단가」를 말해 money_said(PM 승인 11-24)."""
+    from app.outreach.harness import review, rules_text
+
+    out = instructions.outbound("가람 현장", "박현장", "철근 반장", "가람철근", "타설 일정 확인", ["3층 타설 날짜"], ["금액"], "ko")
+    inn = instructions.inbound("contact", "가람 현장", "박현장", "ko")
+
+    assert instructions.REFUSAL == "그 부분은 제가 말씀드릴 수 없어서, 담당자께 전달하겠습니다"
+    assert f"「{instructions.REFUSAL}」" in instructions.REFUSAL_LINE and instructions.REFUSAL_LINE in out
+    assert not any(word in instructions.REFUSAL_LINE for word in MONEY_WORDS)  # 거절 안내에는 금액 낱말이 없다
+    inbound_refusal = "말씀드릴 수 없는 내용입니다"  # 받는 통화의 거절 말(이미 금액 낱말 없음)
+    assert inbound_refusal in inn
+    for phrase in (instructions.REFUSAL, inbound_refusal):
+        assert review._money(phrase) == 0
+    # 금액은 여전히 말하지 않는 것이고(하네스 고정 줄), 뒤 확인의 금액 규칙은 그대로다
+    assert any("금액·계약" in line for line in rules_text.fixed_lines("outbound", "trade")) and "금액·계약" in out
+    assert review._money("비용이나 단가 관련 내용은 말씀드리기 어렵습니다") == 1
+
+
 # ── 받아쓰기 ────────────────────────────────────────────────────────
 
 
