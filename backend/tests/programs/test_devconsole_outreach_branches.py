@@ -163,7 +163,7 @@ def test_inbound_handled_needs_admit_event_and_linked_reply(client, admin, sessi
     assert _detail(client, admin, "message", odd.id)["branches_lit"] == []
 
 
-def test_call_detail_has_the_flow_but_no_inbound_branch(client, admin, session):
+def test_answered_inbound_call_has_the_flow_and_the_answered_branch(client, admin, session):
     from app.store.tables_outreach import OutreachCall
 
     call = OutreachCall(direction="in", origin="peer", origin_name="", purpose="", status="completed", created_at=NOW)

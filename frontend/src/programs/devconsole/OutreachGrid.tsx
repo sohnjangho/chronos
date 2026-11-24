@@ -5,9 +5,8 @@
 import { useRef, useState } from 'react';
 import { ApiError } from '../../shared/api';
 import LimitsForm from '../../shared/outreach/LimitsForm';
-import Badge from '../../shared/ui/Badge';
-import { devApi, type GridCase, type GridCell, type GridRow, type GridNoteKind, type HarnessTestOut, type OutreachGridOut } from './devApi';
-import RawBlock from './RawBlock';
+import { devApi, type GridCase, type GridCell, type GridRow, type GridNoteKind, type OutreachGridOut } from './devApi';
+import { guardTag, ResultPanel, type Outcome } from './OutreachGridResult';
 import './outreachGrid.css';
 
 const NOTE: Record<GridNoteKind, [string, string]> = {
@@ -19,15 +18,21 @@ const NOTE: Record<GridNoteKind, [string, string]> = {
 const MEDIUM: Record<string, string> = { call: '통화', sms: '문자', kakao: '카카오톡' };
 const markText = (mark: string) => (mark === 'run' ? '●' : mark === 'none' ? '—' : mark);
 
-interface Outcome { run?: HarnessTestOut; broken?: HarnessTestOut; error?: string; busy?: boolean }
 type Results = Record<string, Outcome>;
 
 const failText = (e: unknown) => (e instanceof ApiError ? e.message : '돌리지 못했습니다.');
 
 function NoteTag({ cell }: { cell: GridCell }) {
+  const [open, setOpen] = useState(false);
   if (!cell.note || !cell.note_kind) return null;
   const [label, tone] = NOTE[cell.note_kind];
-  return <span className={`dc-tag ${tone}`} title={cell.note}>{label}</span>;
+  // 단추라 키보드·손가락으로도 글 전체를 연다(title 만으로는 닿지 않는다)
+  return (
+    <>
+      <button type="button" className={`dc-tag dc-og-notetag ${tone}`} aria-expanded={open} onClick={() => setOpen((o) => !o)}>{label}</button>
+      {open && <span className="dc-og-cellnote">{cell.note}</span>}
+    </>
+  );
 }
 
 interface CellProps {
@@ -54,16 +59,16 @@ function Cell({ id, label, cell, outcome, locked, onRun, onPick }: CellProps) {
             <button type="button" className={`dc-og-res ${run.passed ? 'is-pass' : 'is-fail'}`} onClick={() => onPick(id)}>
               {run.passed ? '통과' : '실패'}
             </button>
-          ) : outcome?.error ? (
-            <span className="dc-og-res is-fail" title={outcome.error}>오류</span>
-          ) : (
+          ) : !outcome?.error && (
             <span className="dc-og-res is-todo">아직 안 돌림</span>
           )}
           {broken && (
-            <button type="button" className={`dc-og-res ${broken.guard_confirmed ? 'is-pass' : 'is-fail'}`} onClick={() => onPick(id)}
-              title={`무른 곳: ${broken.broken_guard ?? ''}`}>
-              {broken.guard_confirmed ? '가드 확인됨' : '가드 확인 안 됨'}
+            <button type="button" className={`dc-og-res ${guardTag(broken)[1]}`} onClick={() => onPick(id)} title={broken.guard_reason ?? ''}>
+              {guardTag(broken)[0]}
             </button>
+          )}
+          {outcome?.error && !outcome.busy && (
+            <button type="button" className="dc-og-res is-fail" onClick={() => onPick(id)}>오류</button>
           )}
           <NoteTag cell={cell} />
           <span className="dc-og-acts">
@@ -77,48 +82,6 @@ function Cell({ id, label, cell, outcome, locked, onRun, onPick }: CellProps) {
         </>
       )}
     </div>
-  );
-}
-
-function ResultPanel({ id, outcome }: { id: string; outcome: Outcome }) {
-  const shown = [outcome.run, outcome.broken].filter((r): r is HarnessTestOut => !!r);
-  return (
-    <section className="dc-og-result" aria-label={`${id} 결과`}>
-      {shown.map((r) => (
-        <div key={r.broken_guard ? 'broken' : 'run'} className="dc-og-result-one">
-          <div className="dc-harness-test-head">
-            <b>{r.broken_guard ? `${id} — 가드 「${r.broken_guard}」 끄고` : id}</b>
-            {r.broken_guard ? (
-              <Badge tone={r.guard_confirmed ? 'success' : 'danger'}>{r.guard_confirmed ? '가드 확인됨 — 무르니 실패함' : '가드 확인 안 됨 — 물러도 통과'}</Badge>
-            ) : (
-              <Badge tone={r.passed ? 'success' : 'danger'}>{r.passed ? '통과' : '실패'}</Badge>
-            )}
-            {r.engine === 'live_harness' && <Badge tone="success">실엔진 검증</Badge>}
-            {r.elapsed_ms !== undefined && <Badge tone="neutral">{`${r.elapsed_ms}ms`}</Badge>}
-          </div>
-          <p className="dc-muted">{r.simulated_input}</p>
-          {r.note && <p className="dc-og-note" role="note">{r.note}</p>}
-          <ul className="dc-og-checks" aria-label="기대">
-            {(r.checks ?? []).map((c, i) => (
-              <li key={i} className={c.ok ? 'is-ok' : 'is-bad'}>
-                <span aria-hidden>{c.ok ? '✓' : '✗'}</span> {c.text}
-                {c.guarded && <span className="dc-tag">지키는 곳 기대</span>}
-              </li>
-            ))}
-          </ul>
-          <ul className="dc-og-events" aria-label="하네스 사건">
-            {(r.events ?? []).map((e, i) => (
-              <li key={i}>
-                <span className="dc-og-group">{e.group_label}</span> <code>{e.rule}</code>
-                <span className={`dc-tag${e.verdict === 'blocked' ? ' is-danger' : e.verdict === 'noted' ? ' is-warn' : ''}`}>{e.verdict}</span>
-              </li>
-            ))}
-          </ul>
-          <RawBlock label="기계 출력" value={r} />
-        </div>
-      ))}
-      {outcome.error && <p className="dc-error" role="alert">{outcome.error}</p>}
-    </section>
   );
 }
 
@@ -235,7 +198,8 @@ export default function OutreachGrid({ grid, query = '' }: { grid: OutreachGridO
       const res = await devApi.testHarness(id, broken);
       setResults((p) => ({ ...p, [id]: { ...p[id], busy: false, [broken ? 'broken' : 'run']: res } }));
     } catch (e) {
-      setResults((p) => ({ ...p, [id]: { ...p[id], busy: false, error: failText(e) } }));
+      // 다시 돌린 결과를 모르니 그 종류의 옛 결과는 지운다(지금 결과처럼 보이거나 세지 않게)
+      setResults((p) => ({ ...p, [id]: { ...p[id], busy: false, error: failText(e), [broken ? 'broken' : 'run']: undefined } }));
     }
     setPicked(id);
   }
@@ -255,7 +219,7 @@ export default function OutreachGrid({ grid, query = '' }: { grid: OutreachGridO
   const passed = outcomes.filter((r) => r?.passed === true).length;
   const failed = outcomes.filter((r) => r && !r.passed).length;
   const confirmed = allIds.filter((id) => results[id]?.broken?.guard_confirmed === true).length;
-  const loose = allIds.filter((id) => results[id]?.broken && !results[id]?.broken?.guard_confirmed).length;
+  const loose = allIds.filter((id) => results[id]?.broken?.guard_confirmed === false).length; // 확인 불가(null)는 세지 않는다
   const locked = running !== null;
   const table = { grid, results, locked, onRun: (id: string, b: boolean) => void runOne(id, b), onPick: setPicked };
 

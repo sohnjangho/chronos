@@ -10,7 +10,8 @@
   grid.CHANNEL_ONLY 의 매체별 차례). `--broken` 은 그 칸을 지키는 곳(Situation.guards[열]) 하나를 그 실행 안에서만 무른다.
 - `--layout` 은 격자의 모양(줄·칸 표시·지키는 곳·칸 말)만 — 아무것도 돌리지 않는다.
 - 표준 출력에 JSON 한 줄(ASCII). 모든 글은 redact.hide_phones 를 거치고, 출력은 OUTPUT_CAP 바이트 안(넘으면 사건을 덜어 낸다).
-  종료 코드: 0 결과 · 2 모래상자 밖·틀린 인자 · 3 지키는 곳이 없는 칸의 --broken · 1 돌리다 터짐(종류만).
+  종료 코드: 0 결과 · 2 모래상자 밖·틀린 인자 · 3 지키는 곳이 없는 칸의 --broken · 1 돌리다 터짐(종류만)·출력이 너무 큼.
+- `--broken` 은 같은 자식 안에서 그냥 돌리기(기준)도 먼저 돌려 `baseline: {passed, checks}` 로 싣는다.
 """
 
 import argparse
@@ -27,6 +28,8 @@ from app.outreach.harness.registry import SANDBOX_ENV
 OUTPUT_CAP = 200_000  # 바이트 — 서버의 읽기 상한(outreach_catalog.OUTPUT_CAP)보다 작게
 DETAIL_CHARS = 200  # 사건 detail 은 이만큼까지
 MEDIUM_LETTER = {"call": "V", "sms": "S", "kakao": "K"}
+DIVERGED = "하네스가 갈라짐"  # situations.DIVERGED_* 의 머리
+COMMON_ONLY = "공통 겹만"  # situations.COMMON_ONLY · VOICE_COMMON_ONLY 등의 머리
 _CELL = re.compile(r"S-\d{2}@[a-z_]+")
 _CASE = re.compile(r"C-[A-Z]\d{1,2}")
 
@@ -71,9 +74,9 @@ def note_kind(note: str | None) -> str | None:
         return None
     if note.startswith(s.SIMULATED_ONLY):
         return "simulated"
-    if note in (s.DIVERGED_DNC, s.DIVERGED_LANGUAGE, s.DIVERGED_REPEAT):
+    if note.startswith(DIVERGED):  # 격자의 지금 갈라진 칸(상수 목록이 아니라 note 머리 — 칸이 바뀌어도 따라간다)
         return "diverged"
-    if note == s.VOICE_COMMON_ONLY or note in s.COMMON_ONLY.values():
+    if note.startswith(COMMON_ONLY):
         return "common_only"
     return "design_diff"
 
@@ -111,11 +114,14 @@ async def run(rule_id: str, broken: bool) -> dict[str, Any]:
     guard = _situation(kind, key).guards.get(column)
     if broken and guard is None:
         raise NoGuard(rule_id)
-    if kind == "cell":
-        result = await grid.run_cell(key, column, broken=broken)
-    else:
-        result = await grid.run_case(key, broken=broken)
-    return {
+
+    async def once(off: bool):
+        return await (grid.run_cell(key, column, broken=off) if kind == "cell" else grid.run_case(key, broken=off))
+
+    # 가드 끄고 돌리기는 같은 자식 안에서 그냥 돌리기(기준)도 먼저 — 그냥 돌려도 실패하는 칸은 가드의 증거가 아니다
+    baseline = await once(False) if broken else None
+    result = await once(broken)
+    out = {
         "rule_id": rule_id, "column": column, "passed": result.passed, "broken_guard": guard if broken else None,
         "checks": [{"text": c["text"], "ok": c["ok"], "guarded": bool(c.get("guarded")), "error": c.get("error")}
                    for c in result.checks],
@@ -123,6 +129,10 @@ async def run(rule_id: str, broken: bool) -> dict[str, Any]:
                     "detail": None if e.get("detail") is None else str(e["detail"])[:DETAIL_CHARS]} for e in result.events],
         "note": result.note, "sessions": list(result.sessions), "channel": result.channel,
     }
+    if baseline is not None:
+        out["baseline"] = {"passed": baseline.passed, "checks": [
+            {"text": c["text"], "ok": c["ok"], "guarded": bool(c.get("guarded"))} for c in baseline.checks]}
+    return out
 
 
 def _hidden(value: Any) -> Any:
@@ -148,6 +158,13 @@ def dump(out: dict[str, Any]) -> str:
     return text if len(text.encode()) <= OUTPUT_CAP else json.dumps({"error": "too_large"})
 
 
+def _emit(out: dict[str, Any]) -> int:
+    """한 줄을 내고, 그 줄이 오류(too_large)면 0 이 아닌 종료 코드."""
+    text = dump(out)
+    print(text)
+    return 1 if "error" in json.loads(text) else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if os.environ.get(SANDBOX_ENV) != "1":
         print(f"이 실행기는 모래상자 프로세스({SANDBOX_ENV}=1)에서만 돕니다", file=sys.stderr)
@@ -158,16 +175,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--layout", action="store_true")
     args = parser.parse_args(argv)
     if args.layout:
-        print(dump(layout()))
-        return 0
+        return _emit(layout())
     try:
         parse(args.rule_id or "")
     except ValueError:
         print(json.dumps({"error": "unknown_cell"}))
         return 2
     try:
-        print(dump(asyncio.run(run(args.rule_id, args.broken))))
-        return 0
+        return _emit(asyncio.run(run(args.rule_id, args.broken)))
     except NoGuard:
         print(json.dumps({"error": "no_guard"}))
         return 3

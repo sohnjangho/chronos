@@ -61,3 +61,5 @@ button.dc-og-res { cursor: pointer; }
 .dc-og-events { list-style: none; padding-left: 0; }
 .dc-og-events code { font-size: var(--fs-11); color: var(--fg-muted); }
 .dc-og-group { font-weight: 600; }
+button.dc-og-notetag { border: 0; font: inherit; font-size: var(--fs-11); font-weight: 500; line-height: 16px; cursor: pointer; }
+.dc-og-cellnote { flex-basis: 100%; font-size: var(--fs-11); color: var(--fg-muted); overflow-wrap: anywhere; }

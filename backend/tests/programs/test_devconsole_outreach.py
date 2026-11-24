@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from app.outreach.harness.registry import SANDBOX_ENV
 from app.outreach.harness.types import GATE_RULES, Ref
 from app.programs.devconsole import outreach_catalog
 from app.security.crypto import encrypt
+from app.security.passwords import hash_password
+from app.security.tokens import issue_token
 from app.store.tables import User
 from app.store.tables_outreach import (
     NotifyConnection,
@@ -28,6 +31,7 @@ from app.store.tables_outreach import (
     OutreachMessage,
     OutreachUsage,
 )
+from tests.helpers import auth
 from tests.outreach_doubles import SENTINEL_DIGITS, SENTINEL_KEY
 
 BACKEND = Path(__file__).resolve().parents[2]
@@ -129,6 +133,27 @@ def test_broken_guard_makes_cell_fail_in_child_process():
     assert again["passed"] is True and again["guard_confirmed"] is None
 
 
+def test_guard_is_not_confirmed_when_the_cell_fails_without_breaking():
+    """그냥 돌려도 실패하는 칸(갈라진 칸 등)은 무르니 실패해도 증거가 아니다 — 확인됨이 아니라 null + 까닭."""
+    body = outreach_catalog.run("S-20@call_in", broken=True)  # 대본의 되풀이 — 같은 대본으로는 통과하지 않음
+    assert body["baseline_passed"] is False and body["guard_confirmed"] is None
+    assert body["guard_reason"] == outreach_catalog.BASELINE_FAILS
+
+
+@pytest.mark.parametrize(("baseline", "broken", "want"), [
+    ([True, True], [False, True], True),  # 그냥은 통과 · 무르니 지키는 곳 기대가 거짓
+    ([True, True], [True, True], False),  # 물러도 통과 — 시험이 엔진을 보지 않음
+    ([True, True], [True, False], False),  # 지키는 곳 기대가 아닌 것만 거짓 — 가드의 증거 아님
+    ([False, True], [False, True], None),  # 그냥 돌려도 실패 — 확인할 수 없음
+])
+def test_guard_verdict_needs_a_passing_baseline_and_a_guarded_failure(baseline, broken, want):
+    def checks(oks):
+        return [{"text": f"기대 {i}", "ok": ok, "guarded": i == 0} for i, ok in enumerate(oks)]
+
+    body = {"passed": all(broken), "checks": checks(broken), "baseline": {"passed": all(baseline), "checks": checks(baseline)}}
+    assert outreach_catalog.guard_verdict(body)[0] is want
+
+
 def test_broken_run_never_patches_server_process(monkeypatch):
     import sys
 
@@ -166,6 +191,38 @@ def test_child_is_killed_after_the_time_limit(monkeypatch):
     with pytest.raises(outreach_catalog.ApiError) as caught:
         outreach_catalog.run("S-01@sms_in")
     assert caught.value.status_code == 504 and caught.value.code == "sandbox_timeout"
+
+
+def test_child_error_line_is_502_even_with_exit_zero(monkeypatch):
+    outreach_catalog._layout_once()
+    monkeypatch.setattr(outreach_catalog, "_command", lambda args: [outreach_catalog.sys.executable, "-c",
+                                                                     "print('{\"error\": \"too_large\"}')"])
+    with pytest.raises(outreach_catalog.ApiError) as caught:
+        outreach_catalog.run("S-01@sms_in")
+    assert caught.value.status_code == 502 and caught.value.code == "sandbox_failed"
+
+
+def test_timeout_kills_the_whole_process_group(monkeypatch, tmp_path):
+    outreach_catalog._layout_once()
+    pid_file = tmp_path / "grandchild"
+    code = ("import subprocess, sys, time\n"
+            f"p = subprocess.Popen(['sleep', '30'])\nopen({str(pid_file)!r}, 'w').write(str(p.pid))\ntime.sleep(30)\n")
+    monkeypatch.setattr(outreach_catalog, "TIMEOUT_S", 1.0)
+    monkeypatch.setattr(outreach_catalog, "_command", lambda args: [outreach_catalog.sys.executable, "-c", code])
+    t0 = time.monotonic()
+    with pytest.raises(outreach_catalog.ApiError):
+        outreach_catalog.run("S-01@sms_in")
+    assert time.monotonic() - t0 < 10  # 손자가 출력 관을 쥐고 있어도 서버가 붙잡히지 않는다
+    grandchild = int(pid_file.read_text())
+    for _ in range(50):  # 묶음째 죽였으면 곧 사라진다(고아는 init 이 거둔다)
+        try:
+            os.kill(grandchild, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        os.kill(grandchild, 9)
+        pytest.fail("손자 프로세스가 살아 있음")
 
 
 def test_child_output_over_the_cap_is_refused(monkeypatch):
@@ -244,6 +301,12 @@ def test_usage_counts_answered_and_rejected_calls(client, admin, session):
     assert (calls["calls_answered"], calls["calls_rejected"]) == (1, 1)
 
 
-def test_admin_only(client, user):
-    assert client.post("/api/devconsole/harness/S-01@sms_in/test", headers=user).status_code == 403
-    assert client.post("/api/devconsole/harness/S-01@sms_in/test?broken=1", headers=user).status_code == 403
+def test_admin_only(client, user, session):
+    field_user = User(login_id="field1", name="현장 관리자", role="field", password_hash=hash_password("field-pass"))
+    session.add(field_user)
+    session.commit()
+    field = auth(issue_token(field_user.id))
+    for who in (user, field):
+        assert client.post("/api/devconsole/harness/S-01@sms_in/test", headers=who).status_code == 403
+        assert client.post("/api/devconsole/harness/S-01@sms_in/test?broken=1", headers=who).status_code == 403
+        assert client.get("/api/devconsole/catalog", headers=who).status_code == 403

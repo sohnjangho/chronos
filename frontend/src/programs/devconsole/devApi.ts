@@ -257,6 +257,9 @@ export interface HarnessTestOut {
   /** 가드 끄고 돌리기: 무른 지키는 곳 · 무르니 실패했는가(= 가드 확인됨). 그냥 돌리기는 null. */
   broken_guard?: string | null;
   guard_confirmed?: boolean | null;
+  /** 가드 판정의 까닭(서버 글) · 같은 자식의 그냥 돌리기가 통과했는가(그냥 돌려도 실패면 guard_confirmed null). */
+  guard_reason?: string | null;
+  baseline_passed?: boolean | null;
 }
 
 /** 칸 말의 종류 — 운영 동작이 아님을 가려 보인다(가짜에서만 · 하네스 갈라짐 · 공통 겹만 · 설계와 다름). */

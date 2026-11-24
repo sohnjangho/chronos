@@ -492,13 +492,16 @@ export function outreachGrid(over: Partial<OutreachGridOut> = {}): OutreachGridO
 }
 
 /** 격자 칸 응답(서버 꼴). passed 와 broken 으로 「통과·실패·가드 확인됨」을 만든다. */
-export function cellOut(ruleId: string, passed: boolean, broken = false): HarnessTestOut {
+export function cellOut(ruleId: string, passed: boolean, broken = false, baseline = true): HarnessTestOut {
+  const confirmed = broken ? (baseline ? !passed : null) : null;
   return {
     rule_id: ruleId, title: ruleId, blocked: passed, engine: 'live_harness', elapsed_ms: 640,
     simulated_input: '모래상자 자식 프로세스에서 grid 실실행', model_feedback: { passed },
     passed, checks: [{ text: '그 칸의 기대', ok: passed, guarded: true }, { text: '다른 기대', ok: true }],
     events: [{ ref: 'message:1', rule: 'test_mode', verdict: 'blocked', detail: null, group: 'gate_decision', group_label: '나가는 문 판정' }],
-    note: null, broken_guard: broken ? 'gate.block_dnc' : null, guard_confirmed: broken ? !passed : null,
+    note: null, broken_guard: broken ? 'gate.block_dnc' : null, guard_confirmed: confirmed, baseline_passed: broken ? baseline : null,
+    guard_reason: !broken ? null : !baseline ? '그냥 돌려도 실패 — 가드를 확인할 수 없음' : confirmed ? '그냥은 통과 · 무르니 지키는 곳 기대가 거짓'
+      : '물러도 통과 — 시험이 이 지키는 곳을 보지 않음',
   };
 }
 

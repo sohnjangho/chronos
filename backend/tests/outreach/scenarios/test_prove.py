@@ -15,7 +15,9 @@ import pytest
 from app.outreach.scenarios import prove
 from app.outreach.scenarios.drive_text import NUMBERS
 from app.outreach.scenarios.grid import CHANNEL_ONLY
-from app.outreach.scenarios.situations import COLUMNS, SITUATIONS
+from app.outreach.scenarios.situations import COLUMNS, SIMULATED_ONLY, SITUATIONS
+
+DIVERGED = "하네스가 갈라짐"
 
 BACKEND = Path(__file__).resolve().parents[3]
 PHONE = re.compile(r"0\d{1,2}[-\s.]?\d{3,4}[-\s.]?\d{4}")
@@ -72,11 +74,13 @@ def test_layout_is_the_design_table(tmp_path):
             assert cell["note"] == situation.notes.get(column)
     media = [c["medium"] for c in layout["channel_only"]]
     assert (media.count("call"), media.count("sms"), media.count("kakao")) == (5, 3, 2)
+    # 칸 말의 종류는 격자의 지금 note 를 따른다(어느 칸이 갈라졌는지는 제품이 바뀌면 바뀐다 — 목록을 박지 않는다)
     kinds = {(r["id"], c): cell["note_kind"] for r in layout["rows"] for c, cell in r["cells"].items() if cell["note"]}
-    assert {k for k, kind in kinds.items() if kind == "diverged"} == {
-        ("S-04", "call_out"), ("S-04", "call_in"), ("S-13", "call_out"), ("S-13", "call_in"), ("S-20", "call_in")}
-    assert kinds[("S-21", "call_in")] == "simulated" and kinds[("S-10", "sms_in")] == "common_only"
-    assert kinds[("S-01", "sms_in")] == "design_diff"
+    want = {(s.id, c): note for s in SITUATIONS for c, note in s.notes.items()}
+    assert set(kinds) == set(want)
+    assert {k for k, kind in kinds.items() if kind == "diverged"} == {k for k, n in want.items() if n.startswith(DIVERGED)}
+    assert {k for k, kind in kinds.items() if kind == "simulated"} == {k for k, n in want.items() if n.startswith(SIMULATED_ONLY)}
+    assert {kinds[k] for k, n in want.items() if n.startswith("공통 겹만")} <= {"common_only"}
 
 
 def test_cell_passes_and_broken_guard_fails_in_the_child(tmp_path):
@@ -100,11 +104,29 @@ def test_output_has_no_phone_number(tmp_path):
     assert not any(n in raw for n in digits) and not PHONE.search(raw)
 
 
-def test_divergent_and_simulated_cells_carry_their_note(tmp_path):
-    diverged = _out(_child(tmp_path, "S-20@call_in"))  # 대본의 되풀이는 통화 한 통 — 같은 대본으로는 통과하지 않는다
-    assert diverged["passed"] is False and diverged["note"].startswith("하네스가 갈라짐")
-    simulated = _out(_child(tmp_path, "C-V3"))  # silence — 코드가 시킨 말은 가짜에서만 들린다
-    assert simulated["passed"] is True and simulated["note"].startswith("가짜에서만")
+def test_cells_carry_their_note(tmp_path):
+    """칸 말이 결과에 실린다 — 통과·실패는 제품에 따라 바뀌므로 보지 않는다."""
+    noted = {(s.id, c): n for s in SITUATIONS for c, n in s.notes.items()}
+    diverged = next((k for k, n in noted.items() if n.startswith(DIVERGED)), None)
+    simulated = next(k for k, n in noted.items() if n.startswith(SIMULATED_ONLY))
+    for key in [k for k in (diverged, simulated) if k]:
+        assert _out(_child(tmp_path, "@".join(key)))["note"] == noted[key]
+    assert _out(_child(tmp_path, "C-V3"))["note"].startswith(SIMULATED_ONLY)  # 채널에만 있는 경우의 말도
+
+
+def test_broken_run_carries_its_baseline_from_the_same_child(tmp_path):
+    out = _out(_child(tmp_path, "S-22@call_out", "--broken"))
+    assert out["baseline"]["passed"] is True and out["passed"] is False
+    assert [c["text"] for c in out["baseline"]["checks"]] == [c["text"] for c in out["checks"]]
+    assert "baseline" not in _out(_child(tmp_path, "S-22@call_out"))
+
+
+def test_errors_exit_non_zero():
+    assert prove.main(["S-99@call_in"]) != 0  # 모래상자 밖이라도 0 이 아님
+
+
+def test_too_large_output_is_an_error_line():
+    assert json.loads(prove.dump({"passed": True, "note": "가" * (prove.OUTPUT_CAP + 10)}))["error"] == "too_large"
 
 
 def test_output_is_capped():

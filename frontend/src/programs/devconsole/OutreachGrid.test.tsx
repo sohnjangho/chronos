@@ -47,8 +47,14 @@ describe('연락 하네스 격자', () => {
     expect(within(await cellOf('S-21', '문자 받기')).getByText('30분 규칙')).toBeVisible();
     expect(within(table).getAllByText('—').length).toBeGreaterThanOrEqual(2);
     expect(within(await cellOf('S-04', '전화 받기')).getByText('아직 안 돌림')).toBeVisible();
-    // 가짜에서만·하네스 갈라짐 칸은 운영 동작으로 읽히지 않게 표시가 붙는다(글 전체는 title)
-    expect(within(await cellOf('S-21', '전화 받기')).getByText('가짜에서만')).toHaveAttribute('title', expect.stringContaining('가짜 통화'));
+    // 가짜에서만·하네스 갈라짐 칸은 운영 동작으로 읽히지 않게 표시가 붙는다 — 표시는 단추라 키보드·손가락으로 글 전체를 연다
+    const sim = await cellOf('S-21', '전화 받기');
+    const tag = within(sim).getByRole('button', { name: /가짜에서만/ });
+    expect(tag).toHaveAttribute('aria-expanded', 'false');
+    tag.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(tag).toHaveAttribute('aria-expanded', 'true');
+    expect(within(sim).getByText(/가짜 통화에서만 들린다/)).toBeVisible();
     expect(within(await cellOf('S-04', '전화 걸기')).getByText('하네스 갈라짐')).toBeVisible();
     expect(within(await cellOf('S-24', '전화 걸기')).getByText('공통 겹만')).toBeVisible();
     const only = screen.getByRole('table', { name: '채널에만 있는 것' });
@@ -85,6 +91,36 @@ describe('연락 하네스 격자', () => {
     expect(await within(loose).findByText('가드 확인 안 됨')).toHaveClass('is-fail');
     // 지키는 곳이 없는 칸에는 그 단추가 없다
     expect(within(await cellOf('S-24', '전화 걸기')).queryByRole('button', { name: '가드 끄고 돌리기' })).toBeNull();
+  });
+
+  test('그냥 돌려도 실패하는 칸은 「가드 확인 불가」 — 초록도 빨강도 아니고 세지 않는다', async () => {
+    mockCells((id, broken) => json(200, cellOut(id, false, broken, false)));
+    openHarness();
+    const cell = await cellOf('S-04', '전화 걸기');
+    await userEvent.click(within(cell).getByRole('button', { name: '가드 끄고 돌리기' }));
+    const tag = await within(cell).findByRole('button', { name: '가드 확인 불가' });
+    expect(tag).not.toHaveClass('is-pass');
+    expect(tag).not.toHaveClass('is-fail');
+    expect(within(cell).queryByText('가드 확인됨')).toBeNull();
+    expect(screen.getByRole('status', { name: '격자 진행' })).not.toHaveTextContent('가드 확인');
+    const result = screen.getByRole('region', { name: 'S-04@call_out 결과' });
+    expect(within(result).getByText(/그냥 돌려도 실패 — 가드를 확인할 수 없음/)).toBeVisible();
+  });
+
+  test('다시 돌리다 오류가 나면 옛 결과를 지금 결과처럼 보이지 않고 세지 않는다', async () => {
+    let busy = false;
+    mockCells((id) => (busy ? json(429, { code: 'sandbox_busy', message: '다른 칸을 돌리는 중입니다.', detail: null }) : json(200, cellOut(id, true))));
+    openHarness();
+    const cell = await cellOf('S-04', '문자 받기');
+    await userEvent.click(within(cell).getByRole('button', { name: '돌리기' }));
+    expect(await within(cell).findByText('통과')).toBeVisible();
+    expect(screen.getByRole('status', { name: '격자 진행' })).toHaveTextContent('통과 1');
+    busy = true;
+    await userEvent.click(within(cell).getByRole('button', { name: '돌리기' }));
+    expect(await within(cell).findByRole('button', { name: '오류' })).toHaveClass('is-fail');
+    expect(within(cell).queryByText('통과')).toBeNull();
+    expect(screen.getByRole('status', { name: '격자 진행' })).toHaveTextContent('통과 0');
+    expect(within(screen.getByRole('region', { name: 'S-04@sms_in 결과' })).getByRole('alert')).toHaveTextContent('다른 칸을 돌리는 중입니다.');
   });
 
   test('줄 전체 돌리기는 그 줄의 칸만, 전부 돌리기는 하나씩 차례로(한꺼번에 하나)', async () => {

@@ -11,7 +11,9 @@
 """
 
 import json
+import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -38,6 +40,7 @@ RULE_ID = re.compile(r"(S-\d{2}@(call_out|call_in|sms_in|sms_reply)|C-[VSK]\d{1,
 COLUMN_LABELS = {"call_out": "전화 걸기", "call_in": "전화 받기", "sms_in": "문자 받기", "sms_reply": "우리 문자·카카오톡에 온 답"}
 GROUP = "연락 하네스"
 UNKNOWN = "알 수 없는 사건"
+BASELINE_FAILS = "그냥 돌려도 실패 — 가드를 확인할 수 없음"
 NO_GUARD = "이 칸에는 무를 지키는 곳이 없습니다(공통 겹만 — 구조로만 지킴)."
 LIMITS_NOTE = "격자의 칸은 운영 상한이 아니라 대본이 적어 둔 상한으로 돈다 — 아래 운영 상한을 바꿔도 칸의 결과는 바뀌지 않는다."
 SANDBOX_NOTE = "모래상자 자식 프로세스(임시 DB · 가짜 통로·음성·글 세션·LLM)에서 진짜 문·도구·뒤 확인·받기 판정으로 grid 실실행"
@@ -64,6 +67,13 @@ def _child_env(home: Path) -> dict[str, str]:
             "CHRONOS_OUTREACH_WORKER": "off"}
 
 
+def _kill_group(pgid: int) -> None:
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass  # 이미 모두 끝남
+
+
 def _spawn(args: list[str]) -> tuple[int, dict[str, Any]]:
     """자식 하나를 끝까지(제한 시간·출력 상한 안에서) 돌려 (종료 코드, JSON) 을 준다. 자식은 어떤 길로든 거둔다."""
     if not _children.acquire(blocking=False):
@@ -79,15 +89,19 @@ def _spawn(args: list[str]) -> tuple[int, dict[str, Any]]:
             reader.join(TIMEOUT_S)
             out = box.get("out", b"")
             timed_out = reader.is_alive()
-            try:
-                code = proc.wait(timeout=0 if timed_out or len(out) > OUTPUT_CAP else max(0.1, TIMEOUT_S / 10))
-            except subprocess.TimeoutExpired:
-                code = None
-            if code is None:
-                proc.kill()
-                proc.wait()
+            code = None
+            if not timed_out and len(out) <= OUTPUT_CAP:
+                try:
+                    code = proc.wait(timeout=max(0.1, TIMEOUT_S / 10))
+                except subprocess.TimeoutExpired:
+                    code = None
+            if code is None or reader.is_alive():
+                # 묶음째(start_new_session — 묶음 id = 자식 pid). 묶음에 산 것이 있는 동안은 그 id 가 다른 묶음에 쓰이지 않는다
+                _kill_group(proc.pid)
+            proc.wait()
             reader.join(1)
-            proc.stdout.close()
+            if not reader.is_alive():  # 읽는 중에 닫으면 읽기가 끝날 때까지 붙잡힌다
+                proc.stdout.close()
     finally:
         _children.release()
     if timed_out:
@@ -158,8 +172,8 @@ def run(rule_id: str, broken: bool = False) -> dict[str, Any]:
         raise ApiError(404, "not_found", f"하네스 규칙을 찾을 수 없습니다: {rule_id}")
     if code == 3:
         raise ApiError(422, "no_guard", NO_GUARD)
-    if code != 0:
-        raise ApiError(502, "sandbox_failed", f"모래상자 실행이 터졌습니다({body.get('kind', '알 수 없음')}).")
+    if code != 0 or "error" in body or not isinstance(body.get("passed"), bool):
+        raise ApiError(502, "sandbox_failed", f"모래상자 실행이 터졌습니다({body.get('kind') or body.get('error') or '알 수 없음'}).")
     elapsed_ms = round((time.perf_counter() - t0) * 1000)
     passed = body["passed"] is True
     events = [{**e, "group": group_of(e.get("rule")), "group_label": GROUP_LABELS.get(group_of(e.get("rule")) or "", UNKNOWN)}
@@ -175,5 +189,24 @@ def run(rule_id: str, broken: bool = False) -> dict[str, Any]:
         "passed": passed, "checks": [{"text": c["text"], "ok": c["ok"] is True, "guarded": c.get("guarded", False)}
                                      for c in body.get("checks", [])],
         "events": events, "note": body.get("note"), "broken_guard": body.get("broken_guard"),
-        "guard_confirmed": (not passed) if broken else None,
+        **_guard_fields(body, broken),
     }
+
+
+def guard_verdict(body: dict[str, Any]) -> tuple[bool | None, str]:
+    """가드 끄고 돌리기의 판정. 같은 자식의 그냥 돌리기(baseline)가 통과하고, 무른 실행이 **지키는 곳 기대**에서 실패해야
+    True. 그냥 돌려도 실패하면 None(확인할 수 없음 — 증거가 아님), 그 밖은 False."""
+    if (body.get("baseline") or {}).get("passed") is not True:
+        return None, BASELINE_FAILS
+    if body.get("passed") is False and any(c.get("guarded") and c.get("ok") is False for c in body.get("checks", [])):
+        return True, "그냥은 통과 · 무르니 지키는 곳 기대가 거짓"
+    if body.get("passed") is True:
+        return False, "물러도 통과 — 시험이 이 지키는 곳을 보지 않음"
+    return False, "무르니 실패했지만 지키는 곳 기대는 참 — 이 지키는 곳의 증거가 아님"
+
+
+def _guard_fields(body: dict[str, Any], broken: bool) -> dict[str, Any]:
+    if not broken:
+        return {"guard_confirmed": None, "guard_reason": None, "baseline_passed": None}
+    confirmed, reason = guard_verdict(body)
+    return {"guard_confirmed": confirmed, "guard_reason": reason, "baseline_passed": (body.get("baseline") or {}).get("passed")}
