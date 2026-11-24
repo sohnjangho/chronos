@@ -19,7 +19,6 @@ import re
 from datetime import datetime
 from importlib import import_module
 from importlib.util import find_spec
-from itertools import pairwise
 from typing import Any
 
 from sqlalchemy import func, select
@@ -111,6 +110,8 @@ RULE_LABELS: dict[str, str] = {
 RECHECK_CODES = frozenset({*GATE_RULES.values(), "not_ready", "local_error"})
 CALL_RESULT_RULE = next(rule for rule, codes in FIXED_DETAILS.items() if codes is CALL_RESULTS)
 CHECK_LABEL = "확인 필요"
+CALL_DELIVERY_TEXT = {"sent": "줄에 넣음", "failed": "줄에 넣지 못함", "unsure": "걸렸는지 확인 필요"}  # 통화의 통로 결과
+CALL_FAILED = "실패"  # 막힌 통화 결과(끝이 분명한 실패)
 
 # 묶음·이름을 상수에서 꺼낸다(글자를 적지 않는다)
 GATE_GROUP = EVENT_GROUPS[GATE_RULES[0]]
@@ -252,20 +253,33 @@ def _line(event: object, fallback: datetime) -> tuple[HarnessMark, str, datetime
         return mark, label, fallback
 
 
-def timeline(value: object, fallback: datetime) -> tuple[list[HarnessItem], int, int]:
-    """그 줄의 하네스 사건 → (시간표, 시도 수, 보이지 않는 앞선 사건 수). 남긴 차례 그대로(시각으로 다시 늘어놓지 않음)."""
+def _call_words(mark: HarnessMark, label: str, unsure: bool) -> str:
+    """통화 줄의 말: 통로 결과는 「줄에 넣음」·「걸렸는지 확인 필요」, 막힌 통화 결과는 「실패」 — 줄이 결과 모름으로 닫혔으면
+    (통로 결과 unsure 사건이 있으면, 목록의 _unsure 와 같은 기준) 「확인 필요」(시간줄의 확인 필요 수에는 통로 결과 하나만 센다)."""
+    if mark.rule == DELIVERY_RULE and mark.verdict in _DELIVERY_STATE:
+        text = CALL_DELIVERY_TEXT[_DELIVERY_STATE[mark.verdict]]
+        mark.verdict_label = CHECK_LABEL if mark.needs_check else text
+        return f"{GROUP_LABELS[RESULT_GROUP]} — {text}"
+    if mark.rule == CALL_RESULT_RULE and mark.verdict == "blocked":
+        mark.verdict_label = CHECK_LABEL if unsure else CALL_FAILED
+    return label
+
+
+def timeline(value: object, fallback: datetime, kind: str = "message") -> tuple[list[HarnessItem], int, int]:
+    """그 줄의 하네스 사건 → (시간표, 시도 수, 보이지 않는 앞선 사건 수). 남긴 차례 그대로(시각으로 다시 늘어놓지 않음).
+    통화 줄(kind call)은 통화 말로(_call_words)."""
     shown, omitted = _stored_events(value)
     lines = [_line(e, fallback) for e in shown]
     attempts = _attempts([mark for mark, _label, _at in lines])
-    for (mark, _l, _a), (after, _l2, _a2) in pairwise(lines):  # 끝을 모르는 통화(통화 결과 → 통로 결과 모름)
-        if mark.rule == CALL_RESULT_RULE and mark.verdict == "blocked" and after.needs_check:
-            mark.verdict_label = CHECK_LABEL  # 막음·실패가 아니라 「확인 필요」(시간줄의 확인 필요 수에는 통로 결과 하나만 센다)
+    if kind == CALL_KIND:
+        unsure = _unsure(value)
+        lines = [(mark, _call_words(mark, label, unsure), at) for mark, label, at in lines]
     items = []
     for seq, (mark, label, at) in enumerate(lines, 1):
+        failed = mark.verdict == "blocked" and mark.verdict_label != CHECK_LABEL  # 결과 모름은 오류 줄이 아니다
         items.append(HarnessItem(
             seq=seq, kind="harness", label=label, started_at=at, ms=None, model=None, input_tokens=0, output_tokens=0,
-            cost=None, ok=mark.verdict != "blocked" or mark.verdict_label == CHECK_LABEL,
-            error=mark.verdict_label if mark.verdict == "blocked" else None,
+            cost=None, ok=not failed, error=mark.verdict_label if failed else None,
             input_text="", output_text="", parallel_group=None, harness=mark,
         ))
     return items, attempts, omitted
@@ -347,7 +361,7 @@ def detail(session: Session, kind: str, row_id: int) -> OutreachDetailOut:
                            reply_to_id=getattr(row, "reply_to_id", None), duration_s=getattr(row, "duration_s", None),
                            transcript_lines=len(row.transcript_json) if kind == CALL_KIND and isinstance(
                                row.transcript_json, list) else None)
-    items, attempts, omitted = timeline(row.harness_json, fields["at"])
+    items, attempts, omitted = timeline(row.harness_json, fields["at"], kind)
     return OutreachDetailOut(head=head, timeline=items, groups=_groups(items), attempts=attempts,
                              needs_check=sum(i.harness.needs_check for i in items), omitted=omitted,
                              flow=outreach_branches.flow(items), branches_lit=outreach_branches.branches(session, kind, row))

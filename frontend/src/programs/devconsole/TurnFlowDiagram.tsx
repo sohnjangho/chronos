@@ -193,7 +193,9 @@ const CALL_PLACED = { key: 'call_placed', label: 'AI 전화 걺', on: '걸기 �
 
 /** 연락 하나의 흐름도: 다섯 마디(차례는 서버가 준 대로)마다 그 줄의 사건 수와 판정(서버의 판정 글). 사건이 없는 마디와 꺼진 가지는
  * 흐리다. 넓으면 한 줄, 좁은 창에서는 다음 줄로 접혀 가로로 넘치지 않는다. */
-export function OutreachFlow({ flow, lit, kind = 'message' }: { flow: OutreachFlowNode[]; lit: string[]; kind?: 'message' | 'call' }) {
+export function OutreachFlow({ flow, lit, kind = 'message', direction = 'out' }: { flow: OutreachFlowNode[]; lit: string[]; kind?: 'message' | 'call'; direction?: string }) {
+  // 통화: 거는 통화만 「AI 전화 걺」 가지(받은 통화의 가지는 Task 98). 문자: 받은 문자 응대 · 막고 안내함 가운데 하나.
+  const branch = kind === 'call' ? (direction === 'in' ? [] : [CALL_PLACED]) : [lit.includes(INBOUND_REFUSED.key) ? INBOUND_REFUSED : INBOUND_HANDLED];
   return (
     <ol className="dc-o-flow" aria-label="연락 흐름도">
       {flow.map((n) => (
@@ -211,7 +213,7 @@ export function OutreachFlow({ flow, lit, kind = 'message' }: { flow: OutreachFl
           )}
         </li>
       ))}
-      {[kind === 'call' ? CALL_PLACED : lit.includes(INBOUND_REFUSED.key) ? INBOUND_REFUSED : INBOUND_HANDLED].map((b) => {
+      {branch.map((b) => {
         const on = lit.includes(b.key);
         return (
           <li key={b.key} className={`dc-o-branch ${on ? 'is-lit' : 'is-dim'}${b.warn ? ' is-warn' : ''}`} aria-label={`${b.label}, ${on ? b.on : '기록 없음'}`} title={b.key}>

@@ -129,6 +129,7 @@ def test_call_trace_shows_gate_recheck_tools_and_harness_events(client, admin, s
     assert labels[5] == "침묵 확인" and labels[6] == "최대 시간"
     assert labels[7] == "도구 결과에 없는 날짜" and marks[7]["group"] == "post_check"
     assert [t["ok"] for t in body["timeline"]] == [True, True, True, True, False, True, True, True]
+    assert (labels[1], marks[1]["verdict_label"]) == ("통로 결과 — 줄에 넣음", "줄에 넣음")  # 통화 말(「보냄」 아님)
 
     stopped = _call(session, schedule_id=sid, contact_id=contact, status="blocked_test")
     _record(session, stopped.id, "channel_choice", "allowed", "call")
@@ -144,19 +145,23 @@ def test_unknown_outcome_call_is_needs_check_never_failed(client, admin, session
                  fail_reason="걸렸는지 확인 필요")
     _record(session, call.id, "recheck_before_dial", "allowed", "ok")
     _record(session, call.id, "call_result", "blocked", "backend_error")
+    _record(session, call.id, "hangup_by_person", "noted", "사람이 끊음")  # 사이에 다른 사건이 끼어도 줄 기준으로 가린다
     _record(session, call.id, "delivery", "noted", "결과 모름")
     plain = _call(session, schedule_id=sid, contact_id=contact, status="failed", claimed_at=NOW)
     _record(session, plain.id, "call_result", "blocked", "backend_error")
 
     body = _detail(client, admin, call.id)
-    result, delivery = body["timeline"][1], body["timeline"][2]
+    result, delivery = body["timeline"][1], body["timeline"][3]
     assert result["ok"] is True and result["harness"]["verdict_label"] == "확인 필요"  # 막음·실패로 보이지 않는다
-    assert delivery["harness"]["needs_check"] is True and delivery["ok"] is True
+    assert result["error"] is None  # 펼쳐도 빨간 오류 줄이 없다
+    assert delivery["harness"]["needs_check"] is True and delivery["ok"] is True and delivery["error"] is None
+    assert delivery["label"] == "통로 결과 — 걸렸는지 확인 필요"
     assert body["needs_check"] == 1 and body["head"]["needs_check"] is True
     assert body["branches_lit"] == ["call_placed"]
     rows = {r["id"]: r for r in client.get("/api/devconsole/outreach?kind=call", headers=admin).json()["items"]}
     assert rows[call.id]["needs_check"] is True and rows[plain.id]["needs_check"] is False
-    assert _detail(client, admin, plain.id)["timeline"][0]["ok"] is False  # 끝이 분명한 실패는 그대로 실패
+    failed = _detail(client, admin, plain.id)["timeline"][0]
+    assert (failed["ok"], failed["harness"]["verdict_label"], failed["error"]) == (False, "실패", "실패")  # 분명한 실패
 
 
 def test_call_and_review_event_labels_are_pinned():

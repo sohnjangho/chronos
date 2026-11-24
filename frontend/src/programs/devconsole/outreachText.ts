@@ -45,8 +45,9 @@ export const statusOf = (s: string): { label: string; tone: Tone } => {
 /** 줄의 상태 배지: 결과를 모르는 통화(서버의 needs_check)는 「실패」가 아니라 「걸렸는지 확인 필요」. */
 export const rowStatusOf = (r: Pick<OutreachRow, 'kind' | 'status' | 'needs_check'>) =>
   r.kind === 'call' && r.needs_check ? { label: '걸렸는지 확인 필요', tone: 'warning' as Tone } : statusOf(r.status);
+/** 통로·방향: 거는 통화는 「AI 전화」(보낸 것이 아니라 건 것), 그 밖은 「문자 보냄」·「전화 받음」 꼴. */
 export const channelOf = (r: Pick<OutreachRow, 'channel' | 'direction'>) =>
-  `${CHANNEL[r.channel] ?? r.channel} ${r.direction === 'in' ? '받음' : '보냄'}`;
+  r.channel === 'call' && r.direction !== 'in' ? 'AI 전화' : `${CHANNEL[r.channel] ?? r.channel} ${r.direction === 'in' ? '받음' : '보냄'}`;
 export const modeOf = (m: string | null) => (m ? (MODE[m] ?? m) : '—');
 export const classOf = (c: string | null) => (c ? (CLASS[c] ?? c) : '—');
 

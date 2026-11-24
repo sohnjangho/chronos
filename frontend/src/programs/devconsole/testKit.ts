@@ -206,7 +206,7 @@ export function outreachDetail(over: Partial<OutreachDetail> = {}): OutreachDeta
 export function callDetail(over: Partial<OutreachDetail> = {}): OutreachDetail {
   const base = outreachDetail();
   const item = (seq: number, label: string, m: HarnessMark, ok = m.verdict !== 'blocked'): TraceItem => ({
-    ...base.timeline[0], seq, label, ok, error: m.verdict === 'blocked' ? m.verdict_label : null, harness: m,
+    ...base.timeline[0], seq, label, ok, error: ok ? null : m.verdict_label, harness: m,
   });
   const call = (rule: string, label: string, verdict: HarnessMark['verdict'], verdictLabel: string) =>
     mark({ group: 'call', group_label: '통화', rule, verdict, verdict_label: verdictLabel });
@@ -219,7 +219,7 @@ export function callDetail(over: Partial<OutreachDetail> = {}): OutreachDetail {
       item(4, '침묵 확인', call('silence', '침묵 확인', 'noted', '메모')),
       item(5, '도구 결과에 없는 날짜', mark({ group: 'post_check', group_label: '뒤 확인', rule: 'unsupported_date', verdict: 'noted', verdict_label: '메모' })),
       item(6, '통화 결과 — 음성 서버 오류', call('call_result', '통화 결과', 'blocked', '확인 필요'), true),
-      item(7, '통로 결과 — 보냈는지 확인 필요', mark({ group: 'channel_result', group_label: '통로 결과', rule: 'delivery', verdict: 'noted', verdict_label: '확인 필요', needs_check: true })),
+      item(7, '통로 결과 — 걸렸는지 확인 필요', mark({ group: 'channel_result', group_label: '통로 결과', rule: 'delivery', verdict: 'noted', verdict_label: '확인 필요', needs_check: true })),
     ],
     attempts: 1,
     needs_check: 1,

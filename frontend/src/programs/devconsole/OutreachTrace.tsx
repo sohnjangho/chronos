@@ -120,7 +120,7 @@ export default function OutreachTrace({ row }: { row: Pick<OutreachRow, 'kind' |
     <div className="dc-o-trace">
       <Head d={data} />
       <Notes d={data} />
-      {data.flow && data.flow.length > 0 && <OutreachFlow flow={data.flow} lit={data.branches_lit ?? []} kind={data.head.kind} />}
+      {data.flow && data.flow.length > 0 && <OutreachFlow flow={data.flow} lit={data.branches_lit ?? []} kind={data.head.kind} direction={data.head.direction} />}
       {data.timeline.length > 0 && <Filters d={data} group={group} onGroup={setGroup} query={query} onQuery={setQuery} />}
       <TraceTimeline items={shown} running={false} empty={data.timeline.length ? '찾는 사건이 없습니다.' : NONE_NOTE} />
     </div>

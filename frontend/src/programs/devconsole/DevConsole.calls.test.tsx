@@ -42,6 +42,8 @@ describe('실행 추적 — 통화', () => {
     expect(head).toHaveTextContent('권한 위임');
     expect(head).toHaveTextContent('등급 우리가 먼저 연락');
     expect(head).toHaveTextContent('통화 1분 35초');
+    expect(head).toHaveTextContent('AI 전화');
+    expect(head).not.toHaveTextContent('전화 보냄');
     expect(screen.getByText('받아쓰기 12줄 — 연락처 프로그램에서 봅니다')).toBeVisible();
     expect(screen.getByText(/확인 필요 1건 — 걸렸는지\(끝났는지\) 알 수 없는 결과/)).toBeVisible();
   });
@@ -57,6 +59,8 @@ describe('실행 추적 — 통화', () => {
     const end = within(list).getByRole('button', { name: /통화 결과 — 음성 서버 오류/ });
     expect(end).toHaveTextContent('확인 필요');
     expect(end.querySelector('.is-danger, .dc-danger')).toBeNull();
+    await userEvent.click(end);
+    expect(list.querySelector('.dc-error')).toBeNull(); // 펼쳐도 빨간 오류 줄이 없다
   });
 
   test('the call branch lights 「AI 전화 걺」 only when the server lit call_placed', async () => {
@@ -73,6 +77,13 @@ describe('실행 추적 — 통화', () => {
     const flow = screen.getByRole('list', { name: '연락 흐름도' });
     expect(within(flow).getByRole('listitem', { name: /^AI 전화 걺/ })).toHaveAccessibleName('AI 전화 걺, 기록 없음');
   });
+});
+
+test('an inbound call has no 「AI 전화 걺」 branch', async () => {
+  const d = callDetail();
+  await openCall({ ...d, head: { ...d.head, direction: 'in', origin: 'peer' }, branches_lit: [] });
+  const flow = screen.getByRole('list', { name: '연락 흐름도' });
+  expect(within(flow).queryByRole('listitem', { name: /^AI 전화 걺/ })).toBeNull();
 });
 
 describe('에이전트 구조 — call_placed', () => {
