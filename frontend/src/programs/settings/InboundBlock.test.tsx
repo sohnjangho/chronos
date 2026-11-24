@@ -49,7 +49,7 @@ test('changing the inbound range asks first — it applies to calls and texts �
 
   await userEvent.click(within(range).getByRole('radio', { name: '모두 받기' }));
   const again = within(block()).getByRole('group', { name: '받는 범위 바꾸기 확인' });
-  expect(again.textContent).toContain('모르는 번호는 메모만 남깁니다');
+  expect(again.textContent).toContain('모르는 번호에서 온 실제 전화·문자에도 AI 가 응대합니다(메모만 남기고');
   await userEvent.click(within(again).getByRole('button', { name: '바꾸기' }));
   await waitFor(() => expect(patches()).toEqual([{ inbound_mode: 'all' }]));
   expect(onChanged).toHaveBeenCalled();

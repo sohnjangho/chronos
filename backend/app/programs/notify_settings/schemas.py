@@ -118,6 +118,7 @@ class ConnectionOut(BaseModel):
     checked_at: UtcDatetime | None
     latency_ms: int | None
     used_today: UsedToday | None  # 기본 연결이 아니면 null
+    check_summary: str  # 연결 테스트 결과 한 줄(저장된 확인 결과·오늘 사용량만으로 — service.check_summary)
 
 
 class ConnectionSaved(ConnectionOut):

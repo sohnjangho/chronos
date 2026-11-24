@@ -112,8 +112,11 @@ test('the nav has 알림 연결 after 정보 API 연결 and the card shows only 
   expect(names.indexOf('알림 연결')).toBe(names.indexOf('정보 API 연결') + 1);
   expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('알림 연결');
   const c = await findCard();
-  for (const text of ['한국AI통신', '연결됨', KAT, '…0001', '070-****-0123', '기본 연결']) expect(within(c).getAllByText(text)[0]).toBeVisible();
-  expect(within(c).getByText(/^•+9999$/)).toBeVisible();
+  for (const text of ['한국AI통신', '연결됨', '기본 연결']) expect(within(c).getAllByText(text)[0]).toBeVisible();
+  expect(within(c).getByRole('combobox', { name: '발신번호' })).toHaveDisplayValue(/070-\*{4}-0123/);
+  // 시안 ④ 카드 아래 한 줄: 주소 · 키 끝 4자리 · Account ID(가린 꼴) · 확인 시각
+  expect(within(c).getByText('api.koreaaitel.com · 키 …9999 · Account ID …0001 · 확인한 적 없음')).toBeVisible();
+  expect(c).not.toHaveTextContent(SENTINEL_KEY);
   for (const name of ['연결 테스트', '연결 진단', 'URL 수정', '키 교체', '삭제']) expect(within(c).getByRole('button', { name })).toBeVisible();
 });
 
@@ -278,7 +281,7 @@ test('switching SMS to 위임 asks first and sends agent_sms delegate; KakaoTalk
   expect(within(sms).getByRole('radio', { name: '승인 받기' })).toBeChecked();
   await userEvent.click(within(sms).getByRole('radio', { name: '위임' }));
   const confirm = within(c).getByRole('group', { name: '위임 확인' });
-  expect(confirm).toHaveTextContent('에이전트가 사람 확인 없이 보냅니다');
+  expect(confirm).toHaveTextContent('에이전트가 사람 확인 없이 실제 번호로 문자를 보냅니다');
   await userEvent.click(within(confirm).getByRole('button', { name: '위임으로 바꾸기' }));
   await waitFor(() => expect(sent(fetchMock, `PATCH ${ONE}`)).toEqual([{ agent_sms: 'delegate' }]));
   const kakao = within(c).getByRole('radiogroup', { name: '카카오톡 발송 권한' });
@@ -294,7 +297,7 @@ test('turning test mode off asks first; cancelling sends nothing', async () => {
   expect(toggle).toBeChecked();
   await userEvent.click(toggle);
   let confirm = within(c).getByRole('group', { name: '시험 모드 끄기 확인' });
-  expect(confirm).toHaveTextContent('허용 번호가 아닌 사람에게도 실제로 나갑니다');
+  expect(confirm).toHaveTextContent('허용 번호가 아닌 실제 번호에도 문자·전화가 실제로 나가고 요금이 듭니다');
   await userEvent.click(within(confirm).getByRole('button', { name: '취소' }));
   expect(sent(fetchMock, `PATCH ${ONE}`)).toHaveLength(0);
   await userEvent.click(toggle);
@@ -552,4 +555,55 @@ test('the add form opens at the top of the section', async () => {
   await userEvent.click(screen.getByRole('button', { name: '+ 연결 추가' }));
   const form = screen.getByRole('group', { name: '알림 연결 추가' });
   expect(form.compareDocumentPosition(card()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+// ── Task 106 다듬기(시안 ④와 한 줄씩) ──
+
+test('the card shows the stored connection-test result line from the server', async () => {
+  open({ [LIST]: [conn({ check_summary: '키·Account ID 확인됨 · 발신번호 승인됨 · 오늘 문자 2건 · 통화 1통' })] });
+  const c = await findCard();
+  expect(within(c).getByText('연결 테스트 결과: 키·Account ID 확인됨 · 발신번호 승인됨 · 오늘 문자 2건 · 통화 1통')).toBeVisible();
+  expect(c).not.toHaveTextContent('이번 달');
+});
+
+test('the checked time sits at the end of the summary line without the latency', async () => {
+  open({ [LIST]: [conn({ checked_at: '2026-11-03T05:12:00Z' })] });
+  const line = within(await findCard()).getByText(/^api\.koreaaitel\.com · 키 …9999 · Account ID …0001 · /);
+  expect(line.textContent).toMatch(/· 11월 3일 \d\d:\d\d 확인$/);
+  expect(line).not.toHaveTextContent('ms');
+});
+
+test('the groups below the card follow mockup ④: sender, test mode, limits, permission, inbound, AI call, KakaoTalk', async () => {
+  open();
+  const c = await findCard();
+  await within(c).findByRole('region', { name: '카카오톡 채널과 문안' });
+  const order = [...c.querySelectorAll('.st-nt-policy > [aria-label]')].map((e) => e.getAttribute('aria-label'));
+  expect(order).toEqual(['발신번호', '시험 모드 · 허용 번호', '상한', '에이전트 발송 권한', '받는 범위 · 차단', 'AI 전화', '카카오톡 채널과 문안']);
+});
+
+test('risky switches share one confirm pattern that names the real consequence', async () => {
+  open({ [LIST]: [conn({ inbound_mode: 'known' })] });
+  const c = await findCard();
+  const pattern = /^.+ — .*실제.+\. (.+ )?계속할까요\?$/;
+  await userEvent.click(within(c).getByRole('switch', { name: '시험 모드' }));
+  expect(within(within(c).getByRole('group', { name: '시험 모드 끄기 확인' })).getByText(pattern)).toBeVisible();
+  await userEvent.click(within(within(c).getByRole('group', { name: '시험 모드 끄기 확인' })).getByRole('button', { name: '취소' }));
+  await userEvent.click(within(within(c).getByRole('radiogroup', { name: '전화 발송 권한' })).getByRole('radio', { name: '위임' }));
+  const call = within(c).getByRole('group', { name: '위임 확인' });
+  expect(within(call).getByText(pattern)).toHaveTextContent('에이전트가 사람 확인 없이 실제 번호로 전화를 겁니다');
+  await userEvent.click(within(call).getByRole('button', { name: '취소' }));
+  await userEvent.click(within(within(c).getByRole('radiogroup', { name: '받는 범위' })).getByRole('radio', { name: '모두 받기' }));
+  const all = within(c).getByRole('group', { name: '받는 범위 바꾸기 확인' });
+  expect(within(all).getByText(pattern)).toHaveTextContent('모르는 번호에서 온 실제 전화·문자에도 AI 가 응대합니다');
+});
+
+test('empty states: no approved sender after a passed test says where to register one', async () => {
+  open({ [LIST]: [conn({ senders: [], sender_index: null, sender_number_masked: null })] });
+  const c = await findCard();
+  expect(within(c).getByText(/승인된 발신번호가 없습니다 — 한국AI통신 콘솔에서 발신번호를 등록·승인받은 뒤/)).toBeVisible();
+});
+
+test('empty states: no connection yet says nothing goes out until one is added', async () => {
+  open({ [LIST]: [] });
+  expect(await screen.findByText(/아직 연결이 없습니다\. 연결 전에는 문자·전화가 나가지 않습니다\./)).toBeVisible();
 });

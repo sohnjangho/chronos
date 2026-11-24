@@ -8,7 +8,7 @@ import Button from '../../shared/ui/Button';
 import BlockedNumbers from './BlockedNumbers';
 import type { LlmError } from './model';
 import type { NotifyConnection, NotifySaved } from './notifyApi';
-import { ErrorLine, toProblem } from './parts';
+import { ErrorLine, riskText, toProblem } from './parts';
 
 type InboundMode = NotifyConnection['inbound_mode'];
 type InboundPatch = { inbound_mode: InboundMode } | { handoff_number: string | null };
@@ -20,6 +20,17 @@ export const INBOUND_MODES: { id: InboundMode; label: string; hint: string }[] =
   { id: 'all', label: '모두 받기', hint: '모르는 번호도 받습니다. 모르는 번호는 메모만 남깁니다(일정은 알려 주지 않습니다).' },
 ];
 const modeOf = (id: InboundMode) => INBOUND_MODES.find((m) => m.id === id) ?? INBOUND_MODES[0];
+
+/** 받는 범위를 바꿀 때 실제로 일어나는 일(확인 글 — parts.riskText 꼴, 시험 모드·위임과 같은 꼴). */
+const EFFECT: Record<InboundMode, string> = {
+  off: '걸려 오는 전화와 들어오는 문자에 응대하지 않고 기록만 남깁니다',
+  known: '주소록에 있는 사람의 실제 전화·문자에만 AI 가 응대하고, 모르는 번호는 기록만 남깁니다',
+  all: '모르는 번호에서 온 실제 전화·문자에도 AI 가 응대합니다(메모만 남기고 일정은 알려 주지 않습니다)',
+};
+export function inboundText(mode: InboundMode, testMode: boolean): string {
+  const note = `${BOTH}${testMode ? ' 시험 모드가 켜져 있는 동안은 허용 번호만 받습니다.' : ''}`;
+  return riskText(`받는 범위를 「${modeOf(mode).label}」(으)로 바꿉니다`, EFFECT[mode], note);
+}
 
 export default function InboundBlock({ conn, locked = false, onChanged }: {
   conn: NotifyConnection;
@@ -70,7 +81,7 @@ export default function InboundBlock({ conn, locked = false, onChanged }: {
       {asking && (
         // 화면 안 확인 칸(NotifyPolicy 의 확인 칸과 같은 꼴 — 그 파일을 불러오면 서로 부르게 되어 따로 둔다).
         <div className="st-confirm" role="group" aria-label="받는 범위 바꾸기 확인">
-          <p className="st-wrap">{`받는 범위를 「${modeOf(asking).label}」(으)로 바꿉니다. ${BOTH} ${modeOf(asking).hint}`}</p>
+          <p className="st-wrap">{inboundText(asking, conn.test_mode)}</p>
           <div className="st-actions">
             <span className="st-gap" />
             <Button onClick={() => setAsking(null)}>취소</Button>

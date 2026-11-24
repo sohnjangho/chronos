@@ -59,8 +59,9 @@ export default function NotifySection() {
       <ErrorLine error={error} />
       <ErrorLine error={notice} />
       {connections?.length === 0 && !adding && (
-        <p className="st-muted">아직 연결이 없습니다. 「+ 연결 추가」로 한국AI통신 API Key 와 Account ID 를 넣어 주세요.</p>
+        <p className="st-muted">아직 연결이 없습니다. 연결 전에는 문자·전화가 나가지 않습니다. 「+ 연결 추가」로 한국AI통신 API Key 와 Account ID 를 넣어 주세요.</p>
       )}
+      {connections === null && !error && <p className="st-muted">알림 연결을 읽는 중…</p>}
       {adding && <NotifyAdd onSaved={saved} onCancel={() => setAdding(false)} />}
       {connections?.map((c) => <NotifyCard key={c.id} conn={c} onChanged={reload} />)}
     </div>

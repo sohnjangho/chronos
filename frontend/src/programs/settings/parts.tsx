@@ -17,6 +17,13 @@ export const savedButFailed = (error: LlmError): LlmError => ({
   message: `저장했지만 연결 시험에 실패했습니다: ${error.message}`,
 });
 
+/**
+ * 위험한 바꾸기(시험 모드 끄기 · 위임 · 받는 범위)의 확인 글 한 꼴: 「무엇을 바꾸는지 — 실제로 일어나는 일. [덧말] 계속할까요?」.
+ * consequence 에는 실제 번호에 무엇이 나가는지(문자·전화·응대)를 적는다.
+ */
+export const riskText = (change: string, consequence: string, note?: string) =>
+  `${change} — ${consequence}.${note ? ` ${note}` : ''} 계속할까요?`;
+
 /** 서버의 한국어 글을 그대로, 옆에 코드. */
 export function ErrorLine({ error }: { error: LlmError | null | undefined }) {
   if (!error) return null;

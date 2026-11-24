@@ -6,7 +6,7 @@ import Field from '../../shared/ui/Field';
 import InboundBlock from './InboundBlock';
 import type { LlmError } from './model';
 import { notifyApi, type NotifyConnection, type NotifyPatch, type Permission, type PhoneKind } from './notifyApi';
-import { ErrorLine, toProblem } from './parts';
+import { ErrorLine, riskText, toProblem } from './parts';
 
 export const KAKAO_LOCKED = '카카오톡(알림톡)은 아직 쓸 수 없습니다 — 채널 연결과 문안 검수가 끝나면 켤 수 있습니다.';
 
@@ -140,7 +140,7 @@ function AllowList({ conn, busy, addError, onPatch }: {
   );
 }
 
-/** 카카오톡 채널과 문안(잠김 자리 또는 Task 102 묶음) · 받는 범위·차단(Task 85 InboundBlock) · AI 전화(Task 93 묶음 또는 자리). */
+/** 받는 범위·사람 연결 번호·차단(Task 85 InboundBlock) · AI 전화(Task 93 묶음 또는 자리) · 카카오톡 채널과 문안(잠김 자리 또는 Task 102 묶음) — 시안 ④ 차례. */
 function LaterGroups({ conn, voice, kakao, locked, onChanged }: {
   conn: NotifyConnection;
   voice?: ReactNode;
@@ -150,18 +150,18 @@ function LaterGroups({ conn, voice, kakao, locked, onChanged }: {
 }) {
   return (
     <>
+      <InboundBlock conn={conn} locked={locked} onChanged={onChanged} />
+      {voice ?? (
+        <Group title="AI 전화">
+          <p className="st-muted">준비 중 — 음성 모델 키·음성·최대 통화 시간·시험 전화가 이 자리에 들어옵니다.</p>
+        </Group>
+      )}
       {kakao ?? (
         <Group title="카카오톡 채널과 문안">
           <Field label="카카오톡 채널">
             <input value={conn.kakao_channel ?? ''} placeholder="연결 안 됨" disabled readOnly />
           </Field>
           <p className="st-muted">{KAKAO_LOCKED} 그때까지 카카오톡으로 고른 것은 문자로 나갑니다.</p>
-        </Group>
-      )}
-      <InboundBlock conn={conn} locked={locked} onChanged={onChanged} />
-      {voice ?? (
-        <Group title="AI 전화">
-          <p className="st-muted">준비 중 — 음성 모델 키·음성·최대 통화 시간·시험 전화가 이 자리에 들어옵니다.</p>
         </Group>
       )}
     </>
@@ -179,7 +179,19 @@ const sayCount = (n: number | undefined, unit: string) => (n === undefined ? '�
 
 type Confirm = { kind: 'test_off' } | { kind: 'delegate'; field: 'agent_sms' | 'agent_call'; label: string };
 
-/** 카드 아래 칸: 발신번호 · 시험 모드와 허용 번호 · 에이전트 발송 권한 · 상한, 그리고 뒤 작업이 채울 자리. */
+/** 위험한 바꾸기의 확인 글(parts.riskText 꼴) — 실제로 일어나는 일: 위임이면 문자는 보내고 전화는 건다. */
+export const TEST_OFF_TEXT = riskText('시험 모드를 끕니다', '허용 번호가 아닌 실제 번호에도 문자·전화가 실제로 나가고 요금이 듭니다');
+export const delegateText = (field: 'agent_sms' | 'agent_call', label: string) =>
+  riskText(`${label} 발송을 「위임」으로 바꿉니다`, `에이전트가 사람 확인 없이 실제 번호로 ${field === 'agent_sms' ? '문자를 보냅니다' : '전화를 겁니다'}`, '시험 모드·근무시간·상한 검사는 그대로 받습니다.');
+
+/** 발신번호 칸 아래 한 줄: 연결 테스트를 통과했는데 승인된 번호가 없으면 어디서 등록하는지까지. */
+function senderHint(conn: NotifyConnection): string {
+  if (conn.senders.length > 0) return '문자·전화를 이 번호로 보냅니다.';
+  if (conn.status === 'ok') return '승인된 발신번호가 없습니다 — 한국AI통신 콘솔에서 발신번호를 등록·승인받은 뒤 [연결 테스트]를 다시 눌러 주세요.';
+  return '연결 테스트를 통과하면 승인된 발신번호를 고를 수 있습니다.';
+}
+
+/** 카드 아래 칸(시안 ④ 차례): 발신번호 · 시험 모드와 허용 번호 · 상한 · 에이전트 발송 권한 · 받는 범위·차단 · AI 전화 · 카카오톡. */
 export default function NotifyPolicy({ conn, locked = false, onChanged, voice, kakao }: {
   conn: NotifyConnection;
   /** 진단·시험 문자가 도는 동안 참 — 모든 칸을 잠근다. */
@@ -235,9 +247,7 @@ export default function NotifyPolicy({ conn, locked = false, onChanged, voice, k
               </option>
             ))}
           </select>
-          <span className="ui-field-hint">
-            {conn.senders.length === 0 ? '연결 테스트를 통과하면 승인된 발신번호를 고를 수 있습니다.' : '문자·전화를 이 번호로 보냅니다.'}
-          </span>
+          <span className="ui-field-hint">{senderHint(conn)}</span>
         </div>
         {errorOf('sender')}
       </Group>
@@ -250,7 +260,7 @@ export default function NotifyPolicy({ conn, locked = false, onChanged, voice, k
         {confirm?.kind === 'test_off' && (
           <ConfirmPanel
             label="시험 모드 끄기 확인"
-            text="시험 모드를 끄면 허용 번호가 아닌 사람에게도 실제로 나갑니다. 끌까요?"
+            text={TEST_OFF_TEXT}
             action="시험 모드 끄기"
             disabled={off}
             onConfirm={() => patch('test', { test_mode: false })}
@@ -261,6 +271,11 @@ export default function NotifyPolicy({ conn, locked = false, onChanged, voice, k
         {errorOf('test')}
       </Group>
 
+      <details className="st-nt-group st-nt-limits" aria-label="상한">
+        <summary>{`상한 — 하루 문자 ${sayCount(l.daily_sms_total, '건')} · 전화 ${sayCount(l.daily_calls_total, '통')} · 오늘 문자 ${sayCount(used?.sms, '건')} · 전화 ${sayCount(used?.call, '통')}`}</summary>
+        <LimitsForm connectionId={conn.id} disabled={locked} onSaved={onChanged} />
+      </details>
+
       <Group title="에이전트 발송 권한">
         <p className="st-muted">「승인 받기」면 에이전트는 초안만 만들고 사람이 보냅니다. 「위임」이어도 시험 모드·근무시간·상한 검사는 그대로 받습니다.</p>
         <PermissionRow label="문자" value={conn.agent_sms} disabled={off} onPick={pick('agent_sms', '문자')} />
@@ -269,7 +284,7 @@ export default function NotifyPolicy({ conn, locked = false, onChanged, voice, k
         {confirm?.kind === 'delegate' && (
           <ConfirmPanel
             label="위임 확인"
-            text={`${confirm.label} 발송을 위임으로 바꾸면 에이전트가 사람 확인 없이 보냅니다. 바꿀까요?`}
+            text={delegateText(confirm.field, confirm.label)}
             action="위임으로 바꾸기"
             disabled={off}
             onConfirm={() => patch('perm', { [confirm.field]: 'delegate' })}
@@ -278,11 +293,6 @@ export default function NotifyPolicy({ conn, locked = false, onChanged, voice, k
         )}
         {errorOf('perm')}
       </Group>
-
-      <details className="st-nt-group st-nt-limits">
-        <summary>{`상한 — 하루 문자 ${sayCount(l.daily_sms_total, '건')} · 전화 ${sayCount(l.daily_calls_total, '통')} · 오늘 문자 ${sayCount(used?.sms, '건')} · 전화 ${sayCount(used?.call, '통')}`}</summary>
-        <LimitsForm connectionId={conn.id} disabled={locked} onSaved={onChanged} />
-      </details>
 
       <LaterGroups conn={conn} voice={voice} kakao={kakao} locked={locked} onChanged={onChanged} />
     </div>

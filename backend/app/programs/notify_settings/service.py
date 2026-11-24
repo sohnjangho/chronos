@@ -442,6 +442,26 @@ def _masked(number: str | None) -> str | None:
     return phone.mask(number) if number else None
 
 
+def check_summary(conn: NotifyConnection, used: UsedToday | None) -> str:
+    """연결 테스트 결과 한 줄 — 저장된 확인 결과(status·발신번호 목록)와 우리 DB 의 오늘 사용량만으로 만든다.
+    제공사에 묻지 않는다. 이번 달 수는 제공사 조회 길이 문서로 확인되지 않아 싣지 않는다(어림하지 않는다)."""
+    if conn.status == "failed":
+        return "연결 테스트 실패 — 키·Account ID 를 확인하지 못했습니다"
+    if conn.status != "ok":
+        return "아직 연결 테스트를 하지 않았습니다"
+    senders = list(conn.senders_json or [])
+    if not senders:
+        sender = "승인된 발신번호 없음"
+    elif conn.sender_number in senders:
+        sender = "발신번호 승인됨"
+    else:
+        sender = "발신번호 고르지 않음"
+    parts = ["키·Account ID 확인됨", sender]
+    if used is not None:
+        parts.append(f"오늘 문자 {used.sms}건 · 통화 {used.call}통")
+    return " · ".join(parts)
+
+
 def out(conn: NotifyConnection, used: UsedToday | None) -> ConnectionOut:
     """used 는 기본 연결의 오늘 사용량(기본 연결이 아니면 무시하고 null)."""
     senders = list(conn.senders_json or [])
@@ -461,6 +481,7 @@ def out(conn: NotifyConnection, used: UsedToday | None) -> ConnectionOut:
         agent_call=conn.agent_call, inbound_mode=conn.inbound_mode,
         handoff_number_masked=_masked(conn.handoff_number), is_default=conn.is_default, status=conn.status,
         checked_at=conn.checked_at, latency_ms=conn.latency_ms, used_today=used if conn.is_default else None,
+        check_summary=check_summary(conn, used if conn.is_default else None),
     )
 
 

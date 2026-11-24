@@ -64,7 +64,19 @@ test('draws every field the server gives, with its default and range', async () 
   expect(within(field).getByText('기본 50 · 받는 값 0~1000')).toBeVisible();
   expect(within(field).getByText('바꿈')).toBeVisible();
   expect(screen.getByRole('spinbutton', { name: /^최대 통화 시간/ })).toHaveValue(300);
-  for (const group of ['문자', '전화', '자동 답', '들어오는 전화']) expect(screen.getByRole('group', { name: group })).toBeVisible();
+  for (const group of ['문자', '전화', '자동 답', '모르는 번호', '잦은 연락']) expect(screen.getByRole('group', { name: group })).toBeVisible();
+});
+
+test('every known field has a Korean name with its unit and a one-line help (Task 106)', async () => {
+  stubFetch({ [LIMITS]: out() });
+  render(<LimitsForm connectionId={3} />);
+  const reply = await screen.findByRole('spinbutton', { name: '자동 답 — 한 시간 (번)' });
+  expect(reply).toHaveAccessibleDescription('들어온 문자에 에이전트가 답하는 횟수 — 한 번호에 지난 한 시간 기본 5 · 받는 값 0~1000');
+  expect(screen.getByRole('spinbutton', { name: '잦은 연락 — 시간 창 (분)' })).toHaveAccessibleDescription(/한 번호에서 이 시간 안에/);
+  for (const box of screen.getAllByRole('spinbutton')) {
+    expect(box).toHaveAccessibleName(/\((건|통|초|번|분)\)$/);
+    expect(box).toHaveAccessibleDescription(/^[^a-z_]+ 기본 \d+ · 받는 값 /);
+  }
 });
 
 test('a field the screen does not know is still drawn', async () => {
@@ -147,14 +159,15 @@ test('the two new fields have their own labels and sit in their groups (fourteen
   Object.assign(body.ranges, { unknown_calls_hourly: [0, 1000], unknown_notice_total_daily: [0, 1000] });
   stubFetch({ [LIMITS]: body });
   render(<LimitsForm connectionId={3} />);
-  const calls = await screen.findByRole('spinbutton', { name: '모르는 번호 전화 한 시간 (통)' });
+  const calls = await screen.findByRole('spinbutton', { name: '모르는 번호 전화 — 한 시간 (통)' });
   expect(screen.getAllByRole('spinbutton')).toHaveLength(14);
-  expect(within(screen.getByRole('group', { name: '전화' })).getByRole('spinbutton', { name: '모르는 번호 전화 한 시간 (통)' })).toBe(calls);
-  const notices = within(screen.getByRole('group', { name: '자동 답' }))
+  // Task 106: 모르는 번호에 걸린 칸은 「모르는 번호」 한 묶음에(통화 시간 · 한 시간 전화 · 안내 둘).
+  const unknown = within(screen.getByRole('group', { name: '모르는 번호' }))
     .getAllByRole('spinbutton')
     .map((i) => i.closest('[data-limit]')?.getAttribute('data-limit'));
-  expect(notices.slice(-2)).toEqual(['unknown_notice_daily', 'unknown_notice_total_daily']);
-  expect(screen.getByRole('spinbutton', { name: '모르는 번호 안내 하루 전체 (건)' })).toHaveValue(20);
+  expect(unknown).toEqual(['max_call_seconds_unknown', 'unknown_calls_hourly', 'unknown_notice_daily', 'unknown_notice_total_daily']);
+  expect(within(screen.getByRole('group', { name: '모르는 번호' })).getByRole('spinbutton', { name: '모르는 번호 전화 — 한 시간 (통)' })).toBe(calls);
+  expect(screen.getByRole('spinbutton', { name: '모르는 번호 안내 — 모두 하루 (건)' })).toHaveValue(20);
   expect(screen.queryByRole('group', { name: '그 밖' })).toBeNull();
 });
 

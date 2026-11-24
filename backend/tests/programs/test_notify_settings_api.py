@@ -148,6 +148,28 @@ def test_create_shows_last4_only(client, admin, fake_provider, session):
     assert listed.status_code == 200 and SENTINEL_KEY not in listed.text and [c["id"] for c in listed.json()] == [body["id"]]
 
 
+def test_check_summary_is_built_from_stored_check_and_today_counts(client, admin, fake_provider, monkeypatch):
+    """연결 테스트 결과 한 줄(Task 106): 저장된 확인 결과·발신번호·오늘 사용량만으로. 이번 달 수는 싣지 않는다(제공사 조회 미확인)."""
+    from app.programs.notify_settings import service
+    from app.programs.notify_settings.schemas import UsedToday
+
+    b = create(client, admin)
+    assert b["check_summary"] == "키·Account ID 확인됨 · 발신번호 승인됨 · 오늘 문자 0건 · 통화 0통"
+    second = create(client, admin, name="둘째")
+    assert second["check_summary"] == "키·Account ID 확인됨 · 발신번호 승인됨"  # 기본 연결이 아니면 사용량 없음
+    monkeypatch.setattr(service, "used_today", lambda _s: UsedToday(sms=12, call=3))
+    listed = client.get(BASE, headers=admin).json()
+    assert listed[0]["check_summary"] == "키·Account ID 확인됨 · 발신번호 승인됨 · 오늘 문자 12건 · 통화 3통"
+    assert "이번 달" not in client.get(BASE, headers=admin).text
+    fake_provider.senders = []
+    client.post(f"{BASE}/{b['id']}/test", headers=admin)
+    assert client.get(BASE, headers=admin).json()[0]["check_summary"].startswith("키·Account ID 확인됨 · 승인된 발신번호 없음")
+    fake_provider.fail = ProviderFailed("bad_key", "x")
+    client.post(f"{BASE}/{b['id']}/test", headers=admin)
+    assert client.get(BASE, headers=admin).json()[0]["check_summary"] == "연결 테스트 실패 — 키·Account ID 를 확인하지 못했습니다"
+    assert SENTINEL_KEY not in client.get(BASE, headers=admin).text
+
+
 def test_account_id_is_hidden_from_request_repr():
     body = ConnectionTestIn(secret=SENTINEL_KEY, account_id=KAT_ACCOUNT)
     assert KAT_ACCOUNT not in repr(body) and SENTINEL_KEY not in repr(body)

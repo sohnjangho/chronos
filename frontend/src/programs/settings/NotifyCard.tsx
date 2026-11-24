@@ -50,8 +50,8 @@ const OUTCOME: Record<SendRecord['outcome'], string> = {
 
 export const UNSURE = '보냈는지 확인 필요 — 휴대전화에 문자가 왔는지 먼저 확인해 주세요';
 
-/** 끝 4자리만. 키가 짧아 서버가 끝자리를 주지 않으면 점만. */
-const maskedKey = (last4: string) => '•'.repeat(last4 ? 12 : 8) + last4;
+/** 끝 4자리만(시안 ④ 「키 …a1B2」). 키가 짧아 서버가 끝자리를 주지 않으면 점만. */
+const maskedKey = (last4: string) => (last4 ? `…${last4}` : '••••');
 
 /** 시험 문자(첫 허용 번호로만)를 보낼 수 없는 까닭. 보낼 수 있으면 null. */
 export function smsBlockedReason(c: NotifyConnection): string | null {
@@ -67,7 +67,7 @@ function CardHead({ conn }: { conn: NotifyConnection }) {
   return (
     <div className="st-card-head">
       <b className="st-card-name">{conn.name}</b>
-      <Badge tone="info">한국AI통신</Badge>
+      {conn.name !== '한국AI통신' && <Badge tone="info">한국AI통신</Badge>}
       {conn.is_default && <Badge className="st-badge-default">기본 연결</Badge>}
       <span className="st-gap" />
       <Badge tone={conn.test_mode ? 'info' : 'warning'}>{conn.test_mode ? `시험 모드 · 허용 번호 ${conn.allow_numbers.length}개` : '시험 모드 꺼짐'}</Badge>
@@ -76,21 +76,18 @@ function CardHead({ conn }: { conn: NotifyConnection }) {
   );
 }
 
+/** 카드 아래 한 줄(시안 ④): 주소(https:// 없이) · 키 끝 4자리 · Account ID(가린 꼴) · 확인 시각. 발신번호는 아래 「발신번호」 묶음에. */
 function Facts({ conn }: { conn: NotifyConnection }) {
-  return (
-    <dl className="st-facts st-nt-facts">
-      <dt>주소</dt>
-      <dd>{conn.base_url}</dd>
-      <dt>API 키</dt>
-      <dd>{maskedKey(conn.secret_last4)}</dd>
-      <dt>Account ID</dt>
-      <dd>{conn.account_id_masked}</dd>
-      <dt>발신번호</dt>
-      <dd>{conn.sender_number_masked ?? '고르지 않음'}</dd>
-      <dt>확인</dt>
-      <dd>{checkedText(conn.checked_at, conn.latency_ms)}</dd>
-    </dl>
-  );
+  const at = conn.checked_at ? `${checkedText(conn.checked_at, null)} 확인` : checkedText(null, null);
+  const parts = [conn.base_url.replace(/^https:\/\//, ''), `키 ${maskedKey(conn.secret_last4)}`, `Account ID ${conn.account_id_masked}`, at];
+  return <p className="st-muted st-nt-facts">{parts.join(' · ')}</p>;
+}
+
+/** 연결 테스트 결과 한 줄(시안 ④) — 서버가 저장된 확인 결과·오늘 사용량으로 만든 글 그대로. */
+function CheckSummary({ conn }: { conn: NotifyConnection }) {
+  if (!conn.check_summary) return null;
+  const tone = conn.status === 'failed' ? 'st-warn' : 'st-muted';
+  return <p className={`${tone} st-nt-check`}>{`연결 테스트 결과: ${conn.check_summary}`}</p>;
 }
 
 function ProbeLine({ probe }: { probe: NotifyProbe }) {
@@ -322,6 +319,7 @@ export default function NotifyCard({ conn, onChanged }: { conn: NotifyConnection
           삭제
         </Button>
       </div>
+      <CheckSummary conn={conn} />
       <RealSms target={r.target} blocked={blocked} real={r.real} locked={locked} onReal={r.setReal} onTest={() => r.ask('test')} />
       {r.pending && <SendConfirm pending={r.pending} busy={d.busy || voiceBusy} onSend={() => void r.send()} onCancel={r.cancel} />}
       {mode === 'url' && <NotifyUrlForm conn={conn} onSaved={saved} onCancel={() => setMode('idle')} />}

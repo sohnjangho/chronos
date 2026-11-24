@@ -1,7 +1,8 @@
 /* 「알림 연결」: 카드 안 진단 결과·실제 문자 켬·아래 칸(발신번호·시험 모드·권한·상한·자리). 색·글꼴은 tokens.css 변수만. */
 .st-nt .st-card { min-width: 0; }
-.st-nt-facts { grid-template-columns: 82px minmax(0, 1fr); }
-.st-nt-facts dd { font-variant-numeric: tabular-nums; }
+.st-nt-facts { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* 연결 테스트 결과 한 줄(시안 ④) */
+.st-nt-check { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
 /* ── 실제 문자 1건 켬 + [시험 문자] + 까닭 줄 ── */
 .st-nt-real { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-3); background: var(--bg-panel-alt); }
@@ -66,7 +67,6 @@
 @container st-main (max-width: 520px) {
   .st-nt-perm { grid-template-columns: minmax(0, 1fr); }
   .st-nt-perm-why { grid-column: 1; }
-  .st-nt-facts { grid-template-columns: 74px minmax(0, 1fr); }
 }
 
 /* ── 고침 1차: 칸 오류 자리 · 더하기 줄 · 두 테마에서 같은 입력 바탕 ── */

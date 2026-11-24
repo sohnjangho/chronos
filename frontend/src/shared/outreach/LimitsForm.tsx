@@ -3,29 +3,30 @@ import { ApiError } from '../api';
 import Button from '../ui/Button';
 import { limitsApi, type LimitsOut } from './limitsApi';
 
-/** 칸 이름 → 화면 글·단위. 서버가 모르는 칸을 더 주면 이름 그대로 「그 밖」 묶음에 그린다. */
-const LABELS: Record<string, [string, string]> = {
-  daily_sms_total: ['하루 문자', '건'],
-  per_contact_sms_daily: ['한 사람 하루 문자', '건'],
-  daily_calls_total: ['하루 전화', '통'],
-  per_contact_calls_daily: ['한 사람 하루 전화', '통'],
-  max_call_seconds: ['최대 통화 시간', '초'],
-  max_call_seconds_unknown: ['모르는 번호 통화 시간', '초'],
-  unknown_calls_hourly: ['모르는 번호 전화 한 시간', '통'],
-  auto_reply_hourly: ['자동 답 한 시간', '번'],
-  auto_reply_daily: ['자동 답 하루', '번'],
-  reply_grace_minutes: ['답 유예', '분'],
-  unknown_notice_daily: ['모르는 번호 안내 하루', '번'],
-  unknown_notice_total_daily: ['모르는 번호 안내 하루 전체', '건'],
-  inbound_burst_count: ['잦은 전화 횟수', '번'],
-  inbound_burst_minutes: ['잦은 전화 시간 창', '분'],
+/** 칸 이름 → 화면 글·단위·도움말 한 줄(뜻은 store.outreach.Limits·하네스 문 그대로). 서버가 모르는 칸을 더 주면 이름 그대로 「그 밖」 묶음에 그린다. */
+const LABELS: Record<string, [string, string, string]> = {
+  daily_sms_total: ['하루 문자', '건', '모든 사람에게 하루에 보내는 문자 수'],
+  per_contact_sms_daily: ['한 사람 하루 문자', '건', '한 사람에게 하루에 보내는 문자 수'],
+  daily_calls_total: ['하루 전화', '통', '모든 사람에게 하루에 거는 전화 수'],
+  per_contact_calls_daily: ['한 사람 하루 전화', '통', '한 사람에게 하루에 거는 전화 수'],
+  max_call_seconds: ['최대 통화 시간', '초', '통화 한 통의 가장 긴 길이'],
+  auto_reply_hourly: ['자동 답 — 한 시간', '번', '들어온 문자에 에이전트가 답하는 횟수 — 한 번호에 지난 한 시간'],
+  auto_reply_daily: ['자동 답 — 하루', '번', '들어온 문자에 에이전트가 답하는 횟수 — 한 번호에 하루'],
+  reply_grace_minutes: ['답 유예', '분', '상대가 먼저 보낸 뒤 이 시간 안의 답은 근무시간 밖이어도 보냅니다'],
+  max_call_seconds_unknown: ['모르는 번호 통화 시간', '초', '모르는 번호·번호 숨김·수신 거부 번호에서 걸려 온 전화 한 통의 가장 긴 길이'],
+  unknown_calls_hourly: ['모르는 번호 전화 — 한 시간', '통', '모르는 번호·번호 숨김 전화를 모두 합쳐 지난 한 시간에 받는 수 — 넘으면 받지 않습니다'],
+  unknown_notice_daily: ['모르는 번호 안내 — 한 번호 하루', '번', '모르는 번호 하나에 하루에 답하는 고정 안내 수'],
+  unknown_notice_total_daily: ['모르는 번호 안내 — 모두 하루', '건', '모르는 번호 모두를 합쳐 하루에 답하는 고정 안내 수 — 넘으면 기록만 남깁니다'],
+  inbound_burst_count: ['잦은 연락 — 횟수', '번', '한 번호에서 「잦은 연락 — 시간 창」 안에 이만큼 들어오면 응대하지 않습니다(전화·문자 따로 셉니다)'],
+  inbound_burst_minutes: ['잦은 연락 — 시간 창', '분', '한 번호에서 이 시간 안에 「잦은 연락 — 횟수」만큼 들어오면 응대하지 않습니다'],
 };
 
 const GROUPS: [string, string[]][] = [
   ['문자', ['daily_sms_total', 'per_contact_sms_daily']],
-  ['전화', ['daily_calls_total', 'per_contact_calls_daily', 'max_call_seconds', 'max_call_seconds_unknown', 'unknown_calls_hourly']],
-  ['자동 답', ['auto_reply_hourly', 'auto_reply_daily', 'reply_grace_minutes', 'unknown_notice_daily', 'unknown_notice_total_daily']],
-  ['들어오는 전화', ['inbound_burst_count', 'inbound_burst_minutes']],
+  ['전화', ['daily_calls_total', 'per_contact_calls_daily', 'max_call_seconds']],
+  ['자동 답', ['auto_reply_hourly', 'auto_reply_daily', 'reply_grace_minutes']],
+  ['모르는 번호', ['max_call_seconds_unknown', 'unknown_calls_hourly', 'unknown_notice_daily', 'unknown_notice_total_daily']],
+  ['잦은 연락', ['inbound_burst_count', 'inbound_burst_minutes']],
 ];
 
 // 모양은 공용 부품 클래스(ui-field·ui-btn)와 아래 몇 줄만 — 설정과 개발 콘솔 어디에 놓여도 같게.
@@ -49,6 +50,7 @@ const S: Record<string, CSSProperties> = {
   save: { flex: 'none', whiteSpace: 'nowrap' },
   changed: { marginLeft: 6, fontSize: 'var(--fs-11)', color: 'var(--tone-info-fg)' },
   ok: { fontSize: 'var(--fs-12)', color: 'var(--success-text)' },
+  help: { color: 'var(--fg)', overflowWrap: 'anywhere' },
   error: { margin: 0, fontSize: 'var(--fs-12)', color: 'var(--danger-text)', overflowWrap: 'anywhere' },
 };
 
@@ -78,10 +80,10 @@ interface FieldProps {
   onSave(): void;
 }
 
-/** 한 칸: 이름(단위) · 값 · [저장] · 기본값과 받는 범위 · 서버 까닭. */
+/** 한 칸: 이름(단위) · 값 · [저장] · 도움말 · 기본값과 받는 범위 · 서버 까닭. */
 function LimitField({ name, data, draft, problem, saved, busy, onDraft, onSave }: FieldProps) {
   const id = useId();
-  const [label, unit] = LABELS[name] ?? [name, ''];
+  const [label, unit, help] = LABELS[name] ?? [name, '', ''];
   const value = data.values[name];
   const text = draft ?? String(value);
   const range = data.ranges[name];
@@ -111,7 +113,7 @@ function LimitField({ name, data, draft, problem, saved, busy, onDraft, onSave }
           value={text}
           disabled={busy}
           aria-invalid={problem ? true : undefined}
-          aria-describedby={`${id}-hint`}
+          aria-describedby={help ? `${id}-help ${id}-hint` : `${id}-hint`}
           style={S.input}
           onChange={(e) => onDraft(e.target.value)}
         />
@@ -119,6 +121,11 @@ function LimitField({ name, data, draft, problem, saved, busy, onDraft, onSave }
           저장
         </Button>
       </div>
+      {help && (
+        <span className="ui-field-hint" id={`${id}-help`} style={S.help}>
+          {help}
+        </span>
+      )}
       <span className="ui-field-hint" id={`${id}-hint`}>
         {hint}
       </span>
@@ -204,7 +211,7 @@ export default function LimitsForm({ connectionId, disabled = false, onSaved }: 
   return (
     <div style={S.root}>
       <div style={S.head}>
-        <p style={S.muted}>{changedCount === 0 ? '모두 기본값입니다.' : `기본값과 다른 칸 ${changedCount}개`} · 칸마다 따로 저장합니다.</p>
+        <p style={S.muted}>{changedCount === 0 ? '모두 기본값입니다' : `기본값과 다른 칸 ${changedCount}개`} · 칸마다 따로 저장합니다.</p>
         <Button disabled={busy || disabled || changedCount === 0} onClick={() => apply(() => limitsApi.reset(connectionId), null)}>
           기본값으로
         </Button>

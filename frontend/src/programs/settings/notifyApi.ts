@@ -62,6 +62,8 @@ export interface NotifyConnection {
   latency_ms: number | null;
   /** 오늘(서울) 나간 문자·전화. 기본 연결이 아니면 null. */
   used_today: { sms: number; call: number } | null;
+  /** 연결 테스트 결과 한 줄(서버가 저장된 확인 결과·오늘 사용량만으로 만든 글). 이 칸이 없던 서버면 없다. */
+  check_summary?: string;
 }
 
 /** 저장 결과. 이번에 부른 연결 테스트가 실패했으면 error 가 있다. */
