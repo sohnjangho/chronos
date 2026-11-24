@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ko"><!-- set lang to the label language, e.g. "ja" for Japanese labels -->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>변동 하나가 들어와 결정이 되기까지</title>
+<style>
+/* engineered-paper theme (cool near-white, one accent, mono labels)
+ * All colors/fonts flow through the :root tokens — tweak tokens, not scattered values. */
+:root {
+  color-scheme: light;
+  --color-paper:   oklch(98.5% 0.004 250);
+  --color-paper-2: oklch(96.5% 0.005 252);
+  --color-rule:    oklch(93% 0.007 255);    /* graph-paper grid */
+  --color-rule-2:  oklch(83% 0.011 255);    /* hairline borders */
+  --color-muted:   oklch(56% 0.013 255);
+  --color-neutral: oklch(46% 0.015 255);    /* neutral edges */
+  --color-ink-2:   oklch(34% 0.018 257);
+  --color-ink:     oklch(24% 0.020 258);
+  --color-accent:  oklch(58% 0.20 256);     /* primary-flow edges, one signal color */
+  --color-graphite:oklch(24% 0.018 260);    /* dark tile for white/light logos */
+  /* group palette A — warm vendor (e.g. Cloudflare/AWS orange). Retune hue per vendor. */
+  --color-g1:      oklch(68% 0.15 55);
+  --color-g1-soft: oklch(78% 0.12 55);
+  --color-g1-ink:  oklch(52% 0.14 50);
+  --color-g1-tint: oklch(96.5% 0.015 60 / .5);
+  /* group palette B — accent-family (repo/tooling groups) */
+  --color-accent-soft: oklch(58% 0.20 256 / .45);
+  --color-accent-tint: oklch(97% 0.012 256 / .5);
+  /* JP glyphs: name JP faces explicitly — bare sans-serif fallback on Linux picks Chinese-variant CJK */
+  --font-display: "Geist", "Hiragino Sans", "Yu Gothic UI", "Noto Sans CJK JP", "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Hiragino Sans", "Yu Gothic UI", "Noto Sans CJK JP", "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --space-xs: 4px; --space-sm: 8px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px;
+  --radius-card: 10px; --radius-tile: 12px;
+  /* translucent veil behind node label text: matches paper on plain canvas, blends into
+     group tints instead of punching an off-color rectangle through them */
+  --color-veil: oklch(98.5% 0.004 250 / .78);
+}
+/* Dark variant: set data-theme="dark" on <html>. Tiles stay white — brand logos are drawn
+   for light grounds. Everything (arrowheads via context-stroke, legend via border-color)
+   follows the tokens, so toggling the attribute is all it takes. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper:   oklch(18% 0.012 255);
+  --color-paper-2: oklch(22% 0.014 255);
+  --color-rule:    oklch(24% 0.013 255);
+  --color-rule-2:  oklch(38% 0.018 255);
+  --color-muted:   oklch(65% 0.014 255);
+  --color-neutral: oklch(72% 0.012 255);
+  --color-ink-2:   oklch(85% 0.010 255);
+  --color-ink:     oklch(94% 0.008 255);
+  --color-accent:  oklch(70% 0.16 256);
+  --color-graphite:oklch(31% 0.020 260);
+  --color-g1:      oklch(70% 0.14 55);
+  --color-g1-soft: oklch(58% 0.11 55);
+  --color-g1-ink:  oklch(78% 0.12 55);
+  --color-g1-tint: oklch(26% 0.030 60 / .40);
+  --color-accent-soft: oklch(70% 0.16 256 / .5);
+  --color-accent-tint: oklch(28% 0.045 256 / .35);
+  --color-veil: oklch(18% 0.012 255 / .78);
+}
+@font-face { font-family:"Geist"; font-style:normal; font-weight:100 900; font-display:swap;
+  src:url(data:font/woff2;base64,%%FONT_DISPLAY%%) format("woff2"); }
+@font-face { font-family:"JetBrains Mono"; font-style:normal; font-weight:100 800; font-display:swap;
+  src:url(data:font/woff2;base64,%%FONT_JBM%%) format("woff2"); }
+/* JetBrains Mono reads cramped at 9.5–11px; open every mono label slightly */
+.kicker, .node .role, .el, .legend, .foot { letter-spacing: 0.04em; }
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { overflow-x: clip; }
+body { background: var(--color-paper); color: var(--color-ink); font-family: var(--font-body); padding: var(--space-xl) var(--space-lg) var(--space-2xl); }
+.page { max-width:none; width:1340px; width: fit-content; max-width: 100%; margin: 0 auto; }
+
+.head { display:grid; grid-template-columns: 1fr auto; gap: var(--space-lg); align-items:end;
+  padding-bottom: var(--space-md); border-bottom: 1px solid var(--color-rule-2); margin-bottom: var(--space-lg); }
+.kicker { font-family: var(--font-mono); font-size: 11px;
+  color: var(--color-accent); margin-bottom: var(--space-sm); }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(22px, 4vw, 30px);
+  letter-spacing: -0.005em; line-height: 1.2; }
+.lede { max-width: 300px; font-size: 12px; line-height: 1.7; color: var(--color-neutral); padding-bottom: 2px; }
+@media (max-width: 680px) { .head { grid-template-columns: 1fr; align-items:start; } .lede { max-width:none; } }
+
+.scroller { overflow-x: auto; border: 1px solid var(--color-rule-2); border-radius: var(--radius-card); }
+/* CANVAS SIZE: set width/height here AND on svg.edges AND its viewBox — keep the three in sync */
+.canvas { position: relative; width: 1000px; height: 540px; background: var(--color-paper);
+  background-image:
+    linear-gradient(var(--color-rule) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-rule) 1px, transparent 1px);
+  background-size: 24px 24px; background-position: -1px -1px; }
+
+.group { position:absolute; border-radius: var(--radius-tile); }
+/* group labels are names like node names (display font), written in the brand's own case.
+   They sit inside the top-left corner, so the border stays unbroken and needs no mask */
+.g-label { position:absolute; top:12px; left:12px; display:flex; align-items:center; gap:6px;
+  font-family: var(--font-display); font-size: 12px; font-weight: 600;
+  color: var(--color-neutral); white-space: nowrap; }
+.g-label img { width: 14px; height: 14px; }
+/* group labels sit on the group's tint, not on a white tile: in the dark theme swap in the brand's own
+   dark-theme logo (lt/dk pair), or give a mark with black parts a white plate */
+.g-label img.dk, .tile img.dk { display:none; }
+[data-theme="dark"] .g-label img.lt, [data-theme="dark"] .tile img.lt { display:none; }
+[data-theme="dark"] .g-label img.dk, [data-theme="dark"] .tile img.dk { display:block; }
+[data-theme="dark"] .g-label img.plate { background:#fff; border-radius:3px; padding:2px; width:18px; height:18px; }
+.group.ga { border:1.5px solid var(--color-g1); background: var(--color-g1-tint); }
+.group.ga-nested { border:1.5px dashed var(--color-g1-soft); }
+.group.gb { border:1.5px solid var(--color-accent-soft); background: var(--color-accent-tint); }
+.group.ga > .g-label, .group.ga-nested > .g-label { color: var(--color-g1-ink); }
+.group.gb > .g-label { color: var(--color-accent); }
+.group.aws { border:1.5px solid var(--color-ink); border-radius:0; }
+.group.aws > .g-label { top:-1.5px; left:-1.5px; gap:8px; color: var(--color-ink); }
+.group.aws > .g-label img { width:30px; height:30px; }
+.group.aws.az > .g-label { top:8px; left:12px; }
+.group.aws.region, .group.aws.az { border-color:#00A4A6; border-style:dashed; }
+.group.aws.vpc { border-color:#8C4FFF; }
+.group.aws.private { border-color:#00A4A6; }
+.group.aws.public { border-color:#7AA116; }
+.group.gcp { border:1.5px solid #4285F4; border-radius:6px; }
+.group.azure { border:1.5px solid #0078D4; border-radius:6px; }
+.group.gcp > .g-label, .group.azure > .g-label { gap:8px; color: var(--color-ink); }
+.group.gcp > .g-label img, .group.azure > .g-label img { width:20px; height:20px; }
+.group.gcp.region, .group.azure.region { border-color: var(--color-rule-2); background: var(--color-paper-2); }
+.group.gcp.vpc { border:1.5px dashed var(--color-ink-2); }
+.group.gcp.subnet { border:1px dashed var(--color-neutral); }
+.group.gcp.zone { border-color:#34A853; }
+.group.azure.rg { border:1.5px dashed #0096D7; }
+.group.azure.vnet { border:1.5px solid #A4CBFB; }
+.group.azure.subnet { border:1px solid #A4CBFB; }
+.group.azure.zone { border-color:#FFD965; }
+
+.node { position:absolute; width:132px; text-align:center; }
+.tile { width:60px; height:60px; margin:0 auto; border-radius: var(--radius-tile);
+  background:#fff; border:1px solid var(--color-rule-2); display:grid; place-items:center;
+  box-shadow: 0 1px 2px oklch(24% 0.02 258 / 0.05); transition: border-color .15s cubic-bezier(0.16,1,0.3,1); }
+.node:hover .tile { border-color: var(--color-accent); }
+.tile img { width:34px; height:34px; object-fit:contain; }
+.tile.wide img { width:44px; }                       /* wide-aspect logos */
+.tile.dark { background: var(--color-graphite); border-color: var(--color-graphite); }  /* white/light logos */
+.tile.bare { background:none; border:none; box-shadow:none; }
+.tile.bare img { width:60px; height:60px; }
+.tile.bare.res img { width:44px; height:44px; }
+.node .name { font-family: var(--font-display); font-weight:600; font-size:13px; margin-top: var(--space-sm); letter-spacing:0; }
+.node .role { font-family: var(--font-mono); font-size:9.5px; color: var(--color-muted); margin-top:2px; }
+/* veil behind label spans: crossing edges/grid fade behind text; translucent so it
+   blends into group tints (a solid paper rectangle looks pasted-on inside tinted groups) */
+.node .name span, .node .role span { background: var(--color-veil); backdrop-filter: blur(1.5px);
+  padding: 0 var(--space-xs); border-radius: 3px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+
+svg.edges { position:absolute; inset:0; width:1000px; height:540px; pointer-events:none; }
+.e  { stroke: var(--color-accent); stroke-width:1.6; fill:none; }   /* primary flow */
+.n  { stroke: var(--color-neutral); stroke-width:1.4; fill:none; }  /* internal */
+path.aws { stroke: var(--color-ink); stroke-width:1.6; fill:none; }
+.dash { stroke-dasharray:4 5; }                                     /* dev / deploy */
+.el { font-family: var(--font-mono); font-size:10.5px; fill: var(--color-neutral);
+  paint-order: stroke; stroke: var(--color-paper); stroke-width:4px; stroke-linejoin:round; }  /* halo */
+.el.a { fill: var(--color-accent); }
+
+.legend { display:flex; gap: var(--space-lg); align-items:center; margin-top: var(--space-md);
+  font-family: var(--font-mono); font-size:10px; color: var(--color-muted); flex-wrap:wrap; }
+.legend .sw { display:inline-block; width:30px; vertical-align:middle; margin-right:6px;
+  border-top:1.6px solid var(--color-accent); }
+.legend .sw.n { border-color: var(--color-neutral); border-top-width:1.4px; }
+.legend .sw.dash { border-top-style: dashed; }
+
+.foot { margin-top: var(--space-xl); padding-top: var(--space-md); border-top: 1px solid var(--color-rule-2);
+  display:flex; justify-content:space-between; gap: var(--space-md); flex-wrap:wrap;
+  font-family: var(--font-mono); font-size:10px; color: var(--color-muted); }
+.foot a { color: inherit; text-decoration-color: var(--color-rule-2); text-underline-offset: 2px; }
+.foot a:hover { color: var(--color-accent); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="head">
+    <div>
+      <div class="kicker">ChronOS / 에이전트 로직</div>
+      <h1>변동 하나가 들어와 결정이 되기까지</h1>
+    </div>
+    
+  </header>
+
+  <div class="scroller">
+  <div class="canvas" style="width:1270px;height:990px">
+
+    <div class="group gb" style="left:50px; top:50px; width:630px; height:210px;"><div class="g-label"><img src="%%ICON_chat%%" alt="">① 변동이 들어오는 길</div></div>
+<div class="group gb" style="left:810px; top:50px; width:330px; height:210px;"><div class="g-label"><img src="%%ICON_approve%%" alt="">⑥ 사람이 결정</div></div>
+<div class="group ga" style="left:50px; top:280px; width:630px; height:210px;"><div class="g-label"><img src="%%ICON_liner%%" alt="">에이전트 루프 · Liner Model</div></div>
+<div class="group ga" style="left:710px; top:280px; width:480px; height:210px;"><div class="g-label"><img src="%%ICON_search%%" alt="">④ 바깥 위험 · Liner Search</div></div>
+<div class="group gb" style="left:50px; top:510px; width:940px; height:210px;"><div class="g-label"><img src="%%ICON_calc%%" alt="">②③ 코드 엔진 · 날짜는 여기서만 계산</div></div>
+<div class="group gb" style="left:50px; top:740px; width:490px; height:210px;"><div class="g-label"><img src="%%ICON_arch%%" alt="">쌓이는 기록</div></div>
+<div class="group gb" style="left:560px; top:740px; width:580px; height:210px;"><div class="g-label"><img src="%%ICON_door%%" alt="">⑤ 연락 하네스</div></div>
+<svg class="edges" style="width:1270px;height:990px" viewBox="0 0 1270 990" aria-hidden="true">
+      <defs>
+        <!-- context-stroke inherits the line's color, so theme switches (incl. dark)
+             recolor arrowheads automatically. #open is for AWS diagrams -->
+        <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/>
+        </marker>
+        <marker id="open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M1 1 L9 5 L1 9" fill="none" stroke="context-stroke" stroke-width="1.5"/>
+        </marker>
+      </defs>
+<path class="e" d="M140 216 V266 H34 V370 H104" marker-end="url(#ar)"/>
+<path class="e" d="M176 370 H254" marker-end="url(#ar)"/>
+<path class="e" d="M326 370 H404" marker-end="url(#ar)"/>
+<path class="e" d="M476 370 H554" marker-end="url(#ar)"/>
+<path class="n" d="M590 334 V318 H290 V334" marker-end="url(#ar)"/><text class="el" x="440" y="312" text-anchor="middle">틀리면 다시 · 최대 12단계</text>
+<path class="e" d="M440 446 V564" marker-end="url(#ar)"/><text class="el a" x="450" y="480">계산은 코드에 맡긴다</text>
+<path class="n" d="M176 600 H254" marker-end="url(#ar)"/>
+<path class="n" d="M326 600 H404" marker-end="url(#ar)"/>
+<path class="n" d="M476 600 H554" marker-end="url(#ar)"/>
+<path class="e" d="M626 600 H714" marker-end="url(#ar)"/>
+<path class="n" d="M786 600 H864" marker-end="url(#ar)"/>
+<path class="e" d="M765 564 V525 H800 V446" marker-end="url(#ar)"/><text class="el a" x="812" y="542">새 포인트만 찾는다</text>
+<path class="n" d="M836 370 H914" marker-end="url(#ar)"/>
+<path class="n" d="M986 370 H1064" marker-end="url(#ar)"/>
+<path class="e" d="M750 676 V794" marker-end="url(#ar)"/><text class="el a" x="760" y="710">담당자에게 묻는다</text>
+<path class="n" d="M786 830 H864" marker-end="url(#ar)"/>
+<path class="n" d="M936 830 H1014" marker-end="url(#ar)"/>
+<path class="e" d="M936 588 H1215 V140 H1086" marker-end="url(#ar)"/><text class="el a" x="1205" y="270" text-anchor="end">대안을 올린다</text>
+<path class="e" d="M1014 140 H936" marker-end="url(#ar)"/>
+<path class="n" d="M864 140 H695 V545 H735 V564" marker-end="url(#ar)"/><text class="el" x="745" y="132" text-anchor="middle">⑦ 다시 계산</text>
+<path class="n dash" d="M554 830 H476" marker-end="url(#ar)"/>
+</svg>
+
+    <div class="node" style="left:74px;top:110px"><div class="tile"><img src="%%ICON_chat%%" alt=""></div><div class="name"><span>대화 한 줄</span></div><div class="role"><span>"3일 늦어졌어"</span></div></div>
+<div class="node" style="left:224px;top:110px"><div class="tile"><img src="%%ICON_sp%%" alt=""></div><div class="name"><span>현장 체크인</span></div><div class="role"><span>진도 · 사진 판독</span></div></div>
+<div class="node" style="left:374px;top:110px"><div class="tile"><img src="%%ICON_pin%%" alt=""></div><div class="name"><span>걸려 온 전화</span></div><div class="role"><span>문자 · 협력사 보고</span></div></div>
+<div class="node" style="left:524px;top:110px"><div class="tile"><img src="%%ICON_sheet%%" alt=""></div><div class="name"><span>엑셀 · CSV</span></div><div class="role"><span>협력사 공정표</span></div></div>
+<div class="node" style="left:834px;top:110px"><div class="tile"><img src="%%ICON_ver%%" alt=""></div><div class="name"><span>새 버전</span></div><div class="role"><span>되돌릴 수 있다</span></div></div>
+<div class="node" style="left:984px;top:110px"><div class="tile"><img src="%%ICON_approve%%" alt=""></div><div class="name"><span>승인함</span></div><div class="role"><span>승인 · 거부 · 다시 짜기</span></div></div>
+<div class="node" style="left:74px;top:340px"><div class="tile"><img src="%%ICON_layers%%" alt=""></div><div class="name"><span>컨텍스트 조립</span></div><div class="role"><span>지침 · 스킬 · 보는 화면</span></div></div>
+<div class="node" style="left:224px;top:340px"><div class="tile"><img src="%%ICON_brain%%" alt=""></div><div class="name"><span>판단</span></div><div class="role"><span>router: cost·balanced·quality</span></div></div>
+<div class="node" style="left:374px;top:340px"><div class="tile"><img src="%%ICON_tools%%" alt=""></div><div class="name"><span>도구 실행</span></div><div class="role"><span>40여 개 · 실패하면 되돌림</span></div></div>
+<div class="node" style="left:524px;top:340px"><div class="tile"><img src="%%ICON_retry%%" alt=""></div><div class="name"><span>자가 점검</span></div><div class="role"><span>결과를 보고 고친다</span></div></div>
+<div class="node" style="left:734px;top:340px"><div class="tile"><img src="%%ICON_candle%%" alt=""></div><div class="name"><span>Premium Data</span></div><div class="role"><span>자재 시세 · 환율 + 출처</span></div></div>
+<div class="node" style="left:884px;top:340px"><div class="tile"><img src="%%ICON_plug%%" alt=""></div><div class="name"><span>MCP</span></div><div class="role"><span>업종 소식 · 법령</span></div></div>
+<div class="node" style="left:1034px;top:340px"><div class="tile"><img src="%%ICON_quote%%" alt=""></div><div class="name"><span>Search Agent</span></div><div class="role"><span>근거가 된 문장</span></div></div>
+<div class="node" style="left:74px;top:570px"><div class="tile"><img src="%%ICON_cal%%" alt=""></div><div class="name"><span>달력 · CPM</span></div><div class="role"><span>공휴일 · 선후 관계</span></div></div>
+<div class="node" style="left:224px;top:570px"><div class="tile"><img src="%%ICON_users%%" alt=""></div><div class="name"><span>자원 맞춤</span></div><div class="role"><span>크레인 · 설비 용량</span></div></div>
+<div class="node" style="left:374px;top:570px"><div class="tile"><img src="%%ICON_shield%%" alt=""></div><div class="name"><span>4겹 하네스</span></div><div class="role"><span>기본 · 분야 · 내 규칙 · 입력</span></div></div>
+<div class="node" style="left:524px;top:570px"><div class="tile"><img src="%%ICON_clock%%" alt=""></div><div class="name"><span>지연 영향</span></div><div class="role"><span>준공 +n일 · 여유 흡수</span></div></div>
+<div class="node" style="left:684px;top:570px"><div class="tile"><img src="%%ICON_points%%" alt=""></div><div class="name"><span>관리 포인트</span></div><div class="role"><span>좌우 작업 + 여유 3일 이하</span></div></div>
+<div class="node" style="left:834px;top:570px"><div class="tile"><img src="%%ICON_ff%%" alt=""></div><div class="name"><span>당김 효과 · 만회안</span></div><div class="role"><span>5일 중 며칠이 반영되나</span></div></div>
+<div class="node" style="left:74px;top:800px"><div class="tile"><img src="%%ICON_hist%%" alt=""></div><div class="name"><span>지연 기록</span></div><div class="role"><span>원인 · 책임 · 비용</span></div></div>
+<div class="node" style="left:224px;top:800px"><div class="tile"><img src="%%ICON_arch%%" alt=""></div><div class="name"><span>자료함</span></div><div class="role"><span>시방서 5축 분류</span></div></div>
+<div class="node" style="left:374px;top:800px"><div class="tile"><img src="%%ICON_doc%%" alt=""></div><div class="name"><span>보고서</span></div><div class="role"><span>회사 양식 학습</span></div></div>
+<div class="node" style="left:684px;top:800px"><div class="tile"><img src="%%ICON_door%%" alt=""></div><div class="name"><span>나가는 문</span></div><div class="role"><span>시험모드·근무시간·권한 등 6검사</span></div></div>
+<div class="node" style="left:834px;top:800px"><div class="tile"><img src="%%ICON_phone%%" alt=""></div><div class="name"><span>문자 · AI 전화</span></div><div class="role"><span>첫마디는 코드가 정함</span></div></div>
+<div class="node" style="left:984px;top:800px"><div class="tile"><img src="%%ICON_check%%" alt=""></div><div class="name"><span>뒤 확인</span></div><div class="role"><span>받아쓰기와 답을 대조</span></div></div>
+  </div>
+  </div>
+
+  <div class="legend"><span><span class="sw"></span>한 바퀴</span><span><span class="sw n"></span>안쪽 단계</span><span><span class="sw n dash"></span>기록</span></div>
+
+  <div class="foot">
+    <span>ChronOS 에이전트 로직</span>
+    <span>icons: Lucide · made with <a href="https://github.com/caru-ini/stack-diagram" target="_blank" rel="noopener">stack-diagram</a></span>
+  </div>
+
+</div>
+</body>
+</html>
