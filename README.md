@@ -1,17 +1,71 @@
 # ChronOS (크로노스)
 
-일정을 만들고, 지키고, 고치는 에이전트 OS.
-2026 라이너 해커톤 .EXE-THON 출품작이다. 대회 기간(2026.11.12~11.25)에 새로 만들었다.
+> **일정이 바뀔 때마다 준공일을 좌우하는 작업이 어디로 옮겨 갔는지 알려 주고, 그곳의 위험을 찾아 담당자에게 먼저 묻는 일정 에이전트 OS.**
 
-- 화면은 OS 형태이고, 에이전트 하나가 전체를 맡는다. 에이전트는 요청마다 워크플로우를 짜고 일정 계산 도구를 차례로 쓴다.
-- 일정은 대화로 만든다: 프롬프트 → 질문지 → WBS → 스케줄 → 간트 → 크리티컬 패스.
-- 조건(하네스 네 겹)을 바꾸면 일정이 바로 다시 계산된다. 지연이 생기면 영향을 계산하고 만회안을 낸다.
-- **날짜는 코드가 계산한다.** LLM은 구조(WBS·기간·선후 관계)를 내고 설명한다. 점검하지 않은 조건은 「자동 점검 안 됨」으로만 보인다.
-- 두뇌는 **Liner Model API**, 근거 검색은 **Liner Search API·MCP** 다.
+2026 라이너 해커톤 .EXE-THON 출품작이다. 대회 기간(2026.11.12~11.25)에 새로 만들었다.
 
 ![간트차트 — 크리티컬 패스](docs/demo/shots/03-간트-크리티컬.png)
 
+## 소개
+
+건설·생산 일정은 날씨·자재·사람·설비 때문에 매일 바뀌고, 변동이 쌓이면 준공(납기)을 좌우하는 작업(크리티컬 패스) 자체가 다른 곳으로 옮겨 간다. 옮겨 간 것을 늦게 알면 이미 소용없어진 작업을 당기느라 돈과 사람을 쓴다.
+ChronOS 는 맥 OS 모양의 웹 OS 이고, 에이전트 하나가 그 안의 앱(스케줄·간트·CPM·지연 기록·비교판·승인함·연락처 등 19개)을 도구로 열어 가며 일한다. 요청마다 워크플로우를 짜서 일정 생성, CPM 계산, 지연 영향, 만회안, 관리 포인트, 담당자 연락을 차례로 처리하고, 사람은 그 화면을 같이 보다가 승인함에서 결정한다.
+**날짜는 코드가 계산한다.** LLM(Liner)은 구조(WBS·기간·선후 관계)를 내고, 근거를 찾고, 설명과 연락 글을 쓴다.
+
+예시 일정 「5층 사무동 신축」·「가상 부품 공장 — 브래킷 BR-200 2만 개」와 연락처·협력사는 모두 가상이다.
+
+## 핵심 기능
+
+**에이전트 · 대화**
+- 에이전트 대화: 요청마다 워크플로우를 그 자리에서 짜고 도구(`영역.동작` 꼴, 40여 개 — `backend/app/tools/`)를 부른다. 한 턴 최대 12단계(`app/agent/loop.py`).
+- 질문지: 모자란 정보는 바로 그리지 않고 질문지로 묻는다(`ask.questionnaire`). 답하지 않은 질문은 적어 둔 가정으로 간다.
+- 워크플로우 창: 단계마다 쓴 도구·입력·출력·모델·비용을 보이고, 잘 된 순서는 [스킬로 저장]해 다음 요청에 다시 쓴다(`app/store/skills.py`).
+- 에이전트가 OS 창을 직접 연다(`ui.open_window`) — 사람이 보는 창과 에이전트가 보는 창이 같다.
+
+**일정**
+- WBS 생성: 대화 한 줄 → 질문지 → WBS·기간·선후 관계 초안 → 코드 계산·규칙 점검 → 어기면 다시 짜기 → 승인함(`generate.run`). 처음 보는 분야는 분야 묶음을 즉석에서 합성한다(`app/agent/domain_synth.py`).
+- 공정표 가져오기: csv·tsv·xlsx 를 읽어 빈칸만 묻고 초안으로 가져온다(`schedule.import`).
+- 일정 엔진(`backend/app/core/`): 근무일 달력, CPM(FS/SS/FF/SF + lag, TF/FF), 자원 맞춤, 지연 영향, 만회안(병행·압축·자원 추가), 공정률.
+- 화면: 스케줄 표, 간트(Plan·실적·크리티컬, 생산은 자원별 묶음), CPM 네트워크, 공정률, 비교판(여러 안을 같은 차트·요약표로), 조건·규칙(하네스 네 겹, 바꾸면 미리 보기).
+
+**관리 포인트**
+- 끝나지 않은 작업 가운데 크리티컬이거나 여유가 k 근무일 이하(기본 3일)이고 앞으로 w 주(기본 3주) 안에 시작하는 것(`app/core/points.py`). 변동마다 다시 뽑아 바뀌면 「관리 포인트가 바뀌었습니다」 카드로 알린다.
+- 바깥 위험: 새 포인트에만, 분야별로 켠 갈래를 찾는다 — 날씨(기상청), 금속 시세·환율(Liner Search Premium Data: The World Bank·Xignite), 업계 소식(Liner MCP). 자료가 없으면 숫자 없이 「바깥 자료 없음」(`app/points/risk.py`).
+- 근거 문장: [근거 문장 보기]를 누르면 Liner Search Agent 의 출처 문장과 링크를 보인다(`app/points/quotes.py`).
+- 당겨도 소용 있나: 「이 작업을 n일 당기면」 준공에 반영되는 일수와 다음에 준공을 정할 줄을 계산한다(`points.accel_check`, `app/core/accel.py`).
+
+**지연 기록 · 만회안 · 승인함**
+- 대화나 지연 기록 창에서 지연을 남기면 준공·크리티컬·자원 겹침 영향을 코드가 계산한다(`delay.record`, `delay.analyze`).
+- 만회안은 코드가 만들고 Liner 가 안마다 설명·추천을 붙인다(`shorten.make`). 비교판에서 견주고 승인함에서 사람이 승인하면 새 버전이 된다(버전·변경 이력·되돌리기).
+
+**연락 하네스**
+- 연락처(주소록·CSV), 문자, AI 전화 걸기·받기(한국AI통신 문자 REST·음성 SDK + Gemini Live). 에이전트가 물어볼 것과 말하지 않을 것을 써 오면 사람이 고친다.
+- 통화가 끝나면 질문마다 답과 근거가 된 말, 받아쓰기가 통화 카드에 남는다.
+- 보내기·걸기는 모두 「나가는 문」 하나를 지난다: 시험 모드 → 차단·수신 거부 → 근무시간 → 상한 → 권한 → 중복(`backend/app/outreach/`).
+- 카카오 알림톡은 연결만 만들어 두었고 잠겨 있다(알림톡 요청은 문자로 나간다 — 아래 「카카오톡은 아직 쓰지 않는다」).
+
+**현장 점검**
+- 공정률 창의 일일 체크인과 현장 사진 AI 판독: 사진을 그림 읽기 모델로 읽어 진도율·근거·위험을 낸다. 읽지 못한 사진은 숫자를 붙이지 않고 「사람 판독 대기」로 넘긴다(`app/programs/progress/field.py`).
+
+**보고서 · 자료함**
+- 월간·분기 공정 보고서. 회사 양식을 배워 쓰고 블록으로 고친다(`report.learn_template`, `report.generate`).
+- 자료함: 올린 문서를 읽고 분류해 낱말·뜻 검색(Liner 임베딩 + Qdrant)으로 찾는다(`backend/app/files/`).
+
+**개발 콘솔**
+- 실행 추적(턴마다 도구·모델·연락 판정), 에이전트 구조, 도구 등록부, 하네스·차단 시험(연락 하네스 격자), 사용량, 시스템 진단.
+
 ## 화면
+
+| 「당겨도 소용 있나」 — 당긴 5일 중 준공 반영 1일 | 관리 포인트가 바뀐 카드 · 바깥 위험 · 지연 기록 |
+|---|---|
+| ![당김 효과](docs/contest/assets/rev6/s5-당겨도소용있나.png) | ![관리 포인트와 바깥 위험](docs/contest/assets/rev6/s2-바깥위험.png) |
+| **워크플로우 — 에이전트가 짠 단계와 [스킬로 저장]** | **AI 전화 뒤 통화 카드 — 질문마다 답과 근거** |
+| ![워크플로우](docs/contest/a4/img/app/03-워크플로우-단계그래프와상세.jpg) | ![통화 카드](docs/contest/a4/img/s3-통화카드.jpg) |
+| **현장 사진 AI 판독 · 사람 판독 대기** | |
+| ![사진 판독](docs/contest/a4/img/app/11-공정률-사진판독.jpg) | |
+
+<details>
+<summary>끝에서 끝까지 시험이 찍은 화면 더 보기</summary>
 
 | 조건·규칙에서 타워크레인 1대 → 2대 미리 보기 | 간트의 미리 보기 점선(옮기기 전 자리) |
 |---|---|
@@ -23,24 +77,91 @@
 | **CPM 요약 줄(만회 계획 달성률)** | **생산 일정 간트 — 자원별 묶음·「프레스 작업 금지」 띠** |
 | ![CPM 요약](docs/demo/shots/b2-08-CPM-요약.png) | ![생산 간트](docs/demo/shots/b2-10-생산간트-자원묶음.png) |
 
-화면은 `bash scripts/e2e-local.sh`(아래 「시험」)가 1920×1080 으로 찍었다(`E2E_SHOTS_DIR` 로 `docs/demo/shots/` 를 줄 때). 예시 일정 「5층 사무동 신축」·「가상 부품 공장 — 브래킷 BR-200 2만 개」는 가상이다. 장면 순서와 말은 `docs/demo/시나리오.md`.
+이 화면들은 `bash scripts/e2e-local.sh`(아래 「시험」)가 1920×1080 으로 찍었다(`E2E_SHOTS_DIR` 로 `docs/demo/shots/` 를 줄 때). 장면 순서와 말은 `docs/demo/시나리오.md`.
+
+</details>
 
 ## 구조
 
+```mermaid
+flowchart LR
+  subgraph FE["화면 · React + TypeScript + Vite"]
+    OS["OS 셸 · 앱 19개<br/>PC · 태블릿 · 폰"]
+  end
+  subgraph BE["서버 · FastAPI + SQLite"]
+    LOOP["에이전트 루프<br/>app/agent"]
+    TOOLS["도구 등록부<br/>app/tools"]
+    CORE["일정 엔진 · CPM<br/>app/core"]
+    HAR["하네스 네 겹<br/>app/harness"]
+    PTS["관리 포인트 · 바깥 위험<br/>app/points"]
+    OUT["연락 하네스<br/>app/outreach"]
+    FILES["자료함<br/>app/files"]
+    STORE["승인 · 버전 · 이력<br/>app/store"]
+  end
+  OS -- "REST + SSE /api" --> LOOP
+  LOOP --> TOOLS
+  TOOLS --> CORE --> HAR
+  TOOLS --> PTS
+  TOOLS --> OUT
+  TOOLS --> STORE
+  TOOLS --> FILES
+  LOOP --> LINER["Liner<br/>Model API · Search API<br/>Search Agent · MCP<br/>Embeddings · Visualization"]
+  PTS --> LINER
+  PTS --> KMA["기상청<br/>단기예보 · ASOS"]
+  FILES --> LINER
+  FILES --> QD["Qdrant<br/>뜻 검색"]
+  OUT --> KAT["한국AI통신<br/>문자 · 전화"]
+  OUT --> GEM["Gemini Live<br/>통화 음성"]
 ```
-┌ OS 화면 (React · TypeScript · Vite) ─────────────────────────────────┐
-│ 로그인 · 메뉴바 · 바탕화면 위젯 · 창 · Dock                              │
-│ 시스템: 에이전트 대화 · 질문지 · 워크플로우 · 승인함 · 탐색기 · 설정 · 개발 콘솔 │
-│ 업무:   스케줄 · 간트차트 · CPM · 공정률 · 비교판 · 조건·규칙 · 지연 기록    │
-└──────────────────────┬──────────────────────────────────────────────┘
-                       │ REST + SSE (/api)
-┌ 서버 (FastAPI · SQLite) ▼────────────────────────────────────────────┐
-│ 에이전트 루프(도구 호출) ── 도구 등록부(app/tools) ── 계산 코드(app/core)  │
-│ 하네스 네 겹(app/harness): 기본 규칙 · 분야 규칙 · 내 규칙 · 입력 조건      │
-│ 승인 판단 · 버전 · 변경 이력(app/store) · 분야 묶음(app/domains)           │
-└──────────────────────┬──────────────────────────────────────────────┘
-                       │ httpx (키는 서버에서만, 화면에는 끝 4자리)
-          Liner Model API (두뇌) · Liner Search API · Liner MCP (근거)
+
+- **에이전트 루프**(`app/agent/loop.py`): Liner Model 이 도구를 고르고, 도구는 등록부(`app/tools/registry.py`)로만 불린다. 날짜가 필요하면 일정 엔진을 부르고, 엔진 결과는 하네스 네 겹(기본 규칙 · 분야 규칙 · 내 규칙 · 입력 조건)으로 점검한다.
+- **바깥 자료**: 금속 시세(The World Bank)·환율(Xignite)은 Liner Search 의 Premium Data(`include_knowledge`)로, 근거 문장은 Liner Search Agent 로, 법령·업계 소식은 Liner MCP 로 받는다. 날씨는 기상청 공공데이터를 직접 부른다.
+- **연락**: 문자·전화 통로는 한국AI통신, 실시간 통화 음성은 Gemini Live 다. 키는 모두 서버에서만 쓰고 화면에는 끝 4자리만 보인다.
+
+## 안전 장치
+
+- **날짜는 코드만 계산한다.** 만회안 설명에 날짜가 들어 있으면 버린다. 일정은 승인함에서 사람이 승인해야 바뀐다.
+- **문자·전화는 기본이 시험 모드다.** 새 알림 연결은 시험 모드가 켜져 있어 허용 번호에만 나간다(`app/store/tables_outreach.py` 의 `test_mode` 기본값).
+- **보내기·걸기는 기본이 「승인 받기」다.** 에이전트는 초안만 만들고 사람이 [보내기]·[전화 걸기]를 누른다. 「위임」으로 바꿔도 시험 모드·차단·수신 거부·근무시간·상한·중복 검사는 그대로 받는다. 받는 범위도 기본은 「받지 않음」이다.
+- **전화번호는 모델·로그로 나가기 전에 지운다.** 모델 프롬프트·도구 결과·실행 추적·로그·오류 글은 한 곳(`app/outreach/redact.py`)을 지나며 번호를 `[번호]` 로, 키를 지운다.
+- **키는 암호화해 저장한다.** Liner·한국AI통신·Gemini 키는 환경 변수가 아니라 설정 화면에서 받아 Fernet 으로 암호화해 DB 에 두고(`app/security/crypto.py`), 응답·화면에는 끝 4자리만 보인다.
+- **지어내지 않는다.** 바깥 자료가 없으면 「바깥 자료 없음」, 읽지 못한 현장 사진은 진도 숫자 없이 「사람 판독 대기」로 둔다. 코드가 점검하지 않은 조건은 「자동 점검 안 됨」으로만 보인다.
+- 커밋 전 비밀 검사: `bash scripts/check_secrets.sh`(`scripts/check-local.sh` 에 포함).
+
+## 기술 스택
+
+| 영역 | 쓰는 것 |
+|---|---|
+| 서버 | Python 3.13 · FastAPI · SQLAlchemy + SQLite · httpx · cryptography(Fernet) · bcrypt · openpyxl · pypdf · qdrant-client |
+| 화면 | React 19 · TypeScript · Vite · Zustand |
+| AI · 바깥 API | Liner Model API(`liner-claude-router` 등) · Liner Search API · Search Agent · MCP · Embeddings · Visualization · 기상청 공공데이터 · 한국AI통신 · Gemini Live |
+| 검색 | Qdrant v1.13.4(뜻 검색, 끄면 낱말 검색만) |
+| 시험 · 배포 | pytest · ruff · Vitest · ESLint · Playwright · Docker compose |
+
+## 폴더 구조
+
+```
+backend/app/
+  agent/      에이전트 루프 · 일정 생성(생성-점검-고침) · 분야 합성 · 승인 제안
+  tools/      에이전트 도구(영역.동작) · 등록부
+  core/       일정 엔진: 달력 · CPM · 자원 · 지연 · 만회안 · 관리 포인트 · 당김 효과 · 공정률
+  harness/    하네스 네 겹
+  points/     관리 포인트 카드 · 바깥 위험 · 근거 문장
+  outreach/   연락 하네스 · 문자 · AI 전화 · 번호 지우기
+  notify/     알림 연결 진단 · 음성 진단
+  llm/        Liner 연결(Model · Search · Search Agent · MCP · 임베딩 · 시각화)
+  info/       기상청 · 범용 정보 API
+  files/      자료함: 읽기 · 분류 · 조각 · 뜻 검색
+  domains/    분야 묶음(건설 · 생산)
+  programs/   앱별 API
+  store/      DB 표 · 승인 · 버전 · 이력
+  security/   로그인 · 암호화
+  seed/       가상 예시 일정
+frontend/src/
+  os/         OS 셸(로그인 · 메뉴바 · 창 · Dock)
+  programs/   앱 19개
+scripts/      점검 · 시험 · Qdrant 띄우기
+docs/         설계 · 계획 · 대회 문서 · 화면
 ```
 
 ## Liner API를 쓰는 곳
