@@ -1,6 +1,7 @@
 import Desktop from './Desktop';
 import Login from './Login';
 import MobileShell from './MobileShell';
+import { usePresence } from './presence';
 import TabletShell from './TabletShell';
 import { useSession } from './session';
 import { useActiveDevice } from './useIsMobile';
@@ -15,6 +16,7 @@ import './userScope';
 export default function App() {
   const signedIn = useSession((s) => s.session !== null);
   const device = useActiveDevice();
+  usePresence(); // 접속 신호(설정 → 계정의 「접속 중」). 로그아웃·잠금 동안은 보내지 않는다
   if (!signedIn) return <Login />;
   if (device === 'phone') return <MobileShell />;
   if (device === 'tablet') return <TabletShell />;

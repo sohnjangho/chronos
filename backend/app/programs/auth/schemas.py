@@ -30,9 +30,16 @@ Name = Annotated[str, Field(min_length=1, max_length=100)]
 Email = Annotated[str, Field(min_length=3, max_length=120), AfterValidator(_valid_email)]
 
 
+DeviceKind = Literal["desktop", "tablet", "phone"]
+DeviceKey = Annotated[str, Field(min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")]
+
+
 class LoginIn(BaseModel):
     login_id: str
     password: Annotated[str, Field(min_length=1)]
+    # 이 브라우저의 기기 열쇠(화면이 만든 임의 값)와 모양. 없으면 서버가 열쇠를 만들고 모양은 User-Agent 로 짐작한다
+    device_key: DeviceKey | None = None
+    kind: DeviceKind | None = None
 
 
 class UserOut(BaseModel):

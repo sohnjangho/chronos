@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ApiError, publicApi } from '../shared/api';
+import { deviceInfo } from './presence';
 import { useSession, type Session, type User } from './session';
 
 export type SignupRole = 'user' | 'field';
@@ -25,11 +26,11 @@ export interface SignupResponse {
   message: string;
 }
 
-/** POST /api/auth/login. 실패하면 서버 글이 든 ApiError. */
+/** POST /api/auth/login. 이 기기 열쇠·모양을 함께 보내 서버의 기기 세션에 묶는다. 실패하면 서버 글이 든 ApiError. */
 export async function signIn(loginId: string, password: string): Promise<Session> {
   const res = await publicApi<{ token: string; user: User }>('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ login_id: loginId, password }),
+    body: JSON.stringify({ login_id: loginId, password, ...deviceInfo() }),
   });
   return { token: res.token, user: res.user, loginId };
 }

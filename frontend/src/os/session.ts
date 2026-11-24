@@ -20,6 +20,8 @@ interface SessionState {
   session: Session | null;
   locked: boolean;
   signIn(session: Session): void;
+  /** 같은 사람의 토큰만 바꿔 낀다(잠금 상태는 그대로). 그 사이 세션이 바뀌었으면(from 이 지금 토큰이 아니면) 그대로 둔다. */
+  replaceToken(from: string, token: string): void;
   lock(): void;
   logout(): void;
 }
@@ -59,6 +61,13 @@ export const useSession = create<SessionState>((set, get) => ({
     notify(get().session, session);
     saveJson(KEY, { ...session, locked: false });
     set({ session, locked: false });
+  },
+  replaceToken(from, token) {
+    const { session, locked } = get();
+    if (!session || session.token !== from) return;
+    const next = { ...session, token };
+    saveJson(KEY, { ...next, locked });
+    set({ session: next });
   },
   lock() {
     const { session } = get();

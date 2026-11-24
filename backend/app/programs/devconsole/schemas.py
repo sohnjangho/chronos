@@ -30,6 +30,7 @@ __all__ = [
     "OutreachListOut",
     "OutreachRowOut",
     "OutreachUsageOut",
+    "PresenceHealthOut",
     "QdrantHealthOut",
     "ReuseCount",
     "ReuseHealthOut",
@@ -445,6 +446,13 @@ class NotifyHealthOut(BaseModel):
     voice: VoiceHealthOut | None = None  # Task 110 — 음성 설정이 없으면 null
 
 
+class PresenceHealthOut(BaseModel):
+    """지금 접속 중(2분 안에 접속 신호)인 사람·기기 수. 누구인지는 담지 않는다(설정 → 계정이 보인다)."""
+
+    online_users: int
+    online_devices: int
+
+
 class HealthOut(BaseModel):
     llm: LlmHealthOut
     qdrant: QdrantHealthOut
@@ -457,6 +465,7 @@ class HealthOut(BaseModel):
     holidays: HolidayHealthOut | None = None
     vision: VisionHealthOut | None = None
     notify: NotifyHealthOut | None = None  # Task 108
+    presence: PresenceHealthOut | None = None  # 계정별 접속 상태(설정 → 계정)
 
 
 class StopTurnOut(BaseModel):

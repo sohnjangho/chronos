@@ -436,6 +436,8 @@ export interface HealthOut {
   vision?: VisionHealth | null;
   /** Task 108: 기본 알림 연결. */
   notify?: NotifyHealth | null;
+  /** 지금 접속 중(2분 안에 신호)인 사람·기기 수. 예전 서버는 없다. */
+  presence?: { online_users: number; online_devices: number } | null;
 }
 
 /** 저장된 마지막 연결 진단의 걸음. outcome check = 결과를 모름(실패 아님). */

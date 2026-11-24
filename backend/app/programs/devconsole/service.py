@@ -53,6 +53,7 @@ from app.programs.devconsole.schemas import (
     LlmHealthOut,
     NodeDetail,
     NodeOut,
+    PresenceHealthOut,
     QdrantHealthOut,
     ReuseCount,
     ReuseHealthOut,
@@ -68,7 +69,7 @@ from app.programs.devconsole.schemas import (
     VisionHealthOut,
 )
 from app.security.crypto import SecretUnreadable, decrypt
-from app.store import evidence_reuse
+from app.store import devices, evidence_reuse
 from app.store import settings as settings_store
 from app.store import traces as store
 from app.store.evidence import INFO_MODE, NOT_SEARCH_MODES, REUSE_MODE, WEATHER_MODE
@@ -679,7 +680,12 @@ def health(session: Session) -> HealthOut:
     return HealthOut(llm=llm_h, qdrant=qdrant_h, search=search_h, db=db_h, active_turns=active,
                      info_api=_info_api_health(session), evidence_reuse=_reuse_health(session),
                      holidays=_holiday_health(), vision=_vision_health(session),
-                     notify=outreach_view.notify_health(session))
+                     notify=outreach_view.notify_health(session), presence=_presence_health(session))
+
+
+def _presence_health(session: Session) -> PresenceHealthOut:
+    people, count = devices.online_counts(session)
+    return PresenceHealthOut(online_users=people, online_devices=count)
 
 
 def stop_turn(chat_session_id: int) -> StopTurnOut:

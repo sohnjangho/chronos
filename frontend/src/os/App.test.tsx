@@ -38,7 +38,12 @@ test('login success shows the desktop with the user name and role', async () => 
   render(<App />);
   await submit('kim', 'secret');
   expect(await screen.findByRole('button', { name: '김민지 사용자' })).toBeVisible();
-  expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({ login_id: 'kim', password: 'secret' });
+  expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({
+    login_id: 'kim',
+    password: 'secret',
+    device_key: expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/),
+    kind: expect.stringMatching(/^(desktop|tablet|phone)$/),
+  });
   expect(useSession.getState().session).toMatchObject({ token: 't', loginId: 'kim' });
 });
 

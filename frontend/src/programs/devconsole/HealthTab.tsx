@@ -206,6 +206,11 @@ export default function HealthTab() {
 
       {data && (
         <>
+          {data.presence && (
+            <p className="dc-muted">
+              {`지금 접속 중 ${data.presence.online_users}명 · 기기 ${data.presence.online_devices}대`}
+            </p>
+          )}
           <div className="dc-health-grid" role="region" aria-label="핵심 인프라 진단">
             <CoreCards data={data} />
             <HealthTodayCards data={data} badge={(st) => statusBadge(st as Parameters<typeof statusBadge>[0])} />

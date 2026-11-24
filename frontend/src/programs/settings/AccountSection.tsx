@@ -4,7 +4,8 @@ import Badge, { type Tone } from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import Field from '../../shared/ui/Field';
 import Table, { type Column } from '../../shared/ui/Table';
-import type { Account, AccountStatus, LlmError } from './model';
+import AccountDevices, { PresenceCell } from './AccountDevices';
+import type { Account, AccountPresence, AccountStatus, LlmError } from './model';
 import { ErrorLine, toProblem } from './parts';
 import { settingsApi } from './settingsApi';
 
@@ -15,6 +16,8 @@ const STATUS_META: Record<AccountStatus, { label: string; tone: Tone }> = {
   rejected: { label: '거절됨', tone: 'danger' },
   disabled: { label: '비활성', tone: 'neutral' },
 };
+
+const PRESENCE_REFRESH_MS = 60_000; // 「접속 중」이 낡지 않게 기기 목록만 다시 읽는다
 
 const COLUMNS: Column<Account>[] = [
   { key: 'name', header: '이름', render: (a) => <span title={a.name}>{a.name}</span> },
@@ -298,7 +301,41 @@ function PendingSignupQueue({ list, onDone }: { list: Account[]; onDone(): void 
   );
 }
 
-/** 「계정」(관리자): 가입 승인 대기열, 계정 목록·추가, 줄을 누르면 이름·등급·상태·비밀번호 고치기/삭제. */
+/** 계정 표 칸 + 「접속」 칸(접속 중 · 마지막 접속). */
+function columnsWith(presence: AccountPresence[] | null): Column<Account>[] {
+  const byUser = new Map((presence ?? []).map((p) => [p.user_id, p]));
+  return [
+    ...COLUMNS,
+    { key: 'presence', header: '접속', width: 190, render: (a) => <PresenceCell presence={byUser.get(a.id)} loaded={presence !== null} /> },
+  ];
+}
+
+/** 접속 상태 목록. 처음·tick 때·1분마다 읽는다. 실패해도 계정 표는 그대로. */
+function usePresenceList(tick: number) {
+  const [presence, setPresence] = useState<AccountPresence[] | null>(null);
+  const [error, setError] = useState<LlmError | null>(null);
+  const [again, setAgain] = useState(0);
+  useEffect(() => {
+    let live = true;
+    settingsApi
+      .accountDevices()
+      .then((list) => {
+        if (!live) return;
+        setPresence(list);
+        setError(null);
+      })
+      .catch((e) => live && setError(toProblem(e)));
+    const timer = setTimeout(() => live && setAgain((n) => n + 1), PRESENCE_REFRESH_MS);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [tick, again]);
+  return { presence, error, reload: () => setAgain((n) => n + 1) };
+}
+
+/** 「계정」(관리자): 가입 승인 대기열, 계정 목록·추가(접속 상태 칸), 줄을 누르면 이름·등급·상태·비밀번호 고치기/삭제,
+ * 아래에 계정별 접속 기기와 기기 로그아웃. */
 export default function AccountSection() {
   const meId = useSession((s) => s.session?.user.id ?? null);
   const [users, setUsers] = useState<Account[] | null>(null);
@@ -321,6 +358,7 @@ export default function AccountSection() {
   };
   const cancel = () => setEditing(null);
   const pendingUsers = (users ?? []).filter((u) => u.status === 'pending');
+  const devices = usePresenceList(tick);
 
   return (
     <div className="st-pane">
@@ -334,7 +372,7 @@ export default function AccountSection() {
       <PendingSignupQueue list={pendingUsers} onDone={done} />
       <Table
         label="계정"
-        columns={COLUMNS}
+        columns={columnsWith(devices.presence)}
         rows={users ?? []}
         rowKey={(a) => String(a.id)}
         onRowClick={setEditing}
@@ -344,6 +382,7 @@ export default function AccountSection() {
       {editing && editing !== 'new' && (
         <EditAccountForm key={editing.id} account={editing} isSelf={editing.id === meId} onDone={done} onCancel={cancel} />
       )}
+      <AccountDevices accounts={users ?? []} presence={devices.presence} error={devices.error} onChanged={devices.reload} />
     </div>
   );
 }

@@ -1,0 +1,47 @@
+/* 설정 → 계정: 접속 상태 점·접속 기기 묶음. 긴 이름·기기 글은 줄여 보이고 창을 밀지 않는다. */
+.st-presence { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; font-size: var(--fs-12); }
+.st-presence > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.st-dot-on { background: var(--success); box-shadow: 0 0 0 3px var(--tone-success-bg); }
+.st-device-groups { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.st-device-group { border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--bg-panel); min-width: 0; }
+.st-device-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.st-device-head:hover { background: var(--bg-panel-alt); }
+.st-device-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.st-device-caret { flex: none; width: 12px; color: var(--fg-muted); }
+.st-device-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-13); }
+.st-device-head .st-muted { flex: none; }
+.st-device-head .st-presence { flex: 0 1 auto; }
+.st-device-list { list-style: none; margin: 0; padding: 0 12px 8px 32px; display: flex; flex-direction: column; gap: 4px; }
+.st-device { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; border-top: 1px solid var(--bg-app); min-width: 0; }
+.st-device-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.st-device-name { min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-13); }
+.st-device-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-2);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  font-size: var(--fs-11);
+}
+.st-device-confirm { padding-top: 6px; }
+.st-device-confirm .st-device-own { color: var(--warning-text); font-size: var(--fs-12); }

@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -18,6 +18,7 @@ from app.programs.auth.schemas import (
 )
 from app.security.deps import current_user, require_admin
 from app.security.tokens import issue_token
+from app.store import devices
 from app.store.tables import User
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -27,9 +28,10 @@ AdminOnly = Depends(require_admin)
 
 
 @router.post("/login")
-def login(body: LoginIn, session: SessionDep) -> LoginOut:
+def login(body: LoginIn, request: Request, session: SessionDep) -> LoginOut:
     user = service.authenticate(session, body.login_id, body.password)
-    return LoginOut(token=issue_token(user.id), user=UserOut.model_validate(user))
+    device = devices.open_device(session, user.id, body.device_key, body.kind, request.headers.get("user-agent", ""))
+    return LoginOut(token=issue_token(user.id, device.id), user=UserOut.model_validate(user))
 
 
 @router.post("/signup", status_code=201)

@@ -98,6 +98,31 @@ export interface Account {
   created_at?: string | null;
 }
 
+export type DeviceKind = 'desktop' | 'tablet' | 'phone';
+
+/** 관리자가 보는 기기 한 줄(GET /api/admin/accounts/devices). 기기 열쇠는 오지 않는다. */
+export interface DevicePresence {
+  id: number;
+  kind: DeviceKind;
+  browser: string;
+  os: string;
+  online: boolean;
+  revoked: boolean;
+  /** 지금 이 화면을 연 기기 */
+  current: boolean;
+  created_at: string;
+  last_seen_at: string;
+  revoked_at: string | null;
+}
+
+/** 계정 하나의 접속 상태. 30일 안에 신호가 있던 기기가 있는 계정만 온다. */
+export interface AccountPresence {
+  user_id: number;
+  online: boolean;
+  last_seen_at: string;
+  devices: DevicePresence[];
+}
+
 export const PROVIDERS: { value: Provider; label: string; defaultBaseUrl: string | null }[] = [
   { value: 'liner', label: 'Liner', defaultBaseUrl: 'https://platform.liner.com/api/v1' },
   { value: 'openai_compatible', label: '직접 URL (OpenAI 호환)', defaultBaseUrl: null },
