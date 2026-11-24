@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import { registerPrograms } from '../programs';
 import { signInAsDemo, stubFetch } from '../test-helpers';
-import { setCustomIconOverrides } from './customIcons';
+import { getCustomIconUrl, setCustomIconOverrides } from './customIcons';
 import { ChronosMark } from './icons';
 import MobileShell from './MobileShell';
 import ProgramIcon, { SystemIcon } from './ProgramIcon';
@@ -21,7 +21,10 @@ afterEach(() => {
   useSession.getState().logout();
 });
 
-test('renders built-in SVG vector tile with data-icon-id when no custom file exists', () => {
+test('every program, 현장 점검 and the ChronOS mark ship a bundled image; 전체 앱 (no file) keeps the SVG tile', () => {
+  const ids = ['chat', 'questionnaire', 'workflow', 'approvals', 'explorer', 'settings', 'devconsole', 'schedule-table',
+    'gantt', 'cpm', 'progress', 'compare', 'conditions', 'delays', 'reports', 'projects', 'contacts', 'library', 'field', 'chronos'];
+  for (const id of ids) expect(getCustomIconUrl(id), id).toBeTruthy();
   const chat = getProgram('chat')!;
   const { container } = render(
     <div>
@@ -30,12 +33,9 @@ test('renders built-in SVG vector tile with data-icon-id when no custom file exi
       <ChronosMark size={24} />
     </div>,
   );
-  const chatTile = container.querySelector('[data-icon-id="chat"]')!;
-  const appsTile = container.querySelector('[data-icon-id="apps"]')!;
-  const chronosTile = container.querySelector('[data-icon-id="chronos"]')!;
-  expect(chatTile.querySelector('svg')).not.toBeNull();
-  expect(appsTile.querySelector('svg')).not.toBeNull();
-  expect(chronosTile.querySelector('svg')).not.toBeNull();
+  expect(container.querySelector('[data-icon-id="chat"] img.os-icon-img')).not.toBeNull();
+  expect(container.querySelector('[data-icon-id="chronos"] img.os-icon-img')).not.toBeNull();
+  expect(container.querySelector('[data-icon-id="apps"]')!.querySelector('svg')).not.toBeNull();
 });
 
 test('uses custom image icon identically everywhere when overridden and falls back to SVG on image error', () => {
