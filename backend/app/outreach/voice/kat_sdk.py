@@ -98,6 +98,9 @@ FIRST_RULE = {"ko": "통화가 연결되면 다음 문장을 한 글자도 바�
               "en": 'When the call connects, first say exactly this sentence: "{line}"'}
 _MODEL = re.compile(r"[A-Za-z0-9._\-]{1,80}")
 _WORD = re.compile(r"[a-z_\-]{1,30}")
+# 세션에 넘길 음성 이름(Task 99): 설정 칸(영문 시작 · 100자)과 연락처 직접 지정(영문·숫자·._:- · 64자)이 받는 꼴을 모두 덮는다.
+# 이 꼴이 아니거나 번호처럼 보이면 넘기지 않는다(SDK 기본 음성) — 통화 API 의 voice_id 처럼 꼴을 보지 않은 글도 SDK 로 가지 않게.
+_VOICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:\-]{0,99}")
 logger = logging.getLogger(__name__)
 
 READY = "음성 SDK 로 걸 수 있습니다"
@@ -156,6 +159,10 @@ class _Setup:
     agent_number: str | None = field(repr=False)
     test_mode: bool = True
     allowed: frozenset[str] = field(default=frozenset(), repr=False)
+
+
+def _voice_ok(value: object) -> bool:
+    return isinstance(value, str) and bool(_VOICE.fullmatch(value)) and redact.hide_phones(value) == value
 
 
 def _setup(conn: object, voice: object) -> _Setup:
@@ -287,7 +294,7 @@ class KatVoice:
         raise VoiceError(NO_LISTEN)  # 받는 통화는 Task 95
 
     async def voices(self, language: str) -> list[VoiceInfo]:
-        return []  # SDK 에 음성 목록이 없다(P9). 음성은 세션 기본값(구글 Kore · OpenAI marin)
+        return []  # SDK 에 음성 목록이 없다(P9). 음성은 설정·연락처에 손으로 넣은 이름(없으면 세션 기본값 — 구글 Kore · OpenAI marin)
 
     async def sample(self, voice_id: str, language: str, text: str) -> bytes:
         raise VoiceError(NO_SAMPLE)
@@ -422,6 +429,8 @@ class _Line:
         rule = FIRST_RULE.get(spec.language.split("-")[0].lower(), FIRST_RULE["en"]).format(line=spec.first_line)
         kw = {"api_key": s.voice_key, "system_prompt": f"{spec.instructions}\n\n{rule}", "language": spec.language,
               "model": s.model}
+        if _voice_ok(spec.voice_id):
+            kw["voice"] = spec.voice_id  # 고른 음성(voices.pick). 없거나 꼴이 틀리면 넘기지 않아 SDK 기본(구글 Kore · OpenAI marin)
         if s.provider == "google":
             kw["api_version"] = numbers.GOOGLE_LIVE_API_VERSION  # Live 모델은 v1alpha 에만 있다(11-24 실측)
         return getattr(self.sdk, SESSIONS[s.provider])(**kw)

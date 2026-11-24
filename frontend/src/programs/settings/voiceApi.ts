@@ -58,12 +58,16 @@ export interface VoiceModels {
   reason: string | null;
 }
 
-/** 보낸 칸만 바꾼다. 공급자를 google·openai 로 바꾸면 secret 도 꼭. */
+/** 보낸 칸만 바꾼다. 공급자를 google·openai 로 바꾸면 secret 도 꼭. 음성 칸은 null 이면 비움, voices_by_language 는 통째로 바꾼다. */
 export type VoicePatch = Partial<{
   provider: VoiceProvider;
   secret: string;
   model: string;
   agent_number: string | null;
+  voice_male_contact: string | null;
+  voice_female_contact: string | null;
+  voice_unknown: string | null;
+  voices_by_language: Record<string, Partial<Record<'voice_male_contact' | 'voice_female_contact' | 'voice_unknown', string>>>;
 }>;
 
 export type VoiceStepId = 'P5' | 'P6' | 'P7' | 'P8' | 'P9' | 'P10' | 'P11' | 'P12' | 'P13' | 'P14';

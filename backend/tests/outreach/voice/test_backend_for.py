@@ -466,7 +466,7 @@ async def test_handlers_get_start_transcript_tool_end_in_order(world, caplog):
     # 모델은 언제나 effective_model — SDK 기본값으로 두지 않는다. 지시문 + 고정 첫마디
     kind, kw = sdk.sessions[-1]
     assert kind == "GeminiRealtime" and kw["model"] == numbers.DEFAULT_LIVE_MODEL and kw["api_key"] == GOOGLE_KEY
-    assert kw["language"] == "ko" and kw["voice"] == "Kore"
+    assert kw["language"] == "ko" and kw["voice"] == "sim-f1"  # 명세의 음성(Task 99 — 고른 음성이 세션에)
     assert kw["api_version"] == numbers.GOOGLE_LIVE_API_VERSION  # 기본(v1beta)에는 Live 모델이 없다(11-24 실측)
     assert kw["system_prompt"].startswith(_spec().instructions) and f"「{FIRST}」" in kw["system_prompt"]
     no_leaks(caplog, rec.log)

@@ -8,8 +8,9 @@ import { ErrorLine, toProblem } from './parts';
 import { useRealCall, useVoiceDiagnosis, VoiceDiagnostics } from './VoiceDiagnosis';
 import { voiceApi, type VoiceDiagnosis, type VoiceSettings } from './voiceApi';
 import VoiceForm, { PROVIDERS, useLiveModels } from './VoiceForm';
+import VoicePicker, { defaultVoice, languageName, SLOTS } from './VoicePicker';
 
-type Mode = 'idle' | 'edit' | 'delete';
+type Mode = 'idle' | 'edit' | 'voices' | 'delete';
 
 /** 끝 4자리만. 키가 없으면 「없음」. */
 const maskedKey = (v: VoiceSettings) => (v.has_secret ? '•'.repeat(v.secret_last4 ? 12 : 8) + v.secret_last4 : '없음');
@@ -55,7 +56,14 @@ function numberText(v: VoiceSettings): string {
   return `${v.agent_number_effective_masked} · ${v.agent_number_source === 'voice' ? '따로 넣은 번호' : '한국AI통신 연결의 번호'}`;
 }
 
-/** 카드의 사실: 모델 · 번호(가린 꼴과 출처) · 키 끝 4자리 · 마지막 진단(때·누가) · 최대 통화 시간. */
+/** 고른 음성 한 줄: 세 칸(비었으면 SDK 기본 음성) · 언어별 칸이 있는 언어. */
+function voicesText(v: VoiceSettings): string {
+  const slots = SLOTS.map((s) => `${s.short} ${v[s.key] || '기본 음성'}`).join(' · ');
+  const langs = Object.keys(v.voices_by_language);
+  return langs.length ? `${slots} · 언어별: ${langs.map(languageName).join('·')}` : slots;
+}
+
+/** 카드의 사실: 모델 · 번호(가린 꼴과 출처) · 키 끝 4자리 · 마지막 진단(때·누가) · 최대 통화 시간 · 음성. */
 function Facts({ conn, voice, diag }: { conn: NotifyConnection; voice: VoiceSettings; diag: VoiceDiagnosis | null }) {
   const model = voice.model_effective || 'SDK 기본 모델';
   const ran = diag?.state === 'done' && diag.steps.some((s) => s.ran_at);
@@ -72,7 +80,7 @@ function Facts({ conn, voice, diag }: { conn: NotifyConnection; voice: VoiceSett
       <dt>최대 통화 시간</dt>
       <dd>{`${conn.limits.max_call_seconds ?? '—'}초 — 「상한」 묶음에서 고칩니다`}</dd>
       <dt>음성</dt>
-      <dd className="st-muted">준비 중 — 남성·여성·모르는 연락처에게 쓸 음성은 다음 단계에서 고릅니다.</dd>
+      <dd title={`비운 칸은 ${defaultVoice(voice.provider)}`}>{voicesText(voice)}</dd>
     </dl>
   );
 }
@@ -106,6 +114,24 @@ function useKeyRefused(id: number, voice: VoiceSettings | null) {
   const list = useLiveModels(id, google, `${voice?.provider}-${voice?.secret_last4}`);
   const calls = list?.no_live ? NO_LIVE_CALLS : REFUSED_CALLS;
   return { refused: google && !!(list?.refused || list?.no_live), reason: list?.reason ?? null, calls };
+}
+
+/** 진단 단추 줄 뒤의 [변경][음성 고르기] … [삭제]. */
+function CardActions({ hold, onOpen }: { hold: boolean; onOpen(m: Mode): void }) {
+  return (
+    <>
+      <Button disabled={hold} onClick={() => onOpen('edit')}>
+        변경
+      </Button>
+      <Button disabled={hold} onClick={() => onOpen('voices')}>
+        음성 고르기
+      </Button>
+      <span className="st-gap" />
+      <Button className="st-danger-text" disabled={hold} onClick={() => onOpen('delete')}>
+        삭제
+      </Button>
+    </>
+  );
 }
 
 /**
@@ -178,20 +204,12 @@ export default function VoiceBlock({ conn, locked, onRunning, onHolding, onChang
       </section>
     );
   }
-  const extra = (
-    <>
-      <Button disabled={hold} onClick={() => open('edit')}>
-        변경
-      </Button>
-      <span className="st-gap" />
-      <Button className="st-danger-text" disabled={hold} onClick={() => open('delete')}>
-        삭제
-      </Button>
-    </>
-  );
+  const extra = <CardActions hold={hold} onOpen={open} />;
   const below =
     mode === 'edit' ? (
       <VoiceForm conn={conn} voice={voice} disabled={running} onSaved={saved} onCancel={() => setMode('idle')} />
+    ) : mode === 'voices' ? (
+      <VoicePicker voice={voice} disabled={running} onSaved={saved} onCancel={() => setMode('idle')} />
     ) : mode === 'delete' ? (
       <ConfirmPanel
         label="AI 전화 삭제 확인"

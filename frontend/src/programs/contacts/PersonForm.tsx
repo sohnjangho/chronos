@@ -17,6 +17,10 @@ type Confirm = null | 'number' | 'clear';
 type Touched = { sms?: boolean; call?: boolean };
 
 const KAKAO_LOCKED = '카카오톡은 채널·문안 승인 뒤 쓸 수 있습니다.';
+/** 서버(Task 72 check_voice)와 같은 꼴·같은 글. */
+const VOICE_ID = /^[A-Za-z0-9._:-]{1,64}$/;
+const VOICE_SHAPE = '음성 id 는 영문·숫자와 . _ : - 로 64자까지입니다.';
+const VOICE_NEEDED = '음성을 직접 지정하려면 음성 id 를 넣어 주세요.';
 const MOBILE_ONLY = '문자·카카오톡은 휴대전화 번호로만 보낼 수 있습니다.';
 
 /** 서버 오류를 칸으로. 모르는 코드는 서버의 한국어 글을 양식 아래에. 보낸 값은 싣지 않는다(서버 글에도 없음). */
@@ -112,6 +116,7 @@ interface Values {
   gender: Gender;
   language: Language;
   voice_mode: VoiceMode;
+  voice_id: string;
   dnc: boolean;
   dnc_reason: string;
   note: string;
@@ -126,6 +131,7 @@ function initialValues(d: PersonDetail | null, companies: Company[], companyId: 
     gender: d?.gender ?? 'unknown',
     language: (d?.language as Language) ?? 'ko',
     voice_mode: d?.voice_mode ?? 'auto',
+    voice_id: d?.voice_id ?? '',
     dnc: d?.do_not_contact ?? false,
     dnc_reason: d?.dnc_reason ?? '',
     note: d?.note ?? '',
@@ -140,6 +146,7 @@ function buildBody(detail: PersonDetail | null, v: Values, phone: string | null,
       name: v.name.trim(), role_title: v.role_title.trim(), company_id: Number(v.company_id), phone, hours: v.hours,
       gender: v.gender, language: v.language, voice_mode: v.voice_mode, do_not_contact: v.dnc, note: v.note,
     };
+    if (v.voice_mode === 'manual') b.voice_id = v.voice_id.trim();
     if (touched.sms === false) b.can_sms = false;
     if (touched.call === false) b.can_call = false;
     if (v.dnc && reason) b.dnc_reason = reason;
@@ -158,6 +165,7 @@ function buildBody(detail: PersonDetail | null, v: Values, phone: string | null,
   if (v.gender !== detail.gender) b.gender = v.gender;
   if (v.language !== detail.language) b.language = v.language;
   if (v.voice_mode !== detail.voice_mode) b.voice_mode = v.voice_mode;
+  if (v.voice_mode === 'manual' && v.voice_id.trim() !== (detail.voice_id ?? '')) b.voice_id = v.voice_id.trim();
   if (v.dnc !== detail.do_not_contact) b.do_not_contact = v.dnc;
   if (v.dnc && reason !== (detail.dnc_reason ?? '')) b.dnc_reason = reason || null;
   if (v.note !== detail.note) b.note = v.note;
@@ -219,6 +227,7 @@ function usePersonForm({ scheduleId, companies, companyId, isAdmin, onSaved, onC
     e.preventDefault();
     if (!v.name.trim()) return setErrors({ name: '이름을 넣어 주세요.' });
     if (!v.company_id) return setErrors({ company: '먼저 협력사를 추가해 주세요.' });
+    if (v.voice_mode === 'manual' && !VOICE_ID.test(v.voice_id.trim())) return setErrors({ voice: v.voice_id.trim() ? VOICE_SHAPE : VOICE_NEEDED });
     if (detail?.do_not_contact && !v.dnc && isAdmin) return setConfirm('clear');
     if (detail?.do_not_contact && v.dnc && phoneDirty) return setConfirm('number');
     void save(body());
@@ -264,7 +273,7 @@ function Form(props: FormProps) {
         <PhoneField detail={detail} mode={f.phoneMode} phone={f.phone} setPhone={f.setPhone} dirty={f.phoneDirty} error={errors.phone} onReveal={() => void f.reveal()} onChange={f.changePhone} />
         <ChannelsField detail={detail} followsNumber={detail === null || f.phoneDirty} touched={f.touched} setTouched={f.setTouched} kakaoReady={kakaoReady} error={errors.channels} />
         <HoursField value={v.hours} onChange={(h) => set('hours', h)} label={detail?.hours_label} error={errors.hours} />
-        <ProfileFields v={v} set={set} detail={detail} voiceError={errors.voice} />
+        <ProfileFields v={v} set={set} voiceError={errors.voice} />
         <DncField v={v} set={set} error={errors.dnc} reasonError={errors.dnc_reason} />
         <Fld label="메모" error={errors.note} wide>
           <textarea className="ct-input ct-textarea" value={v.note} maxLength={2000} rows={3} onChange={(e) => set('note', e.target.value)} />
@@ -334,8 +343,8 @@ function ChannelsField({ detail, followsNumber, touched, setTouched, kakaoReady,
 
 type SetValue = <K extends keyof Values>(k: K, val: Values[K]) => void;
 
-/** 성별 · 언어 · 음성(자동/직접 — 직접 고를 음성 목록은 Task 99). */
-function ProfileFields({ v, set, detail, voiceError }: { v: Values; set: SetValue; detail: PersonDetail | null; voiceError?: string }) {
+/** 성별 · 언어 · 음성(자동/직접 지정). 음성 SDK 가 음성 목록을 주지 않아(Task 99 · 진단 P9) 직접 지정은 음성 id 를 손으로 넣는다. */
+function ProfileFields({ v, set, voiceError }: { v: Values; set: SetValue; voiceError?: string }) {
   const genders = [
     ['male', '남'],
     ['female', '여'],
@@ -372,12 +381,20 @@ function ProfileFields({ v, set, detail, voiceError }: { v: Values; set: SetValu
             자동
           </label>
           <label className="ct-check">
-            <input type="radio" name="ct-voice" checked={v.voice_mode === 'manual'} disabled={detail?.voice_mode !== 'manual'} onChange={() => set('voice_mode', 'manual')} />
-            직접
+            <input type="radio" name="ct-voice" checked={v.voice_mode === 'manual'} onChange={() => set('voice_mode', 'manual')} />
+            직접 지정
           </label>
         </div>
+        {v.voice_mode === 'manual' ? (
+          <label className="ct-fld-label">
+            <span className="ct-label">음성 id</span>
+            <input className="ct-input" value={v.voice_id} maxLength={64} placeholder="공급자의 음성 이름" autoComplete="off" spellCheck={false} onChange={(e) => set('voice_id', e.target.value)} />
+          </label>
+        ) : null}
         <p className="ct-hint">
-          {detail?.voice_mode === 'manual' && detail.voice_id ? `직접 고른 음성: ${detail.voice_id}` : '자동은 성별·언어에 맞는 음성입니다. 직접 고르기는 음성 목록이 준비되면 씁니다.'}
+          {v.voice_mode === 'manual'
+            ? '음성 SDK 가 음성 목록을 주지 않아 음성 id 를 직접 넣습니다 — 영문·숫자와 . _ : - 로 64자까지.'
+            : '자동은 설정의 「AI 전화」에서 고른 음성(연락처 성별·언어에 맞춰)입니다.'}
         </p>
         <Err text={voiceError} />
       </fieldset>
