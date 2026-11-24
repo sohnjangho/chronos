@@ -2,7 +2,7 @@
 // jobs.json = [{ "html": "<!doctype html>…", "out": "/abs/path.png", "transparent": true }]
 // file:// 그림을 읽을 수 있게 HTML 을 out 옆 .html 로 써 두고 연다.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { chromium } from '/Users/janghosohn/projects/chronos/frontend/node_modules/playwright/index.mjs';
+import { chromium } from '../../../frontend/node_modules/playwright/index.mjs';
 
 const jobs = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const b = await chromium.launch();

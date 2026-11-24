@@ -34,7 +34,7 @@ S = [
   dict(id='S01', min=16, chip='현장에서 겪은 장면', cards=['c-cut1', 'c-cut2', 'c-cut3', 'c-cut4'], lines=[
     ('골조가 크리티컬이었습니다. 야간 작업을 넣어 5일을 당겼습니다.', '골조가 크리티컬이었습니다. 야간 작업을 넣어 오 일을 당겼습니다.'),
     ('그런데 그사이 커튼월 공장 제작이 늦어져 있었습니다.', '그런데 그사이, 커튼월 공장 제작이 늦어져 있었습니다.'),
-    ('준공은 하루 당겨졌습니다. 15년 동안 가장 자주 본 실패입니다.', '준공은 하루 당겨졌습니다. 십오 년 동안, 가장 자주 본 실패입니다.')]),
+    ('준공은 하루 당겨졌습니다. 현장에서 가장 자주 본 실패입니다.', '준공은 하루 당겨졌습니다. 현장에서, 가장 자주 본 실패입니다.')]),
   dict(id='S02', chip='', cards=['c-title'], lines=[
     ('ChronOS. 일정이 바뀔 때마다, 약속한 날짜를 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트입니다.',
      '크로노스. 일정이 바뀔 때마다, 약속한 날짜를 좌우하는 일이 어디로 옮겨 갔는지, 먼저 알려 주는 에이전트입니다.')]),
@@ -96,6 +96,19 @@ S = [
     ('무엇이 약속을 늦추는지는, 바뀔 때마다 다시 정해집니다.', '무엇이 약속을 늦추는지는, 바뀔 때마다 다시 정해집니다.'),
     ('ChronOS', '크로노스.')]),
 ]
+
+# 제출본: CHRONOS_SUBMISSION=1 이면 저장소 밖 치환표(실명·경력)를 자막·내레이션에 되돌린다
+_SUBMAP = Path.home() / 'reports/AI대회/01_라이너_엑스톤_2026/제출/개인정보_치환.json'
+if os.environ.get('CHRONOS_SUBMISSION') == '1' and _SUBMAP.exists():
+    _pairs = json.loads(_SUBMAP.read_text(encoding='utf-8')).get('video', [])
+    for _seg in S:
+        _new = []
+        for _sub, _tts in _seg['lines']:
+            for _a, _b in _pairs:
+                _sub = _sub.replace(_a, _b); _tts = _tts.replace(_a, _b)
+            _new.append((_sub, _tts))
+        _seg['lines'] = _new
+
 
 # ── 그림 (카드·자막) ─────────────────────────────────────────────────
 BASE_CSS = """*{box-sizing:border-box}html,body{margin:0;width:1920px;height:1080px;font-family:"Apple SD Gothic Neo","Pretendard",sans-serif}"""
