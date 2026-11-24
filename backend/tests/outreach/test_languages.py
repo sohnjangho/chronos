@@ -539,3 +539,44 @@ def test_korean_asr_variants_and_safe_neighbours_pass(code, spoken):
 @pytest.mark.parametrize("said", ["30thNov 시작", "1stNov 반입", "Weds 09:00", "2nd Dec"])
 def test_ordinals_and_weds_are_read_as_dates(said):
     assert languages.has_foreign_words(said)
+
+
+# ── 고침 3 덧: 현장·사람 이름 안의 낱말은 부정으로 보지 않는다 ─────────────────────────────
+
+NAMED = [("en", "No.3 plant", "Park"), ("ko", "못골 현장", "박현장"), ("zh", "无锡工厂", "王先生"), ("en", "Main yard", "Noah Not")]
+
+
+@pytest.mark.parametrize("code,site,name", NAMED)
+def test_names_in_our_fixed_line_are_not_read_as_negation(code, site, name):
+    for first in (greeting.first_line(code, site, name), greeting.inbound_line(code, site)):
+        assert greeting.discloses(code, first, first), first
+        assert call_run._discloses(code, first, first), first
+    if code == "en" and site.startswith("No"):  # 받아쓰기가 이름의 점을 빼고 적어도
+        heard = greeting.first_line(code, site, name).replace("No.3", "No 3")
+        assert greeting.discloses(code, heard, greeting.first_line(code, site, name))
+
+
+@pytest.mark.parametrize("code,site,name,tail", [
+    ("en", "No.3 plant", "Park", "This call is not recorded."),
+    ("en", "No.3 plant", "Park", "This call is recorded? No."),
+    ("ko", "못골 현장", "박현장", "녹음은 꺼져 있습니다."),
+    ("ko", "못골 현장", "박현장", "이 통화는 기록됩니다 아님."),
+    ("zh", "无锡工厂", "王先生", "本次通话不被录音。"),
+])
+def test_off_words_outside_the_names_still_fail(code, site, name, tail):
+    first = greeting.first_line(code, site, name)
+    ai_part = {"en": f"Hello, this is the ChronOS AI assistant in charge of the schedule for {site}.",
+               "ko": f"안녕하세요, {site} 일정 담당 ChronOS AI 비서입니다.",
+               "zh": f"您好，我是负责{site}日程的ChronOS AI助理。"}[code]
+    assert not greeting.discloses(code, f"{ai_part} {tail}", first)
+
+
+async def test_call_to_a_site_whose_name_holds_an_off_word_is_not_hung_up(session, sid, voice_world):
+    session.get(ScheduleRecord, sid).name = "No.3 plant"
+    who = person(session, sid, language="en")
+    row = queued(session, who, language="en")
+    session.commit()
+    sim = await place(row, plain_call())
+    assert "No.3 plant" in sim.calls[0].spec.first_line
+    back = reread(session, row)
+    assert back.fail_reason != call_run.NOT_DISCLOSED and back.status == "completed"

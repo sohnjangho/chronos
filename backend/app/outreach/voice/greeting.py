@@ -199,7 +199,7 @@ def _next_word(code: str, spoken: str, at: int) -> str:
     return " ".join(words[:2] if code == "vi" else words[:1])
 
 
-def _heard(code: str, spoken: str, flat: str, where: list[int], sentence: str, core: re.Pattern) -> bool:
+def _heard(code: str, spoken: str, flat: str, where: list[int], sentence: str, core: re.Pattern, scan: str) -> bool:
     target = _flat(sentence, code)[0]
     ratio, start, end = _best(flat, target)
     if ratio < SIMILAR or end <= start:
@@ -216,9 +216,9 @@ def _heard(code: str, spoken: str, flat: str, where: list[int], sentence: str, c
         while right < len(spoken) and (spoken[right].isalnum() or spoken[right] in "'’"):
             right += 1
     span = spoken[left:right]
-    if not core.search(_plain(code, span)) or _negated(code, span):
+    if not core.search(_plain(code, span)) or _negated(code, scan[left:right]):
         return False
-    return not _negated(code, _next_word(code, spoken, right))
+    return not _negated(code, _next_word(code, scan, right))
 
 
 def _vetoed(code: str, spoken: str) -> bool:
@@ -232,14 +232,40 @@ def _vetoed(code: str, spoken: str) -> bool:
     return False
 
 
-def discloses(language: str, spoken: str) -> bool:
-    """실제로 한 말에 그 언어의 밝힘 문장(AI 비서 · 기록됨)이 모두 들렸는가(모듈 머리 글). 모르는 언어는 한국어 기준."""
+def _names(code: str, line: object) -> list[str]:
+    """우리가 지은 첫마디(first_line·inbound_line)에서 그 틀에 넣은 현장·사람 이름을 되읽는다(틀과 맞지 않으면 빈 목록)."""
+    if not isinstance(line, str):
+        return []
+    for table in (FIRST_LINES, INBOUND_LINES):
+        pattern = re.escape(table[code]).replace(r"\{site\}", "(?P<site>.+?)").replace(r"\{name\}", "(?P<name>.+?)")
+        found = re.fullmatch(pattern, line)
+        if found:
+            return [value for value in found.groupdict().values() if value]
+    return []
+
+
+def _neutral(code: str, text: str, names: list[str]) -> str:
+    """부정을 찾는 사본: 이름(고른 꼴, 문장부호·빈칸이 달라도)을 같은 길이의 「q」로 — 자리는 그대로라 맞은 자리 계산은 같다."""
+    for name in names:
+        words = [word for word in re.split(r"[^\w]+", _spoken(name)) if word]
+        if not words:
+            continue
+        pattern = re.compile(r"[^\w]*".join(re.escape(word) for word in words))
+        text = pattern.sub(lambda hit: "q" * len(hit.group()), text)
+    return text
+
+
+def discloses(language: str, spoken: str, first_line: str | None = None) -> bool:
+    """실제로 한 말에 그 언어의 밝힘 문장(AI 비서 · 기록됨)이 모두 들렸는가(모듈 머리 글). 모르는 언어는 한국어 기준.
+    first_line 은 그 통화에 시킨 우리 첫마디(spec.first_line) — 그 안의 현장·사람 이름은 부정·끔 말 찾기(마디 거부·자리 뒤 낱말)에서
+    빼고 본다(「No.3 plant」「못골 현장」「无锡」이 모든 통화를 끊지 않게). 핵심 낱말·문장 일치는 그대로."""
     code = _language(language)
     text = _spoken(spoken)
     flat, where = _flat(text, code)
     flat, where = flat[:MAX_HEARD], where[:MAX_HEARD]
     text = text[:where[-1] + 1] if where else ""
-    if not flat or _vetoed(code, text):
+    scan = _neutral(code, text, _names(code, first_line))
+    if not flat or _vetoed(code, scan):
         return False
-    return all(any(_heard(code, text, flat, where, sentence, core) for sentence in group)
+    return all(any(_heard(code, text, flat, where, sentence, core, scan) for sentence in group)
                for group, core in zip(DISCLOSURES[code], CORE[code], strict=True))

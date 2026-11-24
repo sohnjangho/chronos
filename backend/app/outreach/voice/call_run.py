@@ -220,7 +220,7 @@ class CallRun:
     # ── 안쪽 ───────────────────────────────────────────────────────────────────────────────────────
     async def _opening(self, text: str) -> None:
         """첫 발화가 AI 비서·기록을 밝혔는가. 아니면 고정 첫마디를 한 번 더 말하게 하고, 그래도 아니면 끊는다."""
-        if _discloses(self.spec.language, text):
+        if _discloses(self.spec.language, text, self.spec.first_line):
             self.opening_pending = False
         elif not self.resaid:
             self.resaid = True
@@ -247,10 +247,10 @@ class CallRun:
             logger.warning("통화 일꾼: 통화 중 기록을 적지 못했습니다 (%s)", _kind(exc))
 
 
-def _discloses(language: str, spoken: str) -> bool:
+def _discloses(language: str, spoken: str, first_line: str | None = None) -> bool:
     """그 통화 언어(spec.language)로 AI 임·기록됨을 밝혔는가 — 부정 말(「AI 가 아니고 … 기록되지 않습니다」 · not …)은 greeting 이
     언어마다 거른다(Task 100 — 예전에는 여기서 한국어 부정 말만 걸렀다)."""
-    return greeting.discloses(language, spoken)
+    return greeting.discloses(language, spoken, first_line)  # 첫마디의 현장·사람 이름은 부정으로 보지 않는다
 
 
 # ── 통화의 쓰기(스레드에서, 짧은 세션, 곧바로 commit) ─────────────────────────────
