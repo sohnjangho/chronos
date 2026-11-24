@@ -9,7 +9,7 @@
 - is_korean(text): 글의 글자 가운데 한글이 충분한가 — 받은 문자를 번역할지, 뒤 확인(한국어 규칙)을 믿을지 정할 때 쓴다.
 - has_foreign_words(text): 한국어 글에 섞인 라틴 낱말(3자 이상, LATIN_OK 밖) — 「철근 배근 at 가상 물류센터 starts on November 30」처럼
   한글이 많아도 영어 날짜·말이 든 글을 뒤 확인이 한국어로 믿지 않게(고침 1). 2자(AI·OK·kg·mm)와 숫자가 붙은 코드(A1210·RC30·30MPa)는
-  세지 않는다.
+  세지 않는다 — 다만 영어 달·요일 이름(줄임 포함)은 숫자가 붙어 있어도 센다(「Nov30」 — 고침 2).
 """
 
 import re
@@ -75,8 +75,16 @@ LATIN_OK: frozenset[str] = frozenset({"chronos", "mpa", "kgf", "ton", "tons", "r
 _LATIN_WORD = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{3,}(?![A-Za-z0-9])")
 
 
+# 영어 달·요일 이름과 줄임(숫자가 붙어 있어도 — 「Nov30」「30Nov」「Sat.30」, 고침 2)
+_CALENDAR_WORD = re.compile(
+    r"(?<![A-Za-z])(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?"
+    r"|nov(?:ember)?|dec(?:ember)?|mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs?(?:day)?)?|fri(?:day)?|sat(?:urday)?"
+    r"|sun(?:day)?)(?![A-Za-z])", re.IGNORECASE)
+
+
 def has_foreign_words(text: object) -> bool:
-    """3자 이상 라틴 낱말이 LATIN_OK 밖에 하나라도 있는가(영어 달·요일 이름 포함 — 모두 3자 이상이다)."""
+    """3자 이상 라틴 낱말이 LATIN_OK 밖에 하나라도 있거나, 영어 달·요일 이름이 숫자에 붙어서라도 있는가."""
     if not isinstance(text, str):
         return False
-    return any(word.lower() not in LATIN_OK for word in _LATIN_WORD.findall(unicodedata.normalize("NFKC", text)))
+    plain = unicodedata.normalize("NFKC", text)
+    return bool(_CALENDAR_WORD.search(plain)) or any(word.lower() not in LATIN_OK for word in _LATIN_WORD.findall(plain))

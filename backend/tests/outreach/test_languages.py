@@ -99,8 +99,8 @@ def test_is_korean_reads_the_letters(text, korean):
 
 @pytest.mark.parametrize("code", sorted(languages.SUPPORTED))
 def test_every_supported_language_has_both_first_lines(code):
-    for table in (greeting.FIRST_LINES, greeting.INBOUND_LINES, greeting.INBOUND_LINES_NO_SITE, greeting.MUST_SAY,
-                  greeting.MUST_NOT_SAY):
+    for table in (greeting.FIRST_LINES, greeting.INBOUND_LINES, greeting.INBOUND_LINES_NO_SITE,
+                  greeting.DISCLOSURES, greeting.MUST_NOT_SAY):
         assert code in table
     out_line, in_line = greeting.first_line(code, SITE, NAME), greeting.inbound_line(code, SITE)
     assert SITE in out_line and NAME in out_line and SITE in in_line and "ChronOS" in out_line
@@ -119,38 +119,6 @@ def test_first_lines_mention_recording(code):
         assert not _digits(line)
     # 사람 이름·현장 이름에 「not」이 든 낱말이 있어도 부정으로 읽지 않는다
     assert greeting.discloses(code, greeting.first_line(code, "Nottingham Annex", "Knotts"))
-
-
-@pytest.mark.parametrize("spoken,expected", [
-    ("Hello, this is the ChronOS AI assistant. This call is recorded. Am I speaking with Park?", True),
-    ("Hi, I'm an A.I. assistant from ChronOS and this call is being recorded.", True),
-    ("Hello, please wait a moment, this call is recorded.", False),  # 「wait」 속의 ai 는 AI 가 아니다
-    ("Hello, this is the ChronOS AI assistant. Am I speaking with Park?", False),  # 기록됨이 빠짐
-    ("Hello, this is Kim from the site office. This call is recorded.", False),  # AI 임이 빠짐
-    ("I'm not an AI assistant and this call is recorded.", False),  # 부정
-    ("This is the ChronOS AI assistant. This call isn't recorded.", False),
-    ("Hello, this is the ChronOS AI assistant. This call is never recorded.", False),
-    ("안녕하세요, ChronOS AI 비서입니다. 이 통화는 기록됩니다.", False),  # 영어 통화인데 한국어로 — 그 언어의 말이 아니다
-    ("", False),
-])
-def test_disclosure_check_reads_english_words(spoken, expected):
-    assert greeting.discloses("en", spoken) is expected
-    assert call_run._discloses("en", spoken) is expected
-
-
-def test_korean_disclosure_check_still_refuses_negation():
-    assert call_run._discloses("ko", "안녕하세요, AI 비서입니다. 이 통화는 기록됩니다.")
-    assert not call_run._discloses("ko", "AI 가 아니고 이 통화는 기록되지 않습니다")
-    assert not greeting.discloses("ko", "AI 비서는 아닙니다. 기록합니다")
-
-
-@pytest.mark.parametrize("code,spoken", [
-    ("zh", "您好，我不是AI助理。本次通话将被录音。"), ("zh", "您好，我是AI助理。本次通话不会录音。"),
-    ("vi", "Xin chào, tôi không phải là trợ lý AI. Cuộc gọi này được ghi âm."),
-    ("vi", "Xin chào, tôi là trợ lý AI. Cuộc gọi này không được ghi âm."),
-])
-def test_disclosure_check_refuses_negation_in_other_languages(code, spoken):
-    assert not greeting.discloses(code, spoken)
 
 
 # ── 지시문: 한국어로 쓰고 「<언어>로 말한다/쓴다」 한 줄 ─────────────────
@@ -367,35 +335,6 @@ def test_non_korean_reply_is_never_clean(session):
 # ── 고침 1: 밝힘 검사는 그 문장 안의 부정만 · 섞인 글과 다른 언어 연락처는 늘 깃발 · 받는 통화 언어 기록 ──────────
 
 
-@pytest.mark.parametrize("code,spoken,expected", [
-    # 기록됨: 기록 낱말과 같은 마디 안의 부정은 「기록됨」을 무효로 한다
-    ("en", "Hello, this is the ChronOS AI assistant. No recording is made of this call.", False),
-    ("en", "Hello, this is the ChronOS AI assistant. This call cannot be recorded.", False),
-    ("en", "Hello, this is the ChronOS AI assistant, and we talk without recording.", False),
-    ("en", "Hello, this is the ChronOS AI assistant. Neither this call is recorded nor kept.", False),
-    # AI 임: 부정이 AI 를 바로 꾸밀 때만 무효 — 다른 마디의 부정은 상관없다
-    ("en", "I'm an AI assistant, not a human. This call is recorded.", True),
-    ("en", "Hello, I am no AI. This call is recorded.", False),
-    ("en", "Hello, this is not an AI assistant. This call is recorded.", False),
-    ("ko", "안녕하세요, AI 비서입니다. 이 통화는 기록 안 합니다.", False),
-    ("ko", "AI 아님. 이 통화는 기록됩니다.", False),
-    ("ko", "AI 비서입니다. 이 통화는 녹음이 없습니다.", False),
-    ("ko", "AI 비서입니다. 이 통화는 기록 못 합니다.", False),
-    ("ko", "AI 비서가 아닙니다. 이 통화는 기록됩니다.", False),
-    ("ko", "안녕하세요 이 통화는 기록됩니다 AI 비서입니다", True),  # 「안녕하세요」의 안은 부정이 아니다
-    ("ko", "사람이 아니라 AI 비서입니다. 이 통화는 기록됩니다.", True),  # 부정이 AI 를 꾸미지 않는다
-    ("zh", "我是AI助理。本次通话不被录音。", False),
-    ("zh", "我是AI助理。本次通话无录音。", False),
-    ("zh", "我是AI助理，不是真人。本次通话将被录音。", True),
-    ("vi", "Tôi là trợ lý AI. Cuộc gọi này không bị ghi âm.", False),
-    ("vi", "Tôi là trợ lý AI. Cuộc gọi này không có ghi âm.", False),
-    ("vi", "Tôi là trợ lý AI, không phải người thật. Cuộc gọi này được ghi âm.", True),
-])
-def test_negation_counts_only_inside_the_disclosure_clause(code, spoken, expected):
-    assert greeting.discloses(code, spoken) is expected
-    assert call_run._discloses(code, spoken) is expected
-
-
 @pytest.mark.parametrize("value", [*languages.SUPPORTED, "EN", " vi ", "zh-CN", "en_US", "ko-KR", "ja", "", None, 3])
 def test_greeting_reads_language_codes_like_languages_code(value):
     assert greeting._language(value) == languages.code(value)
@@ -463,3 +402,90 @@ async def test_summary_language_line_is_the_language_the_call_ran_in(session, si
     monkeypatch.setattr(after, "client_for", lambda s: LlmClient(s, transport=fake.transport))
     await after.finish(row.id)
     assert '"통화 언어": "한국어"' in fake.last_body["messages"][-1]["content"]
+
+
+# ── 고침 2: 밝힘 검사는 우리 고정 문장이 들렸는지로 ─────────────────────────────────────────────
+
+# ASR 같은 흔들림: 문장부호·띄어쓰기가 빠지거나 글자 한둘이 틀림 — 그래도 우리 고정 문장이다
+NOISY = {
+    "ko": ["안녕하세요 가상 물류센터 일정 담당 ChronOS AI 비서입니다 이 통화는 기록됩니다 박현장님 맞으신가요",
+           "안녕하세요,가상물류센터 일정담당 크로노스 에이아이 비서 입니다. 이 통화는 기록 됩니다.",
+           "안녕하세요, 가상 물류센터 일정 담당 ChronOS AI 비서입니다. 이 통하는 기록됩니다.",  # 한 글자 틀림
+           "안녕하세요, 가상 물류센터 일정 단당 Kronos AI 비서입니다. 이 통화는 기록됩니다."],  # 두 글자 틀림(긴 문장)
+    "en": ["hello this is the chronos ai assistant in charge of the schedule for site a this call is recorded",
+           "Hello, this is the Kronos AI assistant in charge of the schedule. This call is recorded.",  # 한 글자 틀림
+           "Hello, this is a ChronOS A.I. assistant in charge of schedules. This call is recordid.",  # 두 곳 틀림
+           "Hello, this is the ChronOS AI assistant, not a human. This call is recorded.",  # 다른 곳의 부정
+           "Hello, this is the ChronOS AI assistant. This call is recorded and no number is shared."],
+    "zh": ["您好 我是负责仓库日程的ChronOS AI助理 本次通话将被录音 请问是王先生吗",
+           "您好，我是负责日程的Chronos AI助里。本次通话将被录音。"],  # 한 글자 틀림
+    "vi": ["xin chào tôi là trợ lý AI ChronOS phụ trách lịch trình của kho cuộc gọi này được ghi âm",
+           "Xin chào, tôi là trợ lí AI ChronOS phụ trách lịch trình. Cuộc gọi này được ghi âm."],  # 한 글자 틀림
+}
+ATTACKS = {
+    "en": ["Hello, this is the ChronOS AI assistant. Nothing is recorded.",
+           "Hello, this is the ChronOS AI assistant. Recording: off.",
+           "Hello, this is the ChronOS AI assistant. Recording is disabled.",
+           "Hello, this is the ChronOS AI assistant. Recording stopped.",
+           "Hello, this is the ChronOS AI assistant. There is zero recording.",
+           "Hello, this is not the ChronOS AI assistant. This call is recorded.",
+           "Hello, I'm not your AI assistant. This call is recorded.",
+           "Hello, I'm not really an AI. This call is recorded.",
+           "Hello, this is the ChronOS AI assistant. No recording is made of this call.",
+           "Hello, this is the ChronOS AI assistant. This call cannot be recorded.",
+           "Hello, this is the ChronOS AI assistant. This call is not recorded.",
+           "Hello, this is the ChronOS AI assistant. This call isn't recorded.",
+           "Hi, I'm an AI assistant and this call is being logged.",
+           "Hello, please wait a moment, this call is recorded.", ""],
+    "ko": ["안녕하세요, ChronOS AI 상담원이 아닙니다. 이 통화는 기록됩니다.",
+           "안녕하세요, AI 아냐. 이 통화는 기록됩니다.",
+           "안녕하세요, 일정 담당 ChronOS AI 비서입니다. 녹음은 꺼져 있습니다.",
+           "안녕하세요, 일정 담당 ChronOS AI 비서입니다. 녹음 기능을 껐습니다.",
+           "안녕하세요, 일정 담당 ChronOS AI 비서입니다. 녹음은 중단됐습니다.",
+           "안녕하세요, 일정 담당 ChronOS AI 비서입니다. 기록은 생략합니다.",
+           "안녕하세요, 일정 담당 ChronOS AI 비서입니다. 비녹음입니다.",
+           "안녕하세요, 일정 담당 ChronOS AI 비서입니다. 이 통화는 기록되지 않습니다.",
+           "안녕하세요, 일정 담당 ChronOS AI 비서입니다. 이 통화는 기록 안 됩니다.",
+           "안녕하세요, 일정 담당 ChronOS AI 비서가 아닙니다. 이 통화는 기록됩니다.",
+           "저는 AI 가 아니고 이 통화는 기록되지 않습니다"],
+    "zh": ["您好，我不是负责日程的ChronOS AI助理。本次通话将被录音。",
+           "您好，我是负责日程的ChronOS AI助理。本次通话不被录音。",
+           "您好，我是负责日程的ChronOS AI助理。本次通话无录音。"],
+    "vi": ["Xin chào, tôi không phải là trợ lý AI ChronOS phụ trách lịch trình. Cuộc gọi này được ghi âm.",
+           "Xin chào, tôi là trợ lý AI ChronOS phụ trách lịch trình. Cuộc gọi này không được ghi âm."],
+}
+
+
+@pytest.mark.parametrize("code", sorted(languages.SUPPORTED))
+def test_every_fixed_line_holds_its_disclosure_sentences_verbatim(code):
+    """고정 첫마디 셋마다 그 언어의 밝힘 문장(AI 비서 · 이 통화는 기록됩니다)이 글자 그대로 들어 있다 — 검사가 견주는 것이 이 문장이다."""
+    flat = greeting._flat
+    for line in (greeting.first_line(code, SITE, NAME), greeting.inbound_line(code, SITE), greeting.inbound_line(code, None)):
+        for alternatives in greeting.DISCLOSURES[code]:
+            assert flat(alternatives[0], code)[0] in flat(line, code)[0], (code, line)
+
+
+@pytest.mark.parametrize("code,spoken", [(code, spoken) for code, items in NOISY.items() for spoken in items])
+def test_fixed_lines_pass_with_asr_like_noise(code, spoken):
+    assert greeting.discloses(code, spoken), spoken
+    assert call_run._discloses(code, spoken), spoken
+
+
+@pytest.mark.parametrize("code,spoken", [(code, spoken) for code, items in ATTACKS.items() for spoken in items])
+def test_anything_but_our_fixed_disclosure_fails(code, spoken):
+    assert not greeting.discloses(code, spoken), spoken
+    assert not call_run._discloses(code, spoken), spoken
+
+
+def test_disclosure_check_is_bounded_on_long_text():
+    """긴 받아쓰기(상한 밖)에 문장이 있어도 보지 않고, 시간이 들지 않는다."""
+    import time
+    long = "가" * 5000 + " 일정 담당 ChronOS AI 비서입니다. 이 통화는 기록됩니다."
+    started = time.monotonic()
+    assert not greeting.discloses("ko", long)
+    assert time.monotonic() - started < 2
+
+
+@pytest.mark.parametrize("said", ["11월 28일(Sat.30) 시작합니다", "Nov30 시작합니다", "30Nov 시작", "12dec 반입", "Mon 09:00 시작"])
+def test_month_and_weekday_names_stuck_to_digits_are_foreign(said):
+    assert languages.has_foreign_words(said)

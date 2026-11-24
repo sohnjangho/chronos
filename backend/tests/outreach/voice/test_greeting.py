@@ -56,7 +56,7 @@ def test_korean_is_always_in_the_tables():
 def test_every_language_has_all_three_lines_and_states_ai_and_recording(language):
     """언어를 더하는 작업은 세 표와 「꼭 하는 말」 표를 함께 채워야 한다 — 하나라도 빠지면 여기서 걸린다."""
     assert set(greeting.FIRST_LINES) == set(greeting.INBOUND_LINES) == set(greeting.INBOUND_LINES_NO_SITE)
-    assert set(greeting.MUST_SAY) == set(greeting.FIRST_LINES)
+    assert set(greeting.DISCLOSURES) == set(greeting.MUST_NOT_SAY) == set(greeting.FIRST_LINES)  # 밝힘 문장(Task 100 고침 2)
     assert _fields(greeting.FIRST_LINES[language]) == {"site", "name"}
     assert _fields(greeting.INBOUND_LINES[language]) == {"site"}
     assert _fields(greeting.INBOUND_LINES_NO_SITE[language]) == set()
@@ -141,7 +141,7 @@ def test_ordinary_digits_in_a_site_name_are_kept():
 @pytest.mark.parametrize("spoken,expected", [
     ("안녕하세요, 가상 물류센터 일정 담당 ChronOS AI 비서입니다. 이 통화는 기록됩니다. 박현장님 맞으신가요?", True),
     ("안녕하세요 가상 물류센터 일정 담당 크로노스 에이아이 비서입니다 이 통화는 녹음됩니다", True),
-    ("안녕하세요. 인공지능 비서입니다. 통화 내용은 기 록 됩니다.", True),
+    ("안녕하세요. 인공지능 비서입니다. 통화 내용은 기 록 됩니다.", False),  # 뜻은 같아도 우리 고정 문장이 아니다(Task 100 고침 2)
     ("안녕하세요, 가상 물류센터 일정 담당 ChronOS AI 비서입니다. 박현장님 맞으신가요?", False),  # 기록됨이 빠짐
     ("안녕하세요, 가상 물류센터 일정 담당 김대리입니다. 이 통화는 기록됩니다.", False),  # AI 임이 빠짐
     ("", False),
