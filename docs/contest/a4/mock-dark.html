@@ -25,6 +25,30 @@ h1 .c{background:linear-gradient(90deg,#7dd3fc,#818cf8);-webkit-background-clip:
 .facts div{border-top:2px solid rgba(255,255,255,.15);padding-top:3mm;font-size:9.6pt;color:#cbd5e1;line-height:1.55}
 .facts b{display:block;color:#fff;font-size:13pt;margin-bottom:1mm}
 .lbl{position:absolute;top:5mm;right:6mm;font:700 7.5pt "SF Mono",Menlo;background:#fff;color:#05070d;padding:2px 8px;border-radius:999px;z-index:9}
+
+.rc-grid{display:grid;grid-template-columns:1fr 1fr;gap:5mm 5mm;margin-top:7mm}
+.rc{position:relative}
+.rc .ph{position:relative;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.16);box-shadow:0 18px 50px rgba(0,0,0,.55)}
+.rc .ph img{display:block;width:100%}
+.rc .no{position:absolute;left:3mm;bottom:3mm;width:22px;height:22px;border-radius:50%;background:#fbbf24;color:#05070d;font:800 11pt/22px sans-serif;text-align:center;z-index:3}
+.bub{position:absolute;z-index:4;background:#fff;color:#0f172a;font-size:9.4pt;font-weight:800;line-height:1.4;padding:2.2mm 3.2mm;border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.35);max-width:52mm}
+.bub::after{content:"";position:absolute;width:0;height:0;border:7px solid transparent}
+.bub.tl::after{left:14px;bottom:-13px;border-top-color:#fff;border-left-color:#fff}
+.bub.tr::after{right:14px;bottom:-13px;border-top-color:#fff;border-right-color:#fff}
+.bub.phone{background:#e0f2fe;color:#075985;font-weight:700}
+.bub.phone::after{border-top-color:#e0f2fe;border-left-color:#e0f2fe}
+.nar{position:absolute;z-index:4;background:#fbbf24;color:#1c1917;font-size:8.8pt;font-weight:800;padding:1.8mm 3mm;border-radius:3px;box-shadow:0 6px 18px rgba(0,0,0,.35);max-width:60mm;line-height:1.4}
+.tagon{position:absolute;z-index:4;background:rgba(5,7,13,.82);color:#fbbf24;border:1px solid #fbbf24;font:800 8pt "SF Mono",Menlo;padding:1.4mm 2.6mm;border-radius:999px}
+.rc .cap{margin-top:2.5mm;font-size:9.2pt;color:#cbd5e1;line-height:1.55}
+.rc .cap b{color:#fff}
+.stage{position:relative}
+.bgwin{position:absolute;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.12);opacity:.38;filter:saturate(.7)}
+.bgwin img{display:block;width:100%}
+.lens{position:absolute;border-radius:10px;overflow:hidden;border:1.5px solid rgba(125,211,252,.85);box-shadow:0 22px 60px rgba(0,0,0,.7),0 0 40px rgba(56,189,248,.35);background:#fff}
+.lens img{display:block;width:100%}
+.lens.amber{border-color:rgba(251,191,36,.9);box-shadow:0 22px 60px rgba(0,0,0,.7),0 0 40px rgba(251,191,36,.35)}
+.tag2{position:absolute;display:flex;align-items:center;gap:6px;font-size:9.6pt;font-weight:800;color:#fff;z-index:6;text-shadow:0 2px 8px rgba(0,0,0,.8)}
+.tag2 i{font-style:normal;width:24px;height:24px;border-radius:50%;background:#38bdf8;color:#05070d;font:800 11pt/24px sans-serif;text-align:center;box-shadow:0 0 16px rgba(56,189,248,.9)}
 </style></head><body>
 
 <!-- 표지 -->
@@ -46,26 +70,56 @@ h1 .c{background:linear-gradient(90deg,#7dd3fc,#818cf8);-webkit-background-clip:
   </div>
 </section>
 
+<!-- 실사 4컷 -->
+<section class="page"><span class="lbl">시안 D · 현장 이야기</span>
+  <div class="eyebrow amber">01 · 내가 겪은 장면</div>
+  <h1 style="font-size:32pt">당겨도 소용없던 밤</h1>
+  <p class="sub" style="font-size:10.5pt">15년 동안 일정을 맡으며 가장 자주 본 실패. 몰라서가 아니라, 마감을 좌우하는 일이 옮겨 간 걸 늦게 알아서 생겼다.</p>
+  <div class="rc-grid">
+    <div class="rc"><div class="ph"><img src="img/rc1.jpg"><span class="no">1</span>
+      <div class="bub tr" style="left:5mm;top:5mm">골조가 크리티컬이야.<br>야간 작업 넣어서 당기자.</div></div>
+      <div class="cap"><b>저녁 현장 사무실.</b> 공정표의 빨간 줄은 골조였다. 늦어지면 준공도 늦는다.</div></div>
+    <div class="rc"><div class="ph"><img src="img/rc2.jpg"><span class="no">2</span>
+      <div class="nar" style="left:5mm;top:5mm">밤샘 타설. 골조는 예정보다 5일 빨리 끝났다.</div></div>
+      <div class="cap"><b>야간 골조.</b> 사람과 장비를 더 넣었다. 돈이 들었다.</div></div>
+    <div class="rc"><div class="ph"><img src="img/rc3.jpg"><span class="no">3</span>
+      <div class="bub tl" style="right:4mm;top:5mm">커튼월이 아직<br>안 왔다고요?</div>
+      <div class="bub phone" style="right:4mm;top:24mm;font-size:8.6pt">"공장 제작이 3일<br>늦어졌습니다…"</div></div>
+      <div class="cap"><b>골조는 끝났는데 외벽이 비었다.</b> 그사이 커튼월 공장이 늦어져 있었다.</div></div>
+    <div class="rc"><div class="ph"><img src="img/rc4.jpg"><span class="no">4</span>
+      <div class="nar" style="left:5mm;top:5mm">준공은 하루도 당겨지지 않았다.</div>
+      <div class="tagon" style="left:34%;top:68%">ChronOS · 당긴 5일 중 1일</div></div>
+      <div class="cap"><b>마감을 좌우하는 일은 이미 커튼월로 옮겨 가 있었다.</b> 지금이라면 ChronOS 가 당기기 전에 알려 준다.</div></div>
+  </div>
+  <div style="margin-top:7mm;display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:5mm;align-items:stretch">
+    <div style="display:flex;align-items:center;font-size:11pt;font-weight:800;color:#fbbf24;line-height:1.35">그날 밤<br>필요했던 것</div>
+    <div style="border:1px solid rgba(125,211,252,.35);border-radius:10px;padding:3.5mm 4mm;background:rgba(125,211,252,.06)"><b style="color:#7dd3fc;font-size:10.5pt">다시 본다</b><div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">커튼월이 늦어진 순간, 마감을 좌우하는 일이 바뀌었다고 알려 줄 것</div></div>
+    <div style="border:1px solid rgba(251,191,36,.4);border-radius:10px;padding:3.5mm 4mm;background:rgba(251,191,36,.06)"><b style="color:#fbbf24;font-size:10.5pt">따져 본다</b><div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">골조를 당기기 전에 "5일 중 1일"이라고 숫자로 보여 줄 것</div></div>
+    <div style="border:1px solid rgba(125,211,252,.35);border-radius:10px;padding:3.5mm 4mm;background:rgba(125,211,252,.06)"><b style="color:#7dd3fc;font-size:10.5pt">먼저 묻는다</b><div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">커튼월 업체에 제작 일정을 먼저 확인해 기록할 것</div></div>
+  </div>
+  <p style="font-size:9.6pt;color:#e2e8f0;margin-top:4mm">ChronOS 는 이 세 가지를 변동이 들어올 때마다 대신 한다.</p>
+  <p style="font-size:7.6pt;color:#64748b;margin-top:3mm">이해를 돕기 위한 연출 이미지. Liner Images API(openai/gpt-image-2.6-sunburst)로 만들었고, 4번 모니터에는 실제 ChronOS 화면을 합성했다.</p>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span>02</span></div>
+</section>
+
 <!-- 와우 1 OS -->
 <section class="page"><span class="lbl">시안 D · 와우 1</span>
   <div class="eyebrow">02 · 에이전트가 쓰는 OS</div>
   <h1 style="font-size:52pt;margin-top:2mm">Chron<span class="c">OS</span></h1>
   <div style="font-size:20pt;font-weight:800;color:#fff;letter-spacing:-.02em;margin-top:2mm">대화하면, <span style="color:#7dd3fc">일정표가 움직인다.</span></div>
   <p class="sub" style="font-size:11pt">에이전트와 일정 도구가 한 화면에 있다. 대화창에 "커튼월 공장 제작이 3일 늦어졌어"라고 쓰면 에이전트가 답을 글로만 주지 않고 스케줄, 지연 기록, 비교판 창을 직접 열어 일한다. 사람은 대화를 이어 가며 창이 바뀌는 것을 보고, 마지막에 승인한다.</p>
-  <div style="display:grid;grid-template-columns:56mm 1fr;gap:6mm;margin-top:7mm;align-items:start">
-    <div>
-      <div class="step" style="position:static;margin-bottom:2.5mm"><i>0</i>에이전트 대화</div>
-      <div class="shot"><img src="img/os-대화.jpg"></div>
-    </div>
-    <div>
-      <div style="display:grid;grid-template-columns:1.25fr 1fr;gap:5mm">
-        <div><div class="step" style="position:static;margin-bottom:2.5mm;font-size:9.6pt"><i>1</i>스케줄에서 작업을 찾고</div><div class="shot"><img src="img/os1-스케줄-부분.jpg"></div></div>
-        <div><div class="step" style="position:static;margin-bottom:2.5mm;font-size:9.6pt"><i>2</i>지연 기록에서 영향을 잰다</div><div class="shot"><img src="img/os2-지연-부분.jpg"></div></div>
-      </div>
-      <div class="step" style="position:static;margin:6mm 0 2.5mm;font-size:9.6pt"><i>3</i>비교판에 만회안을 나란히 띄운다</div>
-      <div class="shot"><img src="img/s5-비교판.jpg"></div>
-      <p style="font-size:9pt;color:#94a3b8;margin:4mm 0 0;line-height:1.6">창마다 머리에 「Computer Use · n단계 실행 중」이 뜬다. 지금 에이전트가 어느 창에서 무엇을 하는지 사람이 따라갈 수 있다.</p>
-    </div>
+  <div class="stage" style="height:150mm;margin-top:7mm">
+    <div class="bgwin" style="left:30mm;top:0;width:150mm"><img src="img/os1-스케줄.jpg"></div>
+    <div class="bgwin" style="left:44mm;top:26mm;width:136mm;opacity:.5"><img src="img/os2-지연.jpg"></div>
+    <div class="bgwin" style="left:58mm;top:56mm;width:122mm;opacity:.62"><img src="img/os3-비교판.jpg"></div>
+    <div class="lens" style="left:0;top:4mm;width:56mm;z-index:5"><img src="img/os-대화.jpg"></div>
+    <div class="tag2" style="left:0;top:-3mm"><i style="background:#fff">0</i>에이전트 대화</div>
+    <div class="lens" style="left:66mm;top:9mm;width:62mm;z-index:5"><img src="img/os1-스케줄-부분.jpg"></div>
+    <div class="tag2" style="left:66mm;top:2mm"><i>1</i>스케줄에서 작업을 찾고</div>
+    <div class="lens" style="left:134mm;top:30mm;width:44mm;z-index:5"><img src="img/os2-지연-부분.jpg"></div>
+    <div class="tag2" style="left:126mm;top:23mm"><i>2</i>지연 기록에서 영향을 잰다</div>
+    <div class="lens amber" style="left:58mm;top:112mm;width:120mm;z-index:5"><img src="img/s5-비교판.jpg"></div>
+    <div class="tag2" style="left:58mm;top:105mm"><i style="background:#fbbf24">3</i>비교판에 만회안을 나란히 띄운다</div>
   </div>
   <div class="facts">
     <div><b>한 화면에서</b>대화와 일정 도구가 따로 놀지 않는다. 사람이 고른 작업을 에이전트도 본다.</div>
