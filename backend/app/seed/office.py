@@ -1,6 +1,7 @@
 """씨앗 일정 「5층 사무동 신축」(건설·L3): 액티비티 59개, 조건 14개(기본 4·분야 4·입력 6), 주요 자원 3개.
 
 버전 1 = 처음 계획(실적 없음, 「처음 계획」 표시), 버전 2 = 실적 일부와 Data Date 를 넣은 것.
+버전 3(`office_building(..., v3=True)` — 계획 5 관리 포인트·당김 효과 시연) = 6월 말 실적 + 커튼월·창호 조달 줄(액티비티 65개).
 """
 
 from dataclasses import replace
@@ -8,7 +9,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.core.model import Activity, CalendarSpec, Resource, Schedule, WbsNode
+from app.core.model import Activity, CalendarSpec, Relation, Resource, Schedule, WbsNode
 from app.domains.loader import load as load_pack
 from app.harness.assemble import assemble, holidays_of
 from app.harness.conditions import Condition
@@ -20,6 +21,8 @@ from app.store.versions import mark_plan, save_new_version
 OFFICE = "5층 사무동 신축"
 START = date(2027, 3, 2)  # 3월 1일(삼일절) 다음 날 착공
 DATA_DATE = date(2027, 4, 17)  # 실적 기준일(토요일, 주 6일 달력의 근무일)
+DATA_DATE_V3 = date(2027, 6, 30)  # 버전 3 실적 기준일(수요일)
+V3_NOTE = "6월 말 실적 + 커튼월·창호 조달 일정 반영"
 CRANE_CONDITION = "in.resource_cap.tower_crane"
 
 # ── 「5층 사무동 신축」 자료 ─────────────────────────────────────────────
@@ -176,8 +179,67 @@ def _with_actuals(plan: Schedule) -> Schedule:
     return replace(plan, activities=tuple(one(a) for a in plan.activities), data_date=DATA_DATE)
 
 
-def office_building(session: Session) -> int:
-    """「5층 사무동 신축」: 버전 1 처음 계획 → 버전 2 실적 입력. 일정 id 를 준다."""
+# ── 버전 3: 6월 말 실적 + 커튼월·창호 조달 ────────────────────────────────
+# 골조는 장마로 늦어져 4층 거푸집이 진행 중이다. 조달 줄은 Data Date 에 시작한다(선행 = 착공).
+# 기본 설정(k=3, w=3)에서: 5층 거푸집·타설·옥탑 골조가 크리티컬, 커튼월 줄 여유 4, 창호 줄 여유 13
+# (숫자는 scripts/find_demo_pair.py · find_accel_case.py --version 3, docs/demo/시나리오.md 「관리 포인트 장면」).
+
+_ACTUALS_JUNE = (
+    ("A1090", date(2027, 4, 13), date(2027, 4, 21), 1.0, None),
+    ("A1100", date(2027, 4, 22), date(2027, 4, 28), 1.0, None),
+    ("A1110", date(2027, 4, 29), date(2027, 4, 30), 1.0, None),
+    ("A1210", date(2027, 5, 4), date(2027, 5, 10), 1.0, None),
+    ("A1212", date(2027, 5, 11), date(2027, 5, 15), 1.0, None),
+    ("A1214", date(2027, 5, 17), date(2027, 5, 17), 1.0, None),
+    ("A1220", date(2027, 5, 18), date(2027, 5, 22), 1.0, None),
+    ("A1222", date(2027, 5, 24), date(2027, 5, 28), 1.0, None),
+    ("A1224", date(2027, 5, 29), date(2027, 5, 29), 1.0, None),
+    ("A1230", date(2027, 5, 31), date(2027, 6, 5), 1.0, None),
+    ("A1232", date(2027, 6, 7), date(2027, 6, 12), 1.0, None),
+    ("A1234", date(2027, 6, 14), date(2027, 6, 14), 1.0, None),
+    ("A1240", date(2027, 6, 15), date(2027, 6, 25), 1.0, None),  # 장마
+    ("A1242", date(2027, 6, 26), None, 0.4, 3),
+    ("A1400", date(2027, 6, 15), date(2027, 6, 25), 1.0, None),
+    ("A1500", date(2027, 6, 15), None, 0.6, 5),
+    ("A1600", date(2027, 6, 17), None, 0.5, 6),
+)
+# (줄, 붙일 자리 = 이 액티비티 앞, 이어지는 설치 작업)
+_PROCUREMENT: tuple[tuple[tuple[Row, ...], str], ...] = (
+    ((("A1402", "커튼월 제작 도면 승인", "3.1.2", 2, ("A1000",), ()),
+      ("A1404", "커튼월 공장 제작", "3.1.2", 6, ("A1402",), ()),
+      ("A1406", "커튼월 자재 반입", "3.1.2", 1, ("A1404",), ())), "A1410"),
+    ((("A1434", "창호 제작 도면 승인", "3.1.3", 3, ("A1000",), ()),
+      ("A1436", "창호 제작", "3.1.3", 6, ("A1434",), ()),
+      ("A1438", "창호 반입", "3.1.3", 1, ("A1436",), ())), "A1440"),
+)
+# 커튼월·외장 패널은 커튼월 업체 장비(윈치·곤돌라)로 단다 — 버전 3 에서는 타워크레인을 쓰지 않는다
+# (크레인을 쓰면 골조와 맞춤 순서가 얽혀 골조가 크리티컬에서 빠진다).
+_RENAMED_V3 = {"A1410": "커튼월·외장 패널 1~3층", "A1430": "커튼월·외장 패널 4~5층"}
+
+
+def _june(v2: Schedule) -> Schedule:
+    """버전 2 에 6월 말 실적·조달 줄(설치 작업 앞에 FS)을 넣고 외장 패널 이름을 바꾼 버전 3."""
+    actual = {aid: (s, f, p, rd) for aid, s, f, p, rd in _ACTUALS_JUNE}
+    before = {at: rows for rows, at in _PROCUREMENT}
+    activities, relations = [], list(v2.relations)
+    for a in v2.activities:
+        for row in before.get(a.id, ()):
+            act, rels = activity(row, _USES)
+            activities.append(act)
+            relations += rels
+        if a.id in before:
+            relations.append(Relation(before[a.id][-1][0], a.id))
+        if a.id in _RENAMED_V3:
+            a = replace(a, name=_RENAMED_V3[a.id], resources=())
+        if a.id in actual:
+            s, f, p, rd = actual[a.id]
+            a = replace(a, actual_start=s, actual_finish=f, progress=p, rd=rd)
+        activities.append(a)
+    return replace(v2, activities=tuple(activities), relations=tuple(relations), data_date=DATA_DATE_V3)
+
+
+def office_building(session: Session, *, v3: bool = False) -> int:
+    """「5층 사무동 신축」: 버전 1 처음 계획 → 버전 2 실적 입력(→ v3 면 버전 3 6월 말 실적·조달 줄). 일정 id 를 준다."""
     pack = load_pack("construction")
     domain_rules = [Condition.from_dict(r) for r in pack.rules_raw]
     conditions = [c.to_dict() for c in assemble(domain_rules, [], _office_inputs())]
@@ -190,4 +252,9 @@ def office_building(session: Session) -> int:
     save_new_version(session, sid, actual, conditions, by_kind="user", by_name=BY,
                      note=f"실적 입력(Data Date {DATA_DATE.isoformat()})",
                      changes=schedule_changes(plan, actual), base_version=1, plan_change=False, commit=False)
+    if v3:
+        june = _june(actual)
+        run(june, conditions)
+        save_new_version(session, sid, june, conditions, by_kind="user", by_name=BY, note=V3_NOTE,
+                         changes=schedule_changes(actual, june), base_version=2, plan_change=False, commit=False)
     return sid
