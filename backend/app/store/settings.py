@@ -1,6 +1,7 @@
 """작업 공간 및 에이전트·하네스 실행 설정(settings 표: key → value)."""
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -137,3 +138,70 @@ def set_tool_enabled(session: Session, name: str, enabled: bool) -> list[str]:
     _upsert(session, DISABLED_TOOLS_KEY, json.dumps(ordered, ensure_ascii=False))
     session.commit()
     return ordered
+
+
+# ── 관리 포인트(계획 5) ──────────────────────────────────────────────
+
+POINT_SOURCES = ("weather", "materials", "fx", "business")  # 바깥 자료 갈래: 날씨·금속/원자재·환율·업체 소식
+POINTS_SOURCES_KEY = "points_sources"
+OTHER_DOMAIN_SOURCES = ("business",)  # 표에 없는 분야
+DEFAULT_POINTS_SOURCES: dict[str, list[str]] = {  # PM 결정 11-24: 분야별로 켜고 끈다
+    "construction": ["weather", "materials", "fx", "business"],
+    "manufacturing": ["materials", "fx", "business"],
+}
+
+# 필드 → (DB 키, 하한, 상한, 기본값). 범위 밖·숫자 아님은 기본값(에이전트 설정처럼 자르지 않는다).
+_POINTS_INT_BOUNDS: dict[str, tuple[str, int, int, int]] = {
+    "tf_days": ("points_tf_days", 0, 10, 3),  # k: 크리티컬 직전으로 볼 여유(근무일)
+    "window_weeks": ("points_window_weeks", 1, 8, 3),  # w: Data Date 부터 보는 창(달력 주)
+    "max_new": ("points_max_new", 1, 10, 5),  # 바깥 위험을 찾을 새 포인트 수
+    "forecast_reuse_hours": ("points_forecast_reuse_hours", 1, 48, 6),  # 예보 근거 재사용 시간
+}
+
+
+@dataclass(frozen=True)
+class PointsConfig:
+    tf_days: int
+    window_weeks: int
+    max_new: int
+    forecast_reuse_hours: int
+    sources: dict[str, list[str]]  # 분야 → 켜진 갈래. 표에 없는 분야는 OTHER_DOMAIN_SOURCES
+
+
+def _read_bounded(session: Session, key: str, lo: int, hi: int, default: int) -> int:
+    row = session.get(Setting, key)
+    if row is None:
+        return default
+    try:
+        value = int(row.value)
+    except ValueError:
+        return default
+    return value if lo <= value <= hi else default
+
+
+def _read_sources(session: Session) -> dict[str, list[str]]:
+    """기본값 위에 저장한 분야만 덮는다. JSON 이 깨졌거나 dict 가 아니면 기본값, 목록이 아닌 분야는 기본값, 모르는 갈래는 뺀다."""
+    out = {d: list(s) for d, s in DEFAULT_POINTS_SOURCES.items()}
+    row = session.get(Setting, POINTS_SOURCES_KEY)
+    if row is None:
+        return out
+    try:
+        parsed = json.loads(row.value)
+    except ValueError:
+        return out
+    if not isinstance(parsed, dict):
+        return out
+    for domain, kinds in parsed.items():
+        if isinstance(kinds, list):
+            out[str(domain)] = [k for k in POINT_SOURCES if k in kinds]
+    return out
+
+
+def points_config(session: Session) -> PointsConfig:
+    ints = {f: _read_bounded(session, key, lo, hi, d) for f, (key, lo, hi, d) in _POINTS_INT_BOUNDS.items()}
+    return PointsConfig(**ints, sources=_read_sources(session))
+
+
+def sources_for(session: Session, domain: str) -> set[str]:
+    """그 분야에 켜진 바깥 자료 갈래."""
+    return set(_read_sources(session).get(domain, OTHER_DOMAIN_SOURCES))

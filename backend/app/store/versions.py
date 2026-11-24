@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cpm import CpmResult, ScheduleError
 from app.core.model import Schedule
+from app.points import service as points_service
 from app.store.diff import schedule_changes
 from app.store.schedules import (
     end_write,
@@ -146,6 +147,7 @@ def _save(
         )
     )
     end_write(session, commit)
+    points_service.refresh_quietly(session, schedule_id, n, commit=commit)  # 관리 포인트 — 실패해도 저장은 그대로
     return n
 
 
