@@ -412,3 +412,5 @@
 .pg-hr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 /* 사진 탭 안 보기 전환(AI 판독 | 사람 판독 …): 좁은 폭(≤520 px, 위 두 칸 격자)에서 글이 칸을 넘지 않게 줄을 바꾼다(리뷰 6) */
 .pg-field-subbar .pg-hr-switch button { white-space: normal; overflow-wrap: anywhere; text-align: center; }
+/* 「사진 AI 판독」 탭 안의 「사람 판독 대기 n」 배지도 좁은 폭에서 칸을 넘지 않게 줄을 바꾼다 */
+.pg-field-subbar .pg-seg button:has(.pg-hr-pill) { white-space: normal; overflow-wrap: anywhere; }

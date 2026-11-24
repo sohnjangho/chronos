@@ -153,4 +153,5 @@ test('unreadable photos are not counted as evidence in the KPI', async () => {
 
 test('the photo view switch wraps instead of overflowing on a narrow screen', () => {
   expect(progressCss).toMatch(/\.pg-field-subbar \.pg-hr-switch button \{[^}]*white-space: normal/);
+  expect(progressCss).toMatch(/\.pg-field-subbar \.pg-seg button:has\(\.pg-hr-pill\) \{[^}]*white-space: normal/);
 });
