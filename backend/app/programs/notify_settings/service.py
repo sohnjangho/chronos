@@ -446,7 +446,7 @@ def check_summary(conn: NotifyConnection, used: UsedToday | None) -> str:
     """연결 테스트 결과 한 줄 — 저장된 확인 결과(status·발신번호 목록)와 우리 DB 의 오늘 사용량만으로 만든다.
     제공사에 묻지 않는다. 이번 달 수는 제공사 조회 길이 문서로 확인되지 않아 싣지 않는다(어림하지 않는다)."""
     if conn.status == "failed":
-        return "연결 테스트 실패 — 키·Account ID 를 확인하지 못했습니다"
+        return "연결 테스트 실패 — [연결 진단]으로 까닭을 확인해 주세요"  # 저장된 상태로는 키·시간 초과·IP 막힘을 가르지 못한다
     if conn.status != "ok":
         return "아직 연결 테스트를 하지 않았습니다"
     senders = list(conn.senders_json or [])
@@ -454,6 +454,8 @@ def check_summary(conn: NotifyConnection, used: UsedToday | None) -> str:
         sender = "승인된 발신번호 없음"
     elif conn.sender_number in senders:
         sender = "발신번호 승인됨"
+    elif conn.sender_number:
+        sender = "고른 발신번호가 목록에 없습니다"
     else:
         sender = "발신번호 고르지 않음"
     parts = ["키·Account ID 확인됨", sender]

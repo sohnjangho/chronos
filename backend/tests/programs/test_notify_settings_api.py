@@ -148,7 +148,7 @@ def test_create_shows_last4_only(client, admin, fake_provider, session):
     assert listed.status_code == 200 and SENTINEL_KEY not in listed.text and [c["id"] for c in listed.json()] == [body["id"]]
 
 
-def test_check_summary_is_built_from_stored_check_and_today_counts(client, admin, fake_provider, monkeypatch):
+def test_check_summary_is_built_from_stored_check_and_today_counts(client, admin, fake_provider, monkeypatch, session):
     """연결 테스트 결과 한 줄(Task 106): 저장된 확인 결과·발신번호·오늘 사용량만으로. 이번 달 수는 싣지 않는다(제공사 조회 미확인)."""
     from app.programs.notify_settings import service
     from app.programs.notify_settings.schemas import UsedToday
@@ -161,12 +161,18 @@ def test_check_summary_is_built_from_stored_check_and_today_counts(client, admin
     listed = client.get(BASE, headers=admin).json()
     assert listed[0]["check_summary"] == "키·Account ID 확인됨 · 발신번호 승인됨 · 오늘 문자 12건 · 통화 3통"
     assert "이번 달" not in client.get(BASE, headers=admin).text
+    row = session.get(NotifyConnection, b["id"])
+    row.sender_number = "07000000999"  # 고른 번호가 승인 목록에 없음
+    session.commit()
+    assert client.get(BASE, headers=admin).json()[0]["check_summary"].startswith(
+        "키·Account ID 확인됨 · 고른 발신번호가 목록에 없습니다")
     fake_provider.senders = []
     client.post(f"{BASE}/{b['id']}/test", headers=admin)
     assert client.get(BASE, headers=admin).json()[0]["check_summary"].startswith("키·Account ID 확인됨 · 승인된 발신번호 없음")
     fake_provider.fail = ProviderFailed("bad_key", "x")
     client.post(f"{BASE}/{b['id']}/test", headers=admin)
-    assert client.get(BASE, headers=admin).json()[0]["check_summary"] == "연결 테스트 실패 — 키·Account ID 를 확인하지 못했습니다"
+    # 저장된 상태로는 키 틀림·시간 초과·IP 막힘을 가를 수 없다 — 원인을 단정하지 않는다
+    assert client.get(BASE, headers=admin).json()[0]["check_summary"] == "연결 테스트 실패 — [연결 진단]으로 까닭을 확인해 주세요"
     assert SENTINEL_KEY not in client.get(BASE, headers=admin).text
 
 
