@@ -4,7 +4,7 @@
 대본 → 가짜 통화(SimulatedVoice) 걸음:
 - Them → 상대 말 `Say("peer", 글)` · Model → `Tool(이름, 인자)` · ModelSays → 모델 말 `Say("agent", 글)` · Wait → `Silence(초)`
   (통화 밖이면 시계만 민다) · 통화의 끝은 상대가 끊음(`Hangup("peer")`).
-- **거는 통화의 신원 확인 걸음**: 우리가 건 통화에서 대본의 모델 걸음이 그 사람의 자료를 주는 도구(tools.IDENTITY_TOOLS)를
+- **거는 통화의 신원 확인 걸음**: 우리가 건 통화에서 대본의 모델 걸음이 그 사람의 자료를 주는 도구(PERSONAL_TOOLS)를
   처음 부르기 바로 앞에, 상대가 먼저 말한 뒤이므로 `confirm_person(is_person=True)` 한 걸음을 끼운다 — 그 번호가 **한 사람**의 것일
   때만(문의 등급표 door.resolve 가 대표번호 shared 로 보는 번호는 받은 사람이 누구인지 대본이 말하지 않으므로 확인하지 않는다 — 여러
   현장에 걸친 한 사람 contact_multi 는 확인한다). 글 구동기에는 없는 걸음이고,
@@ -92,6 +92,8 @@ from app.store.tables_outreach import (
 
 VOICE_COLUMNS: tuple[Column, ...] = ("call_out", "call_in")
 CONFIRM_TOOL = "confirm_person"  # 거는 통화의 신원 확인 걸음(구동기가 끼움)
+# 거는 통화에서 신원 확인 뒤에만 그 사람의 자료를 주는 도구: 요청·일정(tools.IDENTITY_TOOLS)과 사람 찾기의 목록(H1 고침 1 — 81a9c2c)
+PERSONAL_TOOLS = tools.IDENTITY_TOOLS | {"find_contact"}
 STEP_S = 2  # 통화 속 말 사이(초) — 침묵 확인(call_run.SILENCE_S)보다 짧게
 SETTLE_ROUNDS, SETTLE_WAIT_S = 20, 5.0  # 받는 통화의 뒤 일(통화 끝·뒤 확인·요약·회신 문자)을 기다리는 끝
 SUMMARY = {"summary_ko": "대본 통화를 요약했습니다.", "result": "대본 결과"}  # 가짜 요약 모델의 답
@@ -201,7 +203,7 @@ class _Run:
             elif isinstance(turn, Model):
                 if current is None:
                     raise ValueError("모델 걸음은 Them 뒤에만 옵니다")
-                if current.outbound and current.identity_at is None and turn.tool in tools.IDENTITY_TOOLS:
+                if current.outbound and current.identity_at is None and turn.tool in PERSONAL_TOOLS:
                     current.identity_at = len(current.steps)
                 current.steps.append(Tool(turn.tool, dict(turn.args)))
                 current.tools_of.append(len(self.heard) - 1)
