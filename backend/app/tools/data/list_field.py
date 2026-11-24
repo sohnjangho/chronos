@@ -13,6 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.errors import ApiError
+from app.outreach.redact import hide_phones
 from app.programs.progress import field
 from app.programs.progress.field import FieldSummary
 from app.tools.context import ToolContext, ToolError
@@ -22,6 +23,8 @@ ITEM_LIMIT = 4
 TEXT_LIMIT = 70
 LIST_LIMIT = 2
 LEFT_OUT = {"photo_data_url"}  # 사진 원본(수십만 자)
+# 사람이 쓴 자유 글이 드는 칸(사진 사람 판독 근거·다시 찍기 까닭·올린 사람 이름) — 번호를 가린다(리뷰 6). 회신 메모도 가린다.
+FREE_TEXT = {"human_read", "human_history", "retake", "retakes", "uploaded_by"}
 
 
 class FieldListIn(BaseModel):
@@ -68,12 +71,27 @@ def _short(value: Any) -> Any:
     return value
 
 
+def _hidden(value: Any) -> Any:
+    if isinstance(value, str):
+        return hide_phones(value)
+    if isinstance(value, list):
+        return [_hidden(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _hidden(v) for k, v in value.items()}
+    return value
+
+
+def _payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return _short({k: _hidden(v) if k in FREE_TEXT else v for k, v in payload.items()})
+
+
 def _brief(item: field.FieldItemOut) -> FieldItemBrief:
     return FieldItemBrief(
         id=item.id, kind=item.kind, activity_id=item.activity_id, activity_name=_short(item.activity_name),
         trade=_short(item.trade), status=item.status, title=_short(item.title), response_choice=item.response_choice,
         reported_progress=item.reported_progress, reported_rd=item.reported_rd,
-        response_note=_short(item.response_note), payload_json=_short(item.payload_json), updated_at=item.updated_at,
+        response_note=_short(hide_phones(item.response_note)), payload_json=_payload(item.payload_json),
+        updated_at=item.updated_at,
     )
 
 

@@ -4,12 +4,17 @@
   (reflected)이 된다 — 다시 넣지 않는다. Plan 다시 잡기(reset_plan)는 하지 않는다(PM 11-20).
 - after_reject·after_conflict: 복사본을 다시 open 으로(낡았으면 화면이 낡음으로 보인다).
 - 내 규칙(link_kind 'rule'): 승인되면 rule_json 으로 내 규칙을 만든다(만든 사람 = 낸 사람). 거부·충돌이면 아무것도 남기지 않는다.
+- 사진 사람 판독(현장 사진 줄, response_choice human): 거부·충돌이면 그 줄을 다시 사람 판독 대기(human_wait)로 — 숫자·승인 건을
+  떼고, 거부된 시도는 payload human_history 에 남긴다(리뷰 3, PM 11-24).
 """
 
+from datetime import UTC, datetime
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.store import delays, my_rules, scenarios
-from app.store.tables import Approval, Scenario
+from app.store.tables import Approval, FieldItem, Scenario
 
 
 def _scenario(session: Session, row: Approval) -> Scenario | None:
@@ -30,11 +35,26 @@ def after_apply(session: Session, row: Approval) -> None:
                         condition_json=rule["condition"], approval_id=row.id, created_by=row.requested_by)
 
 
-def after_reject(session: Session, row: Approval) -> None:
+def _human_photo_back(session: Session, row: Approval, outcome: str) -> None:
+    photo = session.scalars(select(FieldItem).where(
+        FieldItem.approval_id == row.id, FieldItem.kind == "photo", FieldItem.response_choice == "human")).first()
+    if photo is None:
+        return
+    payload = dict(photo.payload_json or {})
+    tried = payload.pop("human_read", {})
+    payload["human_history"] = [*payload.get("human_history", []),
+                                {**tried, "outcome": outcome, "approval_id": row.id, "closed_at": datetime.now(UTC).isoformat()}]
+    photo.payload_json = payload
+    photo.status, photo.approval_id, photo.response_choice = "human_wait", None, "unread"
+    photo.reported_progress, photo.reported_rd = None, None
+
+
+def after_reject(session: Session, row: Approval, outcome: str = "rejected") -> None:
     scenario = _scenario(session, row)
     if scenario is not None:
         scenarios.set_status(session, scenario, "open")
+    _human_photo_back(session, row, outcome)
 
 
 def after_conflict(session: Session, row: Approval) -> None:
-    after_reject(session, row)
+    after_reject(session, row, "conflict")

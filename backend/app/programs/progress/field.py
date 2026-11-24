@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.agent import context
@@ -79,11 +79,13 @@ RETAKEN = "retaken"
 HUMAN = "human"  # response_choice: 사람이 넣은 진도
 HUMAN_READ_FORBIDDEN = "사진 사람 판독은 관리자만 할 수 있습니다(설정에서 사용자까지 넓힐 수 있습니다)."
 NOT_WAITING = "사람 판독을 기다리는 사진이 아닙니다."
-USE_HUMAN_READ = "사람 판독을 기다리는 사진은 사람 판독으로만 진도를 넣습니다."
+PHOTO_RESPOND = "사진 줄은 회신으로 진도를 넣지 않습니다 — AI 판독이나 사람 판독으로만 넣습니다."
+READINGS = ("verified", "risk", HUMAN)  # 승인함에 올릴 수 있는 사진 답: AI 판독(위험 있음·없음)·사람 판독
+VISION_V = 2  # 판독 스키마 표식(readable·진도 null 허용). 예전 줄(0% 를 남길 수 있던 스키마)과 가른다(리뷰 5)
 
 
 class VisionAnswer(BaseModel):
-    readable: bool = True
+    readable: bool  # 기본값 없음 — 빠지면 모델 답을 읽지 못한 것(BAD_ANSWER, 리뷰 6)
     unreadable_reason: str = ""
     progress: int | None = Field(ge=0, le=100)
     reason: str = Field(min_length=1)
@@ -376,7 +378,7 @@ def _list_out(session: Session, schedule_id: int, view: dict[str, Any]) -> Field
     summary = FieldSummary(
         checkin_total=len(checkins),
         checkin_responded=sum(1 for r in checkins if r.status in ("responded", "applied")),
-        photo_total=len(photos),
+        photo_total=sum(1 for r in photos if r.status not in (HUMAN_WAIT, RETAKE, RETAKEN)),  # 증빙: AI 가 못 읽은 사진은 빼고
         photo_human_wait=sum(1 for r in photos if r.status == HUMAN_WAIT),
         photo_retake=sum(1 for r in photos if r.status == RETAKE),
         poll_total=len(polls),
@@ -499,6 +501,7 @@ async def upload_photo(session: Session, schedule_id: int, body: PhotoUploadIn, 
         "ai_progress": answer.progress if answer else None,
         "evidence_tag": f"#{schedule_id}-{act['id']}-{day_tag}",
         "captured_at": f"{context.today().isoformat()} {datetime.now().strftime('%H:%M')}",
+        "vision_v": VISION_V,
     }
     if answer:
         payload |= {"ai_reason": answer.reason, "ai_risks": answer.risks}
@@ -533,20 +536,30 @@ async def upload_photo(session: Session, schedule_id: int, body: PhotoUploadIn, 
         )
     session.add(row)
     session.flush()
-    for old in session.scalars(select(FieldItem).where(  # 같은 작업 사진을 다시 올리면 다시 찍기 요청 줄을 닫는다
+    for old in list(session.scalars(select(FieldItem).where(  # 같은 작업 사진을 다시 올리면 다시 찍기 요청 줄을 닫는다
             FieldItem.schedule_id == schedule_id, FieldItem.kind == "photo", FieldItem.activity_id == act["id"],
-            FieldItem.status == RETAKE)):
-        old.status = RETAKEN
-        old.payload_json = {**old.payload_json, "retake": {**old.payload_json.get("retake", {}), "replaced_by": row.id}}
+            FieldItem.status == RETAKE))):
+        if _claim(session, old, (RETAKE,), RETAKEN):  # 그 사이 사람 판독이 먼저 가져갔으면 건드리지 않는다
+            old.payload_json = {**old.payload_json, "retake": {**old.payload_json.get("retake", {}), "replaced_by": row.id}}
     session.commit()
     return _list_out(session, schedule_id, view)
 
 
-def _waiting_photo(session: Session, schedule_id: int, item_id: int, user: User, *statuses: str) -> FieldItem:
+def _claim(session: Session, item: FieldItem, from_statuses: tuple[str, ...], to_status: str) -> bool:
+    """조건부 UPDATE 한 문으로 상태를 바꾼다 — DB 에서 아직 from_statuses 일 때만(리뷰 4: 읽고 쓰는 사이 다른 요청이 먼저 가져가면
+    False). 바꿨으면 item 을 DB 값으로 다시 읽는다. commit 은 부르는 쪽(실패하면 rollback 으로 되돌아간다)."""
+    done = session.execute(update(FieldItem).where(FieldItem.id == item.id, FieldItem.status.in_(from_statuses))
+                           .values(status=to_status).execution_options(synchronize_session=False)).rowcount == 1
+    session.refresh(item)
+    return done
+
+
+def _waiting_photo(session: Session, schedule_id: int, item_id: int, user: User, to_status: str) -> FieldItem:
+    """사람 판독할 수 있는 사람인지 보고, 기다리는 사진 줄(human_wait·retake)을 to_status 로 가져온다. 못 가져오면 422 not_waiting."""
     if not can_human_read(session, user.role):
         raise ApiError(403, "human_read_forbidden", HUMAN_READ_FORBIDDEN)
     item = _get_item(session, schedule_id, item_id)
-    if item.kind != "photo" or item.status not in statuses:
+    if item.kind != "photo" or not _claim(session, item, (HUMAN_WAIT, RETAKE), to_status):
         raise ApiError(422, "not_waiting", NOT_WAITING)
     return item
 
@@ -554,24 +567,27 @@ def _waiting_photo(session: Session, schedule_id: int, item_id: int, user: User,
 def human_read(session: Session, schedule_id: int, item_id: int, body: HumanReadIn, user: User) -> FieldListOut:
     """사람이 사진을 보고 진도·근거 한 줄을 넣는다 → 현장 보고와 같은 길(apply_item)로 승인함에 올린다(사유 human_read, 늘 기다림).
     AI 숫자(ai_progress)는 null 그대로 두고 사람 값은 payload human_read 와 reported_progress 에만 적는다. 넣은 사람이 승인해도 된다(PM 11-24)."""
-    item = _waiting_photo(session, schedule_id, item_id, user, HUMAN_WAIT, RETAKE)
-    act = next((a for a in _load_view(session, schedule_id)["activities"] if a["id"] == item.activity_id), {})
-    item.response_choice = HUMAN
-    item.reported_progress = body.progress
-    item.reported_rd = 0 if body.progress >= 100 else max(1, int(act.get("rd") or act.get("od") or 1))
-    item.response_note = body.reason
-    item.payload_json = {**item.payload_json, "human_read": {
-        "by": user.name, "by_id": user.id, "progress": body.progress, "reason": body.reason, "at": datetime.now(UTC).isoformat()}}
-    item.status = "responded"
-    return apply_item(session, schedule_id, item_id, user)
+    item = _waiting_photo(session, schedule_id, item_id, user, "responded")  # 먼저 가져오고(조건부 UPDATE) 승인 건을 만든다
+    try:
+        act = next((a for a in _load_view(session, schedule_id)["activities"] if a["id"] == item.activity_id), {})
+        item.response_choice = HUMAN
+        item.reported_progress = body.progress
+        item.reported_rd = 0 if body.progress >= 100 else max(1, int(act.get("rd") or act.get("od") or 1))
+        item.payload_json = {**item.payload_json, "human_read": {
+            "by": user.name, "by_id": user.id, "progress": body.progress, "reason": body.reason,
+            "at": datetime.now(UTC).isoformat()}}
+        return apply_item(session, schedule_id, item_id, user)
+    except ApiError:
+        session.rollback()  # 가져온 것도 되돌린다(다시 대기)
+        raise
 
 
 def retake(session: Session, schedule_id: int, item_id: int, body: RetakeIn, user: User) -> FieldListOut:
     """다시 찍어 달라는 요청을 그 사진 줄에 남긴다(올린 사람이 현장 점검 화면에서 본다). 문자는 화면이 연락 창(ContactButton)으로 보낸다."""
-    item = _waiting_photo(session, schedule_id, item_id, user, HUMAN_WAIT, RETAKE)
-    item.status = RETAKE
-    item.payload_json = {**item.payload_json, "retake": {
-        "by": user.name, "by_id": user.id, "reason": body.reason, "at": datetime.now(UTC).isoformat()}}
+    item = _waiting_photo(session, schedule_id, item_id, user, RETAKE)
+    asked = {"by": user.name, "by_id": user.id, "reason": body.reason, "at": datetime.now(UTC).isoformat()}
+    # 마지막 요청은 retake(화면이 본다), 앞선 요청까지 모두 retakes 에 쌓는다(덮어쓰지 않는다, 리뷰 6)
+    item.payload_json = {**item.payload_json, "retake": asked, "retakes": [*item.payload_json.get("retakes", []), asked]}
     session.commit()
     return _list_out(session, schedule_id, _load_view(session, schedule_id))
 
@@ -609,8 +625,8 @@ def _get_item(session: Session, schedule_id: int, item_id: int) -> FieldItem:
 def respond_item(session: Session, schedule_id: int, item_id: int, body: RespondIn) -> FieldListOut:
     view = _load_view(session, schedule_id)
     item = _get_item(session, schedule_id, item_id)
-    if item.kind == "photo" and item.status in (HUMAN_WAIT, RETAKE):
-        raise ApiError(422, "photo_human_read", USE_HUMAN_READ)
+    if item.kind == "photo":  # 사진 줄은 회신을 받지 않는다(화면도 쓰지 않는다) — respond→apply 우회를 막는다(리뷰 1)
+        raise ApiError(422, "photo_respond", PHOTO_RESPOND)
     item.response_choice = body.response_choice
     if body.reported_progress is not None:
         item.reported_progress = body.reported_progress
@@ -661,9 +677,9 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
     """현장 회신/사진/의견을 실제 승인함(Approval) · 내 규칙 제안으로 반영."""
     view = _load_view(session, schedule_id)
     item = _get_item(session, schedule_id, item_id)
-    if item.approval_id is not None:
-        return _list_out(session, schedule_id, view)
-    if item.kind == "photo" and (item.reported_progress is None or legacy_photo(item)):
+    if item.approval_id is not None or (item.kind == "photo" and item.status == "applied"):
+        return _list_out(session, schedule_id, view)  # 이미 올렸거나, 기록과 같아 확인만 한 사람 판독
+    if item.kind == "photo" and (item.response_choice not in READINGS or item.reported_progress is None or legacy_photo(item)):
         raise ApiError(422, "photo_unread", "판독하지 않은 사진은 승인함에 올릴 수 없습니다.")
 
     record = get_record(session, schedule_id)
@@ -754,7 +770,15 @@ def apply_item(session: Session, schedule_id: int, item_id: int, user: User) -> 
         if notes:  # 승인함 요약에 보인다(화면 approvals/ApprovalDetail 의 알릴 것)
             summary = approval_row.summary_json
             approval_row.summary_json = {**summary, "notes": [*(summary.get("notes") or []), *notes]}
-    except ProposalError:
+    except ProposalError as e:
+        if human:  # 사람 판독은 내 규칙 건으로 바꾸지 않는다(리뷰 2)
+            if e.code != "no_change":
+                raise ApiError(422, e.code, e.message) from None
+            # 지금 기록과 같다 — 일정이 바뀌지 않으니 승인 건 없이 「확인한 사람 판독」으로 사진 줄에만 남긴다
+            item.payload_json = {**item.payload_json, "human_read": {**human, "no_change": True}}
+            item.status = "applied"
+            session.commit()
+            return _list_out(session, schedule_id, view)
         # 진도 수치 변화 없이 증빙·체크인만 확정할 때는 현장 확인 규칙 건으로 승인함에 남긴다.
         note_rule = f"[현장 확인] {item.activity_id} {item.activity_name} — {item.response_note or '현황 확인 완료'}"[:190]
         cond = Condition(f"mine.{secrets.token_hex(3)}", "mine", "text_only", {}, note_rule, "현장 모바일 확인")

@@ -79,7 +79,7 @@ def test_delayed_checkin_raises_only_its_approval_and_no_delay_event(client, adm
 
 def test_photo_is_read_by_the_vision_model_once(client, admin, session, sid, liner):
     """F1: 사진이 있으면 그림 읽기(vision) 모델을 한 번 불러 그 답의 진도·까닭을 카드에 넣고 llm_calls 에 남긴다."""
-    liner.push(chat_body(json.dumps({"progress": 40, "reason": "철근 배근은 끝났고 거푸집은 절반쯤 섰다.", "risks": []})))
+    liner.push(chat_body(json.dumps({"readable": True, "unreadable_reason": "", "progress": 40, "reason": "철근 배근은 끝났고 거푸집은 절반쯤 섰다.", "risks": []})))
 
     r = _upload(client, admin, sid, photo_data_url=PHOTO)
 
@@ -189,7 +189,7 @@ def test_a_phone_photo_shrunk_to_1280px_fits_the_upload_limit(client, admin, sid
     한도는 그림 읽기 한도(agent.image_turn.IMAGE_MAX_BYTES, 5MiB) 안이다."""
     from app.agent.image_turn import IMAGE_MAX_BYTES
 
-    liner.push(chat_body(json.dumps({"progress": 40, "reason": "철근 배근은 끝났다.", "risks": []})))
+    liner.push(chat_body(json.dumps({"readable": True, "unreadable_reason": "", "progress": 40, "reason": "철근 배근은 끝났다.", "risks": []})))
     big = "data:image/jpeg;base64," + "A" * 1_000_000
     r = _upload(client, admin, sid, photo_data_url=big)
     assert r.status_code == 200, r.json()

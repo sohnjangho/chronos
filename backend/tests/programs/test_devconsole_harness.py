@@ -183,7 +183,7 @@ def test_photo_reading_makes_no_percentage_without_a_model_answer(client, admin)
 
 def test_photo_harness_fails_when_a_number_is_made_up(client, admin, monkeypatch):
     async def made_up(session, act, data_url, note):
-        return field.VisionAnswer(progress=95, reason="완료", risks=[]), None
+        return field.VisionAnswer(readable=True, progress=95, reason="완료", risks=[]), None
 
     monkeypatch.setattr(field, "_read_photo", made_up)
     body = harness_test(client, admin, "H-FLD-01")
