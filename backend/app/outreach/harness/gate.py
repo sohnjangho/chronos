@@ -52,7 +52,7 @@ from sqlalchemy.orm import Session
 
 from app import db
 from app.core.model import CalendarSpec
-from app.outreach import hours, phone
+from app.outreach import hours, phone, sms_text
 from app.outreach.harness import events, registry
 from app.outreach.harness.types import (
     DELIVERY_VERDICT,
@@ -630,8 +630,11 @@ def _closed_unsure_after(log: object, ended_at: datetime | None, since: datetime
 
 
 def _text(row: OutreachMessage, body: str, lane: str) -> tuple:
-    """「같은 글」의 열쇠: 앞뒤 공백을 정리한 글. 카카오톡은 글이 문안에서 나오므로 문안과 채울 값도 함께."""
-    return (body.strip(), row.template_id, row.template_vars_json) if lane == "kakao" else (body.strip(),)
+    """「같은 글」의 열쇠: 앞뒤 공백을 정리한 글. 카카오톡은 글이 문안에서 나오므로 문안과 채울 값도 함께. 문자는 실제로
+    나가는 글(sms_text.sms_safe — 문자 통로가 줄에 바꿔 적는다)끼리 견준다."""
+    if lane == "kakao":
+        return body.strip(), row.template_id, row.template_vars_json
+    return (sms_text.sms_safe(body).strip(),) if lane == "sms" else (body.strip(),)
 
 
 # ── 통로 결과 ────────────────────────────────────────────────────────

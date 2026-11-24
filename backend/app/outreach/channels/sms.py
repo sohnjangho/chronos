@@ -14,8 +14,9 @@
   그 사이 바뀌었으면 보내지 않는다). 수신 거부 확인 문자(kind dnc_confirm, 글이 gate.DNC_CONFIRM_TEXT)만은 문이 한 번
   지나보낸 것이므로 수신 거부 하나만으로는 막지 않는다 — 시험 모드·차단은 그대로 막는다(들어오는 문의 등급으로 가른다).
 - 중복 방지 키는 줄의 `idempotency_key` — 줄마다 하나, 그 줄의 모든 시도에 같은 값.
-- 보내기 전에 줄에 `length_kind` 를 적는다(한글 2·영문 1 로 SMS_BYTES 까지 sms, 넘으면 long). `provider_cost` 는 비워 둔다
-  (제공사가 메시지마다의 요금을 주지 않는다).
+- 보내기 전에 줄의 글을 제공사가 실을 수 있는 글(`sms_text.sms_safe` — CP949 밖 글자를 바꾸거나 뺀 것)로 바꿔 적고(줄에는
+  받는 사람이 본 글이 남는다), `length_kind` 를 적는다(그 글의 CP949 바이트로 SMS_BYTES 까지 sms, 넘으면 long).
+  `provider_cost` 는 비워 둔다(제공사가 메시지마다의 요금을 주지 않는다).
 - DB 묶음(줄 읽기·length_kind 적기)은 스레드에서 새 세션으로 하고 commit·닫은 뒤에 제공사를 부른다.
 - 이 모듈을 불러오면 `registry.register_channel("sms", CHANNEL)` — 객체는 프로세스에 하나(다시 불러와도 같은 객체).
 """
@@ -30,7 +31,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.outreach import phone, provider
+from app.outreach import phone, provider, sms_text
 from app.outreach.harness import door, gate, registry
 from app.outreach.harness.types import Delivered
 from app.store import outreach
@@ -38,7 +39,7 @@ from app.store.tables_outreach import Contact, OutreachMessage
 
 logger = logging.getLogger(__name__)
 
-SMS_BYTES = 90  # 이 바이트까지 한 건(sms). 한글 2·영문 1 로 센다
+SMS_BYTES = 90  # 이 바이트까지 한 건(sms). 제공사처럼 CP949 바이트로 센다(한글 2·영문 1)
 NOT_SENDABLE = "not_sendable"  # 문이 차지한 문자 줄이 아니다
 NOT_REACHABLE = "not_reachable"  # 보내기 바로 전에 다시 보니 그 번호에 닿으면 안 된다(또는 번호가 없다·정리된 꼴이 아니다)
 LOCAL_ERROR = "local_error"  # 보내기 전에 우리 DB 를 읽거나 쓰지 못했다
@@ -46,8 +47,8 @@ _CODES = {"timeout": "network"}  # 제공사 호출의 code → 문이 문장을
 
 
 def length_kind(body: str) -> Literal["sms", "long"]:
-    """글 한 건의 길이 종류: 한글(ASCII 밖) 2·영문 1 바이트로 세어 SMS_BYTES 까지 sms, 넘으면 long."""
-    return "sms" if sum(1 if ord(ch) < 128 else 2 for ch in body) <= SMS_BYTES else "long"
+    """글 한 건의 길이 종류: 실제로 나갈 글(sms_text.sms_safe)의 CP949 바이트로 세어 SMS_BYTES 까지 sms, 넘으면 long."""
+    return "sms" if len(sms_text.sms_safe(body).encode("cp949")) <= SMS_BYTES else "long"
 
 
 def _reachable(session: Session, row: OutreachMessage, number: str) -> bool:
@@ -65,7 +66,7 @@ def _prepare(row_id: int) -> Delivered | tuple[provider.Provider, provider.Messa
         with contextmanager(get_session)() as session:
             row = session.get(OutreachMessage, row_id)
             if (row is None or row.direction != "out" or row.status != "sending" or row.channel != "sms"
-                    or not row.body.strip()):
+                    or not sms_text.sms_safe(row.body).strip()):
                 return Delivered("failed", fail_code=NOT_SENDABLE)
             contact = session.get(Contact, row.contact_id) if row.contact_id is not None else None
             stored = contact.phone if contact is not None else row.peer_number
@@ -76,6 +77,7 @@ def _prepare(row_id: int) -> Delivered | tuple[provider.Provider, provider.Messa
             conn = outreach.connection(session)
             if conn is None or not conn.sender_number:
                 return Delivered("failed", fail_code="bad_sender")
+            row.body = sms_text.sms_safe(row.body)  # 줄에는 실제로 나가는 글을 남긴다
             request = provider.MessageRequest(channel="sms", to=number, sender=conn.sender_number, body=row.body,
                                               idempotency_key=row.idempotency_key)
             client = provider.client_for(conn)

@@ -351,7 +351,8 @@ async def test_database_trouble_before_sending_is_a_clean_failure(session, sid, 
 
 @pytest.mark.parametrize(("body", "kind"), [
     ("가" * 45, "sms"), ("가" * 46, "long"), ("a" * 90, "sms"), ("a" * 91, "long"), ("가" * 44 + "ab", "sms"),
-    ("가" * 44 + "abc", "long"),
+    ("가" * 44 + "abc", "long"), ("가" * 44 + "\u2014a", "sms"),  # 줄표는 「-」로 바꾼 뒤(1바이트) 센다
+    ("가" * 45 + "\U0001f477", "sms"), ("가" * 44 + "\u2026", "long"),  # 그림 글자는 빠지고, 「…」는 「...」(3바이트)
 ])
 async def test_length_kind_is_recorded(session, sid, fake_provider, body, kind):
     """한글 2·영문 1 로 90바이트까지 sms, 넘으면 long. 요금 칸은 비워 둔다(제공사가 메시지마다 주지 않는다)."""
@@ -363,6 +364,17 @@ async def test_length_kind_is_recorded(session, sid, fake_provider, body, kind):
 
     row = reread(session, row)
     assert row.length_kind == kind and row.provider_cost is None
+
+
+async def test_row_keeps_the_text_that_actually_went_out(session, sid, fake_provider):
+    """제공사가 못 싣는 글자는 바꿔 보내고, 줄에도 바꾼 글을 남긴다 — 화면은 받는 사람이 본 글을 보인다."""
+    connect(session)
+    row, _ = leaving(session, sid, body="8시 \u2014 타설 \u201c확인\u201d \U0001f477")
+
+    assert (await sms.SmsChannel().deliver(row.id)).ok
+
+    [req] = fake_provider.sent
+    assert req.body == reread(session, row).body == '8시 - 타설 "확인" '
 
 
 # ── 제공사를 부르는 동안 DB 를 쥐지 않는다 ────────────────────────────
@@ -403,6 +415,27 @@ async def test_gate_sends_through_the_real_channel(session, sid, fake_provider):
     assert out.code == "accepted" and (row.status, row.provider_message_id, row.length_kind) == ("accepted", "FAKE0001", "sms")
     assert trail(session, row) == [("channel_choice", "allowed"), ("delivery", "allowed")]
     assert len(fake_provider.sent) == 1
+
+
+@pytest.mark.real_channel("sms")
+async def test_same_text_with_a_swapped_character_is_still_a_twin(session, sid, fake_provider):
+    """줄에는 바꾼 글이 남지만 「같은 글」은 바꾼 글끼리 견준다 — 줄표 든 글을 두 번 눌러도 한 번만 나간다."""
+    connect(session)
+    who = person(session, sid)
+    first, second = message(session, who, body="8시 \u2014 타설"), message(session, who, body="8시 \u2014 타설")
+    session.commit()
+
+    assert (await send(first, USER, WORK)).code == "accepted"
+    assert (await send(second, USER, WORK)).code == "duplicate"
+    assert len(fake_provider.sent) == 1
+
+
+async def test_text_that_is_empty_once_swapped_is_not_sent_and_kept_as_written(session, sid, fake_provider):
+    connect(session)
+    row, _ = leaving(session, sid, body="\U0001f477\u200b")
+
+    assert await sms.SmsChannel().deliver(row.id) == Delivered("failed", fail_code=sms.NOT_SENDABLE)
+    assert fake_provider.sent == [] and reread(session, row).body == "\U0001f477\u200b"
 
 
 @pytest.mark.real_channel("sms")

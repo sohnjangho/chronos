@@ -21,7 +21,7 @@ import pytest
 
 from app.info.generic import key_survives
 from app.notify import diagnostics
-from app.outreach import phone, provider, redact
+from app.outreach import phone, provider, redact, sms_text
 from app.outreach.provider import (
     RECEIVED_MAX_PAGES,
     RECEIVED_MAX_REQUESTS,
@@ -220,6 +220,31 @@ async def test_incomplete_request_is_refused_before_any_call(req):
     assert e.code == "bad_request" and mock.requests == [] and e.maybe_sent is False and e.http_status is None
     fake = FakeProvider()  # 가짜도 같은 검사를 한다
     assert (await failure(fake.send_message(req))).code == "bad_request" and fake.sent == []
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("8시 \u2014 타설", "8시 - 타설"), ("a\u2013b\u2015c\u2012d", "a-b-c-d"),
+    ("\u2018네\u2019 \u201a", "'네' '"), ("\u201c확인\u201d \u201e", '"확인" "'), ("잠시만\u2026", "잠시만..."),
+    ("8\u00a0시\u2009반\u202f끝\u2002.", "8 시 반 끝 ."), ("타\u200b설\u200c\u200d\u2060\ufeff", "타설"),
+    ("확인 부탁드립니다 \U0001f64f\U0001f477", "확인 부탁드립니다 "), ("깨진\ud800글", "깨진글"),
+    ("3층·4층 「타설」 ※ 우천 ○ ☆ 줄\n바꿈", "3층·4층 「타설」 ※ 우천 ○ ☆ 줄\n바꿈"),  # KS X 1001 기호·한글은 그대로
+])
+def test_sms_safe_swaps_or_drops_what_the_provider_cannot_carry(text, expected):
+    out = sms_text.sms_safe(text)
+    assert out == expected
+    out.encode("cp949")  # 제공사는 EUC-KR(CP949)로 싣는다 — 늘 바꿀 수 있다
+    assert sms_text.sms_safe(out) == out  # 두 번 거쳐도 같다
+
+
+async def test_sms_and_fallback_text_go_out_in_what_the_provider_can_carry():
+    mock = KatMock()
+    await KatClient(CONN, transport=mock).send_message(sms(body="8시 \u2014 타설 \U0001f477"))
+    await KatClient(CONN, transport=mock).send_message(kakao(fallback_sms=True, fallback_body="\u201c확인\u201d\u2026"))
+    first, second = (json.loads(r.content) for r in mock.requests)
+    assert first["Body"] == "8시 - 타설 " and second["Fallback"] == {"Body": '"확인"...'}
+    with pytest.raises(ProviderFailed) as caught:  # 바꾸고 나니 빈 글이면 보내지 않는다
+        provider._message_body(sms(body="\U0001f477\u200b"))
+    assert caught.value.code == "bad_request"
 
 
 @pytest.mark.parametrize("key", ["idem-0001", "a" * 8, "A_b-9" * 12 + "abcd", "0f8fad5bd9cb469fa16570867728950e"])

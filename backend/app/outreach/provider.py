@@ -67,6 +67,7 @@ import httpx
 from app.info import generic
 from app.notify import diagnostics
 from app.outreach import phone, redact
+from app.outreach.sms_text import sms_safe
 from app.security import crypto
 from app.store.tables_outreach import NotifyConnection
 
@@ -371,16 +372,17 @@ def _http_failure(status: int, data: object, label: str, *, on_item: bool, maybe
 
 
 def _message_body(req: MessageRequest) -> dict:
-    """보내기 본문. 모자라거나 보낼 꼴이 아니면 ProviderFailed(bad_request) — 요청 전. 가짜(FakeProvider)도 이것을 거친다."""
+    """보내기 본문. 모자라거나 보낼 꼴이 아니면 ProviderFailed(bad_request) — 요청 전. 가짜(FakeProvider)도 이것을 거친다.
+    문자 글(알림톡의 대신 나갈 문자 포함)은 `sms_safe`(CP949 밖 글자를 바꾸거나 뺀 것)로 싣는다."""
     if not all(isinstance(v, str) and v for v in (req.to, req.sender)):
         raise ProviderFailed("bad_request", "받는 번호와 발신번호가 모두 있어야 보냅니다.")
     if not isinstance(req.idempotency_key, str) or not _IDEMPOTENCY.fullmatch(req.idempotency_key):
         raise ProviderFailed("bad_request", "중복 방지 키가 없거나 쓸 수 없는 꼴입니다(영문·숫자·_·- 8~64자).")
     body: dict = {"To": req.to, "From": req.sender, "IdempotencyKey": req.idempotency_key}
     if req.channel == "sms":
-        if not isinstance(req.body, str) or not req.body:
+        if not isinstance(req.body, str) or not sms_safe(req.body):
             raise ProviderFailed("bad_request", "보낼 글이 비어 있습니다.")
-        return {**body, "Body": req.body}  # Type 은 뺀다 — 제공사가 길이로 sms/lms 를 고른다
+        return {**body, "Body": sms_safe(req.body)}  # Type 은 뺀다 — 제공사가 길이로 sms/lms 를 고른다
     if req.channel == "kakao":
         if not all(isinstance(v, str) and v for v in (req.kakao_channel, req.template_code)):
             raise ProviderFailed("bad_request", "알림톡은 채널과 문안이 있어야 보냅니다.")
@@ -390,8 +392,8 @@ def _message_body(req: MessageRequest) -> dict:
         body["Kakao"] = {"ChannelId": req.kakao_channel, "TemplateId": req.template_code, "Variables": dict(variables)}
         if not req.fallback_sms:
             body["Fallback"] = {"Disabled": True}  # 빼면 제공사가 문자로 대신 보낸다
-        elif isinstance(req.fallback_body, str) and req.fallback_body:
-            body["Fallback"] = {"Body": req.fallback_body}
+        elif isinstance(req.fallback_body, str) and sms_safe(req.fallback_body):
+            body["Fallback"] = {"Body": sms_safe(req.fallback_body)}  # 대신 나가는 문자도 CP949 로 실린다
         return body
     raise ProviderFailed("bad_request", "이 통로로는 보낼 수 없습니다.")
 
