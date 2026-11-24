@@ -792,3 +792,48 @@ test('the client time limit covers the server ceilings of every chunk plus the s
   expect(limitMs('inbound', { steps: ['P12', 'P13'], inbound: true }, 10)).toBe((121 + 10 + 28 + 30) * 1000);
   expect(limitMs('inbound', { inbound: true }, 90)).toBe((121 + 90 + 28 + 89 + 90 + 28 + 30) * 1000); // 셋을 한 번에
 });
+
+// ── 고침 4: [받는 통화 확인]은 위 단추 줄에 · 꺼진 까닭은 단추 바로 옆에 ──
+
+const SWITCH_WHY = '「실제 통화 포함」을 켜면 누를 수 있습니다 — 실제 전화 한 번 뒤에는 저절로 꺼집니다';
+
+test('받는 통화 확인 sits in the top button row next to 시험 전화, not in the result group', async () => {
+  open();
+  const b = await findBlock();
+  const inbound = within(b).getByRole('button', { name: '받는 통화 확인' });
+  expect(inbound.closest('.st-actions')).toBe(within(b).getByRole('button', { name: '시험 전화' }).closest('.st-actions'));
+  expect(within(results()).queryByRole('button', { name: '받는 통화 확인' })).toBeNull();
+});
+
+test('while the switch is off the reason is written right by the two call buttons, and goes away when it is on', async () => {
+  open();
+  const b = await findBlock();
+  const why = within(b).getByText(SWITCH_WHY);
+  expect(why).toBeVisible();
+  for (const name of ['시험 전화', '받는 통화 확인']) {
+    const button = within(b).getByRole('button', { name });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(SWITCH_WHY);
+    expect(button.closest('.st-actions')?.nextElementSibling).toBe(why); // 단추 줄 바로 아래
+  }
+  await userEvent.click(within(b).getByRole('switch', { name: /실제 통화 포함/ }));
+  expect(within(b).queryByText(SWITCH_WHY)).toBeNull();
+  expect(within(b).getByRole('button', { name: '받는 통화 확인' })).toBeEnabled();
+});
+
+test('a blocking reason (no allowed number) is the one written by the buttons', async () => {
+  open({ [LIST]: [conn({ allow_numbers: [], test_sms_index: null })], [VOICE]: voice({ test_call_index: null }) });
+  const b = await findBlock();
+  expect(within(b).getByRole('button', { name: '받는 통화 확인' })).toHaveAccessibleDescription(/허용 번호를 먼저 넣어 주세요/);
+  expect(within(b).queryByText(SWITCH_WHY)).toBeNull();
+});
+
+test('after a real call the switch turns itself off and the reason shows again by the buttons', async () => {
+  const done = diag({ P6: { ok: true, skipped: false, code: 'ok', detail: '통화가 연결됐습니다.' } }, { part: 'call', called_real: true });
+  open({ [`POST ${VOICE}/diagnose`]: done });
+  const b = await findBlock();
+  await askReal(b, '시험 전화');
+  await userEvent.click(within(within(b).getByRole('group', { name: '실제 통화 확인' })).getByRole('button', { name: '전화 걸기' }));
+  await waitFor(() => expect(within(b).getByRole('switch', { name: /실제 통화 포함/ })).not.toBeChecked());
+  expect(await within(b).findByText(SWITCH_WHY)).toBeVisible();
+});

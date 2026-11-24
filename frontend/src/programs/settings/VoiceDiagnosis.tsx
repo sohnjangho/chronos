@@ -1,5 +1,5 @@
 // 「AI 전화」 음성 진단: 세 단추(연결 확인 · 시험 전화 · 받는 통화)와 P5~P14 걸음 줄, 실제 통화 확인 창, 도는 중 표시.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../../shared/api';
 import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
@@ -21,6 +21,7 @@ import {
 export const SDK_BAND = '음성 SDK 가 설치돼 있지 않습니다 — 설치는 PM 승인 뒤에 합니다';
 const EXTRA_BAND = '고른 음성 모델에 필요한 묶음이 설치돼 있지 않습니다 — 설치는 PM 승인 뒤에 합니다';
 const CALL_UNSURE = '전화가 걸렸는지 확인 필요 — 요청이 끝나지 않았습니다. 휴대전화를 확인해 주세요. 다시 누르면 또 걸릴 수 있습니다.';
+const SWITCH_OFF = '「실제 통화 포함」을 켜면 누를 수 있습니다 — 실제 전화 한 번 뒤에는 저절로 꺼집니다';
 const CALL_UNKNOWN = '확인 필요 — 시험 전화가 걸렸는지·끊겼는지 모릅니다. 휴대전화를 확인해 주세요. 다시 누르면 또 걸릴 수 있습니다.';
 
 /** 아직 돌리지 않은 줄의 이름(진단 모듈의 이름과 같다). 돌린 줄은 서버 글을 쓴다. */
@@ -400,8 +401,8 @@ function CallRecords({ calls }: { calls: CallRecord[] }) {
 }
 
 /**
- * 단추 줄([음성 진단][시험 전화] + 카드의 extra) · below(카드의 고치기 폼·지우기 확인) · 띠 · 「실제 통화 포함」 · 확인 창 · 도는 중 · 경고 ·
- * 세 묶음(걸음 줄, 받는 통화는 그 단추와 함께) · 시험 전화 기록.
+ * 단추 줄([음성 진단][시험 전화][받는 통화 확인] + 카드의 extra) · 실제 통화 단추가 꺼진 까닭(단추 바로 아래) · below(카드의 고치기 폼·지우기 확인) · 띠 · 「실제 통화 포함」 · 확인 창 · 도는 중 · 경고 ·
+ * 세 묶음(걸음 줄) · 시험 전화 기록.
  */
 export function VoiceDiagnostics({ conn, voice, d, r, hold, extra, below, callsBlocked }: {
   conn: NotifyConnection;
@@ -421,17 +422,29 @@ export function VoiceDiagnostics({ conn, voice, d, r, hold, extra, below, callsB
   const callUnknown = d.unsure || (d.diag?.state === 'done' && d.diag.call_unknown);
   const callOff = busy || !!callBlock || !r.real;
   const serverRunning = !d.running && d.diag?.state === 'running' ? d.diag : null;
+  // 실제 통화 단추가 꺼진 까닭 — 단추 바로 아래에(도는 중·확인 창 때문이면 그쪽 줄이 말한다)
+  const offWhy = callBlock ?? (!r.real ? SWITCH_OFF : null);
+  const whyId = useId();
+  const described = offWhy ? whyId : undefined;
   return (
     <>
       <div className="st-actions">
         <Button disabled={busy || !!why} onClick={() => void d.run('connection', [{ phase: null, body: {} }])}>
           음성 진단
         </Button>
-        <Button disabled={callOff || callUnknown} onClick={() => r.ask('call')}>
+        <Button disabled={callOff || callUnknown} aria-describedby={described} onClick={() => r.ask('call')}>
           시험 전화
+        </Button>
+        <Button disabled={callOff} aria-describedby={described} onClick={() => r.ask('inbound')}>
+          받는 통화 확인
         </Button>
         {extra}
       </div>
+      {offWhy && (
+        <p id={whyId} className="st-vc-call-why">
+          {offWhy}
+        </p>
+      )}
       {below}
       {band && (
         <div className="st-vc-band" role="note">
@@ -447,9 +460,10 @@ export function VoiceDiagnostics({ conn, voice, d, r, hold, extra, below, callsB
           <input type="checkbox" checked={r.p10} disabled={callOff} onChange={(e) => r.setP10(e.target.checked)} />
           <span>영어 첫마디(P10)도 — 한 통 더</span>
         </label>
-        <span className="st-muted st-nt-real-why">
-          {callBlock ?? '켜면 [시험 전화]·[받는 통화 확인]을 쓸 수 있습니다. 첫 허용 번호로만 걸고, 그 번호에서 걸려 온 전화만 받습니다.'}
-        </span>
+        {/* 막는 까닭은 단추 바로 아래에 이미 있다 — 여기서는 되풀이하지 않는다 */}
+        {!callBlock && (
+          <span className="st-muted st-nt-real-why">켜면 [시험 전화]·[받는 통화 확인]을 쓸 수 있습니다. 첫 허용 번호로만 걸고, 그 번호에서 걸려 온 전화만 받습니다.</span>
+        )}
       </div>
       {r.pending && <CallConfirm pending={r.pending} voice={voice} hold={hold} onGo={() => void r.go()} onCancel={r.cancel} />}
       {d.running && <RunningLine running={d.running} agent={voice.agent_number_effective_masked ?? 'AI 전화 번호'} wait={voice.call_limits.inbound_wait_default} />}
@@ -476,11 +490,7 @@ export function VoiceDiagnostics({ conn, voice, d, r, hold, extra, below, callsB
         <PartGroup title="시험 전화" part={GROUPS[1].part} ids={GROUPS[1].ids} diag={d.diag}>
           {d.diag?.state === 'done' && d.diag.part === 'call' && d.diag.called_real && <Badge tone="info">실제 전화 걸림</Badge>}
         </PartGroup>
-        <PartGroup title="받는 통화" part={GROUPS[2].part} ids={GROUPS[2].ids} diag={d.diag}>
-          <Button disabled={callOff} onClick={() => r.ask('inbound')}>
-            받는 통화 확인
-          </Button>
-        </PartGroup>
+        <PartGroup title="받는 통화" part={GROUPS[2].part} ids={GROUPS[2].ids} diag={d.diag} />
         <CallRecords calls={d.diag?.calls ?? []} />
       </section>
     </>
