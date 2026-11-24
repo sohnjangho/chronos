@@ -1,10 +1,12 @@
 """관리 포인트 바깥 위험(계획 5 B): 새 포인트마다 분야(schedule.domain)에 켜진 갈래만 찾아 한 줄씩 낸다.
 
 - 무엇을 찾을지는 LLM(light)이 액티비티 이름·WBS·자원·분야만 보고 고른다(weather_sensitive · materials · imported ·
-  supplier · why). 날짜·주소는 보이지 않는다. 답은 엄격히 읽고 목록 밖·모양이 틀린 값은 버린다.
+  trade · why). 날짜·주소는 보이지 않는다. 답은 엄격히 읽고 목록 밖·모양이 틀린 값은 버린다.
 - 날씨 = 기상청(info.weather 안의 조회 함수): ES 가 오늘부터 3일 안이면 단기예보, 뒤면 ES 달의 지난 n년 통계.
   프로젝트 주소(프로젝트 관리)가 없거나 기상청 지점을 모르면 skipped. 자재·환율 = Liner Search `include_knowledge: true`
-  (Premium Data — The World Bank 월별 금속, Xignite 환율). 업체 = Liner MCP `search_business` 첫 줄.
+  (Premium Data — The World Bank 월별 금속, Xignite 환율). 업체 = Liner MCP `search_business` 첫 줄을 자재·공종 낱말
+  (「알루미늄 커튼월 공급 동향」)로 찾는다 — 회사·사람 이름은 질의에 넣지 않는다(씨앗 협력사는 가상이라 비슷한 이름의 실제 회사
+  소식이 붙는다. 실제 회사라는 표시가 연락처에 생기기 전까지는 이름을 쓰지 않는다).
 - 숫자는 받은 표에서 코드가 읽고 계산한다. 없거나 숫자가 아니면 status none 「… · 바깥 자료 없음」(숫자 없음).
 - 결과는 근거 표에 출처와 함께 남긴다(날씨 mode weather, 나머지 mode knowledge, 대화 없음). 같은 질의를
   points_forecast_reuse_hours 시간 안에 했으면(성공만) 다시 부르지 않고 그 줄을 쓴다 — 30일 같은 주소 규칙은 쓰지 않는다.
@@ -19,11 +21,12 @@ import math
 import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Literal
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.model import Schedule
@@ -36,6 +39,7 @@ from app.store.evidence import KNOWLEDGE_MODE, WEATHER_MODE, recent, record_sear
 from app.store.schedules import load
 from app.store.settings import points_config, sources_for
 from app.store.tables import EvidenceItem, ProjectProfile, ScheduleRecord
+from app.store.tables_outreach import Contact, ContactCompany
 from app.tools.context import ToolError
 from app.tools.data import weather
 
@@ -57,7 +61,7 @@ TREND_MONTHS = 3
 HISTORY_YEARS = 10
 LLM_TIMEOUT_S = 30.0
 KNOWLEDGE_URL, KNOWLEDGE_HOST = "https://liner.com", "liner.com"  # Premium Data 표에는 링크가 없다
-_SUPPLIER, _WHY = 80, 120
+_TRADE, _WHY = 30, 120
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _PAIR = re.compile(r"\(([A-Z]{3})\)\s*to\s.*\(([A-Z]{3})\)")
 
@@ -66,7 +70,8 @@ SYSTEM = (
     "- weather_sensitive: 실외 작업이거나 비·눈·바람·추위에 멈추는 작업(타설·골조·외벽·방수·토공·양중 등)이면 true.\n"
     "- materials: 이 작업에 많이 드는 금속만, 목록 copper·aluminum·iron ore 에서(철근·철골은 iron ore). 없으면 [].\n"
     "- imported: 자재·장비를 외국에서 들여올 가능성이 크면 true(환율을 본다).\n"
-    "- supplier: 이름·자원에 업체 이름이 분명히 있으면 그 이름, 아니면 null. 지어내지 않는다.\n"
+    "- trade: 공급 소식을 볼 공종·제작 낱말 하나(예: 커튼월·창호·철골) — 이름·WBS 에 있는 낱말 그대로, 회사 이름은 "
+    "안 된다. 공급 걱정이 없으면 null.\n"
     "- why: 고른 까닭 한 줄(한국어)."
 )
 
@@ -88,8 +93,9 @@ class _Pick:
     weather_sensitive: bool
     materials: tuple[str, ...]
     imported: bool
-    supplier: str | None
-    why: str
+    supplier: str | None = None  # 늘 None — 업체 이름은 쓰지 않는다(옛 칸, 부르는 쪽 시험이 이 이름으로 만든다)
+    why: str = ""
+    trade: str | None = None  # 업체 갈래의 공종 낱말(이름·WBS 에 있는 것, 아는 회사·사람 이름과 겹치지 않음)
 
 
 @dataclass(frozen=True)
@@ -117,28 +123,28 @@ class _NotSent(Exception):
 def _schema() -> dict:
     props = {"weather_sensitive": {"type": "boolean"},
              "materials": {"type": "array", "items": {"type": "string", "enum": list(MATERIALS)}},
-             "imported": {"type": "boolean"}, "supplier": {"type": ["string", "null"]}, "why": {"type": "string"}}
+             "imported": {"type": "boolean"}, "trade": {"type": ["string", "null"]}, "why": {"type": "string"}}
     return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
 
 
-def _checked(parsed: object, seen: str) -> _Pick | None:
-    """엄격히 읽는다: 객체가 아니면 None. bool 이 아닌 값은 False, 목록 밖 자재는 버림. 업체 이름은 LLM 이 본 글(seen —
-    이름·WBS·자원)에 그대로 있을 때만, why 는 seen 에 없는 숫자가 있으면 버린다(지어낸 이름·숫자를 싣지 않는다)."""
+def _checked(parsed: object, seen: str, trade_from: str) -> _Pick | None:
+    """엄격히 읽는다: 객체가 아니면 None. bool 이 아닌 값은 False, 목록 밖 자재는 버림. trade 는 이름·WBS 글(trade_from)에
+    그대로 있을 때만, why 는 LLM 이 본 글(seen — 이름·WBS·자원)에 없는 숫자가 있으면 버린다(지어낸 낱말·숫자를 싣지 않는다)."""
     if not isinstance(parsed, dict):
         return None
     raw = parsed.get("materials")
     materials = tuple(dict.fromkeys(m for m in raw if isinstance(m, str) and m in MATERIALS)) if isinstance(
         raw, list) else ()
-    supplier = parsed.get("supplier")
-    supplier = (supplier.strip()[:_SUPPLIER] or None) if isinstance(supplier, str) else None
-    if supplier is not None and supplier.casefold() not in seen.casefold():
-        supplier = None
+    trade = parsed.get("trade")
+    trade = (trade.strip()[:_TRADE] or None) if isinstance(trade, str) else None
+    if trade is not None and trade.casefold() not in trade_from.casefold():
+        trade = None
     why = parsed.get("why")
     why = why.strip().splitlines()[0].strip()[:_WHY] if isinstance(why, str) and why.strip() else ""
     if any(n not in set(_NUMBER.findall(seen)) for n in _NUMBER.findall(why)):
         why = ""
     return _Pick(weather_sensitive=parsed.get("weather_sensitive") is True, materials=materials,
-                 imported=parsed.get("imported") is True, supplier=supplier, why=why)
+                 imported=parsed.get("imported") is True, why=why, trade=trade)
 
 
 def _brief(schedule: Schedule | None, point: Point, domain: str) -> dict:
@@ -161,10 +167,28 @@ async def _pick(session: Session, brief: dict) -> _Pick | None:
         logger.warning("관리 포인트 자료 고르기 실패 (%s)", type(exc).__name__)
         return None
     seen = " ".join([brief["name"], brief["wbs"], *brief["resources"]])
-    pick = _checked(reply.parsed, seen)
+    pick = _checked(reply.parsed, seen, " ".join([brief["name"], brief["wbs"]]))
     if pick is None:
         logger.warning("관리 포인트 자료 고르기 실패 (모양이 틀린 답)")
     return pick
+
+
+def _known_names(session: Session, schedule_id: int, schedule: Schedule | None) -> list[str]:
+    """질의에 넣지 않을 이름: 그 일정의 자원·협력사·연락처 사람 이름(가상일 수 있다)."""
+    names = [r.name for r in schedule.resources] if schedule is not None else []
+    names += session.scalars(select(ContactCompany.name).where(ContactCompany.schedule_id == schedule_id)).all()
+    names += session.scalars(select(Contact.name).where(Contact.schedule_id == schedule_id)).all()
+    return [n.strip().casefold() for n in names if n and len(n.strip()) >= 2]
+
+
+def _without_names(pick: _Pick | None, names: list[str], brief: dict) -> _Pick | None:
+    """trade 는 이름·WBS 글에서 아는 이름을 지운 나머지에 있어야 하고 아는 이름을 품지 않아야 한다(이름 조각도 막는다)."""
+    if pick is None or pick.trade is None:
+        return pick
+    t, rest = pick.trade.casefold(), f"{brief['name']} {brief['wbs']}".casefold()
+    for n in sorted(names, key=len, reverse=True):
+        rest = rest.replace(n, " ")
+    return pick if t in rest and not any(n in t for n in names) else replace(pick, trade=None)
 
 
 def _place(address: str) -> places.Place | None:
@@ -273,17 +297,18 @@ async def _fx(session: Session) -> _Found:
     return _Found(f"{FX_LABEL} · {NO_DATA}")
 
 
-async def _business(session: Session, supplier: str) -> _Found:
+async def _business(session: Session, label: str) -> _Found:
+    """label = 자재·공종 낱말(회사 이름 없음). 줄은 「{label} · {출처 제목} · {호스트}」 — 회사 이름은 출처 제목에 있을 때만."""
     try:
-        result = await mcp_client.field_search(session, f"{supplier} 납기 공급", "business", max_results=3)
+        result = await mcp_client.field_search(session, label, "business", max_results=3)
     except SearchNotReady:
         raise _NotSent from None
     except SearchFailed as e:
         raise _Failed(e.code) from None
     if not result.hits:
-        return _Found(f"{supplier} · {NO_DATA}")
+        return _Found(f"{label} · {NO_DATA}")
     first = result.hits[0]
-    return _Found(f"{first.title} · {first.hostname}", first.date, first.hostname, first)
+    return _Found(f"{label} · {first.title} · {first.hostname}", first.date, first.hostname, first)
 
 
 # ── 재사용·기록 ─────────────────────────────────────────────────────────
@@ -369,9 +394,11 @@ def _jobs(session: Session, point: Point, pick: _Pick, on: set[str], address: st
     if "fx" in on and pick.imported:
         out.append(_Job(point.activity_id, "fx", KNOWLEDGE_MODE, FX_QUERY, f"{FX_LABEL} · {NO_DATA}",
                         lambda: _fx(session), pick.why))
-    if "business" in on and pick.supplier:
-        out.append(_Job(point.activity_id, "business", KNOWLEDGE_MODE, f"business: {pick.supplier}",
-                        f"{pick.supplier} · {NO_DATA}", lambda s=pick.supplier: _business(session, s), pick.why))
+    if "business" in on and pick.trade:
+        metal = f"{MATERIAL_NAMES[pick.materials[0]]} " if pick.materials else ""
+        label = f"{metal}{pick.trade} 공급 동향"
+        out.append(_Job(point.activity_id, "business", KNOWLEDGE_MODE, f"business: {label}", f"{label} · {NO_DATA}",
+                        lambda q=label: _business(session, q), pick.why))
     return out
 
 
@@ -397,7 +424,9 @@ async def look(session: Session, schedule_id: int, version: int, points: Sequenc
         schedule = None
     profile = session.get(ProjectProfile, schedule_id)
     address = profile.site_address if profile is not None else ""
-    picks = [(p, await _pick(session, _brief(schedule, p, domain))) for p in chosen]
+    briefs = [(p, _brief(schedule, p, domain)) for p in chosen]
+    names = _known_names(session, schedule_id, schedule)
+    picks = [(p, _without_names(await _pick(session, brief), names, brief)) for p, brief in briefs]
     if outdoor is not None:
         outdoor.update({p.activity_id: pick.weather_sensitive for p, pick in picks if pick is not None})
     today = weather._now().date()

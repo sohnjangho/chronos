@@ -28,6 +28,7 @@ from app.store.tables import (
     ScheduleRecord,
     Setting,
 )
+from app.store.tables_outreach import Contact, ContactCompany
 from app.tools.data import weather
 from tests import kma_doubles
 from tests.kma_doubles import KmaMock, asos_day, fcst, ok_body
@@ -39,9 +40,9 @@ SAMPLE = json.loads((Path(__file__).parent.parent / "fixtures" / "liner_knowledg
 NOW = datetime(2026, 11, 24, 17, 30, tzinfo=kma.KST)
 SOON = Point("A", "3층 슬래브 타설", True, 0, date(2026, 11, 25), date(2026, 11, 26))
 LATER = Point("A", "3층 슬래브 타설", True, 0, date(2026, 12, 10), date(2026, 12, 14))
-ALL = {"weather_sensitive": True, "materials": ["aluminum", "copper"], "imported": True, "supplier": "한빛창호",
+ALL = {"weather_sensitive": True, "materials": ["aluminum", "copper"], "imported": True, "trade": "골조",
        "why": "실외 타설이고 알루미늄 창호를 들여온다"}
-NOTHING = {"weather_sensitive": False, "materials": [], "imported": False, "supplier": None, "why": "실내 작업"}
+NOTHING = {"weather_sensitive": False, "materials": [], "imported": False, "trade": None, "why": "실내 작업"}
 NO_DATA = "바깥 자료 없음"
 
 
@@ -149,7 +150,7 @@ async def test_off_sources_are_not_called(session, fakes):
     risks = await risk.look(session, sid, 1, [SOON])
     assert "weather" not in _by_kind(risks) and len(fakes.kma.requests) == 0
     other = _schedule(session, domain="software")  # 업체만
-    fakes.classify({**ALL, "supplier": "다른창호"})  # 같은 업체면 6시간 재사용이라 부르지 않는다
+    fakes.classify({**ALL, "materials": []})  # 같은 질의면 6시간 재사용이라 부르지 않는다 — 질의를 바꾼다
     before = fakes.calls()
     risks = await risk.look(session, other, 1, [SOON])
     assert [r.kind for r in risks] == ["business"]
@@ -187,7 +188,7 @@ async def test_nothing_chosen_means_no_lookups(session, fakes):
 async def test_off_list_answers_are_dropped(session, fakes):
     sid = _schedule(session)
     fakes.classify({"weather_sensitive": "yes", "materials": ["aluminum", "steel rebar", "Copper", "aluminum", 3],
-                    "imported": 1, "supplier": "  ", "why": "첫 줄\n둘째 줄", "extra": "더"})
+                    "imported": 1, "trade": "  ", "why": "첫 줄\n둘째 줄", "extra": "더"})
     risks = await risk.look(session, sid, 1, [SOON])
     assert [(r.kind, r.line.split(" ")[0]) for r in risks] == [("materials", "알루미늄")]
     assert risks[0].why == "첫 줄"
@@ -202,13 +203,14 @@ async def test_unusable_llm_reply_gives_nothing(session, fakes, reply):
     assert fakes.calls() == (0, 0, 0)
 
 
-@pytest.mark.parametrize("supplier,why,kept", [
-    ("한빛창호", "3층 타설에 한빛창호 창호가 든다", ("한빛창호", "3층 타설에 한빛창호 창호가 든다")),  # 글에 있는 이름·숫자
+@pytest.mark.parametrize("trade,why,kept", [
+    ("골조", "3층 타설 골조라 공급을 본다", ("골조", "3층 타설 골조라 공급을 본다")),  # 이름·WBS 에 있는 낱말·숫자
+    ("커튼월", "3층 타설", (None, "3층 타설")),  # 이름·WBS 에 없는 공종 낱말은 버린다
     ("대한알루미늄", "강수확률 70% 라서", (None, "")),  # 본 글에 없는 업체·숫자는 버린다
 ])
-async def test_supplier_and_why_must_come_from_what_llm_saw(session, fakes, supplier, why, kept):
+async def test_trade_and_why_must_come_from_what_llm_saw(session, fakes, trade, why, kept):
     sid = _schedule(session)
-    fakes.classify({**NOTHING, "weather_sensitive": True, "supplier": supplier, "why": why})
+    fakes.classify({**NOTHING, "weather_sensitive": True, "trade": trade, "why": why})
     risks = await risk.look(session, sid, 1, [SOON])
     assert risks[0].why == kept[1]
     assert [r.kind for r in risks] == (["weather", "business"] if kept[0] else ["weather"])
@@ -339,21 +341,42 @@ async def test_fx_without_table_is_none(session, fakes):
 
 async def test_business_first_result_line(session, fakes):
     sid = _schedule(session)
-    fakes.classify({**NOTHING, "supplier": "한빛창호"})
-    [r] = await risk.look(session, sid, 1, [SOON])
-    assert r.line == "한빛창호, 알루미늄 창호 납기 2주 늦어져 · news.example.com"
+    fakes.classify({**NOTHING, "materials": ["aluminum"], "trade": "골조"})
+    risks = await risk.look(session, sid, 1, [SOON])
+    r = _by_kind(risks)["business"][0]
+    # 회사 이름은 출처 제목에 있을 때만 줄에 보인다
+    assert r.line == "알루미늄 골조 공급 동향 · 한빛창호, 알루미늄 창호 납기 2주 늦어져 · news.example.com"
     assert (r.status, r.source, r.as_of) == ("ok", "news.example.com", "2026-11-20")
     call = fakes.mcp.bodies("tools/call")[0]["params"]
-    assert call["name"] == "search_business" and "한빛창호" in call["arguments"]["query"]
+    assert call["name"] == "search_business" and call["arguments"]["query"] == "알루미늄 골조 공급 동향"
 
 
 async def test_business_no_result_is_none(session, fakes):
     fakes.mcp.call = {"result": {"content": [{"type": "text", "text": json.dumps({"results": [], "totalCount": 0})}],
                                  "isError": False}}
     sid = _schedule(session)
-    fakes.classify({**NOTHING, "supplier": "한빛창호"})
+    fakes.classify({**NOTHING, "trade": "골조"})
     [r] = await risk.look(session, sid, 1, [SOON])
-    assert (r.status, r.line, r.evidence_id) == ("none", f"한빛창호 · {NO_DATA}", None)
+    assert (r.status, r.line, r.evidence_id) == ("none", f"골조 공급 동향 · {NO_DATA}", None)
+
+
+@pytest.mark.parametrize("trade", ["한빛창호", "한빛창호 창호", "한빛", "김하늘", "창호"])
+async def test_fictional_company_names_never_reach_mcp(session, fakes, trade):
+    """씨앗 협력사는 가상이다 — 이름·자원·연락처에 있는 회사·사람 이름은 업체 질의에 들지 않는다."""
+    s = make([task("A", 3, name="한빛창호 창호 설치 김하늘", resources=("hb",))],
+             resources=[Resource("hb", "한빛창호", "팀", 1)])
+    sid = store(session, s)
+    company = ContactCompany(schedule_id=sid, name="한빛창호", trade="창호")
+    session.add(company)
+    session.flush()
+    session.add(Contact(schedule_id=sid, company_id=company.id, name="김하늘"))
+    session.commit()
+    fakes.classify({**NOTHING, "materials": ["aluminum"], "trade": trade})
+    risks = await risk.look(session, sid, 1, [Point("A", "한빛창호 창호 설치 김하늘", True, 0, SOON.es, SOON.ef)])
+    queries = [c["params"]["arguments"]["query"] for c in fakes.mcp.bodies("tools/call")]
+    assert all("한빛창호" not in q and "김하늘" not in q for q in queries)
+    assert queries == (["알루미늄 창호 공급 동향"] if trade == "창호" else [])
+    assert all("한빛창호" not in r.line for r in risks if r.kind != "business")
 
 
 # ── 근거 표 · 재사용 ─────────────────────────────────────────────────────

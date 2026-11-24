@@ -9,16 +9,25 @@ import math
 import re
 from dataclasses import dataclass
 
+# 0단계 실측(11-24)에서 받은 제공처: 금속(The World Bank)·환율(Xignite)·시멘트 PPI(St. Louis Fed)·날씨(AccuWeather)
+KNOWN_SOURCES = frozenset({"The World Bank", "Xignite", "Federal Reserve Bank of St. Louis", "AccuWeather"})
+OTHER_SOURCE = "제공처"
 _YEAR_MONTH = re.compile(r"(\d{4})-(\d{2})")
 
 
 @dataclass(frozen=True)
 class KnowledgeTable:
     title: str
-    source: str | None  # sources 를 「, 」로 이음. 없으면 None
+    source: str | None  # sources 를 「, 」로 이음(KNOWN_SOURCES 밖은 「제공처」). 없으면 None
     as_of: str | None  # dataAsOf
     columns: tuple[str, ...]
     rows: tuple[tuple[str, ...], ...]
+
+
+def _source(name: str) -> str:
+    """제공처 이름은 쓰는 것만 그대로, 그 밖은 「제공처」(받은 글이 화면·AI 질문 줄에 실리므로 길이·내용을 막는다)."""
+    name = " ".join(name.split())
+    return name if name in KNOWN_SOURCES else OTHER_SOURCE
 
 
 def _texts(value: object) -> tuple[str, ...] | None:
@@ -39,7 +48,8 @@ def _table(item: object) -> KnowledgeTable | None:
         return None
     read = [_texts(r) for r in rows]
     sources = item.get("sources")
-    names = [s.strip() for s in sources if isinstance(s, str) and s.strip()] if isinstance(sources, list) else []
+    names = [_source(s) for s in sources if isinstance(s, str) and s.strip()] if isinstance(sources, list) else []
+    names = list(dict.fromkeys(names))
     as_of = item.get("dataAsOf")
     return KnowledgeTable(title=item["title"].strip(), source=", ".join(names) or None,
                           as_of=(as_of.strip() or None) if isinstance(as_of, str) else None,
