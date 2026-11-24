@@ -18,6 +18,11 @@
 - tools.identity — 말로 한 신원 주장을 믿는다: 회신을 등록 번호가 아니라 주장한 번호로 보낸다.
 - tools.no_change — 「바꾸지 않는다」를 끈다: 새 연락처·언어는 제안 대신 주소록에 바로, 지연·변경 보고는 지연 사건으로 바로.
 - review.check — 뒤 확인이 늘 「깨끗함」을 돌려준다(근거 대조·깃발·quote_found 를 하지 않는다).
+
+음성 열(VOICE_BREAKS — Task 97):
+- runner.hours — 통화 일꾼의 「걸기 직전 다시 보기」가 늘 근무 중으로 본다(문의 gate.hours 와 따로 — 문은 사람이 넣은 09:00 에 봤다).
+- call.silence — 통화 손잡이의 침묵 확인(SILENCE_S)을 끈다.
+- call.time_limit — 통화 손잡이의 최대 통화 시간(정리 말·끊기)을 끈다.
 """
 
 import os
@@ -31,6 +36,7 @@ from app.outreach.harness import door, gate, registry, review, tools, toolsets
 from app.outreach.harness.door import Admission
 from app.outreach.harness.types import GATE_RULES, Caller
 from app.outreach.text import responder
+from app.outreach.voice import call_run, runner
 from app.store.tables import DelayEvent
 from app.store.tables_outreach import Contact
 
@@ -210,9 +216,34 @@ def _review() -> AbstractContextManager:
     return _swap((review, "check", lambda session, ref, **kwargs: review.Verdict(True, [])))
 
 
+# ── 통화(음성 열 — Task 97) ──────────────────────────────────────────
+
+
+def _runner_hours() -> AbstractContextManager:
+    return _swap((runner, "_working", lambda *args: True))
+
+
+def _call_silence() -> AbstractContextManager:
+    return _swap((call_run, "SILENCE_S", float("inf")))
+
+
+def _call_time_limit() -> AbstractContextManager:
+    real = call_run.CallRun.on_tick
+
+    async def on_tick(self, elapsed, silent_for):
+        """최대 시간이 없는 것처럼: 정리 말·끊기 갈래에 닿지 않게 시계를 최대 시간보다 앞에 둔 채 침묵만 본다."""
+        await real(self, min(float(elapsed), self.spec.max_seconds - call_run.WRAP_UP_S - 1), silent_for)
+
+    return _swap((call_run.CallRun, "on_tick", on_tick))
+
+
 BREAKS: dict[str, Callable[[], AbstractContextManager]] = {
     "gate.test_mode": _test_mode, "gate.block_dnc": _block_dnc, "gate.hours": _hours, "gate.limits": _limits,
     "gate.permission": _permission, "gate.duplicate": _duplicate, "door.class": _door_class, "door.admit": _door_admit,
     "toolset.per_class": _per_class, "tools.scope": _scope, "tools.identity": _identity, "tools.no_change": _no_change,
     "review.check": _review,
+}
+# 음성 열에만 있는 지키는 곳(통화 일꾼·통화 손잡이) — BREAKS 와 같은 꼴, 격자는 둘을 함께 찾는다
+VOICE_BREAKS: dict[str, Callable[[], AbstractContextManager]] = {
+    "runner.hours": _runner_hours, "call.silence": _call_silence, "call.time_limit": _call_time_limit,
 }

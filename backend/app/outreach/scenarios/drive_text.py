@@ -58,6 +58,7 @@ from app.store.tables_outreach import (
     Contact,
     ContactCompany,
     ContactReport,
+    KakaoTemplate,
     NotifyConnection,
     OutreachCall,
     OutreachMessage,
@@ -126,6 +127,16 @@ class FakeChannel:
         return Delivered("sent", provider_id=f"scn-{len(self.delivered)}")
 
 
+def _status(spec: str) -> Delivery:
+    """Setup.status_results 한 칸 → 제공사의 상태 조회 결과(fell_back 은 알림톡이 실패해 문자로 대신 나감)."""
+    if spec == "delivered":
+        return Delivery("delivered")
+    kind, _, code = spec.partition(":")
+    if kind in ("failed", "fell_back") and code:
+        return Delivery("failed", fail_code=code, fell_back=kind == "fell_back")
+    raise ValueError("상태 결과는 delivered · failed:<code> · fell_back:<code> 입니다")
+
+
 def _result(spec: str) -> Delivered:
     if spec == "sent":
         return Delivered("sent", provider_id="scn-scripted")
@@ -159,6 +170,7 @@ class _Inbox:
         self.waiting: list[Inbound] = []
         self.at = WORK
         self.reads = 0
+        self.statuses: deque[Delivery] = deque()  # Setup.status_results — 비면 「접수」
 
     async def received(self, since: datetime | None) -> Received:
         self.reads += 1
@@ -168,7 +180,7 @@ class _Inbox:
         return Received(items=items, fetched_at=as_utc(self.at))
 
     async def message_status(self, provider_id: str) -> Delivery:
-        return Delivery("accepted")
+        return self.statuses.popleft() if self.statuses else Delivery("accepted")
 
     async def send_message(self, request: object) -> object:
         raise RuntimeError("대본 구동기는 제공사로 보내지 않습니다(통로는 가짜)")
@@ -310,7 +322,7 @@ class _Run:
         asked_at = self.clock.replace(hour=REQUEST_AT_HOUR, minute=0)
         with self.factory() as session:
             self.people, self.schedules, self.admin_id = _seed(session)
-            _connection(session, self.situation)
+            conn = _connection(session, self.situation)
             for key in setup.dnc:
                 outreach.mark_do_not_contact(session, NUMBERS[key], reason="대본")
             for key in setup.blocked:
@@ -325,6 +337,12 @@ class _Run:
                 request = OutreachMessage(schedule_id=person.schedule_id, contact_id=target, direction="out",
                                           channel=setup.request_channel, origin="user", origin_name=ADMIN, body=REQUEST_BODY,
                                           status="draft", created_at=asked_at)
+                if setup.kakao_template:
+                    template = KakaoTemplate(connection_id=conn.id, channel="scn", provider_template_id="scn-request",
+                                             use="request", body=REQUEST_BODY, status="approved")
+                    session.add(template)
+                    session.flush()
+                    request.template_id = template.id
                 session.add(request)
                 session.flush()
                 self.request_id = request.id
@@ -340,6 +358,7 @@ class _Run:
             session.commit()
         self.fake.delivered.clear()
         self.fake.results.extend(_result(spec) for spec in setup.channel_results)
+        self.inbox.statuses.extend(_status(spec) for spec in setup.status_results)
 
     async def tick(self) -> dict:
         self.inbox.at = self.clock
