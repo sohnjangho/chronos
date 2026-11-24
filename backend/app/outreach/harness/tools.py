@@ -12,7 +12,8 @@
   (IDENTITY_TOOLS: my_requests · schedule_fact)가 CONFIRM_FIRST 로 거절한다(scope_denied). 아니라고 하면(is_person=False) 다시
   닫힌다. 받는 통화는 문이 번호로 상대를 정했으므로 그대로다(H1).
 - 빈 범위는 「줄 없음」이다: 일정·협력사가 비면 저장소를 읽기 전에 빈 결과·거절을 돌려준다. 저장소의 「조건 없음」(None)은
-  범위가 정말 그 현장 전부일 때만(사실 수준 all — 내부 등급) 넘긴다. 그 밖의 모든 등급은 — **우리가 건 통화의 상대도** —
+  범위가 정말 그 현장 전부일 때만 넘긴다: 일정 사실(schedule_fact)은 사실 수준 all — 내부 등급과 관리자 등급 연락처(11-24),
+  사람 찾기는 내부 등급(box.caller_class)뿐. 그 밖의 모든 등급은 — **우리가 건 통화의 상대와 관리자 등급 연락처도** —
   사람 찾기가 자기 협력사(scope.company_ids) 안이다. 「담당은 그 사람」으로 줄을 만드는 대상은 그 상대의 찾기 결과 안의 사람뿐
   (규칙 하나 — 내부는 그 현장 전체, 나머지는 자기 협력사).
 - 등급은 상대에서 읽는다(box.caller_class — Caller.caller_class). Scope 안의 등급 칸은 읽지 않는다. 상자에 넣는 도구(names)는
@@ -553,7 +554,7 @@ def _finding(box: Toolbox, session: Session, a) -> _Step:
         return ask
     scope, sid = box.scope, box.sid
     # 그 현장 주소록 전체는 내부뿐 — 관리자 등급 연락처(일정 사실만 all)와 우리가 건 통화의 상대도 자기 협력사 안에서만 찾는다
-    whole = scope.caller_class == "internal" and scope.facts == "all"
+    whole = box.caller_class == "internal" and scope.facts == "all"
     if scope.facts == "none" or (not whole and not scope.company_ids):
         return nobody
     found = contacts.search(session, sid, a.query, FIND_LIMIT, company_ids=None if whole else list(scope.company_ids))

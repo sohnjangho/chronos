@@ -27,7 +27,7 @@ from tests.outreach.voice.test_inbound import (
 from tests.outreach.voice.test_runner import queued
 
 TRADE_LINE = "그 밖의 작업과 다른 협력사의 일은 말하지 않습니다."
-ALL_LINE = "이 현장 모든 협력사·공종 작업의 이름, 시작·끝 날짜, 상태·진행을 schedule_fact 로 찾아 말할 수 있습니다."
+ALL_LINE = "이 현장 모든 협력사·공종 작업의 이름·날짜·상태를 schedule_fact 로 찾아 말할 수 있습니다."
 CLOSED_LINE = "금액·계약, 내부 평가, 다른 협력사 사람의 연락처와 사정은 말하지 않습니다."
 OLD_NO_MONEY = rules_text.FIXED["no_money"]  # 「다른 협력사의 사정」
 

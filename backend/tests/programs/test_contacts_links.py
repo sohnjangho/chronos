@@ -483,3 +483,57 @@ def test_unhiding_a_company_with_a_manager_needs_an_admin(client, user, admin, s
     ok = client.patch(_url(sid, f"/companies/{company}"), json={"hidden": False}, headers=admin)
     assert ok.status_code == 200 and len(_audit(session)) == audited + 1
     assert _audit(session)[-1] == (sid, pid, "admin", None, "manager")
+
+
+# ── 고침 2: 범위 밖에서 범위로 들어오는 다른 길(숨긴 협력사에서 옮기기·「잘못된 번호」 줄의 번호 바꾸기) ────────────────
+
+
+def test_moving_a_manager_out_of_a_hidden_company_needs_an_admin(client, user, admin, session, sid):
+    hidden = _company(client, admin, sid, name="숨길 협력사")
+    shown = _company(client, admin, sid, name="보이는 협력사")
+    pid = _person(client, admin, sid, hidden, access_level="manager")["id"]
+    client.patch(_url(sid, f"/companies/{hidden}"), json={"hidden": True}, headers=admin)
+    audited = len(_audit(session))
+
+    refused = client.patch(_url(sid, f"/people/{pid}"), json={"company_id": shown}, headers=user)
+    assert (refused.status_code, _err(refused)) == (403, ADMIN_LEVEL)
+    assert _row(session, pid).company_id == hidden and len(_audit(session)) == audited
+
+    ok = client.patch(_url(sid, f"/people/{pid}"), json={"company_id": shown}, headers=admin)
+    assert ok.status_code == 200 and _row(session, pid).company_id == shown
+    assert len(_audit(session)) == audited + 1 and _audit(session)[-1] == (sid, pid, "admin", None, "manager")
+
+
+def test_nobody_moves_a_person_into_a_hidden_company(client, user, admin, session, sid):
+    here = _company(client, user, sid)
+    hidden = _company(client, user, sid, name="숨긴 협력사")
+    client.patch(_url(sid, f"/companies/{hidden}"), json={"hidden": True}, headers=user)
+    pid = _person(client, user, sid, here)["id"]
+
+    for headers in (user, admin):
+        r = client.patch(_url(sid, f"/people/{pid}"), json={"company_id": hidden}, headers=headers)
+        assert (r.status_code, r.json()["code"]) == (422, "company_hidden")
+    assert _row(session, pid).company_id == here
+    assert client.patch(_url(sid, f"/people/{pid}"), json={"company_id": here, "note": "그대로"}, headers=user).status_code == 200
+
+
+def test_trade_person_moves_out_of_a_hidden_company_freely(client, user, session, sid):
+    hidden = _company(client, user, sid, name="숨길 협력사")
+    shown = _company(client, user, sid, name="보이는 협력사")
+    pid = _person(client, user, sid, hidden)["id"]
+    client.patch(_url(sid, f"/companies/{hidden}"), json={"hidden": True}, headers=user)
+
+    assert client.patch(_url(sid, f"/people/{pid}"), json={"company_id": shown}, headers=user).status_code == 200
+    assert _audit(session) == []
+
+
+def test_new_number_for_a_wrong_number_manager_needs_an_admin(client, user, admin, session, sid):
+    pid = _person(client, admin, sid, _company(client, admin, sid), access_level="manager")["id"]
+    row = _row(session, pid)
+    row.phone_invalid = True  # 「잘못된 번호」 — 들어오는 문의 범위 밖
+    session.commit()
+
+    refused = client.patch(_url(sid, f"/people/{pid}"), json={"phone": NEW_NUMBER}, headers=user)
+    assert (refused.status_code, _err(refused)) == (403, ADMIN_LEVEL)
+    assert _row(session, pid).phone_invalid is True
+    assert client.patch(_url(sid, f"/people/{pid}"), json={"phone": NEW_NUMBER}, headers=admin).status_code == 200

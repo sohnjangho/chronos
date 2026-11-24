@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 SCHEDULE_NOT_FOUND = "일정을 찾을 수 없습니다."
 PERSON_NOT_FOUND = "연락처를 찾을 수 없습니다."
 COMPANY_NOT_FOUND = "협력사를 찾을 수 없습니다."
+COMPANY_HIDDEN = "숨긴 협력사로는 옮길 수 없습니다. 협력사를 먼저 다시 보이세요."
 BAD_PHONE = "전화번호 형식이 맞지 않습니다."
 NOT_STORABLE = "주소록에 둘 수 없는 번호입니다."
 NUMBER_CHANNELS = {  # 칸 → (그 칸을 정하는 phone 함수, 안 될 때의 까닭)
@@ -386,8 +387,10 @@ def patch_person(
     fields.update(check_channels(number, {c: given[c] for c in NUMBER_CHANNELS if c in given}, renumbered=number != old))
     if given.keys() & {"voice_mode", "voice_id"}:
         check_voice(fields.get("voice_mode", row.voice_mode), fields.get("voice_id", row.voice_id))
-    if "company_id" in fields:
-        _company(session, schedule_id, fields["company_id"])
+    old_company = session.get(ContactCompany, row.company_id)
+    moving = "company_id" in fields and fields["company_id"] != row.company_id
+    if moving and _company(session, schedule_id, fields["company_id"]).hidden:  # 숨긴 협력사로는 못 옮긴다
+        raise ApiError(422, "company_hidden", COMPANY_HIDDEN)
     others = links.linked(session, row) if given.keys() & links.SHARED_INPUT else []
     shown = _shows_do_not_contact(session, row)
     shown_others = {other.id: _shows_do_not_contact(session, other) for other in others}
@@ -396,7 +399,12 @@ def patch_person(
     levels: dict[int, str | None] = {r.id: r.access_level for r in (row, *others)}
     if "access_level" in given:
         links.check_level(user, list(levels.values()), given["access_level"])
-    if given.get("hidden") is False and row.hidden:  # 다시 보이기는 이 프로젝트에 등급을 새로 주는 것과 같다
+    # 범위 밖(숨김·숨긴 협력사·「잘못된 번호」)이던 줄이 범위로 들어옴 — 다시 보이기·숨긴 협력사에서 옮기기·번호 바꾸기는
+    # 이 프로젝트에 등급을 새로 주는 것과 같다(관리자 등급이면 관리자만·기록)
+    old_hidden = old_company is None or old_company.hidden
+    was_in = not (row.hidden or old_hidden or row.phone_invalid)
+    will_be_in = not (given.get("hidden", row.hidden) or (old_hidden and not moving) or (row.phone_invalid and number == old))
+    if not was_in and will_be_in:
         links.check_level(user, [None], given.get("access_level", row.access_level))
         levels[row.id] = None
     if number != old:
