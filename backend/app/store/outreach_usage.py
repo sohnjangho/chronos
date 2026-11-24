@@ -53,7 +53,7 @@ class UsageSummary:
     calls_rejected: int
     by_kind: dict[str, KindUsage]
     provider_cost: float | None
-    fallback_sms: int = 0  # sms 가운데 카카오톡 요청이 문자로 대신 나간 것(Task 111)
+    fallback_sms: int = 0  # 카카오톡 요청이 문자로 대신 나간 것 — 문이 줄을 sms 로 바꾼 줄과 일꾼이 본 대신 나감(Task 111, sms 에 들어 있음)
     kakao_not_ready: int = 0  # 그 가운데 하네스 사건 kakao_not_ready 가 남은 것
 
 
@@ -91,7 +91,7 @@ def summary(session: Session, *, days: int, now: datetime | None = None) -> Usag
         ).where(sent_m)
     ).one()
 
-    instead = session.scalars(select(m.harness_json).where(sent_m, m.channel == "kakao", m.fallback_sms.is_(True))).all()
+    instead = session.scalars(select(m.harness_json).where(sent_m, m.fallback_sms.is_(True))).all()
     not_ready = sum(1 for log in instead if isinstance(log, list)
                     and any(isinstance(e, dict) and e.get("rule") == "kakao_not_ready" for e in log))
 

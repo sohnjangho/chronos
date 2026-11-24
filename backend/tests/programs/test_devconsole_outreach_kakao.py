@@ -6,10 +6,11 @@
 from datetime import UTC, datetime
 
 from app.outreach import provider
-from app.outreach.harness import events
-from app.outreach.harness.types import Ref
+from app.outreach.harness import registry
 from app.security.crypto import encrypt
 from app.store.tables_outreach import KakaoTemplate, NotifyConnection, OutreachMessage
+from tests.harness_doubles import FakeChannel
+from tests.outreach.harness.test_gate import connect, message, person, send
 from tests.outreach_doubles import SENTINEL_DIGITS, SENTINEL_KEY, SENTINEL_PHONE, _leaks
 
 NOW = datetime.now(UTC)
@@ -85,20 +86,30 @@ def _message(session, **fields) -> OutreachMessage:
     return row
 
 
-def test_usage_counts_kakao_and_sms_instead(client, admin, session):
-    _message(session, channel="kakao", status="accepted")  # 알림톡으로 나간 것
-    first = _message(session, channel="kakao", fallback_sms=True)
-    second = _message(session, channel="kakao", fallback_sms=True)
-    for row in (first, second):
-        events.record(session, Ref("message", row.id), "kakao_not_ready", "noted", "문자로 보냅니다")
-    third = _message(session, channel="kakao", fallback_sms=True)  # 사건 없이 대신 나간 줄(사건 수는 따로 센다)
+async def test_usage_counts_kakao_and_sms_instead(client, admin, session, sid, no_real_channels):
+    # 문이 직접 만든 줄: 카카오톡 요청이 문자로 바뀌어(channel sms · fallback_sms · 사건 kakao_not_ready) 나간다
+    conn = connect(session)
+    fake = FakeChannel()
+    rows = [message(session, person(session, sid, phone=phone), channel="kakao") for phone in ("01000000199", "01000000288")]
+    session.commit()
+    with registry.pinned({"sms": fake.lane("sms"), "call": fake.lane("call")}):  # 카카오톡 통로 없음
+        for row in rows:
+            assert (await send(row)).code == "accepted"
+    session.expire_all()
+    for row in rows:
+        row = session.get(OutreachMessage, row.id)
+        assert (row.channel, row.fallback_sms) == ("sms", True)
+        row.claimed_at = NOW  # 시험의 고정 시각 대신 오늘 창에 넣는다
+    session.commit()
+    # 일꾼이 본 실패 뒤 대신 나감(fell_back): 줄은 카카오톡 그대로, 사건 없음
+    _message(session, channel="kakao", fallback_sms=True, status="failed")
+    _message(session, channel="kakao")  # 알림톡으로 나간 것
     _message(session, channel="sms")
     _message(session, channel="kakao", fallback_sms=True, status="draft", claimed_at=None)  # 차지 안 함 — 세지 않음
-    session.commit()
-    assert third.id
+    assert conn.id
 
     out = client.get("/api/devconsole/usage?days=7", headers=admin).json()["outreach"]
     assert out["kakao"] == 1
-    assert out["fallback_sms"] == 3
-    assert out["kakao_not_ready"] == 2
-    assert out["sms"] == 4  # 문자 하나 + 문자로 대신 나간 셋
+    assert out["fallback_sms"] == 3  # 문이 만든 둘 + 일꾼의 하나
+    assert out["kakao_not_ready"] == 2  # 사건이 남은 것만
+    assert out["sms"] == 4  # 문자 하나 + 문자로 대신 나간 셋(겹쳐 세지 않음)

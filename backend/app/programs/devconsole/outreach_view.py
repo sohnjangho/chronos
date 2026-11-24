@@ -457,9 +457,14 @@ def _kakao(session: Session, conn) -> KakaoHealthOut:
                            .where(KakaoTemplate.connection_id == conn.id).group_by(KakaoTemplate.status)).all()
     counts = {status: n for status, n, _ in rows}
     synced = max((at for _, _, at in rows if at is not None), default=None)
+    name = None
+    if chosen:
+        try:
+            name = redact.scrub(chosen["name"], [*redact.secrets(), *_conn_secrets(conn)])[:100]
+        except Exception:  # noqa: BLE001 — 비밀 목록을 못 읽으면 이름을 내보내지 않는다(안전하지 않은 글로 다룸)
+            name = "(이름을 가렸습니다)"
     return KakaoHealthOut(
-        available=provider.KAKAO_LISTING_CONFIRMED,
-        channel=redact.scrub(chosen["name"], [*redact.secrets(), *_conn_secrets(conn)])[:100] if chosen else None,
+        available=provider.KAKAO_LISTING_CONFIRMED, channel=name,
         templates=KakaoTemplateCountsOut(**{k: counts.get(k, 0) for k in KakaoTemplateCountsOut.model_fields}),
         synced_at=as_utc(synced) if synced else None, ready=kakao.ready(session))
 
@@ -490,5 +495,6 @@ def _voice(session: Session, conn) -> VoiceHealthOut | None:
 def usage(session: Session, days: int) -> OutreachUsageOut:
     s = outreach_usage.summary(session, days=days)
     return OutreachUsageOut(sms=s.sms, long=s.long, kakao=s.kakao, auto_replies=s.auto_replies,
-                            provider_cost=s.provider_cost, fallback_sms=s.fallback_sms, kakao_not_ready=s.kakao_not_ready, text_models=outreach_branches.text_models(s),
+                            provider_cost=s.provider_cost, fallback_sms=s.fallback_sms,
+                            kakao_not_ready=s.kakao_not_ready, text_models=outreach_branches.text_models(s),
                             calls=outreach_branches.call_usage(s))
