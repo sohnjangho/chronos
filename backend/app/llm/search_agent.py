@@ -2,10 +2,11 @@
 
 - 답 본문(answer·text-delta)은 버린다 — 화면에는 출처 문장과 링크만 보인다(지시서 C).
 - 실패는 HTTP 200 안의 `data-error` 로도 온다. `[DONE]` 만 있고 문장이 없으면 빈 성공이 아니라 실패(no_quotes).
-- stream:false 응답 모양은 문서가 정확히 적지 않았다: JSON({answer, references, chunks}) 과 SSE(`data:` 줄) 둘 다 읽는다.
-  어디에 있든 `referenceChunks` 목록의 문장을 모으고, 링크는 그 줄의 url·title 이나 `references`(번호·id)에서 찾는다.
+- 실측(11-24) stream:false 응답: application/json {answer, references, chunks}. 문장은 type data-search-chunks 인 chunk 의
+  data.referenceChunks[{num, id, content, description, date, sourceTitle, sourceUrl}], 답은 ((n)) 으로 num 을 인용한다.
+  답이 인용한 문장을 인용 차례로 먼저, 나머지를 뒤에, MAX_QUOTES 개까지. http(s) 링크 없는 문장은 버린다. SSE(`data:` 줄)도 읽는다.
 - 키는 기본 LLM 연결(provider liner)의 것을 서버에서 풀어 `x-api-key` 머리글로만 보낸다. 기록·예외·llm_calls 에 담지 않는다.
-- 다시 시도하지 않는다. 보낸 호출마다(실패 포함) llm_calls 에 한 줄(purpose search_agent). 비용은 Liner 가 알리지 않아
+- 다시 시도하지 않는다. 보낸 호출마다(실패 포함) llm_calls 에 한 줄(purpose srch_agent). 비용은 Liner 가 알리지 않아
   문서 가격(1회 COST_PER_CALL)을 200 으로 받은 호출에만 적는다(data-error 는 과금 여부를 몰라 비운다).
 - 30초 안팎 걸린다(상한 300초): 부르는 쪽은 뒤에서 부른다(app.points.quotes).
 """
@@ -13,6 +14,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -33,10 +35,12 @@ logger = logging.getLogger(__name__)
 
 # 시험이 가짜 transport 를 바꿔 끼운다. None 이면 CHRONOS_FAKE_LLM=1 일 때 가짜 Liner(밖으로 나가지 않음), 아니면 실제 Liner.
 TRANSPORT: httpx.AsyncBaseTransport | None = None
-PURPOSE = "search_agent"
+PURPOSE = "srch_agent"  # llm_calls.purpose 는 10자까지
 MODEL = "liner-search-agent"  # llm_calls 의 모델 칸(요청에 model 을 넣지 않는다 — 서버 기본)
 COST_PER_CALL = 0.02  # 문서 가격 $20/1K
 TIMEOUT_S = 300.0  # 문서 상한
+MAX_QUOTES = 3  # 위험 줄 하나에 붙일 문장 수
+MAX_CHARS = 240  # 문장 하나의 길이(낱말 경계에서 자른다)
 
 MESSAGES = {
     "no_connection": "근거 문장에는 Liner 연결이 필요합니다.",
@@ -52,9 +56,8 @@ MESSAGES = {
 }
 _STATUS_CODES = {400: "bad_request", 401: "bad_key", 402: "no_credit", 403: "bad_key", 404: "bad_url", 429: "rate_limited"}
 _FAILURES = (httpx.HTTPError, httpx.InvalidURL, TimeoutError, ValueError, TypeError)
-_TEXT_KEYS = ("text", "chunk", "content", "sentence")
-_ID_KEYS = ("referenceId", "referenceIndex", "index", "id")
-_TEXT, _TITLE = 2000, 300
+_CITE = re.compile(r"\(\((\d+)\)\)")  # 답 본문의 인용 ((n))
+_TITLE = 300
 
 
 @dataclass(frozen=True)
@@ -134,39 +137,51 @@ def _str(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _link(item: dict, refs: dict[object, dict]) -> tuple[str, str] | None:
-    """(주소, 제목). 그 줄의 url, 안의 reference, 아니면 references 의 번호·id 로 찾는다. http(s) 만."""
-    for source in (item, item.get("reference"), *(refs.get(item.get(k)) for k in _ID_KEYS)):
-        if isinstance(source, dict) and (found := _web_url(source.get("url"))) is not None:
-            return found[0], (_str(source.get("title")) or found[1])[:_TITLE]
-    return None
+def _short(text: str) -> str:
+    """빈칸을 하나로 접고 MAX_CHARS 를 넘으면 낱말 경계에서 자른다(…)."""
+    text = " ".join(text.split())
+    if len(text) <= MAX_CHARS:
+        return text
+    cut = text[:MAX_CHARS]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > MAX_CHARS // 2 else cut).rstrip() + "…"
+
+
+def _cited(every: list[dict]) -> list[int]:
+    """답 본문이 인용한 번호 ((n)) 를 처음 나온 차례로. 본문은 이 번호를 읽는 데만 쓰고 버린다."""
+    answer = "".join(d["answer"] for d in every if isinstance(d.get("answer"), str))
+    answer += "".join(d["delta"] for d in every if d.get("type") == "text-delta" and isinstance(d.get("delta"), str))
+    return list(dict.fromkeys(int(n) for n in _CITE.findall(answer)))
 
 
 def _quotes(events: list[object]) -> list[AgentQuote]:
+    """data-search-chunks 의 referenceChunks[{num, content, sourceTitle, sourceUrl}] → 인용된 것 먼저(인용 차례), 나머지, MAX_QUOTES 개."""
     every = list(_dicts(events))
     if any(d.get("type") == "data-error" for d in every):
         raise _Failed("agent_error")
-    refs: dict[object, dict] = {}
+    found: dict[int | None, AgentQuote] = {}
+    rest: list[AgentQuote] = []
     for d in every:
-        if isinstance(d.get("references"), list):
-            for n, ref in enumerate((r for r in d["references"] if isinstance(r, dict)), start=1):
-                refs.setdefault(n, ref)  # 본문 인용 [n] 은 1부터
-                for k in _ID_KEYS:
-                    if isinstance(ref.get(k), str | int) and not isinstance(ref.get(k), bool):
-                        refs.setdefault(ref[k], ref)
-    out: list[AgentQuote] = []
-    for d in every:
-        chunks = d.get("referenceChunks")
+        data = d.get("data") if d.get("type") == "data-search-chunks" else None
+        chunks = data.get("referenceChunks") if isinstance(data, dict) else None
         for item in chunks if isinstance(chunks, list) else []:
-            if not isinstance(item, dict):
+            if not isinstance(item, dict) or not (text := _short(_str(item.get("content")))):
                 continue
-            text = next((t for k in _TEXT_KEYS if (t := _str(item.get(k)))), "")[:_TEXT]
-            link = _link(item, refs)
-            if text and link and (q := AgentQuote(text, *link)) not in out:
-                out.append(q)
-    if not out:
+            if (link := _web_url(item.get("sourceUrl"))) is None:
+                continue
+            quote = AgentQuote(text, link[0], (_str(item.get("sourceTitle")) or link[1])[:_TITLE])
+            num = item.get("num")
+            if quote in found.values() or quote in rest:
+                continue
+            if isinstance(num, int) and not isinstance(num, bool) and num not in found:
+                found[num] = quote
+            else:
+                rest.append(quote)
+    cited = _cited(every)
+    order = [found[n] for n in cited if n in found] + [q for n, q in found.items() if n not in cited] + rest
+    if not order:
         raise _Failed("no_quotes")
-    return out
+    return order[:MAX_QUOTES]
 
 
 async def ask(session: Session, question: str, *, mode: Literal["general", "scholar"] = "general",

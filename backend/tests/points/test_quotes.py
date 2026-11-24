@@ -13,7 +13,9 @@ from tests.llm_doubles import KEY, add_connection
 
 OK_BODY = {"references": [{"title": "기상 특보 기준", "url": "https://weather.example.go.kr/a"}],
            "chunks": [{"type": "data-search-chunks",
-                       "data": {"referenceChunks": [{"referenceId": 1, "text": "호우주의보는 3시간 60mm 이상일 때 낸다."}]}}]}
+                       "data": {"referenceChunks": [{"num": 1, "content": "호우주의보는 3시간 60mm 이상일 때 낸다.",
+                                                         "sourceTitle": "기상 특보 기준",
+                                                         "sourceUrl": "https://weather.example.go.kr/a"}]}}]}
 KEY_ARGS = (7, 3, "A120", "weather")
 
 

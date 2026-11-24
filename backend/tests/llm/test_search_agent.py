@@ -6,6 +6,7 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 import httpx
 import pytest
@@ -16,7 +17,9 @@ from app.llm.search_agent import AgentQuote, SearchAgentFailed, ask
 from app.store.tables import LlmCall
 from tests.llm_doubles import KEY, add_connection
 
-ANSWER = "야간 타설은 22시까지 허용된다[1]."
+ANSWER = "일 평균기온 4℃ 이하면 한중 콘크리트다 ((2)). 야간 작업은 22시까지다 ((1)) ((2))."
+# 실측(11-24) stream:false 응답을 줄인 것(키 없음). 원본은 .superpowers/sdd/2026-11-24-chronos-plan-5-points/
+SAMPLE = Path(__file__).resolve().parents[1] / "fixtures/search_agent_real_sample.json"
 
 
 class AgentMock(httpx.MockTransport):
@@ -42,9 +45,17 @@ def sse(*events: dict) -> str:
 
 REFS = [{"title": "건설공사 소음 기준", "url": "https://law.example.go.kr/noise"},
         {"title": "동절기 콘크리트 지침", "url": "https://kcs.example.or.kr/winter"}]
+
+
+def chunk(num: int, content: str, url: str, title: str = "") -> dict:
+    """실측 꼴의 referenceChunks 한 줄(가상 자료)."""
+    return {"num": num, "id": f"id{num}", "content": content, "description": content, "date": "2026-01-01",
+            "sourceTitle": title, "sourceUrl": url}
+
+
 CHUNKS = {"referenceChunks": [
-    {"referenceId": 1, "text": "특정공사의 야간 작업은 22시까지로 한다."},
-    {"referenceId": 2, "text": "일 평균기온 4℃ 이하에서는 한중 콘크리트로 시공한다."},
+    chunk(1, "특정공사의 야간 작업은 22시까지로 한다.", REFS[0]["url"], REFS[0]["title"]),
+    chunk(2, "일 평균기온 4℃ 이하에서는 한중 콘크리트로 시공한다.", REFS[1]["url"], REFS[1]["title"]),
 ]}
 
 
@@ -63,7 +74,7 @@ def use(monkeypatch):
 
 def calls(session) -> list[LlmCall]:
     session.expire_all()
-    return list(session.scalars(select(LlmCall).where(LlmCall.purpose == "search_agent")))
+    return list(session.scalars(select(LlmCall).where(LlmCall.purpose == search_agent.PURPOSE)))
 
 
 async def test_json_body_gives_quotes_and_drops_the_answer(session, conn, use):
@@ -75,8 +86,8 @@ async def test_json_body_gives_quotes_and_drops_the_answer(session, conn, use):
     assert req.headers["x-api-key"] == KEY and "authorization" not in req.headers
     assert json.loads(req.content) == {"messages": [{"role": "user", "content": "야간 타설 허용 시간"}],
                                        "mode": "general", "stream": False}
-    assert got == [AgentQuote("특정공사의 야간 작업은 22시까지로 한다.", REFS[0]["url"], REFS[0]["title"]),
-                   AgentQuote("일 평균기온 4℃ 이하에서는 한중 콘크리트로 시공한다.", REFS[1]["url"], REFS[1]["title"])]
+    assert got == [AgentQuote("일 평균기온 4℃ 이하에서는 한중 콘크리트로 시공한다.", REFS[1]["url"], REFS[1]["title"]),
+                   AgentQuote("특정공사의 야간 작업은 22시까지로 한다.", REFS[0]["url"], REFS[0]["title"])]  # 인용 차례
     assert all(ANSWER not in q.text for q in got)
 
 
@@ -85,7 +96,7 @@ async def test_sse_body_is_read_too(session, conn, use):
                       {"type": "data-search-references", "data": {"references": REFS}},
                       {"type": "data-search-chunks", "data": CHUNKS}, {"type": "finish"})))
     got = await ask(session, "q", mode="scholar")
-    assert [q.url for q in got] == [REFS[0]["url"], REFS[1]["url"]]
+    assert [q.url for q in got] == [REFS[1]["url"], REFS[0]["url"]]  # text-delta 의 인용 차례
 
 
 async def test_scholar_mode_is_sent(session, conn, use):
@@ -97,13 +108,38 @@ async def test_scholar_mode_is_sent(session, conn, use):
 
 async def test_chunk_with_its_own_link_and_bad_links_dropped(session, conn, use):
     use(AgentMock({"chunks": [{"type": "data-search-chunks", "data": {"referenceChunks": [
-        {"text": "문장 하나", "url": "https://a.example.com/x", "title": "가"},
-        {"text": "링크 없음"},
-        {"text": "스크립트", "url": "javascript:alert(1)", "title": "나"},
-        {"text": "", "url": "https://b.example.com", "title": "빈 문장"},
-        {"text": "문장 하나", "url": "https://a.example.com/x", "title": "가"},  # 같은 것 두 번
+        chunk(1, "문장 하나", "https://a.example.com/x", "가"),
+        {"num": 2, "content": "링크 없음"},
+        chunk(3, "스크립트", "javascript:alert(1)", "나"),
+        chunk(4, "", "https://b.example.com", "빈 문장"),
+        chunk(5, "문장 하나", "https://a.example.com/x", "가"),  # 같은 것 두 번
+        chunk(6, "제목 없음", "https://c.example.com/y"),
     ]}}]}))
-    assert await ask(session, "q") == [AgentQuote("문장 하나", "https://a.example.com/x", "가")]
+    assert await ask(session, "q") == [AgentQuote("문장 하나", "https://a.example.com/x", "가"),
+                                       AgentQuote("제목 없음", "https://c.example.com/y", "c.example.com")]
+
+
+async def test_cited_first_then_rest_capped_and_trimmed(session, conn, use):
+    long = "가나다 " * 100  # 400자
+    use(AgentMock({"answer": "앞 ((4)) 뒤 ((2)) 다시 ((4)) 없는 번호 ((9))", "chunks": [
+        {"type": "data-search-chunks", "data": {"referenceChunks": [
+            chunk(n, long if n == 4 else f"문장\n  {n}", f"https://e.example.com/{n}") for n in range(1, 6)]}}]}))
+    got = await ask(session, "q")
+    assert [q.url[-1] for q in got] == ["4", "2", "1"]  # 인용 차례 4·2, 그다음 나머지 처음 것, 셋까지
+    assert got[1].text == "문장 2"  # 빈칸을 하나로
+    assert len(got[0].text) <= search_agent.MAX_CHARS + 1 and got[0].text.endswith("다…")  # 낱말 경계에서 자름
+    assert all("앞" not in q.text for q in got)
+
+
+async def test_real_sample_shape(session, conn, use):
+    body = json.loads(SAMPLE.read_text(encoding="utf-8"))
+    use(AgentMock(body))
+    got = await ask(session, "동절기 콘크리트 타설 기준")
+    rows = next(c for c in body["chunks"] if c["type"] == "data-search-chunks")["data"]["referenceChunks"]
+    assert [q.url for q in got] == [r["sourceUrl"] for r in rows][:3]  # 인용 ((1))·((2)) 먼저, 그다음 3
+    assert got[0].title == rows[0]["sourceTitle"] and got[0].text == " ".join(rows[0]["content"].split())
+    assert all(len(q.text) <= search_agent.MAX_CHARS + 1 for q in got)
+    assert all(body["answer"][:40] not in q.text for q in got)
 
 
 async def test_data_error_inside_200_fails(session, conn, use):
