@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>ChronOS 기획서</title>
+<style>
+@page{size:A4;margin:0}*{box-sizing:border-box}
+body{margin:0;background:#334155;font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;counter-reset:pg}
+.page{width:210mm;height:297mm;margin:0 auto 8mm;position:relative;overflow:hidden;color:#e2e8f0;counter-increment:pg;
+  background:#05070d url(img/bg-page.jpg) center/100% 100% no-repeat;
+  padding:16mm 16mm 12mm;display:flex;flex-direction:column}
+@media print{body{background:none}.page{margin:0;break-after:page}.shot,.paper,.rc .ph,.chip2,.bub,.nar,.tagon,.lens{box-shadow:0 0 0 1px rgba(255,255,255,.06)!important}.glow-amber{box-shadow:0 0 0 1.5px rgba(251,191,36,.7)!important}.step,.tag2{text-shadow:none!important}.step i{box-shadow:none!important}}
+.mono{font-family:"SF Mono","JetBrains Mono",Menlo,monospace}
+.eyebrow{font:700 8.5pt "SF Mono",Menlo;letter-spacing:.16em;color:#7dd3fc;text-transform:uppercase}
+.eyebrow.amber{color:#fbbf24}.eyebrow.red{color:#f87171}
+.toprow{display:flex;justify-content:space-between;align-items:center;gap:4mm}
+h1{margin:4mm 0 0;font-size:34pt;line-height:1.12;letter-spacing:-.035em;font-weight:800;color:#fff}
+h2{margin:3mm 0 0;font-size:24pt;line-height:1.15;letter-spacing:-.03em;font-weight:800;color:#fff}
+h1 em,h2 em{font-style:normal;background:linear-gradient(90deg,#fbbf24,#f97316);-webkit-background-clip:text;background-clip:text;color:transparent}
+h1 .c,h2 .c{background:linear-gradient(90deg,#7dd3fc,#818cf8);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:11pt;line-height:1.7;color:#cbd5e1;margin:4mm 0 0;max-width:170mm}
+p{margin:0}
+.body{font-size:9.8pt;line-height:1.7;color:#cbd5e1}
+.body b{color:#fff}
+.small{font-size:8.6pt;line-height:1.55;color:#94a3b8}
+.shot{border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.18);box-shadow:0 26px 70px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04),0 0 50px rgba(56,189,248,.16);background:#fff}
+.shot img{display:block;width:100%}
+.glow-amber{box-shadow:0 26px 70px rgba(0,0,0,.6),0 0 80px rgba(251,191,36,.3)!important}
+.paper{background:#fff;border-radius:12px;padding:4mm;box-shadow:0 26px 70px rgba(0,0,0,.55)}
+.paper img{display:block;width:100%}
+.chip{display:inline-flex;align-items:center;gap:6px;font:700 8pt "SF Mono",Menlo;letter-spacing:.05em;padding:4px 10px;border-radius:999px;background:rgba(125,211,252,.12);color:#7dd3fc;border:1px solid rgba(125,211,252,.35);white-space:nowrap}
+.chip.amber{background:rgba(251,191,36,.12);color:#fbbf24;border-color:rgba(251,191,36,.45)}
+.wow{display:inline-flex;align-items:center;gap:6px;font:800 8.4pt "SF Mono",Menlo;letter-spacing:.06em;padding:5px 12px;border-radius:999px;background:linear-gradient(90deg,#fbbf24,#f97316);color:#1c1917;white-space:nowrap}
+.step{position:absolute;display:flex;align-items:center;gap:7px;font-size:10pt;font-weight:700;color:#fff}
+.step i{font-style:normal;width:26px;height:26px;border-radius:50%;background:#38bdf8;color:#05070d;font:800 12pt/26px sans-serif;text-align:center;box-shadow:0 0 18px rgba(56,189,248,.8)}
+.foot{margin-top:auto;display:flex;justify-content:space-between;font-size:8pt;color:#64748b;border-top:1px solid rgba(255,255,255,.08);padding-top:3mm}
+.foot .pg::after{content:counter(pg,decimal-leading-zero)}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:5mm;margin-top:6mm}
+.facts div{border-top:2px solid rgba(255,255,255,.15);padding-top:3mm;font-size:9.4pt;color:#cbd5e1;line-height:1.55}
+.facts b{display:block;color:#fff;font-size:12.5pt;margin-bottom:1mm}
+.card{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.035);border-radius:12px;padding:4mm 4.5mm}
+.card.blue{border-color:rgba(125,211,252,.35);background:rgba(125,211,252,.06)}
+.card.amber{border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.07)}
+.card.red{border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.07)}
+.card h4{margin:0 0 1.5mm;font-size:11pt;color:#fff}
+.card .k{font:800 7.6pt "SF Mono",Menlo;letter-spacing:.08em;color:#7dd3fc}
+.card.amber .k{color:#fbbf24}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:5mm}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:5mm}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:4mm}
+.stage{position:relative}
+.chip2{position:absolute;z-index:20;display:flex;align-items:center;gap:7px;background:#0b1220;border:1.5px solid #38bdf8;border-radius:999px;padding:4px 12px 4px 5px;font-size:9.6pt;font-weight:800;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.6);white-space:nowrap}
+.chip2 i{font-style:normal;width:22px;height:22px;border-radius:50%;background:#38bdf8;color:#05070d;font:800 11pt/22px sans-serif;text-align:center}
+.chip2.amber{border-color:#fbbf24}.chip2.amber i{background:#fbbf24}
+.chip2.white{border-color:#e2e8f0}.chip2.white i{background:#fff}
+.chip2.red{border-color:#f87171}.chip2.red i{background:#f87171}
+/* 실사 컷 */
+.rc-grid{display:grid;grid-template-columns:1fr 1fr;gap:5mm 5mm;margin-top:6mm}
+.rc{position:relative}
+.rc .ph{position:relative;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.16);box-shadow:0 18px 50px rgba(0,0,0,.55)}
+.rc .ph img{display:block;width:100%}
+.rc .no{position:absolute;left:3mm;bottom:3mm;width:22px;height:22px;border-radius:50%;background:#fbbf24;color:#05070d;font:800 11pt/22px sans-serif;text-align:center;z-index:3}
+.bub{position:absolute;z-index:4;background:#fff;color:#0f172a;font-size:9.4pt;font-weight:800;line-height:1.4;padding:2.2mm 3.2mm;border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.35);max-width:56mm}
+.bub::after{content:"";position:absolute;width:0;height:0;border:7px solid transparent}
+.bub.tl::after{left:14px;bottom:-13px;border-top-color:#fff;border-left-color:#fff}
+.bub.tr::after{right:14px;bottom:-13px;border-top-color:#fff;border-right-color:#fff}
+.bub.phone{background:#e0f2fe;color:#075985;font-weight:700}
+.bub.phone::after{border-top-color:#e0f2fe;border-left-color:#e0f2fe}
+.bub.ai{background:#0b1220;color:#e0f2fe;border:1.5px solid #38bdf8}
+.bub.ai::after{border-top-color:#38bdf8;border-left-color:#38bdf8}
+.bub.ai small{display:block;font:800 7.4pt "SF Mono",Menlo;color:#38bdf8;margin-bottom:.8mm}
+.nar{position:absolute;z-index:4;background:#fbbf24;color:#1c1917;font-size:8.8pt;font-weight:800;padding:1.8mm 3mm;border-radius:3px;box-shadow:0 6px 18px rgba(0,0,0,.35);max-width:62mm;line-height:1.4}
+.tagon{position:absolute;z-index:4;background:rgba(5,7,13,.82);color:#fbbf24;border:1px solid #fbbf24;font:800 8pt "SF Mono",Menlo;padding:1.4mm 2.6mm;border-radius:999px}
+.rc .cap{margin-top:2.5mm;font-size:9.2pt;color:#cbd5e1;line-height:1.55}
+.rc .cap b{color:#fff}
+.ph.wait{aspect-ratio:3/2;background:linear-gradient(135deg,#0f1b2d,#13283f);display:flex;align-items:flex-end;justify-content:flex-end}
+.ph.wait em{font-style:normal;font:700 8pt "SF Mono",Menlo;color:#475569;padding:3mm}
+.pb{display:grid;grid-template-columns:1fr 1fr;gap:0 7mm;margin-top:3mm}
+.pb>div{display:grid;grid-template-columns:11mm 1fr;gap:3mm;padding:3mm 0;border-top:1px solid rgba(255,255,255,.12)}
+.pb .n{font-size:20pt;font-weight:800;color:#f87171;line-height:1;letter-spacing:-.04em}
+.pb .n small{display:block;font:700 7.4pt "SF Mono",Menlo;color:#64748b;margin-top:1mm;letter-spacing:0}
+.pb b{display:block;color:#fff;font-size:10.4pt;margin-bottom:.8mm}
+.pb p{margin:0;font-size:8.8pt;color:#cbd5e1;line-height:1.55}
+.vs{display:grid;grid-template-columns:30mm 1fr 1fr;font-size:9.2pt;border-top:1px solid rgba(255,255,255,.12)}
+.vs>div{padding:2.6mm 3mm;border-bottom:1px solid rgba(255,255,255,.08)}
+.vs .h{color:#94a3b8;font-weight:800}
+.vs .b{color:#fca5a5}.vs .a{color:#7dd3fc;font-weight:700}
+/* 표 */
+.tbl{display:grid;font-size:9pt;border-top:1px solid rgba(255,255,255,.15)}
+.tbl>div{padding:2.3mm 2.5mm;border-bottom:1px solid rgba(255,255,255,.08);color:#cbd5e1;line-height:1.45}
+.tbl .th{color:#94a3b8;font-weight:800;font-size:8.4pt}
+.tbl .o{color:#4ade80;font-weight:800;text-align:center}.tbl .x{color:#f87171;font-weight:800;text-align:center}.tbl .m{color:#fbbf24;text-align:center}
+.tbl .me{background:rgba(125,211,252,.08)}
+/* 대화 */
+.say{border-radius:12px;padding:2.4mm 3.4mm;font-size:9.2pt;line-height:1.5;margin-bottom:2.2mm;max-width:92%}
+.say b{display:block;font:800 7.4pt "SF Mono",Menlo;margin-bottom:.6mm}
+.say.ai{background:#0b1220;border:1.5px solid #38bdf8;color:#e0f2fe}.say.ai b{color:#38bdf8}
+.say.p{background:#fff;color:#0f172a;margin-left:auto}.say.p b{color:#64748b}
+.say.no{background:rgba(248,113,113,.12);border:1.5px solid #f87171;color:#fecaca}.say.no b{color:#f87171}
+/* 숫자 띠 */
+.nums{display:grid;grid-template-columns:repeat(4,1fr);gap:4mm}
+.nums div{border-top:2px solid #38bdf8;padding-top:2.5mm}
+.nums b{display:block;font-size:24pt;font-weight:800;color:#fff;letter-spacing:-.03em;line-height:1.1}
+.nums span{font-size:8.6pt;color:#94a3b8}
+/* 앱 */
+.app{margin-top:5mm}
+.app .ah{display:flex;align-items:baseline;gap:3mm;flex-wrap:wrap}
+.app .an{font:800 10pt "SF Mono",Menlo;color:#38bdf8}
+.app h3{font-size:15pt;color:#fff;margin:0;letter-spacing:-.02em}
+.app .ad{font-size:9.4pt;color:#94a3b8}
+.app .shot{margin-top:2.5mm}
+.app .shot img{max-height:84mm;object-fit:cover;object-position:top left}
+.af{display:grid;grid-template-columns:1fr 1fr;gap:.8mm 6mm;font-size:8.8pt;color:#cbd5e1;margin:2.8mm 0 0;padding:0;list-style:none;line-height:1.5}
+.af li::before{content:"·";color:#38bdf8;font-weight:800;margin-right:1.5mm}
+.ag{font-size:8.8pt;color:#7dd3fc;margin-top:1.5mm;font-weight:700}
+.ag::before{content:"에이전트 ▸ ";color:#64748b;font-weight:800}
+.arow{display:grid;grid-template-columns:96mm 1fr;gap:6mm;margin-top:5mm;align-items:start}
+.arow .af{grid-template-columns:1fr}
+.no6{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm}
+.no6 div{display:flex;gap:2.5mm;align-items:flex-start;font-size:8.8pt;color:#cbd5e1;line-height:1.5;border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:2.8mm 3mm;background:rgba(248,113,113,.05)}
+.no6 i{flex:none;width:18px;height:18px;border-radius:50%;border:2px solid #f87171;position:relative;margin-top:1px}
+.no6 i::after{content:"";position:absolute;left:-1px;right:-1px;top:6px;height:2px;background:#f87171;transform:rotate(-45deg)}
+.bar{display:grid;grid-template-columns:42mm 1fr;gap:4mm;align-items:center;margin-top:3mm;font-size:9pt}
+.bar .t{color:#cbd5e1;font-weight:700}
+.bar .b{border-radius:6px;padding:2mm 3mm;font-size:8.6pt;font-weight:700;margin:.8mm 0}
+</style></head><body>
+
+<!-- 1 표지 -->
+<section class="page">
+  <div class="toprow"><span class="chip">LINER .EXE-THON 2026</span><span class="mono" style="font-size:8pt;color:#64748b">기획서</span></div>
+  <div class="eyebrow" style="margin-top:14mm">일정 에이전트 OS</div>
+  <h1 style="font-size:56pt;margin-top:2mm">Chron<span class="c">OS</span></h1>
+  <p class="sub" style="font-size:13.5pt;color:#fff;font-weight:600">일정이 바뀔 때마다, 약속한 날짜를 좌우하는 일이<br>어디로 옮겨 갔는지 먼저 알려 주는 에이전트.</p>
+  <p class="sub" style="font-size:10.5pt;margin-top:3mm">채팅창 하나로 끝나지 않는다. 에이전트가 스케줄, 간트, 비교판 창을 직접 열고, 담당자에게 먼저 묻는다. 건설 현장, 생산 라인, 연구 과제, 시스템 구축처럼 마감이 있는 모든 일정에 쓴다.</p>
+  <div style="position:relative;height:128mm;margin-top:10mm">
+    <div class="shot" style="position:absolute;left:14mm;top:0;width:164mm"><img src="img/cv-간트.jpg"></div>
+    <div class="shot" style="position:absolute;left:-6mm;top:62mm;width:86mm"><img src="img/cv-로그인.jpg"></div>
+    <div class="shot glow-amber" style="position:absolute;right:-6mm;top:24mm;width:58mm"><img src="img/cv-에이전트.jpg" style="height:96mm;object-fit:cover;object-position:top"></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5mm;font-size:8.6pt;color:#94a3b8;border-top:1px solid rgba(255,255,255,.1);padding-top:4mm;margin-top:auto">
+    <div><b style="color:#fff;display:block">손장호</b>건설·플랜트 PM 15년차</div>
+    <div><b style="color:#fff;display:block">2026-11-12 ~ 11-25</b>저장소 11-19 신규</div>
+    <div><b style="color:#fff;display:block">github.com/sohnjangho/chronos</b>데모 영상 〔링크〕</div>
+  </div>
+</section>
+
+<!-- 2 실사 4컷 + 문제 -->
+<section class="page">
+  <div class="eyebrow amber">01 · 문제 · 내가 겪은 장면</div>
+  <h1 style="font-size:32pt">당겨도 소용없던 밤</h1>
+  <p class="sub" style="font-size:10.5pt">15년 동안 일정을 맡으며 가장 자주 본 실패. 몰라서가 아니라, 마감을 좌우하는 일이 옮겨 간 걸 늦게 알아서 생겼다.</p>
+  <div class="rc-grid">
+    <div class="rc"><div class="ph"><img src="img/rc1.jpg"><span class="no">1</span>
+      <div class="bub tr" style="left:5mm;top:5mm">골조가 크리티컬이야.<br>야간 작업 넣어서 당기자.</div></div>
+      <div class="cap"><b>저녁 현장 사무실.</b> 공정표의 빨간 줄은 골조였다. 늦어지면 준공도 늦는다.</div></div>
+    <div class="rc"><div class="ph"><img src="img/rc2.jpg"><span class="no">2</span>
+      <div class="nar" style="left:5mm;top:5mm">밤샘 타설. 골조는 예정보다 5일 빨리 끝났다.</div></div>
+      <div class="cap"><b>야간 골조.</b> 사람과 장비를 더 넣었다. 돈이 들었다.</div></div>
+    <div class="rc"><div class="ph"><img src="img/rc3.jpg"><span class="no">3</span>
+      <div class="bub tl" style="right:4mm;top:5mm">커튼월이 아직<br>안 왔다고요?</div>
+      <div class="bub phone" style="right:4mm;top:24mm;font-size:8.6pt">"공장 제작이 3일<br>늦어졌습니다…"</div></div>
+      <div class="cap"><b>골조는 끝났는데 외벽이 비었다.</b> 그사이 커튼월 공장이 늦어져 있었다.</div></div>
+    <div class="rc"><div class="ph"><img src="img/rc4.jpg"><span class="no">4</span>
+      <div class="nar" style="left:5mm;top:5mm">5일을 당겼는데, 준공은 하루 당겨졌다.</div>
+      <div class="tagon" style="left:34%;top:68%">ChronOS · 당긴 5일 중 1일</div></div>
+      <div class="cap"><b>마감을 좌우하는 일은 이미 커튼월로 옮겨 가 있었다.</b> 지금이라면 ChronOS 가 당기기 전에 알려 준다.</div></div>
+  </div>
+  <div style="margin-top:6mm;display:flex;align-items:baseline;gap:4mm">
+    <div style="font-size:15pt;font-weight:800;color:#fff">왜 이렇게 됐나</div>
+    <div style="font-size:9.4pt;color:#94a3b8">공정이 늦어서가 아니라, <span style="color:#f87171;font-weight:800">늦게 알아서</span> 약속을 어겼다.</div>
+  </div>
+  <div class="pb">
+    <div><div class="n">01<small>컷 1</small></div><div><b>공정표는 일주일에 한 번 다시 그린다</b><p>변동은 매일 들어오는데, 벽의 빨간 줄은 지난 회의 때 그대로다.</p></div></div>
+    <div><div class="n">02<small>컷 2</small></div><div><b>당기기 전에 효과를 재 볼 수 없다</b><p>야간 작업에 돈과 사람을 넣고 나서야 결과를 안다.</p></div></div>
+    <div><div class="n">03<small>컷 3</small></div><div><b>바깥 소식은 전화로, 뒤늦게 온다</b><p>업체 사정은 공정표 어디에도 없다. 들은 말은 기록으로 남지 않는다.</p></div></div>
+    <div><div class="n">04<small>컷 4</small></div><div><b>좌우하는 일이 옮겨 가도 알려 주지 않는다</b><p>P6 와 엑셀은 계산은 해도 "어제와 무엇이 바뀌었나"를 말하지 않는다.</p></div></div>
+  </div>
+  <p style="font-size:7.6pt;color:#64748b;margin-top:3mm">이해를 돕기 위한 연출 이미지. Liner Images API(openai/gpt-image-2.6-sunburst)로 만들었고, 4번 모니터에는 실제 ChronOS 화면을 합성했다.</p>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 3 같은 3일 -->
+<section class="page">
+  <div class="eyebrow red">01 · 문제 · 같은 3일, 다른 영향</div>
+  <h1 style="font-size:30pt">크기가 아니라 <em>위치</em>가<br>약속을 늦춘다</h1>
+  <p class="sub" style="font-size:10.2pt">일정은 약속이다. 마지막 날짜는 발주처, 고객, 팀과 맺은 약속이다. 그리고 일정은 매 순간 바뀐다. 같은 3일 지연이라도 여유가 있는 작업이면 준공은 그대로고, 준공일을 좌우하는 작업이면 준공도 늦는다. 변동이 쌓이면 좌우하는 작업 자체가 바뀐다.</p>
+  <svg viewBox="0 0 720 220" width="100%" style="margin-top:6mm" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif">
+    <defs><pattern id="h" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#fbbf24"/><line x1="0" y1="0" x2="0" y2="6" stroke="#92400e" stroke-width="2.4"/></pattern></defs>
+    <rect x="0" y="0" width="350" height="220" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.14)"/>
+    <text x="16" y="28" font-size="15" font-weight="800" fill="#fff">창호 제작 +3일</text>
+    <text x="16" y="47" font-size="11" fill="#94a3b8">여유가 18일 있는 작업</text>
+    <text x="16" y="84" font-size="11" fill="#cbd5e1">골조</text><rect x="80" y="72" width="200" height="16" rx="3" fill="#ef4444"/>
+    <text x="16" y="124" font-size="11" fill="#cbd5e1">창호 제작</text><rect x="80" y="112" width="90" height="16" rx="3" fill="#64748b"/><rect x="170" y="112" width="22" height="16" fill="url(#h)"/><rect x="192" y="116" width="88" height="8" rx="2" fill="#334155"/>
+    <text x="196" y="143" font-size="10" fill="#94a3b8">남은 여유 15일</text>
+    <line x1="280" y1="60" x2="280" y2="160" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="4 3"/><text x="250" y="174" font-size="10" fill="#e2e8f0">준공 11.08</text>
+    <rect x="16" y="182" width="318" height="28" rx="6" fill="rgba(74,222,128,.1)" stroke="rgba(74,222,128,.5)"/><text x="28" y="201" font-size="12" font-weight="700" fill="#4ade80">준공 그대로 · 좌우하는 작업 그대로</text>
+    <rect x="370" y="0" width="350" height="220" rx="12" fill="rgba(251,191,36,.06)" stroke="rgba(251,191,36,.5)"/>
+    <text x="386" y="28" font-size="15" font-weight="800" fill="#fff">커튼월 공장 제작 +3일</text>
+    <text x="386" y="47" font-size="11" fill="#94a3b8">여유가 4일 있던 작업</text>
+    <text x="386" y="84" font-size="11" fill="#cbd5e1">골조</text><rect x="450" y="72" width="200" height="16" rx="3" fill="#ef4444"/>
+    <text x="386" y="124" font-size="11" fill="#cbd5e1">커튼월</text><rect x="450" y="112" width="150" height="16" rx="3" fill="#d97706"/><rect x="600" y="112" width="22" height="16" fill="url(#h)"/><rect x="622" y="116" width="28" height="8" rx="2" fill="#f87171"/>
+    <text x="556" y="143" font-size="10" fill="#f87171" font-weight="700">남은 여유 1일</text>
+    <line x1="650" y1="60" x2="650" y2="160" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="4 3"/><text x="620" y="174" font-size="10" fill="#e2e8f0">준공 11.08</text>
+    <rect x="386" y="182" width="318" height="28" rx="6" fill="rgba(248,113,113,.12)" stroke="rgba(248,113,113,.6)"/><text x="398" y="201" font-size="12" font-weight="700" fill="#fca5a5">준공 그대로 · 그러나 커튼월이 새 관리 포인트</text>
+  </svg>
+  <p class="small" style="margin-top:2mm">시연 일정 「5층 사무동 신축」(가상)에서 엔진이 계산한 값. 빗금은 늘어난 3일, 오른쪽 막대는 남은 여유. 준공이 그대로라 안심하는 바로 그때 옮겨 간다.</p>
+  <div class="g3" style="margin-top:5mm">
+    <div class="card"><div class="k">쉬운 용어</div><h4>준공일을 좌우하는 작업</h4><p class="small">하루 늦으면 준공도 하루 늦는 작업들. 크리티컬 패스. ChronOS 화면에서는 「결정 줄」.</p></div>
+    <div class="card"><div class="k">쉬운 용어</div><h4>여유</h4><p class="small">준공을 밀지 않고 늦출 수 있는 일수.</p></div>
+    <div class="card"><div class="k">쉬운 용어</div><h4>관리 포인트</h4><p class="small">좌우하는 작업이거나 여유 3일 이하인, 앞으로 3주 안의 작업. 변동마다 다시 뽑는다.</p></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:5mm;margin-top:5mm">
+    <div>
+      <div style="font-size:11pt;font-weight:800;color:#fff;margin-bottom:2mm">사람도 도구도 놓치는 것</div>
+      <div class="tbl" style="grid-template-columns:30mm repeat(4,1fr) 18mm">
+        <div class="th">해야 할 일</div><div class="th" style="text-align:center">사람</div><div class="th" style="text-align:center">P6 등</div><div class="th" style="text-align:center">엑셀</div><div class="th" style="text-align:center">AI 챗봇</div><div class="th me" style="text-align:center;color:#7dd3fc">ChronOS</div>
+        <div>변동마다 다시 계산</div><div class="m">주간 회의</div><div class="o">○</div><div class="x">×</div><div class="m">날짜 틀림</div><div class="o me">○</div>
+        <div>옮겨 간 것을 알림</div><div class="m">놓침</div><div class="x">×</div><div class="x">×</div><div class="x">×</div><div class="o me">○</div>
+        <div>그곳의 바깥 위험</div><div class="m">감</div><div class="x">×</div><div class="x">×</div><div class="m">출처 없음</div><div class="o me">○</div>
+        <div>담당자 확인·기록</div><div class="m">기록 없음</div><div class="x">×</div><div class="x">×</div><div class="x">×</div><div class="o me">○</div>
+      </div>
+      <p class="small" style="margin-top:2.5mm">계산만 빠른 도구는 이미 있다. 빠져 있는 것은 계산 다음, 어디를 볼지 알려 주고 그곳의 위험을 찾고 담당자에게 묻는 일이다.</p>
+    </div>
+    <div style="display:grid;gap:4mm;align-content:start">
+      <div class="card amber"><div class="k">약속을 하루 어기면</div><div style="font-size:26pt;font-weight:800;color:#fff;letter-spacing:-.03em;line-height:1.15">1,500만 원</div><p class="small">300억 원 공공 공사의 하루 지체상금. 계약금액의 1천분의 0.5(국가계약법 시행규칙 제75조).</p></div>
+      <div class="card"><div class="k">누가 불편한가</div><p class="small" style="color:#cbd5e1;margin-top:1mm"><b style="color:#fff">공정 담당</b> 소식마다 공정표를 손으로 맞춘다.<br><b style="color:#fff">PM</b> 마지막에 본 크리티컬을 당긴다.<br><b style="color:#fff">현장 관리자</b> 전화를 돌리고 기록은 없다. 〔PM 확인〕</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 4 세 가지 + 한 바퀴 -->
+<section class="page">
+  <div class="eyebrow">02 · 해법 · 노하우를 에이전트로</div>
+  <h1 style="font-size:30pt">15년차 PM이 하던 세 가지를<br><span class="c">변동이 올 때마다</span> 대신 한다</h1>
+  <div class="g3" style="margin-top:7mm;align-items:start">
+    <div class="card blue"><div class="k">하나 · 다시 본다</div><h4>지금 준공일을 좌우하는 작업은 어디인가</h4><p class="small">변동마다 코드가 영향을 재고 관리 포인트를 다시 뽑는다. 바뀌었으면 카드로 알린다.</p>
+      <div class="shot" style="margin-top:3mm"><img src="img/s1b-포인트카드.jpg" style="height:62mm;object-fit:cover;object-position:top"></div></div>
+    <div class="card amber"><div class="k">둘 · 따져 본다</div><h4>이걸 당기면 준공이 당겨지나</h4><p class="small">당긴 일수 가운데 준공에 반영되는 일수와 그다음 좌우하는 작업을 코드가 계산한다.</p>
+      <div class="shot glow-amber" style="margin-top:3mm"><img src="img/s4-당김효과.jpg" style="height:62mm;object-fit:cover;object-position:top"></div></div>
+    <div class="card blue"><div class="k">셋 · 먼저 묻는다</div><h4>그 작업의 담당자에게 먼저 확인한다</h4><p class="small">바깥 위험을 출처와 함께 찾고, 문자와 AI 전화로 묻고, 답마다 근거를 남긴다.</p>
+      <div class="shot" style="margin-top:3mm"><img src="img/s3-통화카드.jpg" style="height:62mm;object-fit:cover;object-position:top left"></div></div>
+  </div>
+  <div style="font-size:13pt;font-weight:800;color:#fff;margin-top:8mm">에이전트의 한 바퀴</div>
+  <div class="paper" style="margin-top:3mm"><img src="img/d1-한바퀴.png" alt="에이전트의 한 바퀴"></div>
+  <div class="g3" style="margin-top:5mm">
+    <div class="card"><div class="k">코드</div><p class="small" style="color:#cbd5e1">날짜, 여유, 자원, 영향, 관리 포인트, 당김 효과를 계산한다. 4겹 하네스로 규칙을 점검한다.</p></div>
+    <div class="card"><div class="k">Liner</div><p class="small" style="color:#cbd5e1">요청을 알아듣고, 볼 바깥 자료를 고르고, 출처 있는 근거와 연락 글, 통화 요약을 쓴다. 날짜는 계산하지 않는다.</p></div>
+    <div class="card"><div class="k">사람</div><p class="small" style="color:#cbd5e1">승인과 거부, 조건 확정, 연락 보내기. 일정은 사람이 승인해야 바뀐다.</p></div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 5 Liner -->
+<section class="page">
+  <div class="eyebrow">02 · 해법 · Liner 를 어디에, 왜</div>
+  <h1 style="font-size:30pt">CPM 이 볼 곳을 정하고,<br><span class="c">Liner 가 그곳의 일을 찾아온다</span></h1>
+  <div class="g2" style="margin-top:7mm">
+    <div class="card blue" style="padding:5mm 6mm"><div class="k">LINER MODEL</div><div style="font-size:20pt;font-weight:800;color:#fff;margin:1mm 0 2mm">두뇌</div>
+      <p class="body" style="font-size:9.4pt">요청을 알아듣고, 질문지를 만들고, 일정 초안을 쓰고 고치고, 만회안을 설명하고, 연락 글과 통화 요약을 쓴다. 현장 사진도 읽는다.</p>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2mm;margin-top:3.5mm;text-align:center;font-size:8.4pt">
+        <div style="border:1px solid rgba(125,211,252,.4);border-radius:8px;padding:2mm"><b style="color:#7dd3fc;display:block">cost</b>자주 도는 감시</div>
+        <div style="border:1px solid rgba(125,211,252,.4);border-radius:8px;padding:2mm"><b style="color:#7dd3fc;display:block">balanced</b>대화</div>
+        <div style="border:1px solid rgba(125,211,252,.4);border-radius:8px;padding:2mm"><b style="color:#7dd3fc;display:block">quality</b>만회안 판단</div>
+      </div>
+      <p class="small" style="margin-top:2.5mm">Router 전략을 일에 따라 나눠 쓴다. 쉬지 않고 돌아도 비용이 버티는 까닭이다.</p></div>
+    <div class="card amber" style="padding:5mm 6mm"><div class="k">LINER SEARCH</div><div style="font-size:20pt;font-weight:800;color:#fff;margin:1mm 0 2mm">근거</div>
+      <p class="body" style="font-size:9.4pt">약속을 바꾸는 결정에는 출처가 있어야 한다. 새 관리 포인트가 생기면 그 작업에 대해서만 찾는다.</p>
+      <div style="display:grid;gap:1.6mm;margin-top:3.5mm;font-size:8.6pt">
+        <div><b style="color:#fbbf24">Premium Data</b> 알루미늄·구리 시세, 원·달러 환율</div>
+        <div><b style="color:#fbbf24">MCP</b> 업계 소식, 법령, 업체 정보</div>
+        <div><b style="color:#fbbf24">Search Agent</b> 근거가 된 문장과 링크</div>
+      </div>
+      <p class="small" style="margin-top:2.5mm">모든 작업이 아니라 새 포인트에만 찾으니 호출이 적다.</p></div>
+  </div>
+  <div style="font-size:12pt;font-weight:800;color:#fff;margin-top:7mm">실제로 불러 본 결과</div>
+  <div class="nums" style="grid-template-columns:repeat(5,1fr);margin-top:3mm">
+    <div><b>22/22</b><span>Model · Router 도구 호출, strict JSON</span></div>
+    <div><b>30개월</b><span>Premium Data 금속 시세 · 원·달러</span></div>
+    <div><b>5/5</b><span>MCP 법령 · 업체</span></div>
+    <div><b>15/15</b><span>Visualization 차트 숫자 일치</span></div>
+    <div><b>뜻 검색</b><span>Embeddings 자료함</span></div>
+  </div>
+  <p class="small" style="margin-top:3mm">Liner 가 아닌 것: 날짜 계산은 코드, 날씨는 기상청, 실시간 통화 음성은 Gemini Live(지연 시간 때문), 문자와 전화 통로는 한국AI통신.</p>
+  <div style="font-size:12pt;font-weight:800;color:#fff;margin-top:7mm">하지 않는 것</div>
+  <div class="no6" style="margin-top:3mm">
+    <div><i></i>AI 가 날짜를 계산하지 않는다. AI 가 낸 날짜는 코드가 버린다.</div>
+    <div><i></i>자료가 없으면 숫자를 만들지 않는다. 「바깥 자료 없음」으로 둔다.</div>
+    <div><i></i>못 읽은 사진에 숫자를 붙이지 않는다. 관리자가 사람 판독한다.</div>
+    <div><i></i>사람 승인 없이 일정을 바꾸지 않는다.</div>
+    <div><i></i>허락 없이 연락하지 않는다. 기본값은 「승인 받기」.</div>
+    <div><i></i>전화번호를 AI 모델에 주지 않는다.</div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 6 와우 1 OS -->
+<section class="page">
+  <div class="toprow"><div class="eyebrow">03 · 에이전트가 쓰는 OS</div><span class="wow">WOW 1 · OS + COMPUTER USE</span></div>
+  <h1 style="font-size:52pt;margin-top:2mm">Chron<span class="c">OS</span></h1>
+  <div style="font-size:20pt;font-weight:800;color:#fff;letter-spacing:-.02em;margin-top:2mm">대화하면, <span style="color:#7dd3fc">일정표가 움직인다.</span></div>
+  <p class="sub" style="font-size:11pt">에이전트와 일정 도구가 한 화면에 있다. 대화창에 "커튼월 공장 제작이 3일 늦어졌어"라고 쓰면 에이전트가 답을 글로만 주지 않고 스케줄, 지연 기록, 비교판 창을 직접 열어 일한다. 사람은 대화를 이어 가며 창이 바뀌는 것을 보고, 마지막에 승인한다.</p>
+  <div class="stage" style="height:150mm;margin-top:9mm">
+    <div class="shot" style="position:absolute;left:62mm;top:0;width:118mm"><img src="img/os1-스케줄.jpg"></div>
+    <div class="shot" style="position:absolute;left:68mm;top:40mm;width:114mm"><img src="img/os2-지연.jpg"></div>
+    <div class="shot glow-amber" style="position:absolute;left:74mm;top:80mm;width:108mm"><img src="img/os3-비교판.jpg"></div>
+    <div class="shot" style="position:absolute;left:0;top:4mm;width:58mm;z-index:8"><img src="img/os-대화.jpg"></div>
+    <div class="chip2 white" style="left:2mm;top:-4mm"><i>0</i>대화로 요청</div>
+    <div class="chip2" style="left:64mm;top:-4mm"><i>1</i>스케줄에서 작업을 찾고</div>
+    <div class="chip2" style="left:70mm;top:36mm"><i>2</i>지연 기록에서 영향을 재고</div>
+    <div class="chip2 amber" style="left:76mm;top:76mm"><i>3</i>비교판에 만회안을 띄운다</div>
+  </div>
+  <div class="facts">
+    <div><b>한 화면에서</b>대화와 일정 도구가 따로 놀지 않는다. 사람이 고른 작업을 에이전트도 본다.</div>
+    <div><b>Computer Use</b>스크린샷을 흉내 내지 않고, 자기 OS 의 창을 도구(<span class="mono" style="font-size:8pt">ui.open_window</span>)로 정확히 연다.</div>
+    <div><b>사람이 결정</b>앱 19개가 같은 승인함을 쓴다. 일정은 승인해야 바뀐다.</div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 7 워크플로우 -->
+<section class="page">
+  <div class="toprow"><div class="eyebrow">03 · 에이전트가 쓰는 OS · 워크플로우</div><span class="wow">WOW 1 · 이어서</span></div>
+  <h1 style="font-size:30pt">정해진 순서 대신,<br><span class="c">워크플로우를 그 자리에서 짠다</span></h1>
+  <p class="sub" style="font-size:10.2pt">요청이 들어오면 워크플로우 창이 열려 단계가 하나씩 생기고, 단계마다 그 일을 하는 창이 앞으로 나온다. 단계를 누르면 어떤 도구를 왜 썼는지, 무엇을 받아 무엇을 돌려줬는지, 어느 모델이 얼마를 썼는지 나온다.</p>
+  <div class="stage" style="height:118mm;margin-top:8mm">
+    <div class="shot" style="position:absolute;left:0;top:0;width:104mm"><img src="img/wf1.jpg"></div>
+    <div class="shot" style="position:absolute;left:22mm;top:22mm;width:104mm"><img src="img/wf2.jpg"></div>
+    <div class="shot" style="position:absolute;left:44mm;top:44mm;width:104mm"><img src="img/wf3.jpg"></div>
+    <div class="shot" style="position:absolute;right:0;top:0;width:36mm;z-index:8"><img src="img/wf4-상세.jpg" style="height:104mm;object-fit:cover;object-position:top"></div>
+    <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>단계 1개</div>
+    <div class="chip2" style="left:24mm;top:18mm"><i>2</i>단계가 자란다</div>
+    <div class="chip2 amber" style="left:46mm;top:40mm"><i>3</i>완료</div>
+    <div class="chip2" style="right:2mm;top:-4mm"><i>i</i>단계 상세</div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin-top:6mm;align-items:start">
+    <div><div style="font-size:11pt;font-weight:800;color:#fff">[스킬로 저장]</div><p class="small" style="color:#cbd5e1;margin:1mm 0 2.5mm">잘 된 순서는 스킬로 남긴다. 비슷한 요청이 오면 에이전트가 꺼내 쓴다. 베테랑의 일하는 순서가 회사에 남는다.</p><div class="shot"><img src="img/wf5-스킬.jpg"></div></div>
+    <div><div style="font-size:11pt;font-weight:800;color:#fff">보여 주는 정도는 사람이 고른다</div><p class="small" style="color:#cbd5e1;margin:1mm 0 2.5mm">스테이지 창 전환 · 워크플로우 창만 · 끄기. 조용히 쓰고 싶으면 끈다.</p><div class="shot"><img src="img/os4-설정.jpg"></div></div>
+  </div>
+  <div style="margin-top:6mm"><div class="small" style="margin-bottom:2mm">Dock 의 앱 19개. 모두 같은 승인함, 하네스, 버전, 도구 등록부를 쓴다.</div><div class="shot"><img src="img/os0-dock.jpg"></div></div>
+  <div class="facts" style="margin-top:5mm">
+    <div><b>보인다</b>에이전트가 한 일을 글로 설명받지 않고 화면에서 본다. 책임이 큰 일에서는 이것이 신뢰다.</div>
+    <div><b>같이 쓴다</b>사람이 스케줄 창에서 고른 작업을 에이전트도 본다(「보는 중: 스케줄 · A1404」).</div>
+    <div><b>붙는다</b>새 앱은 폴더 하나와 도구 등록으로 붙고, 붙는 순간 에이전트가 쓴다.</div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 8 장면 0 와우 4 -->
+<section class="page">
+  <div class="toprow"><div class="eyebrow">04 · 실제로 도는 시연 · 장면 0</div><span class="wow">WOW 4 · AI 공정표 초안</span></div>
+  <h1 style="font-size:30pt">말 한 줄이 <span class="c">공정표 초안</span>이 된다</h1>
+  <p class="sub" style="font-size:10.2pt">시연 일정은 「5층 사무동 신축」(가상)이다. 아래 숫자는 모두 엔진이 계산했고 자동 시험이 고정한다. 시작은 한 줄이다. "5층 사무동 공정표 만들어 줘. 착공은 3월, 준공은 연말까지."</p>
+  <div class="stage" style="height:150mm;margin-top:9mm">
+    <div class="shot" style="position:absolute;left:0;top:0;width:90mm"><img src="img/c1-질문지.jpg"></div>
+    <div class="shot" style="position:absolute;left:98mm;top:4mm;width:80mm"><img src="img/c2-생성카드.jpg"></div>
+    <div class="shot" style="position:absolute;left:98mm;top:38mm;width:80mm;border-color:#f87171"><img src="img/c5-위반.jpg"></div>
+    <div class="shot glow-amber" style="position:absolute;left:44mm;top:72mm;width:134mm"><img src="img/c4-간트.jpg"></div>
+    <div class="shot" style="position:absolute;left:0;top:86mm;width:72mm;z-index:6"><img src="img/c3-승인.jpg"></div>
+    <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>바로 그리지 않고, 질문지로 먼저 묻는다</div>
+    <div class="chip2" style="left:100mm;top:-1mm"><i>2</i>날짜는 코드가 계산하고 점검</div>
+    <div class="chip2 red" style="left:100mm;top:33mm"><i>!</i>규칙 위반이면 다시 짜게 한다</div>
+    <div class="chip2" style="left:2mm;top:82mm"><i>3</i>승인함</div>
+    <div class="chip2 amber" style="left:120mm;top:68mm"><i>4</i>간트에 그려진다</div>
+  </div>
+  <div class="facts">
+    <div><b>먼저 묻는다</b>모자란 정보는 질문지로 묻고, 답하지 않은 질문은 적어 둔 가정대로 간다.</div>
+    <div><b>날짜는 코드가</b>AI 는 작업과 기간과 관계만 쓴다. 동절기 타설, 크레인 겹침 같은 위반은 코드가 잡는다. 촬영 네 번 중 세 번 한 번에 통과, 한 번 위반 1건.</div>
+    <div><b>처음 보는 분야도</b>용어, 작업 계층, 위험 규칙을 그 자리에서 만든다. 협력사 엑셀을 붙이면 빈칸만 묻는다.</div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 9 장면 1·2 -->
+<section class="page">
+  <div class="eyebrow">04 · 실제로 도는 시연 · 장면 1, 2</div>
+  <h1 style="font-size:30pt">같은 3일인데, <span class="c">관리 포인트가 바뀌었다</span></h1>
+  <div class="g2" style="margin-top:6mm">
+    <p class="body"><b>장면 1.</b> "창호 제작이 3일 늦어졌어." 준공도 관리 포인트도 그대로다. 창호 쪽은 여유가 18일이다. 이어서 "커튼월 공장 제작도 3일 늦어졌어." 이번에도 준공은 그대로라 사람은 안심한다. 하지만 커튼월 쪽 여유가 4일에서 1일로 줄고 새 관리 포인트 3건이 생겼다.</p>
+    <p class="body"><b>장면 2.</b> 에이전트가 「관리 포인트가 바뀌었습니다」 카드를 띄운다. 새 포인트에 대해서만 Liner Search 가 바깥 위험을 찾는다. 6개월이 넘은 글은 쓰지 않고, 찾지 못하면 「바깥 자료 없음」으로 둔다. [근거 문장 보기]를 누르면 출처 문장이 열린다.</p>
+  </div>
+  <div class="stage" style="height:118mm;margin-top:10mm">
+    <div class="shot" style="position:absolute;left:0;top:6mm;width:52mm;opacity:.95"><img src="img/s1a-창호지연.jpg"></div>
+    <div class="shot" style="position:absolute;left:40mm;top:20mm;width:54mm;z-index:3"><img src="img/s1b-포인트카드.jpg" style="height:92mm;object-fit:cover;object-position:top"></div>
+    <div class="shot glow-amber" style="position:absolute;left:100mm;top:0;width:54mm;z-index:4"><img src="img/s2-바깥위험.jpg" style="height:110mm;object-fit:cover;object-position:top"></div>
+    <div class="shot" style="position:absolute;left:134mm;top:30mm;width:46mm;z-index:5"><img src="img/s2b-근거문장.jpg" style="height:82mm;object-fit:cover;object-position:top"></div>
+    <div class="chip2 white" style="left:2mm;top:0"><i>1</i>창호 +3일 · 변화 없음</div>
+    <div class="chip2 red" style="left:42mm;top:14mm"><i>2</i>커튼월 +3일 · 포인트 3건</div>
+    <div class="chip2 amber" style="left:102mm;top:-6mm"><i>3</i>바깥 위험</div>
+    <div class="chip2" style="left:136mm;top:24mm"><i>4</i>근거 문장</div>
+  </div>
+  <div class="g3" style="margin-top:8mm">
+    <div class="card amber"><div class="k">PREMIUM DATA</div><h4>알루미늄 3개월 -3.2%</h4><p class="small">World Bank · 2026-10</p></div>
+    <div class="card amber"><div class="k">PREMIUM DATA</div><h4>원·달러 1,343원</h4><p class="small">Xignite · 〔갱신: 촬영 시점 값〕</p></div>
+    <div class="card amber"><div class="k">MCP · SEARCH AGENT</div><h4>업계 소식 한 줄</h4><p class="small">「알루미늄 커튼월 시장 규모 및 산업 분석」(2026-07-11)</p></div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 10 장면 3 와우 3 -->
+<section class="page">
+  <div class="toprow"><div class="eyebrow">04 · 실제로 도는 시연 · 장면 3</div><span class="wow">WOW 3 · AI 문자·전화</span></div>
+  <h1 style="font-size:30pt">에이전트가 <span class="c">담당자에게 먼저 묻는다</span></h1>
+  <p class="sub" style="font-size:10.2pt">[담당자에게 확인 연락]을 누르면 에이전트가 물어볼 것을 써 오고 사람이 고친다. 여기서는 「2교대 가능 여부」를 더하고, 말하지 않을 것에 「금액, 다른 업체」를 적었다.</p>
+  <div style="display:grid;grid-template-columns:74mm 1fr;gap:6mm;margin-top:7mm;align-items:start">
+    <div>
+      <div class="say ai"><b>비서 · 0:00</b>안녕하세요, 성수동 사무동 신축현장 일정 담당 ChronOS AI 비서입니다. 이 통화는 기록됩니다.</div>
+      <div class="say ai"><b>비서</b>커튼월 공장 제작이 7월 10일까지 끝나야 하는 일정인데, 제시간에 끝낼 수 있을까요?</div>
+      <div class="say p"><b>김 과장</b>3일 늦어졌지만 7월 10일은 맞출 수 있습니다.</div>
+      <div class="say p"><b>김 과장</b>그런데 2교대 하면 단가는 얼마나 올라요?</div>
+      <div class="say no"><b>비서 · 범위 밖 질문</b>그 부분은 제가 말씀드릴 수 없어서, 담당자께 전달하겠습니다.</div>
+      <div class="say p"><b>김 과장</b>2교대는 다음 주부터 가능합니다.</div>
+    </div>
+    <div class="stage" style="height:120mm">
+      <div class="shot" style="position:absolute;left:0;top:4mm;width:96mm"><img src="img/s3b-통화중.jpg"></div>
+      <div class="shot glow-amber" style="position:absolute;left:14mm;top:58mm;width:86mm;z-index:3"><img src="img/s3-통화카드.jpg"></div>
+      <div class="chip2 white" style="left:2mm;top:0"><i>1</i>통화 중</div>
+      <div class="chip2 amber" style="left:16mm;top:54mm"><i>2</i>질문마다 답과 근거</div>
+    </div>
+  </div>
+  <div style="margin-top:4mm"><div class="small" style="margin-bottom:2mm">받아쓰기. 누가 언제 무슨 말을 했는지 그대로 남는다.</div><div class="shot"><img src="img/s3c-받아쓰기.jpg" style="height:22mm;object-fit:cover;object-position:top"></div></div>
+  <div class="facts">
+    <div><b>사람이 정한다</b>무엇을 묻고 무엇을 말하지 않을지 사람이 고친다. 보내기 기본값은 「승인 받기」.</div>
+    <div><b>번호를 모른다</b>AI 모델은 전화번호를 보지 않는다. 연락처 id 와 이름만 보고 번호는 코드가 붙인다.</div>
+    <div><b>근거가 남는다</b>81초 통화 뒤 받아쓰기와 답을 대조한다. 근거 없는 답은 사실로 남기지 않는다.</div>
+  </div>
+  <p class="small" style="margin-top:4mm">시연 통화는 AI 두 세션을 이은 시험 통화 녹음이다. 실제 전화망 통화도 따로 시험해 첫 응답 약 1.1초, 받아쓰기, 걸려 온 전화 받기를 확인했다. 나가는 연락은 시험 모드, 차단, 근무시간, 상한, 권한, 중복 검사를 거친다.</p>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 11 장면 4 와우 2 -->
+<section class="page">
+  <div class="toprow"><div class="eyebrow amber">04 · 실제로 도는 시연 · 장면 4</div><span class="wow">WOW 2 · 5일 중 1일</span></div>
+  <h1>당기기 전에 묻는다.<br>이걸 당기면 <em>며칠이 줄어드나.</em></h1>
+  <p class="sub">"옥탑 골조를 5일 당기면?" 에이전트가 코드로 다시 계산해 바로 답한다. 당긴 5일 가운데 마감에 반영되는 날은 하루. 이미 커튼월 쪽이 마감을 좌우하고 있어서다. 그래서 다음에 볼 곳까지 알려 준다.</p>
+  <div style="position:relative;height:136mm;margin-top:9mm">
+    <div class="shot" style="position:absolute;left:0;top:0;width:66mm;opacity:.92"><img src="img/s1b-포인트카드.jpg" style="height:86mm;object-fit:cover;object-position:top"></div>
+    <div class="shot glow-amber" style="position:absolute;left:44mm;top:18mm;width:76mm"><img src="img/s4-당김효과.jpg"></div>
+    <div class="shot" style="position:absolute;left:70mm;top:94mm;width:110mm"><img src="img/s6-관리포인트창.jpg"></div>
+    <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>커튼월이 3일 늦어 좌우하는 일이 바뀜</div>
+    <div class="chip2 amber" style="left:46mm;top:14mm"><i>2</i>"5일 당기면?" → 5일 중 1일</div>
+    <div class="chip2" style="left:72mm;top:90mm"><i>3</i>관리 포인트 창에서 커튼월부터</div>
+    <div style="position:absolute;right:0;top:40mm;text-align:right">
+      <div style="font-size:74pt;font-weight:800;line-height:.9;letter-spacing:-.05em;background:linear-gradient(180deg,#fde68a,#f97316);-webkit-background-clip:text;background-clip:text;color:transparent">1<span style="font-size:38pt;-webkit-text-fill-color:#64748b">/5</span></div>
+      <div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">당긴 5일 중<br>마감에 반영되는 날</div>
+      <div style="font-size:8.6pt;color:#94a3b8;margin-top:3mm">준공 2027-11-08 → 11-06</div>
+    </div>
+  </div>
+  <div class="facts">
+    <div><b>힘 쏟기 전에</b>야간 작업이나 장비를 더 넣기 전에 효과를 숫자로 본다. 같은 5일이 커튼월 지연 전에는 4일이었다.</div>
+    <div><b>계산은 코드</b>AI 는 날짜를 셈하지 않는다. 확인용 계산이라 일정은 바뀌지 않는다.</div>
+    <div><b>다음 행동까지</b>다음 결정 줄은 커튼월 공장 제작 → 자재 반입 → 설치. 바깥 위험과 담당자 연락으로 이어진다.</div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 12 장면 5 -->
+<section class="page">
+  <div class="eyebrow">04 · 실제로 도는 시연 · 장면 5</div>
+  <h1 style="font-size:30pt">대안을 견주고, <span class="c">사람이 결정한다</span></h1>
+  <p class="sub" style="font-size:10.2pt">만회안 B 는 크레인을 1대에서 2대로, 천장 마감을 15일에서 12일로, 커튼월 설치를 10일에서 8일로 줄여 준공을 11-01 로 6일 당긴다. 비교판에서 다른 안과 견주고 승인함에서 사람이 승인한다. 승인하면 새 버전이 되고 에이전트는 관리 포인트를 다시 뽑는다. 한 바퀴가 닫힌다.</p>
+  <div class="stage" style="height:96mm;margin-top:9mm">
+    <div class="shot" style="position:absolute;left:0;top:0;width:70mm;z-index:3"><img src="img/s5c-만회안카드.jpg" style="height:92mm;object-fit:cover;object-position:top"></div>
+    <div class="shot glow-amber" style="position:absolute;left:58mm;top:10mm;width:120mm"><img src="img/c3-승인.jpg"></div>
+    <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>만회안 카드</div>
+    <div class="chip2 amber" style="left:76mm;top:6mm"><i>3</i>승인함에서 사람이 승인</div>
+  </div>
+  <div style="margin-top:9mm;position:relative">
+    <div class="chip2" style="position:relative;display:inline-flex;margin-bottom:3mm"><i>2</i>비교판 요약 · 만회안 B 준공 11-01</div>
+    <div class="shot"><img src="img/s5-비교판.jpg"></div>
+  </div>
+  <div style="margin-top:7mm">
+    <div class="chip2" style="position:relative;display:inline-flex;margin-bottom:3mm"><i>4</i>다시 뽑은 관리 포인트 · 이번 주, 다음 주, 그다음 주</div>
+    <div class="shot"><img src="img/s6-관리포인트창.jpg"></div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 13 실사 4컷 2편 -->
+<section class="page">
+  <div class="eyebrow">04 · 실제로 도는 시연 · ChronOS 가 있는 밤</div>
+  <h1 style="font-size:32pt">같은 날, <span class="c">다른 밤</span></h1>
+  <p class="sub" style="font-size:10.5pt">커튼월 공장이 3일 늦어진 그날로 돌아간다. 이번에는 ChronOS 가 있다.</p>
+  <div class="rc-grid">
+    <div class="rc"><div class="ph"><img src="img/rc2-1.jpg"><span class="no">1</span>
+      <div class="bub ai tl" style="left:5mm;top:5mm"><small>ChronOS</small>관리 포인트가 바뀌었습니다.<br>커튼월 공장 제작 · 여유 4일 → 1일</div></div>
+      <div class="cap"><b>다시 본다.</b> 지연이 들어온 그 자리에서 다시 계산하고, 마감을 좌우하는 일이 커튼월로 옮겨 갔다고 먼저 알렸다.</div></div>
+    <div class="rc"><div class="ph"><img src="img/rc2-2.jpg"><span class="no">2</span>
+      <div class="bub tr" style="left:36mm;top:4mm">골조를 5일 당기면?</div>
+      <div class="bub ai tl" style="left:4mm;top:20mm"><small>ChronOS</small>당긴 5일 중 1일만<br>준공에 반영됩니다.</div></div>
+      <div class="cap"><b>따져 본다.</b> 야간 작업을 넣기 전에 숫자로 확인했다. 골조는 그대로 두었다.</div></div>
+    <div class="rc"><div class="ph"><img src="img/rc2-3.jpg"><span class="no">3</span>
+      <div class="bub ai tl" style="left:5mm;top:5mm"><small>ChronOS · AI 전화</small>7월 10일까지 제작이<br>가능할까요?</div>
+      <div class="bub phone" style="right:4mm;top:30mm">"7월 10일은<br>맞출 수 있습니다."</div></div>
+      <div class="cap"><b>먼저 묻는다.</b> AI 가 커튼월 업체에 먼저 전화했다. 질문별 답과 근거가 통화 카드로 남았다.</div></div>
+    <div class="rc"><div class="ph"><img src="img/rc2-4.jpg"><span class="no">4</span>
+      <div class="nar" style="left:5mm;top:5mm">힘은 커튼월에 썼다. 약속한 날짜는 그대로.</div></div>
+      <div class="cap"><b>사람이 정한다.</b> 만회안은 승인함에서 사람이 골랐다. 일정은 승인한 뒤에 바뀌었다.</div></div>
+  </div>
+  <div style="margin-top:7mm">
+    <div class="vs">
+      <div class="h"></div><div class="h">그날 밤</div><div class="h" style="color:#7dd3fc">ChronOS 가 있는 밤</div>
+      <div class="h">알게 된 때</div><div class="b">다음 주 회의 〔PM 확인〕</div><div class="a">지연을 입력한 그 자리 〔실측〕</div>
+      <div class="h">골조 5일 당김</div><div class="b">야간 작업으로 당김, 준공은 1일</div><div class="a">당기기 전에 "5일 중 1일" 확인</div>
+      <div class="h">커튼월 업체</div><div class="b">뒤늦게 전화로 앎</div><div class="a">AI 가 먼저 묻고, 답과 근거를 기록</div>
+      <div class="h">결정</div><div class="b">마지막에 본 크리티컬을 당김</div><div class="a">비교판의 숫자를 보고 사람이 승인</div>
+    </div>
+  </div>
+  <p style="font-size:7.6pt;color:#64748b;margin-top:4mm">이해를 돕기 위한 연출 이미지. Liner Images API(openai/gpt-image-2.6-sunburst)로 만들었고, 1·2번 모니터에는 실제 ChronOS 화면을 합성했다.</p>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 14 프로그램 설명 개요 -->
+<section class="page">
+  <div class="eyebrow">05 · 프로그램 설명</div>
+  <h1 style="font-size:30pt">ChronOS 의 앱 19개</h1>
+  <p class="sub" style="font-size:10.2pt">모든 앱이 같은 승인함, 하네스, 버전, 도구 등록부를 쓴다. 사람이 직접 열어 써도 되고, 에이전트가 대화 중에 열어 쓰기도 한다. 다음 쪽부터 앱마다 실제 화면과 기능, 에이전트가 그 앱을 쓰는 방식을 적었다.</p>
+  <div class="shot" style="margin-top:7mm"><img src="img/os0-dock.jpg"></div>
+  <div class="g3" style="margin-top:7mm;align-items:start">
+    <div class="card blue"><div class="k">시스템 · 7</div><h4>일을 시키고, 보고, 승인한다</h4><p class="small" style="color:#cbd5e1;line-height:1.9">01 에이전트 대화<br>02 질문지<br>03 워크플로우<br>04 승인함<br>05 탐색기<br>06 설정<br>07 개발 콘솔(관리자)</p></div>
+    <div class="card amber"><div class="k">일정 · 9</div><h4>계산하고, 견주고, 기록한다</h4><p class="small" style="color:#cbd5e1;line-height:1.9">08 스케줄 · 09 간트차트<br>10 CPM · 11 공정률(현장 점검)<br>12 관리 포인트 · 13 비교판<br>14 조건·규칙 · 15 지연 기록<br>16 보고서</p></div>
+    <div class="card blue"><div class="k">연결 · 3</div><h4>현장과 사람에 닿는다</h4><p class="small" style="color:#cbd5e1;line-height:1.9">17 프로젝트 관리<br>18 연락처(문자, AI 전화)<br>19 자료함</p></div>
+  </div>
+  <div style="font-size:12pt;font-weight:800;color:#fff;margin-top:8mm">기기마다</div>
+  <div style="display:grid;grid-template-columns:1fr 32mm;gap:5mm;margin-top:3mm;align-items:start">
+    <div><div class="shot"><img src="img/app/20-태블릿.jpg" style="height:68mm;object-fit:cover;object-position:top"></div>
+      <p class="small" style="margin-top:2mm"><b style="color:#fff">PC</b> 창을 여러 개 띄우는 OS 화면. 에이전트가 창을 차례로 연다. <b style="color:#fff">태블릿</b> 좌우 분할, 왼쪽 레일에서 편집(위 화면).</p></div>
+    <div><div class="shot" style="border-radius:14px"><img src="img/app/21-폰.jpg"></div>
+      <p class="small" style="margin-top:2mm"><b style="color:#fff">스마트폰</b> 아래 탭 5개. 현장 계정은 현장 점검, 일정, 현장 AI 만 본다.</p></div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 15 앱 01 02 -->
+<section class="page">
+  <div class="eyebrow">05 · 프로그램 설명 · 시스템 앱</div>
+  <div class="app"><div class="ah"><span class="an">01</span><h3>에이전트 대화</h3><span class="ad">말 한 줄로 일을 시키는 곳. 결과는 글이 아니라 카드로 돌아온다.</span></div>
+    <div style="display:grid;grid-template-columns:1fr 40mm;gap:4mm;margin-top:2.5mm">
+      <div class="shot"><img src="img/app/01-에이전트대화-모델고르기.jpg" style="height:86mm;object-fit:cover;object-position:top"></div>
+      <div class="shot"><img src="img/app/01-에이전트대화-컨텍스트패널.jpg" style="height:86mm;object-fit:cover;object-position:top"></div>
+    </div>
+    <ul class="af"><li>결과 카드: 일정 생성, 지연 영향, 관리 포인트, 당김 효과, 만회안, 근거, 차트</li><li>대화 정보 패널: 지금 다루는 일정, 보는 화면, 가정, 단계, 사용량</li><li>대화마다 모델 고르기, 파일 붙이기(10개, 50MB), 답 중단</li><li>문자·전화 초안도 카드로 받는다</li></ul>
+    <div class="ag">모든 일의 출발점. 여기서 받은 요청으로 다른 창을 연다.</div></div>
+  <div class="app"><div class="ah"><span class="an">02</span><h3>질문지</h3><span class="ad">일정을 만들기 전에 모자란 정보를 묻는 창.</span></div>
+    <div class="shot" style="margin-top:2.5mm"><img src="img/c1-질문지.jpg" style="height:70mm;object-fit:cover;object-position:top"></div>
+    <div class="shot" style="margin-top:3mm"><img src="img/app/02-질문지.jpg"></div>
+    <ul class="af"><li>질문마다 「왜 묻나요」와 추천 선택지, 직접 입력</li><li>답하지 않은 질문은 적어 둔 가정으로 넘어간다</li><li>대화와 자료에서 미리 채운 칸은 따로 표시</li></ul>
+    <div class="ag">질문이 셋 이상이면 에이전트가 이 창을 띄운다.</div></div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 16 앱 03 04 -->
+<section class="page">
+  <div class="eyebrow">05 · 프로그램 설명 · 시스템 앱</div>
+  <div class="app"><div class="ah"><span class="an">03</span><h3>워크플로우</h3><span class="ad">에이전트가 짠 단계를 그래프로 보여 주고, 잘 된 순서를 스킬로 저장한다.</span></div>
+    <div class="shot"><img src="img/app/03-워크플로우-단계그래프와상세.jpg"></div>
+    <ul class="af"><li>단계 그래프가 실시간으로 자란다</li><li>단계 상세: 도구, 까닭, 모델, 받은 것과 돌려준 것, 시간, 비용</li><li>[스킬로 저장] → 다음 비슷한 요청에 다시 쓴다</li></ul>
+    <div class="ag">「워크플로우 창만」 모드에서는 이 창 하나로 진행을 보여 준다.</div></div>
+  <div class="app"><div class="ah"><span class="an">04</span><h3>승인함</h3><span class="ad">일정을 바꾸는 결정은 여기서 사람이 한다.</span></div>
+    <div class="shot"><img src="img/app/04-승인함-대기건상세.jpg"></div>
+    <ul class="af"><li>대기 건 상세: 승인이 필요한 이유, 바뀌는 작업 표, 조건 점검, 기한 여유</li><li>[승인하고 반영] [거부] [거부하고 다시 짜게 하기]</li><li>자동 적용된 건은 [되돌리기]</li></ul>
+    <div class="ag">올리기만 하고 승인하지 못한다. 현장 관리자도 승인하지 못한다.</div></div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 17 앱 05 06 07 -->
+<section class="page">
+  <div class="eyebrow">05 · 프로그램 설명 · 시스템 앱</div>
+  <div class="arow" style="grid-template-columns:104mm 1fr"><div class="shot"><img src="img/app/05-탐색기-일정과버전.jpg"></div>
+    <div class="app" style="margin:0"><div class="ah"><span class="an">05</span><h3>탐색기</h3></div><p class="ad" style="margin-top:1mm">일정 파일과 버전을 보관하는 곳.</p>
+      <ul class="af"><li>분야별 일정 목록</li><li>버전 목록과 [되돌리기]. 옛 버전은 모두 남는다</li></ul><div class="ag">일정 목록과 버전을 읽는다.</div></div></div>
+  <div class="arow" style="grid-template-columns:104mm 1fr"><div class="shot"><img src="img/app/06-설정-작업별모델배정.jpg"></div>
+    <div class="app" style="margin:0"><div class="ah"><span class="an">06</span><h3>설정</h3></div><p class="ad" style="margin-top:1mm">개인 화면 설정과 관리자용 연결·정책.</p>
+      <ul class="af"><li>LLM 연결(Liner)과 작업별 모델 배정(cost · balanced · quality)</li><li>알림 연결: 문자·AI 전화, 시험 모드, 발송 권한</li><li>에이전트 작업 연출, 분야별 바깥 자료 켜고 끄기, 계정 승인</li></ul></div></div>
+  <div class="arow" style="grid-template-columns:104mm 1fr"><div class="shot"><img src="img/app/07-개발콘솔-에이전트구조.jpg"></div>
+    <div class="app" style="margin:0"><div class="ah"><span class="an">07</span><h3>개발 콘솔</h3><span class="chip" style="font-size:7pt">관리자</span></div><p class="ad" style="margin-top:1mm">에이전트의 속을 들여다보는 곳.</p>
+      <ul class="af"><li>에이전트 구조도와 이번 요청의 실행 흐름도</li><li>하네스 차단 시험, 연락 하네스 상황 × 채널 격자</li><li>실행 추적, 시스템 진단, 사용량과 비용</li></ul></div></div>
+  <div class="g2" style="margin-top:6mm">
+    <div><div class="small" style="margin-bottom:2mm">설정 › 분야별 바깥 자료</div><div class="shot"><img src="img/app/06-설정-분야별바깥자료.jpg"></div></div>
+    <div><div class="small" style="margin-bottom:2mm">개발 콘솔 › 실행 추적</div><div class="shot"><img src="img/app/07-개발콘솔-실행추적.jpg" style="height:30mm;object-fit:cover;object-position:top"></div></div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 18 앱 08 09 -->
+<section class="page">
+  <div class="eyebrow amber">05 · 프로그램 설명 · 일정 앱</div>
+  <div class="app"><div class="ah"><span class="an">08</span><h3>스케줄</h3><span class="ad">작업을 표로 보고 직접 고친다. 날짜는 모두 코드가 계산한 값이다.</span></div>
+    <div class="shot"><img src="img/app/08-스케줄-표와관계패널.jpg"></div>
+    <ul class="af"><li>칸 편집, WBS 묶음 접기, 행 추가·삭제</li><li>관계 패널: 선행·후행(FS/SS/FF/SF + 간격)</li><li>Plan 보다 늦어지면 「지연 기록 열기」 알림, 협력사 연락</li></ul>
+    <div class="ag">요청 속 작업을 여기서 찾아 보여 준다.</div></div>
+  <div class="app"><div class="ah"><span class="an">09</span><h3>간트차트</h3><span class="ad">막대로 계획과 실적을 겹쳐 본다.</span></div>
+    <div class="shot"><img src="img/app/09-간트-Plan실적크리티컬.jpg"></div>
+    <ul class="af"><li>층: Plan / 실적·예측 / 크리티컬(빨강), 마일스톤, Data Date</li><li>묶는 기준: WBS / 자원(생산 일정은 설비별)</li><li>막대를 끌어 고치고, 조건 미리 보기는 점선으로</li></ul>
+    <div class="ag">만회안과 조건 변경을 점선으로 미리 그린다.</div></div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 19 앱 10 11 -->
+<section class="page">
+  <div class="eyebrow amber">05 · 프로그램 설명 · 일정 앱</div>
+  <div class="app"><div class="ah"><span class="an">10</span><h3>CPM</h3><span class="ad">작업을 카드로, 관계를 화살표로 그린 네트워크도.</span></div>
+    <div class="shot"><img src="img/app/10-CPM-네트워크와상세.jpg"></div>
+    <ul class="af"><li>크리티컬 경로만 보기, 상세 패널(ES/EF, LS/LF, 여유)</li><li>위 요약: Plan 준수율, 크리티컬 변동, 완료 편차, 만회 달성률</li><li>화살표를 눌러 관계 고치기</li></ul>
+    <div class="ag">좌우하는 작업이 왜 그 줄인지 화살표로 보여 준다.</div></div>
+  <div class="app"><div class="ah"><span class="an">11</span><h3>공정률 · 현장 점검</h3><span class="ad">계획 대비 실적 대시보드와 현장 협업 허브.</span></div>
+    <div class="shot"><img src="img/app/11-공정률-대시보드.jpg"></div>
+    <ul class="af"><li>S-커브, SPI 추이, 마일스톤, 지연 상위, 앞으로 3주</li><li>현장 점검: 일일 체크인, 사진 AI 판독, 만회안 의견, D-3 핸드오프</li><li>못 읽은 사진은 「사람 판독 대기」로 관리자에게</li></ul>
+    <div class="ag">사진을 읽되, 못 읽으면 숫자를 붙이지 않고 넘긴다.</div></div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 20 앱 12 13 -->
+<section class="page">
+  <div class="eyebrow amber">05 · 프로그램 설명 · 일정 앱</div>
+  <div class="app"><div class="ah"><span class="an">12</span><h3>관리 포인트</h3><span class="ad">지금 준공일을 좌우하는 작업을 주별로 본다.</span></div>
+    <div class="shot glow-amber"><img src="img/app/12-관리포인트-주별보드.jpg"></div>
+    <ul class="af"><li>이번 주 · 다음 주 · 그다음 주 보드, 작업마다 여유와 협력사</li><li>버전마다 무엇이 들어오고 빠졌는지 「바뀜 기록」</li><li>카드에서 바깥 위험, 당김 효과, 담당자 연락으로 이어짐</li></ul>
+    <div class="ag">변동마다 다시 뽑고, 바뀌면 카드로 먼저 알린다.</div></div>
+  <div class="app"><div class="ah"><span class="an">13</span><h3>비교판</h3><span class="ad">여러 안을 같은 척도로 견준다.</span></div>
+    <div class="shot"><img src="img/app/13-비교판-같은차트와요약.jpg"></div>
+    <ul class="af"><li>같은 차트 / 좌우 비교 / 차이 표</li><li>요약 표: 준공, Plan 대비, 기한 여유, 크리티컬 수, 조건 위반, 준공 반영</li><li>「만약에」 복사본, [이 안을 반영(승인함으로)]</li></ul>
+    <div class="ag">만회안을 이 창에 나란히 띄운다.</div></div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 21 앱 14 15 -->
+<section class="page">
+  <div class="eyebrow amber">05 · 프로그램 설명 · 일정 앱</div>
+  <div class="app"><div class="ah"><span class="an">14</span><h3>조건·규칙</h3><span class="ad">일정에 걸린 조건을 4겹으로 보고, 바꿔 미리 본다.</span></div>
+    <div class="shot"><img src="img/app/14-조건규칙-4겹과미리보기띠.jpg"></div>
+    <ul class="af"><li>4겹: 기본 규칙 · 분야 규칙 · 내 규칙 · 입력 조건</li><li>값을 바꾸면 「준공 A → B · 위반 n」 미리 보기, 간트에 점선</li><li>내 규칙은 에이전트가 제안하고 사람이 승인해 쌓인다</li></ul>
+    <div class="ag">규칙을 제안만 한다. 쌓는 것은 사람의 승인이다.</div></div>
+  <div class="app"><div class="ah"><span class="an">15</span><h3>지연 기록</h3><span class="ad">늦어진 사건을 기록하고 영향을 본다.</span></div>
+    <div class="shot"><img src="img/app/15-지연기록-KPI와사건상세.jpg"></div>
+    <ul class="af"><li>준공 영향 누적, 책임별 영향, 여유로 흡수된 지연, 비용 환산</li><li>영향 분석: 준공 변화, 크리티컬 변화, 새 자원 겹침</li><li>[간트에서 보기] [비교판에서 보기] [만회 계획 요청]</li></ul>
+    <div class="ag">"3일 늦어졌어" 한 줄을 사건으로 기록하고 영향을 잰다.</div></div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 22 앱 16 17 -->
+<section class="page">
+  <div class="eyebrow amber">05 · 프로그램 설명 · 일정 앱, 연결 앱</div>
+  <div class="app"><div class="ah"><span class="an">16</span><h3>보고서</h3><span class="ad">월간·분기 보고서를 회사 양식대로 쓴다.</span></div>
+    <div class="shot"><img src="img/app/16-보고서-양식학습패널.jpg"></div>
+    <ul class="af"><li>지난 보고서 파일을 올리면 구조와 문체를 배워 양식으로 기억</li><li>블록마다 AI 에게 고쳐 달라 하고 「다음에도 기억」</li><li>표 숫자는 코드 값, 차트 숫자는 전수 대조, PDF·Word 내보내기</li></ul>
+    <div class="ag">숫자는 코드 값만 쓰고, 문장만 쓴다.</div></div>
+  <div class="app"><div class="ah"><span class="an">17</span><h3>프로젝트 관리</h3><span class="ad">AI 가 통화·문자에서 쓰는 현장 기본 정보.</span></div>
+    <div class="shot"><img src="img/app/17-프로젝트관리-목록과양식.jpg"></div>
+    <ul class="af"><li>프로젝트 이름, AI 가 부를 이름(예: 「성수동 사무동 신축현장」)</li><li>주소, 한 줄 소개, 발주처</li></ul>
+    <div class="ag">통화 첫마디에서 이 이름으로 자신을 소개한다.</div></div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 23 앱 18 19 -->
+<section class="page">
+  <div class="eyebrow">05 · 프로그램 설명 · 연결 앱</div>
+  <div class="app"><div class="ah"><span class="an">18</span><h3>연락처</h3><span class="ad">협력사 주소록과 문자·AI 전화.</span></div>
+    <div style="display:grid;grid-template-columns:1fr 56mm;gap:4mm;margin-top:2.5mm;align-items:start">
+      <div class="shot"><img src="img/app/18-연락처-문자.jpg"></div>
+      <div><div class="shot"><img src="img/app/18-연락처-전화걸기.jpg"></div><div class="small" style="margin-top:1.5mm">전화 걸기 창: 물어볼 것, 말하지 않을 것을 사람이 고친다</div></div>
+    </div>
+    <ul class="af"><li>프로젝트별 주소록: 근무시간, 언어, 가린 번호</li><li>문자 대화: 에이전트 초안 → 사람이 [보내기], 예약, 번역</li><li>전화 걸기 창(물어볼 것 · 말하지 않을 것), 통화 카드, 받아쓰기</li><li>걸려 온 전화 받기, 확인할 보고, 모르는 번호</li></ul>
+    <div class="ag">물을 것을 써 오고, 통화가 끝나면 답과 근거를 카드로 남긴다.</div></div>
+  <div class="app"><div class="ah"><span class="an">19</span><h3>자료함</h3><span class="ad">대화로 올린 문서·사진·공정표를 AI 가 분류해 둔 창고.</span></div>
+    <div class="shot"><img src="img/app/19-자료함-5축분류와미리보기.jpg"></div>
+    <ul class="af"><li>5축 분류: 종류 · 공종 · 현장 · 시기 · 출처</li><li>뜻과 낱말로 찾기(Liner Embeddings), 미리 보기, [대화에 붙이기]</li></ul>
+    <div class="ag">근거가 필요할 때 여기서 찾아 대화에 붙인다.</div></div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 24 구조: 로직 -->
+<section class="page">
+  <div class="eyebrow">06 · 구조와 검증 · 에이전트 로직</div>
+  <h1 style="font-size:28pt">변동 하나가 들어와 <span class="c">결정이 되기까지</span></h1>
+  <div class="paper" style="margin-top:7mm"><img src="img/d3-에이전트로직.png" alt="에이전트 로직"></div>
+  <p class="body" style="margin-top:5mm">에이전트 루프는 틀리면 다시 돈다(최대 12단계). 날짜가 필요한 순간마다 코드 엔진에 맡기고, 엔진은 4겹 하네스(기본, 분야, 내 규칙, 입력)로 규칙을 확인한다. 관리 포인트가 새로 생기면 그 작업에 대해서만 Liner Search 가 움직인다. 연락은 여섯 가지 검사를 통과해야 나가고, 통화가 끝나면 받아쓰기와 답을 대조한다. 이 흐름은 개발 콘솔의 「실행 추적」에 단계마다 시각, 도구, 모델, 비용과 함께 남는다.</p>
+  <div class="shot" style="margin-top:5mm"><img src="img/x3-추적.jpg" style="height:44mm;object-fit:cover;object-position:top"></div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 25 구조도 + 만든 것 + 검증 -->
+<section class="page">
+  <div class="eyebrow">06 · 구조와 검증</div>
+  <h2>구조</h2>
+  <div class="paper" style="margin-top:4mm;padding:3mm"><img src="img/d2-구조도.png" alt="ChronOS 구조" style="height:92mm;object-fit:contain"></div>
+  <h2 style="margin-top:7mm;font-size:18pt">만든 것과 설계만 된 것 <span style="font-size:9pt;color:#64748b;font-weight:600">2026-11-24 배포본 기준</span></h2>
+  <div class="tbl" style="grid-template-columns:28mm 1fr 44mm;margin-top:3mm">
+    <div class="th">영역</div><div class="th">동작함</div><div class="th">설계만</div>
+    <div>일정 엔진</div><div>CPM, 자원 맞춤, 지연 영향, 만회안, 관리 포인트, 당김 효과</div><div>-</div>
+    <div>에이전트</div><div>질문지, 생성-점검-고침, 워크플로우와 스킬 저장, 도구 40여 개, Computer Use 창 전환</div><div>스킬 목록 화면</div>
+    <div>안전장치</div><div>4겹 하네스, 승인함, 버전, 연락 하네스, 사람 판독 넘기기</div><div>팀 단위 세부 권한</div>
+    <div>근거</div><div>자료함, Liner 검색, 바깥 위험, 출처 문장</div><div>스캔 PDF 인식</div>
+    <div>현장·연락</div><div>현장 점검, 문자, AI 전화 걸기와 받기, 여러 언어</div><div>카카오 알림톡 실발송</div>
+    <div>가져오기·보고</div><div>엑셀·CSV, 월간·분기 보고서(회사 양식 학습)</div><div>P6·MS Project 변환</div>
+  </div>
+  <h2 style="margin-top:7mm;font-size:18pt">검증</h2>
+  <div class="nums" style="margin-top:3mm">
+    <div><b>8,282</b><span>서버 자동 시험 통과</span></div>
+    <div><b>2,167</b><span>화면 자동 시험 통과</span></div>
+    <div><b>46단계</b><span>실제 Liner 로 돌린 업무 시나리오</span></div>
+    <div><b>1.1초</b><span>실제 전화망 통화 첫 응답</span></div>
+  </div>
+  <p class="small" style="margin-top:3mm">배포 전 깨끗한 사본에서 돌린 값이다(타입 검사·린트 0건). 시연 장면은 실제 Liner 로 두 번 리허설했다. 사진 판독은 공개 라이선스 현장 사진 10장으로 두 모델을 견줘, 숫자를 지어내지 않는 쪽을 골랐다.</p>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 26 넓어지나: 시간 비용 + 분야 -->
+<section class="page">
+  <div class="eyebrow">07 · 어디까지 넓어지나</div>
+  <h1 style="font-size:28pt">늦게 아는 시간을 없앤다</h1>
+  <div style="margin-top:3mm">
+    <div class="bar"><span class="t">옮겨 간 것을 아는 때</span><div><div class="b" style="background:#334155;color:#cbd5e1;width:100%">지금 · 주간 회의(최대 7일 뒤) 〔PM 확인〕</div><div class="b" style="background:#38bdf8;color:#05070d;width:56%">ChronOS · 변동 직후 〔실측〕</div></div></div>
+    <div class="bar"><span class="t">헛수고가 될 가속</span><div><div class="b" style="background:#334155;color:#cbd5e1;width:100%">지금 · 당긴 뒤에 안다</div><div class="b" style="background:#fbbf24;color:#1c1917;width:56%">ChronOS · 당기기 전에 「5일 중 1일」</div></div></div>
+    <div class="bar"><span class="t">담당자 확인</span><div><div class="b" style="background:#334155;color:#cbd5e1;width:100%">지금 · 전화, 기록 없음</div><div class="b" style="background:#38bdf8;color:#05070d;width:56%">ChronOS · 81초 통화, 답마다 근거</div></div></div>
+  </div>
+  <p class="body" style="margin-top:4mm">300억 원 공사에서 하루는 지체상금으로 1,500만 원이다. 옮겨 간 것을 일주일 일찍 알면 그 일주일 동안 싸게 쓸 수 있는 방법이 아직 남아 있다.</p>
+  <h2 style="margin-top:6mm;font-size:20pt">건설과 생산 말고도</h2>
+  <p class="body" style="margin-top:2mm">약속이 있고, 작업이 서로 이어져 있고, 변동이 잦은 일이면 구조가 같다. 엔진과 한 바퀴는 그대로 쓰고 분야마다 볼 바깥 자료만 켜고 끈다. 건설과 생산은 시연까지 했고, 나머지는 처음 보는 분야의 묶음을 즉석에서 만드는 기능으로 받는다.</p>
+  <div class="tbl" style="grid-template-columns:44mm 30mm 1fr;margin-top:3mm;font-size:8.6pt">
+    <div class="th">분야</div><div class="th">약속</div><div class="th">좌우하기 쉬운 것</div>
+    <div style="color:#fff;font-weight:700">건설 (시연)</div><div>준공일</div><div>골조, 외장, 장납기 자재</div>
+    <div style="color:#fff;font-weight:700">생산 (시연)</div><div>납기</div><div>금형, 설비 보수, 원자재</div>
+    <div>플랜트 정기 보수</div><div>재가동일</div><div>장납기 부품, 검사, 크레인</div>
+    <div>조선·해양</div><div>인도일</div><div>블록 탑재, 기자재 입고</div>
+    <div>반도체·배터리 라인 셋업</div><div>양산 시작일</div><div>장비 반입, 유틸리티, 인증</div>
+    <div>신제품 개발</div><div>출시일</div><div>시제품, 인증 시험, 금형</div>
+    <div>연구과제</div><div>평가·보고 기한</div><div>시험 장비 예약, 시료, 심의</div>
+    <div>IT 시스템 구축</div><div>오픈일</div><div>데이터 이관, 연동, 검수</div>
+    <div>행사·전시 · 매장 출점</div><div>개막일 · 오픈일</div><div>대관, 시공, 운송, 인허가</div>
+  </div>
+  <div class="g2" style="margin-top:4mm">
+    <div><div class="small" style="margin-bottom:1.5mm">생산 일정: 설비별로 묶은 간트</div><div class="shot"><img src="img/x1-생산간트.jpg" style="height:28mm;object-fit:cover;object-position:top left"></div></div>
+    <div><div class="small" style="margin-bottom:1.5mm">설정: 분야별 바깥 자료 켜고 끄기</div><div class="shot"><img src="img/x2-분야자료.jpg" style="height:28mm;object-fit:cover;object-position:top left"></div></div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 27 OS 확장 -->
+<section class="page">
+  <div class="eyebrow">07 · 어디까지 넓어지나 · OS 라서</div>
+  <h1 style="font-size:30pt">일정은 시작일 뿐이다.<br><span class="c">같은 책상에 앱을 붙인다</span></h1>
+  <div class="paper" style="margin-top:7mm"><img src="img/d4-OS확장.png" alt="OS 확장"></div>
+  <p class="body" style="margin-top:5mm">현장의 일은 일정 하나로 끝나지 않는다. 늦어지면 돈이 달라지고, 검사 날짜가 밀리고, 발주를 당겨야 한다. OS 로 만들었기 때문에 이런 도구를 같은 책상에 앱으로 붙인다. 원가 앱을 붙이면 "이 만회안은 얼마가 더 드나"를 같은 대화에서 묻고, 품질·안전 앱을 붙이면 관리 포인트 작업의 검사와 작업 허가를 함께 본다. 새 앱은 승인함과 하네스와 버전을 처음부터 물려받고, 에이전트는 새 도구를 등록부에서 읽고 바로 쓴다.</p>
+  <div class="g2" style="margin-top:6mm">
+    <div class="card blue"><div class="k">다른 조직과 직무로</div><p class="small" style="color:#cbd5e1;line-height:1.75;margin-top:1mm">중소 시공사와 협력사: 비싼 공정 도구 없이 대화 한 줄로 시작한다.<br>앱을 쓰지 않는 사람: 협력사 담당자는 문자와 AI 전화로 한 바퀴에 들어온다.<br>발주처와 감리: 승인 기록, 버전, 통화 근거가 그대로 보고 자료가 된다.<br>구매, 품질, 안전: 같은 관리 포인트에 납기, 검사, 작업 허가를 붙인다.</p></div>
+    <div class="card red"><div class="k" style="color:#f87171">알려진 한계</div><p class="small" style="color:#cbd5e1;line-height:1.75;margin-top:1mm">실제 현장 운영 검증 전이다. 시연 숫자는 가상 일정에서 엔진이 낸 값이다.<br>국내 철근·시멘트 단가는 Liner Premium Data 에 없어 국제 금속 시세로 대신한다.<br>실시간 통화 음성은 Gemini Live 를 쓴다. 카카오 알림톡은 연결만 있다.</p></div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 28 만든 사람 + 규정 + 부록 -->
+<section class="page">
+  <div class="eyebrow">08 · 만든 사람과 규정</div>
+  <h1 style="font-size:30pt">공정표로 판단해 온 사람이<br><span class="c">직접 만들었다</span></h1>
+  <div class="card blue" style="margin-top:7mm;padding:5mm 6mm"><div style="font-size:16pt;font-weight:800;color:#fff">손장호 <span style="font-size:10pt;color:#94a3b8;font-weight:600">건설·플랜트 PM 15년차</span></div>
+    <div class="g4" style="margin-top:4mm;font-size:8.8pt;color:#cbd5e1;line-height:1.5">
+      <div><b style="color:#7dd3fc;display:block">SK온 대전 파일럿 플랜트</b>4,200억 · PM 총괄</div>
+      <div><b style="color:#7dd3fc;display:block">쿠웨이트 NWC</b>3,000억 · Part Leader</div>
+      <div><b style="color:#7dd3fc;display:block">UAE RRE#2</b>3조 · 배관 엔지니어</div>
+      <div><b style="color:#7dd3fc;display:block">사우디 SRU TA</b>2,000억 · 기계</div>
+    </div></div>
+  <div class="g2" style="margin-top:6mm">
+    <div class="card"><div class="k">규정</div><p class="small" style="color:#cbd5e1;line-height:1.75;margin-top:1mm"><b style="color:#fff">Liner API 핵심 사용(제4조 1항)</b> 한 바퀴의 판단에 Liner Model, 근거에 Liner Search.<br><b style="color:#fff">기간 내 신규(제4조 2항)</b> 11-19 새 저장소에서 처음부터 만들었다.<br><b style="color:#fff">가상 데이터(제5조)</b> 일정, 계정, 협력사, 주소록은 가상, 사진은 공개 라이선스. 시연 통화는 시험 통화 녹음이며 실제 번호로 걸지 않았다.</p></div>
+    <div class="card"><div class="k">보안</div><p class="small" style="color:#cbd5e1;line-height:1.75;margin-top:1mm">API 키는 암호화해 저장하고 끝 4자리만 보인다. 전화번호와 키는 로그에 남기지 않는다. 저장소 추적 파일 비밀 검사 통과 〔갱신〕.</p></div>
+  </div>
+  <h2 style="margin-top:8mm;font-size:16pt">부록 · 기술 구조 <span style="font-size:9pt;color:#64748b;font-weight:600">개발자 심사용</span></h2>
+  <div class="tbl" style="grid-template-columns:58mm 1fr;margin-top:3mm;font-size:8.6pt">
+    <div class="mono" style="color:#7dd3fc">core/calendar.py</div><div>근무일 배열과 이분 탐색으로 공휴일과 금지 기간 반영</div>
+    <div class="mono" style="color:#7dd3fc">core/cpm.py</div><div>위상 정렬로 순환 차단, FS/SS/FF/SF + lag, ES/EF/LS/LF, TF/FF</div>
+    <div class="mono" style="color:#7dd3fc">core/resources.py</div><div>일일 용량을 넘지 않는 시작 자리를 찾아 후행으로 전파</div>
+    <div class="mono" style="color:#7dd3fc">core/shorten.py</div><div>병행, 압축, 자원 추가를 한 수씩 넣고 다시 계산해 만회안 생성</div>
+    <div class="mono" style="color:#7dd3fc">core/delay.py</div><div>지연 전후 비교로 새 크리티컬과 새 자원 겹침 산출</div>
+    <div class="mono" style="color:#7dd3fc">core/points.py · accel.py</div><div>관리 포인트와 당김 효과</div>
+    <div class="mono" style="color:#7dd3fc">harness/</div><div>4겹 하네스. 기본 &lt; 분야 &lt; 내 규칙 &lt; 입력 순으로 경합 판정</div>
+    <div class="mono" style="color:#7dd3fc">agent/</div><div>ReAct 루프, 도구 실행 전 커밋과 실패 시 되돌림, 자가 점검, 스킬 매칭</div>
+    <div class="mono" style="color:#7dd3fc">outreach/</div><div>나가는 문(시험 모드 → 차단 → 근무시간 → 상한 → 권한 → 중복), 들어오는 문, 통화 하네스</div>
+    <div class="mono" style="color:#7dd3fc">frontend/src/</div><div>React OS 셸, 앱 19개, PC · 태블릿 · 폰</div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+</body></html>
