@@ -10,9 +10,25 @@ services:
         required: false
     environment:
       CHRONOS_DATA_DIR: /data
+      # 뜻 검색 벡터 저장소 — 아래 qdrant 서비스. 빈 값으로 두면 뜻 검색만 끄고 낱말 검색으로 돈다
+      CHRONOS_QDRANT_URL: http://qdrant:6333
     volumes:
       - ./backend:/app
       - ./data:/data
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.4  # scripts/qdrant-local.sh 와 같은 버전
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    healthcheck:
+      # 이미지에 curl·wget 이 없어 bash 의 /dev/tcp 로 /healthz 를 읽는다
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /healthz HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q 'passed' <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   frontend:
     build: ./frontend

@@ -87,7 +87,10 @@ export CHRONOS_DATA_DIR="$PWD/data"
 
 # 4) (선택) 가상 예시 일정 둘 넣기 — 「5층 사무동 신축」(건설)·「가상 부품 공장 — 브래킷 BR-200 2만 개」(생산).
 #    여러 번 돌려도 같다(같은 이름의 일정만 지우고 다시 만든다)
-(cd backend && .venv/bin/python -m app.seed demo)
+(cd backend && .venv/bin/python -m app.seed demo)   # demo v3 면 사무동 버전 3 까지
+
+# (선택) 뜻 검색용 Qdrant(127.0.0.1:6333) — 띄우지 않으려면 .env 에 CHRONOS_QDRANT_URL= (빈 값)
+bash scripts/qdrant-local.sh &
 
 # 5) 서버(8210)와 화면(5600)
 (cd backend && .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8210) &
@@ -96,7 +99,19 @@ export CHRONOS_DATA_DIR="$PWD/data"
 
 브라우저에서 `http://localhost:5600` → 첫 관리자 계정으로 로그인 → **설정 > LLM 연결**에 Liner API 키를 넣는다. 키는 화면에서만 받고, 응답에는 끝 4자리만 나온다.
 
-Docker 로도 띄울 수 있다(선택): `.env` 를 만든 뒤 `docker compose up`.
+## 실행 (Docker compose)
+
+```bash
+cp .env.example .env      # 아래 세 값을 바꾼다
+docker compose up --build # 서버 8210 · 화면 5600 · Qdrant(호스트 포트 없음, 저장 ./data/qdrant)
+docker compose exec backend python -m app.seed demo v3   # (선택) 가상 예시 일정 둘
+```
+
+- **`.env` 에 넣는 값**(이름만 적는다 — 실제 값은 커밋하지 않는다): `CHRONOS_ADMIN_ID` · `CHRONOS_ADMIN_PASSWORD`(8자 이상, 72바이트 이하) · `CHRONOS_SECRET_KEY`(32자 이상, 예: `openssl rand -hex 32`). 예시 값 그대로면 서버가 뜨지 않는다. `CHRONOS_SECRET_KEY` 는 로그인 토큰 서명과 저장 키 암호화(이 값에서 SHA-256 으로 Fernet 열쇠를 유도)에 쓰여, 바꾸면 저장해 둔 API 키를 풀 수 없다.
+- **Liner API 키는 환경 변수가 아니다.** 로그인 뒤 **설정 > LLM 연결**에 넣는다(암호화해 DB 에 두고 화면에는 끝 4자리만).
+- **뜻 검색**: compose 가 Qdrant `v1.13.4` 를 함께 띄우고 서버에 `CHRONOS_QDRANT_URL=http://qdrant:6333` 을 준다. 임베딩은 `openai/text-embedding-3-small` 을 Liner 연결(OpenAI 호환 `/embeddings`)로 부른다. `CHRONOS_QDRANT_URL` 이 빈 값이면 뜻 검색만 끄고 낱말 검색으로 돈다. 개발 콘솔 → 시스템 진단 → 「벡터 검색 서버」에서 연결을 본다.
+- **예시 일정**: `demo v3` 는 「5층 사무동 신축」 버전 3(6월 말 실적 · 커튼월·창호 조달 줄)과 「가상 부품 공장 — 브래킷 BR-200 2만 개」를 넣는다. 여러 번 돌려도 같다. `demo` 만 주면 사무동은 버전 2 까지.
+- **문자·전화는 기본이 시험 모드다.** 새 알림 연결은 시험 모드가 켜져 있어 허용 번호에만 나가고, 에이전트 권한도 처음은 「승인 받기」라 사람이 [보내기]·[전화 걸기]를 눌러야 나간다(아래 「연락처 · 문자 · AI 전화」). 확인·시연용 사본은 `.env` 에 `CHRONOS_OUTREACH_WORKER=off` 로 띄운다.
 
 ## 연락처 · 문자 · AI 전화 — 운영 (계획 4)
 
