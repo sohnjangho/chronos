@@ -1,0 +1,56 @@
+/* 프로젝트 관리. 색·글꼴은 tokens.css 변수만(설정 폼과 같은 결). 넘침 없음: 칸마다 min-width 0, 목록·폼은 따로 내려간다. */
+.pj-root {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  color: var(--fg);
+  font-size: var(--fs-13);
+}
+.pj-root :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pj-main { flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); }
+.pj-root.is-single .pj-main { grid-template-columns: minmax(0, 1fr); }
+.pj-muted { color: var(--fg-muted); font-size: var(--fs-12); margin: 0; overflow-wrap: anywhere; }
+.pj-pad { padding: 16px 20px; }
+.pj-error { color: var(--danger-text); font-size: var(--fs-12); margin: 0; overflow-wrap: anywhere; }
+.pj-gap { flex: 1; }
+
+/* ── 왼쪽 목록 ── */
+.pj-side { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg-panel-alt); border-right: 1px solid var(--border); }
+.pj-root.is-single .pj-side { border-right: 0; }
+.pj-find { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 10px; }
+.pj-count { color: var(--fg-muted); font-size: var(--fs-11); padding: 0 2px; }
+.pj-input {
+  font: inherit; font-size: var(--fs-13); color: var(--fg); background: var(--bg-panel); min-width: 0; width: 100%; box-sizing: border-box;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-3); padding: 0 10px; height: 32px;
+}
+.pj-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.pj-input[readonly] { background: var(--bg-panel-alt); color: var(--fg-muted); }
+.pj-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; list-style: none; margin: 0; padding: 0 6px 8px; }
+.pj-item {
+  display: flex; flex-direction: column; align-items: stretch; gap: 1px; width: 100%; min-width: 0; text-align: left;
+  font: inherit; color: var(--fg); background: none; border: 0; border-radius: var(--radius-3); padding: 7px 10px; cursor: pointer;
+}
+.pj-item:hover { background: var(--bg-app); }
+.pj-item[aria-current="true"] { background: var(--bg-selected); }
+.pj-item[aria-current="true"] .pj-item-name { color: var(--tone-info-fg); font-weight: 700; }
+.pj-item-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pj-item-sub { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-muted); font-size: var(--fs-12); }
+
+/* ── 오른쪽 폼 ── */
+.pj-form {
+  min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; padding: 20px 24px;
+  display: flex; flex-direction: column; gap: 14px; max-width: 760px;
+}
+.pj-form .ui-field { min-width: 0; }
+.pj-head { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pj-title { margin: 0; font-size: var(--fs-16); line-height: 22px; font-weight: 700; overflow-wrap: anywhere; }
+.pj-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 4px; }
+.pj-saved { color: var(--success-text); font-size: var(--fs-12); }
+.pj-back {
+  align-self: flex-start; font: inherit; font-size: var(--fs-13); font-weight: 600; color: var(--accent-text);
+  background: none; border: 0; padding: 2px 0; cursor: pointer;
+}
+.pj-root.is-single .pj-form { padding: 12px 14px 16px; max-width: none; }

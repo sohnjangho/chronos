@@ -44,13 +44,12 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply
-from app.outreach import hours, languages
+from app.outreach import hours, languages, site_name
 from app.outreach.harness import door, events, review
 from app.outreach.harness.tools import Toolbox
 from app.outreach.harness.types import CallerClass, Ref, Scope
 from app.outreach.redact import hide_phones
 from app.store import contacts, outreach
-from app.store.tables import ScheduleRecord
 from app.store.tables_outreach import ContactReport, OutreachCall
 from app.store.timeutil import as_utc
 
@@ -261,13 +260,12 @@ def _transcript(lines: list[dict]) -> tuple[list[dict], bool]:
 
 
 def _material(session: Session, row: OutreachCall, ended: datetime) -> dict:
-    record = session.get(ScheduleRecord, row.schedule_id) if row.schedule_id is not None else None
     questions = row.questions_json if isinstance(row.questions_json, list) else []
     lines, cut = _transcript(_lines(row))
     return {
         "오늘": _day(_now()),
         "통화한 날": _day(ended),
-        "현장": _hide(record.name if record is not None else ""),
+        "현장": _hide(site_name.spoken(session, row.schedule_id)),  # 통화에서 부른 이름(없으면 날짜를 뗀 이름)
         "상대": _peer(session, row),
         "방향": "우리가 건 통화" if row.direction == "out" else "받은 통화",
         "통화 언어": languages.name(languages.call_language(row.language)),  # 실제로 건 언어 — 받아쓰기는 그대로, 요약은 한국어

@@ -9,7 +9,7 @@
 
 from collections.abc import Iterable
 
-from app.outreach import languages, redact
+from app.outreach import languages, redact, site_name
 from app.outreach.harness import rules_text
 
 MAX_ITEMS = 10  # 질문·피할 것 각각 이만큼까지
@@ -49,8 +49,10 @@ def _items(values: Iterable[object] | None) -> list[str]:
 
 
 def outbound(site: str, contact_name: str, role_title: str, company: str, purpose: str,
-             questions: Iterable[object] | None, avoid: Iterable[object] | None, language: str) -> str:
-    """거는 통화의 지시문 한 덩어리. 번호·키 없음(자유 글은 가린 뒤에 넣는다)."""
+             questions: Iterable[object] | None, avoid: Iterable[object] | None, language: str,
+             reference: dict[str, str] | None = None) -> str:
+    """거는 통화의 지시문 한 덩어리. 번호·키 없음(자유 글은 가린 뒤에 넣는다). site 는 부를 이름(site_name.spoken),
+    reference 는 현장 참고 자료(site_name.reference — 지시가 아닌 자료 칸으로 넣는다)."""
     who = " · ".join(part for part in (_clean(contact_name), _clean(role_title), _clean(company)) if part)
     lines = [
         "당신은 건설 현장 일정 담당 ChronOS AI 비서입니다. 전화로 협력사 담당자에게 일정을 확인합니다.",
@@ -58,6 +60,7 @@ def outbound(site: str, contact_name: str, role_title: str, company: str, purpos
         f"건 분: {who}",
         f"통화 목적: {_clean(purpose) or '일정 확인'}",
         languages.line(language, languages.SPEAK),  # 「상대의 언어: en(영어). 영어로 말합니다.」(Task 100 — 글 쪽과 같은 상수)
+        *site_name.reference_lines(reference),
         "",
         rules_text.scope_paragraph("outbound"),
         *rules_text.FIXED.values(),
@@ -72,12 +75,14 @@ def outbound(site: str, contact_name: str, role_title: str, company: str, purpos
     return "\n".join(lines)
 
 
-def inbound(caller_class: str, site: str | None, name: str | None, language: str) -> str:
+def inbound(caller_class: str, site: str | None, name: str | None, language: str,
+            reference: dict[str, str] | None = None) -> str:
     """받는 통화의 지시문(Task 95). 범위 단락·고정 줄은 하네스의 rules_text 그대로, 등급 이름·번호는 글에 없다. site·name 은
-    번호로 정한 상대가 한 현장·한 사람일 때만 넣는다(자유 글은 가린 뒤에). 등급표 밖이면 ValueError."""
+    번호로 정한 상대가 한 현장·한 사람일 때만 넣는다(자유 글은 가린 뒤에). reference(현장 참고 자료)는 현장이 있을 때만.
+    등급표 밖이면 ValueError."""
     lines = ["당신은 건설 현장 일정 담당 ChronOS AI 비서입니다. 걸려 온 전화를 받아 일정에 관한 물음에 답합니다."]
     if _clean(site):
-        lines.append(f"현장: {_clean(site)}")
+        lines += [f"현장: {_clean(site)}", *site_name.reference_lines(reference)]
     if _clean(name):
         lines.append(f"상대 이름(주소록): {_clean(name)}")
     lines += [languages.line(language, languages.SPEAK), "", rules_text.scope_paragraph(caller_class),

@@ -37,14 +37,13 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
 from app import db
-from app.outreach import redact
+from app.outreach import redact, site_name
 from app.outreach.harness import door, events, gate, review, tools, toolsets
 from app.outreach.harness.types import CallerClass, Ref, Scope
 from app.outreach.text import instructions
 from app.outreach.text import session as text_session
 from app.outreach.text.session import LANGUAGE, PEER_LABEL, TextFailed, TextUsage
 from app.store import outreach
-from app.store.tables import ScheduleRecord
 from app.store.tables_outreach import ContactProposal, OutreachMessage
 from app.store.timeutil import as_utc
 
@@ -87,6 +86,7 @@ class _Inputs:
     language: str
     request: str | None
     history: list[dict]
+    reference: dict[str, str]
 
 
 def _now() -> datetime:
@@ -171,7 +171,8 @@ async def _answer(message_id: int, clock: Callable[[], datetime], fixed: datetim
     given = await asyncio.to_thread(_inputs, box, message_id)
     if given is None:
         return
-    prompt = instructions.inbound(prep.caller_class, given.site, given.name, given.language, given.request)
+    prompt = instructions.inbound(prep.caller_class, given.site, given.name, given.language, given.request,
+                                  reference=given.reference)
     with Session(db._engine) as llm_session:  # LLM 배정을 읽기만 한다(쓰기를 쥐지 않는다)
         chosen = text_session.session_for(llm_session)
         try:
@@ -251,11 +252,12 @@ def _inputs(box: tools.Toolbox, message_id: int) -> _Inputs | None:
         if row is None:
             return None
         person = box.person(session)
-        record = session.get(ScheduleRecord, box.sid) if box.sid is not None else None
+        site = site_name.spoken(session, box.sid) or None  # 부를 이름(없으면 날짜·판 표시를 뗀 이름)
         asked = session.get(_M, row.reply_to_id) if row.reply_to_id is not None else None
         request = asked.body if asked is not None and asked.direction == "out" else None
-        return _Inputs(record.name if record is not None else None, person.name if person is not None else None,
-                       person.language if person is not None else "ko", request, _history(session, row))
+        return _Inputs(site, person.name if person is not None else None,
+                       person.language if person is not None else "ko", request, _history(session, row),
+                       site_name.reference(session, box.sid) if site else {})
 
 
 def _history(session: Session, row: OutreachMessage) -> list[dict]:

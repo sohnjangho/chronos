@@ -49,7 +49,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.model import Schedule
-from app.outreach import languages, redact
+from app.outreach import languages, redact, site_name
 from app.outreach.harness import events, facts
 from app.outreach.harness.review_dates import (
     _DATED,
@@ -422,9 +422,10 @@ def _every_name(session: Session) -> tuple[set[str], bool]:
     rows = session.execute(select(ScheduleRecord.id, ScheduleRecord.name).order_by(ScheduleRecord.id)
                            .limit(MAX_SCHEDULES + 1)).all()
     book, names = _Book(session), set()
-    for schedule_id, title in rows[:MAX_SCHEDULES]:
-        if _long(title or "") and (flat := _flat(title)):
-            names.add(flat)
+    for schedule_id, _title in rows[:MAX_SCHEDULES]:
+        for title in site_name.names(session, schedule_id):  # 부를 이름·다듬은 이름·전체 이름 — 에이전트가 부르는 이름도 이름이다
+            if _long(title) and (flat := _flat(title)):
+                names.add(flat)
         if (schedule := book.schedule(schedule_id)) is not None:
             names.update(name for _, name in book.names(schedule))
     return names, book.full and len(rows) <= MAX_SCHEDULES

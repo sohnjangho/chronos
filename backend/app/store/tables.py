@@ -97,6 +97,24 @@ class ScheduleRecord(Base):
     weight_mode: Mapped[str] = mapped_column(String(10), default="duration")
 
 
+class ProjectProfile(Base):
+    """프로젝트(일정) 하나의 소개(프로젝트 관리, 11-24). 에이전트가 통화·문자·초안에서 쓴다(app.outreach.site_name).
+
+    새 표라 기존 DB 에는 create_all 이 만든다(기존 표에 칸을 더하지 않는다). 줄이 없으면 모두 빈 값과 같다.
+    일정을 지우면 이 줄도 지운다(explorer — 같은 id 가 다시 쓰여도 옛 소개가 붙지 않게).
+    """
+
+    __tablename__ = "project_profiles"
+
+    schedule_id: Mapped[int] = mapped_column(ForeignKey("schedules.id"), primary_key=True)
+    spoken_name: Mapped[str] = mapped_column(String(40), default="")  # AI 가 부를 이름(통화·문자)
+    site_address: Mapped[str] = mapped_column(String(120), default="")
+    summary: Mapped[str] = mapped_column(String(200), default="")  # 한 줄 소개 — AI 가 참고
+    client_builder: Mapped[str] = mapped_column(String(80), default="")  # 발주처·시공사
+    updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    updated_by: Mapped[str] = mapped_column(String(100), default="")
+
+
 class ScheduleVersion(Base):
     """일정의 한 버전. 고칠 때마다 새로 쌓고 지우지 않는다."""
 

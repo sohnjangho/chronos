@@ -22,7 +22,14 @@ from app.store.schedules import (
     load,
     run,
 )
-from app.store.tables import Approval, ChangeLog, ScheduleRecord, ScheduleVersion, User
+from app.store.tables import (
+    Approval,
+    ChangeLog,
+    ProjectProfile,
+    ScheduleRecord,
+    ScheduleVersion,
+    User,
+)
 
 DELETED_NOTE = "일정을 지웠습니다."
 
@@ -55,6 +62,7 @@ def delete_schedule(session: Session, schedule_id: int, user: User) -> DeletedOu
     _close_pending(session, schedule_id, user)
     session.execute(delete(ChangeLog).where(ChangeLog.schedule_id == schedule_id))
     session.execute(delete(ScheduleVersion).where(ScheduleVersion.schedule_id == schedule_id))
+    session.execute(delete(ProjectProfile).where(ProjectProfile.schedule_id == schedule_id))  # 같은 id 가 다시 쓰여도 옛 소개가 붙지 않게
     session.execute(delete(ScheduleRecord).where(ScheduleRecord.id == schedule_id))
     purge_schedule(session, schedule_id)
     session.commit()

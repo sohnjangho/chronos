@@ -37,7 +37,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, select, update
 
 from app.db import get_session
-from app.outreach import languages, phone
+from app.outreach import languages, phone, site_name
 from app.outreach.harness import door, events, gate, toolsets
 from app.outreach.harness.tools import AGENT, AGENT_NAME, Toolbox
 from app.outreach.harness.types import Caller, NotReady, Ref, Scope
@@ -46,7 +46,6 @@ from app.outreach.voice import session as voice_session
 from app.outreach.voice.call_run import _LIVE, CallRun, _broken, _tries
 from app.outreach.voice.session import CallSpec, Incoming, VoiceBackend
 from app.store import outreach
-from app.store.tables import ScheduleRecord
 from app.store.tables_outreach import (
     Contact,
     OutreachCall,
@@ -243,8 +242,8 @@ def _spec(session, caller: Caller) -> tuple[CallSpec, str | None]:
         raise ValueError("AI 전화 번호가 없습니다")
     who = session.get(Contact, pairs[0].contact_id) if len(pairs) == 1 else None
     places = {pair.schedule_id for pair in pairs}
-    record = session.get(ScheduleRecord, next(iter(places))) if cls in SITE_CLASSES and len(places) == 1 else None
-    site = record.name if record is not None else None
+    place = next(iter(places)) if cls in SITE_CLASSES and len(places) == 1 else None
+    site = site_name.spoken(session, place) or None  # 부를 이름(없으면 날짜·판 표시를 뗀 이름)
     # 그 사람의 언어 — 통화가 안 되는 언어(진단 P10 전)는 한국어로 받는다(Task 100). 모르는 상대는 한국어
     language = languages.call_language(who.language if who is not None else None)
     if who is not None:
@@ -254,7 +253,8 @@ def _spec(session, caller: Caller) -> tuple[CallSpec, str | None]:
     limits = outreach.limits(conn)
     spec = CallSpec(direction="in", to_number=None, from_number=agent_number, language=language, voice_id=voice_id,
                     first_line=greeting.inbound_line(language, site),
-                    instructions=instructions.inbound(cls, site, who.name if who is not None else None, language),
+                    instructions=instructions.inbound(cls, site, who.name if who is not None else None, language,
+                                                      reference=site_name.reference(session, place) if site else None),
                     tools=toolsets.tool_defs(toolsets.for_class(cls, "call")),
                     max_seconds=limits.max_call_seconds_unknown if cls in LOW_CLASSES else limits.max_call_seconds,
                     record_to=None)

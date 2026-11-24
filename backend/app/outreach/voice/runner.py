@@ -49,7 +49,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db import get_session
-from app.outreach import hours, languages, phone, redact, worker
+from app.outreach import hours, languages, phone, redact, site_name, worker
 from app.outreach.harness import door, events, gate, registry, toolsets
 from app.outreach.harness.tools import Toolbox
 from app.outreach.harness.types import (
@@ -65,7 +65,6 @@ from app.outreach.voice.call_run import _LIVE, RESTARTED, CallRun, _close
 from app.outreach.voice.session import CallSpec, VoiceBackend
 from app.security import crypto
 from app.store import contacts, outreach
-from app.store.tables import ScheduleRecord
 from app.store.tables_outreach import (
     Contact,
     NotifyConnection,
@@ -452,8 +451,7 @@ def _working(session: Session, contact: Contact, schedule_id: int | None, at: da
 def _spec(session: Session, row: OutreachCall, contact: Contact, number: str, agent_number: str,
           settings: VoiceSettings, conn: NotifyConnection) -> CallSpec:
     """통화 명세. 번호는 to_number·from_number 에만 — 글에 번호가 있으면 CallSpec 이 ValueError(걸지 않는다)."""
-    record = session.get(ScheduleRecord, row.schedule_id)
-    site = record.name if record is not None else ""
+    site = site_name.spoken(session, row.schedule_id)  # 부를 이름(없으면 날짜·판 표시를 뗀 이름) — 첫마디·지시문·밝힘 검사가 같은 이름
     company = contacts.get_company(session, row.schedule_id, contact.company_id)
     # 통화 줄의 언어(걸기 창에서 고른 것 — 없으면 연락처의 것). 통화가 안 되는 언어(진단 P10 전)는 한국어로 건다(Task 100)
     language = languages.call_language(row.language or contact.language)
@@ -461,7 +459,7 @@ def _spec(session: Session, row: OutreachCall, contact: Contact, number: str, ag
     stored = row.voice_id if voices.well_formed(row.voice_id) else None
     voice_id = stored or voices.pick(contact.gender, contact.voice_mode, contact.voice_id, language, settings)
     text = instructions.outbound(site, contact.name, contact.role_title, company.name, row.purpose, row.questions_json,
-                                 row.avoid_json, language)
+                                 row.avoid_json, language, reference=site_name.reference(session, row.schedule_id))
     return CallSpec(direction="out", to_number=number, from_number=agent_number, language=language, voice_id=voice_id,
                     first_line=greeting.first_line(language, site, contact.name), instructions=text,
                     tools=toolsets.tool_defs(_NAMES), max_seconds=outreach.limits(conn).max_call_seconds,

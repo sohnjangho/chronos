@@ -7,7 +7,7 @@
 
 import re
 
-from app.outreach import languages, redact
+from app.outreach import languages, redact, site_name
 from app.outreach.harness import rules_text
 from app.outreach.harness.types import CallerClass
 
@@ -28,12 +28,14 @@ def _clean(text: str | None, limit: int) -> str:
     return _LINE.sub(" ", redact.hide_phones(text or "")).strip()[:limit]
 
 
-def inbound(caller_class: CallerClass, site: str | None, name: str | None, language: str, request: str | None) -> str:
-    """들어온 문자 응대의 지시문. caller_class 는 범위 단락을 고르는 데만 쓴다(글에 이름이 나오지 않는다). 등급표 밖이면 ValueError."""
+def inbound(caller_class: CallerClass, site: str | None, name: str | None, language: str, request: str | None,
+            reference: dict[str, str] | None = None) -> str:
+    """들어온 문자 응대의 지시문. caller_class 는 범위 단락을 고르는 데만 쓴다(글에 이름이 나오지 않는다). 등급표 밖이면 ValueError.
+    site 는 부를 이름(site_name.spoken), reference 는 현장 참고 자료(현장이 있을 때만 — 지시가 아닌 자료 칸으로)."""
     paragraph = rules_text.scope_paragraph(caller_class)
     lines = [HEAD]
     if site and (shown := _clean(site, NAME_CHARS)):
-        lines.append(f"현장: {shown}")
+        lines += [f"현장: {shown}", *site_name.reference_lines(reference)]
     if name and (shown := _clean(name, NAME_CHARS)):
         lines.append(f"상대 이름(주소록): {shown}")
     lines += ["", paragraph, "", "지킬 것:", *(f"- {line}" for line in rules_text.FIXED.values()),

@@ -29,11 +29,10 @@ from sqlalchemy.orm import Session
 
 from app.core.cpm import ScheduleError
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady
-from app.outreach import hours, languages
+from app.outreach import hours, languages, site_name
 from app.outreach.harness import facts
 from app.outreach.redact import hide_phones
 from app.store import contacts, outreach, schedules, view
-from app.store.tables import ScheduleRecord
 from app.store.tables_outreach import Contact
 from app.store.timeutil import as_utc
 
@@ -118,8 +117,7 @@ def _recent(session: Session, schedule_id: int, contact_id: int) -> list[dict]:
 
 
 def material(session: Session, schedule_id: int, who: Contact, channel: str, activity_id: str | None) -> dict:
-    """모델에게 주는 자료(번호 없음 — 모듈 머리 글)."""
-    record = session.get(ScheduleRecord, schedule_id)
+    """모델에게 주는 자료(번호 없음 — 모듈 머리 글). 현장은 부를 이름(site_name.spoken), 현장 정보는 적힌 참고 자료만."""
     try:
         firm = contacts.get_company(session, schedule_id, who.company_id)
         firm_name, trade = firm.name, firm.trade
@@ -127,9 +125,9 @@ def material(session: Session, schedule_id: int, who: Contact, channel: str, act
         firm_name, trade = "", ""
     picked, known = _facts(session, schedule_id, who, activity_id)
     today = _now().astimezone(hours.KST).date()
-    return {
+    out = {
         "오늘": f"{today.isoformat()} ({_WEEKDAYS[today.weekday()]})",
-        "현장": _hide(record.name if record is not None else ""),
+        "현장": _hide(site_name.spoken(session, schedule_id)),
         "채널": _CHANNEL.get(channel, "문자"),
         "상대": {"이름": _hide(who.name), "담당": _hide(who.role_title), "협력사": _hide(firm_name),
                  "공종": _hide(trade), "언어": who.language},
@@ -137,6 +135,9 @@ def material(session: Session, schedule_id: int, who: Contact, channel: str, act
         "알아도 되는 작업": known,
         "최근 대화": _recent(session, schedule_id, who.id),
     }
+    if reference := site_name.reference(session, schedule_id):
+        out["현장 정보"] = reference
+    return out
 
 
 def _user_text(data: dict, hint: str, language: str) -> str:

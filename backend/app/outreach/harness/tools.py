@@ -49,7 +49,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app import db
-from app.outreach import hours, phone, redact
+from app.outreach import hours, phone, redact, site_name
 from app.outreach.harness import events, facts, gate
 from app.outreach.harness.review import REVIEW_KIND
 from app.outreach.harness.toolsets import ALL, ARGS, for_class, tool_defs
@@ -158,14 +158,16 @@ def _flat(text: str) -> str:
     return "".join(unicodedata.normalize("NFC", text).casefold().split())
 
 
-def _match_site(site: str, sites: dict[int, str]) -> int | None:
-    """상대가 말한 현장 이름에 맞는 후보 하나: 이름이 꼭 같은 후보가 하나거나, 그 말이 이름에 든 후보가 하나일 때만
-    (「가람」 → 「가람 현장」). 여러 현장 이름이 섞인 말·어느 후보에도 없는 말은 맞추지 않는다 — 다시 묻는다."""
+def _match_site(site: str, sites: dict[int, tuple[str, ...]]) -> int | None:
+    """상대가 말한 현장 이름에 맞는 후보 하나: 이름(부를 이름·다듬은 이름·전체 이름 가운데 하나)이 꼭 같은 후보가 하나거나,
+    그 말이 이름에 든 후보가 하나일 때만(「가람」 → 「가람 현장」). 여러 현장 이름이 섞인 말·어느 후보에도 없는 말은 맞추지
+    않는다 — 다시 묻는다."""
     want = _flat(site)
     if len(want) < 2:
         return None
-    flat = {sid: _flat(name) for sid, name in sites.items()}
-    for hits in ([sid for sid, name in flat.items() if name == want], [sid for sid, name in flat.items() if want in name]):
+    flat = {sid: [_flat(name) for name in names] for sid, names in sites.items()}
+    for hits in ([sid for sid, names in flat.items() if want in names],
+                 [sid for sid, names in flat.items() if any(want in name for name in names)]):
         if len(hits) == 1:
             return hits[0]
     return None
@@ -176,15 +178,24 @@ def _site_core(name: str) -> str:
     return _flat(name).removesuffix(SITE_TAIL)
 
 
-def _names_other_site(said: str, here: str, others: Iterable[str]) -> bool:
-    """상대가 말한 것이 이 통화의 현장이 아닌 **다른 실제 현장**인가(꼬리 뺀 이름으로 견준다, 두 글자 이상만 이름으로 본다).
+def _names_other_site(said: str, here: Iterable[str], others: Iterable[str]) -> bool:
+    """상대가 말한 것이 이 통화의 현장이 아닌 **다른 실제 현장**인가. here 는 이 현장의 이름들(부를 이름·다듬은 이름·전체 이름 —
+    site_name.names), others 는 다른 현장들의 이름들. 이 현장의 어느 이름으로 보아도 다른 현장일 때만 참이다(부를 이름을 말했는데
+    전체 이름과 견주어 다른 현장이 되지 않게)."""
+    own = [name for name in here if name]
+    cores = {_site_core(name) for name in own}
+    names = [name for name in (_site_core(other) for other in others) if len(name) >= 2 and name not in cores]
+    return bool(own) and all(_other_than(said, name, names) for name in own)
+
+
+def _other_than(said: str, here: str, names: list[str]) -> bool:
+    """이 현장 이름 하나(here)로 견준 판정(꼬리 뺀 이름으로 견준다, 두 글자 이상만 이름으로 본다). names 는 다른 현장들의 꼬리 뺀 이름.
     1 이 현장 이름과 꼭 같으면 이 현장 · 2 이 현장 이름을 품은 더 긴 다른 현장 이름(「가람 2단지」 ⊃ 「가람」)이 들어 있으면 그 현장 ·
     3 이 현장 이름을 뺀 나머지에 다른 현장 이름이 들어 있으면(「나래 가람」 — 둘 다 말함) 안전하게 다른 현장 · 4 말한 것이 이 현장에
     걸리지 않고 다른 현장 이름 안에 들면(「나래」 → 「나래 아파트」) 다른 현장. 그 밖(「우리 현장」「B동」「3층」)은 이 현장."""
     want, core = _site_core(said), _site_core(here)
     if len(want) < 2 or want == core:
         return False
-    names = [name for name in (_site_core(other) for other in others) if len(name) >= 2 and name != core]
     if any(core in name and name in want for name in names):
         return True
     rest = want.replace(core, " ") if len(core) >= 2 else want
@@ -395,23 +406,24 @@ class Toolbox:
         안에서 맞춰 굳히거나(None), 물을 것 {ask, sites} 를 준다."""
         scope = self.scope
         if not scope.site_required:
-            record = session.get(ScheduleRecord, self.sid) if self.sid is not None and self.medium == "call" else None
-            if record is not None and scope.facts != "none" and len(_site_core(site)) >= 2:
-                others = session.scalars(select(ScheduleRecord.name).where(ScheduleRecord.id != record.id)).all()
-                if _names_other_site(site, record.name, others):
-                    return {"refused": OTHER_SITE.format(site=_site_label(record.name))}
+            here = site_name.names(session, self.sid) if self.medium == "call" else ()
+            if here and scope.facts != "none" and len(_site_core(site)) >= 2:
+                ids = session.scalars(select(ScheduleRecord.id).where(ScheduleRecord.id != self.sid)).all()
+                if _names_other_site(site, here, [name for sid in ids for name in site_name.names(session, sid)]):
+                    return {"refused": OTHER_SITE.format(site=_site_label(here[0]))}  # here[0] = 부를 이름
             return None
-        sites = {sid: record.name for sid in scope.schedule_ids if (record := session.get(ScheduleRecord, sid)) is not None}
+        # 후보마다 (부를 이름, 다듬은 이름, 전체 이름) — 맞추기는 모두와, 묻거나 적을 때는 부를 이름
+        sites = {sid: names for sid in scope.schedule_ids if (names := site_name.names(session, sid))}
         chosen = _match_site(site, sites)
         if chosen is None:
-            return {"ask": ASK_SITE, "sites": [_hide(name) for name in sites.values()]}
+            return {"ask": ASK_SITE, "sites": [_hide(names[0]) for names in sites.values()]}
         self.scope = scope.pinned(chosen)
         row, person = self.row(session), self.person(session)
         if person is not None:  # 그 줄도 그 현장의 그 사람 대화로
             row.schedule_id, row.contact_id = chosen, person.id
         elif row.contact_id is None:
             row.schedule_id = chosen
-        events.record(session, self.ref, "site_pinned", "noted", _hide(sites[chosen]), now=self.now())
+        events.record(session, self.ref, "site_pinned", "noted", _hide(sites[chosen][0]), now=self.now())
         return None
 
     def conversation(self, session: Session) -> Any:
@@ -760,8 +772,7 @@ def _end_call(box: Toolbox, session: Session, a) -> _Step:
         person.phone_invalid = True
         notes.append("잘못된 번호로 표시")
     if ours and a.reason == "voicemail" and person.can_sms and phone.can_sms(person.phone):  # 남기지 않고 끊고 문자 초안
-        record = session.get(ScheduleRecord, box.sid)
-        body = VOICEMAIL_SMS.format(site=_hide(record.name if record is not None else ""))
+        body = VOICEMAIL_SMS.format(site=_hide(site_name.spoken(session, box.sid)))  # 부를 이름(없으면 날짜를 뗀 이름)
         made.append(box.follow_row(session, {"body": body}, schedule_id=box.sid, contact=person, lane="sms"))
         notes.append("문자 초안")
     if a.language and person is not None and a.language.split("-")[0] != person.language.split("-")[0].lower():
