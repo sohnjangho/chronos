@@ -99,7 +99,7 @@ def save_new_version(
     """
     plan = _plan(session, schedule_id, base_version, schedule, conditions, plan_change, computed)
     return _save(session, schedule_id, schedule, conditions, plan, by_kind=by_kind, by_name=by_name, note=note,
-                 changes=changes, base_version=base_version, commit=commit)
+                 changes=changes, base_version=base_version, commit=commit, computed=computed)
 
 
 def _save(
@@ -115,6 +115,7 @@ def _save(
     changes: list[dict],
     base_version: int,
     commit: bool,
+    computed: CpmResult | None = None,
 ) -> int:
     n = base_version + 1
     bumped = _bump(session, schedule_id, base_version)
@@ -147,7 +148,7 @@ def _save(
         )
     )
     end_write(session, commit)
-    points_service.refresh_quietly(session, schedule_id, n, commit=commit)  # 관리 포인트 — 실패해도 저장은 그대로
+    points_service.refresh_quietly(session, schedule_id, n, commit=commit, computed=computed)  # 관리 포인트 — 실패해도 저장은 그대로
     return n
 
 
@@ -173,7 +174,7 @@ def restore(
     base = current_n if base_version is None else base_version
     if base != current_n:
         raise VersionConflict(current_n)
-    run(schedule, conditions)
+    computed = run(schedule, conditions)
     return _save(
         session,
         schedule_id,
@@ -186,6 +187,7 @@ def restore(
         changes=schedule_changes(current, schedule),
         base_version=base,
         commit=commit,
+        computed=computed,
     )
 
 

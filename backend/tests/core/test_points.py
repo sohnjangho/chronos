@@ -89,7 +89,20 @@ def test_diff_added_removed_tightened():
     prev = (_p("A", 0), _p("B", 3), _p("C", 2), _p("E", 1))
     cur = (_p("A", 0), _p("D", 0), _p("B", 1), _p("E", 2))
     got = diff_points(prev, cur)
-    assert got == PointsDiff(added=(cur[1],), removed=("C",), tightened=(("B", 3, 1),))  # E 는 여유가 늘어 뺀다
+    assert got == PointsDiff(added=(cur[1],), removed=("C",), tightened=(("B", 3, 1),),  # E 는 여유가 늘어 뺀다
+                             became_critical=(), before_tf={"B": 3})  # D 는 앞 상태 여유를 모른다(prev_tf 없음)
+
+
+def test_diff_became_critical_and_before_tf():
+    """앞에도 포인트였고 크리티컬이 아니었다가 크리티컬이 된 것 = became_critical. before_tf 는 새로 들어온 것·
+    크리티컬이 된 것·여유가 줄어든 것의 앞 상태 여유 — 앞에 포인트가 아니었어도 prev_tf(앞 상태 CPM)에서."""
+    prev = (_p("A", 0), _p("B", 2))
+    cur = (_p("A", 0), _p("B", 0), _p("D", 1), _p("N", 0))
+    got = diff_points(prev, cur, prev_tf={"A": 0, "B": 2, "D": 5})
+    assert [p.activity_id for p in got.added] == ["D", "N"]
+    assert got.became_critical == ("B",)
+    assert got.tightened == (("B", 2, 0),)
+    assert got.before_tf == {"B": 2, "D": 5}  # N 은 앞 버전에 없던 액티비티
 
 
 def test_diff_without_change_is_empty_not_none():

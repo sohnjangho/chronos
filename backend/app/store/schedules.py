@@ -207,6 +207,10 @@ def create_schedule(
         )
     )
     end_write(session, commit)
+    # 늦은 import: points.service 가 이 모듈을 쓴다
+    from app.points import service as points_service
+
+    points_service.refresh_quietly(session, record.id, 1, commit=commit, computed=cpm)  # 관리 포인트 「처음 계산」
     return record.id
 
 

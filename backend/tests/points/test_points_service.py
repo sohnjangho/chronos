@@ -2,19 +2,22 @@
 
 import logging
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
+from sqlalchemy import select
 
 from app.core.cpm import compute
 from app.core.model import Relation
 from app.core.points import Point, compute_points
 from app.points import service
 from app.programs.delays import service as delays_service
+from app.programs.delays.schemas import DelayIn, DelayPatch
+from app.store import delays as delays_store
 from app.store import points as points_store
 from app.store.schedules import load
 from app.store.settings import PointsConfig, points_config, sources_for
-from app.store.tables import ScheduleVersion, Setting
+from app.store.tables import ScheduleVersion, Setting, User
 from app.store.versions import restore, save_new_version
 from tests.schedules import make, store, task
 
@@ -35,10 +38,12 @@ def _longer_c(schedule):
 
 
 def test_first_version_stores_points_without_diff(session):
-    sid = store(session, _base())
+    sid = store(session, _base())  # create_schedule 이 버전 1 포인트를 바로 둔다
+    got = points_store.get(session, sid, 1)
+    assert got is not None
     assert service.refresh(session, sid, 1) is None  # 「처음 계산」 — 바뀜이 아니다
     session.commit()
-    got = points_store.get(session, sid, 1)
+    assert points_store.get(session, sid, 1) == got
     assert [p.activity_id for p in got] == ["A", "B"]
     s = _base()
     assert got == compute_points(s, compute(s), tf_days=3, window_weeks=3)
@@ -46,18 +51,24 @@ def test_first_version_stores_points_without_diff(session):
 
 def test_get_missing_is_none(session):
     sid = store(session, _base())
-    assert points_store.get(session, sid, 1) is None
     assert points_store.get(session, sid, 9) is None
+
+
+def _drop_points(session, sid, n):
+    session.delete(session.get(points_store.ManagementPoints, (sid, n)))
+    session.commit()
 
 
 def test_save_hook_stores_points_and_refresh_diffs(session):
     sid = store(session, _base())
+    _drop_points(session, sid, 1)  # 이 기능 전에 만든 일정처럼
     n = _save(session, sid, _longer_c(_base()), 1)
     stored = points_store.get(session, sid, n)
     assert [p.activity_id for p in stored] == ["A", "C", "B"]  # ES 순(A·C 3/1, B 3/4)
     diff = service.refresh(session, sid, n)  # 앞 버전(1)은 저장된 것이 없어도 계산해 견준다
     assert [p.activity_id for p in diff.added] == ["C"]
-    assert diff.removed == () and diff.tightened == ()
+    assert diff.removed == () and diff.tightened == () and diff.became_critical == ()
+    assert diff.before_tf == {"C": 4}  # 앞 버전에서는 포인트가 아니었다(여유 4) — 앞 버전 CPM 에서
     assert points_store.get(session, sid, 1) is not None
 
 
@@ -70,9 +81,27 @@ def test_refresh_reports_tightened_and_removed(session):
     diff = service.refresh(session, sid, n3)
     assert diff.added == () and diff.removed == ()
     assert diff.tightened == (("C", 1, 0),)
+    assert diff.became_critical == ("C",) and diff.before_tf == {"C": 1}
     n4 = restore(session, sid, 1, by_name="손장호")  # 되돌리기도 같은 훅
     diff = service.refresh(session, sid, n4)
     assert diff.removed == ("C",)
+
+
+def test_save_without_commit_survives_points_write_failure(session, monkeypatch):
+    """훅의 쓰기는 SAVEPOINT 안 — 그 flush 가 깨져도(겹치는 기본키) 부른 쪽 트랜잭션은 그대로 끝난다."""
+    sid = store(session, _base())
+
+    def clash(s, schedule_id, version, points):
+        s.add(points_store.ManagementPoints(schedule_id=schedule_id, version=1, points_json=[],
+                                            computed_at=datetime.now(UTC)))
+
+    monkeypatch.setattr(points_store, "put", clash)
+    n = _save(session, sid, _longer_c(_base()), 1, commit=False)
+    session.commit()
+    session.expire_all()
+    assert n == 2 and session.get(ScheduleVersion, (sid, 2)) is not None
+    assert load(session, sid)[2] == 2
+    assert points_store.get(session, sid, 2) is None
 
 
 def test_save_survives_points_failure(session, monkeypatch, caplog):
@@ -109,10 +138,45 @@ def test_save_of_broken_schedule_still_saves(session):
     assert points_store.get(session, sid, 2) is None
 
 
-def test_delay_analysis_refreshes_points(session):
-    sid = store(session, _base())
-    delays_service.analyze(session, sid)
-    assert [p.activity_id for p in points_store.get(session, sid, 1)] == ["A", "B"]
+def _near_critical():
+    """A(3) → B(2) 크리티컬, C(3) 홀로 여유 2."""
+    return make([task("A", 3), task("B", 2), task("C", 3)], [Relation("A", "B")])
+
+
+def _delay_c(session, sid) -> None:
+    delays_store.create(session, schedule_id=sid, activity_id="C", start_date=date(2027, 3, 1), days=3, cause="자재 늦음",
+                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="손장호")
+    session.commit()
+
+
+def test_what_if_turns_near_critical_critical(session):
+    sid = store(session, _near_critical())
+    before = points_store.get(session, sid, 1)
+    c = next(p for p in before if p.activity_id == "C")
+    assert (c.critical, c.tf) == (False, 2)
+    _delay_c(session, sid)
+    points, diff = service.what_if(session, sid)
+    c = next(p for p in points if p.activity_id == "C")
+    assert c.critical and c.tf == 0
+    assert diff.became_critical == ("C",) and diff.added == () and diff.removed == ()
+    assert ("C", 2, 0) in diff.tightened and diff.before_tf["C"] == 2
+    assert points_store.get(session, sid, 1) == before  # 버전 줄은 그대로
+    assert load(session, sid)[2] == 1
+
+
+def test_delay_analysis_paths_return_what_if(session):
+    sid = store(session, _near_critical())
+    admin = session.scalars(select(User).where(User.login_id == "admin")).one()
+    out = delays_service.create(session, sid, DelayIn(activity_id="C", start_date=date(2027, 3, 1), days=3,
+                                                      cause="자재 늦음"), admin)
+    assert out.what_if is not None and out.what_if.diff.became_critical == ["C"]
+    assert out.what_if.diff.before_tf == {"C": 2}
+    assert delays_service.analyze(session, sid).what_if.diff.became_critical == ["C"]
+    eid = out.events[0].id
+    patched = delays_service.patch(session, sid, eid, DelayPatch(days=1))  # 1일 — C 여유 1, 크리티컬 아님
+    assert patched.what_if.diff.became_critical == [] and patched.what_if.diff.tightened == [("C", 2, 1)]
+    assert delays_service.list_delays(session, sid).what_if is None  # 읽기만 하면 계산하지 않는다
+    assert points_store.get(session, sid, 1) is not None and load(session, sid)[2] == 1
 
 
 def test_refresh_uses_settings(session):

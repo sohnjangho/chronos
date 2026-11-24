@@ -9,11 +9,14 @@ source 'delay')을 승인할 때뿐이고, 그때 사건이 'reflected' 가 된�
 → 계산 422 schedule_invalid.
 """
 
+import logging
 from collections.abc import Callable
+from dataclasses import asdict
 
 from sqlalchemy.orm import Session
 
 from app.core.cpm import CpmResult, ScheduleError
+from app.core.delay import DelayAnalysis
 from app.core.model import Schedule
 from app.errors import ApiError
 from app.harness.assemble import prepare_stored
@@ -25,12 +28,15 @@ from app.programs.delays.schemas import (
     PreviewOut,
     ScenarioIn,
     ScenarioOut,
+    WhatIfPointsOut,
 )
 from app.store import delays, scenarios
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound, get_record, load, run, to_json
 from app.store.tables import Scenario, User
 from app.store.view import plan_of, view_of
+
+logger = logging.getLogger(__name__)
 
 SCHEDULE_NOT_FOUND_MESSAGE = "일정을 찾을 수 없습니다."
 NOT_FOUND_MESSAGE = "지연 사건을 찾을 수 없습니다."
@@ -90,18 +96,33 @@ def _computed[T](make: Callable[[], T]) -> T:
         raise ApiError(422, "schedule_invalid", schedule_error_message(e), e.detail) from None
 
 
+def _what_if(session: Session, schedule_id: int, analysis: DelayAnalysis | None) -> WhatIfPointsOut | None:
+    """열린 사건을 넣은 가정 관리 포인트(방금 한 분석을 다시 쓴다). 실패해도 응답은 그대로 — 로그만, null."""
+    try:
+        points, diff = points_service.what_if(session, schedule_id, analysis)
+        return WhatIfPointsOut.model_validate({"points": [asdict(p) for p in points], "diff": asdict(diff)})
+    except Exception as e:  # 지연 응답을 막지 않는다
+        logger.warning("가정 관리 포인트 계산 실패: 일정 %s (%s)", schedule_id, type(e).__name__)
+        logger.debug("가정 관리 포인트 계산 실패 자세히", exc_info=True)
+        return None
+
+
 def _out(session: Session, schedule_id: int, *, force: bool = False) -> DelaysOut:
-    """다시 분석(force 면 늘)한 묶음을 commit 하고 돌려준다. 실패면 rollback(적은 것 없음)."""
+    """다시 분석(force 면 늘)한 묶음을 commit 하고 돌려준다. 실패면 rollback(적은 것 없음).
+
+    분석했으면(force) 열린 사건을 넣은 가정 관리 포인트(what_if)를 붙인다 — 지연 기록은 버전을 만들지 않는다.
+    """
+    analysis = None
     try:
         if force:
-            _computed(lambda: delays.refresh(session, schedule_id, force=True))
+            analysis = _computed(lambda: delays.refresh(session, schedule_id, force=True))
         out = DelaysOut.model_validate(_computed(lambda: delays.report(session, schedule_id)))
     except ApiError:
         session.rollback()
         raise
     session.commit()
-    if force:  # 지연 분석이 끝난 곳 — 관리 포인트를 다시 계산(실패해도 응답은 그대로)
-        points_service.refresh_quietly(session, schedule_id, get_record(session, schedule_id).current_version, commit=True)
+    if force:
+        out.what_if = _what_if(session, schedule_id, analysis)
     return out
 
 
@@ -123,7 +144,7 @@ def create(session: Session, schedule_id: int, body: DelayIn, user: User) -> Del
         _computed(lambda: delays.record(session, schedule_id=schedule_id, **body.model_dump(), created_by=user.name))
     except delays.RecordError as e:
         raise ApiError(422, "invalid_delay", e.message) from None
-    return _out(session, schedule_id)  # 새 열린 사건은 분석 전이라 열린 사건을 모두 다시 분석한다
+    return _out(session, schedule_id, force=True)  # 새 열린 사건은 분석 전이라 열린 사건을 모두 다시 분석한다
 
 
 def patch(session: Session, schedule_id: int, eid: int, body: DelayPatch) -> DelaysOut:

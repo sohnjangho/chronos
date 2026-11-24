@@ -133,12 +133,39 @@ class FinishOut(BaseModel):
     deadline_float: int | None  # 근무일(with_open → deadline), 늦으면 음수
 
 
+class PointOut(BaseModel):
+    """관리 포인트 하나(app.core.points.Point)."""
+
+    activity_id: str
+    name: str
+    critical: bool
+    tf: int  # 근무일
+    es: date
+    ef: date
+
+
+class PointsDiffOut(BaseModel):
+    added: list[PointOut]
+    removed: list[str]
+    tightened: list[tuple[str, int, int]]  # (id, 앞 여유, 뒤 여유)
+    became_critical: list[str]
+    before_tf: dict[str, int]  # 「여유 n일 → m일」의 n
+
+
+class WhatIfPointsOut(BaseModel):
+    """열린 사건을 넣었을 때의 관리 포인트(가정 — 버전이 아니라 저장하지 않음)와 지금 버전과의 차이."""
+
+    points: list[PointOut]
+    diff: PointsDiffOut
+
+
 class DelaysOut(BaseModel):
     schedule_id: int
     version: int
     events: list[DelayOut]
     totals: TotalsOut
     finish: FinishOut
+    what_if: WhatIfPointsOut | None = None  # 분석한 응답(기록·고침·지우기·분석)에만. 계산 실패면 null
 
 
 class MovedSpan(BaseModel):

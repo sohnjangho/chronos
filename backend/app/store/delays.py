@@ -31,6 +31,7 @@ __all__ = [
     "DelayedBase",
     "NotFound",
     "RecordError",
+    "analyze_open",
     "create",
     "delayed_base",
     "delete",
@@ -279,19 +280,28 @@ def save_impacts(
     session.flush()
 
 
-def refresh(session: Session, schedule_id: int, *, force: bool = False) -> None:
-    """열린 사건 가운데 지금 버전으로 분석하지 않은 것이 있으면(force 면 늘) 열린 사건을 모두 다시 분석해 적는다.
+def analyze_open(session: Session, schedule_id: int) -> tuple[core_delay.DelayAnalysis, list[DelayEventRow], int]:
+    """지금 버전(조건 넣음)에 열린 사건을 넣어 본 분석(적지 않음), 열린 사건 줄, 버전. NotFound·ScheduleError 는 그대로."""
+    schedule, conditions, n = load(session, schedule_id)
+    rows = open_events(session, schedule_id)
+    ready = prepare_stored(schedule, conditions)
+    known = {a.id for a in ready.activities}
+    return core_delay.analyze(ready, [to_core(r) for r in rows if r.activity_id in known]), rows, n
+
+
+def refresh(session: Session, schedule_id: int, *, force: bool = False) -> core_delay.DelayAnalysis | None:
+    """열린 사건 가운데 지금 버전으로 분석하지 않은 것이 있으면(force 면 늘) 열린 사건을 모두 다시 분석해 적고 그 분석을
+    돌려준다(다시 하지 않았으면 None).
 
     없는 일정이면 NotFound, 지금 일정이 깨졌으면 ScheduleError. flush 만.
     """
-    schedule, conditions, n = load(session, schedule_id)
-    rows = open_events(session, schedule_id)
-    if not force and all(r.analyzed_version == n for r in rows):
-        return
-    ready = prepare_stored(schedule, conditions)
-    known = {a.id for a in ready.activities}
-    analysis = core_delay.analyze(ready, [to_core(r) for r in rows if r.activity_id in known])
+    if not force:
+        _, _, n = load(session, schedule_id)
+        if all(r.analyzed_version == n for r in open_events(session, schedule_id)):
+            return None
+    analysis, rows, n = analyze_open(session, schedule_id)
     save_impacts(session, rows, analysis, n)
+    return analysis
 
 
 # ── 묶음 자료(DelaysOut) ──────────────────────────────────────────────

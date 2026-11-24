@@ -24,7 +24,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 
 from app.core.calendar import WorkCalendar
-from app.core.cpm import compute
+from app.core.cpm import CpmResult, compute
 from app.core.model import Activity, Schedule
 from app.core.resources import LevelResult, Peak, level
 
@@ -86,6 +86,10 @@ class DelayAnalysis:
     total_delta: int
     total_absorbed: int
     impacts: tuple[EventImpact, ...]
+    # 처음·마지막 상태(맞춘 CPM) — 관리 포인트 가정 계산(app.points.service.what_if)이 다시 맞추지 않고 쓴다
+    base_cpm: CpmResult | None = None
+    final_schedule: Schedule | None = None
+    final_cpm: CpmResult | None = None
 
 
 class DelayInputError(ValueError):
@@ -284,4 +288,7 @@ def analyze(schedule: Schedule, events: Sequence[DelayEvent]) -> DelayAnalysis:
         total_delta=cal.workdays_between(base.level.finish, state.level.finish),
         total_absorbed=sum(i.absorbed for i in impacts),
         impacts=tuple(impacts),
+        base_cpm=base.level.cpm,
+        final_schedule=state.schedule,
+        final_cpm=state.level.cpm,
     )
