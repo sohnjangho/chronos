@@ -65,10 +65,11 @@ AUTO_KINDS = ("auto_reply", "notice")  # 자동 답·고정 안내(메시지 종
 STOP_WHOLE = ("그만", "stop")
 STOP_WORD = "수신거부"
 STOP_ENDINGS = ("", "요", "입니다", "합니다", "해요", "할게", "할게요", "할께요", "하겠습니다", "해주세요", "해줘", "해주십시오",
-                "처리해주세요", "부탁합니다", "부탁드립니다", "부탁드려요", "부탁드릴게요", "부탁해요", "바랍니다", "원합니다", "신청",
+                "처리해주세요", "부탁합니다", "부탁드립니다", "부탁드려요", "부탁드릴게요", "부탁해요", "바랍니다", "원합니다", "원해요", "신청",
                 "신청합니다")
 # 「전화·연락·문자 (하지|주지) 마세요 / 마십시오 / 마요 / 말아 주세요」가 **문장 전체**일 때(글자만 남겨 fullmatch). 앞에는
 # STOP_LEADS 만 올 수 있다 — 남(「소장님한테」「현장에」)이나 때(「지금은」)가 붙으면 아니다. 「마시고」처럼 끝이 아닌 꼴도 아니다.
+STOP_ACKS = ("네", "예", "아", "응", "넵")  # 「수신거부」 앞에 올 수 있는 대답 말 하나(「네, 수신거부요」)
 STOP_LEADS = ("앞으로", "다시는", "이제", "더는", "더이상", "저한테", "제게", "이번호로")
 STOP_PHRASE = re.compile(rf"(?:{'|'.join(STOP_LEADS)})*(전화|연락|문자)(하지|주지)?(마세요|마십시오|마요|말아주세요)")
 # 글 어디에든 때를 말하면(「연락 주지 마세요. 지금 운전 중이라」) STOP_PHRASE 는 잠깐의 부탁이다 — 코드는 표시하지 않는다(모델의
@@ -335,7 +336,7 @@ def _letters(text: str) -> str:
 
 def is_stop(text: str | None, *, single_words: bool = True) -> bool:
     """수신 거부 말인가 — 들어오는 문자(admit)와 통화 중 상대 말(voice.call_run·after)이 같이 쓰는 규칙 하나. 통신사 머리를 떼고
-    **문장마다**(. ? ! 줄 바꿈으로 나눔) 글자만 남겨 본다: STOP_WORD 로 시작하고 나머지가 STOP_ENDINGS 이거나, 문장 전체가
+    **문장마다**(. ? ! 줄 바꿈으로 나눔) 글자만 남겨 본다: (대답 말 STOP_ACKS 하나를 뗀 뒤) STOP_WORD 로 시작하고 나머지가 STOP_ENDINGS 이거나, 문장 전체가
     STOP_PHRASE 이고 글 어디에도 때 말(STOP_TIME_WORDS)이 없으면 수신 거부. 「?」로 끝난 문장은 물음이라 아니다(「수신거부요?」). single_words 면 글 **전체**가 STOP_WHOLE 낱말(「그만」
     「stop」)일 때도 — 통화는 single_words=False(말에서는 「그만」이 너무 자주 나온다)."""
     if not isinstance(text, str):
@@ -348,7 +349,8 @@ def is_stop(text: str | None, *, single_words: bool = True) -> bool:
         core = _letters(sentence)
         if end == "?" or not core:
             continue
-        if core.startswith(STOP_WORD) and core[len(STOP_WORD):] in STOP_ENDINGS:
+        word = next((core[len(ack):] for ack in STOP_ACKS if core.startswith(ack + STOP_WORD)), core)
+        if word.startswith(STOP_WORD) and word[len(STOP_WORD):] in STOP_ENDINGS:
             return True
         if not timed and STOP_PHRASE.fullmatch(core):
             return True

@@ -332,3 +332,18 @@ async def test_reverse_direction_on_the_longer_site(session, site, answered):
         assert [item["name"] for item in fact["items"]] == ["표식-이 철근 배근"], site
     else:
         assert fact == {"refused": "이 통화는 가람 2단지 현장 건입니다"}, site
+
+
+# ── 수신거부 앞의 대답 말 · 「원해요」 ──────────────────────────────────────
+
+
+@pytest.mark.parametrize("text", ["네, 수신거부요", "예 수신거부", "아 수신거부할게요", "수신거부 원해요", "응, 수신 거부 해 주세요",
+                                  "넵 수신거부요."])
+def test_acknowledgement_before_the_explicit_word(text):
+    assert door.is_stop(text) and door.is_stop(text, single_words=False)
+
+
+@pytest.mark.parametrize("text", ["네, 수신거부요?", "수신거부요?", "수신거부 아닙니다", "네 수신거부 아닙니다", "아니 수신거부",
+                                  "네네 수신거부 어떻게 해요"])
+def test_acknowledgement_does_not_open_questions_or_negations(text):
+    assert not door.is_stop(text) and not door.is_stop(text, single_words=False)
