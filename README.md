@@ -30,7 +30,7 @@ ChronOS 는 맥 OS 모양의 웹 OS 이고, 에이전트 하나가 그 안의 �
 
 **관리 포인트**
 - 끝나지 않은 작업 가운데 크리티컬이거나 여유가 k 근무일 이하(기본 3일)이고 앞으로 w 주(기본 3주) 안에 시작하는 것(`app/core/points.py`). 변동마다 다시 뽑아 바뀌면 「관리 포인트가 바뀌었습니다」 카드로 알린다.
-- 바깥 위험: 새 포인트에만, 분야별로 켠 갈래를 찾는다 — 날씨(기상청), 금속 시세·환율(Liner Search Premium Data: The World Bank·Xignite), 업계 소식(Liner MCP). 자료가 없으면 숫자 없이 「바깥 자료 없음」(`app/points/risk.py`).
+- 외부 영향: 새 포인트에만, 분야별로 켠 갈래를 찾는다 — 날씨(기상청), 금속 시세·환율(Liner Search Premium Data: The World Bank·Xignite), 업계 소식(Liner MCP). 자료가 없으면 숫자 없이 「외부 자료 없음」(`app/points/risk.py`).
 - 근거 문장: [근거 문장 보기]를 누르면 Liner Search Agent 의 출처 문장과 링크를 보인다(`app/points/quotes.py`).
 - 당겨도 소용 있나: 「이 작업을 n일 당기면」 준공에 반영되는 일수와 다음에 준공을 정할 줄을 계산한다(`points.accel_check`, `app/core/accel.py`).
 
@@ -56,9 +56,9 @@ ChronOS 는 맥 OS 모양의 웹 OS 이고, 에이전트 하나가 그 안의 �
 
 ## 화면
 
-| 「당겨도 소용 있나」 — 당긴 5일 중 준공 반영 1일 | 관리 포인트가 바뀐 카드 · 바깥 위험 · 지연 기록 |
+| 「당겨도 소용 있나」 — 당긴 5일 중 준공 반영 1일 | 관리 포인트가 바뀐 카드 · 외부 영향 · 지연 기록 |
 |---|---|
-| ![당김 효과](docs/contest/assets/rev6/s5-당겨도소용있나.png) | ![관리 포인트와 바깥 위험](docs/contest/assets/rev6/s2-바깥위험.png) |
+| ![당김 효과](docs/contest/assets/rev6/s5-당겨도소용있나.png) | ![관리 포인트와 외부 영향](docs/contest/assets/rev6/s2-바깥위험.png) |
 | **워크플로우 — 에이전트가 짠 단계와 [스킬로 저장]** | **AI 전화 뒤 통화 카드 — 질문마다 답과 근거** |
 | ![워크플로우](docs/contest/a4/img/app/03-워크플로우-단계그래프와상세.jpg) | ![통화 카드](docs/contest/a4/img/s3-통화카드.jpg) |
 | **현장 사진 AI 판독 · 사람 판독 대기** | |
@@ -93,7 +93,7 @@ flowchart LR
     TOOLS["도구 등록부<br/>app/tools"]
     CORE["일정 엔진 · CPM<br/>app/core"]
     HAR["하네스 네 겹<br/>app/harness"]
-    PTS["관리 포인트 · 바깥 위험<br/>app/points"]
+    PTS["관리 포인트 · 외부 영향<br/>app/points"]
     OUT["연락 하네스<br/>app/outreach"]
     FILES["자료함<br/>app/files"]
     STORE["승인 · 버전 · 이력<br/>app/store"]
@@ -115,7 +115,7 @@ flowchart LR
 ```
 
 - **에이전트 루프**(`app/agent/loop.py`): Liner Model 이 도구를 고르고, 도구는 등록부(`app/tools/registry.py`)로만 불린다. 날짜가 필요하면 일정 엔진을 부르고, 엔진 결과는 하네스 네 겹(기본 규칙 · 분야 규칙 · 내 규칙 · 입력 조건)으로 점검한다.
-- **바깥 자료**: 금속 시세(The World Bank)·환율(Xignite)은 Liner Search 의 Premium Data(`include_knowledge`)로, 근거 문장은 Liner Search Agent 로, 법령·업계 소식은 Liner MCP 로 받는다. 날씨는 기상청 공공데이터를 직접 부른다.
+- **외부 자료**: 금속 시세(The World Bank)·환율(Xignite)은 Liner Search 의 Premium Data(`include_knowledge`)로, 근거 문장은 Liner Search Agent 로, 법령·업계 소식은 Liner MCP 로 받는다. 날씨는 기상청 공공데이터를 직접 부른다.
 - **연락**: 문자·전화 통로는 한국AI통신, 실시간 통화 음성은 Gemini Live 다. 키는 모두 서버에서만 쓰고 화면에는 끝 4자리만 보인다.
 
 ## 안전 장치
@@ -125,7 +125,7 @@ flowchart LR
 - **보내기·걸기는 기본이 「승인 받기」다.** 에이전트는 초안만 만들고 사람이 [보내기]·[전화 걸기]를 누른다. 「위임」으로 바꿔도 시험 모드·차단·수신 거부·근무시간·상한·중복 검사는 그대로 받는다. 받는 범위도 기본은 「받지 않음」이다.
 - **전화번호는 모델·로그로 나가기 전에 지운다.** 모델 프롬프트·도구 결과·실행 추적·로그·오류 글은 한 곳(`app/outreach/redact.py`)을 지나며 번호를 `[번호]` 로, 키를 지운다.
 - **키는 암호화해 저장한다.** Liner·한국AI통신·Gemini 키는 환경 변수가 아니라 설정 화면에서 받아 Fernet 으로 암호화해 DB 에 두고(`app/security/crypto.py`), 응답·화면에는 끝 4자리만 보인다.
-- **지어내지 않는다.** 바깥 자료가 없으면 「바깥 자료 없음」, 읽지 못한 현장 사진은 진도 숫자 없이 「사람 판독 대기」로 둔다. 코드가 점검하지 않은 조건은 「자동 점검 안 됨」으로만 보인다.
+- **지어내지 않는다.** 외부 자료가 없으면 「외부 자료 없음」, 읽지 못한 현장 사진은 진도 숫자 없이 「사람 판독 대기」로 둔다. 코드가 점검하지 않은 조건은 「자동 점검 안 됨」으로만 보인다.
 - 커밋 전 비밀 검사: `bash scripts/check_secrets.sh`(`scripts/check-local.sh` 에 포함).
 
 ## 기술 스택
@@ -146,7 +146,7 @@ backend/app/
   tools/      에이전트 도구(영역.동작) · 등록부
   core/       일정 엔진: 달력 · CPM · 자원 · 지연 · 만회안 · 관리 포인트 · 당김 효과 · 공정률
   harness/    하네스 네 겹
-  points/     관리 포인트 카드 · 바깥 위험 · 근거 문장
+  points/     관리 포인트 카드 · 외부 영향 · 근거 문장
   outreach/   연락 하네스 · 문자 · AI 전화 · 번호 지우기
   notify/     알림 연결 진단 · 음성 진단
   llm/        Liner 연결(Model · Search · Search Agent · MCP · 임베딩 · 시각화)
