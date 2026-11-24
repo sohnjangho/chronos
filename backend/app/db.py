@@ -6,6 +6,7 @@ from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.points import quotes  # noqa: F401  근거 문장 표(point_quotes)도 create_all 전에
 from app.security.passwords import hash_password
 from app.store import (
     devices,  # noqa: F401  기기 세션 표(user_devices)도 create_all 전에
