@@ -13,6 +13,9 @@ from app.outreach.scenarios import drive_text, drive_voice
 from app.outreach.scenarios.drive_text import CellResult
 from app.outreach.scenarios.situations import (
     COLUMNS,
+    SIM_FELL_BACK,
+    SIM_SAY,
+    SIMULATED_ONLY,
     SITUATIONS,
     TEXT_RULE_LINE,
     Check,
@@ -72,6 +75,7 @@ _OUT_ONLY = marks("run", "none", "none", "none")
 _IN_ONLY = marks("none", "run", "none", "none")
 _REPLY_ONLY = marks("none", "none", "none", "run")
 _TIME_LIMIT_S = 30  # 최대 통화 시간 경우의 상한(말이 이어지는 대본 — 침묵 없이 넘긴다)
+SILENCE_S = call_run.SILENCE_S  # 불러올 때의 침묵 문턱 — 무르기(call.silence)가 바꿔도 길이 기대는 이 값으로 센다
 
 
 def _agent_lines(w: World, index: int = 0) -> list[str]:
@@ -134,10 +138,10 @@ CHANNEL_ONLY: list[Case] = [
                    (G("「들리시나요」 두 번 뒤 마치는 말을 하고 끊는다(silence 사건 셋)",
                       lambda w: w.code_said(0) == [call_run.HELLO, call_run.HELLO, call_run.GIVE_UP]
                       and [d for n, _, d in w.log(w.call(0)) if n == "silence"]
-                      == ["침묵 확인 1", "침묵 확인 2", "침묵으로 끊음"] and _by_agent(w)),
+                      == ["침묵 확인 1", "침묵 확인 2", "침묵으로 끊음"] and _by_agent(w), simulated=SIM_SAY),
                     G("침묵으로 끝난 통화도 통화됨(completed) — 길이는 침묵 확인 셋만큼(15초씩)",
-                          lambda w: w.call(0).status == "completed" and w.call(0).duration_s == 2 + 3 * call_run.SILENCE_S)),
-                   (), {"call_out": "call.silence"})),
+                          lambda w: w.call(0).status == "completed" and w.call(0).duration_s == 2 + 3 * SILENCE_S)),
+                   (), {"call_out": "call.silence"}, {"call_out": SIMULATED_ONLY + SIM_SAY})),
     Case("call_time_limit", "call", "최대 통화 시간 초과 → 정리 멘트 후 종료", ("V-15",),
          Situation("call_time_limit", "최대 통화 시간", _OUT_ONLY, Setup(limits(max_call_seconds=_TIME_LIMIT_S)),
                    tuple(step for n in range(1, 11) for step in (Them(f"그리고 {n}번째로 말씀드릴 게 있는데요"),
@@ -145,8 +149,8 @@ CHANNEL_ONLY: list[Case] = [
                    (G("최대 시간 20초 전에 정리 말 한 번, 닿으면 끊는다(time_limit 사건 둘)",
                       lambda w: w.code_said(0) == [call_run.WRAP_UP]
                       and [d for n, _, d in w.log(w.call(0)) if n == "time_limit"] == ["정리 안내", "최대 통화 시간"]
-                      and _by_agent(w) and w.call(0).duration_s == _TIME_LIMIT_S),),
-                   (), {"call_out": "call.time_limit"}),
+                      and _by_agent(w) and w.call(0).duration_s == _TIME_LIMIT_S, simulated=SIM_SAY),),
+                   (), {"call_out": "call.time_limit"}, {"call_out": SIMULATED_ONLY + SIM_SAY}),
          limits=limits(max_call_seconds=_TIME_LIMIT_S)),
     Case("misdial_or_ad", "call", "잘못 건 전화·광고 → 짧게 마치고 기록", ("R-10",),
          Situation("misdial_or_ad", "잘못 건 전화·광고", _IN_ONLY, Setup(limits()),
@@ -174,8 +178,9 @@ CHANNEL_ONLY: list[Case] = [
                           == [("kakao", False)]),
                     Check("일꾼의 상태 조회가 「실패·문자로 대신 나감」을 보면 failed 와 「문자로 대신 보냄」 표시(fallback_sms)",
                           lambda w: [(m.status, m.fallback_sms) for m in w.out(id=w.request_id)] == [("failed", True)]
-                          and ("delivery_update", "blocked", "failed") in w.log(w.out(id=w.request_id)[0]))),
-                   (), {})),
+                          and ("delivery_update", "blocked", "failed") in w.log(w.out(id=w.request_id)[0]),
+                          simulated=SIM_FELL_BACK)),
+                   (), {}, {"sms_reply": SIMULATED_ONLY + SIM_FELL_BACK})),
 ]
 _CASES = {case.id: case for case in CHANNEL_ONLY}
 

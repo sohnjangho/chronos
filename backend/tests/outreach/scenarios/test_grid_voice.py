@@ -19,6 +19,7 @@ from app.outreach.scenarios.situations import (
     DIVERGED_DNC,
     DIVERGED_LANGUAGE,
     DIVERGED_REPEAT,
+    SIMULATED_ONLY,
     SITUATIONS,
 )
 from app.outreach.voice import after
@@ -38,14 +39,13 @@ UNGUARDED = {(s.id, c) for s in SITUATIONS for c in VOICE if s.marks[c] != "none
 
 
 def _cells(*, broken: bool) -> list:
-    """음성 칸 — 하네스가 갈라진 칸은 「실패로 드러냄」(strict xfail), 무를 곳이 없는 칸은 무르기 시험에서 빠진다(까닭과 함께)."""
+    """음성 칸 — 하네스가 갈라진 칸은 여기서 빠지고 test_divergent_cell_fails_on_exactly_these 가 깨지는 기대를 고정한다. 무를 곳이
+    없는 칸은 무르기 시험에서 빠진다(까닭과 함께)."""
     found = []
     for sid, col in VOICE_CELLS:
         if (sid, col) in DIVERGED:
-            mark = (pytest.mark.skip(reason=f"무르지 않아도 실패하는 칸 — {DIVERGED[(sid, col)]}") if broken
-                    else pytest.mark.xfail(strict=True, reason=DIVERGED[(sid, col)]))
-            found.append(pytest.param(sid, col, marks=mark))
-        elif broken and (sid, col) in UNGUARDED:
+            continue
+        if broken and (sid, col) in UNGUARDED:
             found.append(pytest.param(sid, col, marks=pytest.mark.skip(reason=BY_ID[sid].notes[col])))
         else:
             found.append((sid, col))
@@ -71,6 +71,27 @@ async def test_voice_cell_passes(sid, col):
     assert result.checks and all(c["error"] is None for c in result.checks)
     assert not _digits_in([result.checks, result.events])  # 콘솔에 갈 결과에 번호가 없다
     assert result.channel == "FakeChannel" and set(result.sessions) <= {"SimulatedVoice"}
+
+
+# 갈라진 칸에서 거짓이 되는 기대 — 꼭 이것들만(검사가 터진 것 없이). 제품이 고쳐지면(예: 통화의 수신 거부 듣기) 이 시험이 깨져 칸을 뒤집게 한다.
+DNC_FALSE = ["번호 기준 수신 거부로 표시된다", "그 뒤 문자는 문이 수신 거부로 막는다(차례 blocked_or_dnc)",
+             "그 뒤 전화도 문이 수신 거부로 막는다(차례 blocked_or_dnc)"]
+DIVERGED_FALSE = {
+    ("S-04", "call_out"): DNC_FALSE, ("S-04", "call_in"): DNC_FALSE,
+    ("S-13", "call_out"): ["언어는 제안 한 줄(language, pending)로만"],
+    ("S-13", "call_in"): ["언어는 제안 한 줄(language, pending)로만"],
+    ("S-20", "call_in"): ["통화: 같은 번호가 짧은 시간에 거듭 걸면 문턱(5분에 3) 뒤부터 받지 않는다(burst_limit)"],
+}
+
+
+@pytest.mark.parametrize(("sid", "col"), sorted(DIVERGED_FALSE))
+async def test_divergent_cell_fails_on_exactly_these(sid, col):
+    """하네스가 갈라진 다섯 칸: 실패하되, 거짓이 되는 기대는 적어 둔 것과 꼭 같고 터진 기대가 없다(뜻밖의 고장을 삼키지 않는다)."""
+    assert (sid, col) in DIVERGED
+    result = await run_cell(sid, col)
+    assert not result.passed
+    assert [c["text"] for c in result.checks if not c["ok"]] == DIVERGED_FALSE[(sid, col)]
+    assert all(c["error"] is None for c in result.checks), result.checks
 
 
 @pytest.mark.parametrize("case", [c.id for c in CHANNEL_ONLY if c.medium in ("call", "kakao")])
@@ -224,7 +245,47 @@ async def test_voice_grid_shows_honest_notes(sid, col, start):
     assert note is not None and note.startswith(start)
 
 
-def test_simulated_only_lines_are_said_through_the_backend():
-    """침묵 확인·정리 말은 코드가 control.say 로 시킨다 — 가짜 통화는 그것을 들려주지만, 실제 SDK 에는 「이 말을 하라」가 없다(Task 113).
-    격자의 그 기대는 가짜에서만 참이라는 표시가 결과에 남는다(S-21 전화 받기의 note)."""
-    assert BY_ID["S-21"].notes["call_in"].startswith("침묵 확인 말") and "가짜 통화에서만" in BY_ID["S-21"].notes["call_in"]
+def _scripts() -> list:
+    return [*SITUATIONS, *(case.situation for case in CHANNEL_ONLY)]
+
+
+def test_simulated_only_expectations_are_labelled():
+    """가짜에서만 참인 기대(코드가 control.say 로 시킨 말 — 실제 SDK 에는 「이 말을 하라」가 없다(Task 113) · 가짜 상태 조회의
+    fell_back — 실제 제공사 클라이언트는 늘 False)는 표시(Check.simulated)를 달고, 그 기대가 도는 열의 note 는 「가짜에서만 — 」으로
+    시작한다. code_said 를 읽는 기대는 모두 표시가 있어야 한다."""
+    labelled = set()
+    for script in _scripts():
+        for check in script.expect:
+            if "code_said" in check.fn.__code__.co_names:
+                assert check.simulated, (script.id, check.text)
+            if not check.simulated:
+                continue
+            for column in check.columns or COLUMNS:
+                if script.marks[column] != "none":
+                    labelled.add((script.id, column))
+                    assert script.notes.get(column, "").startswith(SIMULATED_ONLY), (script.id, column)
+                    assert check.simulated in script.notes[column], (script.id, column)
+    assert labelled == {("S-21", "call_in"), ("silence", "call_out"), ("call_time_limit", "call_out"),
+                        ("kakao_fell_back", "sms_reply")}
+
+
+@pytest.mark.parametrize("case", ["silence", "call_time_limit", "kakao_fell_back"])
+async def test_simulated_only_note_reaches_the_grid_output(case):
+    note = (await run_case(case)).note
+    assert note is not None and note.startswith(SIMULATED_ONLY)
+
+
+async def test_voice_driver_refuses_while_the_call_runner_runs(monkeypatch):
+    """통화 일꾼이 도는 프로세스(서버)에서는 음성 대본을 돌리지 않는다 — 일꾼·받는 쪽 상태와 음성 백엔드를 바꿔 끼우지 않는다."""
+    from app.outreach.voice import runner
+
+    monkeypatch.setattr(runner._state, "running", True)
+    with pytest.raises(RuntimeError, match="통화 일꾼"):
+        await run_cell("S-01", "call_out")
+
+
+def test_silence_length_does_not_read_the_live_threshold():
+    """침묵 경우의 길이 기대는 불러올 때의 SILENCE_S 를 쓴다 — 무르기(call.silence)가 그 값을 바꿔도 그 기대는 엉뚱한 까닭으로 깨지지 않는다."""
+    from app.outreach.voice import call_run
+
+    assert grid.SILENCE_S == call_run.SILENCE_S == 15

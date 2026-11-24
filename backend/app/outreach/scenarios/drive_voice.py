@@ -17,7 +17,7 @@
 
 모델은 없다: 통화 속 모델은 대본(SimulatedVoice), 통화 뒤 요약은 정해 둔 답을 주는 가짜(`_Summary` — after.client_for 를 그 실행
 동안만). 통로는 FakeChannel. 결과(CellResult)에 번호가 없다. 시험(pytest)이나 CHRONOS_HARNESS_SANDBOX=1 프로세스에서만 돌고, 연락 일꾼
-고리가 도는 프로세스(서버)에서는 돌지 않는다. 기다림은 모두 끝이 있다(통화 뒤 일 SETTLE_ROUNDS × SETTLE_WAIT_S).
+고리·통화 일꾼이 도는 프로세스(서버)에서는 돌지 않는다. 기다림은 모두 끝이 있다(통화 뒤 일 SETTLE_ROUNDS × SETTLE_WAIT_S).
 """
 
 import asyncio
@@ -357,6 +357,8 @@ def _inbound_rows(session: Session) -> list[int]:
 async def run(situation: Situation, column: Column, session_factory: Callable[[], Session]) -> CellResult:
     """대본 하나를 그 음성 열로 돌린다. session_factory 는 하네스와 같은 DB(temp_database 가 준 것)의 세션을 만든다."""
     _refuse_outside()
+    if runner._state.running:  # = runner.status()["running"] — status() 는 음성 설정 DB 도 읽어 여기서는 메모리 값만 본다
+        raise RuntimeError("통화 일꾼이 도는 프로세스에서는 음성 대본을 돌리지 않습니다")
     if column not in VOICE_COLUMNS:
         raise ValueError("음성 구동기는 call_out · call_in 열만 돌립니다")
     if situation.marks[column] == "none":

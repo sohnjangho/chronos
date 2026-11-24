@@ -126,6 +126,7 @@ class Check:
     fn: Callable[["World"], bool]
     columns: frozenset[Column] | None = None
     guarded: bool | frozenset[Column] = False  # 참이면 모든 열, 열 집합이면 그 열에서만
+    simulated: str | None = None  # 가짜에서만 참인 기대의 까닭(SIM_SAY · SIM_FELL_BACK) — 그 열의 note 가 SIMULATED_ONLY 로 시작한다
 
     def breaks_in(self, column: Column) -> bool:
         return self.guarded is True or (isinstance(self.guarded, frozenset) and column in self.guarded)
@@ -306,10 +307,16 @@ TEXT: frozenset[Column] = frozenset(TEXT_COLUMNS)
 VOICE: frozenset[Column] = frozenset({"call_out", "call_in"})
 ONLY_OUT = frozenset({"call_out"})
 ONLY_CALL_IN = frozenset({"call_in"})
+SIMULATED_ONLY = "가짜에서만 — "  # note 머리: 그 칸의 기대 가운데 가짜 통화·가짜 제공사에서만 참인 것이 있다
+SIM_SAY = ("코드가 control.say 로 시킨 말(침묵 확인·마치는 말·정리 말)은 가짜 통화에서만 들린다 — SDK 에 「이 말을 하라」가 없어 "
+           "실제로는 사건과 끊기만 돈다(Task 113)")
+SIM_FELL_BACK = ("「문자로 대신 보냄」은 가짜 상태 조회가 준 fell_back 으로만 선다 — 실제 제공사 클라이언트는 fell_back 을 늘 False 로 "
+                 "준다(대신 나간 문자를 알 칸이 없음 — Task 71·provider)")
 DIVERGED_DNC = ("하네스가 갈라짐: 통화에는 수신 거부 말을 코드가 듣는 길이 없다 — 문자는 들어오는 문이 「수신거부」를 보고 표시하지만, "
                 "통화는 모델이 mark_do_not_contact 를 불러야만 표시된다(같은 대본으로는 통과하지 않음)")
-DIVERGED_LANGUAGE = ("하네스가 갈라짐: 통화의 언어 제안은 모델이 end_call(language) 를 부를 때만 생긴다 — 문자는 답의 언어로 코드가 "
-                     "제안한다(같은 대본으로는 통과하지 않음)")
+DIVERGED_LANGUAGE = ("하네스가 갈라짐: 언어 제안은 두 길 모두 모델이 준 언어로 코드가 만든다 — 문자는 답의 language 가 꼭 채우는 "
+                     "칸이고, 통화는 end_call(language) 가 비워도 되는 칸이라 모델이 end_call 에 언어를 넣을 때만 생긴다(대본의 통화에는 "
+                     "end_call 이 없어 같은 대본으로는 통과하지 않음)")
 DIVERGED_REPEAT = ("하네스가 갈라짐: 대본의 되풀이는 한 번호의 이어진 말이라 통화 한 통이 된다 — 「전화 여러 번」은 통화를 여러 번 "
                    "걸어야 해 같은 대본으로는 통과하지 않음")
 VOICE_COMMON_ONLY = ("공통 겹만 — 통화의 말은 실시간이라 권한·뒤 확인 전에 나가고, 이 상황을 지키는 보고·지시문 줄을 끄는 무르기가 "
@@ -326,9 +333,9 @@ def GUARDS(text: str | None, voice: str | None, **only: str) -> dict[Column, str
 
 
 def G(text: str, fn: Callable[["World"], bool], columns: frozenset[Column] | None = None,
-      guarded: bool | frozenset[Column] = True) -> Check:
-    """지키는 곳을 무르면 거짓이 되어야 하는 기대(Check(guarded=…))."""
-    return Check(text, fn, columns, guarded)
+      guarded: bool | frozenset[Column] = True, simulated: str | None = None) -> Check:
+    """지키는 곳을 무르면 거짓이 되어야 하는 기대(Check(guarded=…)). simulated — 가짜에서만 참인 기대의 까닭."""
+    return Check(text, fn, columns, guarded, simulated)
 
 
 # ── 기대 도우미 ────────────────────────────────────────────────────
@@ -768,9 +775,9 @@ SITUATIONS: list[Situation] = [
          G("걸려 온 통화: 늦게 답하는 침묵이 이어지면 두 번 확인한 뒤 끊는다(silence)",
                lambda w: w.code_said(0) == [call_run.HELLO, call_run.HELLO, call_run.GIVE_UP]
                and [d for n, _, d in w.log(w.call(0)) if n == rule("silence")] == ["침묵 확인 1", "침묵 확인 2", "침묵으로 끊음"]
-               and w.voices[0].ended[0][0] == "agent", ONLY_CALL_IN)),
+               and w.voices[0].ended[0][0] == "agent", ONLY_CALL_IN, simulated=SIM_SAY)),
         ("V-11",), GUARDS("gate.hours", None, call_out="runner.hours", call_in="call.silence"),
-        {"call_in": "침묵 확인 말(「여보세요, 들리시나요?」)은 가짜 통화에서만 들린다 — SDK 에 「이 말을 하라」가 없어 실제로는 끊기만 돈다(Task 113)"}),
+        {"call_in": SIMULATED_ONLY + SIM_SAY}),
     Situation(
         "S-22", "시험 모드에서 허용 안 된 번호", marks("막음", "받지 않음", "기록만", "막음"),
         Setup(limits(), test_mode=True, probes=("sms:park",)),
