@@ -123,3 +123,43 @@ async def test_what_if_check_does_not_relaunch_a_failed_lookup(ctx, session, eve
     card.launched.clear()
     r = await call("points.check", {"what_if": True}, replace(ctx, schedule_id=sid))
     assert r.ok and r.output["risk_status"] == "failed" and card.launched == []
+
+
+async def test_card_shown_mark_is_per_chat(ctx, session, events):
+    sid = store(session, _base())
+    _save(session, sid, _c(4), 1)
+    one, two = replace(ctx, schedule_id=sid, chat_session_id=1), replace(ctx, schedule_id=sid, chat_session_id=2)
+    assert (await call("points.check", {}, one)).output["card"] is True
+    assert (await call("points.check", {}, one)).output["card"] is False  # 같은 대화 — 다시 내지 않음
+    assert (await call("points.check", {}, two)).output["card"] is True  # 다른 대화(다른 사람)는 처음 보는 카드
+    assert len(events) == 2
+
+
+async def test_what_if_card_once_per_chat_until_a_new_delay(ctx, session, events):
+    sid = store(session, make([task("A", 3), task("B", 2), task("C", 3)], [Relation("A", "B")]))
+
+    def delay(days):
+        delays_store.create(session, schedule_id=sid, activity_id="C", start_date=date(2027, 3, 1), days=days,
+                            cause="자재 늦음", responsibility="undecided", daily_cost=None, evidence="", source="user",
+                            created_by="손장호")
+        session.commit()
+
+    delay(3)
+    chat = replace(ctx, schedule_id=sid, chat_session_id=7)
+    assert (await call("points.check", {"what_if": True}, chat)).output["card"] is True
+    assert (await call("points.check", {"what_if": True}, chat)).output["card"] is False
+    delay(1)  # 새 지연 — 가정 차이는 같아도 무엇을 바꿨는지가 다르다
+    assert (await call("points.check", {"what_if": True}, chat)).output["card"] is True
+    assert len(events) == 2
+
+
+def test_retry_does_not_set_the_shown_mark(session):
+    sid = store(session, _base())
+    n = _save(session, sid, _c(4), 1)
+    row = card.get(session, sid, n, what_if=False)
+    card.mark_shown(row, 3)
+    row.risk_status = "failed"
+    session.commit()
+    before = dict(row.shown_json)
+    assert card.retry(session, row) is True
+    assert row.shown_json == before and not card.shown(row, 3) and not card.shown(row, 4)

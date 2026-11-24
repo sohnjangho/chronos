@@ -715,3 +715,16 @@ async def test_risk_look_fills_outdoor_from_the_pick(session, monkeypatch):
     outdoor: dict[str, bool] = {}
     assert await risk.look(session, sid, n, points, outdoor) == []
     assert outdoor == {"A": False, "C": True}
+
+
+def test_call_draft_validation_is_a_clean_422(client, admin, session, monkeypatch):
+    from app.programs.points import service as points_api
+
+    sid, _ = _with_c_point(session)
+    pid, _ = _people(session, sid)
+    monkeypatch.setattr(points_api, "call_text", lambda *_a: ("가" * 600, ["물어볼 것"]))  # 목적 500자 넘음
+    for preview in (True, False):
+        r = client.post(_url(sid, "/C/contact"), json={"contact_id": pid, "channel": "call", "preview": preview},
+                        headers=admin)
+        assert (r.status_code, r.json()["code"]) == (422, "invalid_text")
+    assert session.scalars(select(OutreachCall)).all() == []

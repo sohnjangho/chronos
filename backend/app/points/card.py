@@ -19,6 +19,7 @@
 
 import asyncio
 import hashlib
+import json
 import logging
 import threading
 from collections.abc import Callable, Coroutine, Mapping, Sequence
@@ -59,7 +60,8 @@ class PointCard(Base):
     generation: Mapped[int] = mapped_column(default=0)  # 다시 적을 때마다 +1 — 늦게 끝난 옛 찾기가 덮어쓰지 않게
     changed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)  # 이 차이를 처음 적은 때(주의할 일정의 「최근」)
     outdoor_json: Mapped[dict] = mapped_column(JSON, default=dict)  # 액티비티 → 실외 작업인가(LLM weather_sensitive, 고른 것만)
-    shown_generation: Mapped[int] = mapped_column(default=0)  # points.check 가 대화에 카드를 낸 generation(같은 차이를 두 번 안 냄)
+    shown_generation: Mapped[int] = mapped_column(default=0)  # 옛 칸(쓰지 않음 — 이미 만든 DB 의 NOT NULL 때문에 둔다)
+    shown_json: Mapped[dict] = mapped_column(JSON, default=dict)  # 대화(chat_session_id) → 카드를 낸 차이 지문(shown_mark)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime)
 
 
@@ -171,6 +173,25 @@ def remember(session: Session, schedule_id: int, version: int, *, what_if: bool,
     return status == LOOKING
 
 
+def _chat(chat_session_id: int | None) -> str:
+    return "-" if chat_session_id is None else str(chat_session_id)
+
+
+def shown_mark(row: PointCard) -> str:
+    """카드를 냈는지 견주는 지문: generation(차이) + 무엇을 바꿨는지(trigger — 새 지연이면 다르다)."""
+    trigger = json.dumps(row.data_json.get("trigger"), sort_keys=True, ensure_ascii=False)
+    return f"{row.generation}:{hashlib.sha1(trigger.encode()).hexdigest()[:8]}"
+
+
+def shown(row: PointCard, chat_session_id: int | None) -> bool:
+    """이 대화에 이 차이의 카드를 이미 냈는가(다른 대화·다른 사람은 따로)."""
+    return (row.shown_json or {}).get(_chat(chat_session_id)) == shown_mark(row)
+
+
+def mark_shown(row: PointCard, chat_session_id: int | None) -> None:
+    row.shown_json = {**(row.shown_json or {}), _chat(chat_session_id): shown_mark(row)}
+
+
 def status_of(row: PointCard) -> str:
     if row.risk_status == LOOKING and datetime.now(UTC) - as_utc(row.updated_at) >= STALE_AFTER:
         return FAILED
@@ -187,7 +208,6 @@ def retry(session: Session, row: PointCard) -> bool:
         return False
     row.risk_status, row.risks_json, row.updated_at = LOOKING, [], datetime.now(UTC)
     row.generation += 1
-    row.shown_generation = row.generation  # 같은 차이 — 카드를 새로 내지 않는다
     session.flush()
     return True
 
