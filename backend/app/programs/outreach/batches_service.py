@@ -7,7 +7,10 @@
   글·문안·연결)이 오면 409 key_reused — 아무것도 만들거나 보내지 않는다.
 - **다시 온 요청이 첫 요청이 아직 도는 동안이면**: 문에 아직 넣지 않은 초안(사건 없음)과 나가는 중(sending)인 줄은, 묶음이 만들어진 지
   IN_PROGRESS_S(받는 사람 상한 × 제공사 요청 시간 제한) 안이면 `in_progress` 「보내는 중일 수 있습니다 — 잠시 뒤 다시 확인해 주세요」
-  (응답의 in_progress 참). 그보다 오래된 초안은 첫 요청이 끝내 넣지 못한 것(서버가 죽음)이라 `not_sent`.
+  (응답의 in_progress 참). 그보다 오래된 초안은 첫 요청이 끝내 넣지 못한 것(서버가 죽음)이라 `not_sent`, 그보다 오래 sending 에
+  머문 줄은 결과를 적지 못한 것이라 `unsure`(「확인 필요」).
+- **결과 확인은 보내지 않는다**: `check(…)`(GET …/batches/by-key)는 같은 사람·일정의 요청 번호로 저장된 묶음만 찾아 같은 꼴로 돌려준다.
+  없으면 404 「이 묶음은 서버에 닿지 않았습니다 — 보내지 않았습니다」 — 만들지도 문을 부르지도 않는다.
 - **줄은 한 번에 만들고 보내기는 한 사람씩**: 모든 연락처·연결 id·글을 먼저 본 뒤(하나라도 틀리면 404/422, 아무것도 만들지 않음)
   줄을 모두 초안으로 commit 하고, 방금 만든 그 일정의 줄만 차례로 `gate.dispatch` 에 넣는다. 한 사람의 실패·거절·「확인 필요」·
   뜻밖의 오류는 다음 사람을 멈추거나 다시 보내게 하지 않는다(오류는 「확인 필요」로 — 나갔는지 모르므로 보냄이라 하지 않는다).
@@ -19,7 +22,6 @@
 
 import hashlib
 import logging
-import re
 from typing import Annotated
 
 from pydantic import BaseModel, Field, StrictInt, model_validator
@@ -56,10 +58,11 @@ BAD_TEMPLATE = "문안의 빈 칸을 모두 채워 주세요."
 NOT_SENT = "아직 보내지 않았습니다 — 그 사람의 대화에 초안으로 남아 있습니다"
 GONE_NAME = "지워진 연락처"
 IN_PROGRESS = "보내는 중일 수 있습니다 — 잠시 뒤 다시 확인해 주세요"
+NOT_REACHED = "이 묶음은 서버에 닿지 않았습니다 — 보내지 않았습니다"
 KEY_REUSED = "이 요청 번호는 다른 내용의 묶음에 이미 쓰였습니다 — 창을 다시 열어 보내 주세요."
 IN_PROGRESS_S = BATCH_MAX * provider.TIMEOUT_S  # 첫 요청이 아직 돌고 있을 수 있는 시간(사람마다 제공사 요청 하나)
 _SENT = ("accepted", "delivered")
-_KEY = re.compile(r"[A-Za-z0-9_-]{8,64}")
+KEY_PATTERN = r"^[A-Za-z0-9_-]{8,64}$"  # 요청 번호(제공사 중복 방지 키와 같은 꼴)
 
 
 class BatchIn(Strict):
@@ -73,7 +76,7 @@ class BatchIn(Strict):
     activity_id: ActivityId | None = None
     field_item_id: StrictInt | None = None
     approval_id: StrictInt | None = None
-    request_key: Annotated[str, Field(pattern=_KEY.pattern)]
+    request_key: Annotated[str, Field(pattern=KEY_PATTERN)]
 
     @model_validator(mode="after")
     def _shape(self) -> "BatchIn":
@@ -126,6 +129,8 @@ def _now_outcome(row: OutreachMessage, young: bool) -> Outcome | OutcomeOut:
     if row.status == "failed":
         return Outcome("failed", row.fail_reason or gate.SEND_FAILED)
     if row.status == "unconfirmed":
+        return Outcome("unsure", gate.UNSURE)
+    if row.status == "sending" and not young:  # 결과를 적지 못하고 오래 남음 — 나갔는지 모른다
         return Outcome("unsure", gate.UNSURE)
     if row.status == "sending" or (row.status == "draft" and not row.harness_json and young):
         return OutcomeOut(code="in_progress", message=IN_PROGRESS, scheduled_at=None)
@@ -183,6 +188,14 @@ def _text(session: Session, body: BatchIn) -> str:
         return kakao.fill(template.body, body.template_vars or {})
     except kakao.KakaoError:
         raise ApiError(422, "invalid_template", BAD_TEMPLATE, detail={"field": "template_vars"}) from None
+
+
+def check(session: Session, schedule_id: int, request_key: str, user: User) -> BatchSendOut:
+    """결과 확인만: 그 사람·일정의 요청 번호로 저장된 묶음의 지금 결과. 없으면 404 — 만들거나 보내지 않는다."""
+    stored = _stored(session, schedule_id, _prefix(schedule_id, user, request_key))
+    if stored is None:
+        raise ApiError(404, "not_found", NOT_REACHED)
+    return _replay(session, schedule_id, stored)
 
 
 async def send(session: Session, schedule_id: int, body: BatchIn, user: User) -> BatchSendOut:

@@ -4,14 +4,17 @@
 // 문안으로). ③ [n명에게 보내기] → POST …/outreach/batches 하나(useRef 잠금) → 사람별 결과 표(판정 글 그대로 — 「확인 필요」·거절은 「보냄」이
 // 아님) + 「묶음 #n · …명 중 …명 회신」. 요청 번호(request_key)는 창마다 하나라, 답을 못 받아 다시 물어도 서버는 다시 보내지 않는다.
 // 결과를 모르는 요청(답 없음·「보내는 중일 수 있음」)은 이 탭의 sessionStorage 에 일정마다 남겨(번호 없음 — 연락처 id·글·요청 번호),
-// 닫으려 하면 먼저 묻고, 창을 다시 열면 [이전 묶음 결과 확인]으로 같은 요청을 다시 묻는다.
+// 닫으려 하면 먼저 묻고, 창을 다시 열면 [이전 묶음 결과 확인]으로 그 요청 번호의 결과를 **찾기만** 한다(GET …/batches/by-key —
+// 확인은 보내지 않는다). 서버에 닿지 않았으면 그렇다고 말하고 [다시 보내기]는 내용 확인으로 돌아가 사람이 다시 누르게 한다.
+// 저장한 요청은 같은 사람·30분 안의 것만 쓴다(아니면 지운다). [결과 다시 받기](방금 답을 못 받은 POST)만 같은 요청을 다시 보낸다.
 // 번호는 서버가 준 가린 꼴만 보인다.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useModalFocus } from '../../os/modalFocus';
-import { api, ApiError } from '../api';
+import { api } from '../api';
 import Button from '../ui/Button';
-import { outcomeLabel, SEND_UNKNOWN, type Label } from './labels';
-import { sendOutcomeUnknown, type Outcome } from './outreachApi';
+import { newKey, useSender, type BatchRequest, type Sent } from './batchSender';
+import { outcomeLabel, type Label } from './labels';
+import type { Outcome } from './outreachApi';
 import './batchSend.css';
 
 export const BATCH_MAX = 20;
@@ -25,74 +28,13 @@ interface Person {
 interface Company { id: number; name: string; trade: string; hidden: boolean; people: Person[] }
 interface Template { id: number; use: string; body: string; variables: string[]; usable: boolean }
 interface Templates { ready: boolean; reason: string | null; templates: Template[] }
-interface Result { contact_id: number; name: string; outcome: Outcome }
-interface Sent { batch_id: number; replayed: boolean; in_progress?: boolean; results: Result[] }
-type BatchRequest = { request_key: string; contact_ids: number[] } & Record<string, unknown>;
-
 export const batchLine = (b: { id: number; total: number; replied: number }) => `묶음 #${b.id} · ${b.total}명 중 ${b.replied}명 회신`;
 const FULL = '한 번에 20명까지 보낼 수 있습니다';
-const ASK_AGAIN = '보냈는지 확인하지 못했습니다 — [결과 다시 받기]는 같은 요청 번호로 다시 묻습니다(이미 받은 요청이면 다시 보내지 않고 결과만 받습니다).';
 const REPLAYED = '이미 받은 요청입니다 — 저장된 결과이며 이번에 다시 보내지 않았습니다.';
 const TEST_BAND = '시험 모드 — 허용 번호가 아니면 실제로 나가지 않고 기록만 남습니다';
 const ASK_CLOSE = '결과를 확인하지 않고 닫을까요? 다시 보내면 같은 문자가 또 나갈 수 있습니다';
 const STILL_SENDING = '아직 보내는 중일 수 있습니다 — 잠시 뒤 [다시 확인]을 눌러 주세요(같은 요청이라 다시 보내지 않습니다).';
 const PENDING_NOTE = '확인하지 못한 묶음이 있습니다 — 새로 보내기 전에 결과를 확인해 주세요. 새로 보내면 같은 문자가 또 나갈 수 있습니다.';
-const pendingKey = (sid: number) => `chronos.batchPending.${sid}`;
-
-/** 결과를 모르는 요청(이 일정). 읽지 못하거나 꼴이 틀리면 null. */
-function readPending(sid: number): BatchRequest | null {
-  try {
-    const v = JSON.parse(sessionStorage.getItem(pendingKey(sid)) ?? 'null') as BatchRequest | null;
-    return v && typeof v.request_key === 'string' && Array.isArray(v.contact_ids) ? v : null;
-  } catch {
-    return null;
-  }
-}
-function writePending(sid: number, req: BatchRequest | null) {
-  try {
-    if (req) sessionStorage.setItem(pendingKey(sid), JSON.stringify(req));
-    else sessionStorage.removeItem(pendingKey(sid));
-  } catch {
-    /* 저장소를 쓸 수 없으면 창 안에서만 기억한다 */
-  }
-}
-
-/** 보내기 하나(요청 하나 잠금). 답을 모르면 같은 요청을 남겨 두고, 결과를 받거나 서버가 거절하면 지운다. */
-function useSender(scheduleId: number) {
-  const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState<Sent | null>(null);
-  const [note, setNote] = useState<Label | null>(null);
-  const [asked, setAsked] = useState(false);
-  const [last, setLast] = useState<BatchRequest | null>(null);
-  const [pending, setPending] = useState(() => readPending(scheduleId));
-  const lock = useRef(false);
-  const submit = async (req: BatchRequest) => {
-    if (lock.current) return;
-    lock.current = true;
-    setBusy(true);
-    setLast(req);
-    setPending((p) => (p && p.request_key === req.request_key ? p : null)); // 새 묶음을 보내면 앞의 것은 저장소에서도 바뀐다
-    writePending(scheduleId, req);
-    try {
-      const s = await api<Sent>(`/api/schedules/${scheduleId}/outreach/batches`, send(req));
-      setSent(s);
-      setAsked(false);
-      setNote(null);
-      setPending(null);
-      if (!s.in_progress) writePending(scheduleId, null);
-    } catch (e) {
-      const unknown = sendOutcomeUnknown(e);
-      setAsked(unknown);
-      if (!unknown) writePending(scheduleId, null);
-      setNote(unknown ? { text: ASK_AGAIN, tone: 'warn' } : { text: e instanceof ApiError ? e.message : SEND_UNKNOWN, tone: 'bad' });
-    } finally {
-      lock.current = false;
-      setBusy(false);
-    }
-  };
-  return { busy, sent, note, asked, last, pending, submit, unresolved: asked || sent?.in_progress === true };
-}
-
 /** 문자로 보낼 수 없는 까닭(카카오톡도 준비 전에는 문자로 나간다). 보낼 수 있으면 null. */
 export function unreachable(p: Person): string | null {
   if (!p.has_phone) return '번호 없음';
@@ -101,10 +43,6 @@ export function unreachable(p: Person): string | null {
   if (!p.channels.includes('sms')) return p.phone_kind === 'mobile' ? '문자 받지 않음으로 되어 있음' : '유선 번호라 문자를 받을 수 없음';
   return null;
 }
-
-const newKey = () =>
-  globalThis.crypto?.randomUUID?.() ?? `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
-const send = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body) });
 
 function useBook(scheduleId: number, templateUse?: string) {
   const [companies, setCompanies] = useState<Company[] | null>(null);
@@ -134,7 +72,8 @@ export default function BatchSendDialog({ scheduleId, title, preset, onClose }: 
   const trap = useModalFocus(ref);
   const data = useBook(scheduleId, preset.templateUse);
   const sender = useSender(scheduleId);
-  const [requestKey] = useState(newKey);
+  const [requestKey, setRequestKey] = useState<string>(newKey);
+  const [again, setAgain] = useState<BatchRequest | null>(null); // [다시 보내기]: 서버에 닿지 않은 요청의 내용으로 내용 확인
   const [chosen, setChosen] = useState<number[] | null>(null);
   const [step, setStep] = useState<'pick' | 'confirm'>('pick');
   const [preNote, setPreNote] = useState<string | null>(null);
@@ -157,14 +96,27 @@ export default function BatchSendDialog({ scheduleId, title, preset, onClose }: 
     else onClose();
   };
   const retry = () => sender.last && void sender.submit(sender.last);
+  const recheck = () => sender.last && void sender.check(sender.last);
+  const resend = () => {
+    const req = sender.missing!;
+    sender.forget();
+    setRequestKey(req.request_key); // 서버에 닿지 않았으니 같은 번호로 — 늦게 닿았다면 서버가 같은 묶음으로 답한다
+    setChosen(req.contact_ids);
+    setAgain(req);
+    setStep('confirm');
+  };
+  const base: BatchPreset = again
+    ? { body: typeof again.body === 'string' ? again.body : '', activityId: again.activity_id as string | undefined,
+        fieldItemId: again.field_item_id as number | undefined, approvalId: again.approval_id as number | undefined }
+    : preset;
   let body;
-  if (sent) body = <ResultStep scheduleId={scheduleId} sent={sent} people={people} busy={busy} onRetry={retry} onClose={close} />;
+  if (sent) body = <ResultStep scheduleId={scheduleId} sent={sent} people={people} busy={busy} onRetry={recheck} onClose={close} />;
   else if (data.error) body = <Foot note={{ text: data.error, tone: 'bad' }} onClose={close} />;
   else if (!data.companies || chosen === null) body = <Foot note={{ text: '주소록을 읽는 중…', tone: 'muted' }} onClose={close} />;
   else if (step === 'pick') body = <PickStep companies={data.companies} chosen={chosen} setChosen={setChosen} preNote={preNote} onNext={() => setStep('confirm')} onClose={close} />;
   else
     body = (
-      <ConfirmStep preset={preset} chosen={chosen} people={people} testMode={data.testMode} templates={data.templates} busy={busy} asked={sender.asked}
+      <ConfirmStep key={requestKey} preset={base} chosen={chosen} people={people} testMode={data.testMode} templates={data.templates} busy={busy} asked={sender.asked}
         onBack={() => setStep('pick')} onRetry={retry} onSend={(content) => void sender.submit({ contact_ids: chosen, ...content, request_key: requestKey })} />
     );
   return (
@@ -185,10 +137,16 @@ export default function BatchSendDialog({ scheduleId, title, preset, onClose }: 
         {sender.pending && !sent && (
           <div className="bs-ask is-pending">
             <p>{`${PENDING_NOTE} (받는 사람 ${sender.pending.contact_ids.length}명)`}</p>
-            <Button variant="primary" disabled={busy} onClick={() => void sender.submit(sender.pending!)}>이전 묶음 결과 확인</Button>
+            <Button variant="primary" disabled={busy} onClick={() => void sender.check(sender.pending!)}>이전 묶음 결과 확인</Button>
           </div>
         )}
         {sender.note && <p role="status" className={`bs-note bs-status is-${sender.note.tone}`}>{sender.note.text}</p>}
+        {sender.missing && !sent && (
+          <div className="bs-ask">
+            <p>{`받는 사람 ${sender.missing.contact_ids.length}명 — 다시 보내려면 받는 사람과 글을 확인한 뒤 보내 주세요.`}</p>
+            <Button variant="primary" onClick={resend}>다시 보내기</Button>
+          </div>
+        )}
         {body}
       </div>
     </div>

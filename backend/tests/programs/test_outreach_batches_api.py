@@ -417,6 +417,8 @@ def test_stored_results_say_what_each_row_is_now(client, user, session, sid, con
     rows[1].status, rows[1].fail_reason = "failed", gate.FAIL_TEXT["network"]
     rows[2].status = "sending"
     rows[3].status, rows[3].fail_reason = "draft", "수신 거부한 번호입니다"
+    for row in rows:  # 방금 만든 묶음(첫 요청이 아직 돌 수 있는 때)
+        row.created_at = WORK - timedelta(seconds=10)
     session.commit()
 
     again = _post(client, user, sid, ids)
@@ -574,3 +576,83 @@ def test_batch_routes_are_mounted_in_the_real_app(client, user, sid):
             "/api/schedules/{schedule_id}/outreach/batches/{batch_id}"} <= paths
     missing = client.get(_url(sid, "/12345"), headers=user)
     assert (missing.status_code, (missing.json()["code"], missing.json()["message"])) == (404, BATCH_404)
+
+
+# ── 고침 2: 결과 확인은 보내지 않는다(키로 찾기만) ─────────────────────────
+
+NOT_REACHED = ("not_found", "이 묶음은 서버에 닿지 않았습니다 — 보내지 않았습니다")
+
+
+def _check(client, headers, sid, key=KEY):
+    return client.get(_url(sid, "/by-key"), params={"request_key": key}, headers=headers)
+
+
+def test_check_by_key_returns_the_stored_results_and_never_dispatches(client, user, session, sid, conn, fake_channel,
+                                                                      spy):
+    ids = _people(session, sid, 2)
+    first = _post(client, user, sid, ids)
+    dispatched = len(spy)
+
+    got = _check(client, user, sid)
+
+    assert got.status_code == 200, got.json()
+    assert got.json() == {**first.json(), "replayed": True}
+    assert len(spy) == dispatched and len(fake_channel.delivered) == 2 and _count(session) == 2
+
+
+def test_check_by_key_for_a_request_that_never_arrived_is_404_and_makes_nothing(client, user, session, sid, conn,
+                                                                                fake_channel, spy):
+    _people(session, sid, 2)
+    before = _count(session)
+
+    got = _check(client, user, sid, key="never-arrived-01")
+
+    assert (got.status_code, (got.json()["code"], got.json()["message"])) == (404, NOT_REACHED)
+    assert spy == [] and fake_channel.delivered == [] and _count(session) == before
+
+
+def test_check_by_key_is_scoped_to_the_person_and_project(client, user, admin, session, sid, sid2, conn, fake_channel):
+    ids = _people(session, sid, 1)
+    _post(client, user, sid, ids)
+
+    assert _check(client, admin, sid).status_code == 404  # 다른 사람
+    assert _check(client, user, sid2).status_code == 404  # 다른 일정
+    assert _check(client, user, sid).status_code == 200
+
+
+@pytest.mark.parametrize("key", ["짧음", "", "a" * 65, "bad key!!"])
+def test_check_by_key_needs_a_well_formed_key(client, user, sid, key):
+    assert _check(client, user, sid, key=key).status_code == 422
+
+
+def test_check_by_key_reports_in_progress_while_young(client, user, session, sid, conn, fake_channel):
+    ids = _people(session, sid, 2)
+    r = _post(client, user, sid, ids)
+    rows = _rows(session, r.json()["batch_id"])
+    rows[1].status, rows[1].harness_json = "draft", []
+    for row in rows:
+        row.created_at = WORK - timedelta(seconds=10)
+    session.commit()
+
+    got = _check(client, user, sid)
+
+    assert got.json()["in_progress"] is True
+    assert [x["outcome"]["code"] for x in got.json()["results"]] == ["accepted", "in_progress"]
+
+
+@pytest.mark.parametrize(("age_s", "code"), [(10, "in_progress"), (20 * 15 + 1, "unsure")])
+def test_row_stuck_sending_is_unsure_once_the_batch_is_old(client, user, session, sid, conn, fake_channel, age_s, code):
+    ids = _people(session, sid, 1)
+    r = _post(client, user, sid, ids)
+    row = _rows(session, r.json()["batch_id"])[0]
+    row.status, row.created_at = "sending", WORK - timedelta(seconds=age_s)
+    session.commit()
+
+    got = _check(client, user, sid)
+
+    assert got.json()["results"][0]["outcome"]["code"] == code
+    assert got.json()["in_progress"] is (code == "in_progress")
+
+
+def test_check_route_is_mounted(client, user, sid):
+    assert "/api/schedules/{schedule_id}/outreach/batches/by-key" in set(client.app.openapi()["paths"])

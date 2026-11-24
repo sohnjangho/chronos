@@ -1,11 +1,16 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.programs.outreach import batches_service
-from app.programs.outreach.batches_service import BatchIn, BatchSendOut, BatchStatsOut
+from app.programs.outreach.batches_service import (
+    KEY_PATTERN,
+    BatchIn,
+    BatchSendOut,
+    BatchStatsOut,
+)
 from app.security.deps import require_contacts
 from app.store.tables import User
 
@@ -23,6 +28,13 @@ BATCHES = "/{schedule_id}/outreach/batches"
 async def send_batch(schedule_id: int, body: BatchIn, session: SessionDep, user: UserDep) -> BatchSendOut:
     """1~20명에게 같은 글 → {batch_id, results: [{contact_id, name, outcome}], replayed}. 같은 request_key 는 다시 보내지 않는다."""
     return await batches_service.send(session, schedule_id, body, user)
+
+
+@batches_router.get(BATCHES + "/by-key")  # /{batch_id} 보다 앞에(그 길은 정수만 받는다)
+def batch_by_key(schedule_id: int, request_key: Annotated[str, Query(pattern=KEY_PATTERN)], session: SessionDep,
+                 user: UserDep) -> BatchSendOut:
+    """결과 확인만 — 이 사람·일정의 요청 번호로 저장된 묶음 결과. 없으면 404(서버에 닿지 않음). 만들거나 보내지 않는다."""
+    return batches_service.check(session, schedule_id, request_key, user)
 
 
 @batches_router.get(BATCHES + "/{batch_id}")

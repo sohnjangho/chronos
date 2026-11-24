@@ -35,12 +35,16 @@ const BOOK = {
 const STATUS = { ready: true, test_mode: true, allow_count: 2, agent: { sms: 'approve', kakao: 'approve', call: 'approve' }, inbound_mode: 'off', kakao_ready: false };
 const TEMPLATES = { ready: false, reason: '카카오톡(알림톡)은 아직 쓸 수 없습니다', templates: [] };
 const BATCH_URL = '/api/schedules/7/outreach/batches';
+const NOT_REACHED = '이 묶음은 서버에 닿지 않았습니다 — 보내지 않았습니다';
 
 type Answer = { status: number; body: unknown } | 'network';
 let posts: Record<string, unknown>[];
 let answers: Answer[];
 let held: Promise<void> | null;
 let book: unknown;
+/** GET …/batches/by-key 의 답(차례대로)과 물은 요청 번호 */
+let checks: Answer[];
+let checked: string[];
 
 const ok = (contact_id: number, name: string, code = 'accepted', message = '보냈습니다') =>
   ({ contact_id, name, outcome: { code, message, scheduled_at: null } });
@@ -48,6 +52,8 @@ const ok = (contact_id: number, name: string, code = 'accepted', message = '보�
 function stub() {
   posts = [];
   answers = [];
+  checks = [];
+  checked = [];
   held = null;
   book = BOOK;
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -57,6 +63,12 @@ function stub() {
     if (url === '/api/notify/status') return json(200, STATUS);
     if (url === '/api/notify/templates') return json(200, TEMPLATES);
     if (method === 'GET' && url === `${BATCH_URL}/31`) return json(200, { total: 3, sent: 1, replied: 0 });
+    if (method === 'GET' && url.startsWith(`${BATCH_URL}/by-key?`)) {
+      checked.push(new URL(url, 'http://x').searchParams.get('request_key') ?? '');
+      const a = checks.shift() ?? { status: 404, body: { code: 'not_found', message: NOT_REACHED, detail: null } };
+      if (a === 'network') throw new TypeError('network');
+      return json(a.status, a.body);
+    }
     if (method === 'POST' && url === BATCH_URL) {
       const body = JSON.parse(String(init!.body)) as Record<string, unknown>;
       posts.push(body);
@@ -278,12 +290,10 @@ describe('고침 1 — 보내는 중·확인하지 못한 채 닫기·이전 묶
     await user.click(screen.getByRole('button', { name: '2명에게 보내기' }));
   };
 
-  test('첫 요청이 아직 보내는 중이면 그렇다고 말하고, [다시 확인]은 같은 요청 번호·같은 몸', async () => {
+  test('첫 요청이 아직 보내는 중이면 그렇다고 말하고, [다시 확인]은 보내지 않고 같은 요청 번호로 찾기만', async () => {
     const user = userEvent.setup();
-    answers = [
-      { status: 200, body: { batch_id: 31, replayed: true, in_progress: true, results: [ok(11, '김공정'), ok(12, '이설비', 'in_progress', IN_PROGRESS)] } },
-      { status: 200, body: { batch_id: 31, replayed: true, in_progress: false, results: [ok(11, '김공정'), ok(12, '이설비')] } },
-    ];
+    answers = [{ status: 200, body: { batch_id: 31, replayed: true, in_progress: true, results: [ok(11, '김공정'), ok(12, '이설비', 'in_progress', IN_PROGRESS)] } }];
+    checks = [{ status: 200, body: { batch_id: 31, replayed: true, in_progress: false, results: [ok(11, '김공정'), ok(12, '이설비')] } }];
     open({ trade: '철근', body: '안내' });
     await sendTwo(user);
 
@@ -293,8 +303,8 @@ describe('고침 1 — 보내는 중·확인하지 못한 채 닫기·이전 묶
     await user.click(screen.getByRole('button', { name: '다시 확인' }));
 
     await waitFor(() => expect(screen.getByText('보냄 2')).toBeInTheDocument());
-    expect(posts).toHaveLength(2);
-    expect(posts[1]).toEqual(posts[0]);
+    expect(posts).toHaveLength(1);
+    expect(checked).toEqual([posts[0].request_key]);
     expect(screen.queryByRole('button', { name: '다시 확인' })).not.toBeInTheDocument();
   });
 
@@ -318,7 +328,7 @@ describe('고침 1 — 보내는 중·확인하지 못한 채 닫기·이전 묶
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  test('확인하지 못한 묶음은 이 일정의 창을 다시 열면 [이전 묶음 결과 확인]으로 같은 요청을 다시 묻는다', async () => {
+  test('확인하지 못한 묶음은 이 일정의 창을 다시 열면 [이전 묶음 결과 확인]으로 같은 요청 번호를 찾기만 한다(보내지 않음)', async () => {
     const user = userEvent.setup();
     answers = ['network'];
     const first = render(<BatchSendDialog scheduleId={7} title="연락" preset={{ trade: '철근', body: '안내' }} onClose={vi.fn()} />);
@@ -326,21 +336,65 @@ describe('고침 1 — 보내는 중·확인하지 못한 채 닫기·이전 묶
     await screen.findByRole('button', { name: '결과 다시 받기' });
     first.unmount();
 
-    answers = [{ status: 200, body: { batch_id: 31, replayed: true, in_progress: false, results: [ok(11, '김공정'), ok(12, '이설비')] } }];
+    checks = [{ status: 200, body: { batch_id: 31, replayed: true, in_progress: false, results: [ok(11, '김공정'), ok(12, '이설비')] } }];
     const again = render(<BatchSendDialog scheduleId={7} title="연락" preset={{}} onClose={vi.fn()} />);
     await screen.findByRole('group', { name: /가람철근/ });
     expect(screen.getByText(/확인하지 못한 묶음이 있습니다/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '이전 묶음 결과 확인' }));
 
     await screen.findByRole('table', { name: '사람별 결과' });
-    expect(posts).toHaveLength(2);
-    expect(posts[1]).toEqual(posts[0]);
+    expect(posts).toHaveLength(1);
+    expect(checked).toEqual([posts[0].request_key]);
     again.unmount();
 
     // 결과를 받았으니 다음에 열면 더 묻지 않는다
     render(<BatchSendDialog scheduleId={7} title="연락" preset={{}} onClose={vi.fn()} />);
     await screen.findByRole('group', { name: /가람철근/ });
     expect(screen.queryByRole('button', { name: '이전 묶음 결과 확인' })).not.toBeInTheDocument();
+  });
+
+  test('서버에 닿지 않은 묶음: 그렇다고 말하고, [다시 보내기]는 받는 사람·글을 다시 보인 뒤 사람이 눌러야 보낸다', async () => {
+    const user = userEvent.setup();
+    answers = ['network'];
+    const first = render(<BatchSendDialog scheduleId={7} title="연락" preset={{ trade: '철근', body: '안내', activityId: 'A1100' }} onClose={vi.fn()} />);
+    await sendTwo(user);
+    await screen.findByRole('button', { name: '결과 다시 받기' });
+    first.unmount();
+
+    render(<BatchSendDialog scheduleId={7} title="연락" preset={{}} onClose={vi.fn()} />);
+    await screen.findByRole('group', { name: /가람철근/ });
+    await user.click(screen.getByRole('button', { name: '이전 묶음 결과 확인' }));
+
+    expect(await screen.findByText(NOT_REACHED)).toBeInTheDocument();
+    expect(posts).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: '다시 보내기' }));
+    expect(screen.getByText('받는 사람 2명')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '보낼 글' })).toHaveValue('안내');
+    expect(posts).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: '2명에게 보내기' }));
+    await screen.findByRole('table', { name: '사람별 결과' });
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toEqual(posts[0]);
+  });
+
+  test('저장한 요청은 같은 사람·30분 안만 — 다른 사람이거나 오래되면 묻지 않고 지운다', async () => {
+    const req = { request_key: 'k-saved-0001', contact_ids: [11], channel: 'sms', body: '안내' };
+    const key = 'chronos.batchPending.7';
+    for (const entry of [
+      { request: req, user_id: 2, saved_at: Date.now() },
+      { request: req, user_id: 1, saved_at: Date.now() - 31 * 60_000 },
+      req, // 옛 꼴(사람·시각 없음)
+    ]) {
+      sessionStorage.setItem(key, JSON.stringify(entry));
+      const view = render(<BatchSendDialog scheduleId={7} title="연락" preset={{}} onClose={vi.fn()} />);
+      await screen.findByRole('group', { name: /가람철근/ });
+      expect(screen.queryByRole('button', { name: '이전 묶음 결과 확인' })).not.toBeInTheDocument();
+      expect(sessionStorage.getItem(key)).toBeNull();
+      view.unmount();
+    }
+    sessionStorage.setItem(key, JSON.stringify({ request: req, user_id: 1, saved_at: Date.now() - 29 * 60_000 }));
+    render(<BatchSendDialog scheduleId={7} title="연락" preset={{}} onClose={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: '이전 묶음 결과 확인' })).toBeInTheDocument();
   });
 
   test('다른 일정의 창에는 이전 묶음을 보이지 않고, 서버가 거절한 요청(4xx)은 남기지 않는다', async () => {
