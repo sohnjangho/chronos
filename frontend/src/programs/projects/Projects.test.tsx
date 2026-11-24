@@ -17,7 +17,7 @@ import type { Project } from './projectsApi';
 
 const project = (over: Partial<Project>): Project => ({
   id: 1, name: '가람 물류센터 신축 2026-11-23', spoken_name: '', spoken: '가람 물류센터 신축', site_address: '', summary: '',
-  client_builder: '', updated_at: null, updated_by: '', ...over,
+  client_builder: '', updated_at: null, updated_by: '', same_name: false, ...over,
 });
 const GARAM = project({});
 const NARAE = project({ id: 2, name: '나래 아파트 2단지', spoken: '나래 아파트 2단지', summary: '지하 2층 지상 25층' });
@@ -185,4 +185,17 @@ test('a spoken name longer than 40 characters asks for a short one until one is 
   expect(within(form()).getByText(warn)).toBeVisible();
   await userEvent.type(box('AI 가 부를 이름'), '가상 업무시설');
   expect(within(form()).queryByText(warn)).toBeNull();
+});
+
+
+test('projects whose names collide carry a chip in the list and a line in the form', async () => {
+  list = [project({ same_name: true }), project({ id: 3, name: '가람 물류센터 신축 (v2)', same_name: true }), NARAE];
+  show();
+  const found = await rows();
+  const chip = '이름이 같은 프로젝트 — 부를 이름을 적어 주세요';
+  expect(found.map((r) => within(r).queryByText(chip) !== null)).toEqual([true, true, false]);
+  expect(within(form()).getByText(/통화에서 이름이 같은 다른 프로젝트와 구별할 수 없습니다/)).toBeVisible();
+  await userEvent.click(found[2]);
+  expect(box('프로젝트 이름').value).toBe('나래 아파트 2단지');
+  expect(within(form()).queryByText(/구별할 수 없습니다/)).toBeNull();
 });

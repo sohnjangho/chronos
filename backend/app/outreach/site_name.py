@@ -7,6 +7,8 @@ PM: 실제 통화에서 AI 가 프로젝트 이름을 적힌 그대로(날짜까
   「제2023-1호」는 날짜가 아니다), 판 표시(v2 · (v2) · ver.3 · rev2), 날짜·판 표시가 든 괄호째(「(2026-11-23 기준)」), 끝의
   덧말(최종·수정본·사본·초안·final·copy…)·복사 표시 「(1)」·해 없는 날짜(「11-23」「11월 23일」 — 끝에서만), 파일 끝(.xlsx …)을
   떼고 빈칸을 맞춘다. 떼고 남는 것이 없으면 원래 이름(빈칸만 맞춘 것)을 돌려준다.
+- key(name) — 이름을 견줄 꼴(NFC·대소문자·빈칸 없이·끝의 「현장」「공사」를 뗌). 하네스의 현장 맞추기(tools._site_core)와 프로젝트
+  관리의 같은 이름 검사가 이 하나를 쓴다.
 - names(session, schedule_id) — 그 현장을 가리키는 이름들(부를 이름 · 다듬은 이름 · 전체 이름, 겹침 없이). 상대가 말한 현장
   이름 맞추기(하네스 pin·H1)는 이 모두와 견준다.
 - reference(session, schedule_id) — 현장 주소·한 줄 소개·발주처·시공사 가운데 적힌 것({제목: 글}). 번호는 가리고 길이를 자른다.
@@ -17,6 +19,7 @@ PM: 실제 통화에서 AI 가 프로젝트 이름을 적힌 그대로(날짜까
 
 import json
 import re
+import unicodedata
 
 from sqlalchemy.orm import Session
 
@@ -77,6 +80,17 @@ def clean(name: str | None) -> str:
             break
     text = _spaced(_LEADING_SEP.sub("", text))
     return text or original
+
+
+_TAILS = ("현장", "공사")  # 견줄 때 떼는 이름 끝(「가람초 신축 공사 현장」 → 「가람초신축」)
+
+
+def key(name: str | None) -> str:
+    """이름을 견줄 꼴(모듈 머리 글). 그 꼬리뿐이면 빈 글."""
+    core = "".join(unicodedata.normalize("NFC", name or "").casefold().split())
+    while (shorter := core.removesuffix(_TAILS[0]).removesuffix(_TAILS[1])) != core:
+        core = shorter
+    return core
 
 
 def _record(session: Session, schedule_id: int | None) -> ScheduleRecord | None:

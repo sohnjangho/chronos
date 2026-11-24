@@ -48,6 +48,11 @@
 .pj-head { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .pj-title { margin: 0; font-size: var(--fs-16); line-height: 22px; font-weight: 700; overflow-wrap: anywhere; }
 .pj-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 4px; }
+.pj-chip {
+  align-self: flex-start; max-width: 100%; margin-top: 3px; padding: 1px 8px; border-radius: 999px; box-sizing: border-box;
+  background: var(--tone-warning-bg); color: var(--warning-text); font-size: var(--fs-11); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .pj-warn { margin: -6px 0 0; color: var(--warning-text); font-size: var(--fs-12); font-weight: 600; overflow-wrap: anywhere; }
 .pj-saved { color: var(--success-text); font-size: var(--fs-12); }
 .pj-back {

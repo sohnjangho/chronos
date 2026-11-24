@@ -403,10 +403,16 @@ async def test_the_most_specific_name_wins(session, this, other, said, answered)
 
     fact = await box.call("schedule_fact", {"activity": "철근 배근", "site": said})
 
+    await box.call("report_from_contact", {"kind": "delay", "text": "하루 늦어요", "quote": "하루 늦어요", "site": said})
+
+    session.expire_all()
+    reports = [x.schedule_id for x in session.scalars(select(ContactReport))]
     if answered:
         assert [item["name"] for item in fact["items"]] == ANSWERED, said
+        assert reports == [box.sid], said  # 이 현장 보고
     else:
         assert fact == {"refused": f"이 통화는 {this[1]} 현장 건입니다"}, said
+        assert reports == [None], said  # 다른 현장의 일 — 이 현장에 붙이지 않는다
 
 
 async def test_a_tie_between_this_and_another_site_asks_with_this_name_only(session):
@@ -433,3 +439,9 @@ async def test_site_choice_never_lists_two_identical_names(session):
     ask = await box.call("schedule_fact", {"activity": "철근 배근"})
 
     assert ask == {"ask": tools.ASK_SITE, "sites": ["가람 물류센터", "가람 오피스 신축"]}
+
+
+@pytest.mark.parametrize(("a", "b"), [("가람 물류센터 현장", "가람물류센터"), ("가람 물류센터 신축 공사", "가람 물류센터 신축"),
+                                      ("\u1100\u1161\u1105\u1161\u11b7", "가람"), ("GARAM Center", "garam center")])
+def test_key_is_the_same_normaliser_the_site_matching_uses(a, b):
+    assert site_name.key(a) == site_name.key(b) == tools._site_core(a) == tools._site_core(b)

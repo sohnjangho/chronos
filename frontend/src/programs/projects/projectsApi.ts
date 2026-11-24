@@ -13,6 +13,8 @@ export interface Project {
   client_builder: string;
   updated_at: string | null;
   updated_by: string;
+  /** 부를 이름이 다른 프로젝트의 부를 이름·다듬은 이름과 같다 — 통화에서 구별하지 못한다. */
+  same_name: boolean;
 }
 
 export type ProjectFields = Pick<Project, 'name' | 'spoken_name' | 'site_address' | 'summary' | 'client_builder'>;

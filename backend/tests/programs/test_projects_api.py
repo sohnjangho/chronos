@@ -59,7 +59,8 @@ def test_list_gives_every_project_with_an_empty_profile_and_the_spoken_name(clie
     assert [p["id"] for p in r.json()] == [sid, other]
     first = r.json()[0]
     assert first == {"id": sid, "name": "가람 물류센터 신축 2026-11-23", "spoken_name": "", "spoken": "가람 물류센터 신축",
-                     "site_address": "", "summary": "", "client_builder": "", "updated_at": None, "updated_by": ""}
+                     "site_address": "", "summary": "", "client_builder": "", "updated_at": None, "updated_by": "",
+                     "same_name": False}
 
 
 def test_patch_saves_profile_and_rename_and_the_agent_name_follows(client, user, session, sid):
@@ -196,7 +197,8 @@ def test_deleting_the_schedule_removes_its_profile(client, admin, session, sid):
     assert session.get(ProjectProfile, sid) is None
 
 
-@pytest.mark.parametrize("taken", ["가람 물류센터", "가람물류센터", "가람 물류센터 신축"])
+@pytest.mark.parametrize("taken", ["가람 물류센터", "가람물류센터", "가람 물류센터 신축", "가람 물류센터 현장", "가람 물류센터 공사",
+                                   "\u1100\u1161\u1105\u1161\u11b7 물류센터"])  # 끝의 현장·공사 · 풀어 쓴(NFD) 한글도 같은 이름
 def test_spoken_name_already_used_by_another_project_is_refused(client, user, session, sid, taken):
     """다른 프로젝트의 부를 이름이나 다듬은 이름과 같으면(빈칸·대소문자 무시) 409 — AI 가 두 현장을 같은 이름으로 부르지 않게."""
     other = schedules.store(session, schedules.sample())
@@ -213,3 +215,46 @@ def test_spoken_name_already_used_by_another_project_is_refused(client, user, se
 def test_keeping_its_own_spoken_name_is_fine(client, user, sid):
     client.patch(f"{URL}/{sid}", headers=user, json={"spoken_name": "가람"})
     assert client.patch(f"{URL}/{sid}", headers=user, json={"spoken_name": "가람", "summary": "소개"}).status_code == 200
+
+
+@pytest.mark.parametrize("name", ["가람 물류센터 2026-12-01", "가람 물류센터 현장 (v2)", "가람 물류센터 신축 공사"])
+def test_renaming_to_a_name_another_project_is_called_by_is_refused(client, user, session, sid, name):
+    """이름 고치기도 같은 기준: 새 이름의 다듬은 꼴이 다른 프로젝트의 부를 이름·다듬은 이름과 같으면 409."""
+    other = schedules.store(session, schedules.sample())
+    _named(session, other, "가람 물류센터 신축 2026-11-23")
+    client.patch(f"{URL}/{other}", headers=user, json={"spoken_name": "가람 물류센터"})
+
+    r = client.patch(f"{URL}/{sid}", headers=user, json={"name": name})
+
+    assert r.status_code == 409 and r.json()["code"] == "name_taken" and r.json()["detail"] == {"field": "name"}
+    session.expire_all()
+    assert session.get(ScheduleRecord, sid).name == "시험 일정"
+
+
+def test_renaming_with_its_own_distinct_spoken_name_still_checks_the_cleaned_name(client, user, session, sid):
+    other = schedules.store(session, schedules.sample())
+    _named(session, other, "나래 아파트")
+    r = client.patch(f"{URL}/{sid}", headers=user, json={"spoken_name": "가람", "name": "나래 아파트 2026-11-23"})
+    assert r.status_code == 409 and r.json()["code"] == "name_taken"
+
+
+def test_existing_duplicates_are_flagged_in_the_list(client, user, session, sid):
+    """예전에 겹쳐 들어온 것(다시 올린 일정) — 둘 다 표시. 한쪽에 다른 부를 이름을 적으면 그쪽은 풀리지만, 다른 쪽은 아직 그
+    다듬은 이름과 겹친다(현장 맞추기는 다듬은 이름도 본다 — 「가람 물류센터」라고 하면 둘이 같다). 이름까지 바꾸면 모두 풀린다."""
+    other = schedules.store(session, schedules.sample())
+    third = schedules.store(session, schedules.sample())
+    _named(session, sid, "가람 물류센터 2026-11-23")
+    _named(session, other, "가람 물류센터 (v2)")
+    _named(session, third, "나래 아파트")
+
+    flags = {p["id"]: p["same_name"] for p in client.get(URL, headers=user).json()}
+    assert flags == {sid: True, other: True, third: False}
+    assert client.get(f"{URL}/{sid}", headers=user).json()["same_name"] is True
+
+    client.patch(f"{URL}/{other}", headers=user, json={"spoken_name": "가람 2단지"})
+    flags = {p["id"]: p["same_name"] for p in client.get(URL, headers=user).json()}
+    assert flags == {sid: True, other: False, third: False}
+
+    client.patch(f"{URL}/{other}", headers=user, json={"name": "가람 2단지 물류센터"})
+    flags = {p["id"]: p["same_name"] for p in client.get(URL, headers=user).json()}
+    assert flags == {sid: False, other: False, third: False}

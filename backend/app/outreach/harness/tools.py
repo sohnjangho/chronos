@@ -88,7 +88,6 @@ OTHER_SITE = "이 통화는 {site} 현장 건입니다"  # 한 현장 통화에�
 CONFIRM_FIRST = "먼저 통화하시는 분이 맞는지 확인해 주세요"  # 우리가 건 통화에서 신원 확인 전
 IDENTITY_TOOLS = frozenset({"my_requests", "schedule_fact"})  # 우리가 건 통화에서 confirm_person 뒤에만 도는 도구
 SITE_TAIL = "현장"
-WORK_TAIL = "공사"  # 「가람초 신축 공사」 — 견줄 때 「현장」처럼 뗀다
 SAY_REGISTERED = "등록된 번호로 다시 연락드리겠습니다"
 SAY_MESSAGE = "담당자가 확인 후 연락드리겠습니다"
 SAY_REPORTED = "담당자가 확인하도록 전달했습니다"
@@ -176,11 +175,9 @@ def _match_site(site: str, sites: dict[int, tuple[str, ...]]) -> int | None:
 
 
 def _site_core(name: str) -> str:
-    """현장 이름의 견줄 꼴: 빈칸·대소문자를 맞추고 끝의 「현장」「공사」를 뗀다(그것뿐이면 빈 글)."""
-    core = _flat(name)
-    while (shorter := core.removesuffix(SITE_TAIL).removesuffix(WORK_TAIL)) != core:
-        core = shorter
-    return core
+    """현장 이름의 견줄 꼴: NFC·빈칸·대소문자를 맞추고 끝의 「현장」「공사」를 뗀다(그것뿐이면 빈 글). 프로젝트 관리의 같은 이름
+    검사와 한 기준(site_name.key)."""
+    return site_name.key(name)
 
 
 def _score(said: str, names: Iterable[str]) -> tuple[int, int]:

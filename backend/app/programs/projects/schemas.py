@@ -26,7 +26,7 @@ UtcDatetime = Annotated[datetime, AfterValidator(as_utc)]
 
 
 class ProjectOut(BaseModel):
-    """spoken = 에이전트가 실제로 부르는 이름(spoken_name, 비었으면 날짜·판 표시를 뗀 이름)."""
+    """spoken = 에이전트가 실제로 부르는 이름(spoken_name, 비었으면 날짜·판 표시를 뗀 이름). same_name = 그 이름이 다른 프로젝트와 겹침."""
 
     id: int
     name: str
@@ -37,6 +37,7 @@ class ProjectOut(BaseModel):
     client_builder: str
     updated_at: UtcDatetime | None
     updated_by: str
+    same_name: bool = False  # 부를 이름이 다른 프로젝트의 부를 이름·다듬은 이름과 같다(통화에서 구별 못 함)
 
 
 class ProjectPatch(BaseModel):
