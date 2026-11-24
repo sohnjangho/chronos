@@ -256,6 +256,7 @@ body {
 .os-tone-slate { --tile-from: var(--tile-slate-from); --tile-to: var(--tile-slate-to); }
 .os-tone-red { --tile-from: var(--tile-red-from); --tile-to: var(--tile-red-to); }
 .os-tone-navy { --tile-from: var(--tile-navy-from); --tile-to: var(--tile-navy-to); }
+.os-tone-gold { --tile-from: var(--tile-gold-from); --tile-to: var(--tile-gold-to); }
 .os-mark {
   display: inline-flex;
   align-items: center;

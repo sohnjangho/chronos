@@ -12,7 +12,7 @@ from app.tools.registry import tool
 # 화면에 프로그램을 더하면 여기와 prompts/system.md 의 프로그램 목록에 같이 더한다.
 Program = Literal[
     "chat", "questionnaire", "workflow", "approvals", "explorer", "settings", "devconsole",
-    "schedule-table", "gantt", "cpm", "progress", "compare", "conditions", "delays", "reports", "contacts", "library", "projects",
+    "schedule-table", "gantt", "cpm", "progress", "compare", "conditions", "delays", "reports", "contacts", "library", "projects", "points",
 ]
 
 # 관리자만 여는 프로그램(화면 매니페스트의 adminOnly 와 같게 — 맞춤 시험이 있다).
@@ -25,7 +25,8 @@ DESCRIPTION = (
     "approvals(승인함) · explorer(탐색기) · settings(설정) · devconsole(개발 콘솔, 관리자용) · schedule-table(스케줄: 일정 표) · gantt(간트차트) · "
     "cpm(CPM 네트워크) · progress(공정률: 계획·실적 공정률과 S-커브) · compare(비교판) · conditions(조건·규칙) · "
     "delays(지연 기록) · reports(보고서) · contacts(연락처: 이 프로젝트의 협력사 주소록과 문자·통화, 현장 관리자 제외) · library(자료함) · "
-    "projects(프로젝트 관리: 프로젝트 이름·AI 가 부를 이름·주소·소개, 현장 관리자 제외). "
+    "projects(프로젝트 관리: 프로젝트 이름·AI 가 부를 이름·주소·소개, 현장 관리자 제외) · "
+    "points(관리 포인트: 앞으로 몇 주 안에 시작하는 크리티컬·크리티컬 직전 작업의 주별 보드와 버전별 바뀜, 당김 효과·담당자 연락). "
     "일정 창의 params: id(일정 id, 없으면 사용자가 고른 지금 일정) · activity(고르고 보일 액티비티 id). "
     "contacts 의 params: id(일정) · contact(고를 연락처 id) · tab(messages 또는 calls)."
 )

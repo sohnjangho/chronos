@@ -5,7 +5,7 @@
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import JSON
+from sqlalchemy import JSON, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.points import Point
@@ -46,3 +46,9 @@ def put(session: Session, schedule_id: int, version: int, points: tuple[Point, .
         session.add(ManagementPoints(schedule_id=schedule_id, version=version, points_json=data, computed_at=now))
     else:
         row.points_json, row.computed_at = data, now
+
+
+def by_version(session: Session, schedule_id: int) -> dict[int, tuple[Point, ...]]:
+    """그 일정에 저장한 모든 버전의 포인트(버전 → 포인트). 「관리 포인트」 창의 바뀜 기록·여유 흐름이 읽는다."""
+    rows = session.scalars(select(ManagementPoints).where(ManagementPoints.schedule_id == schedule_id))
+    return {row.version: tuple(_from_json(d) for d in row.points_json) for row in rows}

@@ -21,6 +21,7 @@ test('every program is registered with its id, name, kind and size', () => {
     ['compare', '비교판', 'work', 1600, 900],
     ['conditions', '조건·규칙', 'work', 1400, 860],
     ['delays', '지연 기록', 'work', 1400, 860],
+    ['points', '관리 포인트', 'work', 1500, 880],
     ['reports', '보고서', 'work', 1400, 860],
     ['projects', '프로젝트 관리', 'work', 1100, 720],
     ['contacts', '연락처', 'work', 1280, 820],
@@ -45,7 +46,7 @@ test('devconsole is registered after settings and shows for admins only', () => 
   const ids = (role: 'admin' | 'user') => programs(role).map((p) => p.id);
   expect(ids('admin')).toEqual([
     'chat', 'questionnaire', 'workflow', 'approvals', 'explorer', 'settings', 'devconsole',
-    'schedule-table', 'gantt', 'cpm', 'progress', 'compare', 'conditions', 'delays', 'reports', 'projects', 'contacts', 'library',
+    'schedule-table', 'gantt', 'cpm', 'progress', 'compare', 'conditions', 'delays', 'points', 'reports', 'projects', 'contacts', 'library',
   ]);
   expect(ids('user')).not.toContain('devconsole');
   const dev = getProgram('devconsole')!;

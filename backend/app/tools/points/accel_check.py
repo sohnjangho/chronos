@@ -8,6 +8,7 @@
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
 
 from app.agent.events import AgentEvent
 from app.core.accel import (
@@ -65,6 +66,26 @@ def warn_line(result: AccelResult) -> str | None:
     return WARN_LINE.format(n=result.pulled_days, m=result.finish_gain)
 
 
+def check(session: Session, schedule_id: int, activity_id: str, days: int) -> AccelCheckOut:
+    """도구와 「관리 포인트」 창의 당김 API(programs.points_board)가 함께 쓰는 계산(읽기). NotFound·ScheduleError·
+    AccelRefused 는 그대로 — 부른 쪽이 도구 오류·API 오류로 바꾼다."""
+    db = delayed_base(session, schedule_id)
+    ready = prepare_stored(db.schedule, db.conditions)
+    moves = pull_request(ready, activity_id, days)
+    cfg = points_config(session)
+    result = accel_effect(ready, moves, warn_ratio=accel_warn_ratio(session), tf_days=cfg.tf_days,
+                          window_weeks=cfg.window_weeks)
+    a = next(a for a in ready.activities if a.id == activity_id)
+    return AccelCheckOut(
+        schedule_id=schedule_id, activity_id=a.id, name=a.name, od_before=a.od, od_after=moves[0].od,
+        pulled_days=result.pulled_days, reached_days=result.finish_gain, ratio=result.ratio, warn=result.warn,
+        warn_line=warn_line(result),
+        summary_line=SUMMARY_LINE.format(name=a.name, n=result.pulled_days, m=result.finish_gain),
+        finish_before=result.finish_before.isoformat(), finish_after=result.finish_after.isoformat(),
+        next_chain=chain_items(ready, result), same_chain=result.same_chain,
+    )
+
+
 @tool(
     "points.accel_check",
     "작업을 당기면 준공이 실제로 당겨지는지 본다: {activity_id, days}. 그 작업 기간을 days 만큼 줄여(최소 1일, 실적 있는 "
@@ -74,23 +95,9 @@ def warn_line(result: AccelResult) -> str | None:
 def accel_check(args: AccelCheckIn, ctx: ToolContext) -> AccelCheckOut:
     schedule_id = ctx.require_schedule_id()
     with explained_schedule_errors():
-        db = delayed_base(ctx.session, schedule_id)
-        ready = prepare_stored(db.schedule, db.conditions)
         try:
-            moves = pull_request(ready, args.activity_id, args.days)
+            out = check(ctx.session, schedule_id, args.activity_id, args.days)
         except AccelRefused as e:
             raise ToolError(str(e)) from None
-        cfg = points_config(ctx.session)
-        result = accel_effect(ready, moves, warn_ratio=accel_warn_ratio(ctx.session), tf_days=cfg.tf_days,
-                              window_weeks=cfg.window_weeks)
-    a = next(a for a in ready.activities if a.id == args.activity_id)
-    out = AccelCheckOut(
-        schedule_id=schedule_id, activity_id=a.id, name=a.name, od_before=a.od, od_after=moves[0].od,
-        pulled_days=result.pulled_days, reached_days=result.finish_gain, ratio=result.ratio, warn=result.warn,
-        warn_line=warn_line(result),
-        summary_line=SUMMARY_LINE.format(name=a.name, n=result.pulled_days, m=result.finish_gain),
-        finish_before=result.finish_before.isoformat(), finish_after=result.finish_after.isoformat(),
-        next_chain=chain_items(ready, result), same_chain=result.same_chain,
-    )
     ctx.emit(AgentEvent("card", out.model_dump(mode="json")))
     return out
