@@ -14,8 +14,9 @@
   통신 예외·제공사 오류 본문·실패 글(`failureMessage`)은 어디에도 옮기지 않는다(예외는 이어 붙이지도 않는다).
   제공사가 준 id 는 꼴이 맞고 키·Account ID·전화번호가 아닐 때만, 코드는 낱말(`^[A-Za-z_]{1,40}$`)일 때만 받는다. 문서의
   코드는 대소문자를 가리지 않고 읽는다(`diagnostics.vendor_entry`). 로그에는 종류·코드·상태만 남긴다 — 문서에 없는 4xx
-  거절만 응답 모양(`_rejection_shape`: 낱말 코드, 검사 오류의 칸 이름·종류 낱말 5개까지, 번호를 가리고 키가 없는 80자
-  이하의 숫자 없는 `error` 글)을 로그 줄과 글 끝 「(제공사 응답: …)」에 옮긴다. 값·숫자·요청 본문은 옮기지 않는다.
+  거절만 응답 모양(`_rejection_shape`: 낱말 코드, 검사 오류의 칸 이름·종류 낱말 5개까지, 첫 「:」 앞까지 자른 ASCII 60자
+  이하의 `error` 글 — 숫자·「.」「@」 든 낱말이 있으면 뺀다)을 로그 줄과 글 끝 「(제공사 응답: …)」, `ProviderFailed.shape` 에
+  옮긴다(문자 통로가 그것을 줄의 실패 까닭에 붙인다). 값·숫자·요청 본문은 옮기지 않는다.
 - **`maybe_sent`(보내기만)**: 문자가 갔는지 알 수 없으면 참. 거짓인 것은 둘뿐이다 — 한 바이트도 나가기 전의 실패(요청 전
   거절·이름 풀이·연결·TLS·연결 줄 기다림)와 제공사가 409 밖의 4xx 로 거절한 것(본문을 읽다 끊겨도 받은 상태로 가른다).
   그 밖은 모두 참: 쓰는 중·읽는 중의 시간 초과와 끊김, 읽을 수 없거나 id 가 없는 2xx, 3xx, **모든 5xx**(관문이 대신
@@ -66,8 +67,7 @@ import httpx
 
 from app.info import generic
 from app.notify import diagnostics
-from app.outreach import phone, redact
-from app.outreach.sms_text import sms_safe
+from app.outreach import phone, redact, sms_text
 from app.security import crypto
 from app.store.tables_outreach import NotifyConnection
 
@@ -100,7 +100,8 @@ _NOT_SENT = diagnostics.NOT_SENT  # 나가기 전에 끝남(예외 종류)
 _CODE = re.compile(r"[A-Za-z_]{1,40}")  # 제공사 오류 code 가운데 옮겨 적어도 되는 꼴
 _FAILURE_CODE = re.compile(r"[a-z_]{1,40}")  # get-message 의 failureCode(저장되는 fail_code)는 소문자 낱말만
 _FIELD = re.compile(r"[A-Za-z_.]{1,40}")  # 검사 오류(422)의 칸 이름·종류 낱말 가운데 옮겨 적어도 되는 꼴
-_ERROR_TEXT = re.compile(r"(?:[^\W\d_]|[ .,:;'!?()\[\]/-]){1,80}")  # 오류 글: 글자·빈칸·문장부호뿐(숫자 없음)
+_ERROR_TEXT = re.compile(r"[A-Za-z .,;'!?()/-]{1,60}")  # 오류 글: ASCII 글자·빈칸·문장부호뿐(숫자·한글·「:」 없음)
+_NAME_LIKE = re.compile(r"[A-Za-z0-9][.@][A-Za-z0-9]")  # 낱말 속의 「.」「@」(kim.cheolsu·a@b) — 이름·주소일 수 있다
 SHAPE_MAX = 5  # 응답 모양에 옮기는 칸 이름·종류 낱말 수
 _WORD = re.compile(r"[a-z][a-z_\-]{0,39}")  # 통화 상태 말(in-progress · no-answer …)
 _ID = re.compile(r"(?=.*[A-Za-z0-9])[A-Za-z0-9_.:\-]{1,100}")  # 글자·숫자가 하나는 있어야 한다
@@ -136,15 +137,18 @@ class ProviderConn:
 class ProviderFailed(Exception):
     """제공사를 부르지 못했거나 불렀지만 실패했다. message 는 한국어이고 키·번호·Account ID 가 없다.
 
-    code: bad_key | bad_account | bad_sender | rate_limited | overseas_ip | timeout | network | bad_request | server | unknown.
+    code: bad_key | bad_account | bad_sender | rate_limited | overseas_ip | timeout | network | bad_request | server | unknown
+    | not_sendable(문자로 실을 수 없는 글 — 요청 전).
     http_status 는 받은 상태 그대로(응답을 받지 못했으면 None). maybe_sent 가 참이면 문자가 갔는지 알 수 없다(모듈 머리 글).
-    retry_after_s 는 429 의 Retry-After 초(600 까지, 없거나 읽을 수 없으면 None).
+    retry_after_s 는 429 의 Retry-After 초(600 까지, 없거나 읽을 수 없으면 None). shape 는 문서에 없는 4xx 거절의 거른 응답
+    모양(`_rejection_shape` — 없으면 None).
     """
 
     def __init__(self, code: str, message: str, http_status: int | None = None, *, maybe_sent: bool = False,
-                 retry_after_s: int | None = None) -> None:
+                 retry_after_s: int | None = None, shape: str | None = None) -> None:
         super().__init__(message)
         self.code, self.message, self.http_status, self.maybe_sent = code, message, http_status, maybe_sent
+        self.shape = shape
         self.retry_after_s = retry_after_s
 
 
@@ -324,13 +328,14 @@ def _failed(code: str, label: str, *, message: str | None = None, status: int | 
     logger.warning("제공사 호출 실패: %s code=%s status=%s maybe_sent=%s%s", label, code, status, maybe_sent,
                    f" 응답={shape}" if shape else "")
     return kind(code, (message or _MESSAGES[code]) + (MAYBE_SENT if maybe_sent else ""), status,
-                maybe_sent=maybe_sent, retry_after_s=retry_after_s)
+                maybe_sent=maybe_sent, retry_after_s=retry_after_s, shape=shape)
 
 
 def _rejection_shape(data: object, secrets: list[str]) -> str | None:
     """오류 본문 → 옮겨 적어도 되는 모양 한 줄 또는 None. 꼴이 맞고 키·Account ID 가 없는 것만: 낱말 code, 검사 오류
     (`detail: [{loc, type}]`·`errors: [{field}]`)의 칸 이름(loc 의 글 조각을 「.」로 이은 것)·종류 낱말을 SHAPE_MAX 개까지,
-    번호를 가린 뒤 숫자 없는 80자 이하의 `error` 글. 값(input·msg·message)과 그 밖의 칸은 보지 않는다."""
+    `error` 글(번호를 가리고 첫 「:」 앞까지 자른 것이 ASCII 글자·빈칸·문장부호 60자 이하이고 낱말 속에 「.」「@」가 없을
+    때만 — 아니면 통째로 뺀다). 값(input·msg·message)과 그 밖의 칸은 보지 않는다."""
     if not isinstance(data, dict):
         return None
     fields: list[str] = []
@@ -346,7 +351,8 @@ def _rejection_shape(data: object, secrets: list[str]) -> str | None:
                 if found and found not in into and len(into) < SHAPE_MAX:
                     into.append(found)
     error = data.get("error")
-    error = _safe(_ERROR_TEXT, redact.hide_phones(error), secrets) if isinstance(error, str) else None
+    error = redact.hide_phones(error).split(":", 1)[0].strip() if isinstance(error, str) else None
+    error = None if error is None or _NAME_LIKE.search(error) else _safe(_ERROR_TEXT, error, secrets)
     parts = [f"code={code}"] if (code := _safe(_CODE, data.get("code"), secrets)) else []
     parts += [f"fields={','.join(fields)}"] if fields else []
     parts += [f"types={','.join(types)}"] if types else []
@@ -373,16 +379,19 @@ def _http_failure(status: int, data: object, label: str, *, on_item: bool, maybe
 
 def _message_body(req: MessageRequest) -> dict:
     """보내기 본문. 모자라거나 보낼 꼴이 아니면 ProviderFailed(bad_request) — 요청 전. 가짜(FakeProvider)도 이것을 거친다.
-    문자 글(알림톡의 대신 나갈 문자 포함)은 `sms_safe`(CP949 밖 글자를 바꾸거나 뺀 것)로 싣는다."""
+    문자 글(알림톡의 대신 나갈 문자 포함)은 `sms_text.sms_safe` 로 바꿔 싣고, 실을 수 없으면(`sms_text.problem`)
+    ProviderFailed(not_sendable) — 요청 전."""
     if not all(isinstance(v, str) and v for v in (req.to, req.sender)):
         raise ProviderFailed("bad_request", "받는 번호와 발신번호가 모두 있어야 보냅니다.")
     if not isinstance(req.idempotency_key, str) or not _IDEMPOTENCY.fullmatch(req.idempotency_key):
         raise ProviderFailed("bad_request", "중복 방지 키가 없거나 쓸 수 없는 꼴입니다(영문·숫자·_·- 8~64자).")
     body: dict = {"To": req.to, "From": req.sender, "IdempotencyKey": req.idempotency_key}
     if req.channel == "sms":
-        if not isinstance(req.body, str) or not sms_safe(req.body):
+        if not isinstance(req.body, str) or not req.body:
             raise ProviderFailed("bad_request", "보낼 글이 비어 있습니다.")
-        return {**body, "Body": sms_safe(req.body)}  # Type 은 뺀다 — 제공사가 길이로 sms/lms 를 고른다
+        if (why := sms_text.problem(req.body)) is not None:
+            raise ProviderFailed("not_sendable", why)
+        return {**body, "Body": sms_text.sms_safe(req.body)}  # Type 은 뺀다 — 제공사가 길이로 sms/lms 를 고른다
     if req.channel == "kakao":
         if not all(isinstance(v, str) and v for v in (req.kakao_channel, req.template_code)):
             raise ProviderFailed("bad_request", "알림톡은 채널과 문안이 있어야 보냅니다.")
@@ -392,8 +401,10 @@ def _message_body(req: MessageRequest) -> dict:
         body["Kakao"] = {"ChannelId": req.kakao_channel, "TemplateId": req.template_code, "Variables": dict(variables)}
         if not req.fallback_sms:
             body["Fallback"] = {"Disabled": True}  # 빼면 제공사가 문자로 대신 보낸다
-        elif isinstance(req.fallback_body, str) and sms_safe(req.fallback_body):
-            body["Fallback"] = {"Body": sms_safe(req.fallback_body)}  # 대신 나가는 문자도 CP949 로 실린다
+        elif isinstance(req.fallback_body, str) and req.fallback_body:
+            if (why := sms_text.problem(req.fallback_body)) is not None:  # 대신 나가는 문자도 EUC-KR 로 실린다
+                raise ProviderFailed("not_sendable", why)
+            body["Fallback"] = {"Body": sms_text.sms_safe(req.fallback_body)}
         return body
     raise ProviderFailed("bad_request", "이 통로로는 보낼 수 없습니다.")
 

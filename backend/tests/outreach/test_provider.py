@@ -11,6 +11,7 @@ import signal
 import socket
 import time
 import traceback
+import unicodedata
 import urllib.request
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
@@ -223,17 +224,32 @@ async def test_incomplete_request_is_refused_before_any_call(req):
 
 
 @pytest.mark.parametrize(("text", "expected"), [
-    ("8시 \u2014 타설", "8시 - 타설"), ("a\u2013b\u2015c\u2012d", "a-b-c-d"),
+    ("8시 \u2014 타설", "8시 - 타설"), ("a\u2013b\u2015c\u2012d\u2010e\ufe58f\ufe63g\uff0dh", "a-b-c-d-e-f-g-h"),
+    ("3\u20114층", "3-4층"), ("\u22125도", "-5도"), ("\u2022 철근", "\u00b7 철근"),
     ("\u2018네\u2019 \u201a", "'네' '"), ("\u201c확인\u201d \u201e", '"확인" "'), ("잠시만\u2026", "잠시만..."),
     ("8\u00a0시\u2009반\u202f끝\u2002.", "8 시 반 끝 ."), ("타\u200b설\u200c\u200d\u2060\ufeff", "타설"),
-    ("확인 부탁드립니다 \U0001f64f\U0001f477", "확인 부탁드립니다 "), ("깨진\ud800글", "깨진글"),
-    ("3층·4층 「타설」 ※ 우천 ○ ☆ 줄\n바꿈", "3층·4층 「타설」 ※ 우천 ○ ☆ 줄\n바꿈"),  # KS X 1001 기호·한글은 그대로
+    ("확인 부탁드립니다 \U0001f64f\U0001f477\U0001f44d\ufe0f", "확인 부탁드립니다 "), ("깨진\ud800글", "깨진글"),
+    (unicodedata.normalize("NFD", "타설 확인"), "타설 확인"),  # 풀어 쓴 한글은 모아 쓴 꼴로(지우지 않는다)
+    ("3층·4층 「타설」 ※ 우천 ○ ☆ 줄\n바꿈 漢字", "3층·4층 「타설」 ※ 우천 ○ ☆ 줄\n바꿈 漢字"),  # KS X 1001 은 그대로
 ])
-def test_sms_safe_swaps_or_drops_what_the_provider_cannot_carry(text, expected):
+def test_sms_safe_swaps_or_drops_only_symbols_the_provider_cannot_carry(text, expected):
     out = sms_text.sms_safe(text)
-    assert out == expected
-    out.encode("cp949")  # 제공사는 EUC-KR(CP949)로 싣는다 — 늘 바꿀 수 있다
+    assert out == expected and sms_text.problem(out) is None
+    out.encode("euc_kr")  # 제공사는 EUC-KR(KS X 1001)로 싣는다
     assert sms_text.sms_safe(out) == out  # 두 번 거쳐도 같다
+
+
+@pytest.mark.parametrize(("text", "kept", "why"), [
+    ("Xin ch\u00e0o, t\u00f4i l\u00e0 Vi\u1ec7t", "Vi\u1ec7t", sms_text.NOT_CARRIED),  # 베트남어 성조
+    ("철근 \u4e22 확인", "\u4e22", sms_text.NOT_CARRIED),  # KS X 1001 에 없는 한자
+    ("\u6211\u4eec\u8fd9\u91cc", "\u8fd9", sms_text.NOT_CARRIED),  # 간체자
+    ("\ub620\ubc29\uac01\ud558", "\ub620", sms_text.NOT_CARRIED),  # CP949 에만 있는 한글(똠)
+    ("\U0001f477\u200b \ufe0f", "", sms_text.EMPTY),
+    ("가" * 1001, "가", sms_text.TOO_LONG),
+])
+def test_letters_that_cannot_be_carried_are_kept_and_refused_not_dropped(text, kept, why):
+    assert kept in sms_text.sms_safe(text) and sms_text.problem(text) == why
+    assert sms_text.problem("가" * 1000) is None and sms_text.byte_size("가" * 1000) == 2000
 
 
 async def test_sms_and_fallback_text_go_out_in_what_the_provider_can_carry():
@@ -242,9 +258,10 @@ async def test_sms_and_fallback_text_go_out_in_what_the_provider_can_carry():
     await KatClient(CONN, transport=mock).send_message(kakao(fallback_sms=True, fallback_body="\u201c확인\u201d\u2026"))
     first, second = (json.loads(r.content) for r in mock.requests)
     assert first["Body"] == "8시 - 타설 " and second["Fallback"] == {"Body": '"확인"...'}
-    with pytest.raises(ProviderFailed) as caught:  # 바꾸고 나니 빈 글이면 보내지 않는다
-        provider._message_body(sms(body="\U0001f477\u200b"))
-    assert caught.value.code == "bad_request"
+    for req in (sms(body="\U0001f477\u200b"), sms(body="Vi\u1ec7t"), kakao(fallback_sms=True, fallback_body="Vi\u1ec7t")):
+        mock = KatMock()
+        e = await failure(KatClient(CONN, transport=mock).send_message(req))  # 요청 전에 막는다
+        assert e.code == "not_sendable" and mock.requests == [] and e.maybe_sent is False
 
 
 @pytest.mark.parametrize("key", ["idem-0001", "a" * 8, "A_b-9" * 12 + "abcd", "0f8fad5bd9cb469fa16570867728950e"])
@@ -539,17 +556,23 @@ async def test_validation_body_gives_field_names_and_types_but_no_values(caplog)
 
 
 @pytest.mark.parametrize(("error", "shown"), [
-    (f"Recipient {SENTINEL_PHONE} is blocked", "Recipient [번호] is blocked"),  # 번호는 가린다
-    (f"Recipient {SENTINEL_DIGITS} is blocked", "Recipient [번호] is blocked"),
+    ("Sender is not allowed.", "Sender is not allowed."),
+    ("Invalid recipient: " + SENTINEL_PHONE, "Invalid recipient"),  # 첫 「:」 뒤는 자른다
+    (f"Recipient {SENTINEL_PHONE} is blocked", None),  # 번호를 가린 표시도 ASCII 밖이라 통째로 뺀다
+    (f"Recipient {SENTINEL_DIGITS} is blocked", None),
+    ("Sender kim.cheolsu is not allowed", None),  # 낱말 속 「.」「@」는 이름·주소일 수 있다
+    ("Contact ops@example is blocked", None),
+    ("받는 사람 박현장 님 내일 타설 확인 부탁드립니다", None),  # 우리 글이 되돌아와도 옮기지 않는다
     ("Limit of 500 per day reached", None),  # 숫자가 남으면 뺀다
-    ("x" * 81, None),  # 너무 길면 뺀다
+    ("x" * 61, None),  # 너무 길면 뺀다
     ("line one\nline two", None),
 ])
-async def test_error_text_is_kept_only_when_short_plain_and_without_numbers(caplog, error, shown):
+async def test_error_text_is_kept_only_when_short_plain_ascii(caplog, error, shown):
     e, line = await failure_logged(caplog, answer(422, {"error": error, "code": "odd_code"}))
     shape = "code=odd_code" + (f"; error={shown}" if shown else "")
     assert e.message.endswith(f"(제공사 응답: {shape})") and line.endswith(f"응답={shape}")
-    assert leaks(e.message, line) == []
+    assert e.shape == shape and leaks(e.message, line) == []
+    assert "kim" not in e.message and "박현장" not in e.message
 
 
 async def test_key_or_account_echoed_in_the_rejection_never_shows(caplog):

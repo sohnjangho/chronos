@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import func, select
 
-from app.outreach import hours
+from app.outreach import hours, sms_text
 from app.outreach.harness import gate
 from app.outreach.harness.types import Actor, Delivered, Outcome
 from app.programs.outreach import batches_service, service
@@ -300,6 +300,22 @@ def test_same_request_twice_sends_once_and_returns_the_stored_results(client, us
     assert again.json()["batch_id"] == first.json()["batch_id"]
     assert again.json()["results"] == first.json()["results"]
     assert _count(session) == made and len(fake_channel.delivered) == 3
+
+
+def test_same_request_replays_after_the_channel_rewrote_the_text_it_sent(client, user, session, sid, conn, fake_channel):
+    """문자 통로는 줄의 글을 실제로 나간 글(sms_text.sms_safe)로 바꿔 적는다 — 같은 요청을 다시 보내도 409 가 아니다."""
+    ids = _people(session, sid, 2)
+    text = "내일 3층 \u2014 타설 가능하신가요?"
+    first = _post(client, user, sid, ids, body=text)
+    for row in _rows(session, first.json()["batch_id"]):  # 진짜 문자 통로가 한 일(가짜 통로는 글을 바꾸지 않는다)
+        row.body = sms_text.sms_safe(row.body)
+    session.commit()
+    made = _count(session)
+
+    again = _post(client, user, sid, ids, body=text)
+
+    assert again.status_code == 200 and again.json()["replayed"] is True
+    assert _count(session) == made and len(fake_channel.delivered) == 2
 
 
 @pytest.mark.parametrize("change", [

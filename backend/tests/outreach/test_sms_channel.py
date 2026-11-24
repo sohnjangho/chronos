@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from app import db
-from app.outreach import channels, provider
+from app.outreach import channels, provider, sms_text
 from app.outreach.channels import sms
 from app.outreach.harness import gate, registry
 from app.outreach.harness.types import Delivered
@@ -430,12 +430,56 @@ async def test_same_text_with_a_swapped_character_is_still_a_twin(session, sid, 
     assert len(fake_provider.sent) == 1
 
 
-async def test_text_that_is_empty_once_swapped_is_not_sent_and_kept_as_written(session, sid, fake_provider):
+@pytest.mark.parametrize(("body", "why"), [
+    ("\U0001f477\u200b", sms_text.EMPTY),  # 그림 글자만 — 바꾸고 나면 빈 글
+    ("Xin ch\u00e0o, anh Vi\u1ec7t", sms_text.NOT_CARRIED), ("철근 \u4e22 확인", sms_text.NOT_CARRIED),
+    ("\ub620 확인", sms_text.NOT_CARRIED), ("가" * 1001, sms_text.TOO_LONG),
+])
+async def test_text_the_provider_cannot_carry_is_refused_at_the_gate_and_kept_as_written(session, sid, fake_provider, body,
+                                                                                         why):
     connect(session)
-    row, _ = leaving(session, sid, body="\U0001f477\u200b")
+    who = person(session, sid)
+    row = message(session, who, body=body)
+    session.commit()
 
-    assert await sms.SmsChannel().deliver(row.id) == Delivered("failed", fail_code=sms.NOT_SENDABLE)
-    assert fake_provider.sent == [] and reread(session, row).body == "\U0001f477\u200b"
+    out = await send(row, USER, WORK)
+
+    row = reread(session, row)
+    assert (out.code, out.message) == ("not_sendable", why) and fake_provider.sent == []
+    assert (row.status, row.fail_reason, row.body) == ("draft", why, body)  # 글자는 지우지 않는다 — 사람이 고친다
+    leaving_row, _ = leaving(session, sid, body=body)  # 문 밖에서 불려도 통로가 같은 검사로 막는다
+    assert await sms.SmsChannel().deliver(leaving_row.id) == Delivered("failed", fail_code=sms.NOT_SENDABLE)
+    assert fake_provider.sent == []
+
+
+@pytest.mark.real_channel("sms")
+@pytest.mark.parametrize(("shape", "suffix"), [
+    ("code=brand_new; fields=body.To; error=Sender is not allowed.",
+     "(제공사 응답: code=brand_new; fields=body.To; error=Sender is not allowed.)"),
+    (f"code=x; error={SENTINEL_PHONE}", ""), ("error=박현장", ""), (None, ""),  # 꼴이 아니면 붙이지 않는다
+    ("fields=" + ",".join(["a" * 40] * 5), None),  # 길면 칸(200자)에 맞게 자른다
+])
+async def test_provider_shape_of_a_rejection_reaches_the_row(session, sid, fake_provider, shape, suffix):
+    connect(session)
+    who = person(session, sid)
+    row = message(session, who)
+    session.commit()
+    fake_provider.fail = ProviderFailed("bad_request", "거절", 422, shape=shape)
+
+    out = await send(row, USER, WORK)
+
+    row = reread(session, row)
+    base = gate.FAIL_TEXT["bad_request"]
+    assert out.code == "failed" and row.status == "failed" and row.fail_reason == out.message
+    if suffix is None:
+        assert row.fail_reason.startswith(f"{base}(제공사 응답: fields=aaaa") and row.fail_reason.endswith("…)")
+        assert len(row.fail_reason) == gate.REASON_MAX
+    else:
+        assert row.fail_reason == base + suffix and leaks_none(row.fail_reason)
+
+
+def leaks_none(text: str) -> bool:
+    return SENTINEL_PHONE not in text and "".join(c for c in text if c.isdigit()) == "" and "박현장" not in text
 
 
 @pytest.mark.real_channel("sms")

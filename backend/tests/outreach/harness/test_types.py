@@ -66,7 +66,7 @@ def test_words_have_the_plan_shapes():
         Caller: ["caller_class", "candidates", "user_id"],
         Scope: ["caller_class", "schedule_ids", "candidates", "grant_personal", "grant_facts", "manager"],  # manager 11-24
         Ref: ["kind", "row_id"],
-        Delivered: ["state", "provider_id", "fail_code", "fail_text"],
+        Delivered: ["state", "provider_id", "fail_code", "fail_text", "shape"],  # shape: 제공사 거절의 거른 모양(문이 꼴을 다시 본다)
         ToolDef: ["name", "description", "parameters"],
     }
     for cls, names in shapes.items():

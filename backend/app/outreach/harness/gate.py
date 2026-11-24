@@ -90,6 +90,7 @@ SEND_FAILED = "보내지 못했습니다"  # 통로가 까닭 코드를 주지 �
 DNC_CONFIRM_TEXT = "수신 거부로 처리했습니다. 더 이상 연락드리지 않습니다."  # 수신 거부 확인 문자(kind dnc_confirm)의 글
 AUTO_REDIAL_NAME = "자동 다시 걸기"  # after_no_answer 가 만든 줄의 origin_name
 # 통로가 돌려준 Delivered.fail_code → 사람에게 보일 문장. 통로의 글(fail_text)은 쓰지 않는다(번호·키 조각이 섞여 올 수 있다).
+# 제공사 거절의 거른 모양(Delivered.shape)만 꼴(_SHAPE)을 다시 보고 문장 끝에 「(제공사 응답: …)」로 붙인다.
 # 통로 작업(71·88·101)은 이 열쇠로 코드를 돌려주고, 새 코드가 필요하면 여기에 문장과 함께 더한다.
 FAIL_TEXT: Mapping[str, str] = MappingProxyType({
     "bad_key": "제공사가 키를 받아들이지 않았습니다. 설정에서 알림 연결의 키를 확인해 주세요",
@@ -122,6 +123,9 @@ _MESSAGE_CHANNELS = ("sms", "kakao")
 _AUTO_KINDS = ("auto_reply", "notice")
 _BAD_HOURS = (KeyError, TypeError, ValueError, AttributeError)  # 저장된 근무시간이 틀린 꼴(NoWorkingTime 은 ValueError)
 _SLOT = re.compile(r"#\{([^}]*)\}")  # 알림톡 문안의 빈 칸
+# 통로가 준 거절 모양(Delivered.shape)으로 받는 꼴: ASCII 글자·「_.,;=' !?()/-」뿐(숫자·한글 없음 — provider._rejection_shape 의 꼴)
+_SHAPE = re.compile(r"[A-Za-z_.,;=' !?()/-]{1,300}")
+REASON_MAX = OutreachMessage.__table__.c.fail_reason.type.length  # 실패 까닭 칸 길이(200)
 _RETRY_COPIES = ("schedule_id", "contact_id", "peer_number", "caller_class", "purpose", "questions_json", "avoid_json",
                  "language", "voice_id", "purpose_key", "activity_id", "field_item_id", "chat_session_id")
 
@@ -433,8 +437,8 @@ def _reachable(session: Session, kind: str, row: _Row, actor: Actor, conn: Notif
         return Outcome("not_sendable", "연락처 번호를 다시 저장해 주세요", PRECHECK)
     if not all(_can_take(contact, number, name) for name in wanted):
         return Outcome("not_sendable", "이 번호로는 그 방법으로 연락할 수 없습니다", PRECHECK)
-    if lane == "sms" and not body.strip():
-        return Outcome("not_sendable", "보낼 글이 없습니다", PRECHECK)
+    if lane == "sms" and (why := sms_text.problem(body)) is not None:  # 실제로 나갈 글(sms_safe 뒤)이 비었거나 못 싣거나 길다
+        return Outcome("not_sendable", why, PRECHECK)
     if kind == "message" and row.kind == "dnc_confirm" and body.strip() != DNC_CONFIRM_TEXT:
         return Outcome("not_sendable", "수신 거부 확인 문자는 정해 둔 글만 보냅니다", PRECHECK)
     if kind == "message" and row.kind in _AUTO_KINDS and actor.kind == "user":
@@ -602,7 +606,7 @@ def _twin(session: Session, row: _Row, lane: str, body: str, number: str, now: d
     if row.kind == "auto_reply":  # 기계끼리 같은 말을 주고받지 않게
         today = datetime.combine(now.astimezone(hours.KST).date(), time(), tzinfo=hours.KST)
         sent = outreach.auto_replies(session, number, today)
-        if sent and sent[-1].body.strip() == body.strip():
+        if sent and _text(sent[-1], sent[-1].body, lane)[0] == _text(row, body, lane)[0]:
             return Outcome("duplicate", "그 번호에 마지막으로 나간 자동 답과 같은 글입니다", DUPLICATE)
     gone = and_(model.status.in_(_MAY_HAVE_GONE["message"]), model.claimed_at > since)
     recent = select(model).where(*others, model.channel == lane, or_(model.status == _LEAVING["message"], gone))
@@ -661,6 +665,9 @@ def _write_result(session: Session, kind: str, row_id: int, result: Delivered, n
     """줄의 상태와 delivery 사건 한 줄. 통로가 준 글은 쓰지 않는다(FAIL_TEXT). commit 은 부른 쪽."""
     state = result.state
     reason = {"sent": "통로가 받았습니다", "failed": FAIL_TEXT.get(result.fail_code, SEND_FAILED), "unsure": UNSURE}[state]
+    if state == "failed" and isinstance(result.shape, str) and _SHAPE.fullmatch(result.shape):
+        room = REASON_MAX - len(reason) - len("(제공사 응답: )")  # fail_reason 칸에 들어가게 모양 쪽을 자른다
+        reason += f"(제공사 응답: {result.shape if len(result.shape) <= room else result.shape[:room - 1] + '…'})"
     if kind == "call" and state != "sent":
         # 줄에 넣지 못한 통화를 queued 로 두면 다음 걸기를 막는다 — 닫는다. 단 아직 queued 일 때만: 일꾼이 벌써 걸고 있으면
         # (또는 줄이 없으면) 그대로 두고 「모름」으로 알린다.

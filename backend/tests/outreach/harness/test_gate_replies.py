@@ -282,6 +282,17 @@ async def test_auto_replies_use_their_own_caps_not_the_per_person_cap(session, s
     assert (await send(normal, USER, WORK)).code == "limit_person"
 
 
+async def test_same_reply_is_compared_as_the_text_that_went_out(session, sid, fake_channel):
+    """문자 통로는 나간 글을 실을 수 있는 글(sms_text.sms_safe)로 적는다 — 줄표 든 같은 자동 답도 같은 글로 본다."""
+    connect(session, **DELEGATED)
+    who = person(session, sid)
+    auto(session, who, WORK - timedelta(minutes=30), "타설은 11월 30일 - 오전입니다.")
+    same = message(session, who, kind="auto_reply", origin="agent", body="타설은 11월 30일 \u2014 오전입니다.")
+    session.commit()
+
+    assert (await send(same, AGENT, WORK)).code == "duplicate" and fake_channel.delivered == []
+
+
 async def test_same_reply_twice_is_blocked(session, sid, fake_channel):
     """자동 답의 글이 그 번호에 마지막으로 나간 자동 답과 같으면 보내지 않는다(기계끼리 주고받기)."""
     connect(session, **DELEGATED)

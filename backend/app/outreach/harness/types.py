@@ -337,6 +337,7 @@ class Delivered:
     provider_id: str | None = None
     fail_code: str | None = None
     fail_text: str | None = None
+    shape: str | None = None  # 제공사 거절의 거른 응답 모양(provider._rejection_shape). 문은 꼴을 다시 보고 실패 글 끝에 붙인다
 
     def __post_init__(self) -> None:
         _check(self.state in get_args(DeliveryState), "Delivered.state 는 sent·failed·unsure 가운데 하나입니다")
