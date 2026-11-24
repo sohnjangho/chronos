@@ -323,10 +323,12 @@ def _letters(text: str) -> str:
     return "".join(ch for ch in text if ch.isalnum())
 
 
-def _is_stop(plain: str) -> bool:
-    """수신 거부 말인가(STOP_WHOLE·STOP_WORD·STOP_ENDINGS 의 규칙). plain 은 통신사 머리를 뗀 글."""
-    core = _letters(plain)
-    return core in STOP_WHOLE or (core.startswith(STOP_WORD) and core[len(STOP_WORD):] in STOP_ENDINGS)
+def is_stop(text: str | None, *, single_words: bool = True) -> bool:
+    """수신 거부 말인가 — 들어오는 문자(admit)와 통화 중 상대 말(voice.call_run·after)이 같이 쓰는 규칙 하나. 글을 맞추고(_flat)
+    통신사 머리를 뗀 뒤 STOP_WORD·STOP_ENDINGS 규칙, single_words 면 STOP_WHOLE(「그만」「stop」 한 낱말)도. 통화는
+    single_words=False — 말에서는 「그만」이 너무 자주 나온다."""
+    core = _letters(_RELAY_PREFIX.sub("", _flat(text)))
+    return (single_words and core in STOP_WHOLE) or (core.startswith(STOP_WORD) and core[len(STOP_WORD):] in STOP_ENDINGS)
 
 
 def _is_machine(flat: str, plain: str, in_book: bool) -> bool:
@@ -422,7 +424,7 @@ def admit(session: Session, medium: Medium, number: str | None, *, now: datetime
     in_book = bool(caller.candidates) or cls == "internal"
     flat = _flat(body) if medium == "sms" else ""
     plain = _RELAY_PREFIX.sub("", flat)
-    if medium == "sms" and _is_stop(plain) and phone.normalize(key) is not None:
+    if medium == "sms" and is_stop(body) and phone.normalize(key) is not None:
         return Admission("stop", caller, "stop_word", confirm=in_book)
     conn = outreach.connection(session)
     mode = conn.inbound_mode if conn is not None else "off"

@@ -20,6 +20,9 @@
   사용량 `add_usage(session, "summary", ref=("call", id), model, input_tokens, output_tokens, cost)` 은 **답이 온 때만**(쓸 수
   없는 답도 토큰을 썼으므로 센다. 연결 없음·호출 실패·시간 초과는 받은 토큰이 없어 세지 않는다 — llm_calls 에는 LlmClient 가 남긴다).
 - **④ 결과 제안**: `result_proposed`(가린 글 — 모델이 결과를 비우면 NO_RESULT 「결과 확인 필요」)만 쓴다 — `result_confirmed`·`confirmed_by` 는 사람이 확정하는 칸이라 건드리지 않는다.
+- **⓪ 수신 거부 뒤받침**(H1): 받아쓰기의 상대 말에 수신 거부 말(door.is_stop, 한 낱말 규칙 빼고 — call_run 과 같은 규칙)이 있는데
+  그 번호가 아직 수신 거부가 아니면(통화 중 표시가 실패함) 그 통화의 도구 상자로 `mark_do_not_contact` 를 한 번 더 부른다. box 가
+  없거나 그 등급의 묶음에 그 도구가 없으면 하지 않는다(통화 중에도 못 했다). 실패는 종류만 로그 — 뒤 확인·요약은 이어 간다.
 - DB 일은 짧은 세션을 스레드에서. 모델을 부르는 동안 쥔 쓰기가 없다. 로그에는 예외의 종류만.
 """
 
@@ -60,6 +63,7 @@ FIELD_CHARS = 300  # 목적·질문·답·근거 말 한 칸
 SUMMARY_CHARS, RESULT_CHARS = 2000, 300  # 모델 답의 상한 — 넘으면 쓸 수 없는 답
 UNVERIFIED, VERIFIED = "확인 필요", "근거 확인됨"
 NO_RESULT = "결과 확인 필요"  # 모델이 결과를 비워 두었을 때 저장하는 제안
+HEARD_OPT_OUT = "통화 중 상대가 수신 거부를 말함"  # 코드가 들은 수신 거부의 까닭(통화 중·통화 뒤 같은 글)
 SCHEMA = {
     "type": "object",
     "properties": {"summary_ko": {"type": "string"}, "result": {"type": "string"}},
@@ -89,12 +93,39 @@ def client_for(session: Session) -> LlmClient:
 
 async def finish(call_id: int, box: Toolbox | None = None) -> None:
     """끝난 통화의 뒤 일(모듈 머리 글). box 는 그 통화의 도구 상자(도구 결과·지금의 범위·등급) — 일꾼이 넘긴다."""
+    await _opt_out_again(call_id, box)
     data = await asyncio.to_thread(_check, call_id, box)
     if data is None:
         return
     reply = await _ask(data)
     if reply is not None:
         await asyncio.to_thread(_store, call_id, reply)
+
+
+# ── ⓪ 수신 거부 뒤받침 ──────────────────────────────────────────────
+
+
+async def _opt_out_again(call_id: int, box: Toolbox | None) -> None:
+    if box is None or "mark_do_not_contact" not in box.names:
+        return
+    try:
+        missed = await asyncio.to_thread(_opt_out_missed, call_id, box)
+    except Exception as exc:  # noqa: BLE001 — 뒤받침이 못 봐도 뒤 확인·요약은 이어 간다
+        logger.warning("통화 뒤: 수신 거부를 다시 보지 못했습니다 (%s)", _kind(exc))
+        return
+    if missed:
+        await box.call("mark_do_not_contact", {"reason": HEARD_OPT_OUT})  # 도구는 예외를 내지 않는다(사건도 도구 길 그대로)
+
+
+def _opt_out_missed(call_id: int, box: Toolbox) -> bool:
+    """상대가 수신 거부를 말했는데 그 번호(도구와 같은 box.number)가 아직 수신 거부가 아닌가."""
+    with _db() as session:
+        row = session.get(OutreachCall, call_id)
+        if row is None:
+            return False
+        heard = any(line.get("role") == "peer" and door.is_stop(line["text"], single_words=False) for line in _lines(row))
+        number = box.number(session) if heard else None
+        return number is not None and not outreach.is_do_not_contact(session, number)
 
 
 # ── ① 뒤 확인 ──────────────────────────────────────────────────────

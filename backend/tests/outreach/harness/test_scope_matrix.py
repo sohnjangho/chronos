@@ -75,6 +75,15 @@ MAY_SEE = {
     "internal": {k for k in SECRETS if k.startswith("B.")} | {"who.choi", "who.park", "firm.rebar_b", "site.A", "site.B"},
     "do_not_contact": set(), "unknown": set(), "withheld": set(),
 }
+# 한 현장으로 정해진 통화에서 다른 현장 이름을 대면 도구가 고정 안내 「이 통화는 가람 현장 건입니다」를 준다(H1) — 그 통화의 현장
+# 이름은 나와도 된다(우리가 건 통화는 첫마디에도 현장을 밝힌다).
+SINGLE_SITE_CALL = {"outbound", "contact", "shared"}
+
+
+def may_see(cls: str, medium: str) -> set[str]:
+    return MAY_SEE[cls] | ({"site.A"} if medium == "call" and cls in SINGLE_SITE_CALL else set())
+
+
 # 모델이 넣을 법한 것 전부: 범위 밖 현장 이름·작업 id·작업 이름, 다른 사람 이름, 신원 주장, 받은 번호
 ATTACKS = [
     ("find_contact", {"query": "이설비"}),
@@ -141,7 +150,10 @@ def arrange(session, cls: str, medium: str, *, names=ALL):
 async def run_attacks(box) -> list[dict]:
     if box.medium == "call":
         box.set_control(FakeControl())
-    return [await box.call(name, dict(args)) for name, args in ATTACKS]
+    first = []
+    if box.medium == "call" and box.caller_class == "outbound":  # 우리가 건 통화는 신원 확인 뒤에 개인 자료(test_call_safety)
+        first = [await box.call("confirm_person", {"is_person": True})]
+    return first + [await box.call(name, dict(args)) for name, args in ATTACKS]
 
 
 @pytest.mark.parametrize("medium", MEDIA)
@@ -152,7 +164,7 @@ async def test_scope_never_comes_from_model_arguments(session, fake_channel, cls
 
     blob = json.dumps(await run_attacks(box), ensure_ascii=False)
 
-    leaked = sorted(key for key, text in SECRETS.items() if key not in MAY_SEE[cls] and text in blob)
+    leaked = sorted(key for key, text in SECRETS.items() if key not in may_see(cls, medium) and text in blob)
     assert leaked == []
     expected = {key for key in MAY_SEE[cls] if key.split(".")[0] in "AB" and not key.endswith((".start", ".finish", ".day"))}
     assert {key for key in expected if SECRETS[key] in blob} == expected  # 범위 안의 것은 실제로 답했다(빈 시험이 아니다)
@@ -223,10 +235,11 @@ async def test_known_number_never_gets_beyond_class_scope(session, fake_channel,
     ]
 
     assert box.scope == scope and (scope.caller_class, scope.facts) == ("contact", "trade")
-    assert claims[1] == claims[2] == {"refused": REFUSED}
+    assert claims[1] == {"refused": REFUSED}
+    assert claims[2] == ({"refused": "이 통화는 가람 현장 건입니다"} if medium == "call" else {"refused": REFUSED})
     assert claims[3] == {"items": [], "redirected": False}
     blob = json.dumps(claims, ensure_ascii=False)
-    assert not [key for key, text in SECRETS.items() if key not in MAY_SEE["contact"] and text in blob]
+    assert not [key for key, text in SECRETS.items() if key not in may_see("contact", medium) and text in blob]
     assert session.get(ScheduleRecord, box.scope.schedule_ids[0]).current_version == 1
 
 
@@ -279,8 +292,11 @@ async def test_store_filters_are_never_left_open_by_an_empty_list(session, monke
     monkeypatch.setattr(contact_store, "search", search)
     monkeypatch.setattr(facts, "find", find)
 
-    await box.call("find_contact", {"query": "철근", "site": SITE_B})
-    await box.call("schedule_fact", {"activity": "철근", "site": SITE_B})
+    if cls == "outbound":
+        await box.call("confirm_person", {"is_person": True})
+    site = SITE_B if cls == "internal" else SITE_A  # 한 현장 통화에서 다른 현장 이름은 저장소에 가기 전에 고정 안내(H1)
+    await box.call("find_contact", {"query": "철근", "site": site})
+    await box.call("schedule_fact", {"activity": "철근", "site": site})
 
     assert len(searches) == len(finds) == 1
     whole_book = cls == "internal"  # 그 현장 주소록 전체에서 찾는 것은 내부뿐 — 우리가 건 상대도 자기 협력사 안에서만

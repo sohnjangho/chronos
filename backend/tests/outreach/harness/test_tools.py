@@ -297,6 +297,7 @@ async def test_every_tool_call_leaves_one_event(session, fake_channel):
     box, row = outbound(session, w.park)
     box.set_control(FakeControl())
     calls = {
+        "confirm_person": {"is_person": True},  # 우리가 건 통화 — 확인한 뒤에 개인 자료 도구가 돈다(H1)
         "find_contact": {"query": "이설비"},
         "propose_contact": {"name": "정새로", "role_title": "반장", "phone": NEW},
         "schedule_fact": {"activity": "철근"},
@@ -307,7 +308,6 @@ async def test_every_tool_call_leaves_one_event(session, fake_channel):
         "schedule_callback": {"day_offset": 1, "hour": 15, "minute": 0},
         "mark_do_not_contact": {"reason": f"전화하지 말라고 함 {NEW}"},
         "handoff_to_human": {"reason": "asked_for_person", "note": f"{NEW} 로 연락 바람"},
-        "confirm_person": {"is_person": True},
         "end_call": {"reason": "done"},
     }
     assert set(calls) == set(ALL)
@@ -545,13 +545,15 @@ async def test_outbound_callee_cannot_hear_other_trades(session):
     w = world(session)
     connect(session)
     box, row = outbound(session, w.park)
+    await box.call("confirm_person", {"is_person": True})  # 신원 확인 전에는 아무 사실도 가지 않는다(test_call_safety)
 
     own = await box.call("schedule_fact", {"activity": "철근"})
     other = await box.call("schedule_fact", {"activity": "마감 작업"})
 
     assert [item["id"] for item in own["items"]] == ["R"]
     assert other == {"refused": REFUSED}
-    assert trail(session, row) == [("tool:schedule_fact", "allowed"), ("scope_denied", "blocked")]
+    assert trail(session, row) == [("tool:confirm_person", "allowed"), ("tool:schedule_fact", "allowed"),
+                                   ("scope_denied", "blocked")]
 
 
 async def test_internal_hears_the_whole_schedule_of_the_chosen_site(session):
@@ -582,14 +584,16 @@ async def test_multi_project_needs_site_first_then_pins(session):
     wrong = await box.call("schedule_fact", {"activity": "철근 배근", "site": "다른 현장"})
     then = await box.call("schedule_fact", {"activity": "철근 배근", "site": "나래"})  # 후보 하나의 이름에 든 말
     later = await box.call("schedule_fact", {"activity": "철근 배근", "site": SITE_A})  # 굳힌 뒤에는 넓히지 못한다
+    again = await box.call("schedule_fact", {"activity": "철근 배근"})  # 굳은 뒤에는 현장을 다시 말하지 않아도 된다
 
     assert first == wrong == {"ask": ASK, "sites": [SITE_A, SITE_B]}
     assert [item["name"] for item in then["items"]] == [f"{MARK_B} 철근 배근"]
-    assert [item["name"] for item in later["items"]] == [f"{MARK_B} 철근 배근"]
+    assert later == {"refused": "이 통화는 나래 현장 건입니다"}  # 통화가 한 현장으로 굳은 뒤 다른 현장을 물음(H1)
+    assert [item["name"] for item in again["items"]] == [f"{MARK_B} 철근 배근"]
     assert box.scope.schedule_ids == (w.b,) and box.scope.contact_ids == (park_b.id,)
     assert trail(session, row) == [("tool:schedule_fact", "allowed"), ("tool:schedule_fact", "allowed"),
                                    ("site_pinned", "noted"), ("tool:schedule_fact", "allowed"),
-                                   ("tool:schedule_fact", "allowed")]
+                                   ("scope_denied", "blocked"), ("tool:schedule_fact", "allowed")]
     assert log(session, row)[2]["detail"] == SITE_B
     session.expire_all()
     pinned = session.get(OutreachCall, row.id)

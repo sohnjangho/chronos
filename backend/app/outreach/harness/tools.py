@@ -4,6 +4,12 @@
 - 일정·연락처·협력사는 Scope 에서만 온다. 인자에는 id 칸이 없고(toolsets.ARGS, extra="forbid"), 현장은 이름으로만 받아 그
   상대의 후보(scope.schedule_ids) 안에서 코드가 맞춘다 — 맞으면 scope.pinned 로 굳히고 `site_pinned` 를 남긴다. 굳기 전에는
   사실도 본인 요청도 사람 찾기도 가지 않는다. 호출마다 범위의 짝이 지금도 있고 보이는지 다시 본다(사라지면 범위가 닫힌다).
+- **한 현장으로 정해진 통화**에서 상대가 다른 현장 이름(site)을 대면 그 현장 것을 조용히 주지 않는다: 고정 안내 OTHER_SITE
+  「이 통화는 <그 현장> 현장 건입니다」 하나만 주고 scope_denied 하나를 남긴다(빈칸·「현장」 꼬리는 가리지 않고 견준다). 문자는
+  그대로다(H1 — 통화만).
+- **우리가 건 통화**(outbound·call)는 confirm_person(is_person=True) 이 그 통화에 적히기 전에는 그 사람의 요청·일정을 주는 도구
+  (IDENTITY_TOOLS: my_requests · schedule_fact)가 CONFIRM_FIRST 로 거절한다(scope_denied). 아니라고 하면(is_person=False) 다시
+  닫힌다. 받는 통화는 문이 번호로 상대를 정했으므로 그대로다(H1).
 - 빈 범위는 「줄 없음」이다: 일정·협력사가 비면 저장소를 읽기 전에 빈 결과·거절을 돌려준다. 저장소의 「조건 없음」(None)은
   범위가 정말 그 현장 전부일 때만(사실 수준 all — 내부 등급) 넘긴다. 그 밖의 모든 등급은 — **우리가 건 통화의 상대도** —
   사람 찾기가 자기 협력사(scope.company_ids) 안이다. 「담당은 그 사람」으로 줄을 만드는 대상은 그 상대의 찾기 결과 안의 사람뿐
@@ -76,6 +82,10 @@ AGENT = Actor("agent", None, AGENT_NAME, "user")  # 하네스가 만든 후속 �
 REFUSED_FACT = "말씀드릴 수 없는 내용입니다"
 REFUSED_PERSONAL = "개인에게 온 요청은 이 번호로 말씀드릴 수 없습니다"
 ASK_SITE = "어느 현장 일인지 여쭤보세요"
+OTHER_SITE = "이 통화는 {site} 현장 건입니다"  # 한 현장 통화에서 다른 현장을 물음(다른 자료는 주지 않는다)
+CONFIRM_FIRST = "먼저 통화하시는 분이 맞는지 확인해 주세요"  # 우리가 건 통화에서 신원 확인 전
+IDENTITY_TOOLS = frozenset({"my_requests", "schedule_fact"})  # 우리가 건 통화에서 confirm_person 뒤에만 도는 도구
+SITE_TAIL = "현장"
 SAY_REGISTERED = "등록된 번호로 다시 연락드리겠습니다"
 SAY_MESSAGE = "담당자가 확인 후 연락드리겠습니다"
 SAY_REPORTED = "담당자가 확인하도록 전달했습니다"
@@ -160,6 +170,24 @@ def _match_site(site: str, sites: dict[int, str]) -> int | None:
     return None
 
 
+def _site_core(name: str) -> str:
+    """현장 이름의 견줄 꼴: 빈칸·대소문자를 맞추고 끝의 「현장」을 뗀다(「현장」 하나뿐이면 빈 글)."""
+    return _flat(name).removesuffix(SITE_TAIL)
+
+
+def _same_site(said: str, name: str) -> bool:
+    """상대가 말한 현장이 그 현장인가: 말한 것이 없거나 한 글자뿐이거나(맞추지 않는 말 — _match_site 와 같다), 그 이름(꼬리 뺌)과
+    같거나 그 안에 든다(「가람」 → 「가람 현장」)."""
+    want = _site_core(said)
+    return len(want) < 2 or want == _site_core(name) or want in _site_core(name)
+
+
+def _site_label(name: str) -> str:
+    """고정 안내에 넣을 현장 이름(끝의 「현장」을 떼어 「… 현장 건」이 겹치지 않게)."""
+    text = " ".join(_hide(name).split())
+    return text[:-len(SITE_TAIL)].rstrip() if text.endswith(SITE_TAIL) and len(text) > len(SITE_TAIL) else text
+
+
 def _shown(parsed: BaseModel) -> str:
     """사건에 남길 인자: 준 것만, 번호 칸은 값 없이, 글은 번호를 가려 SHOWN_ARGS 자까지."""
     given = parsed.model_dump(exclude_defaults=True)
@@ -229,6 +257,7 @@ class Toolbox:
             raise ValueError("그 등급·매체의 도구 묶음(toolsets.for_class) 밖의 도구입니다")
         self.scope, self.medium, self.ref, self.caller_class = scope, medium, ref, caller_class
         self.results: list[dict[str, Any]] = []
+        self.confirmed = False  # 이 통화에서 confirm_person(is_person=True) 이 적혔다(마지막 확인이 이긴다)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._control: Any = None
         self._lock = asyncio.Lock()
@@ -241,6 +270,11 @@ class Toolbox:
 
     def now(self) -> datetime:
         return as_utc(self._clock())
+
+    @property
+    def needs_identity(self) -> bool:
+        """우리가 건 통화인데 받은 사람이 그 사람인지 아직 확인되지 않았다."""
+        return self.medium == "call" and self.caller_class == "outbound" and not self.confirmed
 
     @property
     def sid(self) -> int | None:
@@ -298,18 +332,21 @@ class Toolbox:
 
     def _work(self, name: str, parsed: BaseModel) -> _Step:
         """도구 하나를 짧은 세션 하나에서 돌리고 commit 한다(스레드에서 돈다). 실패하면 범위를 되돌린다."""
-        before = self.scope
+        before = self.scope, self.confirmed
         try:
             with Session(db._engine) as session:
                 self.row(session)  # 붙을 줄이 지워졌으면(일정 지우기) 아무것도 만들지 않고 NotFound — call 이 한 줄로 답한다
                 self.scope = _live(session, self.scope, self.caller_class)
-                step = _TOOLS[name](self, session, parsed)
+                if name in IDENTITY_TOOLS and self.needs_identity:  # 우리가 건 통화: 신원 확인 전 — 범위 밖과 같은 거절 사건
+                    step = _Step({"refused": CONFIRM_FIRST}, denied=True)
+                else:
+                    step = _TOOLS[name](self, session, parsed)
                 if step.follow is None:
                     self._record(session, name, parsed, step)
                 session.commit()
                 return step
         except BaseException:
-            self.scope = before
+            self.scope, self.confirmed = before
             raise
 
     def _record(self, session: Session, name: str, parsed: BaseModel, step: _Step) -> None:
@@ -343,9 +380,13 @@ class Toolbox:
         return phone.normalize(person.phone if person is not None else self.row(session).peer_number)
 
     def pin(self, session: Session, site: str) -> dict[str, Any] | None:
-        """현장이 하나로 정해져 있으면 None. 아니면 site 를 후보 안에서 맞춰 굳히거나(None), 물을 것 {ask, sites} 를 준다."""
+        """현장이 하나로 정해져 있으면 None — 통화에서 다른 현장 이름을 댔으면 고정 안내 {refused: OTHER_SITE}. 아니면 site 를 후보
+        안에서 맞춰 굳히거나(None), 물을 것 {ask, sites} 를 준다."""
         scope = self.scope
         if not scope.site_required:
+            record = session.get(ScheduleRecord, self.sid) if self.sid is not None and self.medium == "call" else None
+            if record is not None and scope.facts != "none" and not _same_site(site, record.name):
+                return {"refused": OTHER_SITE.format(site=_site_label(record.name))}
             return None
         sites = {sid: record.name for sid in scope.schedule_ids if (record := session.get(ScheduleRecord, sid)) is not None}
         chosen = _match_site(site, sites)
@@ -432,7 +473,9 @@ class Toolbox:
 
 def _asking(box: Toolbox, session: Session, site: str) -> _Step | None:
     ask = box.pin(session, site)
-    return None if ask is None else _Step(ask, "현장을 물음")
+    if ask is None:
+        return None
+    return _Step(ask, denied=True) if "refused" in ask else _Step(ask, "현장을 물음")  # 다른 현장(통화) — 거절 사건 하나
 
 
 def _carried(box: Toolbox, session: Session) -> dict[str, Any] | None:
@@ -614,7 +657,9 @@ def _take_message(box: Toolbox, session: Session, a) -> _Step:
 
 
 def _report_from_contact(box: Toolbox, session: Session, a) -> _Step:
-    box.pin(session, a.site)  # 현장을 말했으면 굳힌다 — 못 맞춰도 보고는 남긴다(일정 없는 보고)
+    ask = box.pin(session, a.site)  # 현장을 말했으면 굳힌다 — 못 맞춰도 보고는 남긴다(일정 없는 보고)
+    if ask is not None and "refused" in ask:  # 한 현장 통화에서 다른 현장의 일 — 이 현장 보고로 남기지 않는다
+        return _Step(ask, denied=True)
     return _Step({"say": SAY_REPORTED}, box.report(session, a.kind, a.text, a.quote))
 
 
@@ -719,6 +764,7 @@ def _end_call(box: Toolbox, session: Session, a) -> _Step:
 
 
 def _confirm_person(box: Toolbox, session: Session, a) -> _Step:
+    box.confirmed = a.is_person  # 사건과 같은 commit 에서만 남는다(_work 가 실패하면 되돌린다)
     return _Step({"ok": True}, "맞음" if a.is_person else "아님")
 
 
