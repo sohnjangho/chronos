@@ -77,6 +77,7 @@ IN_BROKE = "음성 통화 오류로 받은 통화가 끊겼습니다"
 TOO_LATE = "받기 판정이 늦어 받지 못했습니다"
 WHILE_OFF = "앱이 꺼져 있는 동안 걸려 와 받지 못했습니다"
 SCOPE_OFF = "받는 범위가 「받지 않음」이라 받지 않았습니다"
+DIAGNOSING = "음성 진단 중이라 받지 못했습니다"
 LOCK_WAIT_S = 1.0  # 다른 벨을 판정하는 중이면 이만큼만 기다리고, 넘으면 통화 중으로 판정해 줄만 남긴다
 QUIET_KEPT = 50  # 기억하는 「듣지 않은 동안」(받는 범위 끔 · 진단) 수
 _VERDICT = {"engage": "allowed", "missed": "noted"}  # admission 사건의 판정(그 밖 — reject — 은 blocked)
@@ -117,7 +118,7 @@ class _State:
     final: str | None = None  # 다시 붙지 않는 까닭(taken_over · auth_rejected) — 설정이 바뀌거나 다시 켤 때까지
     reason: str | None = None  # 듣지 않는 까닭(sync 가 돌려준 낱말) — status 가 보인다
     paused: int = 0  # 음성 진단이 듣기를 멈춰 둔 수
-    quiet: deque = field(default_factory=lambda: deque(maxlen=QUIET_KEPT))  # [까닭(off·diagnosis), 처음, 끝|None]
+    quiet: deque = field(default_factory=lambda: deque(maxlen=QUIET_KEPT))  # [까닭(off·diagnosis), 처음, 끝|None, 진단 번호 해시]
 
 
 _state = _State()
@@ -382,12 +383,19 @@ def reason() -> str | None:
     return None if listening() else _state.reason
 
 
-def _quiet(kind: str, open_: bool) -> None:
-    """「듣지 않은 동안」을 연다·닫는다(받는 범위 끔 · 진단) — 채우기가 그 동안의 전화를 그 까닭으로 적거나 뺀다."""
+def _number_key(number: object) -> str | None:
+    """번호를 견줄 해시(정리한 꼴) — 메모리에 번호를 두지 않는다. 번호가 아니면 None."""
+    key = door.stored_peer_number(number) if isinstance(number, str) else None
+    return hashlib.sha256(key.encode()).hexdigest() if key else None
+
+
+def _quiet(kind: str, open_: bool, number: object = None) -> None:
+    """「듣지 않은 동안」을 연다·닫는다(받는 범위 끔 · 진단 — 진단은 그 진단이 걸고 받는 시험 번호의 해시와 함께) — 채우기가
+    그 동안의 전화를 그 까닭으로 적거나(진단의 시험 번호만) 뺀다."""
     spans, at = _state.quiet, _now()
     current = next((span for span in reversed(spans) if span[0] == kind and span[2] is None), None)
     if open_ and current is None:
-        spans.append([kind, at, None])
+        spans.append([kind, at, None, _number_key(number)])
     elif not open_ and current is not None:
         current[2] = at
 
@@ -454,12 +462,13 @@ async def _sync(resume: bool) -> str:
 
 
 @contextlib.asynccontextmanager
-async def paused():
+async def paused(call_to: object = None):
     """음성 진단이 도는 동안 듣기를 멈춘다(control 연결은 번호당 하나 — 진단이 붙기 전에 듣던 연결을 닫는다). 통화 중이면
-    멈추지 않는다(진단은 holds_line 을 보고 붙지 않는다). 나갈 때(성공·실패·시간 넘김·취소) 멈췄던 듣기를 곧바로 다시 건다."""
+    멈추지 않는다(진단은 holds_line 을 보고 붙지 않는다). 나갈 때(성공·실패·시간 넘김·취소) 멈췄던 듣기를 곧바로 다시 건다.
+    call_to 는 진단의 시험 번호 — 그동안 그 번호의 전화만 채우기에서 빼고, 다른 번호의 전화는 「음성 진단 중」 부재중으로 남긴다."""
     state = _state
     state.paused += 1
-    _quiet("diagnosis", True)
+    _quiet("diagnosis", True, call_to)
     was = listening() and not (runner._state.live or runner._state.holding is not None)
     try:
         if was:
@@ -545,13 +554,14 @@ def _since(until: datetime) -> datetime:
     return max(floor, as_utc(last) - timedelta(seconds=OVERLAP_S)) if last is not None else floor
 
 
-def _why_quiet(at: datetime, spans: list, now: datetime) -> str | None:
-    """그때 듣지 않은 까닭(진단은 앞뒤로 OVERLAP_S 넓혀 — 플랫폼 시계와 어긋날 수 있다). 없으면 None(앱이 꺼져 있었다)."""
+def _why_quiet(at: datetime, spans: list, now: datetime) -> list | None:
+    """그때 듣지 않은 까닭의 칸(진단은 앞뒤로 OVERLAP_S 넓혀 — 플랫폼 시계와 어긋날 수 있다). 없으면 None(앱이 꺼져 있었다)."""
     margin = timedelta(seconds=OVERLAP_S)
-    for kind, start, end in spans:
+    for span in spans:
+        kind, start, end = span[0], span[1], span[2]
         pad = margin if kind == "diagnosis" else timedelta(0)
         if start - pad <= at <= (end or now) + pad:
-            return kind
+            return span
     return None
 
 
@@ -560,12 +570,14 @@ def _backfill(found: list, spans: list, now: datetime) -> int:
     with _db() as session:
         for item in found:
             at = as_utc(item.at)
-            quiet = _why_quiet(at, spans, now)
-            if quiet == "diagnosis":
-                continue  # 진단이 받거나 거절한 시험 전화 — 부재중이 아니다
+            span = _why_quiet(at, spans, now)
+            quiet = span[0] if span is not None else None
+            if quiet == "diagnosis" and span[3] is not None and span[3] == _number_key(item.caller_number):
+                continue  # 진단이 받거나 거절한 시험 전화(진단의 번호) — 부재중이 아니다
+            why = {"off": SCOPE_OFF, "diagnosis": DIAGNOSING}.get(quiet, WHILE_OFF)  # 진단 중 다른 번호 — 아무도 받지 않았다
             caller = door.admit(session, "call", item.caller_number, now=at).caller  # 등급만 쓴다(받기는 이미 지났다)
-            row = _row(caller, item.caller_number, status="missed", fail_reason=SCOPE_OFF if quiet == "off" else WHILE_OFF,
-                       created_at=at, ended_at=at, provider_call_id=item.call_id)
+            row = _row(caller, item.caller_number, status="missed", fail_reason=why, created_at=at, ended_at=at,
+                       provider_call_id=item.call_id)
             near = OutreachCall.created_at.between(at - timedelta(seconds=OVERLAP_S), at + timedelta(seconds=OVERLAP_S))
             same = [column.is_(None) if value is None else column == value
                     for column, value in ((OutreachCall.contact_id, row.contact_id),

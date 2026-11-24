@@ -781,20 +781,22 @@ async def test_backfill_records_missed_calls_once_and_texts_nobody(session, worl
         async def missed_calls(self, since, until):
             return [kat_listen.Missed("CAin1", world.who.phone, stamp), kat_listen.Missed("CAin2", None, stamp),
                     kat_listen.Missed("CAoff", world.who.phone, off_at),
-                    kat_listen.Missed("CAdiag", world.who.phone, diag_at + timedelta(seconds=5))]
+                    kat_listen.Missed("CAdiag", world.who.phone, diag_at + timedelta(seconds=5)),
+                    kat_listen.Missed("CAreal", STRANGER, diag_at - timedelta(seconds=30))]
 
     sim = Backfilling([], hold_line=True)
     monkeypatch.setattr(inbound, "_now", lambda: AT)
     inbound._state.quiet.extend([["off", off_at - timedelta(minutes=1), off_at + timedelta(minutes=1)],
-                                 ["diagnosis", diag_at - timedelta(minutes=1), diag_at]])  # 진단은 앞뒤로 넓혀 본다
+                                 ["diagnosis", diag_at - timedelta(minutes=1), diag_at,
+                                  inbound._number_key(world.who.phone)]])  # 진단은 앞뒤로 넓혀 본다 — 진단이 건 번호만 뺀다
     with voice_session.pinned(sim):
-        assert await inbound.backfill(sim) == 3
+        assert await inbound.backfill(sim) == 4
         assert await inbound.backfill(sim) == 0  # 이미 적은 통화
         await settle()
     rows = calls_in(session)
     assert [(r.status, r.caller_class, r.provider_call_id, r.fail_reason) for r in rows] == [
         ("missed", "contact", "CAin1", inbound.WHILE_OFF), ("missed", "withheld", "CAin2", inbound.WHILE_OFF),
-        ("missed", "contact", "CAoff", inbound.SCOPE_OFF)]
+        ("missed", "contact", "CAoff", inbound.SCOPE_OFF), ("missed", "unknown", "CAreal", inbound.DIAGNOSING)]
     assert all(("call_result", "noted", "no_answer") in rules(r) for r in rows)
     assert messages(session) == [] and fake_channel.delivered == []
     assert session.get(Contact, world.who.id).phone == world.who.phone
@@ -807,7 +809,7 @@ async def test_scope_off_and_diagnosis_open_quiet_spans(session, world):
     with voice_session.pinned(sim):
         try:
             assert await inbound.sync() == "off" and runner.status()["listen_reason"] == "off"
-            assert [(k, end) for k, _, end in inbound._state.quiet] == [("off", None)]
+            assert [(span[0], span[2]) for span in inbound._state.quiet] == [("off", None)]
             world.conn.inbound_mode = "known"
             session.commit()
             assert await inbound.sync() == "listening" and runner.status()["listen_reason"] is None
@@ -902,7 +904,9 @@ async def test_runner_puts_the_call_back_when_the_shared_line_is_busy(session, w
     session.expire_all()
     row = session.get(OutreachCall, out.id)
     assert row.status == "draft" and row.fail_reason == runner.LINE_BUSY and row.claimed_at is None
-    assert [d for r, v, d in rules(row) if r == "recheck_before_dial" and d == "line_busy"] == ["line_busy"] * 3
+    busy = [v for r, v, d in rules(row) if r == "recheck_before_dial" and d == "line_busy"]
+    assert busy == ["noted", "blocked"]  # 기다림마다 한 번(처음) · 그만둘 때 한 번 — 바퀴마다가 아니다
+    assert runner._state.busy_tries == {}
     assert ("call_result", "blocked", "backend_error") not in rules(row)
 
 
@@ -916,7 +920,8 @@ async def test_diagnosis_pauses_the_listener_and_it_comes_back(session, world, m
             assert await inbound.sync() == "listening"
             await until(clock, lambda: sdk.agents and sdk.agents[0].connected)
             assert runner.holds_line()
-            async with inbound.paused():
+            async with inbound.paused("010-0000-0177"):
+                assert inbound._state.quiet[-1][3] == inbound._number_key("01000000177")
                 assert not inbound.listening() and kat_listen.AGENTS == {} and sdk.agents[0].disconnects == 1
                 assert not runner.holds_line() and await inbound.sync() == "paused"
                 probe = sdk.ClawOpsAgent(from_=OUR_NUMBER)  # 진단의 에이전트
@@ -930,7 +935,34 @@ async def test_diagnosis_pauses_the_listener_and_it_comes_back(session, world, m
                 assert inbound.listening() and runner.holds_line()
         finally:
             await inbound.stop()
-    assert inspect.getsource(voice_settings_api.run).count("inbound.paused()") == 1
+    assert inspect.getsource(voice_settings_api.run).count("inbound.paused(prep.call_to)") == 1
+
+
+@pytest.mark.parametrize("how", ["error", "cancel"])
+async def test_paused_listener_comes_back_after_an_error_or_a_cancel(session, world, how):
+    sim = SimulatedVoice([], hold_line=True)
+    with voice_session.pinned(sim):
+        try:
+            assert await inbound.sync() == "listening"
+            await asyncio.sleep(0)
+
+            async def diagnose():
+                async with inbound.paused(None):
+                    assert not inbound.listening()
+                    if how == "error":
+                        raise RuntimeError("진단 고장")
+                    await asyncio.sleep(60)  # 시간 넘김 — 바깥이 취소한다
+
+            task = asyncio.ensure_future(diagnose())
+            await asyncio.sleep(0.05)
+            if how == "cancel":
+                task.cancel()
+            with pytest.raises(RuntimeError if how == "error" else asyncio.CancelledError):
+                await task
+            assert inbound.listening() and inbound._state.paused == 0 and sim.listens == [AGENT_NUMBER, AGENT_NUMBER]
+            assert inbound._state.quiet[-1][2] is not None
+        finally:
+            await inbound.stop()
 
 
 async def test_kat_shared_line_busy_is_not_placed_later():

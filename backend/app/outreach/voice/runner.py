@@ -273,6 +273,7 @@ async def _call(call_id: int, base: datetime) -> str | None:
         problem = await _check(backend)
     plan = await asyncio.to_thread(_prepare, call_id, base, problem)
     if not isinstance(plan, _Plan):
+        state.busy_tries.pop(call_id, None)  # 다시 보다 멈춘 줄(초안 등) — 바쁜 연결의 셈은 끝났다
         return plan
     run = CallRun(call_id, plan.spec, base, plan.model)
     run.box = Toolbox(plan.scope, "call", Ref("call", call_id), names=_NAMES, caller_class="outbound", clock=run.at)
@@ -288,10 +289,12 @@ async def _call(call_id: int, base: datetime) -> str | None:
         if getattr(exc, "retry_later", False) and not run.started and not run.ended:  # 받는 쪽과 같이 쓰는 연결이 잠깐
             state.live.pop(call_id, None)  # 바쁘다(걸지 않았다) — 실패가 아니라 줄로 되돌려 다음 바퀴에
             return await asyncio.to_thread(_line_busy, call_id, base)
+        state.busy_tries.pop(call_id, None)
         state.last_error_kind = _kind(exc)
         logger.warning("통화 일꾼: 통화가 예외로 끝났습니다 (%s)", _kind(exc))
         await run.broke()
     else:
+        state.busy_tries.pop(call_id, None)
         if run.ended:
             state.last_error_kind = None
         else:  # 끝 손잡이 없이 돌아왔다 — 약속을 어긴 백엔드
@@ -335,7 +338,8 @@ async def _place(backend: VoiceBackend, spec: CallSpec, run: CallRun) -> None:
 
 
 def _line_busy(call_id: int, at: datetime) -> str | None:
-    """건 것이 없다: dialing → queued(WAITING — tick 이 다시 줄 앞에 넣는다). LINE_BUSY_TRIES 번 넘게 바쁘면 초안으로."""
+    """건 것이 없다: dialing → queued(WAITING — tick 이 다시 줄 앞에 넣는다). LINE_BUSY_TRIES 번 넘게 바쁘면 초안으로.
+    사건은 기다림마다 한 번(처음 바쁠 때 noted)과 그만둘 때(blocked) — 바퀴마다 남기지 않는다."""
     tries = _state.busy_tries[call_id] = _state.busy_tries.get(call_id, 0) + 1
     over = tries > LINE_BUSY_TRIES
     with _db() as session:
@@ -344,12 +348,14 @@ def _line_busy(call_id: int, at: datetime) -> str | None:
         moved = session.execute(back.execution_options(synchronize_session=False))
         if moved.rowcount != 1:
             session.rollback()
+            _state.busy_tries.pop(call_id, None)
             return None
-        events.record(session, Ref("call", call_id), "recheck_before_dial", "blocked" if over else "noted", "line_busy",
-                      now=at)
+        if over or tries == 1:
+            events.record(session, Ref("call", call_id), "recheck_before_dial", "blocked" if over else "noted",
+                          "line_busy", now=at)
         session.commit()
     if over:
-        _state.busy_tries.pop(call_id, None)
+        _state.busy_tries.pop(call_id, None)  # 초안이 됐다 — 다시 걸면 처음부터 센다
         return "draft"
     return WAITING
 

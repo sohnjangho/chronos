@@ -119,6 +119,25 @@ describe('시스템 진단 — AI 전화', () => {
     expect(urls().some((u) => u.includes('diagnose') || u.includes('/voice'))).toBe(false);
   });
 
+  test('shows why the call listener is not listening and how to bring it back', async () => {
+    const base = voiceHealth();
+    mockHealth({ notify: notifyHealth({ voice: voiceHealth({ worker: { ...base.worker, listening: false, listen_reason: 'taken_over' } }) }) });
+    show('health');
+    const card = await screen.findByRole('article', { name: 'AI 전화' });
+    const worker = within(card).getByRole('group', { name: '통화 일꾼' });
+    expect(worker).toHaveTextContent('붙어 있지 않음 — 다른 접속이 이 번호를 가져감');
+    expect(within(card).getByRole('note')).toHaveTextContent('음성 설정을 바꾸거나, 받는 범위를 껐다 켜거나, 서버를 다시 시작하면 다시 붙습니다.');
+  });
+
+  test('no recovery hint while the listener only waits', async () => {
+    const base = voiceHealth();
+    mockHealth({ notify: notifyHealth({ voice: voiceHealth({ worker: { ...base.worker, listening: false, listen_reason: 'off' } }) }) });
+    show('health');
+    const card = await screen.findByRole('article', { name: 'AI 전화' });
+    expect(within(card).getByRole('group', { name: '통화 일꾼' })).toHaveTextContent('받는 범위가 「받지 않음」');
+    expect(within(card).queryByRole('note')).toBeNull();
+  });
+
   test('no AI 전화 card without voice settings', async () => {
     mockHealth({ notify: notifyHealth() });
     show('health');

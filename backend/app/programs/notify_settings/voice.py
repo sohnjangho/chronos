@@ -619,7 +619,7 @@ async def run(session: Session, conn_id: int, data: VoiceDiagnoseIn, by: str) ->
         if prep.part == "call":
             await run_in_threadpool(_mark_calling_sync, session, conn_id, data, by, now)
         try:
-            async with inbound.paused():  # 진단 동안 받는 통화 듣기를 멈춘다(연결은 번호당 하나) — 끝나면 곧바로 다시 듣는다
+            async with inbound.paused(prep.call_to):  # 진단 동안 받는 통화 듣기를 멈춘다(연결은 번호당 하나) — 끝나면 곧바로 다시 듣는다
                 rows, halt = await _checks(prep, budget)
         except asyncio.CancelledError:
             if prep.part == "call":
