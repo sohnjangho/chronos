@@ -8,13 +8,15 @@
 - 키는 앱 코드(default_connection·decrypt)로 풀어 머리글에만 싣는다. 찍는 글·저장 파일에서 키와 키처럼 긴 토큰을 지운다.
   앱 DB 는 읽기 전용으로 연다(data/ 를 바꾸지 않는다).
 - 찍는 것: 상태·종류·시간, 최상위 칸, theme·description·resourceId, HTML 길이, 외부 script/link 주소,
-  표 값·날짜가 HTML 에 그대로 있는지, HTML 300자 발췌. 받은 HTML 은 OUT_DIR 에 저장한다.
+  표 값·날짜가 HTML 에 그대로 있는지, HTML 300자 발췌. 받은 HTML 은 OUT_DIR(환경 변수 CHRONOS_PROBE_OUT_DIR, 없으면 시스템 임시 폴더/visual-probe)에 저장한다.
 """
 
 import asyncio
 import json
+import os
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -30,7 +32,7 @@ from app.security.crypto import decrypt
 
 MAX_REQUESTS = 2
 TIMEOUT_S = 120.0
-OUT_DIR = Path("/private/tmp/claude-501/-Users-janghosohn/868e6118-d95f-4d7b-8fd8-7ab52aea36f6/scratchpad/visual-probe")
+OUT_DIR = Path(os.environ.get("CHRONOS_PROBE_OUT_DIR", Path(tempfile.gettempdir()) / "visual-probe"))
 
 # 가상 표: 작업 5개의 계획·전망 끝 날짜(실제 사업 자료 아님).
 COLUMNS = ("작업", "계획 끝(YYYY-MM-DD)", "전망 끝(YYYY-MM-DD)")

@@ -40,7 +40,7 @@
 - 점검하지 않은 조건을 통과로 표시하지 않는다. `checkable=False` 조건은 "자동 점검 안 됨"으로만 표시한다.
 - 비밀값: API 키는 화면에서만 입력받아 Fernet 으로 암호화해 DB 에 넣는다. 응답에는 끝 4자리만. `.env`·`data/`·DB 파일은 커밋하지 않는다. 로그·추적 기록(`trace_events`)·근거 기록에 키를 남기지 않는다. **근거 검색도 같은 키**: 기본 LLM 연결(provider `liner`)의 키를 서버에서 풀어 `x-api-key` 헤더로만 보낸다.
 - 다른 회사 LLM API 를 직접 부르지 않는다. 기본 연결은 Liner(`https://platform.liner.com/api/v1`).
-- 예시 자료는 전부 가상. 기존 저장소(`~/schedule-management`, 미니PC `~/project-platform`) 코드와 `@sohnjangho/agent-ux-*` 패키지를 복사·설치하지 않는다(형태만 참고).
+- 예시 자료는 전부 가상. 기존 저장소(`~/schedule-management`, 미니PC `~/project-platform`) 코드와 개인 npm 범위의 `agent-ux-*` 패키지를 복사·설치하지 않는다(형태만 참고).
 - 모듈 규칙: `app/core`는 DB·LLM·FastAPI 를 import 하지 않는다. `app/programs/<a>`는 `app/programs/<b>`를 import 하지 않는다. 에이전트는 도구를 `app/tools/registry`로만 부른다. 화면의 `src/programs/<a>`는 `src/programs/<b>`를 import 하지 않는다 — 다른 프로그램은 `useWindows.getState().open(id, params)` 로만 연다.
 - 파일 길이: 화면 파일 권장 300줄·상한 600줄, 서버 파일 권장 400줄·상한 800줄, 함수 권장 50줄·상한 100줄. 시험·자동 생성·자료 파일 제외. `scripts/check.sh`가 검사한다.
 - 색·글꼴 값은 `frontend/src/os/tokens.css`의 변수만 쓴다(밝은·어두운 테마 둘 다 있음).
@@ -1282,7 +1282,7 @@ assert progress_after["cpm"]["finish_variance"]["days"] <= progress_before["cpm"
 
 ### Task 44: Liner 시각화 — 코드가 만든 표로 보고서·요약 그림 [opus] · G3 (Task 33·34 와 함께, 셸 파일 아님)
 
-**[PM 결정 11-20]** Liner Visualization API(`POST {base_url}/tools/visualization`, 1회 $0.01, 결과는 HTML 한 장 `atlasArtifact.html` + `theme`·`description`·`resourceId`)를 **보고서·요약 그림**에 쓴다. 앱 안의 간트차트·CPM·공정률 그림은 우리 그림 그대로. 근거: `/Users/janghosohn/reports/AI대회/01_라이너_엑스톤_2026/01_대회정보/라이너_기능_조사.md` 2·3장.
+**[PM 결정 11-20]** Liner Visualization API(`POST {base_url}/tools/visualization`, 1회 $0.01, 결과는 HTML 한 장 `atlasArtifact.html` + `theme`·`description`·`resourceId`)를 **보고서·요약 그림**에 쓴다. 앱 안의 간트차트·CPM·공정률 그림은 우리 그림 그대로. 근거: `~/reports/AI대회/01_라이너_엑스톤_2026/01_대회정보/라이너_기능_조사.md` 2·3장.
 
 **규칙(조사 3-3 그대로):**
 - 숫자는 코드가 묶는다: 도구 `visual.make {kind: "summary"|"delay_impact"|"scenario_compare"|"s_curve"|"resource_load", schedule_id, version?}` — 인자에 숫자 없음. 표(열·단위·값)는 저장된 버전에서 코드가 만든다.

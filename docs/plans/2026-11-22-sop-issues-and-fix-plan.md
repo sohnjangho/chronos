@@ -25,13 +25,13 @@
 
 ### 0-2. 선행 검증 실행 결과 (2026-11-23 실행 완료)
 ```bash
-cd /Users/janghosohn/projects/chronos/backend && .venv/bin/pytest tests/programs/test_plan_frozen.py tests/programs/test_approvals_api.py tests/programs/test_rules_api.py tests/test_reports.py tests/llm/test_visual_check.py tests/tools/test_generate_tools.py
+cd ~/projects/chronos/backend && .venv/bin/pytest tests/programs/test_plan_frozen.py tests/programs/test_approvals_api.py tests/programs/test_rules_api.py tests/test_reports.py tests/llm/test_visual_check.py tests/tools/test_generate_tools.py
 # -> 139 passed in 21.82s
 
-cd /Users/janghosohn/projects/chronos/frontend && npm run typecheck
+cd ~/projects/chronos/frontend && npm run typecheck
 # -> tsc --noEmit && tsc --noEmit -p e2e (exit 0)
 
-bash -n /Users/janghosohn/projects/chronos/scripts/qdrant-local.sh
+bash -n ~/projects/chronos/scripts/qdrant-local.sh
 # -> exit 0
 ```
 - **미실행 검증 (Claude 담당):** 백엔드 전체 `pytest`, `frontend npm test` (`vitest run`), 실 Liner API 격리 Playwright E2E 재검증.
@@ -145,7 +145,7 @@ bash -n /Users/janghosohn/projects/chronos/scripts/qdrant-local.sh
 - `approvals.py:93-94`의 `if row.link_kind == "rule": return True` 두 줄만 단순히 삭제하면 바로 아래 96행 `list(row.conditions_json) != conditions`가 **여전히 `True`를 반환한다**(규칙 1건이 `conditions_json`에 추가되었기 때문). 반드시 93~94행 내부에서 `"일정 변경 없는 규칙"` 판별 후 명시적으로 `return False`를 해야 한다.
 
 #### (e) 검증 방법
-- `cd /Users/janghosohn/projects/chronos/backend && .venv/bin/pytest tests/programs/test_plan_frozen.py tests/programs/test_approvals_api.py tests/programs/test_rules_api.py`
+- `cd ~/projects/chronos/backend && .venv/bin/pytest tests/programs/test_plan_frozen.py tests/programs/test_approvals_api.py tests/programs/test_rules_api.py`
 - 실환경 E2E: `5층 사무동 신축` 지연 상태에서 `야간 작업 금지 (text_only)` 승인 후 `Plan 2027.10.20`, `SPI 0.87`, `지연 +8일`, `schedule.list` 위험도 유지 확인.
 
 ---
@@ -192,7 +192,7 @@ bash -n /Users/janghosohn/projects/chronos/scripts/qdrant-local.sh
    - 실 LLM(`LlmClient.chat` mock)이 `발주처_월간공정보고_양식.md` 4개 항목을 모두 `manual_input`으로 반환하는 상황에서도 `_sanitize_llm_result`가 `summary_prose`, `milestone_table`, `delay_table`, `lookahead_3w`로 복구함을 검증하는 단위 테스트 추가.
 
 #### (e) 검증 방법
-- `cd /Users/janghosohn/projects/chronos/backend && .venv/bin/pytest tests/test_reports.py`
+- `cd ~/projects/chronos/backend && .venv/bin/pytest tests/test_reports.py`
 - 실환경 E2E(`STEP 7-2~7-3`): `발주처_월간공정보고_양식.md` 학습 시 4개 항목이 모두 `연결됨` 상태로 매핑되고 보고서 생성 시 실제 KPI·표 데이터가 채워짐을 확인.
 
 ---
@@ -232,7 +232,7 @@ bash -n /Users/janghosohn/projects/chronos/scripts/qdrant-local.sh
    - 실모드(`fake` 꺼짐)에서 `revise_report_block` LLM 실패 시 `"[수정 반영: ...]"`가 저장되지 않고 502 에러와 함께 원문이 보존됨을 검증하는 테스트 추가.
 
 #### (e) 검증 방법
-- `cd /Users/janghosohn/projects/chronos/backend && .venv/bin/pytest tests/test_reports.py`
+- `cd ~/projects/chronos/backend && .venv/bin/pytest tests/test_reports.py`
 - 실환경 E2E(`STEP 7-3`, `7-4`, `7-5`): 보고서 요약 문단이 마침표로 완결되는 3~5문장으로 생성되고, AI 수정 시 프로젝트 실수치 기반 문장이 반영되는지 확인.
 
 ---
@@ -268,7 +268,7 @@ bash -n /Users/janghosohn/projects/chronos/scripts/qdrant-local.sh
 - 단순히 `1~31`이나 `2020~2030` 정수를 `numbers` 화이트리스트에 통째로 추가하면 `test_visual_check.py`의 환각 탐지 테스트(표에 없는 임의의 작은 정수 탐지)가 깨진다. 반드시 **날짜 구문(년/월/일·구분자 포함) + 표 날짜와의 대조** 방식으로만 제거해야 한다.
 
 #### (e) 검증 방법
-- `cd /Users/janghosohn/projects/chronos/backend && .venv/bin/pytest tests/llm/test_visual_check.py tests/programs/test_visuals_api.py`
+- `cd ~/projects/chronos/backend && .venv/bin/pytest tests/llm/test_visual_check.py tests/programs/test_visuals_api.py`
 - 실환경 E2E(`STEP 7-1`): 보고서용 그림 생성 시 `"기본 그림"` 폴백 대신 Liner 차트가 검증을 통과해 정상 표시되는지 확인.
 
 ---
@@ -304,7 +304,7 @@ bash -n /Users/janghosohn/projects/chronos/scripts/qdrant-local.sh
    - `store.upsert`가 Qdrant `UnexpectedResponse`(500) 또는 예외를 던질 때 `embed` mock 호출 횟수가 파일당 1회를 넘지 않고 안전하게 `_waiting` / `NOT_READY` 처리됨을 검증하는 단위 테스트 추가.
 
 #### (e) 검증 방법
-- `cd /Users/janghosohn/projects/chronos/backend && .venv/bin/pytest tests/files/test_jobs.py tests/files/test_vectors.py`
+- `cd ~/projects/chronos/backend && .venv/bin/pytest tests/files/test_jobs.py tests/files/test_vectors.py`
 - Qdrant 재시작 시 로그에 `Qdrant file descriptor limit: 65536`(또는 `10240` 이상) 확인, 새 컬렉션 생성 후 파일 `status='classified'` 전환 및 `llm_calls` `embed` 1회 호출 확인.
 
 ---
@@ -426,7 +426,7 @@ bash -n /Users/janghosohn/projects/chronos/scripts/qdrant-local.sh
    - 비정형 도메인(웹 검색+동적 합성+L3/L4 생성)의 현실적 실 LLM 응답 SLA 안내 확인.
 
 #### (e) 검증 방법
-- `cd /Users/janghosohn/projects/chronos/backend && .venv/bin/pytest tests/tools/test_generate_tools.py tests/agent/test_universal_scheduling.py`
+- `cd ~/projects/chronos/backend && .venv/bin/pytest tests/tools/test_generate_tools.py tests/agent/test_universal_scheduling.py`
 - 실환경 E2E(`STEP 10-2`): 재실행 시 `extract_conditions`가 1회 성공하고 전체 워크플로우가 `240s` 이내로 완료→`out.submit_change` 초안 생성까지 도달하는지 확인.
 
 ---
@@ -534,10 +534,10 @@ bash -n /Users/janghosohn/projects/chronos/scripts/qdrant-local.sh
 ### 7-1. 자동화 테스트 (코드 수정 후 필수 실행)
 ```bash
 # 1. 백엔드 전체 단위·통합 테스트
-cd /Users/janghosohn/projects/chronos/backend && .venv/bin/pytest
+cd ~/projects/chronos/backend && .venv/bin/pytest
 
 # 2. 프론트엔드 타입체크 및 단위 테스트
-cd /Users/janghosohn/projects/chronos/frontend && npm run typecheck && npm test
+cd ~/projects/chronos/frontend && npm run typecheck && npm test
 ```
 
 ### 7-2. 격리 실환경 E2E 재검증 체크리스트 (실 Liner API)

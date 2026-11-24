@@ -20,7 +20,7 @@
 - 점검하지 않은 조건을 통과로 표시하지 않는다. `checkable=False` 조건은 "자동 점검 안 됨"으로만 표시한다.
 - 비밀값: API 키는 화면에서만 입력받아 Fernet으로 암호화해 DB에 넣는다. 응답에는 끝 4자리만. `.env`·`data/`·DB 파일은 커밋하지 않는다. 로그·추적 기록에 키를 남기지 않는다.
 - 다른 회사 LLM API를 직접 부르지 않는다. 기본 연결은 Liner(`https://platform.liner.com/api/v1`).
-- 예시 자료는 전부 가상. 기존 저장소(`~/schedule-management`, 미니PC `~/project-platform`) 코드와 `@sohnjangho/agent-ux-*` 패키지를 복사·설치하지 않는다(형태만 참고).
+- 예시 자료는 전부 가상. 기존 저장소(`~/schedule-management`, 미니PC `~/project-platform`) 코드와 개인 npm 범위의 `agent-ux-*` 패키지를 복사·설치하지 않는다(형태만 참고).
 - 모듈 규칙: `app/core`는 DB·LLM·FastAPI를 import하지 않는다. `app/programs/<a>`는 `app/programs/<b>`를 import하지 않는다. 에이전트는 도구를 `app/tools/registry`로만 부른다. 화면의 `src/programs/<a>`는 `src/programs/<b>`를 import하지 않는다.
 - 파일 길이: 화면 파일 권장 300줄·상한 600줄, 서버 파일 권장 400줄·상한 800줄, 함수 권장 50줄·상한 100줄. 시험·자동 생성·자료 파일 제외. `scripts/check.sh`가 검사한다.
 - 색·글꼴 값은 `frontend/src/os/tokens.css`의 변수만 쓴다(값은 Task 12에 있음).
@@ -306,7 +306,7 @@ def test_unknown_resource_id_is_ignored():
 ```python
 def test_json_roundtrip(sample_schedule): assert from_json(to_json(sample_schedule)) == sample_schedule
 def test_save_bumps_version_and_logs(session, sid, sample_schedule):
-    n = save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="손장호", note="x", changes=[{"id": "A", "field": "od", "from": 3, "to": 4}], base_version=1)
+    n = save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="홍길동", note="x", changes=[{"id": "A", "field": "od", "from": 3, "to": 4}], base_version=1)
     assert n == 2 and session.query(ChangeLog).filter_by(schedule_id=sid).count() == 1
 def test_stale_base_version_conflicts(session, sid, sample_schedule):
     save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1)
@@ -314,7 +314,7 @@ def test_stale_base_version_conflicts(session, sid, sample_schedule):
         save_new_version(session, sid, sample_schedule, [], by_kind="agent", by_name="에이전트", note="", changes=[], base_version=1)
     assert e.value.current == 2
 def test_restore_creates_new_version_keeping_history(session, sid):
-    assert restore(session, sid, 1, by_name="손장호") == 3 and len(list_versions(session, sid)) == 3
+    assert restore(session, sid, 1, by_name="홍길동") == 3 and len(list_versions(session, sid)) == 3
 def test_patch_duration_recomputes(client, admin, sid):
     r = client.patch(f"/api/schedules/{sid}/activities/A", json={"od": 5, "base_version": 1}, headers=admin)
     assert r.status_code == 200 and r.json()["version"] == 2 and r.json()["finish"] > "2027-03-05"
