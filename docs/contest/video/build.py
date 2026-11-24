@@ -54,8 +54,9 @@ S = [
     ('이번 초안은 작업 68개, 규칙 위반 없이 한 번에 통과했습니다.', '이번 초안은 작업 육십팔 개, 규칙 위반 없이 한 번에 통과했습니다.')]),
   dict(id='S3', min=11, chip='시연 일정 · 5층 사무동 신축 (가상)', pieces=[('S3-gantt-points.mp4', 0, 38.9, 1)], lines=[
     ('시연 일정은 5층 사무동 신축입니다. 6월 말, 준공은 11월 8일, 계획대로 가고 있습니다.',
-     '시연 일정은 오 층 사무동 신축입니다. 유월 말, 준공은 십일월 팔 일, 계획대로 가고 있습니다.')]),
-  dict(id='S4', min=12, chip='장면 1 · 같은 3일', pieces=[('S4-delay-window.mp4', 0, 29.1, 1)], lines=[
+     '시연 일정은 오 층 사무동 신축입니다. 유월 말, 준공은 십일월 팔 일, 계획대로 가고 있습니다.'),
+    ('지금 약속을 좌우하는 일은 5층 골조와 옥탑 골조입니다.', '지금 약속을 좌우하는 일은, 오 층 골조와 옥탑 골조입니다.')]),
+  dict(id='S4', min=9.5, chip='장면 1 · 같은 3일', pieces=[('S4-delay-window.mp4', 0, 29.1, 1)], lines=[
     ('창호 제작이 3일 늦어졌습니다.', '창호 제작이 삼 일 늦어졌습니다.'),
     ('준공도, 관리 포인트도 그대로입니다. 창호 쪽은 여유가 18일입니다.', '준공도, 관리 포인트도 그대로입니다. 창호 쪽은 여유가 십팔 일입니다.')]),
   dict(id='S5', min=18, chip='장면 1 · 같은 3일, 다른 영향', pieces=[('S5-delay-curtain.mp4', 0, 30.3, 1)], lines=[
@@ -86,10 +87,10 @@ S = [
     ('결정은 사람이 승인함에서 하고, 에이전트는 관리 포인트를 다시 뽑습니다.', '결정은 사람이 승인함에서 하고, 에이전트는 관리 포인트를 다시 뽑습니다.'),
     ('크레인을 1대에서 2대로, 천장 마감과 커튼월 설치 기간을 줄이는 안입니다.', '크레인을 한 대에서 두 대로, 천장 마감과 커튼월 설치 기간을 줄이는 안입니다.'),
     ('승인하면 새 버전이 되고, 한 바퀴가 다시 돕니다.', '승인하면 새 버전이 되고, 한 바퀴가 다시 돕니다.')]),
-  dict(id='S11', min=12, chip='확장 · 생산 일정', pieces=[('S11-production.mp4', 0, 36.3, 1)], lines=[
+  dict(id='S11', min=10.5, chip='확장 · 생산 일정', pieces=[('S11-production.mp4', 0, 36.3, 1)], lines=[
     ('분야가 바뀌어도 엔진은 같습니다. 생산 일정도 같은 방식으로 돕니다.', '분야가 바뀌어도 엔진은 같습니다. 생산 일정도 같은 방식으로 돕니다.'),
-    ('분야마다 볼 바깥 자료만 켜고 끕니다.', '분야마다, 볼 바깥 자료만 켜고 끕니다.')]),
-  dict(id='S12', min=12, chip='개발 콘솔 · 실행 추적', pieces=[('S12-trace.mp4', 0, 47.1, 1)], lines=[
+    ('분야마다 볼 외부 자료만 켜고 끕니다.', '분야마다, 볼 외부 자료만 켜고 끕니다.')]),
+  dict(id='S12', min=9.5, chip='개발 콘솔 · 실행 추적', pieces=[('S12-trace.mp4', 0, 47.1, 1)], lines=[
     ('에이전트가 한 일은 단계마다 기록으로 남습니다.', '에이전트가 한 일은, 단계마다 기록으로 남습니다.'),
     ('왜 그렇게 했는지, 나중에 그대로 따라가 볼 수 있습니다.', '왜 그렇게 했는지, 나중에 그대로 따라가 볼 수 있습니다.')]),
   dict(id='S99', chip='', cards=['c-end'], tail=2.0, lines=[
@@ -196,7 +197,8 @@ def tts(text):
     h = hashlib.sha1(f'{TTS_MODEL}|{VOICE}|{STYLE}|{text}'.encode()).hexdigest()[:16]
     f = TTS_DIR / f'{h}.wav'
     if f.exists():
-        return read_wav(f)
+        x = read_wav(f)
+        return unwrap(x.tobytes()) if x[:2].tobytes() == b'RIFF' else x
     if not key:
         n = int(SR * max(1.2, len(text.replace(' ', '')) / 6.8))  # 어림 길이, 무음
         return np.zeros(n, dtype=np.int16)
@@ -212,7 +214,7 @@ def tts(text):
         import time; time.sleep(4 * (attempt + 1))
     r.raise_for_status()
     part = r.json()['candidates'][0]['content']['parts'][0]['inlineData']
-    pcm = np.frombuffer(base64.b64decode(part['data']), dtype=np.int16)
+    pcm = unwrap(base64.b64decode(part['data']))
     pcm = trim_silence(pcm)
     write_wav(f, pcm)
     return pcm
@@ -256,7 +258,7 @@ def scene_tts(lines):
             acc += len(t); cuts.append(int(len(pcm) * acc / tot))
         print('  쉼 부족 → 글자 비율로 나눔:', texts[0][:20])
     edges = [0] + cuts + [len(pcm)]
-    return [trim_silence(pcm[edges[k]:edges[k + 1]]) for k in range(n)]
+    return [fade(trim_silence(pcm[edges[k]:edges[k + 1]])) for k in range(n)]
 
 
 def trim_silence(x, thr=350):
@@ -265,6 +267,25 @@ def trim_silence(x, thr=350):
         return x
     a = max(0, idx[0] - int(0.05 * SR)); b = min(len(x), idx[-1] + int(0.12 * SR))
     return x[a:b]
+
+
+def unwrap(b):
+    """TTS 가 돌려준 바이트 → int16. WAV(RIFF) 면 머리말을 떼고, 아니면 날 PCM 으로 본다."""
+    import io
+    if b[:4] == b'RIFF':
+        with wave.open(io.BytesIO(b)) as w:
+            assert w.getframerate() == SR and w.getnchannels() == 1
+            return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+    return np.frombuffer(b, dtype=np.int16)
+
+
+def fade(x, ms=12):
+    n = min(len(x) // 4, int(SR * ms / 1000))
+    if n < 2:
+        return x
+    y = x.astype(np.float32)
+    y[:n] *= np.linspace(0, 1, n); y[-n:] *= np.linspace(1, 0, n)
+    return (y * 0.9).astype(np.int16)  # 0.9 = 1dB 여유
 
 
 def read_wav(f):
@@ -359,6 +380,10 @@ def build(seg):
     return T
 
 
+# 치찰음(ㅅ·ㅊ)이 모음보다 크게 튀는 TTS 소리를 누그러뜨린 뒤 크기를 맞춘다
+AFX = 'deesser=i=0.5:m=0.5:f=0.5,loudnorm=I=-16:TP=-1.5:LRA=11'
+
+
 def main():
     WORK.mkdir(parents=True, exist_ok=True)
     only = sys.argv[sys.argv.index('--only') + 1].split(',') if '--only' in sys.argv else None
@@ -376,7 +401,7 @@ def main():
     raw = WORK / 'joined.mp4'
     ff('-f', 'concat', '-safe', '0', '-i', lst, '-c', 'copy', raw)
     final = OUT / 'ChronOS_시연영상.mp4'
-    ff('-i', raw, '-c:v', 'copy', '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', final)
+    ff('-i', raw, '-c:v', 'copy', '-af', AFX, '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', final)
     print(json.dumps({k: round(v, 1) for k, v in durs.items()}, ensure_ascii=False))
     print(f'합계 {total:.1f}s ({int(total // 60)}:{int(total % 60):02d}) → {final}')
     print('TTS:', '사용' if gemini_key() else '키 없음(무음·어림 길이)')
