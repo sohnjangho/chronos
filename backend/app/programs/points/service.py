@@ -1,11 +1,11 @@
 """관리 포인트 API·도구(points.check)가 함께 쓰는 조회와 [근거 문장 보기]·[담당자에게 확인 연락].
 
-- view: 지금 버전의 포인트·마지막 차이·바깥 위험·근거 문장 상태·카드 꼴(바뀜이 없으면 card null). what_if 면 지연 분석의
-  가정 줄(app.points.card). 읽기만 한다 — 바깥 위험 찾기·근거 문장 채우기를 부르지 않는다. 날짜·여유는 저장한 엔진 값 그대로.
+- view: 지금 버전의 포인트·마지막 차이·외부 영향·근거 문장 상태·카드 꼴(바뀜이 없으면 card null). what_if 면 지연 분석의
+  가정 줄(app.points.card). 읽기만 한다 — 외부 영향 찾기·근거 문장 채우기를 부르지 않는다. 날짜·여유는 저장한 엔진 값 그대로.
   지금 버전 포인트가 표에 없으면(이 기능 전 버전) 계산해 둔다(카드 줄은 만들지 않는다).
 - quote: 사람이 누른 때만 quotes.fill(question=, mode="general", retry=). 그 위험 줄(ok)이 있어야 한다. 질문은
   card.quote_question(업체 갈래는 받은 제목을 넣지 않음), 열쇠 kind 는 card.quote_kind(가정 여부·질문 지문).
-- retry_risks: 사람의 「다시 찾기」 — 실패·멈춘 바깥 위험 찾기만 다시 띄운다(자동으로는 다시 찾지 않는다).
+- retry_risks: 사람의 「다시 찾기」 — 실패·멈춘 외부 영향 찾기만 다시 띄운다(자동으로는 다시 찾지 않는다).
 - people / contact: 담당 협력사(그 작업이 협력사 공종 말·연결 기록에 걸리는 곳 — 하네스 facts.allowed_for 와 같은 규칙)의 사람을
   보이고(번호 없음), 사람이 고른 연락처로 질문 글을 코드가 짓는다(포인트·위험 줄의 값만 — 숫자를 지어내지 않는다). AI 통화의
   물어볼 것에는 코드가 지은 줄만 넣는다(업체 소식 제목 같은 바깥 글은 빼다 — 지시로 들어가지 않게). 문자에는 사람이 읽으므로
@@ -43,8 +43,8 @@ from app.tools.notify import card_contact
 SCHEDULE_NOT_FOUND_MESSAGE = "일정을 찾을 수 없습니다."
 NO_WHAT_IF = "가정 관리 포인트가 없습니다 — 지연을 기록하거나 분석한 뒤에 볼 수 있습니다."
 NOT_A_POINT = "지금 관리 포인트가 아닙니다."
-NO_RISK = "근거 문장을 찾을 바깥 자료 줄이 없습니다."
-NOT_FAILED = "다시 찾을 것이 없습니다 — 바깥 위험 찾기가 실패했거나 아직 찾지 않았을 때만 찾습니다."
+NO_RISK = "근거 문장을 찾을 외부 자료 줄이 없습니다."
+NOT_FAILED = "다시 찾을 것이 없습니다 — 외부 영향 찾기가 실패했거나 아직 찾지 않았을 때만 찾습니다."
 TOO_LONG = "보낼 글이 너무 깁니다. 직접 줄여서 초안을 만들어 주세요."
 QUESTION_MAX = 200
 RISK_LINES_MAX = 3
@@ -154,7 +154,7 @@ async def quote(session: Session, schedule_id: int, activity_id: str, kind: str,
 
 
 def retry_risks(session: Session, schedule_id: int, body: RetryIn, *, field: bool = False) -> dict:
-    """「다시 찾기」·[바깥 위험 찾기](not_started 의 첫 찾기) → 지금 카드 상태(view). 그 밖이면 409 not_failed."""
+    """「다시 찾기」·[외부 영향 찾기](not_started 의 첫 찾기) → 지금 카드 상태(view). 그 밖이면 409 not_failed."""
     n, row, _ = _row(session, schedule_id, what_if=body.what_if)
     if row is None or not card.retry(session, row):
         session.rollback()
@@ -225,13 +225,13 @@ def message_body(site: str, person: str, point: dict, before: int | None, risks:
     text = f"{head}{person} 님, 「{point['name']}」({_span(point)}) {_state_line(point, before)}."
     lines = _risk_lines(risks, outside_text=True)  # 사람이 읽는 문자
     if lines:
-        text += f" 참고한 바깥 소식: {'; '.join(lines)}."
+        text += f" 참고한 외부 소식: {'; '.join(lines)}."
     return text + " 일정대로 진행할 수 있는지 알려 주시겠어요?"
 
 
 # ── AI 통화의 물어볼 것(11-24 되돌이 시험·PM 녹음 확인): 전화로 사람이 묻듯 ───────────────────────────────
 # 상황(어느 작업이 언제까지) + 물음. 작업 id·여유(TF)·크리티컬 같은 일정표 말, 점 찍은 날짜, 출처 꼬리표(「· The World Bank ·
-# 2026-10」)는 넣지 않는다 — 음성 모델이 적힌 글을 그대로 읽었다. 바깥 위험은 카드에 ok 로 있는 줄만, 코드가 아는 꼴(risk.py 가
+# 2026-10」)는 넣지 않는다 — 음성 모델이 적힌 글을 그대로 읽었다. 외부 영향은 카드에 ok 로 있는 줄만, 코드가 아는 꼴(risk.py 가
 # 지은 줄)일 때만 말로 바꾸고, 꼴을 모르면 넣지 않는다(꼬리표째 읽지 않게). 방향은 자료 그대로, 까닭은 말하지 않는다.
 ASK_ON_TIME = "제시간에 끝낼 수 있을까요? 어렵다면 무엇이 필요할까요?"
 ASK_SUPPLY = "자재 수급은 제때 가능할까요?"

@@ -1,10 +1,10 @@
-"""「관리 포인트가 바뀌었습니다」 카드(계획 5 Task 5): 차이를 적어 두고, 새 포인트의 바깥 위험을 뒤에서 찾고, 카드 꼴을 짓는다.
+"""「관리 포인트가 바뀌었습니다」 카드(계획 5 Task 5): 차이를 적어 두고, 새 포인트의 외부 영향을 뒤에서 찾고, 카드 꼴을 짓는다.
 
 - 표 point_cards: (일정, 버전, what_if) 한 줄. what_if = 지연 분석의 가정 포인트(버전은 그때의 지금 버전 — 덮어쓴다).
   차이를 사람이 읽을 꼴(new·tightened·removed — 이름·여유는 엔진 값 그대로)과 그때의 포인트, 위험 찾기 상태·결과를 둔다.
-- 「새 포인트」 = added + became_critical(ES 순, points_max_new 개까지). 바깥 위험(app.points.risk.look)은 이것만 찾는다.
+- 「새 포인트」 = added + became_critical(ES 순, points_max_new 개까지). 외부 영향(app.points.risk.look)은 이것만 찾는다.
   찾기는 응답을 막지 않는 뒤 작업이다: 버전 저장은 commit 이 된 뒤(after_commit), 지연 분석·points.check 는 commit 뒤 바로.
-  찾는 동안 risk_status 는 looking(「바깥 위험 찾는 중」). look 약속대로 앞뒤로 commit 한다. 같은 차이를 다시 적으면(같은
+  찾는 동안 risk_status 는 looking(「외부 영향 찾는 중」). look 약속대로 앞뒤로 commit 한다. 같은 차이를 다시 적으면(같은
   내용) 찾은 것·실패한 것을 그대로 둔다 — 다시 부르지 않는다(바깥 호출은 돈이 든다). 실패·멈춘 찾기를 다시 하는 것은 사람의
   「다시 찾기」(retry)뿐이다. 새 버전·새 가정 차이는 새로 찾는다.
 - 빠진 포인트에는 까닭을 붙인다: 여유가 늘어남(relief) · 창 밖으로 밀림(out_of_window — ES 가 Data Date + w주 뒤로, 완화가
@@ -41,10 +41,10 @@ from app.store.timeutil import as_utc
 logger = logging.getLogger(__name__)
 
 LOOKING, DONE, FAILED, NOTHING, NOT_STARTED = "looking", "done", "failed", "none", "not_started"
-RISK_MESSAGES = {LOOKING: "바깥 위험 찾는 중", DONE: "", FAILED: "바깥 위험을 찾지 못했습니다", NOTHING: "",
-                 NOT_STARTED: "바깥 위험을 아직 찾지 않았습니다"}
+RISK_MESSAGES = {LOOKING: "외부 영향 찾는 중", DONE: "", FAILED: "외부 영향을 찾지 못했습니다", NOTHING: "",
+                 NOT_STARTED: "외부 영향을 아직 찾지 않았습니다"}
 # 뒤 작업을 띄울 수 있는가: 서버가 도는 동안만(app.main lifespan 이 켜고 끈다). 씨앗·명령줄(python -m app.seed …)은 프로세스가
-# 곧 끝나 찾기가 「찾는 중」으로 멈추므로, 거기서 적은 줄은 not_started 로 두고 사람이 [바깥 위험 찾기](retry)로 처음 찾는다.
+# 곧 끝나 찾기가 「찾는 중」으로 멈추므로, 거기서 적은 줄은 not_started 로 두고 사람이 [외부 영향 찾기](retry)로 처음 찾는다.
 SERVING = False
 STALE_AFTER = timedelta(minutes=15)  # 이보다 오래 찾는 중이면 멈춘 것(서버가 다시 켜짐 등) — failed 로 보인다
 REASONS = {"relief": "여유가 늘어남", "out_of_window": "창 밖으로 밀림", "finished": "끝남", "gone": "일정에서 빠짐"}
@@ -136,7 +136,7 @@ def _same(a: Mapping, b: Mapping) -> bool:
 def remember(session: Session, schedule_id: int, version: int, *, what_if: bool, diff: PointsDiff,
              points: Sequence[Point], before: Mapping[str, Point], ready: Schedule, cpm: CpmResult,
              trigger: dict) -> bool:
-    """차이를 적는다(flush 만). 뒤에서 바깥 위험을 찾아야 하면 True(새 포인트가 있고, 같은 차이를 이미 적은 적이 없음 —
+    """차이를 적는다(flush 만). 뒤에서 외부 영향을 찾아야 하면 True(새 포인트가 있고, 같은 차이를 이미 적은 적이 없음 —
     같은 차이면 찾은 것·찾는 중·실패를 그대로 두고 무엇을 바꿨는지(trigger)만 고친다).
 
     before = 앞 상태의 포인트(id → Point, 빠진 포인트의 이름·앞 여유). ready·cpm = 뒤 상태(빠진 까닭을 가른다).
@@ -191,7 +191,7 @@ def get(session: Session, schedule_id: int, version: int, *, what_if: bool) -> P
 
 
 def retry(session: Session, row: PointCard) -> bool:
-    """사람의 「다시 찾기」·[바깥 위험 찾기]: 실패(멈춘 찾기 포함)했거나 아직 찾지 않은(not_started — 씨앗·명령줄에서 적은) 줄만
+    """사람의 「다시 찾기」·[외부 영향 찾기]: 실패(멈춘 찾기 포함)했거나 아직 찾지 않은(not_started — 씨앗·명령줄에서 적은) 줄만
     찾는 중으로 바꾼다(flush 만 — commit 뒤 launch). 아니면 False."""
     if status_of(row) not in (FAILED, NOT_STARTED) or not row.data_json["new"]:
         return False
@@ -205,7 +205,7 @@ def stored_points(row: PointCard) -> list[Point]:
     return [_from_json(d) for d in row.points_json]
 
 
-# ── 뒤에서 바깥 위험 찾기 ─────────────────────────────────────────────
+# ── 뒤에서 외부 영향 찾기 ─────────────────────────────────────────────
 
 _tasks: set = set()  # 끝나기 전에 사라지지 않게 쥔다(asyncio 작업·스레드)
 
@@ -219,8 +219,8 @@ def _engine():
 
 
 async def look_now(schedule_id: int, version: int, what_if: bool) -> None:
-    """그 줄의 새 포인트 바깥 위험을 찾아 적는다. 자기 세션을 쓴다(look 앞뒤 commit). 그 사이 다시 적혔으면(generation) 버린다."""
-    from app.points import risk  # 무거운 import(LLM·바깥 자료)는 부를 때
+    """그 줄의 새 포인트 외부 영향을 찾아 적는다. 자기 세션을 쓴다(look 앞뒤 commit). 그 사이 다시 적혔으면(generation) 버린다."""
+    from app.points import risk  # 무거운 import(LLM·외부 자료)는 부를 때
     from app.store.schedules import load
 
     engine = _engine()
@@ -246,7 +246,7 @@ async def look_now(schedule_id: int, version: int, what_if: bool) -> None:
             row.outdoor_json = outdoor
             session.commit()
         except Exception as exc:  # noqa: BLE001 — 뒤 작업은 상태를 끝내야 한다. 예외 글은 남기지 않는다
-            logger.warning("관리 포인트 바깥 위험 찾기 실패: 일정 %s 버전 %s (%s)", schedule_id, version, type(exc).__name__)
+            logger.warning("관리 포인트 외부 영향 찾기 실패: 일정 %s 버전 %s (%s)", schedule_id, version, type(exc).__name__)
             session.rollback()
             _mark_failed(session, schedule_id, version, what_if)
 
@@ -258,7 +258,7 @@ def _mark_failed(session: Session, schedule_id: int, version: int, what_if: bool
             row.risk_status, row.updated_at = FAILED, datetime.now(UTC)
             session.commit()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("관리 포인트 바깥 위험 실패 표시도 못 함 (%s)", type(exc).__name__)
+        logger.warning("관리 포인트 외부 영향 실패 표시도 못 함 (%s)", type(exc).__name__)
 
 
 def _start(job: Callable[[], Coroutine]) -> None:
@@ -335,7 +335,7 @@ def quote_question(point: Mapping, kind: str, risks: Sequence[Mapping]) -> str |
     if not lines:
         return None
     topic = f"「{point['name']}」 작업 {BUSINESS_TOPIC}" if kind == "business" else " / ".join(lines)
-    return (f"「{point['name']}」 작업({point['es']}~{point['ef']}) 기간에 영향을 줄 수 있는 다음 바깥 소식의 근거가 되는 "
+    return (f"「{point['name']}」 작업({point['es']}~{point['ef']}) 기간에 영향을 줄 수 있는 다음 외부 소식의 근거가 되는 "
             f"기사·자료 문장을 찾아 주세요: {topic}")
 
 
@@ -398,7 +398,7 @@ def payload(session: Session, row: PointCard, *, field: bool = False) -> dict | 
                       for t in data["tightened"]],
         "removed": data["removed"], "skipped": skipped, "skipped_count": len(skipped),
         "risk_status": status, "risk_message": RISK_MESSAGES[status],
-        "risk_retry": status in (FAILED, NOT_STARTED),  # [다시 찾기] / not_started 면 [바깥 위험 찾기]
+        "risk_retry": status in (FAILED, NOT_STARTED),  # [다시 찾기] / not_started 면 [외부 영향 찾기]
     }
 
 

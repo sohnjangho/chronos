@@ -1,4 +1,4 @@
-"""points.check(계획 5 Task 5): 지금 포인트·마지막 차이·바깥 위험·근거 문장 상태, 바뀌었으면 카드. 날짜·여유는 저장한 엔진 값."""
+"""points.check(계획 5 Task 5): 지금 포인트·마지막 차이·외부 영향·근거 문장 상태, 바뀌었으면 카드. 날짜·여유는 저장한 엔진 값."""
 
 from dataclasses import replace
 from datetime import date
@@ -92,7 +92,7 @@ async def test_what_if_after_a_delay_emits_a_what_if_card_and_launches(ctx, sess
     assert r.output["what_if"] is True and r.output["risk_status"] == "looking"
     assert card.launched == [(sid, 1, True)]
     (event,) = events
-    assert event.data["what_if"] is True and event.data["risk_message"] == "바깥 위험 찾는 중"
+    assert event.data["what_if"] is True and event.data["risk_message"] == "외부 영향 찾는 중"
     assert [(p["activity_id"], p["became_critical"], p["tf"]) for p in event.data["new"]] == [("C", True, 0)]
     again = await call("points.check", {"what_if": True}, replace(ctx, schedule_id=sid))
     assert again.ok and card.launched == [(sid, 1, True)]  # 같은 가정 — 다시 찾지 않는다

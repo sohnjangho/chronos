@@ -164,7 +164,7 @@ def set_tool_enabled(session: Session, name: str, enabled: bool) -> list[str]:
 
 # ── 관리 포인트(계획 5) ──────────────────────────────────────────────
 
-POINT_SOURCES = ("weather", "materials", "fx", "business")  # 바깥 자료 갈래: 날씨·금속/원자재·환율·업체 소식
+POINT_SOURCES = ("weather", "materials", "fx", "business")  # 외부 자료 갈래: 날씨·금속/원자재·환율·업체 소식
 POINTS_SOURCES_KEY = "points_sources"
 OTHER_DOMAIN = "_other"  # points_sources 안의 「그 밖의 분야」(표에 따로 없는 분야) 열쇠 — 개발 콘솔에서 바꾼다
 OTHER_DOMAIN_SOURCES = ("business",)  # 표에 없는 분야(OTHER_DOMAIN 을 저장한 적이 없을 때)
@@ -180,7 +180,7 @@ _ACCEL_WARN_RATIO_BOUNDS = (0.1, 1.0)
 _POINTS_INT_BOUNDS: dict[str, tuple[str, int, int, int]] = {
     "tf_days": ("points_tf_days", 0, 10, 3),  # k: 크리티컬 직전으로 볼 여유(근무일)
     "window_weeks": ("points_window_weeks", 1, 8, 3),  # w: Data Date 부터 보는 창(달력 주)
-    "max_new": ("points_max_new", 1, 10, 5),  # 바깥 위험을 찾을 새 포인트 수
+    "max_new": ("points_max_new", 1, 10, 5),  # 외부 영향을 찾을 새 포인트 수
     "forecast_reuse_hours": ("points_forecast_reuse_hours", 1, 48, 6),  # 예보 근거 재사용 시간
 }
 
@@ -229,7 +229,7 @@ def points_config(session: Session) -> PointsConfig:
 
 
 def sources_for(session: Session, domain: str) -> set[str]:
-    """그 분야에 켜진 바깥 자료 갈래. 표에 없는 분야는 「그 밖의 분야」(OTHER_DOMAIN, 저장한 적 없으면 OTHER_DOMAIN_SOURCES)."""
+    """그 분야에 켜진 외부 자료 갈래. 표에 없는 분야는 「그 밖의 분야」(OTHER_DOMAIN, 저장한 적 없으면 OTHER_DOMAIN_SOURCES)."""
     sources = _read_sources(session)
     return set(sources.get(domain, sources.get(OTHER_DOMAIN, OTHER_DOMAIN_SOURCES)))
 

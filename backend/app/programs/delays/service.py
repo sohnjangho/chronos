@@ -99,7 +99,7 @@ def _computed[T](make: Callable[[], T]) -> T:
 
 def _what_if(session: Session, schedule_id: int, analysis: DelayAnalysis | None) -> WhatIfPointsOut | None:
     """열린 사건을 넣은 가정 관리 포인트(방금 한 분석을 다시 쓴다). 카드 차이(what_if 줄)도 적고 commit 한 뒤, 새 포인트가
-    있으면 바깥 위험 찾기를 뒤에서 띄운다(응답을 막지 않는다). 실패해도 응답은 그대로 — 로그만, null."""
+    있으면 외부 영향 찾기를 뒤에서 띄운다(응답을 막지 않는다). 실패해도 응답은 그대로 — 로그만, null."""
     try:
         points, diff, n, look = points_service.remember_what_if(session, schedule_id, analysis)
         session.commit()

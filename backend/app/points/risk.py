@@ -1,4 +1,4 @@
-"""관리 포인트 바깥 위험(계획 5 B): 새 포인트마다 분야(schedule.domain)에 켜진 갈래만 찾아 한 줄씩 낸다.
+"""관리 포인트 외부 영향(계획 5 B): 새 포인트마다 분야(schedule.domain)에 켜진 갈래만 찾아 한 줄씩 낸다.
 
 - 무엇을 찾을지는 LLM(light)이 액티비티 이름·WBS·자원·분야만 보고 고른다(weather_sensitive · materials · imported ·
   trade · why). 날짜·주소는 보이지 않는다. 답은 엄격히 읽고 목록 밖·모양이 틀린 값은 버린다.
@@ -7,7 +7,7 @@
   (Premium Data — The World Bank 월별 금속, Xignite 환율). 업체 = Liner MCP `search_business` 첫 줄을 자재·공종 낱말
   (「알루미늄 커튼월 공급 동향」 — 공종은 TRADES 에서만, 금속은 TRADE_METAL 로 맞을 때만)으로 찾고 6개월 안의 글만 쓴다 — 회사·사람 이름은 질의에 넣지 않는다(씨앗 협력사는 가상이라 비슷한 이름의 실제 회사
   소식이 붙는다. 실제 회사라는 표시가 연락처에 생기기 전까지는 이름을 쓰지 않는다).
-- 숫자는 받은 표에서 코드가 읽고 계산한다. 없거나 숫자가 아니면 status none 「… · 바깥 자료 없음」(숫자 없음).
+- 숫자는 받은 표에서 코드가 읽고 계산한다. 없거나 숫자가 아니면 status none 「… · 외부 자료 없음」(숫자 없음).
 - 결과는 근거 표에 출처와 함께 남긴다(날씨 mode weather, 나머지 mode knowledge, 대화 없음). 같은 질의를
   points_forecast_reuse_hours 시간 안에 했으면(성공만) 다시 부르지 않고 그 줄을 쓴다 — 30일 같은 주소 규칙은 쓰지 않는다.
 - 부른 쪽은 look 앞뒤로 commit 한다. look 은 LLM·바깥 호출을 모두 끝낸 뒤 맨 끝에 근거 줄을 한꺼번에 넣고 flush 만 한다
@@ -52,7 +52,7 @@ Kind = Literal["weather", "materials", "fx", "business"]
 Status = Literal["ok", "none", "skipped"]
 MATERIALS = ("copper", "aluminum", "iron ore")  # 0단계 실측으로 Premium Data 에 있는 금속(The World Bank)
 MATERIAL_NAMES = {"copper": "구리", "aluminum": "알루미늄", "iron ore": "철광석"}
-NO_DATA = "바깥 자료 없음"
+NO_DATA = "외부 자료 없음"
 NO_ADDRESS = "프로젝트 주소가 없어 날씨를 보지 않음"
 NO_STATION = "지점을 몰라 날씨를 보지 않음"
 FX_QUERY = "USD KRW exchange rate"
@@ -75,7 +75,7 @@ _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _PAIR = re.compile(r"\(([A-Z]{3})\)\s*to\s.*\(([A-Z]{3})\)")
 
 SYSTEM = (
-    "건설·제조 일정의 액티비티 하나를 보고, 일정에 영향을 줄 바깥 자료 중 무엇을 볼지만 고른다. 판단·숫자는 쓰지 않는다.\n"
+    "건설·제조 일정의 액티비티 하나를 보고, 일정에 영향을 줄 외부 자료 중 무엇을 볼지만 고른다. 판단·숫자는 쓰지 않는다.\n"
     "- weather_sensitive: 실외 작업이거나 비·눈·바람·추위에 멈추는 작업(타설·골조·외벽·방수·토공·양중 등)이면 true.\n"
     "- materials: 이 작업에 많이 드는 금속만, 목록 copper·aluminum·iron ore 에서(철근·철골은 iron ore). 없으면 [].\n"
     "- imported: 자재·장비를 외국에서 들여올 가능성이 크면 true(환율을 본다).\n"

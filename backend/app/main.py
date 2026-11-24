@@ -56,7 +56,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     jobs.start()  # 파일 뒤 작업 줄(임베딩·분류·다시 넣기). CHRONOS_QDRANT_URL 이 빈 값이면 뜻 검색만 끈다(분류는 된다)
     worker.start()  # 연락 일꾼(예약 문자·상태 조회·들어온 문자). 알림 연결이 없거나 ok 가 아니면 아무것도 하지 않는다
     runner.start()  # 거는 통화 일꾼. 끄는 설정은 문자 일꾼과 같다. 음성 백엔드가 없으면 줄의 통화를 초안으로 돌린다
-    points_card.SERVING = True  # 관리 포인트 바깥 위험 찾기는 서버 안에서만 뒤에서 띄운다(씨앗·명령줄은 not_started)
+    points_card.SERVING = True  # 관리 포인트 외부 영향 찾기는 서버 안에서만 뒤에서 띄운다(씨앗·명령줄은 not_started)
     yield
     points_card.SERVING = False
     await runner.stop()

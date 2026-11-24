@@ -1,4 +1,4 @@
-"""관리 포인트 카드·API(계획 5 Task 5): 카드 차이(app.points.card)·뒤에서 바깥 위험 찾기·GET /points·[근거 문장 보기]·
+"""관리 포인트 카드·API(계획 5 Task 5): 카드 차이(app.points.card)·뒤에서 외부 영향 찾기·GET /points·[근거 문장 보기]·
 [담당자에게 확인 연락]·주의할 일정의 수. 바깥 호출 없음(risk.look·quotes.fill 은 가짜, 연락 통로는 fake_channel)."""
 
 import json
@@ -103,7 +103,7 @@ def test_new_point_makes_a_card_and_looks_up_risks_after_commit(client, admin, s
     assert c["kind"] == "points_changed" and (c["schedule_id"], c["version"], c["what_if"]) == (sid, n, False)
     assert [(p["activity_id"], p["tf"], p["before_tf"], p["critical"]) for p in c["new"]] == [("C", 1, 4, False)]
     assert c["new"][0]["actions"] == ["contact", "recovery"] and c["basis"] == {"tf_days": 3, "window_weeks": 3}
-    assert (c["risk_status"], c["risk_message"]) == ("looking", "바깥 위험 찾는 중")
+    assert (c["risk_status"], c["risk_message"]) == ("looking", "외부 영향 찾는 중")
     stored = {p.activity_id: p for p in points_store.get(session, sid, n)}
     assert next(p for p in got["points"] if p["activity_id"] == "C") == {
         "activity_id": "C", "name": "작업 C", "critical": False, "tf": stored["C"].tf,
@@ -134,7 +134,7 @@ def test_tightened_only_still_makes_a_card(client, admin, session):
     _save(session, sid, _od(_base(), C=4), 1)  # 여유 1
     c = client.get(_url(sid), headers=admin).json()["card"]
     assert c["new"] == [] and [(t["activity_id"], t["before_tf"], t["tf"]) for t in c["tightened"]] == [("C", 2, 1)]
-    assert c["risk_status"] == "none" and card.launched == []  # 새 포인트가 없으면 바깥 위험을 찾지 않는다
+    assert c["risk_status"] == "none" and card.launched == []  # 새 포인트가 없으면 외부 영향을 찾지 않는다
 
 
 def test_removed_points_say_why_and_out_of_window_is_not_relief(client, admin, session):
@@ -166,7 +166,7 @@ def test_before_tf_missing_is_left_out(session):
     assert "before_tf" not in item
 
 
-# ── 뒤에서 바깥 위험 찾기 ─────────────────────────────────────────────
+# ── 뒤에서 외부 영향 찾기 ─────────────────────────────────────────────
 
 
 def _risks(aid: str) -> list[Risk]:
@@ -174,7 +174,7 @@ def _risks(aid: str) -> list[Risk]:
         Risk(aid, "materials", "알루미늄 3개월 +5.0% · The World Bank · 2026-10", 11, "2026-10", "The World Bank", "ok",
              "외장재"),
         Risk(aid, "weather", "프로젝트 주소가 없어 날씨를 보지 않음", None, None, None, "skipped", "실외 작업"),
-        Risk(aid, "fx", "원·달러 · 바깥 자료 없음", None, None, None, "none", "수입"),
+        Risk(aid, "fx", "원·달러 · 외부 자료 없음", None, None, None, "none", "수입"),
     ]
 
 
@@ -393,7 +393,7 @@ def _people(session, sid: int) -> tuple[int, int]:
 async def _found(session, sid, n, monkeypatch):
     async def look(s, schedule_id, version, points, outdoor=None):
         return [Risk("C", "business", "가람건설, 설비 점검으로 출하 조정 · 한빛경제", 3, "2026-11-21", "한빛경제", "ok", ""),
-                Risk("C", "fx", "원·달러 · 바깥 자료 없음", None, None, None, "none", "")]
+                Risk("C", "fx", "원·달러 · 외부 자료 없음", None, None, None, "none", "")]
 
     monkeypatch.setattr(risk, "look", look)
     await card.look_now(sid, n, False)
@@ -427,7 +427,7 @@ async def test_preview_builds_text_from_point_and_risk_values_only(client, admin
     body = r.json()["body"]
     span = f"{c.es:%m.%d}~{c.ef:%m.%d}"
     assert body == (f"[시험 일정] 김공정 님, 「작업 C」({span}) 여유가 4일에서 1일로 줄었습니다. "
-                    "참고한 바깥 소식: 가람건설, 설비 점검으로 출하 조정 · 한빛경제. 일정대로 진행할 수 있는지 알려 주시겠어요?")
+                    "참고한 외부 소식: 가람건설, 설비 점검으로 출하 조정 · 한빛경제. 일정대로 진행할 수 있는지 알려 주시겠어요?")
     assert session.scalars(select(OutreachMessage)).all() == []  # 미리 보기는 아무것도 만들지 않는다
     call = client.post(_url(sid, "/C/contact"), json={"contact_id": pid, "channel": "call", "preview": True},
                        headers=admin).json()
@@ -520,7 +520,7 @@ CARD_RISKS = [
     _card_risk("materials", "알루미늄 3개월 -3.2% · The World Bank · 2026-10"),
     _card_risk("fx", "원·달러 1,343원 · Xignite · 11-24 18:35 기준"),
     _card_risk("weather", "프로젝트 주소가 없어 날씨를 보지 않음", "skipped"),
-    _card_risk("business", "커튼월 · 바깥 자료 없음", "none"),
+    _card_risk("business", "커튼월 · 외부 자료 없음", "none"),
 ]
 
 
@@ -532,7 +532,7 @@ def test_call_questions_say_the_work_its_due_date_and_the_ask_without_schedule_j
     assert questions[1:] == ["알루미늄 시세가 최근 석 달 3% 남짓 내렸는데, 자재 수급은 제때 가능할까요?",
                              "요즘 원·달러 환율이 1,340원대인데, 자재 수급은 제때 가능할까요?"]
     text = purpose + " ".join(questions)
-    for word in ("A1404", "여유", "TF", "크리티컬", "07.10", "05.31", " · ", "World Bank", "Xignite", "18:35", "바깥 자료 없음",
+    for word in ("A1404", "여유", "TF", "크리티컬", "07.10", "05.31", " · ", "World Bank", "Xignite", "18:35", "외부 자료 없음",
                  "날씨"):
         assert word not in text, word
 
@@ -680,7 +680,7 @@ def test_stale_lookup_shows_failed_and_can_be_retried(client, admin, session):
     row.updated_at = datetime.now(UTC) - card.STALE_AFTER - timedelta(minutes=1)  # 서버가 다시 켜져 멈춘 찾기
     session.commit()
     c = client.get(_url(sid), headers=admin).json()["card"]
-    assert (c["risk_status"], c["risk_message"], c["risk_retry"]) == ("failed", "바깥 위험을 찾지 못했습니다", True)
+    assert (c["risk_status"], c["risk_message"], c["risk_retry"]) == ("failed", "외부 영향을 찾지 못했습니다", True)
     card.launched.clear()
     assert client.post(_url(sid, "/risks/retry"), json={}, headers=admin).status_code == 200
     assert card.launched == [(sid, n, False)]
@@ -819,7 +819,7 @@ def test_call_draft_validation_is_a_clean_422(client, admin, session, monkeypatc
     assert session.scalars(select(OutreachCall)).all() == []
 
 
-# ── 씨앗·명령줄: 서버 밖에서는 바깥 위험 찾기를 띄우지 않음 ──────────────
+# ── 씨앗·명령줄: 서버 밖에서는 외부 영향 찾기를 띄우지 않음 ──────────────
 
 
 def test_server_lifespan_turns_background_lookups_on(client):
@@ -831,10 +831,10 @@ def test_outside_the_server_the_card_waits_for_a_human_start(client, admin, sess
     sid, n = _with_c_point(session)
     assert card.launched == []  # 띄우지 않는다 — 프로세스가 끝나면 「찾는 중」으로 멈추므로
     c = client.get(_url(sid), headers=admin).json()["card"]
-    assert (c["risk_status"], c["risk_message"], c["risk_retry"]) == ("not_started", "바깥 위험을 아직 찾지 않았습니다",
+    assert (c["risk_status"], c["risk_message"], c["risk_retry"]) == ("not_started", "외부 영향을 아직 찾지 않았습니다",
                                                                       True)
     assert c["new"][0]["risks"] == []
-    r = client.post(_url(sid, "/risks/retry"), json={}, headers=admin)  # [바깥 위험 찾기] — 같은 API 로 첫 찾기
+    r = client.post(_url(sid, "/risks/retry"), json={}, headers=admin)  # [외부 영향 찾기] — 같은 API 로 첫 찾기
     assert r.status_code == 200, r.json()
     assert r.json()["risk_status"] == "looking" and card.launched == [(sid, n, False)]
 

@@ -80,7 +80,7 @@ def _refresh(session: Session, schedule_id: int, version: int, computed: CpmResu
 def refresh_quietly(session: Session, schedule_id: int, version: int, *, commit: bool,
                     computed: CpmResult | None = None) -> PointsDiff | None:
     """버전을 만든 뒤 훅: refresh 와 카드 차이 적기(app.points.card.remember)를 SAVEPOINT 안에서 하고 commit(아니면 flush).
-    새 포인트가 있으면 바깥 트랜잭션이 commit 된 뒤 바깥 위험 찾기를 띄운다. 실패는 로그 한 줄만 남기고 None —
+    새 포인트가 있으면 바깥 트랜잭션이 commit 된 뒤 외부 영향 찾기를 띄운다. 실패는 로그 한 줄만 남기고 None —
     SAVEPOINT 만 되돌리므로 부른 쪽의 저장(commit 이 아니면 아직 열린 트랜잭션)을 깨지 않는다.
     (pysqlite 로 확인: 바깥 트랜잭션이 쓰는 중이든 아니든 안쪽만 되돌아간다 — 시험 test_points_service.)
     """
@@ -90,7 +90,7 @@ def refresh_quietly(session: Session, schedule_id: int, version: int, *, commit:
             look = diff is not None and card.remember(
                 session, schedule_id, version, what_if=False, diff=diff, points=cur,
                 before={p.activity_id: p for p in prev}, ready=ready, cpm=cpm, trigger=card.version_trigger(version))
-        if look:  # 바깥 위험은 저장이 commit 된 뒤 뒤에서 찾는다(응답을 막지 않는다)
+        if look:  # 외부 영향은 저장이 commit 된 뒤 뒤에서 찾는다(응답을 막지 않는다)
             card.launch_after_commit(session, schedule_id, version, what_if=False)
         end_write(session, commit)
         return diff
@@ -123,7 +123,7 @@ def what_if(session: Session, schedule_id: int, analysis: DelayAnalysis | None =
 
 def remember_what_if(session: Session, schedule_id: int, analysis: DelayAnalysis | None = None
                      ) -> tuple[tuple[Point, ...], PointsDiff, int, bool]:
-    """what_if 를 계산해 카드 차이(what_if 줄, 지금 버전 n)를 적는다(flush 만). → (포인트, 차이, n, 뒤에서 바깥 위험을
+    """what_if 를 계산해 카드 차이(what_if 줄, 지금 버전 n)를 적는다(flush 만). → (포인트, 차이, n, 뒤에서 외부 영향을
     찾아야 하는가 — 부른 쪽이 commit 한 뒤 card.launch(…, n, what_if=True)). NotFound·ScheduleError 는 그대로."""
     if analysis is None:
         analysis, _, _ = delays_store.analyze_open(session, schedule_id)

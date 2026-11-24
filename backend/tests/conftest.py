@@ -53,7 +53,7 @@ def quiet_file_worker(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def quiet_points_risks(monkeypatch):
-    """관리 포인트 바깥 위험 찾기(계획 5 Task 5)의 뒤 작업을 띄우지 않는다 — 시험이 LLM·Liner·기상청에 나가지 않고 스레드가
+    """관리 포인트 외부 영향 찾기(계획 5 Task 5)의 뒤 작업을 띄우지 않는다 — 시험이 LLM·Liner·기상청에 나가지 않고 스레드가
     남지 않게. 띄우려던 것은 card.launched 에 (일정, 버전, what_if) 로 쌓인다. 시험은 card.look_now 를 직접 부른다."""
     from app.points import card
 

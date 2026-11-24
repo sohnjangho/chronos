@@ -1,4 +1,4 @@
-"""관리 포인트 바깥 위험(app.points.risk): 분야별 갈래·LLM(light) 고르기·날씨(기상청)·자재·환율(Premium Data)·업체(MCP)·
+"""관리 포인트 외부 영향(app.points.risk): 분야별 갈래·LLM(light) 고르기·날씨(기상청)·자재·환율(Premium Data)·업체(MCP)·
 재사용 시간·근거 표. 가짜 Liner·가짜 기상청·가짜 MCP·가짜 LLM 만 쓴다(네트워크 없음). 값은 모두 가상 또는 실측 표본을 줄인 것.
 """
 
@@ -44,7 +44,7 @@ LATER = Point("A", "3층 슬래브 타설", True, 0, date(2026, 12, 10), date(20
 ALL = {"weather_sensitive": True, "materials": ["aluminum", "copper"], "imported": True, "trade": "골조",
        "why": "실외 타설이고 알루미늄 창호를 들여온다"}
 NOTHING = {"weather_sensitive": False, "materials": [], "imported": False, "trade": None, "why": "실내 작업"}
-NO_DATA = "바깥 자료 없음"
+NO_DATA = "외부 자료 없음"
 
 
 class Web(httpx.MockTransport):
