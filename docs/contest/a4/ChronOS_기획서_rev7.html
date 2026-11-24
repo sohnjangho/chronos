@@ -7,6 +7,7 @@ body{margin:0;background:#334155;font-family:"Apple SD Gothic Neo","Pretendard",
   background:#05070d url(img/bg-page.jpg) center/100% 100% no-repeat;
   padding:16mm 16mm 12mm;display:flex;flex-direction:column}
 @media print{body{background:none}.page{margin:0;break-after:page}.shot,.paper,.rc .ph,.chip2,.bub,.nar,.tagon,.lens{box-shadow:0 0 0 1px rgba(255,255,255,.06)!important}.glow-amber{box-shadow:none!important}.step,.tag2{text-shadow:none!important}.step i{box-shadow:none!important}}
+.page>*{flex-shrink:0}
 .mono{font-family:"SF Mono","JetBrains Mono",Menlo,monospace}
 .eyebrow{font:700 8.5pt "SF Mono",Menlo;letter-spacing:.16em;color:#7dd3fc;text-transform:uppercase}
 .eyebrow.amber{color:#fbbf24}.eyebrow.red{color:#f87171}
@@ -122,17 +123,22 @@ p{margin:0}
 .bar .b{border-radius:6px;padding:2mm 3mm;font-size:8.6pt;font-weight:700;margin:.8mm 0}
 </style></head><body>
 
-<!-- 1 표지 -->
+<!-- 1 표지 (와우 1 모양, PM 11-24) -->
 <section class="page">
-  <div class="toprow"><span class="chip">LINER .EXE-THON 2026</span><span class="mono" style="font-size:8pt;color:#64748b">기획서</span></div>
-  <div class="eyebrow" style="margin-top:14mm">일정 에이전트 OS</div>
-  <h1 style="font-size:56pt;margin-top:2mm">Chron<span class="c">OS</span></h1>
-  <p class="sub" style="font-size:13.5pt;color:#fff;font-weight:600">일정이 바뀔 때마다, 약속한 날짜를 좌우하는 일이<br>어디로 옮겨 갔는지 먼저 알려 주는 에이전트.</p>
-  <p class="sub" style="font-size:10.5pt;margin-top:3mm">채팅창 하나로 끝나지 않는다. 에이전트가 스케줄, 간트, 비교판 창을 직접 열고, 담당자에게 먼저 묻는다. 건설 현장, 생산 라인, 연구 과제, 시스템 구축처럼 마감이 있는 모든 일정에 쓴다.</p>
-  <div style="position:relative;height:128mm;margin-top:10mm">
-    <div class="shot" style="position:absolute;left:14mm;top:0;width:164mm"><img src="img/cv-간트.jpg"></div>
-    <div class="shot" style="position:absolute;left:-6mm;top:62mm;width:86mm"><img src="img/cv-로그인.jpg"></div>
-    <div class="shot glow-amber" style="position:absolute;right:-6mm;top:24mm;width:58mm"><img src="img/cv-에이전트.jpg" style="height:96mm;object-fit:cover;object-position:top"></div>
+  <div class="toprow"><span class="chip">LINER .EXE-THON 2026</span><span class="wow">WOW 1 · OS + COMPUTER USE</span></div>
+  <div class="eyebrow" style="margin-top:8mm">일정 에이전트 OS</div>
+  <h1 style="font-size:60pt;margin-top:1mm">Chron<span class="c">OS</span></h1>
+  <div style="font-size:21pt;font-weight:800;color:#fff;letter-spacing:-.02em;margin-top:2mm">대화하면, <span style="color:#7dd3fc">일정표가 움직인다.</span></div>
+  <p class="sub" style="font-size:10.6pt">일정이 바뀔 때마다, 약속한 날짜를 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트. 대화창에 "커튼월 공장 제작이 3일 늦어졌어"라고 쓰면 에이전트가 스케줄, 지연 기록, 비교판 창을 직접 열어 일하고, 사람은 마지막에 승인한다. 건설, 생산, 연구 과제, 시스템 구축처럼 마감이 있는 모든 일정에 쓴다.</p>
+  <div class="stage" style="height:150mm;margin-top:9mm">
+    <div class="shot" style="position:absolute;left:62mm;top:0;width:118mm"><img src="img/os1-스케줄.jpg"></div>
+    <div class="shot" style="position:absolute;left:68mm;top:40mm;width:114mm"><img src="img/os2-지연.jpg"></div>
+    <div class="shot glow-amber" style="position:absolute;left:74mm;top:80mm;width:108mm"><img src="img/os3-비교판.jpg"></div>
+    <div class="shot" style="position:absolute;left:0;top:4mm;width:58mm;z-index:8"><img src="img/os-대화.jpg"></div>
+    <div class="chip2 white" style="left:2mm;top:-4mm"><i>0</i>대화로 요청</div>
+    <div class="chip2" style="left:64mm;top:-4mm"><i>1</i>스케줄에서 작업을 찾고</div>
+    <div class="chip2" style="left:70mm;top:36mm"><i>2</i>지연 기록에서 영향을 재고</div>
+    <div class="chip2 amber" style="left:76mm;top:76mm"><i>3</i>비교판에 만회안을 띄운다</div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5mm;font-size:8.6pt;color:#94a3b8;border-top:1px solid rgba(255,255,255,.1);padding-top:4mm;margin-top:auto">
     <div><b style="color:#fff;display:block">손장호</b>건설·플랜트 PM 15년차</div>
@@ -291,43 +297,19 @@ p{margin:0}
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
 </section>
 
-<!-- 6 와우 1 OS -->
-<section class="page">
-  <div class="toprow"><div class="eyebrow">03 · 에이전트가 쓰는 OS</div><span class="wow">WOW 1 · OS + COMPUTER USE</span></div>
-  <h1 style="font-size:52pt;margin-top:2mm">Chron<span class="c">OS</span></h1>
-  <div style="font-size:20pt;font-weight:800;color:#fff;letter-spacing:-.02em;margin-top:2mm">대화하면, <span style="color:#7dd3fc">일정표가 움직인다.</span></div>
-  <p class="sub" style="font-size:11pt">에이전트와 일정 도구가 한 화면에 있다. 대화창에 "커튼월 공장 제작이 3일 늦어졌어"라고 쓰면 에이전트가 답을 글로만 주지 않고 스케줄, 지연 기록, 비교판 창을 직접 열어 일한다. 사람은 대화를 이어 가며 창이 바뀌는 것을 보고, 마지막에 승인한다.</p>
-  <div class="stage" style="height:150mm;margin-top:9mm">
-    <div class="shot" style="position:absolute;left:62mm;top:0;width:118mm"><img src="img/os1-스케줄.jpg"></div>
-    <div class="shot" style="position:absolute;left:68mm;top:40mm;width:114mm"><img src="img/os2-지연.jpg"></div>
-    <div class="shot glow-amber" style="position:absolute;left:74mm;top:80mm;width:108mm"><img src="img/os3-비교판.jpg"></div>
-    <div class="shot" style="position:absolute;left:0;top:4mm;width:58mm;z-index:8"><img src="img/os-대화.jpg"></div>
-    <div class="chip2 white" style="left:2mm;top:-4mm"><i>0</i>대화로 요청</div>
-    <div class="chip2" style="left:64mm;top:-4mm"><i>1</i>스케줄에서 작업을 찾고</div>
-    <div class="chip2" style="left:70mm;top:36mm"><i>2</i>지연 기록에서 영향을 재고</div>
-    <div class="chip2 amber" style="left:76mm;top:76mm"><i>3</i>비교판에 만회안을 띄운다</div>
-  </div>
-  <div class="facts">
-    <div><b>한 화면에서</b>대화와 일정 도구가 따로 놀지 않는다. 사람이 고른 작업을 에이전트도 본다.</div>
-    <div><b>Computer Use</b>스크린샷을 흉내 내지 않고, 자기 OS 의 창을 도구(<span class="mono" style="font-size:8pt">ui.open_window</span>)로 정확히 연다.</div>
-    <div><b>사람이 결정</b>앱 19개가 같은 승인함을 쓴다. 일정은 승인해야 바뀐다.</div>
-  </div>
-  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
-</section>
-
 <!-- 7 워크플로우 -->
 <section class="page">
-  <div class="toprow"><div class="eyebrow">03 · 에이전트가 쓰는 OS · 워크플로우</div><span class="wow">WOW 1 · 이어서</span></div>
-  <h1 style="font-size:30pt">정해진 순서 대신,<br><span class="c">워크플로우를 그 자리에서 짠다</span></h1>
-  <p class="sub" style="font-size:10.2pt">요청이 들어오면 워크플로우 창이 열려 단계가 하나씩 생기고, 단계마다 그 일을 하는 창이 앞으로 나온다. 단계를 누르면 어떤 도구를 왜 썼는지, 무엇을 받아 무엇을 돌려줬는지, 어느 모델이 얼마를 썼는지 나온다.</p>
-  <div class="stage" style="height:118mm;margin-top:8mm">
-    <div class="shot" style="position:absolute;left:0;top:0;width:104mm"><img src="img/wf1.jpg"></div>
-    <div class="shot" style="position:absolute;left:22mm;top:22mm;width:104mm"><img src="img/wf2.jpg"></div>
-    <div class="shot" style="position:absolute;left:44mm;top:44mm;width:104mm"><img src="img/wf3.jpg"></div>
-    <div class="shot" style="position:absolute;right:0;top:0;width:36mm;z-index:8"><img src="img/wf4-상세.jpg" style="height:104mm;object-fit:cover;object-position:top"></div>
+  <div class="toprow"><div class="eyebrow">03 · 에이전트가 쓰는 OS</div><span class="wow">WOW 1 · OS + COMPUTER USE</span></div>
+  <h1 style="font-size:28pt">채팅창 하나가 아니라 OS.<br><span class="c">워크플로우를 그 자리에서 짠다</span></h1>
+  <p class="sub" style="font-size:10pt">에이전트는 자기 OS 의 창을 도구(<span class="mono" style="font-size:8.6pt">ui.open_window</span>)로 정확히 연다. 스크린샷을 보고 마우스를 흉내 내지 않아서 빠르고, 권한이 없는 창은 열지 못한다. 요청마다 워크플로우 창에 단계가 하나씩 생기고, 단계를 누르면 도구, 까닭, 모델, 비용이 나온다.</p>
+  <div class="stage" style="height:100mm;margin-top:8mm">
+    <div class="shot" style="position:absolute;left:0;top:0;width:92mm"><img src="img/wf1.jpg"></div>
+    <div class="shot" style="position:absolute;left:24mm;top:19mm;width:92mm"><img src="img/wf2.jpg"></div>
+    <div class="shot" style="position:absolute;left:48mm;top:38mm;width:92mm"><img src="img/wf3.jpg"></div>
+    <div class="shot" style="position:absolute;right:0;top:0;width:36mm;z-index:8"><img src="img/wf4-상세.jpg" style="height:96mm;object-fit:cover;object-position:top"></div>
     <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>단계 1개</div>
-    <div class="chip2" style="left:24mm;top:18mm"><i>2</i>단계가 자란다</div>
-    <div class="chip2 amber" style="left:46mm;top:40mm"><i>3</i>완료</div>
+    <div class="chip2" style="left:26mm;top:15mm"><i>2</i>단계가 자란다</div>
+    <div class="chip2 amber" style="left:50mm;top:34mm"><i>3</i>완료</div>
     <div class="chip2" style="right:2mm;top:-4mm"><i>i</i>단계 상세</div>
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin-top:6mm;align-items:start">
