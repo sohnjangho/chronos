@@ -109,18 +109,21 @@ def _live_by_url(session: Session, urls: set[str]) -> dict[str, EvidenceItem]:
 
 
 def recent(session: Session, *, mode: str, query: str, hours: int) -> list[EvidenceItem] | None:
-    """같은 mode·query 로 hours 시간 안에 성공한 가장 새 검색의 결과 줄(id 차례, 결과가 없었으면 []). 없으면 None.
+    """같은 mode·query 로 hours 시간 안에 성공한 가장 새 검색의 결과 줄(id 차례, 「다시 쓰지 않기」 줄은 뺌, 결과가 없었으면 []).
+    없거나 결과가 모두 「다시 쓰지 않기」면 None.
 
     관리 포인트 겨냥 검색이 낡은 예보·값을 다시 쓰지 않게 짧은 시간(points_forecast_reuse_hours)만 본다."""
     since = (datetime.now(UTC) - timedelta(hours=hours)).replace(tzinfo=None)  # DB 는 시간대 없는 UTC
     found = session.scalars(
-        select(EvidenceSearch.id).where(EvidenceSearch.mode == mode, EvidenceSearch.query == query,
-                                        EvidenceSearch.ok.is_(True), EvidenceSearch.created_at >= since)
+        select(EvidenceSearch).where(EvidenceSearch.mode == mode, EvidenceSearch.query == query,
+                                     EvidenceSearch.ok.is_(True), EvidenceSearch.created_at >= since)
         .order_by(EvidenceSearch.id.desc())
     ).first()
     if found is None:
         return None
-    return list(session.scalars(select(EvidenceItem).where(EvidenceItem.search_id == found).order_by(EvidenceItem.id)))
+    items = list(session.scalars(select(EvidenceItem).where(EvidenceItem.search_id == found.id,
+                                                            EvidenceItem.retired.is_(False)).order_by(EvidenceItem.id)))
+    return None if not items and found.result_count > 0 else items  # 결과를 모두 「다시 쓰지 않기」 했으면 다시 부른다
 
 
 def last_user_message_at(session: Session, chat_session_id: int) -> datetime | None:

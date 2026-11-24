@@ -8,7 +8,8 @@
 - 숫자는 받은 표에서 코드가 읽고 계산한다. 없거나 숫자가 아니면 status none 「… · 바깥 자료 없음」(숫자 없음).
 - 결과는 근거 표에 출처와 함께 남긴다(날씨 mode weather, 나머지 mode knowledge, 대화 없음). 같은 질의를
   points_forecast_reuse_hours 시간 안에 했으면(성공만) 다시 부르지 않고 그 줄을 쓴다 — 30일 같은 주소 규칙은 쓰지 않는다.
-- 쓰기는 flush 만(commit 은 부른 쪽). LLM 은 모두 먼저 부른다(쌓인 쓰기를 쥔 채 llm_calls 기록을 기다리지 않게).
+- 부른 쪽은 look 앞뒤로 commit 한다. look 은 LLM·바깥 호출을 모두 끝낸 뒤 맨 끝에 근거 줄을 한꺼번에 넣고 flush 만 한다
+  (바깥 응답·llm_calls 기록을 기다리는 동안 쓰기 잠금을 쥐지 않는다). 한 look 안의 같은 질의는 한 번만 부른다.
   키는 기록·결과 어디에도 없다(실패는 종류만 남긴다).
 """
 
@@ -57,6 +58,7 @@ HISTORY_YEARS = 10
 LLM_TIMEOUT_S = 30.0
 KNOWLEDGE_URL, KNOWLEDGE_HOST = "https://liner.com", "liner.com"  # Premium Data 표에는 링크가 없다
 _SUPPLIER, _WHY = 80, 120
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _PAIR = re.compile(r"\(([A-Z]{3})\)\s*to\s.*\(([A-Z]{3})\)")
 
 SYSTEM = (
@@ -119,8 +121,9 @@ def _schema() -> dict:
     return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
 
 
-def _checked(parsed: object) -> _Pick | None:
-    """엄격히 읽는다: 객체가 아니면 None. bool 이 아닌 값은 False, 목록 밖 자재는 버림, 빈 업체 이름은 None."""
+def _checked(parsed: object, seen: str) -> _Pick | None:
+    """엄격히 읽는다: 객체가 아니면 None. bool 이 아닌 값은 False, 목록 밖 자재는 버림. 업체 이름은 LLM 이 본 글(seen —
+    이름·WBS·자원)에 그대로 있을 때만, why 는 seen 에 없는 숫자가 있으면 버린다(지어낸 이름·숫자를 싣지 않는다)."""
     if not isinstance(parsed, dict):
         return None
     raw = parsed.get("materials")
@@ -128,8 +131,12 @@ def _checked(parsed: object) -> _Pick | None:
         raw, list) else ()
     supplier = parsed.get("supplier")
     supplier = (supplier.strip()[:_SUPPLIER] or None) if isinstance(supplier, str) else None
+    if supplier is not None and supplier.casefold() not in seen.casefold():
+        supplier = None
     why = parsed.get("why")
     why = why.strip().splitlines()[0].strip()[:_WHY] if isinstance(why, str) and why.strip() else ""
+    if any(n not in set(_NUMBER.findall(seen)) for n in _NUMBER.findall(why)):
+        why = ""
     return _Pick(weather_sensitive=parsed.get("weather_sensitive") is True, materials=materials,
                  imported=parsed.get("imported") is True, supplier=supplier, why=why)
 
@@ -153,7 +160,8 @@ async def _pick(session: Session, brief: dict) -> _Pick | None:
     except (LlmNotReady, LlmFailed) as exc:
         logger.warning("관리 포인트 자료 고르기 실패 (%s)", type(exc).__name__)
         return None
-    pick = _checked(reply.parsed)
+    seen = " ".join([brief["name"], brief["wbs"], *brief["resources"]])
+    pick = _checked(reply.parsed, seen)
     if pick is None:
         logger.warning("관리 포인트 자료 고르기 실패 (모양이 틀린 답)")
     return pick
@@ -319,19 +327,24 @@ def _record(session: Session, job: _Job, *, ok: bool, code: str | None, ms: int,
     return items[0].id
 
 
-async def _do(session: Session, job: _Job, reuse_hours: int) -> Risk:
-    if (items := recent(session, mode=job.mode, query=job.query, hours=reuse_hours)) is not None:
-        return _reused(job, items)
+@dataclass(frozen=True)
+class _Fetched:
+    """한 질의를 부른 결과. found 가 있으면 성공(hit 이 없으면 자료 없음), 없으면 code 가 있을 때 보낸 뒤 실패, 둘 다 없으면 보내지 않음."""
+
+    found: _Found | None
+    code: str | None
+    ms: int
+
+
+async def _fetch(job: _Job) -> _Fetched:
     start = time.perf_counter()
     try:
         found = await job.run()
     except _NotSent:
-        return _risk(job, _Found(job.none_line), None)
+        return _Fetched(None, None, 0)
     except _Failed as e:
-        _record(session, job, ok=False, code=e.code, ms=int((time.perf_counter() - start) * 1000), found=None)
-        return _risk(job, _Found(job.none_line), None)
-    evidence_id = _record(session, job, ok=True, code=None, ms=int((time.perf_counter() - start) * 1000), found=found)
-    return _risk(job, found, evidence_id)
+        return _Fetched(None, e.code, int((time.perf_counter() - start) * 1000))
+    return _Fetched(found, None, int((time.perf_counter() - start) * 1000))
 
 
 def _jobs(session: Session, point: Point, pick: _Pick, on: set[str], address: str, today: date) -> list[_Job | Risk]:
@@ -365,7 +378,9 @@ def _jobs(session: Session, point: Point, pick: _Pick, on: set[str], address: st
 async def look(session: Session, schedule_id: int, version: int, points: Sequence[Point]) -> list[Risk]:
     """새 포인트 앞에서 points_max_new 개만, 포인트 차례·갈래 차례(weather·materials·fx·business)로 위험 줄을 낸다.
 
-    분야에 켜진 갈래가 없으면 LLM 도 부르지 않는다. 고르기가 실패한 포인트는 줄이 없다. flush 만 한다.
+    분야에 켜진 갈래가 없으면 LLM 도 부르지 않는다. 고르기가 실패한 포인트는 줄이 없다.
+    부르는 쪽(Task 5) 약속: look 앞에서 commit(쌓인 쓰기 없이 부른다), 뒤에서 commit. look 은 읽기·LLM·바깥 호출을
+    모두 끝낸 뒤 맨 끝에 근거 줄을 한꺼번에 넣고 flush 만 한다 — 바깥 응답을 기다리는 동안 쓰기 잠금을 쥐지 않는다.
     """
     cfg = points_config(session)
     record = session.get(ScheduleRecord, schedule_id)
@@ -380,12 +395,35 @@ async def look(session: Session, schedule_id: int, version: int, points: Sequenc
         schedule = None
     profile = session.get(ProjectProfile, schedule_id)
     address = profile.site_address if profile is not None else ""
-    picks = [(p, await _pick(session, _brief(schedule, p, domain))) for p in chosen]  # LLM 먼저(쓰기 전에)
+    picks = [(p, await _pick(session, _brief(schedule, p, domain))) for p in chosen]
     today = weather._now().date()
-    out: list[Risk] = []
-    for point, pick in picks:
-        if pick is None:
+    rows: list[_Job | Risk] = [j for point, pick in picks if pick is not None
+                               for j in _jobs(session, point, pick, on, address, today)]
+    reused: dict[tuple[str, str], list[EvidenceItem]] = {}
+    fetched: dict[tuple[str, str], _Fetched] = {}  # 한 번 look 안의 같은 질의는 한 번만 부른다
+    for job in rows:
+        if isinstance(job, Risk) or (key := (job.mode, job.query)) in reused or key in fetched:
             continue
-        for job in _jobs(session, point, pick, on, address, today):
-            out.append(job if isinstance(job, Risk) else await _do(session, job, cfg.forecast_reuse_hours))
+        if (items := recent(session, mode=job.mode, query=job.query, hours=cfg.forecast_reuse_hours)) is not None:
+            reused[key] = items
+        else:
+            fetched[key] = await _fetch(job)
+    ids: dict[tuple[str, str], int | None] = {}
+    for job in rows:  # 쓰기는 여기서부터(바깥 호출이 다 끝난 뒤)
+        if isinstance(job, Risk) or (key := (job.mode, job.query)) not in fetched or key in ids:
+            continue
+        got = fetched[key]
+        if got.found is not None:
+            ids[key] = _record(session, job, ok=True, code=None, ms=got.ms, found=got.found)
+        elif got.code is not None:
+            ids[key] = _record(session, job, ok=False, code=got.code, ms=got.ms, found=None)
+    out: list[Risk] = []
+    for job in rows:
+        if isinstance(job, Risk):
+            out.append(job)
+        elif (key := (job.mode, job.query)) in reused:
+            out.append(_reused(job, reused[key]))
+        else:
+            found = fetched[key].found or _Found(job.none_line)
+            out.append(_risk(job, found, ids.get(key)))
     return out

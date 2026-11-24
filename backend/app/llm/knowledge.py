@@ -6,7 +6,10 @@
 """
 
 import math
+import re
 from dataclasses import dataclass
+
+_YEAR_MONTH = re.compile(r"(\d{4})-(\d{2})")
 
 
 @dataclass(frozen=True)
@@ -61,16 +64,27 @@ def _number(row: tuple[str, ...]) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def _month(stamp: str) -> int | None:
+    """「YYYY-MM…」 → 해*12+달. 아니면 None."""
+    found = _YEAR_MONTH.match(stamp)
+    if found is None or not 1 <= int(found.group(2)) <= 12:
+        return None
+    return int(found.group(1)) * 12 + int(found.group(2))
+
+
 def sorted_rows(table: KnowledgeTable) -> list[tuple[str, ...]]:
     """때(첫 칸) 차례. 첫 칸이 없는 줄은 뺀다."""
     return sorted((r for r in table.rows if r), key=lambda r: r[0])
 
 
 def trend(table: KnowledgeTable, months: int = 3) -> tuple[float, float, float] | None:
-    """(앞 값, 뒤 값, %): 마지막 줄과 그보다 months 줄 앞(월별 표에서 months 개월 앞)의 값. 줄이 모자라거나 두 값 중
-    하나라도 숫자가 아니거나 앞 값이 0 이면 None."""
+    """(앞 값, 뒤 값, %): 마지막 줄과 그보다 months 줄 앞 줄의 값. 두 줄의 때가 꼭 months 개월 떨어져 있어야 한다(아니면
+    None). 줄이 모자라거나 두 값 중 하나라도 숫자가 아니거나 앞 값이 0 이면 None."""
     rows = sorted_rows(table)
     if len(rows) <= months:
+        return None
+    a, b = _month(rows[-1 - months][0]), _month(rows[-1][0])
+    if a is None or b is None or b - a != months:  # 사이 달이 빠졌으면 months 줄 앞이 months 개월 앞이 아니다
         return None
     prev, last = _number(rows[-1 - months]), _number(rows[-1])
     if prev is None or last is None or prev == 0:

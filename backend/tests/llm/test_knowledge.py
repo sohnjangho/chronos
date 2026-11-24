@@ -46,6 +46,19 @@ def test_trend_three_months_from_real_rows():
     assert pct == pytest.approx((2344 - 2565) / 2565 * 100)
 
 
+def test_trend_none_when_middle_month_is_missing():
+    """가운데 달 값이 null 이면 그 줄은 버려지고, 3줄 앞은 4개월 앞이 된다 → 3개월 흐름을 내지 않는다."""
+    good = SAMPLE["aluminum"]["body"]["knowledge"][0]
+    rows = [*good["rows"], ["2024-09-01 00:00:00+00:00", None], ["2024-10-01 00:00:00+00:00", "2400.0"]]
+    t = knowledge.read({"knowledge": [{**good, "rows": rows}]})[0]
+    assert len(t.rows) == 5 and knowledge.trend(t, months=3) is None
+
+
+def test_trend_none_when_rows_have_no_month():
+    t = KnowledgeTable("t", None, None, ("Timestamp", "v"), (("a", "1"), ("b", "2"), ("c", "3"), ("d", "4")))
+    assert knowledge.trend(t, months=3) is None
+
+
 def test_trend_sorts_rows_by_time():
     t = knowledge.read(SAMPLE["aluminum"]["body"])[0]
     shuffled = KnowledgeTable(t.title, t.source, t.as_of, t.columns, tuple(reversed(t.rows)))

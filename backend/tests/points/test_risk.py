@@ -10,7 +10,8 @@ from pathlib import Path
 
 import httpx
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session
 
 from app.core.model import Resource
 from app.core.points import Point
@@ -109,8 +110,9 @@ def fakes(session, monkeypatch) -> Fakes:
 
 
 def _schedule(session, *, domain: str = "construction", address: str | None = "서울특별시 강남구 테헤란로 1") -> int:
-    s = make([task("A", 3, name="3층 슬래브 타설", resources=("crane",)), task("B", 2, name="창호 설치")],
-             resources=[Resource("crane", "타워크레인", "대", 1)])
+    s = make([task("A", 3, name="3층 슬래브 타설", resources=("crane", "hb", "dr")), task("B", 2, name="창호 설치")],
+             resources=[Resource("crane", "타워크레인", "대", 1), Resource("hb", "한빛창호", "팀", 1),
+                        Resource("dr", "다른창호", "팀", 1)])
     sid = store(session, s)
     session.execute(update(ScheduleRecord).where(ScheduleRecord.id == sid).values(domain=domain))
     if address is not None:
@@ -198,6 +200,20 @@ async def test_unusable_llm_reply_gives_nothing(session, fakes, reply):
     fakes.liner.push(reply)
     assert await risk.look(session, sid, 1, [SOON]) == []
     assert fakes.calls() == (0, 0, 0)
+
+
+@pytest.mark.parametrize("supplier,why,kept", [
+    ("한빛창호", "3층 타설에 한빛창호 창호가 든다", ("한빛창호", "3층 타설에 한빛창호 창호가 든다")),  # 글에 있는 이름·숫자
+    ("대한알루미늄", "강수확률 70% 라서", (None, "")),  # 본 글에 없는 업체·숫자는 버린다
+])
+async def test_supplier_and_why_must_come_from_what_llm_saw(session, fakes, supplier, why, kept):
+    sid = _schedule(session)
+    fakes.classify({**NOTHING, "weather_sensitive": True, "supplier": supplier, "why": why})
+    risks = await risk.look(session, sid, 1, [SOON])
+    assert risks[0].why == kept[1]
+    assert [r.kind for r in risks] == (["weather", "business"] if kept[0] else ["weather"])
+    assert [c["params"]["arguments"]["query"].split(" ")[0] for c in fakes.mcp.bodies("tools/call")] == (
+        [kept[0]] if kept[0] else [])
 
 
 async def test_only_first_max_new_points(session, fakes):
@@ -399,6 +415,55 @@ async def test_none_result_reused_too_but_failure_is_not(session, fakes):
     assert [r.status for r in risks] == ["none", "none"]
     failed = session.scalars(select(EvidenceSearch).where(EvidenceSearch.ok.is_(False))).all()
     assert [f.error_code for f in failed] == ["server_error", "server_error"]
+
+
+async def test_retired_evidence_is_not_reused(session, fakes):
+    sid = _schedule(session)
+    pick = {**NOTHING, "materials": ["copper"]}
+    fakes.classify(pick, pick)
+    [r] = await risk.look(session, sid, 1, [SOON])
+    session.commit()
+    session.get(EvidenceItem, r.evidence_id).retired = True
+    session.commit()
+    await risk.look(session, sid, 1, [SOON])
+    assert fakes.web.queries() == ["copper price", "copper price"]
+
+
+async def test_same_query_twice_in_one_look_is_called_once(session, fakes):
+    sid = _schedule(session)
+    pick = {**NOTHING, "materials": ["copper"]}
+    fakes.classify(pick, pick)
+    other = Point("B", "창호 설치", False, 2, date(2026, 11, 26), date(2026, 11, 27))
+    risks = await risk.look(session, sid, 1, [SOON, other])
+    assert fakes.web.queries() == ["copper price"]
+    assert [r.activity_id for r in risks] == ["A", "B"] and risks[0].evidence_id == risks[1].evidence_id is not None
+
+
+async def test_no_write_lock_held_while_waiting_on_sources(session, fakes):
+    """바깥 응답을 기다리는 동안 다른 세션이 쓸 수 있다(look 이 쓰기 잠금을 쥐고 있지 않다)."""
+    engine = session.get_bind()
+    wrote: list[int] = []
+
+    def other_session_writes() -> None:
+        with Session(engine) as other:
+            other.add(Setting(key=f"probe_{len(wrote)}", value="x"))
+            other.commit()  # 잠금을 쥔 쪽이 있으면 database is locked
+        wrote.append(1)
+
+    for t in (fakes.web, fakes.mcp, fakes.kma):
+        real = t.handle_request
+
+        def handle(request, real=real):
+            other_session_writes()
+            return real(request)
+
+        t.handle_request = handle
+    sid = _schedule(session)
+    fakes.classify(ALL)
+    risks = await risk.look(session, sid, 1, [SOON])
+    assert len(wrote) >= 5 and {r.status for r in risks} == {"ok"}  # 기상청 1 + Search 3 + MCP(세션 열기 포함)
+    session.commit()
+    assert session.scalar(select(func.count()).select_from(EvidenceSearch)) == 5
 
 
 async def test_keys_never_logged(session, fakes, caplog):
