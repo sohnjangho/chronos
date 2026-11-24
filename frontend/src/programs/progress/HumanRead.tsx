@@ -14,9 +14,17 @@ export const isHumanItem = (i: FieldItem) => i.kind === 'photo' && (HUMAN_STATUS
 
 type Info = Record<string, unknown>;
 const info = (i: FieldItem, key: string): Info => (i.payload_json?.[key] as Info | undefined) ?? {};
-export const uploaderOf = (i: FieldItem) => String(info(i, 'uploaded_by').name ?? '') || i.trade;
+/** 올린 사람 이름. 모르면(예전 줄) 「—」 — 공종 이름으로 채우지 않는다(리뷰 6). */
+export const uploaderOf = (i: FieldItem) => String(info(i, 'uploaded_by').name ?? '') || '—';
 const when = (i: FieldItem) => String(i.payload_json?.captured_at ?? '');
 const why = (i: FieldItem) => String(i.payload_json?.unread_reason ?? '');
+/** 승인함에서 거부·충돌로 돌아온 지난 사람 판독(가장 최근). 없으면 null. */
+export function lastReturned(i: FieldItem): Info | null {
+  const h = i.payload_json?.human_history;
+  return i.status === 'human_wait' && Array.isArray(h) && h.length > 0 ? (h[h.length - 1] as Info) : null;
+}
+export const RETURNED = '반려됨 — 다시 판독 대기';
+const noChange = (i: FieldItem) => info(i, 'human_read').no_change === true;
 
 const GROUPS: { key: string; label: string; pick(i: FieldItem): boolean }[] = [
   { key: 'wait', label: '사람 판독 대기', pick: (i) => i.status === 'human_wait' },
@@ -26,9 +34,12 @@ const GROUPS: { key: string; label: string; pick(i: FieldItem): boolean }[] = [
 
 function resultLine(i: FieldItem): string {
   const h = info(i, 'human_read');
-  if (i.response_choice === 'human') return `사람 판독 · ${String(h.by ?? '')} — ${String(h.progress ?? i.reported_progress)}%${i.approval_id !== null ? ` · 승인함 #${i.approval_id}` : ''}`;
+  if (i.response_choice === 'human') {
+    const where = i.approval_id !== null ? ` · 승인함 #${i.approval_id}` : noChange(i) ? ' · 기록과 같아 일정 변경 없음' : '';
+    return `사람 판독 · ${String(h.by ?? '')} — ${String(h.progress ?? i.reported_progress)}%${where}`;
+  }
   if (i.status === 'retake') return `다시 찍기 요청 — ${String(info(i, 'retake').reason ?? '')}`;
-  return why(i);
+  return lastReturned(i) ? `${RETURNED} · ${why(i)}` : why(i);
 }
 
 interface Props {
@@ -143,6 +154,7 @@ function Detail({
   const url = typeof item.payload_json?.photo_data_url === 'string' ? item.payload_json.photo_data_url : null;
   const human = info(item, 'human_read');
   const asked = info(item, 'retake');
+  const returned = lastReturned(item);
   const act = `${item.activity_id} ${item.activity_name}`;
   return (
     <div className="pg-hr-detail">
@@ -162,6 +174,12 @@ function Detail({
         <dd>
           {recorded === null ? '—' : <b>{`${recorded}%`}</b>} <span className="pg-muted">(비교용 — AI 에는 보내지 않음)</span>
         </dd>
+        {returned && (
+          <>
+            <dt>지난 판독</dt>
+            <dd>{`${RETURNED} — ${String(returned.by ?? '')} ${String(returned.progress ?? '')}% · ${String(returned.reason ?? '')}`}</dd>
+          </>
+        )}
         {item.status === 'retake' && (
           <>
             <dt>다시 찍기</dt>
@@ -173,7 +191,7 @@ function Detail({
             <dt>사람 판독</dt>
             <dd>{`사람 판독 · ${String(human.by ?? '')} — ${String(human.progress ?? item.reported_progress)}% · ${String(human.reason ?? '')}`}</dd>
             <dt>승인함</dt>
-            <dd>{item.approval_id !== null ? `#${item.approval_id} 에 올림` : '—'}</dd>
+            <dd>{item.approval_id !== null ? `#${item.approval_id} 에 올림` : noChange(item) ? '기록과 같아 올리지 않음(일정 변경 없음)' : '—'}</dd>
           </>
         )}
       </dl>

@@ -11,7 +11,7 @@ import ContactButton from '../../shared/outreach/ContactButton';
 import { checkinText, handoffText, pollText } from '../../shared/outreach/contactKit';
 import ReplyCandidates, { MEMO_MAX } from '../../shared/outreach/ReplyCandidates';
 import { fieldApi, type FieldActivityOption, type FieldData, type FieldItem, type FieldKind } from './fieldApi';
-import HumanRead, { isHumanItem } from './HumanRead';
+import HumanRead, { isHumanItem, lastReturned, RETURNED } from './HumanRead';
 
 const TABS: { id: FieldKind; label: string }[] = [
   { id: 'checkin', label: '일일 체크인' },
@@ -329,6 +329,7 @@ function PhotoCard({ item, busy, onApply }: { item: FieldItem; busy: boolean; on
       </div>
       {unread ? (
         <div className="pg-ai-result">
+          {lastReturned(item) && <p className="pg-risk-line">{RETURNED}</p>}
           {item.status === 'human_wait' && <p className="pg-hr-note">AI 가 판독하지 못해 관리자가 확인 중입니다.</p>}
           {item.status === 'retake' && (
             <>
@@ -357,8 +358,10 @@ function PhotoCard({ item, busy, onApply }: { item: FieldItem; busy: boolean; on
       <div className="pg-fcard-foot">
         <span className="pg-muted">{`${String(p.photo_name ?? 'site_photo.jpg')} · ${String(p.captured_at ?? '금일')}`}</span>
         <span className="sch-gap" />
-        <Button variant="primary" disabled={busy || item.approval_id !== null || unread} onClick={() => void onApply()}>
-          {item.approval_id !== null ? `승인함 #${item.approval_id} 확정됨` : '승인함 상신 · 증빙 확정'}
+        <Button variant="primary" disabled={busy || item.approval_id !== null || unread || item.status === 'applied'} onClick={() => void onApply()}>
+          {item.approval_id !== null
+            ? `승인함 #${item.approval_id} 확정됨`
+            : item.status === 'applied' ? '기록과 같아 일정 변경 없음' : '승인함 상신 · 증빙 확정'}
         </Button>
       </div>
     </article>
@@ -590,7 +593,7 @@ export default function FieldHub({
       {isSimpleField ? (
         <div className="pg-field-simple-bar" role="status" aria-label="오늘 현장 보고 요약">
           <span>{`체크인 ${s.checkin_responded}/${s.checkin_total}`}</span>
-          <span>{`사진 판독 ${s.photo_total}건`}</span>
+          <span>{`사진 판독 ${s.photo_total}건${humanWait > 0 ? ` · 사람 판독 대기 ${humanWait}` : ''}`}</span>
           <span>{`핸드오프 ${s.handoff_ready}/${s.handoff_total}`}</span>
         </div>
       ) : (
@@ -601,7 +604,7 @@ export default function FieldHub({
           </div>
           <div className="pg-fkpi">
             <span className="pg-muted">AI 사진 판독 증빙</span>
-            <b>{`${s.photo_total}건`}</b>
+            <b>{`증빙 ${s.photo_total}건${humanWait > 0 ? ` · 사람 판독 대기 ${humanWait}` : ''}`}</b>
           </div>
           <div className="pg-fkpi">
             <span className="pg-muted">만회안 공종 의견</span>
@@ -625,7 +628,7 @@ export default function FieldHub({
         </div>
         <span className="sch-gap" />
         {canHuman && tab === 'photo' && (
-          <div role="group" aria-label="사진 판독 보기" className="pg-seg">
+          <div role="group" aria-label="사진 판독 보기" className="pg-seg pg-hr-switch">
             <button type="button" aria-pressed={photoView === 'ai'} onClick={() => setPhotoView('ai')}>
               {`AI 판독 ${shown.length}`}
             </button>

@@ -7,6 +7,7 @@ import { useSession } from '../../os/session';
 import { signInAsDemo, stubFetch } from '../../test-helpers';
 import FieldHub from './FieldHub';
 import type { FieldData, FieldItem } from './fieldApi';
+import progressCss from './progress.css?raw';
 
 vi.mock('../../shared/outreach/BatchSendDialog', () => ({ default: () => null }));
 
@@ -103,4 +104,53 @@ test('the uploader (field manager) sees the admin is checking and the retake req
   expect(within(asked).getByText('관리자가 다시 찍어 달라고 했습니다 — 한 층 접합부가 함께 보이게 다시 찍어 주세요')).toBeVisible();
   expect(screen.queryByRole('button', { name: '사람 판독으로 승인함에 올리기' })).toBeNull();
   expect(screen.queryByRole('region', { name: '사진 사람 판독' })).toBeNull();
+});
+
+// 리뷰 11-24
+
+const BACK = photo({ id: 4, title: '[AI 사진 판독] A330 기둥 세우기', activity_id: 'A330', activity_name: '기둥 세우기',
+  payload_json: { ...WAIT.payload_json, human_history: [{ by: '김하늘', progress: 40, reason: '절반', outcome: 'rejected', approval_id: 5 }] } });
+const SAME = photo({ id: 5, title: '[AI 사진 판독] A340 보 세우기', activity_id: 'A340', activity_name: '보 세우기', status: 'applied',
+  response_choice: 'human', reported_progress: 40, approval_id: null,
+  payload_json: { ...WAIT.payload_json, human_read: { by: '김하늘', progress: 40, reason: '그대로', no_change: true } } });
+
+test('a human reading rejected in the inbox shows 반려됨 — 다시 판독 대기 to the uploader and in the list', async () => {
+  signInAsDemo('field', '박현장');
+  stubFetch({ '/api/schedules/1/field': data([BACK], false) });
+  render(<FieldHub scheduleId={1} />);
+  await userEvent.click(await screen.findByRole('tab', { name: '사진 AI 판독' }));
+  const card = screen.getByRole('article', { name: BACK.title });
+  expect(within(card).getByText('반려됨 — 다시 판독 대기')).toBeVisible();
+  expect(within(card).queryByText(/\d+%/)).toBeNull(); // 거부된 값은 보이지 않는다
+  cleanup();
+  useSession.getState().logout();
+  await openHuman([WAIT, BACK]);
+  const list = screen.getByRole('region', { name: '사진 사람 판독' });
+  expect(within(list).getByText(/^반려됨 — 다시 판독 대기 · /)).toBeVisible();
+});
+
+test('a human reading equal to the record says so and cannot be sent again', async () => {
+  signInAsDemo('field', '박현장');
+  stubFetch({ '/api/schedules/1/field': data([SAME], false, 0, 0) });
+  render(<FieldHub scheduleId={1} />);
+  await userEvent.click(await screen.findByRole('tab', { name: '사진 AI 판독' }));
+  const card = screen.getByRole('article', { name: SAME.title });
+  expect(within(card).getByRole('button', { name: '기록과 같아 일정 변경 없음' })).toBeDisabled();
+});
+
+test('an old row without the uploader name shows — instead of the trade', async () => {
+  const old = photo({ payload_json: { ...WAIT.payload_json, uploaded_by: undefined } });
+  await openHuman([old]);
+  const side = screen.getByRole('complementary', { name: '사람 판독 자세히' });
+  expect(within(side).getByText('— · 2026-11-24 19:55')).toBeVisible();
+  expect(within(side).queryByText(/철골팀/)).toBeNull();
+});
+
+test('unreadable photos are not counted as evidence in the KPI', async () => {
+  await openHuman();
+  expect(screen.getByText('증빙 3건 · 사람 판독 대기 1')).toBeVisible();
+});
+
+test('the photo view switch wraps instead of overflowing on a narrow screen', () => {
+  expect(progressCss).toMatch(/\.pg-field-subbar \.pg-hr-switch button \{[^}]*white-space: normal/);
 });
