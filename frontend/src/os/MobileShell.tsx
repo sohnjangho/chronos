@@ -6,6 +6,8 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { useAgentView } from './agentView';
 import { useApprovalPolling, useApprovals } from './approvals';
 import { ChronosMark, MoonIcon, SunIcon } from './icons';
+import { phoneFor, phoneLayout, phoneTabFor, readPhone, type PhoneLayout, type PhoneTab } from './layoutMemory';
+import { loadCached, useShellLayout } from './layoutSync';
 import { useOutreachAlerts } from './outreachAlerts';
 import ProgramIcon, { SystemIcon } from './ProgramIcon';
 import { getProgram, programs, type ProgramManifest } from './registry';
@@ -17,7 +19,7 @@ import { useDeviceMode, useResolvedDevice } from './useIsMobile';
 import { useWindows } from './windowStore';
 import './mobile.css';
 
-type TabId = 'chat' | 'schedule' | 'approvals' | 'contacts' | 'more';
+type TabId = PhoneTab;
 
 const SCHEDULE_SUBS = [
   { id: 'schedule-table', label: '스케줄' },
@@ -32,15 +34,7 @@ const SCHEDULE_FIELD_SUBS = [
   { id: 'schedule-table', label: '스케줄' },
 ] as const;
 
-const SCHEDULE_IDS = new Set<string>(['schedule-table', 'gantt', 'progress', 'delays']);
-
-function tabForProgram(programId: string): TabId {
-  if (programId === 'chat') return 'chat';
-  if (programId === 'approvals') return 'approvals';
-  if (programId === 'contacts') return 'contacts';
-  if (SCHEDULE_IDS.has(programId)) return 'schedule';
-  return 'more';
-}
+const tabForProgram = phoneTabFor;
 
 function MoreGrid({ list, onPick }: { list: ProgramManifest[]; onPick(id: string): void }) {
   return (
@@ -236,11 +230,32 @@ export default function MobileShell() {
   const wins = useWindows((s) => s.wins);
   const device = useResolvedDevice();
 
-  const [tab, setTab] = useState<TabId>(() => (role === 'field' ? 'schedule' : 'chat'));
-  const [scheduleSub, setScheduleSub] = useState<string>(() => (role === 'field' ? 'field' : 'schedule-table'));
-  const [moreProgram, setMoreProgram] = useState<string | null>(null);
-  const [params, setParams] = useState<Record<string, string> | undefined>(undefined);
+  const userId = useSession((s) => s.session?.user.id ?? null);
+  // 다시 열면 그대로: 이 계정이 스마트폰에서 마지막에 본 탭(이 브라우저에 둔 것, 서버 것이 더 새것이면 곧 바뀐다).
+  const [boot] = useState(() => readPhone(loadCached('phone', userId)?.state, role));
+  const [tab, setTab] = useState<TabId>(() => boot?.tab ?? (role === 'field' ? 'schedule' : 'chat'));
+  const [scheduleSub, setScheduleSub] = useState<string>(() => boot?.sub ?? (role === 'field' ? 'field' : 'schedule-table'));
+  const [moreProgram, setMoreProgram] = useState<string | null>(boot?.more ?? null);
+  const [params, setParams] = useState<Record<string, string> | undefined>(boot?.params);
   const lastTopRef = useRef<string | null>(null);
+  const layout = phoneLayout(tab, scheduleSub, moreProgram, params);
+  const showLayout = (l: PhoneLayout) => {
+    setTab(l.tab);
+    setScheduleSub(l.sub);
+    setMoreProgram(l.more ?? null);
+    setParams(l.params);
+  };
+  useShellLayout('phone', layout, {
+    apply: (raw) => {
+      const l = readPhone(raw, role);
+      if (l) showLayout(l);
+      return l;
+    },
+    openFocus: (f) => {
+      const l = phoneFor(f, role, layout);
+      if (l) showLayout(l);
+    },
+  });
 
   useEffect(() => {
     if (isFieldRole && (tab === 'approvals' || tab === 'contacts' || tab === 'more')) {

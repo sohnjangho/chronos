@@ -4,6 +4,7 @@ import { useApprovals } from './approvals';
 import { useContextPanel } from './contextStore';
 import { useCurrentSchedule } from './currentSchedule';
 import { useEvidence } from './evidence';
+import { endLayouts } from './layoutSync';
 import { useSchedulePreview } from './schedulePreview';
 import { useShell } from './shell';
 import { useUiContext } from './uiContext';
@@ -15,6 +16,7 @@ import { useWindows } from './windowStore';
  * 창 id 가 w1 부터 다시 시작해도 앞 사람의 근거·대화가 보이지 않게 한다.
  */
 export function resetShellState(): void {
+  endLayouts(); // 앞 사람의 창·탭 기억을 마저 쓰고 끊는다 — 비우기 전에(비운 화면을 앞 사람 것으로 쓰지 않게)
   useAgentView.getState().reset();
   useAiChat.getState().reset();
   useContextPanel.getState().reset();

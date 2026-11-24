@@ -13,6 +13,7 @@ import { useOutreachAlerts } from './outreachAlerts';
 import QuickStartWidget from './QuickStartWidget';
 import SearchPalette from './SearchPalette';
 import { useSession } from './session';
+import { useDesktopLayout } from './layoutSync';
 import { useShell } from './shell';
 import { useShellShortcuts } from './shortcuts';
 import { snapRect, useSnap } from './snap';
@@ -37,6 +38,7 @@ export default function Desktop() {
   useApprovalPolling();
   useOutreachAlerts();
   useShellShortcuts();
+  useDesktopLayout(); // 열어 둔 창을 계정별로 기억하고 다시 열면 되살린다(기기 사이 이어 열기 포함)
   useEffect(() => {
     const onResize = () => useWindows.getState().fitToScreen();
     window.addEventListener('resize', onResize);

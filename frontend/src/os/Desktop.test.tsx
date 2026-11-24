@@ -31,6 +31,8 @@ const systemMenu = async (item: string) => {
 
 beforeAll(() => registerPrograms());
 beforeEach(() => {
+  // 열어 둔 창 기억(layoutSync)이 앞 시험의 창을 되살리지 않게(다른 저장 값은 그대로 둔다)
+  Object.keys(localStorage).filter((k) => k.startsWith('chronos.layout.')).forEach((k) => localStorage.removeItem(k));
   vi.stubGlobal('innerWidth', 1920);
   vi.stubGlobal('innerHeight', 1080);
   signInAsDemo('admin');

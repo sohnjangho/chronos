@@ -4,6 +4,8 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { useAgentView } from './agentView';
 import { useApprovalPolling, useApprovals } from './approvals';
 import { ChronosMark, MoonIcon, PanelIcon, SunIcon } from './icons';
+import { readTablet, tabletFor, tabletLayout, type TabletLayout } from './layoutMemory';
+import { loadCached, useShellLayout } from './layoutSync';
 import { useOutreachAlerts } from './outreachAlerts';
 import ProgramIcon, { SystemIcon } from './ProgramIcon';
 import { getProgram, programs, type ProgramManifest } from './registry';
@@ -202,14 +204,33 @@ export default function TabletShell() {
   const wins = useWindows((s) => s.wins);
   const agentFocus = useAgentView((s) => s.focus);
 
-  const [activeId, setActiveId] = useState<string>(() => (role === 'field' ? 'field' : 'schedule-table'));
+  const userId = useSession((s) => s.session?.user.id ?? null);
+  // 다시 열면 그대로: 이 계정이 태블릿에서 마지막에 연 프로그램(서버 것이 더 새것이면 곧 바뀐다).
+  const [boot] = useState(() => readTablet(loadCached('tablet', userId)?.state, role));
+  const [activeId, setActiveId] = useState<string>(() => boot?.active ?? (role === 'field' ? 'field' : 'schedule-table'));
   const [showApps, setShowApps] = useState(false);
   const [railEdit, setRailEdit] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
-  const [params, setParams] = useState<Record<string, string> | undefined>(undefined);
+  const [params, setParams] = useState<Record<string, string> | undefined>(boot?.params);
   const [splitOpen, setSplitOpen] = useState<boolean>(() => (typeof window !== 'undefined' ? window.innerWidth >= 960 : true));
   const lastTopRef = useRef<string | null>(null);
+  const showLayout = (l: TabletLayout) => {
+    setShowApps(false);
+    setActiveId(l.active);
+    setParams(l.params);
+  };
+  useShellLayout('tablet', tabletLayout(activeId, params), {
+    apply: (raw) => {
+      const l = readTablet(raw, role);
+      if (l) showLayout(l);
+      return l;
+    },
+    openFocus: (f) => {
+      const l = tabletFor(f, role);
+      if (l) showLayout(l);
+    },
+  });
 
   // 프로그램 내부에서 open(...) 또는 Computer Use stageFocus(...) 가 호출되면 태블릿 스테이지도 따라간다.
   useEffect(() => {

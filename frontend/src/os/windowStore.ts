@@ -210,8 +210,13 @@ interface WindowState {
   nextWindow(): void;
   setInsetRight(px: number): void;
   setInsetTop(px: number): void;
+  /** 저장해 둔 창 배치로 바꾼다(layoutMemory). 차례가 뒤→앞, 자리·크기는 지금 화면에 맞춘다. 움직임 없이. */
+  restoreLayout(wins: RestoredWin[], deactivated: boolean): void;
   reset(): void;
 }
+
+/** 되살릴 창 하나(layoutMemory 가 접근 권한·params 를 이미 걸렀다). */
+export type RestoredWin = Pick<Win, 'programId' | 'x' | 'y' | 'w' | 'h' | 'minimized' | 'maximized' | 'params'>;
 
 const initial = { wins: [] as Win[], topZ: 0, seq: 0, lastOpen: null, deactivated: false, insetRight: 0, insetTop: 0 };
 
@@ -458,6 +463,21 @@ export const useWindows = create<WindowState>((set, get) => {
     setTitle: (id, title) => patch(id, () => ({ title })),
     fitToScreen: () => set((s) => ({ wins: s.wins.map((w) => ({ ...w, ...fitRect(w) })) })),
     activeProgramId: () => activeWindow(get())?.programId ?? null,
+    restoreLayout(saved, deactivated) {
+      clearMotionTimers();
+      const wins: Win[] = saved.map((r, i) => ({
+        id: `w${i + 1}`,
+        programId: r.programId,
+        title: getProgram(r.programId)?.name ?? r.programId,
+        ...fitRect(r),
+        z: i + 1,
+        minimized: r.minimized,
+        maximized: r.maximized,
+        ...(r.params ? { params: r.params } : {}),
+      }));
+      const last = wins[wins.length - 1];
+      set({ ...initial, insetRight: get().insetRight, insetTop: get().insetTop, wins, seq: wins.length, topZ: wins.length, lastOpen: last ? { x: last.x, y: last.y } : null, deactivated: deactivated && wins.length > 0 });
+    },
     reset() {
       clearMotionTimers();
       set(initial);
