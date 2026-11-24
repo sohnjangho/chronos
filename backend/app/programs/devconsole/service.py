@@ -40,7 +40,7 @@ from app.info import generic
 from app.llm import assignments
 from app.llm.assignments import default_connection
 from app.llm.connections import secret_is_sendable
-from app.programs.devconsole import outreach_branches, outreach_view
+from app.programs.devconsole import outreach_branches, outreach_view, points_view
 from app.programs.devconsole.schemas import (
     ActiveTurnOut,
     CallCount,
@@ -162,7 +162,8 @@ def get_turn(session: Session, turn_id: int) -> TurnDetail:
     )
     timeline = _timeline(events, steps, inner, row.started_at, _request(row))
     outreach_branches.light_calls(session, steps, structure, timeline)  # 위임 통화의 그 뒤(Task 110 — call_placed)
-    return TurnDetail(turn=turn, structure=structure, timeline=timeline)
+    points = points_view.for_turn(session, row.started_at, row.ended_at)  # 이 턴 동안 바뀐 관리 포인트(계획 5)
+    return TurnDetail(turn=turn, structure=structure, timeline=timeline, points=points)
 
 
 def _counted(session: Session, since: datetime, *where) -> CallCount:
@@ -172,8 +173,10 @@ def _counted(session: Session, since: datetime, *where) -> CallCount:
 
 
 def _counters(session: Session, days: int) -> UsageCountersOut:
-    """기간(사용량 표와 같은 서울 날짜 창) 안의 정보 API·날씨·Liner 검색·다시 쓰기 수와 그림 읽기·임베딩 호출 합."""
+    """기간(사용량 표와 같은 서울 날짜 창) 안의 정보 API·날씨·Liner 검색·다시 쓰기 수와 그림 읽기·임베딩 호출 합,
+    관리 포인트의 Premium Data·MCP·Search Agent 호출 수."""
     since = store._since(days)
+    points = store.point_calls(session, since)
     llm = {"vision": UsageTotals(), "embedding": UsageTotals()}
     for call in session.scalars(select(LlmCall).where(LlmCall.created_at >= since, LlmCall.purpose.in_(llm))):
         llm[call.purpose].add(call)
@@ -183,6 +186,7 @@ def _counters(session: Session, days: int) -> UsageCountersOut:
         searches=_counted(session, since, EvidenceSearch.mode.notin_(NOT_SEARCH_MODES)),
         reuses=ReuseCount(calls=_counted(session, since, EvidenceSearch.mode == REUSE_MODE).calls),
         vision=llm["vision"], embedding=llm["embedding"],
+        knowledge=points.knowledge, mcp=points.mcp, search_agent=points.search_agent,
     )
 
 

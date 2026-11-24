@@ -177,7 +177,52 @@ export interface TurnDetail {
   turn: Turn;
   structure: Structure;
   timeline: TraceItem[];
+  /** 이 턴 동안 바뀐 관리 포인트(계획 5 Task 7). 예전 서버는 보내지 않는다. */
+  points?: PointsStage[];
 }
+
+/** 관리 포인트 단계(계획 5 Task 7, schemas.PointsStageOut): 계산 → 겨냥 검색 → Search Agent. per_1k = 1,000회당 USD(기상청 null). */
+export interface PointsSearch {
+  branch: 'weather' | 'knowledge' | 'business';
+  label: string;
+  calls: number;
+  failed: number;
+  cost_kind: string;
+  per_1k: number | null;
+}
+
+export interface PointsStage {
+  schedule_id: number;
+  schedule_name: string;
+  version: number;
+  what_if: boolean;
+  trigger: { kind?: string; from?: number; to?: number; version?: number };
+  changed_at: string;
+  finished_at: string | null;
+  compute: { points: number; new: number; tightened: number; removed: number };
+  risk_status: 'looking' | 'done' | 'failed' | 'none' | string;
+  searches: PointsSearch[];
+  skipped: number;
+  search_agent: { calls: number; failed: number; pending: number; cost_kind: string; per_1k: number };
+  /** 어림(USD) = 호출 수 × 단가. */
+  cost: number;
+}
+
+export type PointSourceKind = 'weather' | 'materials' | 'fx' | 'business';
+
+/** 관리 포인트 설정(schemas.PointsConfigOut). points_sources 의 _other = 그 밖의 분야. bounds = [하한, 상한]. */
+export interface PointsConfig {
+  points_tf_days: number;
+  points_window_weeks: number;
+  points_max_new: number;
+  points_forecast_reuse_hours: number;
+  accel_warn_ratio: number;
+  points_sources: Record<string, PointSourceKind[]>;
+  domains: { id: string; label: string }[];
+  bounds: Record<string, [number, number]>;
+}
+
+export type PointsConfigPatch = Partial<Omit<PointsConfig, 'domains' | 'bounds'>>;
 
 export type UsageGroup = 'model' | 'user' | 'day' | 'purpose';
 
@@ -227,6 +272,10 @@ export interface UsageCounters {
   reuses: { calls: number };
   vision: UsageTotals;
   embedding: UsageTotals;
+  /** 관리 포인트(계획 5): Search + Premium Data · MCP search_business · Search Agent. 예전 서버는 없다. */
+  knowledge?: { calls: number; failed: number };
+  mcp?: { calls: number; failed: number };
+  search_agent?: { calls: number; failed: number };
 }
 
 export interface HarnessRule {
@@ -585,6 +634,10 @@ export const devApi = {
   getAgentConfig: () => api<AgentConfig>('/api/devconsole/agent-config'),
   saveAgentConfig: (cfg: AgentConfig) =>
     api<AgentConfig>('/api/devconsole/agent-config', { method: 'PUT', body: JSON.stringify(cfg) }),
+  getPointsConfig: () => api<PointsConfig>('/api/devconsole/points-config'),
+  savePointsConfig: (patch: PointsConfigPatch) =>
+    api<PointsConfig>('/api/devconsole/points-config', { method: 'PUT', body: JSON.stringify(patch) }),
+  pointsRuns: () => api<PointsStage[]>(`/api/devconsole/points-runs?limit=${RECENT}`),
   health: () => api<HealthOut>('/api/devconsole/health'),
   updates: () => api<UpdatesOut>('/api/devconsole/updates'),
   stopTurn: (chatId: number) =>

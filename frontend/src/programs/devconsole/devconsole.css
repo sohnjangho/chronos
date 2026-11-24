@@ -931,3 +931,29 @@
   .dc-up { padding: 12px; }
 }
 
+
+/* ── 관리 포인트(계획 5 Task 7): 설정 카드의 도움말·분야 표, 실행 추적의 단계 ── */
+.dc-pt-help { color: var(--fg-muted); font-size: var(--fs-11, 11px); line-height: 1.4; overflow-wrap: anywhere; }
+.dc-pt-src { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+.dc-pt-src > p { margin: 0; }
+.dc-pt-table { width: auto; min-width: 420px; }
+.dc-pt-table th[scope='row'] { text-align: left; font-weight: 500; }
+.dc-pt-table td { text-align: center; }
+.dc-pt-stages { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.dc-pt-stage {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-3); background: var(--bg-panel-alt);
+  font-size: var(--fs-12);
+}
+.dc-pt-stage-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; overflow-wrap: anywhere; }
+.dc-pt-stage-h > b { font-size: var(--fs-14); }
+.dc-pt-flow { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
+.dc-pt-step {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--bg-panel);
+}
+.dc-pt-step-h { font-weight: 700; color: var(--fg); }
+.dc-pt-calls { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.dc-pt-calls li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; overflow-wrap: anywhere; }
+.dc-pt-kind { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.dc-pt-cost { margin: 0; overflow-wrap: anywhere; }

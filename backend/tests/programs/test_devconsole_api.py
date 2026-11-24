@@ -484,6 +484,8 @@ def test_usage_counters_separate_info_api_searches_reuses_vision_and_embedding(c
         "reuses": {"calls": 3},
         "vision": {"calls": 2, "input_tokens": 150, "output_tokens": 20, "cost": 0.01, "failed": 1},
         "embedding": {"calls": 1, "input_tokens": 300, "output_tokens": 0, "cost": None, "failed": 0},
+        "knowledge": {"calls": 0, "failed": 0}, "mcp": {"calls": 0, "failed": 0},  # 관리 포인트(test_devconsole_points)
+        "search_agent": {"calls": 0, "failed": 0},
     }
 
 
@@ -499,7 +501,8 @@ def test_usage_when_nothing_happened(client, admin):
     assert u == {"rows": [], "totals": zero, "cost_known": False, "searches": {"calls": 0, "failed": 0},
                  "counters": {"info_api": {"calls": 0, "failed": 0}, "weather": {"calls": 0, "failed": 0},
                               "searches": {"calls": 0, "failed": 0}, "reuses": {"calls": 0},
-                              "vision": zero, "embedding": zero},
+                              "vision": zero, "embedding": zero, "knowledge": {"calls": 0, "failed": 0},
+                              "mcp": {"calls": 0, "failed": 0}, "search_agent": {"calls": 0, "failed": 0}},
                  "outreach": {"sms": 0, "long": 0, "kakao": 0, "auto_replies": 0, "provider_cost": None,
                               "fallback_sms": 0, "kakao_not_ready": 0,
                               "text_models": [{"kind": k, "count": 0, "input_tokens": 0, "output_tokens": 0, "cost": None}

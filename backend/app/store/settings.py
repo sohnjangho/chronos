@@ -144,11 +144,15 @@ def set_tool_enabled(session: Session, name: str, enabled: bool) -> list[str]:
 
 POINT_SOURCES = ("weather", "materials", "fx", "business")  # 바깥 자료 갈래: 날씨·금속/원자재·환율·업체 소식
 POINTS_SOURCES_KEY = "points_sources"
-OTHER_DOMAIN_SOURCES = ("business",)  # 표에 없는 분야
+OTHER_DOMAIN = "_other"  # points_sources 안의 「그 밖의 분야」(표에 따로 없는 분야) 열쇠 — 개발 콘솔에서 바꾼다
+OTHER_DOMAIN_SOURCES = ("business",)  # 표에 없는 분야(OTHER_DOMAIN 을 저장한 적이 없을 때)
 DEFAULT_POINTS_SOURCES: dict[str, list[str]] = {  # PM 결정 11-24: 분야별로 켜고 끈다
     "construction": ["weather", "materials", "fx", "business"],
     "manufacturing": ["materials", "fx", "business"],
 }
+
+ACCEL_WARN_RATIO_KEY = "accel_warn_ratio"  # 당김 효과(계획 5 F) — 아래 accel_warn_ratio
+_ACCEL_WARN_RATIO_BOUNDS = (0.1, 1.0)
 
 # 필드 → (DB 키, 하한, 상한, 기본값). 범위 밖·숫자 아님은 기본값(에이전트 설정처럼 자르지 않는다).
 _POINTS_INT_BOUNDS: dict[str, tuple[str, int, int, int]] = {
@@ -203,15 +207,52 @@ def points_config(session: Session) -> PointsConfig:
 
 
 def sources_for(session: Session, domain: str) -> set[str]:
-    """그 분야에 켜진 바깥 자료 갈래."""
-    return set(_read_sources(session).get(domain, OTHER_DOMAIN_SOURCES))
+    """그 분야에 켜진 바깥 자료 갈래. 표에 없는 분야는 「그 밖의 분야」(OTHER_DOMAIN, 저장한 적 없으면 OTHER_DOMAIN_SOURCES)."""
+    sources = _read_sources(session)
+    return set(sources.get(domain, sources.get(OTHER_DOMAIN, OTHER_DOMAIN_SOURCES)))
+
+
+POINTS_BOUNDS: dict[str, tuple[int, int]] = {f: (lo, hi) for f, (_, lo, hi, _) in _POINTS_INT_BOUNDS.items()}
+
+
+def set_points_config(session: Session, patch: dict[str, Any]) -> None:
+    """관리 포인트 설정(tf_days·window_weeks·max_new·forecast_reuse_hours·accel_warn_ratio·sources)을 저장하고 commit.
+
+    읽기와 같은 범위(_POINTS_INT_BOUNDS·_ACCEL_WARN_RATIO_BOUNDS)를 검사해 하나라도 벗어나면 ValueError — 아무것도 적지 않는다
+    (읽기처럼 기본값으로 바꾸지 않는다). sources = 분야 → 켜진 갈래(POINT_SOURCES 만, 빈 목록 = 다 끔). 덮어쓴다 — 적지 않은
+    건설·제조는 기본값, 적지 않은 그 밖의 분야는 OTHER_DOMAIN_SOURCES.
+    """
+    writes: list[tuple[str, str]] = []
+    for field, (key, lo, hi, _) in _POINTS_INT_BOUNDS.items():
+        if patch.get(field) is not None:
+            value = patch[field]
+            if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+                raise ValueError(field)
+            writes.append((key, str(value)))
+    if patch.get("accel_warn_ratio") is not None:
+        ratio, (lo, hi) = patch["accel_warn_ratio"], _ACCEL_WARN_RATIO_BOUNDS
+        if isinstance(ratio, bool) or not isinstance(ratio, int | float) or not lo <= ratio <= hi:
+            raise ValueError("accel_warn_ratio")
+        writes.append((ACCEL_WARN_RATIO_KEY, str(float(ratio))))
+    if patch.get("sources") is not None:
+        sources = patch["sources"]
+        if not isinstance(sources, dict):
+            raise ValueError("sources")
+        clean: dict[str, list[str]] = {}
+        for domain, kinds in sources.items():
+            if not isinstance(domain, str) or not domain or not isinstance(kinds, list | tuple) \
+                    or any(k not in POINT_SOURCES for k in kinds):
+                raise ValueError("sources")
+            clean[domain] = [k for k in POINT_SOURCES if k in kinds]
+        writes.append((POINTS_SOURCES_KEY, json.dumps(clean, ensure_ascii=False)))
+    for key, value in writes:
+        _upsert(session, key, value)
+    session.commit()
 
 
 # ── 당김 효과(계획 5 F) ──────────────────────────────────────────────
 
-ACCEL_WARN_RATIO_KEY = "accel_warn_ratio"
 DEFAULT_ACCEL_WARN_RATIO = 0.5
-_ACCEL_WARN_RATIO_BOUNDS = (0.1, 1.0)
 
 
 def accel_warn_ratio(session: Session) -> float:

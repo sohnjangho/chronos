@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ApiError } from '../../shared/api';
 import { devApi, type AgentConfig, type ApprovalMode, type CatalogOut } from './devApi';
 import HarnessRules from './HarnessRules';
+import PointsConfigPanel from './PointsConfigPanel';
 
 const DEFAULT_AGENT_CONFIG: AgentConfig = {
   approval_mode: 'important',
@@ -192,7 +193,8 @@ function AgentConfigPanel({ initial, onSaved }: { initial?: AgentConfig; onSaved
   );
 }
 
-export default function HarnessTab({ catalog, onSaved }: { catalog: CatalogOut; onSaved?: () => void }) {
+/** focus: 「관리 포인트」 창의 [설정에서 바꾸기]로 열면 관리 포인트 설정 카드로 내린다. */
+export default function HarnessTab({ catalog, onSaved, focus }: { catalog: CatalogOut; onSaved?: () => void; focus?: string }) {
   return (
     <div className="dc-scroll dc-cat-wrap">
       <div className="dc-cat-header">
@@ -203,6 +205,7 @@ export default function HarnessTab({ catalog, onSaved }: { catalog: CatalogOut; 
         </p>
       </div>
       <AgentConfigPanel initial={catalog.agent_config} onSaved={() => onSaved?.()} />
+      <PointsConfigPanel focus={focus === 'points'} />
       <div className="dc-note">
         <b>원천 연동</b> — 이 화면의 검사 위치·반려 문구·세션 통과/차단 수는 실제 실행 코드(<code>app/harness/checks.py</code>, <code>app/core/cpm.py</code>, <code>app/agent/loop.py</code>)와 워크플로우 실행 기록(DB)에서 직접 집계·실행합니다.
       </div>

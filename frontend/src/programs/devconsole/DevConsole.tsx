@@ -6,12 +6,13 @@ import { useSession } from '../../os/session';
 import Badge from '../../shared/ui/Badge';
 import Tabs from '../../shared/ui/Tabs';
 import AgentStructure from './AgentStructure';
-import { devApi, type CatalogOut, type NodeKey, type OutreachRow, type TurnDetail } from './devApi';
+import { devApi, type CatalogOut, type NodeKey, type OutreachRow, type PointsStage as Stage, type TurnDetail } from './devApi';
 import { cost, seconds, status, tokens } from './format';
 import HarnessTab from './HarnessTab';
 import HealthTab from './HealthTab';
 import NodeDetail from './NodeDetail';
 import OutreachTrace from './OutreachTrace';
+import PointsStage, { PointsStages } from './PointsStage';
 import RegistryTab from './RegistryTab';
 import SourcesTab from './SourcesTab';
 import TraceTimeline from './TraceTimeline';
@@ -147,6 +148,20 @@ function StructureView({ detail }: { detail: TurnDetail }) {
   );
 }
 
+/** 실행 추적에서 턴 대신 고른 것: 연락 기록(Task 108) 또는 관리 포인트 차이(계획 5 Task 7 — 승인함처럼 턴 밖에서 바뀐 것도).
+ * 하나를 고르면 다른 하나는 비우고, 턴을 고르면 둘 다 비운다. */
+function useTracePick() {
+  const [contact, setContact] = useState<OutreachRow | null>(null);
+  const [pointRun, setPointRun] = useState<Stage | null>(null);
+  return {
+    contact,
+    pointRun,
+    pickContact: (r: OutreachRow) => { setPointRun(null); setContact(r); },
+    pickRun: (s: Stage) => { setContact(null); setPointRun(s); },
+    clear: () => { setContact(null); setPointRun(null); },
+  };
+}
+
 function resolveTab(tabParam: string | undefined): Tab {
   return TABS.some((t) => t.id === tabParam) ? (tabParam as Tab) : 'structure';
 }
@@ -158,14 +173,15 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
     setSeenParams(params);
     if (params?.tab) setTab(resolveTab(params.tab));
   }
+  const focus = params?.focus; // 하네스 탭에서 내릴 카드(「관리 포인트」 창 → points)
   const [catalog, setCatalog] = useState<CatalogOut | null>(null);
   const [catalogTick, setCatalogTick] = useState(0);
   const d = useTurnData();
   const turnTab = tab === 'structure' || tab === 'trace';
-  /** 실행 추적에서 고른 연락 기록(Task 108). 턴을 고르면 비운다. */
-  const [contact, setContact] = useState<OutreachRow | null>(null);
+  const { contact, pointRun, pickContact, pickRun, clear } = useTracePick();
   const showContact = tab === 'trace' && contact !== null;
-  const turnShown = turnTab && !showContact;
+  const showRun = tab === 'trace' && pointRun !== null && !showContact;
+  const turnShown = turnTab && !showContact && !showRun;
   const catTab = tab === 'harness' || tab === 'sources' || tab === 'registry';
   useEffect(() => {
     if (!catTab) return;
@@ -202,10 +218,11 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
             current={d.detail?.turn ?? null}
             onOpen={() => void d.reloadTurns()}
             onPick={(id) => {
-              setContact(null);
+              clear();
               d.select(id);
             }}
-            outreach={tab === 'trace' ? { current: contact, onPick: setContact } : undefined}
+            outreach={tab === 'trace' ? { current: contact, onPick: pickContact } : undefined}
+            points={tab === 'trace' ? { current: pointRun, onPick: pickRun } : undefined}
           />
           {d.detail && turnShown && <TurnStats detail={d.detail} halted={d.halted} checkedAt={d.checkedAt} />}
           {d.detail && turnShown && (
@@ -225,7 +242,7 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
         {tab === 'health' && <HealthTab />}
         {tab === 'updates' && <UpdatesTab />}
         {catTab && !catalog && <p className="dc-empty">원천 카탈로그를 불러오는 중…</p>}
-        {tab === 'harness' && catalog && <HarnessTab catalog={catalog} onSaved={reloadCatalog} />}
+        {tab === 'harness' && catalog && <HarnessTab catalog={catalog} onSaved={reloadCatalog} focus={focus} />}
         {tab === 'sources' && catalog && <SourcesTab catalog={catalog} />}
         {tab === 'registry' && catalog && <RegistryTab catalog={catalog} onChanged={reloadCatalog} />}
         {turnShown && !d.detail && !d.error && <p className="dc-empty">{empty}</p>}
@@ -235,9 +252,11 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
           </div>
         )}
         {tab === 'structure' && d.detail && <StructureView key={d.detail.turn.turn_id} detail={d.detail} />}
+        {showRun && pointRun && <div className="dc-scroll"><PointsStage stage={pointRun} /></div>}
         {tab === 'trace' && turnShown && d.detail && (
           <div className="dc-scroll">
             <TraceTimeline key={d.detail.turn.turn_id} items={d.detail.timeline} running={d.detail.turn.status === 'running'} />
+            <PointsStages stages={d.detail.points ?? []} />
           </div>
         )}
       </div>

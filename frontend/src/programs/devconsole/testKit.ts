@@ -14,6 +14,8 @@ import type {
   OutreachDetail,
   OutreachGridOut,
   OutreachRow,
+  PointsConfig,
+  PointsStage,
   StructureNode,
   TraceItem,
   Turn,
@@ -402,6 +404,32 @@ let sampleCatalog = catalogSample();
 let sampleHealth: Record<string, unknown> = healthSample();
 /** 업데이트 내역(가상) — 없으면 빈 기록. */
 let updatesBody: unknown = { entries: [], running_commit: null };
+/** 관리 포인트 설정(계획 5 Task 7) — 서버 기본값 모양. PUT 은 범위를 보고 422 를 흉내 낸다. */
+export const POINTS_CONFIG = (): PointsConfig => ({
+  points_tf_days: 3, points_window_weeks: 3, points_max_new: 5, points_forecast_reuse_hours: 6, accel_warn_ratio: 0.5,
+  points_sources: { construction: ['weather', 'materials', 'fx', 'business'], manufacturing: ['materials', 'fx', 'business'], _other: ['business'] },
+  domains: [{ id: 'construction', label: '건설' }, { id: 'manufacturing', label: '제조·생산' }, { id: '_other', label: '그 밖의 분야' }],
+  bounds: { points_tf_days: [0, 10], points_window_weeks: [1, 8], points_max_new: [1, 10], points_forecast_reuse_hours: [1, 48], accel_warn_ratio: [0.1, 1] },
+});
+/** 관리 포인트 단계 하나(가상 일정). */
+export function pointsStage(over: Partial<PointsStage> = {}): PointsStage {
+  return {
+    schedule_id: 1, schedule_name: '5층 사무동 신축', version: 3, what_if: false, trigger: { kind: 'version', from: 2, to: 3 },
+    changed_at: new Date(Date.now() - 60_000).toISOString(), finished_at: new Date().toISOString(),
+    compute: { points: 7, new: 2, tightened: 1, removed: 1 }, risk_status: 'done',
+    searches: [
+      { branch: 'weather', label: '날씨 (기상청)', calls: 1, failed: 0, cost_kind: '기상청 — Liner 비용 없음', per_1k: null },
+      { branch: 'knowledge', label: '자재·환율 (Premium Data)', calls: 2, failed: 1, cost_kind: 'Search + Premium Data', per_1k: 2 },
+      { branch: 'business', label: '업체 소식 (MCP search_business)', calls: 1, failed: 0, cost_kind: 'MCP', per_1k: 2 },
+    ],
+    skipped: 1, search_agent: { calls: 2, failed: 0, pending: 1, cost_kind: 'Search Agent', per_1k: 20 }, cost: 0.046,
+    ...over,
+  };
+}
+let pointsCfg: PointsConfig = POINTS_CONFIG();
+let pointsRunsBody: PointsStage[] = [];
+export const pointsPuts: unknown[] = [];
+export const mockPointsRuns = (rows: PointsStage[]) => void (pointsRunsBody = rows);
 let outreachRows: OutreachRow[] = [];
 let outreachMore = false;
 const outreachById = new Map<string, OutreachDetail>();
@@ -424,8 +452,20 @@ export function setup(role: 'admin' | 'user' = 'admin') {
   outreachMore = false;
   outreachById.clear();
   outreachById.set('message/501', outreachDetail());
+  pointsCfg = POINTS_CONFIG();
+  pointsRunsBody = [];
+  pointsPuts.length = 0;
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url === '/api/devconsole/points-config' && init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      pointsPuts.push(body);
+      const out = Object.entries(pointsCfg.bounds).some(([k, [lo, hi]]) => typeof body[k] === 'number' && ((body[k] as number) < lo || (body[k] as number) > hi));
+      if (out) return json(422, { code: 'invalid_request', message: '요청 값이 올바르지 않습니다.', detail: null });
+      return json(200, (pointsCfg = { ...pointsCfg, ...body }));
+    }
+    if (url === '/api/devconsole/points-config') return json(200, pointsCfg);
+    if (url === '/api/devconsole/points-runs?limit=30') return json(200, pointsRunsBody);
     if (url === '/api/devconsole/turns?limit=30') return json(200, list);
     if (url === '/api/devconsole/outreach?limit=30') return json(200, { items: outreachRows, more: outreachMore, limit: 30 });
     const o = /^\/api\/devconsole\/outreach\/(message|call)\/(\d+)$/.exec(url);

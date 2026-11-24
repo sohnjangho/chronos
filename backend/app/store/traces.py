@@ -6,6 +6,9 @@
   (루프 자신의 호출은 llm 사건으로 따로 있다).
 - 턴의 모델 호출 수·토큰·비용 = llm 사건 + 도구 안 호출. 비용은 NULL 아닌 것만 더하고, 하나도 없으면 None.
 - 시각은 UTC 로 저장되어 있다(시간대 없이). 사용량의 날(day)과 기간은 서울 날짜로 센다.
+- 관리 포인트 겨냥 검색·근거 문장(계획 5)은 Liner 를 부르지만 근거 검색 수(NOT_SEARCH_MODES 밖)에 들지 않는다 — point_calls 가
+  따로 센다: Search + Premium Data(mode knowledge) · MCP search_business(mode knowledge, 질의 「business: …」) ·
+  Search Agent(llm_calls purpose srch_agent). 셋 다 대화 없이(chat_session_id 없음) 남는다.
 """
 
 from collections import defaultdict
@@ -15,10 +18,11 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, defer
 
-from app.store.evidence import NOT_SEARCH_MODES
+from app.llm.search_agent import PURPOSE as SEARCH_AGENT_PURPOSE
+from app.store.evidence import KNOWLEDGE_MODE, NOT_SEARCH_MODES
 from app.store.tables import (
     ChatMessage,
     ChatSession,
@@ -183,6 +187,43 @@ class UsageRow(UsageTotals):
 class SearchCount(BaseModel):
     calls: int
     failed: int
+
+
+BUSINESS_QUERY_PREFIX = "business: "  # app.points.risk 업체 갈래 질의(MCP search_business)의 머리
+
+
+class PointCalls(BaseModel):
+    """관리 포인트가 부른 Liner 호출 수(실패 포함)."""
+
+    knowledge: SearchCount  # Search + Premium Data(자재·환율)
+    mcp: SearchCount  # MCP search_business(업체 소식)
+    search_agent: SearchCount  # Search Agent(근거 문장)
+
+
+def is_business(query: str) -> bool:
+    return query.startswith(BUSINESS_QUERY_PREFIX)
+
+
+def _count(session: Session, model, ok, *where) -> SearchCount:
+    calls, failed = session.execute(
+        select(func.count(), func.coalesce(func.sum(case((ok.is_(False), 1), else_=0)), 0)).select_from(model).where(*where)
+    ).one()
+    return SearchCount(calls=calls, failed=int(failed))
+
+
+def point_calls(session: Session, since: datetime, until: datetime | None = None) -> PointCalls:
+    """since ~ until(없으면 끝 없음) 안에 생긴 관리 포인트의 Liner 호출 수."""
+    def window(column) -> list:
+        return [column >= _naive(since), *([column <= _naive(until)] if until is not None else [])]
+
+    mcp = EvidenceSearch.query.startswith(BUSINESS_QUERY_PREFIX, autoescape=True)
+    knowledge = [EvidenceSearch.mode == KNOWLEDGE_MODE, *window(EvidenceSearch.created_at)]
+    return PointCalls(
+        knowledge=_count(session, EvidenceSearch, EvidenceSearch.ok, *knowledge, ~mcp),
+        mcp=_count(session, EvidenceSearch, EvidenceSearch.ok, *knowledge, mcp),
+        search_agent=_count(session, LlmCall, LlmCall.ok, LlmCall.purpose == SEARCH_AGENT_PURPOSE,
+                            *window(LlmCall.created_at)),
+    )
 
 
 class UsageOut(BaseModel):

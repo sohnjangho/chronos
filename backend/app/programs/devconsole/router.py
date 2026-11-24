@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.programs.devconsole import catalog, outreach_view, service, updates
+from app.programs.devconsole import (
+    catalog,
+    outreach_view,
+    points_view,
+    service,
+    updates,
+)
 from app.programs.devconsole.schemas import (
     AgentConfigOut,
     AgentConfigPatch,
@@ -12,6 +18,9 @@ from app.programs.devconsole.schemas import (
     HealthOut,
     OutreachDetailOut,
     OutreachListOut,
+    PointsConfigOut,
+    PointsConfigPatch,
+    PointsStageOut,
     StopTurnOut,
     ToolToggleIn,
     ToolToggleOut,
@@ -78,6 +87,23 @@ def read_agent_config(session: SessionDep) -> AgentConfigOut:
 def write_agent_config(body: AgentConfigPatch, session: SessionDep) -> AgentConfigOut:
     updated = settings_store.set_agent_config(session, body.model_dump(exclude_unset=True))
     return AgentConfigOut.model_validate(updated)
+
+
+@router.get("/points-config")
+def read_points_config(session: SessionDep) -> PointsConfigOut:
+    return points_view.config(session)
+
+
+@router.put("/points-config")
+def write_points_config(body: PointsConfigPatch, session: SessionDep) -> PointsConfigOut:
+    return points_view.save(session, body.model_dump(exclude_none=True))
+
+
+@router.get("/points-runs")
+def list_points_runs(
+    session: SessionDep, limit: Annotated[int, Query(ge=1, le=points_view.RUNS_MAX)] = points_view.RUNS_DEFAULT,
+) -> list[PointsStageOut]:
+    return points_view.runs(session, limit)  # 관리 포인트 차이(버전 바뀜·가정), 새것부터 — 턴 밖에서 바뀐 것도
 
 
 @router.get("/health")

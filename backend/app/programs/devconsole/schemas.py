@@ -1,9 +1,10 @@
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from app.store.traces import UsageGroup, UsageOut, UsageTotals
+from app.store.settings import _ACCEL_WARN_RATIO_BOUNDS, POINTS_BOUNDS
+from app.store.traces import SearchCount, UsageGroup, UsageOut, UsageTotals
 
 __all__ = [
     "ActiveTurnOut",
@@ -30,6 +31,13 @@ __all__ = [
     "OutreachListOut",
     "OutreachRowOut",
     "OutreachUsageOut",
+    "PointsAgentOut",
+    "PointsComputeOut",
+    "PointsConfigOut",
+    "PointsConfigPatch",
+    "PointsDomainOut",
+    "PointsSearchOut",
+    "PointsStageOut",
     "PresenceHealthOut",
     "QdrantHealthOut",
     "ReuseCount",
@@ -207,10 +215,58 @@ class OutreachDetailOut(BaseModel):
     branches_lit: list[str] = Field(default_factory=list)  # 기록으로 켜진 가지(inbound_handled)
 
 
+class PointsComputeOut(BaseModel):
+    points: int  # 이 버전(가정)의 포인트 수
+    new: int  # 새로 들어옴 + 새 크리티컬(points_max_new 넘은 것 포함)
+    tightened: int  # 여유가 줄어듦
+    removed: int  # 빠짐
+
+
+class PointsSearchOut(BaseModel):
+    """겨냥 검색 한 갈래. per_1k = 1,000회당 값(USD). 기상청은 Liner 가 아니라 null."""
+
+    branch: Literal["weather", "knowledge", "business"]
+    label: str
+    calls: int  # 보낸 호출(실패 포함). 저장된 값을 다시 쓴 것은 들지 않는다
+    failed: int
+    cost_kind: str
+    per_1k: float | None
+
+
+class PointsAgentOut(BaseModel):
+    """Search Agent 근거 문장: [근거 문장 보기]를 누른 위험 줄마다 한 번(다시 찾기는 한 번으로 센다)."""
+
+    calls: int  # 찾음 + 못 찾음
+    failed: int
+    pending: int  # 찾는 중
+    cost_kind: str
+    per_1k: float
+
+
+class PointsStageOut(BaseModel):
+    """실행 추적의 「관리 포인트」 단계: 계산 → 겨냥 검색 → Search Agent. 검색 수는 그 차이를 적은 때부터 위험 찾기가 끝난 때
+    (찾는 중이면 지금)까지 대화 없이 남은 관리 포인트 줄을 시각으로 이은 값이다."""
+
+    schedule_id: int
+    schedule_name: str
+    version: int
+    what_if: bool  # 지연 분석의 가정 포인트(저장 안 한 버전)
+    trigger: dict[str, Any]  # {kind: version, from, to} | {kind: delay, …}
+    changed_at: datetime
+    finished_at: datetime | None  # 위험 찾기가 끝난 때(찾는 중이면 null)
+    compute: PointsComputeOut
+    risk_status: str  # looking | done | failed | none
+    searches: list[PointsSearchOut]
+    skipped: int  # 건너뛴 자료(주소 없음 등 — 호출 없음)
+    search_agent: PointsAgentOut
+    cost: float  # 어림(USD) = Σ 호출 × per_1k / 1000 — Liner 가 알리지 않아 개수로 센다
+
+
 class TurnDetail(BaseModel):
     turn: TurnOut
     structure: StructureOut
     timeline: list[TimelineItem]
+    points: list[PointsStageOut] = Field(default_factory=list)  # 이 턴 동안 바뀐 관리 포인트(계획 5)
 
 
 class CallCount(BaseModel):
@@ -231,6 +287,9 @@ class UsageCountersOut(BaseModel):
     reuses: ReuseCount  # 저장된 근거 다시 쓰기(mode reuse)
     vision: UsageTotals  # 그림 읽기 모델 호출(llm_calls purpose vision)
     embedding: UsageTotals  # 임베딩 호출(llm_calls purpose embedding)
+    knowledge: SearchCount  # 관리 포인트 Search + Premium Data(mode knowledge)
+    mcp: SearchCount  # 관리 포인트 MCP search_business
+    search_agent: SearchCount  # 근거 문장 Search Agent(llm_calls purpose srch_agent)
 
 
 class TextModelUsageOut(BaseModel):
@@ -301,6 +360,46 @@ class AgentConfigPatch(BaseModel):
     history_limit: int | None = Field(default=None, ge=6, le=60)
     enable_skill_match: bool | None = None
     enable_self_reflection: bool | None = None
+
+
+SourceKind = Literal["weather", "materials", "fx", "business"]
+DomainKey = Annotated[str, StringConstraints(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")]
+
+
+def _int_field(name: str) -> Any:
+    lo, hi = POINTS_BOUNDS[name]
+    return Field(default=None, ge=lo, le=hi)
+
+
+class PointsDomainOut(BaseModel):
+    id: str  # 분야 id. 「그 밖의 분야」는 _other
+    label: str
+
+
+class PointsConfigOut(BaseModel):
+    """관리 포인트 설정(app.store.settings). points_sources 의 _other = 그 밖의 분야. bounds = [하한, 상한]."""
+
+    points_tf_days: int
+    points_window_weeks: int
+    points_max_new: int
+    points_forecast_reuse_hours: int
+    accel_warn_ratio: float
+    points_sources: dict[str, list[SourceKind]]
+    domains: list[PointsDomainOut]  # 표의 줄 차례(건설·제조 · 저장한 다른 분야 · 그 밖의 분야)
+    bounds: dict[str, tuple[float, float]]
+
+
+class PointsConfigPatch(BaseModel):
+    """범위 밖·모르는 갈래·모르는 칸은 422(하나라도 틀리면 아무것도 적지 않는다)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    points_tf_days: int | None = _int_field("tf_days")
+    points_window_weeks: int | None = _int_field("window_weeks")
+    points_max_new: int | None = _int_field("max_new")
+    points_forecast_reuse_hours: int | None = _int_field("forecast_reuse_hours")
+    accel_warn_ratio: float | None = Field(default=None, ge=_ACCEL_WARN_RATIO_BOUNDS[0], le=_ACCEL_WARN_RATIO_BOUNDS[1])
+    points_sources: dict[DomainKey, list[SourceKind]] | None = Field(default=None, max_length=40)
 
 
 class LlmHealthOut(BaseModel):
