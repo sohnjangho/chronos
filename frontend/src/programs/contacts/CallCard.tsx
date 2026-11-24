@@ -2,11 +2,15 @@
 // 않습니다」) · 요약 · 결과(에이전트 제안 · 사람이 확정) · 질문별 답과 근거(근거 없는 답은 「확인 필요」) · 연결된 작업 · 하네스 사건 접힌 줄 /
 // 단추: [받아쓰기 보기][녹음 듣기][결과 확정][다시 걸기] · 걸고 있으면 [통화 끊기] · 초안 [버리기][전화 걸기 창 열기] · 예약 [예약 취소].
 // 상태는 서버가 준 줄에서만 읽는다 — 누른 뒤의 모습은 다시 읽은 줄이 정한다. 번호는 서버가 모든 글(사람이 쓴 목적·결과 포함)에서 가려 준다.
+// 받은 통화(Task 96, direction in): [상대 발신] · 등급(내부·주소록·대표번호·수신 거부·모르는 번호·번호 표시 제한) · 「받은 전화」 · 상태
+// (통화 n분 · 받지 않음(까닭) · 부재중) / 받지 못한(않은) 까닭 / 물은 것과 답한 것. 다시 걸기는 없다. 붉은 사건 줄(「범위 밖 물음 n번」·
+// 「내용 확인 필요」)은 두 방향 모두 접힌 처리 기록 밖에 보인다.
 import { useContext, useEffect, useState } from 'react';
 import { getProgram } from '../../os/registry';
 import { useWindows } from '../../os/windowStore';
 import {
-  callResultLine, callSender, callStatusLabel, callUnknown, eventLine, eventSummary, kstShort, kstTime, LIVE_CALL, verdictLabel, type Label,
+  callerClassLabel, callResultLine, callSender, callStatusLabel, callUnknown, eventLine, eventSummary, inboundWhy, kstShort, kstTime, LIVE_CALL, redFlags,
+  verdictLabel, type Label,
 } from '../../shared/outreach/labels';
 import { outreachApi, type Call } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
@@ -46,10 +50,13 @@ function Head({ c }: { c: Call }) {
   const who = c.status === 'draft' ? (c.origin === 'agent' ? { tag: '에이전트 초안', approver: null } : { tag: `${c.origin_name || '사용자'} 초안`, approver: null }) : callSender(c);
   const status = callStatusLabel(c);
   const at = c.started_at ?? c.created_at;
+  const inbound = c.direction === 'in';
+  const cls = inbound ? callerClassLabel(c.caller_class) : null;
   return (
     <div className="th-meta">
       <span className={`th-who${c.origin === 'agent' ? ' is-ai' : ''}`}>{who.tag}</span>
-      <span className="th-chip is-ai">AI 전화</span>
+      {cls && <span className="th-chip">{cls}</span>}
+      <span className="th-chip is-ai">{inbound ? '받은 전화' : 'AI 전화'}</span>
       <span className={`th-chip is-${status.tone}`}>{status.text}</span>
       <span>
         <time dateTime={at}>{kstTime(at)}</time>
@@ -61,11 +68,14 @@ function Head({ c }: { c: Call }) {
 
 function Answers({ c }: { c: Call }) {
   if (c.answers.length === 0) return null;
+  const inbound = c.direction === 'in'; // 받은 통화는 상대가 물은 것과 에이전트가 답한 것(record_answer)
   return (
-    <ul className="cl-answers" aria-label="질문별 답">
+    <ul className="cl-answers" aria-label={inbound ? '물은 것과 답한 것' : '질문별 답'}>
       {c.answers.map((a, i) => (
         <li key={i}>
+          {inbound && <b className="cl-q">물은 것</b>}
           <span className="cl-q">{a.question}</span>
+          {inbound && <b className="cl-q">답한 것</b>}
           <span className="cl-a">{a.answer}</span>
           {a.quote_found && a.quote ? (
             <span className="cl-quote">{`근거 「${a.quote}」`}</span>
@@ -76,6 +86,19 @@ function Answers({ c }: { c: Call }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/** 붉은 사건 줄 — 접힌 처리 기록을 펼치지 않아도 보이게. */
+function Flags({ c }: { c: Call }) {
+  const flags = redFlags(c.events);
+  if (flags.length === 0) return null;
+  return (
+    <div className="th-meta" role="group" aria-label="확인할 사건">
+      {flags.map((f) => (
+        <span key={f} className="th-chip is-bad">{f}</span>
+      ))}
+    </div>
   );
 }
 
@@ -176,7 +199,7 @@ function Actions({ p, transcript, onTranscript, onRecording, recordingBusy, onEd
   if (talked && !live) buttons.push(<Button key="tr" disabled={locked} aria-expanded={transcript} onClick={onTranscript}>{transcript ? '받아쓰기 닫기' : '받아쓰기 보기'}</Button>);
   if (c.has_recording) buttons.push(<Button key="rec" disabled={locked || recordingBusy} onClick={onRecording}>{recordingBusy ? '녹음 읽는 중…' : '녹음 듣기'}</Button>);
   if (c.status === 'completed') buttons.push(<Button key="confirm" disabled={locked} onClick={onEditResult}>결과 확정</Button>);
-  if (REDIALABLE.has(c.status))
+  if (REDIALABLE.has(c.status) && c.direction !== 'in')
     buttons.push(<Button key="redial" disabled={locked || blocked !== null} title={blocked ?? undefined} onClick={p.onRedial}>{busy === 'redial' ? '초안 만드는 중…' : '다시 걸기'}</Button>);
   return buttons.length ? <div className="th-acts">{buttons}</div> : null;
 }
@@ -198,14 +221,19 @@ export default function CallCard(p: CallCardProps) {
   const showTranscript = live || (transcript && c.status !== 'draft');
   const summaryFirst = useContext(ContactsLayoutContext) === 'single'; // 좁은 화면은 요약이 먼저(DOM 차례 — 읽는 차례도 같게)
   const summary = c.summary_ko ? <p className="cl-text"><b>요약</b>{c.summary_ko}</p> : null;
+  const inbound = c.direction === 'in';
+  const why = inbound ? inboundWhy(c) : null;
   return (
-    <article className={cls} aria-label={`${draft ? '통화 초안' : callSender(c).tag} AI 전화 ${kstTime(c.started_at ?? c.created_at)}`}>
+    <article className={cls} aria-label={`${draft ? '통화 초안' : callSender(c).tag} ${inbound ? '받은 전화' : 'AI 전화'} ${kstTime(c.started_at ?? c.created_at)}`}>
       <Head c={c} />
       {summaryFirst && summary}
-      <p className="cl-text">
-        <b>목적</b>
-        {c.purpose}
-      </p>
+      {c.purpose && (
+        <p className="cl-text">
+          <b>목적</b>
+          {c.purpose}
+        </p>
+      )}
+      {why && <p className={c.status === 'missed' ? 'th-why' : 'cl-small'}>{`${c.status === 'missed' ? '받지 못한' : '받지 않은'} 까닭: ${why}`}</p>}
       {c.status === 'no_answer' && <p className="cl-small">자동으로 다시 걸지 않습니다 — 다시 걸려면 [다시 걸기]를 눌러 주세요.</p>}
       {callUnknown(c) && (
         <p className="th-why">{`${c.fail_reason ? `${c.fail_reason} · ` : ''}자동으로 다시 걸지 않습니다. 상대가 받았을 수 있으니 확인한 뒤 다시 걸어 주세요.`}</p>
@@ -215,6 +243,7 @@ export default function CallCard(p: CallCardProps) {
       {!summaryFirst && summary}
       {result && <p className="cl-small">{result}</p>}
       <Answers c={c} />
+      <Flags c={c} />
       {c.activity && (
         <div className="th-meta">
           <ActivityLink c={c} scheduleId={p.scheduleId} />

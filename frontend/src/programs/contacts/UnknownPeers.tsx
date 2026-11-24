@@ -2,7 +2,7 @@
 // 묶음·주소록에 넣기·차단은 peer_key 로 가리키고 전체 번호는 서버가 찾는다(화면에 내려오지 않는다). 차단은 관리자만(설정의 차단 목록과 같은 길).
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '../../shared/api';
-import { eventLine, kstShort, statusLabel } from '../../shared/outreach/labels';
+import { callStatusLabel, eventLine, inboundWhy, kstShort, redFlags, statusLabel } from '../../shared/outreach/labels';
 import type { Message, OutreachEvent } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import type { CompanyGroup, PersonDetail } from './contactsApi';
@@ -104,6 +104,7 @@ export function UnknownGroup({ items, current, onOpen }: { items: UnknownPeer[];
                 </span>
                 <span className="ct-row-sub">
                   <span className="ct-role ct-ellipsis">{lastText(p)}</span>
+                  {p.calls > 0 && <span className="ct-tag">{`전화 ${p.calls}`}</span>}
                   {p.blocked && <span className="ct-tag is-bad">차단됨</span>}
                   {p.known && <span className="ct-tag">주소록에 있음</span>}
                 </span>
@@ -117,18 +118,16 @@ export function UnknownGroup({ items, current, onOpen }: { items: UnknownPeer[];
   );
 }
 
-/** 통화 상태 낱말(받는 통화 화면이 생기기 전까지 이 묶음에서만 쓴다). 모르는 값은 그대로. */
-const CALL_STATUS: Readonly<Record<string, string>> = {
-  completed: '통화됨', no_answer: '받지 않음', busy: '통화 중', failed: '실패', rejected: '받지 않고 거절', missed: '받을 수 없었음',
-  blocked_test: '시험 모드로 걸지 않음', blocked_hours: '근무시간 밖', in_call: '통화하는 중', dialing: '거는 중',
-};
-
 function Line({ l }: { l: PeerLine }) {
   const isCall = l.kind === 'call';
   const head = `${l.direction === 'out' ? (isCall ? '건 전화' : '보낸 문자') : isCall ? '받은 전화' : '받은 문자'}`;
-  // 문자 상태는 대화 칸과 같은 글(labels.statusLabel) — 그 함수가 읽는 칸만 넘긴다.
+  // 문자 상태는 대화 칸과 같은 글(labels.statusLabel) — 그 함수가 읽는 칸만 넘긴다. 통화는 통화 탭과 같은 글(Task 96) — 이 줄에는
+  // 길이·까닭 글 칸이 없어 끝난 통화는 「통화함」, 받지 않은(못한) 통화는 「요약 없음」 대신 판정이 남긴 까닭.
+  const flags = redFlags(l.events);
+  const untaken = isCall && (l.status === 'rejected' || l.status === 'missed');
+  const why = untaken ? inboundWhy({ status: l.status, events: l.events, fail_reason: null }) : null;
   const status = isCall
-    ? (CALL_STATUS[l.status] ?? l.status)
+    ? callStatusLabel({ status: l.status, events: l.events, fail_reason: null, duration_s: null, scheduled_at: null, direction: l.direction } as Parameters<typeof callStatusLabel>[0]).text
     : statusLabel({ status: l.status, fail_reason: null, scheduled_at: null, events: l.events, fallback_sms: false } as unknown as Message).text;
   return (
     <li className={`ct-ib-line${l.direction === 'out' ? ' is-out' : ''}`}>
@@ -139,7 +138,13 @@ function Line({ l }: { l: PeerLine }) {
         <span>{kstShort(l.at)}</span>
         <span>{status}</span>
       </div>
-      {l.text ? <p className="ct-ib-text">{l.text}</p> : <p className="ct-muted">{isCall ? '요약 없음' : '글 없음'}</p>}
+      {l.text ? <p className="ct-ib-text">{l.text}</p> : !untaken && <p className="ct-muted">{isCall ? '요약 없음' : '글 없음'}</p>}
+      {why && <p className="ct-muted">{`${l.status === 'missed' ? '받지 못한' : '받지 않은'} 까닭: ${why}`}</p>}
+      {flags.length > 0 && (
+        <div className="ct-ib-meta" role="group" aria-label="확인할 사건">
+          {flags.map((f) => <span key={f} className="ct-tag is-bad">{f}</span>)}
+        </div>
+      )}
       {l.events.length > 0 && (
         <details className="ct-ib-events">
           <summary>{`처리 기록 ${l.events.length}건`}</summary>

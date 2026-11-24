@@ -4,7 +4,7 @@
 // 단추는 줄마다 한 번에 요청 하나(두 번 눌러도 하나) — 끝나면 목록을 다시 읽은 뒤에 잠금을 푼다. [다시 걸기]는 새 초안을 만들고(걸지 않음)
 // 그 초안으로 창을 연다. 결과를 모르는 통화(「확인 필요」)의 [다시 걸기]는 먼저 묻는다 — 문이 그 번호를 잠깐 막을 수 있다.
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { callStatusLabel, callUnknown, HANGUP_UNKNOWN, kstDay, SCHEDULE_UNKNOWN, type Label } from '../../shared/outreach/labels';
+import { callerClassLabel, callStatusLabel, callUnknown, HANGUP_UNKNOWN, inboundWhy, kstDay, redFlags, SCHEDULE_UNKNOWN, type Label } from '../../shared/outreach/labels';
 import { outreachApi, sendOutcomeUnknown, type Call } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
 import CallCard, { HANGUP_ASKED } from './CallCard';
@@ -107,9 +107,10 @@ function useActions(reload: () => Promise<void>, changed: () => void) {
   return { busy, notes, run };
 }
 
-/** 찾기: 목적·요약·결과·질문·답·건 사람·상태 글. */
+/** 찾기: 목적·요약·결과·질문·답·건 사람·상태 글 · 받은 통화의 등급·까닭(「대표번호」·「앱이 꺼져 있는 동안…」)·붉은 사건 줄. */
 const haystack = (c: Call) =>
-  [c.purpose, c.summary_ko, c.result_proposed, c.result_confirmed ?? '', c.origin_name, callStatusLabel(c).text, ...c.questions, ...c.answers.map((a) => `${a.question} ${a.answer}`)]
+  [c.purpose, c.summary_ko, c.result_proposed, c.result_confirmed ?? '', c.origin_name, callStatusLabel(c).text, ...c.questions, ...c.answers.map((a) => `${a.question} ${a.answer}`),
+    ...(c.direction === 'in' ? ['받은 전화', callerClassLabel(c.caller_class) ?? '', inboundWhy(c) ?? ''] : []), ...redFlags(c.events)]
     .join('\n')
     .toLowerCase();
 

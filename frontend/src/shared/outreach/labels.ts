@@ -188,8 +188,37 @@ export function durationText(seconds: number): string {
   return parts.join(' ');
 }
 
-/** 통화 줄의 상태 글과 색. */
-export function callStatusLabel(c: Pick<Call, 'status' | 'events' | 'fail_reason' | 'duration_s' | 'scheduled_at'>): Label {
+// ── 받는 통화(Task 96) ──────────────────────────────────────────────────
+/** 받은 통화의 발신자 등급(door.resolve 의 caller_class) → 글. 받지 않은 등급(차단·시험 모드 밖)은 상태 글이 말하므로 없다. */
+export const CALLER_CLASS_LABEL: Readonly<Record<string, string>> = {
+  internal: '내부', contact: '주소록', contact_multi: '주소록', shared: '대표번호', do_not_contact: '수신 거부', unknown: '모르는 번호', withheld: '번호 표시 제한',
+};
+export const callerClassLabel = (cls: string | null) => (cls ? (CALLER_CLASS_LABEL[cls] ?? null) : null);
+/** 받지 않고 거절한 통화의 상태 괄호 글(admission detail — 문이 정한 까닭). 표에 없는 까닭은 「받지 않음」 + 까닭 줄. */
+const REJECT_WORD: Readonly<Record<string, string>> = { outside_test: '시험 모드', blocked_number: '차단', burst_limit: '잦은 전화', inbound_off: '받지 않음 설정' };
+/** 그 줄의 마지막 받기 판정 코드(없으면 null). */
+const admissionOf = (c: { events: Pick<OutreachEvent, 'rule' | 'detail'>[] }) => c.events.filter((e) => e.rule === 'admission').at(-1)?.detail ?? null;
+
+/** 받지 않은(못한) 통화의 까닭 한 줄 — 부재중은 서버의 글(「앱이 꺼져 있는 동안…」 등, 없으면 판정 글), 거절은 상태 글이
+ *  말하지 않은 판정 글(「모르는 번호 — 받지 않음」). 그 밖·말할 것이 없으면 null. */
+export function inboundWhy(c: { status: string; events: Pick<OutreachEvent, 'rule' | 'detail'>[]; fail_reason: string | null }): string | null {
+  const code = admissionOf(c);
+  const said = code ? (CODE_LABEL.admission[code] ?? null) : null;
+  if (c.status === 'missed') return c.fail_reason || said;
+  if (c.status === 'rejected') return code && !REJECT_WORD[code] ? said : null;
+  return null;
+}
+
+/** 붉게 보일 하네스 사건(받는 통화·거는 통화 모두): 「범위 밖 물음 n번」(도구가 범위 밖이라 거절 — scope_denied) ·
+ *  「내용 확인 필요」(뒤 확인 깃발 — harness.types.REVIEW_FLAGS). 결과를 모르는 통화·받기 판정·통화 결과는 붉게 하지 않는다. */
+const REVIEW_FLAGS = new Set(['unsupported_date', 'unsupported_answer', 'out_of_scope_said', 'money_said', 'disclosed_to_unknown']);
+export function redFlags(events: Pick<OutreachEvent, 'rule'>[]): string[] {
+  const denied = events.filter((e) => e.rule === 'scope_denied').length;
+  return [denied > 0 && `범위 밖 물음 ${denied}번`, events.some((e) => REVIEW_FLAGS.has(e.rule)) && '내용 확인 필요'].filter((x): x is string => Boolean(x));
+}
+
+/** 통화 줄의 상태 글과 색. 받은 통화(direction in)는 거는 중 대신 「받는 중」, 거절은 「받지 않음(까닭)」. */
+export function callStatusLabel(c: Pick<Call, 'status' | 'events' | 'fail_reason' | 'duration_s' | 'scheduled_at'> & { direction?: string }): Label {
   switch (c.status) {
     case 'draft':
       return { text: '아직 걸지 않음', tone: 'muted' };
@@ -198,7 +227,7 @@ export function callStatusLabel(c: Pick<Call, 'status' | 'events' | 'fail_reason
     case 'queued':
       return { text: '걸 차례를 기다리는 중', tone: 'info' };
     case 'dialing':
-      return { text: '거는 중', tone: 'info' };
+      return { text: c.direction === 'in' ? '받는 중' : '거는 중', tone: 'info' };
     case 'in_call':
       return { text: '통화 중', tone: 'info' };
     case 'completed':
@@ -214,8 +243,10 @@ export function callStatusLabel(c: Pick<Call, 'status' | 'events' | 'fail_reason
       return { text: '시험 모드로 걸지 않음', tone: 'warn' };
     case 'blocked_hours':
       return { text: '근무시간 밖으로 막힘', tone: 'warn' };
-    case 'rejected':
-      return { text: '받지 않고 거절함', tone: 'muted' };
+    case 'rejected': {
+      const word = REJECT_WORD[admissionOf(c) ?? ''];
+      return { text: word ? `받지 않음(${word})` : '받지 않음', tone: 'muted' };
+    }
     case 'missed':
       return { text: '부재중', tone: 'warn' };
     default:
