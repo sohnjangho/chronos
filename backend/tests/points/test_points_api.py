@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.model import Relation
+from app.db import get_session
 from app.points import card, quotes, risk
 from app.points.risk import Risk
 from app.programs.outreach import service as outreach_service
@@ -312,6 +313,23 @@ def test_old_version_without_stored_points_is_computed_on_read(client, admin, se
     session.commit()
     got = client.get(_url(sid), headers=admin).json()
     assert [p["activity_id"] for p in got["points"]] == ["A", "B"] and got["card"] is None
+
+
+def test_first_read_race_returns_the_row_the_other_request_stored(client, admin, session, monkeypatch):
+    sid = store(session, _base())
+    session.delete(session.get(points_store.ManagementPoints, (sid, 1)))
+    session.commit()
+    real_put, other = points_store.put, next(get_session())
+
+    def racing_put(s, schedule_id, version, points):
+        real_put(s, schedule_id, version, points)  # 이 요청은 아직 flush 전 — 다른 요청이 먼저 저장하고 commit
+        real_put(other, schedule_id, version, points)
+        other.commit()
+
+    monkeypatch.setattr(points_store, "put", racing_put)
+    r = client.get(_url(sid), headers=admin)
+    assert r.status_code == 200
+    assert [p["activity_id"] for p in r.json()["points"]] == ["A", "B"]
 
 
 # ── [근거 문장 보기] ─────────────────────────────────────────────────

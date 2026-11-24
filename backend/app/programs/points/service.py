@@ -18,6 +18,7 @@ import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.cpm import ScheduleError
@@ -95,7 +96,10 @@ def _row(session: Session, schedule_id: int, *, what_if: bool) -> tuple[int, car
         except ScheduleError as e:
             session.rollback()
             raise ApiError(422, "schedule_invalid", schedule_error_message(e), e.detail) from None
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:  # 동시에 첫 읽기 — 다른 요청이 먼저 저장했다. 되돌리고 저장된 줄을 읽는다
+            session.rollback()
         points = points_store.get(session, schedule_id, n) or ()
     return n, row, [card.point_json(p) for p in points]
 
