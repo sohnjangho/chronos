@@ -113,7 +113,12 @@ if os.environ.get('CHRONOS_SUBMISSION') == '1' and _SUBMAP.exists():
 
 
 # 실사 영상 4컷(개발 세션이 Liner Videos API 로 만듦). 없으면 사진으로 대신한다.
-OPEN_VIDEOS = []  # 예: ['../../chronos/docs/contest/assets/realvideo/cut1.mp4', …] (REC 기준 경로)
+_RV = '../../chronos/docs/contest/assets/realvideo/'
+# (REC 기준 경로, 시작 초, 끝 초): 칸 길이에 맞춰 이 구간을 조금 빠르게 보인다
+OPEN_VIDEOS = [(_RV + 'cut1-seedance-a.mp4', 1.2, 4.4),   # 빨간 막대를 가리킨다
+               (_RV + 'cut2-seedance-b.mp4', 0.0, 3.2),
+               (_RV + 'cut3-seedance-b.mp4', 0.8, 4.0),
+               (_RV + 'cut4-seedance-b.mp4', 0.0, 3.2)]
 
 
 # ── 그림 (카드·자막) ─────────────────────────────────────────────────
@@ -363,11 +368,12 @@ def build(seg):
     inputs, fc, vlabels = [], [], []
     if seg.get('cards'):
         cs = seg['cards']; each = T / len(cs)
-        vids = OPEN_VIDEOS if sid == 'O1' and OPEN_VIDEOS and all((REC / v).exists() for v in OPEN_VIDEOS) else None
+        vids = OPEN_VIDEOS if sid == 'O1' and OPEN_VIDEOS and all((REC / v[0]).exists() for v in OPEN_VIDEOS) else None
         for k, cid in enumerate(cs):
             if vids:  # 실사 영상: 앞부분을 칸 길이만큼, 화면을 채우게
-                inputs += ['-i', REC / vids[k]]
-                fc.append(f'[{k}:v]trim=0:{each:.3f},setpts=PTS-STARTPTS,fps={FPS},scale=1920:1080:force_original_aspect_ratio=increase,'
+                v, a, b = vids[k]
+                inputs += ['-i', REC / v]
+                fc.append(f'[{k}:v]trim={a}:{b},setpts=(PTS-STARTPTS)*{each / (b - a):.5f},fps={FPS},scale=1920:1080:force_original_aspect_ratio=increase,'
                           f'crop=1920:1080,format=yuv420p,setsar=1,tpad=stop_mode=clone:stop_duration=2,trim=duration={each:.3f}[v{k}]')
             elif seg.get('kb'):  # 사진을 천천히 당겨 보인다
                 nf = int(each * FPS) + 1
