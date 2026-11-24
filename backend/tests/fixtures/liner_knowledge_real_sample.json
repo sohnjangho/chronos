@@ -1,0 +1,308 @@
+{
+ "_note": "0단계 실측(11-24, 실제 Liner) stage0-probe1/2.json 에서 줄인 knowledge 표. rows 는 앞 4줄만(실제는 최근 30줄), description 은 160자에서 잘림. results 는 가상 한 줄. 키 없음.",
+ "copper": {
+  "query": "copper price",
+  "body": {
+   "requestId": "r",
+   "results": [
+    {
+     "title": "가상 결과",
+     "url": "https://example.com/a",
+     "hostname": "example.com",
+     "description": "",
+     "date": null
+    }
+   ],
+   "totalCount": 1,
+   "knowledge": [
+    {
+     "title": "Copper Price",
+     "description": "Copper Price's latest value was $14,508 per Metric Ton in Oct 2026, up 1,929.1% since Jan 1960. Monthly data from Jan 1960 to Oct 2026, with a maximum of $14,50",
+     "sources": [
+      "The World Bank"
+     ],
+     "dataAsOf": "2026-10-01",
+     "columns": [
+      "Timestamp",
+      "spot_price - Copper Price"
+     ],
+     "rows": [
+      [
+       "2024-05-01 00:00:00+00:00",
+       "10139.0"
+      ],
+      [
+       "2024-06-01 00:00:00+00:00",
+       "9648.0"
+      ],
+      [
+       "2024-07-01 00:00:00+00:00",
+       "9385.0"
+      ],
+      [
+       "2024-08-01 00:00:00+00:00",
+       "8972.0"
+      ]
+     ]
+    }
+   ]
+  }
+ },
+ "aluminum": {
+  "query": "aluminum price",
+  "body": {
+   "requestId": "r",
+   "results": [
+    {
+     "title": "가상 결과",
+     "url": "https://example.com/a",
+     "hostname": "example.com",
+     "description": "",
+     "date": null
+    }
+   ],
+   "totalCount": 1,
+   "knowledge": [
+    {
+     "title": "Aluminum Price",
+     "description": "Aluminum Price's latest value was $3,061 per Metric Ton in Oct 2026, up 499.0% since Jan 1960. At $3,061 per Metric Ton in Oct 2026, Aluminum Price was at its l",
+     "sources": [
+      "The World Bank"
+     ],
+     "dataAsOf": "2026-10-01",
+     "columns": [
+      "Timestamp",
+      "spot_price - Aluminum Price"
+     ],
+     "rows": [
+      [
+       "2024-05-01 00:00:00+00:00",
+       "2565.0"
+      ],
+      [
+       "2024-06-01 00:00:00+00:00",
+       "2498.0"
+      ],
+      [
+       "2024-07-01 00:00:00+00:00",
+       "2349.0"
+      ],
+      [
+       "2024-08-01 00:00:00+00:00",
+       "2344.0"
+      ]
+     ]
+    }
+   ]
+  }
+ },
+ "iron ore": {
+  "query": "iron ore price",
+  "body": {
+   "requestId": "r",
+   "results": [
+    {
+     "title": "가상 결과",
+     "url": "https://example.com/a",
+     "hostname": "example.com",
+     "description": "",
+     "date": null
+    }
+   ],
+   "totalCount": 1,
+   "knowledge": [
+    {
+     "title": "Iron Ore (CFR) Price",
+     "description": "Iron Ore (CFR) Price's latest value was $90.8 per Dry Metric Ton in Oct 2026, up 696.5% since Jan 1960. At $90.8 per Dry Metric Ton in Oct 2026, Iron Ore (CFR) ",
+     "sources": [
+      "The World Bank"
+     ],
+     "dataAsOf": "2026-10-01",
+     "columns": [
+      "Timestamp",
+      "spot_price - Iron Ore (CFR) Price"
+     ],
+     "rows": [
+      [
+       "2024-05-01 00:00:00+00:00",
+       "118.9"
+      ],
+      [
+       "2024-06-01 00:00:00+00:00",
+       "107.5"
+      ],
+      [
+       "2024-07-01 00:00:00+00:00",
+       "106.9"
+      ],
+      [
+       "2024-08-01 00:00:00+00:00",
+       "99.9"
+      ]
+     ]
+    }
+   ]
+  }
+ },
+ "usd_krw": {
+  "query": "USD KRW exchange rate history",
+  "body": {
+   "requestId": "r",
+   "results": [
+    {
+     "title": "가상 결과",
+     "url": "https://example.com/a",
+     "hostname": "example.com",
+     "description": "",
+     "date": null
+    }
+   ],
+   "totalCount": 1,
+   "knowledge": [
+    {
+     "title": "Currency Exchange: US Dollar (USD) to South Korean Won (KRW)",
+     "description": "Exchange rate from United States Dollar (USD) to South Korean Won (KRW). The current rate is 1,344.15 KRW per USD. The rate is up 0.2222% (2.98 KRW) from the 5 ",
+     "sources": [
+      "Xignite"
+     ],
+     "dataAsOf": "2026-11-24",
+     "columns": [
+      "Timestamp",
+      "United States Dollar to South Korean Won United States Dollar to South Korean Won (KRW)"
+     ],
+     "rows": [
+      [
+       "2026-11-24 06:36:00+00:00",
+       "1343.97"
+      ],
+      [
+       "2026-11-24 06:37:00+00:00",
+       "1344.67"
+      ],
+      [
+       "2026-11-24 06:38:00+00:00",
+       "1344.53"
+      ],
+      [
+       "2026-11-24 06:39:00+00:00",
+       "1344.48"
+      ]
+     ]
+    }
+   ]
+  }
+ },
+ "krw_usd": {
+  "query": "원 달러 환율",
+  "body": {
+   "requestId": "r",
+   "results": [
+    {
+     "title": "가상 결과",
+     "url": "https://example.com/a",
+     "hostname": "example.com",
+     "description": "",
+     "date": null
+    }
+   ],
+   "totalCount": 1,
+   "knowledge": [
+    {
+     "title": "Currency Exchange: South Korean Won (KRW) to US Dollar (USD)",
+     "description": "Exchange rate from South Korean Won (KRW) to United States Dollar (USD). The current rate is $0.000743965 per KRW. The rate is down 0.2217% (0.000001653 USD) fr",
+     "sources": [
+      "Xignite"
+     ],
+     "dataAsOf": "2026-11-24",
+     "columns": [
+      "Timestamp",
+      "South Korean Won to United States Dollar South Korean Won to United States Dollar (USD)"
+     ],
+     "rows": [
+      [
+       "2026-11-24 06:36:00+00:00",
+       "0.000744064"
+      ],
+      [
+       "2026-11-24 06:37:00+00:00",
+       "0.000743677"
+      ],
+      [
+       "2026-11-24 06:38:00+00:00",
+       "0.000743757"
+      ],
+      [
+       "2026-11-24 06:39:00+00:00",
+       "0.000743785"
+      ]
+     ]
+    }
+   ]
+  }
+ },
+ "weather": {
+  "query": "Seoul 10 day weather forecast precipitation",
+  "body": {
+   "requestId": "r",
+   "results": [
+    {
+     "title": "가상 결과",
+     "url": "https://example.com/a",
+     "hostname": "example.com",
+     "description": "",
+     "date": null
+    }
+   ],
+   "totalCount": 1,
+   "knowledge": [
+    {
+     "title": "Seoul Current Precipitation Forecast",
+     "description": "Weather forecast for Seoul, South Korea on Nov 24, 2026 5:00 PM. Currently, it is 34°F and feels like Feels like 26°F. The daytime high is 37°F and the low over",
+     "sources": [
+      "AccuWeather"
+     ],
+     "dataAsOf": "2026-11-25",
+     "columns": [
+      "Timestamp",
+      "Probability of Precipitation (%) (%)"
+     ],
+     "rows": [
+      [
+       "2026-11-24 17:00:00+09:00",
+       "0.0"
+      ],
+      [
+       "2026-11-24 18:00:00+09:00",
+       "0.0"
+      ],
+      [
+       "2026-11-24 19:00:00+09:00",
+       "0.0"
+      ],
+      [
+       "2026-11-24 20:00:00+09:00",
+       "0.0"
+      ]
+     ]
+    }
+   ]
+  }
+ },
+ "rebar_none": {
+  "query": "steel rebar price",
+  "body": {
+   "requestId": "r",
+   "results": [
+    {
+     "title": "가상 결과",
+     "url": "https://example.com/a",
+     "hostname": "example.com",
+     "description": "",
+     "date": null
+    }
+   ],
+   "totalCount": 1,
+   "knowledge": []
+  }
+ }
+}

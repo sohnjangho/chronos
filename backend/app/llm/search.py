@@ -3,6 +3,7 @@
 - 기본 LLM 연결(provider `liner`)의 키를 서버에서 풀어 `x-api-key` 머리글로만 보낸다. 키·머리글은
   기록(log)·예외·결과 어디에도 담지 않는다. 실패는 종류만 남긴다.
 - web 은 `include_knowledge: false` 로 Premium Data(knowledge 표, 1,000건당 $2)를 끈다(1,000건당 $1).
+  관리 포인트 겨냥 검색만 liner_knowledge 로 켠다(app.points.risk).
 - 다시 시도하지 않는다. 실패는 SearchFailed(code, 한국어 message), 부를 수 없으면 SearchNotReady.
 - 결과는 http(s) 주소만 남긴다(화면이 링크로 그린다). 길이는 근거 표 칸(evidence_items)에 맞춰 자른다.
 """
@@ -166,6 +167,34 @@ def _hits(data: object, max_results: int) -> list[SearchHit]:
     return hits[:max_results]
 
 
+async def _send(session: Session, mode: SearchMode, body: dict, timeout_s: float,
+                transport: httpx.AsyncBaseTransport | None, read):
+    """한 번 보내고 read(받은 JSON) 를 돌려준다. 부를 수 없으면 SearchNotReady, 보낸 뒤 실패하면 SearchFailed."""
+    base_url, key = _target(session)
+    chosen = TRANSPORT if TRANSPORT is not None else transport
+    code: str | None = None
+    out = None
+    try:
+        async with asyncio.timeout(timeout_s):
+            # trust_env=False: 환경 변수의 프록시로 키가 나가지 않게 한다. httpx 는 스스로 다시 시도하지 않는다.
+            async with httpx.AsyncClient(transport=chosen, timeout=timeout_s, trust_env=False) as http:
+                response = await http.post(
+                    f"{base_url}/tools/search/{mode}",
+                    headers={"x-api-key": key, "Content-Type": "application/json"},
+                    json=body,
+                )
+        response.raise_for_status()
+        out = read(response.json())
+    except _FAILURES as exc:
+        code = _code(exc)
+        # 예외 내용은 남기지 않는다(요청 머리글을 들고 있을 수 있다). 종류만 남긴다.
+        logger.warning("근거 검색 실패: mode=%s code=%s (%s)", mode, code, type(exc).__name__)
+    if code is not None:
+        # except 밖에서 던져 원래 예외(요청 객체를 들고 있다)가 따라붙지 않게 한다.
+        raise SearchFailed(code)
+    return out
+
+
 async def liner_search(
     session: Session,
     query: str,
@@ -179,27 +208,30 @@ async def liner_search(
 
     timeout_s 는 호출 전체에 건다. 받은 세션은 읽기만 한다(commit·flush 하지 않는다).
     """
-    base_url, key = _target(session)
-    chosen = TRANSPORT if TRANSPORT is not None else transport
     start = time.perf_counter()
-    code: str | None = None
-    hits: list[SearchHit] = []
-    try:
-        async with asyncio.timeout(timeout_s):
-            # trust_env=False: 환경 변수의 프록시로 키가 나가지 않게 한다. httpx 는 스스로 다시 시도하지 않는다.
-            async with httpx.AsyncClient(transport=chosen, timeout=timeout_s, trust_env=False) as http:
-                response = await http.post(
-                    f"{base_url}/tools/search/{mode}",
-                    headers={"x-api-key": key, "Content-Type": "application/json"},
-                    json=_body(query, mode, max_results),
-                )
-        response.raise_for_status()
-        hits = _hits(response.json(), max_results)
-    except _FAILURES as exc:
-        code = _code(exc)
-        # 예외 내용은 남기지 않는다(요청 머리글을 들고 있을 수 있다). 종류만 남긴다.
-        logger.warning("근거 검색 실패: mode=%s code=%s (%s)", mode, code, type(exc).__name__)
-    if code is not None:
-        # except 밖에서 던져 원래 예외(요청 객체를 들고 있다)가 따라붙지 않게 한다.
-        raise SearchFailed(code)
+    hits = await _send(session, mode, _body(query, mode, max_results), timeout_s, transport,
+                       lambda data: _hits(data, max_results))
     return SearchResult(hits, int((time.perf_counter() - start) * 1000))
+
+
+def _whole(data: object) -> dict:
+    if not isinstance(data, dict):
+        raise _Unreadable
+    return data
+
+
+async def liner_knowledge(
+    session: Session,
+    query: str,
+    *,
+    max_results: int = 3,
+    timeout_s: float = 20,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict:
+    """관리 포인트 겨냥 검색(계획 5): web 을 `include_knowledge: true`(Premium Data, 1,000건당 $2)로 한 번 부르고 받은
+    본문(dict)을 그대로 돌려준다 — `app.llm.knowledge.read` 로 표를 읽는다. country_code·lang 은 보내지 않는다.
+
+    일반 근거 검색(liner_search)은 그대로 끈다. 실패·부를 수 없음은 liner_search 와 같다. 세션은 읽기만 한다.
+    """
+    body = {"query": query, "max_results": max_results, "include_knowledge": True}
+    return await _send(session, "web", body, timeout_s, transport, _whole)

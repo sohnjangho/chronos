@@ -25,7 +25,9 @@ if TYPE_CHECKING:
 WEATHER_MODE = "weather"  # info.weather 가 남기는 줄(근거 검색 한도와 따로 센다)
 INFO_MODE = "info"  # info.call 이 남기는 줄(근거 검색·날씨 한도와 따로 센다)
 REUSE_MODE = "reuse"  # evidence.search 가 저장된 근거를 다시 쓴 줄(Liner 를 부르지 않았다. app.store.evidence_reuse)
-NOT_SEARCH_MODES = (WEATHER_MODE, INFO_MODE, REUSE_MODE)  # 근거 검색 수에 들지 않는 줄
+# 관리 포인트 겨냥 검색(app.points.risk)의 자재·환율(Premium Data)·업체(MCP) 줄. 30일 같은 주소 규칙 대신 recent(설정 시간)로 다시 쓴다
+KNOWLEDGE_MODE = "knowledge"
+NOT_SEARCH_MODES = (WEATHER_MODE, INFO_MODE, REUSE_MODE, KNOWLEDGE_MODE)  # 근거 검색 수에 들지 않는 줄
 SAME_URL_DAYS = 30  # 같은 주소의 줄을 다시 돌려주는 기간(evidence_reuse.REUSE_DAYS 와 같다)
 
 
@@ -104,6 +106,21 @@ def _live_by_url(session: Session, urls: set[str]) -> dict[str, EvidenceItem]:
     for item in rows:
         found.setdefault(item.url, item)
     return found
+
+
+def recent(session: Session, *, mode: str, query: str, hours: int) -> list[EvidenceItem] | None:
+    """같은 mode·query 로 hours 시간 안에 성공한 가장 새 검색의 결과 줄(id 차례, 결과가 없었으면 []). 없으면 None.
+
+    관리 포인트 겨냥 검색이 낡은 예보·값을 다시 쓰지 않게 짧은 시간(points_forecast_reuse_hours)만 본다."""
+    since = (datetime.now(UTC) - timedelta(hours=hours)).replace(tzinfo=None)  # DB 는 시간대 없는 UTC
+    found = session.scalars(
+        select(EvidenceSearch.id).where(EvidenceSearch.mode == mode, EvidenceSearch.query == query,
+                                        EvidenceSearch.ok.is_(True), EvidenceSearch.created_at >= since)
+        .order_by(EvidenceSearch.id.desc())
+    ).first()
+    if found is None:
+        return None
+    return list(session.scalars(select(EvidenceItem).where(EvidenceItem.search_id == found).order_by(EvidenceItem.id)))
 
 
 def last_user_message_at(session: Session, chat_session_id: int) -> datetime | None:
