@@ -182,8 +182,8 @@ def _with_actuals(plan: Schedule) -> Schedule:
 
 
 # ── 버전 3: 6월 말 실적 + 커튼월·창호 조달 ────────────────────────────────
-# 골조는 장마로 늦어져 4층 거푸집이 진행 중이다. 조달 줄은 Data Date 에 시작한다(선행 = 착공).
-# 기본 설정(k=3, w=3)에서: 5층 거푸집·타설·옥탑 골조가 크리티컬, 커튼월 줄 여유 4, 창호 줄 여유 13
+# 골조는 장마로 늦어져 4층 거푸집이 진행 중이다. 조달 줄(선행 = 착공)은 도면 승인이 끝나고 공장 제작이 진행 중이다.
+# 기본 설정(k=3, w=3)에서: 5층 거푸집·타설·옥탑 골조가 크리티컬, 커튼월 줄 여유 4, 창호 줄은 넉넉하다
 # (숫자는 scripts/find_demo_pair.py · find_accel_case.py --version 3, docs/demo/시나리오.md 「관리 포인트 장면」).
 
 _ACTUALS_JUNE = (
@@ -204,15 +204,20 @@ _ACTUALS_JUNE = (
     ("A1400", date(2027, 6, 15), date(2027, 6, 25), 1.0, None),
     ("A1500", date(2027, 6, 15), None, 0.6, 5),
     ("A1600", date(2027, 6, 17), None, 0.5, 6),
+    # 조달: 도면 승인 10일은 5월에 끝, 공장 제작 20일은 5월 말에 시작해 Data Date 에 커튼월 7일·창호 3일 남음
+    ("A1402", date(2027, 5, 18), date(2027, 5, 29), 1.0, None),
+    ("A1404", date(2027, 5, 31), None, 0.65, 7),
+    ("A1434", date(2027, 5, 18), date(2027, 5, 29), 1.0, None),
+    ("A1436", date(2027, 5, 31), None, 0.85, 3),
 )
 # (줄, 붙일 자리 = 이 액티비티 앞, 이어지는 설치 작업)
 _PROCUREMENT: tuple[tuple[tuple[Row, ...], str], ...] = (
-    ((("A1402", "커튼월 제작 도면 승인", "3.1.2", 2, ("A1000",), ()),
-      ("A1404", "커튼월 공장 제작", "3.1.2", 6, ("A1402",), ()),
-      ("A1406", "커튼월 자재 반입", "3.1.2", 1, ("A1404",), ())), "A1410"),
-    ((("A1434", "창호 제작 도면 승인", "3.1.3", 3, ("A1000",), ()),
-      ("A1436", "창호 제작", "3.1.3", 6, ("A1434",), ()),
-      ("A1438", "창호 반입", "3.1.3", 1, ("A1436",), ())), "A1440"),
+    ((("A1402", "커튼월 제작 도면 승인", "3.1.2", 10, ("A1000",), ()),
+      ("A1404", "커튼월 공장 제작", "3.1.2", 20, ("A1402",), ()),
+      ("A1406", "커튼월 자재 반입", "3.1.2", 2, ("A1404",), ())), "A1410"),
+    ((("A1434", "창호 제작 도면 승인", "3.1.3", 10, ("A1000",), ()),
+      ("A1436", "창호 제작", "3.1.3", 20, ("A1434",), ()),
+      ("A1438", "창호 반입", "3.1.3", 2, ("A1436",), ())), "A1440"),
 )
 # 커튼월·외장 패널은 커튼월 업체 장비(윈치·곤돌라)로 단다 — 버전 3 에서는 타워크레인을 쓰지 않는다
 # (크레인을 쓰면 골조와 맞춤 순서가 얽혀 골조가 크리티컬에서 빠진다).
@@ -233,11 +238,16 @@ def _june(v2: Schedule) -> Schedule:
             relations.append(Relation(before[a.id][-1][0], a.id))
         if a.id in _RENAMED_V3:
             a = replace(a, name=_RENAMED_V3[a.id], resources=())
-        if a.id in actual:
-            s, f, p, rd = actual[a.id]
-            a = replace(a, actual_start=s, actual_finish=f, progress=p, rd=rd)
         activities.append(a)
-    return replace(v2, activities=tuple(activities), relations=tuple(relations), data_date=DATA_DATE_V3)
+
+    def done(a: Activity) -> Activity:  # 조달 줄도 실적이 있다
+        if a.id not in actual:
+            return a
+        s, f, p, rd = actual[a.id]
+        return replace(a, actual_start=s, actual_finish=f, progress=p, rd=rd)
+
+    return replace(v2, activities=tuple(done(a) for a in activities), relations=tuple(relations),
+                   data_date=DATA_DATE_V3)
 
 
 def office_building(session: Session, *, v3: bool = False) -> int:

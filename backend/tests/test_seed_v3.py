@@ -18,8 +18,8 @@ from app.store.schedules import load
 from app.store.tables import Approval, ScheduleRecord
 
 K, W = 3, 3
-CURTAIN = ("A1402", "A1404", "A1406", "A1410")
-WINDOW = ("A1434", "A1436", "A1438")
+CURTAIN = ("A1404", "A1406", "A1410")  # 끝나지 않은 커튼월 줄(도면 승인 A1402 는 5월에 끝남)
+WINDOW = ("A1436", "A1438")
 PULL_ROOF = [Move("m", "compress", ("A1300",), "", od=1)]  # 옥탑 골조 6 → 1
 PULL_5F = [Move("a", "compress", ("A1250",), "", od=1), Move("b", "compress", ("A1252",), "", od=2)]  # 5층 4→1·4→2
 
@@ -73,47 +73,51 @@ def test_v3_is_an_approved_plan_change_with_zero_finish_variance(client, admin, 
 
 
 def test_v3_points_and_procurement_floats(session):
-    """R1 크리티컬·여유 3 이하 포인트(창 안) · R2 커튼월 줄 여유 4, 창호 줄 여유 13 · R5 공장 제작 od 6(압축 후보)."""
+    """R1 크리티컬·여유 3 이하 포인트(창 안) · R2 커튼월 줄 여유 4, 창호 줄 여유 18 · 조달 기간(전체 / Data Date 에 남은 일수)."""
     _, _, ready, lv = _v3(session)
     points = compute_points(ready, lv.cpm, tf_days=K, window_weeks=W)
     assert [(p.activity_id, p.tf, p.critical) for p in points] == [
         ("A1242", 3, False), ("A1244", 3, False), ("A1250", 3, False),
         ("A1252", 0, True), ("A1254", 0, True), ("A1300", 0, True)]
-    assert {i: lv.cpm.rows[i].tf for i in CURTAIN + WINDOW} == {**dict.fromkeys(CURTAIN, 4), **dict.fromkeys(WINDOW, 13)}
-    assert (lv.cpm.rows["A1402"].es, lv.cpm.rows["A1434"].es) == (seed.DATA_DATE_V3, seed.DATA_DATE_V3)
-    assert next(a.od for a in ready.activities if a.id == "A1404") == 6
+    assert {i: lv.cpm.rows[i].tf for i in CURTAIN + WINDOW} == {**dict.fromkeys(CURTAIN, 4), **dict.fromkeys(WINDOW, 18)}
+    acts = {a.id: a for a in ready.activities}
+    assert {i: (acts[i].od, acts[i].rd, acts[i].actual_finish is not None) for i in
+            ("A1402", "A1404", "A1406", "A1434", "A1436", "A1438")} == {
+        "A1402": (10, None, True), "A1404": (20, 7, False), "A1406": (2, None, False),
+        "A1434": (10, None, True), "A1436": (20, 3, False), "A1438": (2, None, False)}
 
 
 def test_same_three_days_different_effect(session):
-    """R3: 창호 도면 승인 +3 → 준공 0·포인트 그대로 / 커튼월 도면 승인 +3 → 준공 0, 커튼월 줄 넷이 여유 1 로 포인트에 들어온다."""
+    """R3: 창호 제작 +3 → 준공 0·포인트 그대로 / 커튼월 공장 제작 +3 → 준공 0, 커튼월 줄 셋이 여유 1 로 포인트에 들어온다."""
     _, _, ready, lv = _v3(session)
     before = compute_points(ready, lv.cpm, tf_days=K, window_weeks=W)
     results = {}
-    for aid in ("A1434", "A1402"):
+    for aid in ("A1436", "A1404"):
         impact = analyze(ready, [DelayEvent("E1", aid, lv.dates[aid][0], 3)]).impacts[0]
         changed, cl = _delayed(ready, lv, aid)
         results[aid] = impact.finish_delta, diff_points(before, compute_points(changed, cl.cpm, tf_days=K, window_weeks=W))
-    delta, diff = results["A1434"]
+    delta, diff = results["A1436"]
     assert delta == 0 and (diff.added, diff.removed, diff.tightened) == ((), (), ())
-    delta, diff = results["A1402"]
+    delta, diff = results["A1404"]
     assert delta == 0 and [(p.activity_id, p.tf) for p in diff.added] == [(i, 1) for i in CURTAIN]
     assert (diff.removed, diff.tightened) == ((), ())
 
 
 def test_pulling_the_frame_five_days(session):
-    """R4: 같은 5일 당김(옥탑 골조 6 → 1 · 5층 철근 4 → 1 + 거푸집 4 → 2)이 커튼월 지연 전에는 준공 4일, 커튼월 도면 승인 +3
-    뒤에는 1일이고 다음 줄은 커튼월. R5: 그 일정의 만회안(목표 5) B 는 준공 11-01·이득 6, 커튼월 공장 제작 6 → 4 가 든다."""
+    """R4: 같은 5일 당김(옥탑 골조 6 → 1 · 5층 철근 4 → 1 + 거푸집 4 → 2)이 커튼월 지연 전에는 준공 4일, 커튼월 공장 제작 +3
+    뒤에는 1일이고 다음 줄은 커튼월(크리티컬 패스 앞머리는 끝난 도면 승인부터). R5: 그 일정의 만회안(목표 5) B 는 준공 11-01·
+    이득 6, 커튼월·외장 패널 1~3층 10 → 8 압축이 든다(공장 제작은 진행 중이라 만회안이 압축하지 않는다)."""
     _, _, ready, lv = _v3(session)
     for moves in (PULL_ROOF, PULL_5F):
         assert _gain(ready, lv, moves)[0] == 4
-    changed, cl = _delayed(ready, lv, "A1402")
+    changed, cl = _delayed(ready, lv, "A1404")
     for moves in (PULL_ROOF, PULL_5F):
         gain, after = _gain(changed, cl, moves)
         assert (gain, after.finish) == (1, date(2027, 11, 6))
-        assert after.cpm.critical_path[:4] == CURTAIN
+        assert after.cpm.critical_path[:4] == ("A1402", *CURTAIN)
     b = next(p for p in shorten(changed, target=5).packages if p.key == "B")
     assert (b.finish, b.gain) == (date(2027, 11, 1), 6)
-    assert [m.id for m in b.moves] == ["res:tower_crane", "cmp:A1720", "cmp:A1404"]
+    assert [m.id for m in b.moves] == ["res:tower_crane", "cmp:A1720", "cmp:A1410"]
 
 
 def test_cli_demo_v3(client, session):
