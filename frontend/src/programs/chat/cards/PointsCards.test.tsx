@@ -536,6 +536,17 @@ describe('accel_check card', () => {
     expect(within(chain).getByText('커튼월 자재 반입').closest('li')).not.toHaveClass('is-point');
   });
 
+  test('before_delays_line shows as a muted line under the warning only when present', () => {
+    const { unmount } = renderCard({ ...ACCEL, before_delays_line: '열린 지연을 빼고 보면 5일 중 4일' });
+    const line = screen.getByText('열린 지연을 빼고 보면 5일 중 4일');
+    expect(line).toHaveClass('ch-meta');
+    // 경고 줄 바로 다음
+    expect(screen.getByText('당긴 5일 중 1일만 준공에 반영됩니다').closest('p')!.nextElementSibling).toBe(line);
+    unmount();
+    renderCard({ ...ACCEL, before_delays_line: null });
+    expect(screen.queryByText(/열린 지연을 빼고 보면/)).toBeNull();
+  });
+
   test('ratio > 1 (resources mixed in) shows the numbers as they are without the warning tone', () => {
     renderCard({ ...ACCEL, pulled_days: 2, reached_days: 3, ratio: 1.5, warn: false, warn_line: null });
     const c = screen.getByRole('region', { name: '당김 효과' });

@@ -4,6 +4,7 @@
 // 숫자를 그대로 보이고 경고 색을 쓰지 않는다. [관리 포인트로 보기] = API 로 관리 포인트를 읽어(열린 지연이 있으면 그 가정 —
 // 주의할 일정과 같은 차례) 이 카드 아래(대화)에 다음 결정 줄의 포인트를 먼저 ◆ 로 보이고, 바뀜 카드가 있으면 그것도. 다시 누르면 다시
 // 읽는다. [만회안 보기] = 대화에 만회 계획 요청.
+// before_delays_line(「열린 지연을 빼고 보면 n일 중 m일」 — 서버가 답이 다를 때만)은 경고 줄 아래 옅은 한 줄.
 import { useState } from 'react';
 import Badge from '../../../shared/ui/Badge';
 import Button from '../../../shared/ui/Button';
@@ -55,6 +56,7 @@ export default function AccelCheckCard({ data, ctx }: CardProps) {
             <span className="ch-wrap">{asText(data.warn_line)}</span>
           </p>
         )}
+        {asText(data.before_delays_line) && <p className="ch-meta ch-wrap pc-before">{asText(data.before_delays_line)}</p>}
         <dl className="ch-kv">
           <div>
             <dt>준공</dt>

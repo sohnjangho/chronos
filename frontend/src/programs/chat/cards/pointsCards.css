@@ -73,5 +73,6 @@
 .pc-chain li.is-point { font-weight: 700; }
 .pc-mark { display: inline-block; width: 8px; height: 8px; flex: none; border-radius: 1px; background: var(--warning); transform: rotate(45deg); }
 .pc-legend { margin: 4px 0 0; }
+.pc-before { margin: 0; }
 /* 지금 관리 포인트 목록: 다음 결정 줄의 포인트를 먼저·옅은 주의 바탕 */
 .pc-in-chain { padding: 2px 6px; border-radius: var(--radius-2); background: var(--tone-warning-bg); }
