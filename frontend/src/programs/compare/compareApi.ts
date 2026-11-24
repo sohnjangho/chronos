@@ -35,6 +35,17 @@ export interface SideOut {
   stale: boolean;
   /** 복사본의 상태(open·submitted·applied·discarded). 복사본이 아니면 null. */
   status: string | null;
+  /** 당김 효과(계획 5 Task 9): 당긴 일수·그 가운데 준공 반영·다음 결정 줄. 당김이 없는 안은 null. */
+  accel?: Accel | null;
+  /** 당김을 다른 고침과 섞어 따로 셀 수 없을 때의 까닭(그때 accel 은 null). */
+  accel_reason?: string | null;
+}
+
+export interface Accel {
+  pulled_days: number;
+  finish_gain: number;
+  warn: boolean;
+  next_chain: { activity_id: string; name: string; point: boolean }[];
 }
 
 export interface RowCell {

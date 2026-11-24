@@ -1,10 +1,34 @@
 // 여러 안 요약 표(현재 · Plan · 열린 복사본). 줄을 누르면 그 안이 비교가 된다. 값은 모두 서버 계산값.
 // 가로로 좁으면 표 안에서만 밀리고 「안」 칸은 고정이다.
+// 당김 효과 칸 둘(계획 5): 「준공 반영」 n일 중 m일(PM 11-24 표기, 경고면 주의 색 — 반영이 당긴 날보다 많으면 자원이 섞인 것이라
+// 숫자 그대로·경고 색 없음) · 「다음 결정 줄」. 따로 셀 수 없으면 까닭 글(accel_reason), 당김이 없으면 빈칸.
 import Badge from '../../shared/ui/Badge';
-import type { Peak, SideOut } from './compareApi';
+import type { Accel, Peak, SideOut } from './compareApi';
 import { deltaText, dot, floatText, toneOf } from './rows';
 
 const peakText = (p: Peak | null) => (p ? `${p.name} ${p.need}/${p.capacity}` : '—');
+const chainText = (a: Accel) => a.next_chain.map((c) => c.name || c.activity_id).join(' → ');
+
+function AccelCells({ a, reason }: { a: Accel | null | undefined; reason: string | null | undefined }) {
+  if (!a)
+    return (
+      <>
+        <td className="cmp-num cmp-reach">{reason && <span className="cmp-muted cmp-reason">{reason}</span>}</td>
+        <td className="cmp-changes" />
+      </>
+    );
+  const warn = a.warn && a.finish_gain <= a.pulled_days;
+  return (
+    <>
+      <td className="cmp-num cmp-reach">
+        <span className={warn ? 'is-warn' : ''}>{`${a.pulled_days}일 중 ${a.finish_gain}일`}</span>
+      </td>
+      <td className="cmp-changes" title={chainText(a) || undefined}>
+        {chainText(a)}
+      </td>
+    </>
+  );
+}
 
 function Row({ s, base, other, onPick }: { s: SideOut; base: string; other: string | null; onPick(ref: string): void }) {
   const role = s.ref === base ? 'base' : s.ref === other ? 'other' : null;
@@ -49,6 +73,7 @@ function Row({ s, base, other, onPick }: { s: SideOut; base: string; other: stri
         {s.uncheckable > 0 && <span className="cmp-muted">자동 점검 안 됨 {s.uncheckable}</span>}
       </td>
       <td className={`cmp-num ${s.peak && s.peak.need > s.peak.capacity ? 'is-bad' : ''}`}>{peakText(s.peak)}</td>
+      <AccelCells a={s.accel} reason={s.accel_reason} />
       <td className="cmp-changes" title={s.changes.join('\n') || undefined}>
         {s.changes.join(' · ')}
       </td>
@@ -78,6 +103,8 @@ export default function SummaryTable({ sides, base, other, refreshing, onPick }:
             <th className="cmp-num">크리티컬 수</th>
             <th className="cmp-num">조건 위반</th>
             <th className="cmp-num">자원 최고 부하</th>
+            <th className="cmp-num">준공 반영</th>
+            <th>다음 결정 줄</th>
             <th>바꾸는 것</th>
           </tr>
         </thead>

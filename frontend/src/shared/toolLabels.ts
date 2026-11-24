@@ -13,6 +13,8 @@ export const TOOL_LABELS: Record<string, string> = {
   'delay.record': '지연 기록',
   'delay.analyze': '지연 영향 분석',
   'shorten.make': '만회·단축안 생성',
+  'points.check': '관리 포인트 확인',
+  'points.accel_check': '당김 효과 확인',
   'scenario.create': '대안 시나리오 생성',
   'scenario.submit': '시나리오 승인 상신',
   'rules.propose': '내 규칙 제안',

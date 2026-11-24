@@ -2,6 +2,7 @@
 // 모르는 종류나 그리다 실패한 카드는 한 줄짜리 중립 카드로 보인다(대화는 계속).
 import { Component, type ComponentType, type ReactNode } from 'react';
 import Button from '../../../shared/ui/Button';
+import AccelCheckCard from './AccelCheckCard';
 import ActualCard from './ActualCard';
 import { ApprovalCard, AutoAppliedCard } from './ApprovalCards';
 import { asNum, asText, Card, OpenQuestionnaire, type CardCtx, type CardProps } from './Card';
@@ -13,6 +14,7 @@ import MiniQuestionsCard from './MiniQuestionsCard';
 import OutreachCallDraftCard from './OutreachCallDraftCard';
 import OutreachDraftCard from './OutreachDraftCard';
 import OutreachSentCard from './OutreachSentCard';
+import PointsChangedCard from './PointsChangedCard';
 import ProjectCreatedCard from './ProjectCreatedCard';
 import ResultCard from './ResultCard';
 import RuleSavedCard from './RuleSavedCard';
@@ -65,6 +67,8 @@ export const CARDS: Record<string, ComponentType<CardProps>> = {
   'card:outreach_draft': OutreachDraftCard,
   'card:outreach_call_draft': OutreachCallDraftCard,
   'card:outreach_sent': OutreachSentCard,
+  'card:points_changed': PointsChangedCard,
+  'card:accel_check': AccelCheckCard,
   approval: ApprovalCard,
   questionnaire: QuestionnaireCard,
 };

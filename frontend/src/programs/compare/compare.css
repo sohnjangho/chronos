@@ -12,6 +12,7 @@
 .cmp-grow { flex: 1 1 0; }
 .is-good { color: var(--success-text); }
 .is-bad { color: var(--danger-text); }
+.is-warn { color: var(--warning-text); }
 
 /* ── 위 줄 ── */
 .cmp-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
@@ -69,6 +70,8 @@
 .cmp-plan-btn:hover { text-decoration: underline; }
 .cmp-plan-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .cmp-sum .cmp-changes { max-width: 360px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-muted); }
+/* 당김 효과를 따로 셀 수 없는 까닭(긴 글)은 칸 안에서 줄을 바꾼다 */
+.cmp-sum .cmp-reason { display: inline-block; min-width: 160px; max-width: 220px; white-space: normal; text-align: left; font-size: var(--fs-12); }
 .cmp-sum tr.is-pickable { cursor: pointer; }
 .cmp-sum tr.is-pickable:hover td { background: var(--bg-panel-alt); }
 .cmp-sum tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

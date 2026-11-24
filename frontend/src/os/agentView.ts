@@ -327,7 +327,7 @@ export function plannedGhostSteps(
   if (hasSubmit) {
     return status === 'waiting' ? ['최종 승인'] : [];
   }
-  const nonGenFlow = steps.some((s) => s.tool.startsWith('delay.') || s.tool.startsWith('shorten.'));
+  const nonGenFlow = steps.some((s) => s.tool.startsWith('delay.') || s.tool.startsWith('shorten.') || s.tool.startsWith('points.'));
   if (creatingNewProject || hasExtract || hasGenerate || (status === 'waiting' && hasAsk && !nonGenFlow)) {
     const planned: string[] = [];
     if (!hasExtract && !hasGenerate) planned.push('조건 뽑기');

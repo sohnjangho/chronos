@@ -15,9 +15,13 @@ export interface AttentionItem {
   violations: number;
   open_delays: number;
   level: 'danger' | 'warning' | 'ok';
+  /** 지금 버전의 관리 포인트 수(계획 5). 계산이 안 되는 일정은 null. */
+  points_count?: number | null;
+  /** 마지막 바뀜의 새 포인트 + 여유가 준 포인트 수(열린 지연이 있으면 그 가정 기준). 등급에는 넣지 않는다. */
+  points_changed?: number;
 }
 
-/** 한 줄 까닭. 예: "준공 +4일 · 지연 사건 1건" */
+/** 한 줄 까닭. 예: "준공 +4일 · 지연 사건 1건 · 관리 포인트 4곳" */
 export function reasonText(i: AttentionItem): string {
   if (i.finish === null) return '일정을 계산할 수 없음';
   const parts: string[] = [];
@@ -26,6 +30,7 @@ export function reasonText(i: AttentionItem): string {
   if (i.negative_float_count > 0) parts.push(`여유 부족 ${i.negative_float_count}건`);
   if (i.late_count > 0) parts.push(`늦은 작업 ${i.late_count}개`);
   if (i.open_delays > 0) parts.push(`지연 사건 ${i.open_delays}건`);
+  if (i.points_count) parts.push(`관리 포인트 ${i.points_count}곳`);
   return parts.join(' · ');
 }
 

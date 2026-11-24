@@ -23,17 +23,19 @@ const GAP = 16;
 const TONE = {
   danger: { background: 'var(--tone-danger-bg)', color: 'var(--danger-text)' },
   warning: { background: 'var(--tone-warning-bg)', color: 'var(--warning-text)' },
+  info: { background: 'var(--tone-info-bg)', color: 'var(--tone-info-fg)' },
 } as const;
 
 /**
- * 바탕화면 「주의할 일정」 위젯(승인 대기 위젯 옆). ok 가 아닌 일정만 줄로 보이고, 누르면 그 일정의 일정판을 연다.
+ * 바탕화면 「주의할 일정」 위젯(승인 대기 위젯 옆). ok 가 아닌 일정과 관리 포인트가 바뀐 일정(계획 5 — 「포인트 바뀜 n」 배지,
+ * 등급은 그대로)을 줄로 보이고, 누르면 그 일정의 일정판을 연다.
  * 목록이 길면 위젯 안에서 세로로 스크롤한다.
  */
 export default function AttentionWidget() {
   const state = useAttention();
   const open = useWindows((s) => s.open);
   const approvalShown = useApprovals((s) => s.pending > 0);
-  const items = Array.isArray(state) ? state.filter((i) => i.level !== 'ok') : [];
+  const items = Array.isArray(state) ? state.filter((i) => i.level !== 'ok' || (i.points_changed ?? 0) > 0) : [];
   return (
     <section className="os-widget" style={{ left: approvalShown ? LEFT + APPROVAL_WIDTH + GAP : LEFT }} aria-label="주의할 일정">
       <div className="os-widget-title">{Array.isArray(state) ? `주의할 일정 ${items.length}` : '주의할 일정'}</div>
@@ -42,7 +44,8 @@ export default function AttentionWidget() {
       {Array.isArray(state) && items.length === 0 && <p style={S.note}>주의할 일정이 없습니다</p>}
       <ul className="os-widget-list" style={S.list}>
         {items.map((i) => {
-          const level = i.level as 'danger' | 'warning';
+          const level = i.level === 'ok' ? null : i.level;
+          const changed = i.points_changed ?? 0;
           return (
             <li key={i.id}>
               <button
@@ -56,7 +59,8 @@ export default function AttentionWidget() {
               >
                 <span style={S.head}>
                   <span className="os-widget-name">{i.name}</span>
-                  <span style={{ ...S.badge, ...TONE[level] }}>{BADGE[level]}</span>
+                  {level && <span style={{ ...S.badge, ...TONE[level] }}>{BADGE[level]}</span>}
+                  {changed > 0 && <span style={{ ...S.badge, ...TONE.info }}>{`포인트 바뀜 ${changed}`}</span>}
                 </span>
                 <span style={S.reason}>{reasonText(i)}</span>
               </button>

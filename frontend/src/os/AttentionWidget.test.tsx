@@ -122,3 +122,25 @@ test('sits next to the approval widget, or at the left edge when that one is hid
   render(<AttentionWidget />);
   expect(screen.getByRole('region', { name: '주의할 일정' })).toHaveStyle({ left: '24px' });
 });
+
+// 계획 5 Task 6: 관리 포인트 수는 까닭 줄에, 마지막 바뀜은 배지로. 등급(level)은 서버가 바꾸지 않는다 — 바뀜이 있는 ok 일정도 보인다.
+test('management points: count in the reason line and a changed badge', async () => {
+  mockAttention([
+    item('5층 사무동 신축', 'warning', { open_delays: 1, points_count: 4, points_changed: 2 }),
+    item('브래킷 BR-200', 'ok', { id: 2, domain: 'manufacturing', points_count: 3, points_changed: 1 }),
+    item('물류센터', 'ok', { id: 3, points_count: 2, points_changed: 0 }),
+  ]);
+  render(<AttentionWidget />);
+  expect(await screen.findByText('주의할 일정 2')).toBeVisible();
+  expect(screen.getByText('지연 사건 1건 · 관리 포인트 4곳')).toBeVisible();
+  expect(screen.getByText('포인트 바뀜 2')).toBeVisible();
+  expect(screen.getByText('브래킷 BR-200')).toBeVisible();
+  expect(screen.getByText('포인트 바뀜 1')).toBeVisible();
+  expect(screen.getByText('관리 포인트 3곳')).toBeVisible();
+  expect(screen.queryByText('물류센터')).toBeNull();
+});
+
+test('reason text leaves out points when the server does not count them', () => {
+  expect(reasonText(item('x', 'warning', { open_delays: 1, points_count: null }))).toBe('지연 사건 1건');
+  expect(reasonText(item('x', 'warning', { open_delays: 1, points_count: 0 }))).toBe('지연 사건 1건');
+});

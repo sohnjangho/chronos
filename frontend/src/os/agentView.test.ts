@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveToolTarget, useAgentView } from './agentView';
+import { plannedGhostSteps, resolveToolTarget, useAgentView, type RibbonStep } from './agentView';
 
 const labelOf = (tool: string, program: string | null) => {
   useAgentView.getState().onToolStart({ run_id: 1, n: 1, call_id: 'c1', tool, program, arguments: '{}' });
@@ -19,6 +19,24 @@ describe('새 에이전트 도구의 화면 이름(A6)', () => {
   it('info.list 는 「정보 API 목록」, info.call 은 「정보 API 조회」다', () => {
     expect(labelOf('info.list', null)).toBe('정보 API 목록');
     expect(labelOf('info.call', null)).toBe('정보 API 조회');
+  });
+});
+
+// 계획 5 Task 6: 관리 포인트 도구는 대화 카드로만 보인다(창을 띄우지 않음). 지연·만회 흐름처럼 생성 예정 단계를 붙이지 않는다.
+describe('관리 포인트 도구', () => {
+  const step = (tool: string, n: number): RibbonStep => ({ n, tool, label: tool, program: null, status: 'done' });
+
+  it('points.check 는 「관리 포인트 확인」, points.accel_check 는 「당김 효과 확인」이고 창을 띄우지 않는다', () => {
+    expect(labelOf('points.check', null)).toBe('관리 포인트 확인');
+    expect(labelOf('points.accel_check', null)).toBe('당김 효과 확인');
+    expect(resolveToolTarget('points.check', null).programId).toBeNull();
+    expect(resolveToolTarget('points.accel_check', null).programId).toBeNull();
+  });
+
+  it('관리 포인트 흐름의 질문 대기에는 생성 예정 칩이 붙지 않는다', () => {
+    expect(plannedGhostSteps([step('ask.questionnaire', 1)], 'waiting', false)).not.toEqual([]);
+    expect(plannedGhostSteps([step('points.check', 1), step('ask.questionnaire', 2)], 'waiting', false)).toEqual([]);
+    expect(plannedGhostSteps([step('points.accel_check', 1), step('ask.questionnaire', 2)], 'waiting', false)).toEqual([]);
   });
 });
 
