@@ -120,8 +120,26 @@ async def test_an_outbound_call_gets_its_site_and_activity_words(session, sid, v
 
     spec = (await place_call(row, plain_call())).calls[0].spec
 
-    assert spec.vocabulary == site_name.vocabulary(session, [sid])
+    assert spec.vocabulary == site_name.vocabulary(session, [sid], phrases=row.questions_json)
     assert "가람 물류센터" in spec.vocabulary and "작업 A" in spec.vocabulary
+
+
+async def test_an_outbound_call_also_gets_the_words_typed_into_its_questions(session, sid, voice_world):
+    """11-24 되돌이 시험: 질문에 적은 「2교대」를 받아쓰기가 「이교대」로 적었다 — 그 통화의 질문 낱말도 받아쓰기 낱말로 간다."""
+    row = queued(session, person(session, sid), questions_json=["2교대 가능 여부", "「작업 A」 일정대로 마칠 수 있나요?"])
+
+    spec = (await place_call(row, plain_call())).calls[0].spec
+
+    sent = numbers.google_transcription(spec.language, spec.vocabulary)["custom_vocabulary"]
+    assert {"2교대", "가능", "여부"} <= set(sent)
+    assert not any(word.isdigit() for word in sent)  # 숫자만인 조각은 낱말이 아니다
+
+
+def test_question_words_come_before_activity_names_and_skip_numbers(session, sid):
+    words = site_name.vocabulary(session, [sid], phrases=["2교대 가능 여부 010-0000-0199", None, 7])
+
+    assert words.index("2교대") < words.index("작업 A")
+    assert "010" not in words and "0199" not in words and len(words) == len(set(words))
 
 
 def test_an_inbound_call_from_a_known_site_gets_that_site(session, sid, voice_world):

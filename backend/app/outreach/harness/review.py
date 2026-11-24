@@ -26,6 +26,9 @@
 5. disclosed_to_unknown — 아무것도 들을 수 없는 등급(unknown·withheld·do_not_contact …)에게 **어느 일정이든** 그 이름이나
    작업 이름(4자 이상)을 말함. 등급은 부른 쪽이 주는 caller_class(Caller.caller_class)와 범위의 등급 가운데 엄한 쪽.
 
+**말하기로 한 글**(expected — 거는 통화 초안의 목적·물어볼 것, 11-24 되돌이 시험): 그 글의 라틴 낱말(출처 이름)은 언어 검사에서
+빼고, 그 글의 날짜 말·금액 말을 그대로 말한 것은 근거가 있다. 그 밖의 날짜·금액·이름은 위 규칙 그대로다.
+
 남기는 것(check 가 곧바로 commit): quote_found, 깃발마다 사건 하나(문자 blocked · 통화 noted, detail 은 고정 글과 건수뿐),
 깃발이 있으면 contact_reports(kind review, 「내용 확인 필요」) 한 줄 — 같은 줄에 이미 있으면 더 만들지 않는다. 사건과 보고에는
 말한 글·상대 글·번호·날짜·이름을 싣지 않는다.
@@ -314,12 +317,14 @@ def _tool_dates(tool_results: object, today: date) -> set[date]:
     return out
 
 
-def _unsupported_dates(text: str, tool_results: object, today: date) -> int:
+def _unsupported_dates(text: str, tool_results: object, today: date, expected: str = "") -> int:
+    """도구 결과에도, 말하기로 한 글(expected)에도 없는 날짜 말의 수. expected 의 날짜 말은 같은 말(같은 칸)이거나 그 날이면 근거."""
     whens = _mentions(text, today)
     if not whens:
         return 0
-    days = _tool_dates(tool_results, today)
-    return sum(1 for when in whens if not any(when.fits(day) for day in days))
+    days = _tool_dates([*_listed(tool_results), {"expected": expected}] if expected else tool_results, today)
+    told = _mentions(expected, today) if expected else []
+    return sum(1 for when in whens if when not in told and not any(when.fits(day) for day in days))
 
 
 # ── 금액 ─────────────────────────────────────────────────────────────
@@ -338,10 +343,13 @@ _MONEY = re.compile(
 )
 
 
-def _money(text: str) -> int:
-    """금액 말의 수. 한글로 읽은 수는 자리 말(십·백·천·만·억·조)이 있어야 한다 — 「사원」·「구원」·「조원」은 아니다."""
+def _money(text: str, expected: str = "") -> int:
+    """금액 말의 수. 한글로 읽은 수는 자리 말(십·백·천·만·억·조)이 있어야 한다 — 「사원」·「구원」·「조원」은 아니다.
+    말하기로 한 글(expected — _flat 한 꼴)에 글자·숫자 그대로 든 금액 말은 세지 않는다(다른 금액은 센다)."""
     count = 0
     for hit in _MONEY.finditer(text):
+        if expected and (said := _flat(hit.group())) and said in expected:
+            continue
         kor = "".join((hit["kor"] or "").split())
         count += not hit["kor"] or (any(ch in "십백천만억조" for ch in kor) and (len(kor) >= 2 or kor in "십백천만억"))
     return count
@@ -513,13 +521,31 @@ def _talk_language(session: Session, row: OutreachMessage | OutreachCall) -> str
     return languages.code(person.language) if person is not None else languages.DEFAULT
 
 
+_LATIN = re.compile(r"[a-z]+")
+
+
+def _expected(expected: object) -> str:
+    """말하기로 한 글(목적·물어볼 것) — 글인 줄만, 상한 안에서 _norm."""
+    kept = [line[:MAX_LINE_CHARS] for line in _listed(expected)[:MAX_ANSWERS] if isinstance(line, str)]
+    return _norm("\n".join(kept))[:MAX_TEXT_CHARS]
+
+
+def _without_told_latin(text: str, told: str) -> str:
+    """언어를 볼 글: 말하기로 한 글에 든 라틴 낱말(초안 질문의 출처 이름 「the world bank」)을 뺀 것. 그 밖의 라틴 낱말은 그대로."""
+    words = set(_LATIN.findall(told))
+    return _LATIN.sub(lambda hit: " " if hit.group() in words else hit.group(), text) if words else text
+
+
 def check(session: Session, ref: Ref, *, said: list[str], peer_lines: list[str], tool_results: list[dict], scope: Scope,
-          caller_class: CallerClass | None = None, now: datetime | None = None, language: str | None = None) -> Verdict:
+          caller_class: CallerClass | None = None, now: datetime | None = None, language: str | None = None,
+          expected: list[str] | None = None) -> Verdict:
     """뒤 확인 한 번(모듈 머리 글). said 는 통화면 받아쓰기의 에이전트 말, 문자면 보내려는 글. peer_lines 는 상대 말·글만,
     tool_results 는 그 통화·응대의 도구 결과(Toolbox.results), scope 는 지금의 범위(현장을 굳혔으면 굳은 것 — box.scope),
     caller_class 는 Caller.caller_class(주지 않으면 범위의 등급 — 닫힌 범위의 등급은 unknown 이라 더 엄해질 뿐이다),
     now 는 「오늘」(서울 날짜)을 정하는 시각(시험용 — 없으면 지금). language 는 대화 언어(주지 않으면 _talk_language) — ko 가
-    아니면 늘 FOREIGN 깃발.
+    아니면 늘 FOREIGN 깃발. expected 는 그 통화가 **말하기로 한 글**(거는 통화 초안의 목적·물어볼 것 — 사람이 승인한 글): 그 글에
+    든 라틴 낱말은 「영어가 섞임」으로 보지 않고, 그 글의 날짜 말·금액 말을 그대로 말한 것은 깃발이 아니다. 그 밖의 날짜·금액은
+    그대로 엄하게 본다(질문의 날짜를 다르게 읽으면 깃발).
 
     quote_found·사건·보고 한 줄을 적고 **commit 한다.** 줄이 없으면 NotFound, 범위·등급이 틀리면 TypeError·ValueError."""
     if not isinstance(scope, Scope) or not isinstance(ref, Ref):
@@ -545,10 +571,13 @@ def check(session: Session, ref: Ref, *, said: list[str], peer_lines: list[str],
         notes["unsupported_answer"] = FOREIGN  # 「maybe」「not sure」를 흐린 말·뒤집는 말로 읽지 못한다 — 근거로 믿지 않는다
 
     text, whole = _said_text(said)
+    told = _expected(expected)
     # 한국어가 아닌 말·영어가 섞인 말·다른 언어의 대화: 날짜·금액·이름 검사를 다 했다고 하지 않는다(깃발)
-    foreign = other_language or not languages.is_korean(text) or languages.has_foreign_words(text)
+    spoken = _without_told_latin(text, told)
+    foreign = other_language or not languages.is_korean(spoken) or languages.has_foreign_words(spoken)
     flat = "".join(ch for ch in text if ch.isalnum())
-    counts = {"unsupported_date": _unsupported_dates(text, tool_results, today), "money_said": _money(text)}
+    counts = {"unsupported_date": _unsupported_dates(text, tool_results, today, told),
+              "money_said": _money(text, _flat(told))}
     read = {}
     if flat or not whole:
         allowed, barred, full = _scope_names(session, scope, row.schedule_id)

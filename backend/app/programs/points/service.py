@@ -14,6 +14,7 @@
   보내기는 늘 사람이 [보내기]·[전화 걸기]를 누르고 나가는 문(시험 모드·허용 번호·근무시간·권한)이 그대로 본다.
 """
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -224,12 +225,76 @@ def message_body(site: str, person: str, point: dict, before: int | None, risks:
     return text + " 일정대로 진행할 수 있는지 알려 주시겠어요?"
 
 
+# ── AI 통화의 물어볼 것(11-24 되돌이 시험·PM 녹음 확인): 전화로 사람이 묻듯 ───────────────────────────────
+# 상황(어느 작업이 언제까지) + 물음. 작업 id·여유(TF)·크리티컬 같은 일정표 말, 점 찍은 날짜, 출처 꼬리표(「· The World Bank ·
+# 2026-10」)는 넣지 않는다 — 음성 모델이 적힌 글을 그대로 읽었다. 바깥 위험은 카드에 ok 로 있는 줄만, 코드가 아는 꼴(risk.py 가
+# 지은 줄)일 때만 말로 바꾸고, 꼴을 모르면 넣지 않는다(꼬리표째 읽지 않게). 방향은 자료 그대로, 까닭은 말하지 않는다.
+ASK_ON_TIME = "제시간에 끝낼 수 있을까요? 어렵다면 무엇이 필요할까요?"
+ASK_SUPPLY = "자재 수급은 제때 가능할까요?"
+_MONTHS_SPOKEN = {1: "한 달", 2: "두 달", 3: "석 달", 6: "여섯 달", 12: "열두 달"}
+_CONSONANT_END = set("013678lmnr")  # 숫자·라틴 글자를 소리 내 읽은 끝에 받침이 있는 것(영·일·삼·육·칠·팔, 엘·엠·엔·알)
+_MATERIAL = re.compile(r"^(?P<label>\S+) (?P<months>\d+)개월 (?P<pct>[+-]?\d+(?:\.\d+)?)% · ")
+_FX = re.compile(r"^원·달러 (?P<rate>\d{1,3}(?:,\d{3})*)원 · ")
+_FORECAST = re.compile(r"^(?P<a>\d{2})-(?P<b>\d{2})(?:~(?P<c>\d{2})-(?P<d>\d{2}))? 강수확률 최고 (?P<pop>\d+)% · 기상청")
+_HISTORY = re.compile(r"^(?P<month>\d{1,2})월 지난 (?P<years>\d+)년 강수일 평균 (?P<days>\d+(?:\.\d+)?)일 · 기상청")
+
+
+def _subject(name: str) -> str:
+    """작업 이름 + 이/가(끝 글자의 받침으로 — 숫자·라틴 글자는 읽은 소리로)."""
+    last = name.strip()[-1:].lower()
+    if "가" <= last <= "힣":
+        has_final = (ord(last) - 0xAC00) % 28 != 0
+    else:
+        has_final = last in _CONSONANT_END
+    return f"{name.strip()}{'이' if has_final else '가'}"
+
+
+def _spoken_day(iso: str) -> str:
+    return f"{int(iso[5:7])}월 {int(iso[8:10])}일"
+
+
+def _trend(pct: float) -> str:
+    """시세 움직임을 말로: 3.2 → 「3% 남짓 내렸는데」, 3.7 → 「4% 가까이 …」, 0.3 → 「조금 …」, 0 → 「거의 그대로인데」."""
+    if pct == 0:
+        return "거의 그대로인데"
+    way = "올랐는데" if pct > 0 else "내렸는데"
+    size = abs(pct)
+    whole = int(size + 0.5)
+    if whole == 0:
+        return f"조금 {way}"
+    amount = f"{whole}%" if size == whole else f"{whole}% {'남짓' if size > whole else '가까이'}"
+    return f"{amount} {way}"
+
+
+def _risk_question(risk: dict) -> str | None:
+    """카드의 위험 줄 하나 → 전화 말씨의 물음. 아는 꼴이 아니면 None(넣지 않는다)."""
+    line = risk["line"]
+    if risk["kind"] == "materials" and (hit := _MATERIAL.match(line)):
+        months = int(hit["months"])
+        return (f"{hit['label']} 시세가 최근 {_MONTHS_SPOKEN.get(months, f'{months}개월')} {_trend(float(hit['pct']))}, "
+                f"{ASK_SUPPLY}")
+    if risk["kind"] == "fx" and (hit := _FX.match(line)):
+        rate = int(hit["rate"].replace(",", "")) // 10 * 10
+        return f"요즘 원·달러 환율이 {rate:,}원대인데, {ASK_SUPPLY}"
+    if risk["kind"] == "weather" and (hit := _FORECAST.match(line)):
+        start = f"{int(hit['a'])}월 {int(hit['b'])}일"
+        if hit["c"] is None:
+            return f"{start} 비 올 확률이 최고 {hit['pop']}%로 예보됐는데, 그날 작업에 지장은 없을까요?"
+        end = f"{int(hit['d'])}일" if hit["c"] == hit["a"] else f"{int(hit['c'])}월 {int(hit['d'])}일"
+        return f"{start}부터 {end} 사이 비 올 확률이 최고 {hit['pop']}%로 예보됐는데, 그동안 작업에 지장은 없을까요?"
+    if risk["kind"] == "weather" and (hit := _HISTORY.match(line)):
+        return (f"{int(hit['month'])}월은 지난 {hit['years']}년 동안 비 온 날이 평균 {hit['days']}일인데, "
+                "그 달 작업 일정은 괜찮을까요?")
+    return None
+
+
 def call_text(point: dict, before: int | None, risks: list[dict]) -> tuple[str, list[str]]:
+    """AI 통화 초안의 (목적, 물어볼 것). before 는 문자와 같은 인자(통화 물음에는 여유 말을 넣지 않는다)."""
     purpose = f"「{point['name']}」 일정 확인"[:QUESTION_MAX]
-    first = f"「{point['name']}」({_span(point)}) 작업을 일정대로 마칠 수 있나요? {_state_line(point, before)}."
+    first = f"{_subject(point['name'])} {_spoken_day(point['ef'])}까지 끝나야 하는 일정인데, {ASK_ON_TIME}"
     questions = [first[:QUESTION_MAX]]
-    questions += [f"{line} — 이 소식이 일정에 영향을 주나요?"[:QUESTION_MAX]
-                  for line in _risk_lines(risks, outside_text=False)[:2]]  # AI 통화 지시 — 코드가 지은 줄만
+    asked = [_risk_question(r) for r in risks if r["status"] == "ok" and r["kind"] != "business"]  # 코드가 지은 줄만
+    questions += [q[:QUESTION_MAX] for q in asked if q is not None and _clean(q)][:2]
     return purpose, questions
 
 

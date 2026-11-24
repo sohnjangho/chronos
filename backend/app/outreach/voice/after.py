@@ -6,7 +6,8 @@
   끊김·첫마디에 밝히지 않음은 모두 failed)·진행 중·없는 줄은 아무것도 하지 않는다(뒤 확인도 요약도 부르지 않음).
 - **① 뒤 확인은 하네스 것 하나**: `review.check(session, Ref("call", id), said=받아쓰기의 agent 말, peer_lines=peer 말,
   tool_results=그 통화의 도구 결과(box.results), scope=box.scope, caller_class=box.caller_class, now=통화가 끝난 때)`.
-  box 가 없으면(일꾼 밖에서 다시 부름) 도구 결과는 없고, 거는 통화는 `door.outbound_scope`, 그 밖은 닫힌 빈 범위 — 근거가
+  expected=그 통화가 말하기로 한 글(_told — 거는 통화 초안의 목적·물어볼 것: 질문 글의 영어·금액·날짜를 그대로 읽은 것은 깃발이
+  아니다). box 가 없으면(일꾼 밖에서 다시 부름) 도구 결과는 없고, 거는 통화는 `door.outbound_scope`, 그 밖은 닫힌 빈 범위 — 근거가
   줄어 깃발이 늘 뿐 줄지 않는다. check 가 예외면 판정이 없으므로 「깨끗하지 않음」으로: 그 통화에 review 보고 한 줄(이미
   있으면 그대로)을 남기고 요약은 이어 간다.
 - **② 요약**: `LlmClient.chat("normal", …, json_schema={summary_ko, result})` 한 번(시간 TIMEOUT_S · 답 길이 MAX_TOKENS ·
@@ -175,6 +176,14 @@ def _review_input(session: Session, row: OutreachCall, box: Toolbox | None) -> t
     return [], _CLOSED, known
 
 
+def _told(row: OutreachCall) -> list[str]:
+    """그 통화가 말하기로 한 글: 거는 통화 초안의 목적·물어볼 것(사람이 승인한 글). 받는 통화는 없다."""
+    if row.direction != "out":
+        return []
+    questions = row.questions_json if isinstance(row.questions_json, list) else []
+    return [text for text in (row.purpose, *questions) if isinstance(text, str)]
+
+
 def _check(call_id: int, box: Toolbox | None) -> dict | None:
     """completed 인 줄이면 뒤 확인을 하고(check 가 commit), 그 뒤의 줄로 요약 자료를 만든다. 아니면 None."""
     with _db() as session:
@@ -187,7 +196,8 @@ def _check(call_id: int, box: Toolbox | None) -> dict | None:
         try:
             review.check(session, Ref("call", call_id), said=[line["text"] for line in lines if line.get("role") == "agent"],
                          peer_lines=[line["text"] for line in lines if line.get("role") == "peer"],
-                         tool_results=tool_results, scope=scope, caller_class=caller_class, now=ended)
+                         tool_results=tool_results, scope=scope, caller_class=caller_class, now=ended,
+                         expected=_told(row))
         except Exception as exc:  # noqa: BLE001 — 판정이 없음 = 깨끗하지 않음(보고 한 줄)
             session.rollback()
             logger.warning("통화 뒤: 뒤 확인을 마치지 못했습니다 (%s)", _kind(exc))

@@ -194,6 +194,20 @@ def test_instructions_have_the_shared_rules_and_the_call_lines_but_no_number():
     assert "3층 타설 날짜" in text and "금액" in text
 
 
+def test_both_directions_say_a_closing_line_before_end_call():
+    """11-24 되돌이 시험: 거는 통화 두 판 모두 마지막 답을 듣고 마치는 인사 없이 end_call 을 불렀다 — 인사를 먼저 말하라는 줄."""
+    out = instructions.outbound("가람 현장", "박현장", "철근 반장", "가람철근", "타설 일정 확인", ["3층 타설 날짜"], [], "ko")
+    inn = instructions.inbound("contact", "가람 현장", "박현장", "ko")
+
+    rule = instructions.CLOSING_LINE
+    assert "마치는 인사" in rule and "end_call" in rule and "감사합니다" in rule
+    assert "없이 end_call 을 부르지 않습니다" in rule  # 인사가 먼저, 끊기는 그다음
+    for text in (out, inn):
+        assert rule in text
+        assert "용건이 끝나면 인사하고 end_call (done) 으로 끊습니다." not in text  # 지키지 않던 옛 줄
+    assert instructions.ASKING_LINE in out and "TF" in instructions.ASKING_LINE  # 일정표 말 없이 묻는다(PM 녹음 확인)
+
+
 # ── 받아쓰기 ────────────────────────────────────────────────────────
 
 

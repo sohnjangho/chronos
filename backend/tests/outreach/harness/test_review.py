@@ -810,6 +810,37 @@ def test_missing_row_is_an_error_not_a_clean_verdict(session):
         run(session, Ref("call", 987654), ["네"])
 
 
+# ── 말하기로 한 글(expected — 초안의 목적·물어볼 것, 11-24 되돌이 시험) ─────────────
+
+DRAFT = ["「가람동 철근 배근」(11.30~12.03) 작업을 일정대로 마칠 수 있나요?",
+         "알루미늄 3개월 -3.2% · The World Bank · 2026-10 — 이 소식이 일정에 영향을 주나요?",
+         "원·달러 1,343원 — 이 소식이 일정에 영향을 주나요?"]
+
+
+def test_words_the_draft_told_the_call_to_say_are_not_flags(session):
+    """초안 질문의 영어 출처 이름·금액·날짜를 그대로 말해도 깃발이 아니다 — 견줄 것은 말하기로 한 글 밖의 말이다."""
+    w = world(session)
+
+    assert run(session, row(session, to=w.park), DRAFT, scope=w.scope, expected=DRAFT) == Verdict(True, [])
+    # 말하기로 한 글을 모르면 예전 그대로(영어가 섞인 말은 다 견주지 못함)
+    assert run(session, row(session, to=w.park), DRAFT, scope=w.scope) == Verdict(
+        False, ["unsupported_date", "out_of_scope_said", "money_said"])
+
+
+@pytest.mark.parametrize(("said", "flag"), [
+    ("「가람동 철근 배근」(11.30~12.07) 작업을 일정대로 마칠 수 있나요?", "unsupported_date"),  # 날짜를 잘못 읽음(첫째 판 07.07)
+    ("원·달러 1,500원 — 이 소식이 일정에 영향을 주나요?", "money_said"),  # 다른 금액
+    ("단가는 담당자가 따로 알려 드립니다", "money_said"),  # 초안에 없는 금액 말
+    ("Bloomberg data says aluminum fell", "money_said"),  # 초안에 없는 영어 — 다 견주지 못함
+])
+def test_what_the_draft_did_not_say_is_still_checked(session, said, flag):
+    w = world(session)
+
+    got = run(session, row(session, to=w.park), [said], scope=w.scope, expected=DRAFT)
+
+    assert not got.clean and flag in got.flags
+
+
 # ── 상한 ─────────────────────────────────────────────────────────────
 
 

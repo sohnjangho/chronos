@@ -465,7 +465,8 @@ def _spec(session: Session, row: OutreachCall, contact: Contact, number: str, ag
                     first_line=greeting.first_line(language, site, contact.name), instructions=text,
                     tools=toolsets.tool_defs(_NAMES), max_seconds=outreach.limits(conn).max_call_seconds,
                     record_to=Settings().data_dir / "recordings" / str(row.schedule_id) / str(row.id),
-                    vocabulary=site_name.vocabulary(session, [row.schedule_id]))  # 받아쓰기 낱말: 이 현장·작업 이름
+                    # 받아쓰기 낱말: 이 현장·작업 이름과 초안 질문의 낱말(「2교대」)
+                    vocabulary=site_name.vocabulary(session, [row.schedule_id], phrases=row.questions_json or ()))
 
 
 def _stop(session: Session, call_id: int, status: str, why: str, rule: str, at: datetime) -> str | None:

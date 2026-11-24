@@ -166,6 +166,41 @@ async def test_after_calls_shared_review(session, world, llm, monkeypatch):
     assert back.answers_json[0]["quote_found"] is True
 
 
+QUESTION = "알루미늄 3개월 -3.2% · The World Bank · 2026-10 — 이 소식이 일정에 영향을 주나요?"
+PEER_SAYS = "알루미늄은 이미 확보해 두어서 자재에는 문제가 없습니다"
+
+
+def _read_out(session, who, spoken: str) -> OutreachCall:
+    """질문 하나를 그대로(또는 바꿔) 읽고 근거가 있는 답을 들은 통화."""
+    return finished(session, who, questions_json=["「타설」(11.30~12.03) 작업을 일정대로 마칠 수 있나요?", QUESTION],
+                    transcript_json=[{"role": "agent", "text": "안녕하세요, AI 비서입니다. 이 통화는 기록됩니다.", "t": 0.0},
+                                     {"role": "agent", "text": spoken, "t": 2.0},
+                                     {"role": "peer", "text": PEER_SAYS, "t": 5.0}],
+                    answers_json=[{"question": QUESTION, "answer": "자재 문제 없음", "quote": PEER_SAYS}])
+
+
+async def test_reading_the_drafts_own_questions_is_not_a_review(session, world, llm):
+    """11-24 되돌이 시험: 질문 글의 영어 출처 이름 때문에 모든 통화가 「내용 확인 필요」였다 — 말하기로 한 글은 견주지 않는다."""
+    llm.push(_answer())
+    row = _read_out(session, world.who, QUESTION)
+    await after.finish(row.id)
+
+    assert session.scalars(select(ContactReport).where(ContactReport.call_id == row.id,
+                                                       ContactReport.kind == "review")).all() == []
+
+
+async def test_a_misread_date_is_still_a_review(session, world, llm):
+    """질문의 날짜(11.30~12.03)를 다르게 읽으면(첫째 판의 07.07 처럼) 그대로 깃발 — 숫자·날짜는 엄하게."""
+    llm.push(_answer())
+    row = _read_out(session, world.who, "「타설」(11.30~12.07) 작업을 일정대로 마칠 수 있나요?")
+    await after.finish(row.id)
+
+    back = reread(session, row)
+    assert [event["rule"] for event in back.harness_json] == ["unsupported_date"]
+    assert len(session.scalars(select(ContactReport).where(ContactReport.call_id == row.id,
+                                                           ContactReport.kind == "review")).all()) == 1
+
+
 async def test_review_failure_leaves_a_review_report_and_the_summary_still_runs(session, world, llm, monkeypatch, caplog):
     """review.check 가 예외면 판정이 없다 → 「깨끗하지 않음」으로: 그 통화에 review 보고 한 줄(이미 있으면 더 만들지 않음)."""
     def broken(*_a, **_k):

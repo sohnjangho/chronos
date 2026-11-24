@@ -108,6 +108,18 @@ def test_spoken_is_the_spoken_name_else_the_cleaned_name(session, sid):
     assert site_name.spoken(session, 999) == "" and site_name.spoken(session, None) == ""
 
 
+@pytest.mark.parametrize(("name", "said"), [
+    ("가상 부품 공장 — 브래킷 BR-200 2만 개", "가상 부품 공장"),  # 줄표 뒤 설명·제품 코드는 부르지 않는다(PM 녹음 확인)
+    ("A1404 5층 사무동 신축", "5층 사무동 신축"),
+    ("5층 사무동 신축", "5층 사무동 신축"),
+    ("가람 C-1동 신축", "가람 C-1동 신축"),  # 동 이름은 코드가 아니다
+    ("BR-200", "BR-200"),  # 떼고 남는 것이 없으면 다듬은 이름 그대로
+])
+def test_spoken_without_a_spoken_name_drops_codes_and_dash_notes(session, sid, name, said):
+    _rename(session, sid, name)
+    assert site_name.spoken(session, sid) == said
+
+
 def test_names_are_spoken_cleaned_and_full_without_repeats(session, sid):
     _rename(session, sid, DATED)
     _profile(session, sid, spoken_name=SPOKEN)
