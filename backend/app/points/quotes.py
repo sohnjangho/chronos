@@ -17,12 +17,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from sqlalchemy import JSON, String
-from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy.orm import Session
 
 from app.llm import search_agent
 from app.llm.search_agent import AgentQuote, SearchAgentFailed
-from app.store.tables import Base
+from app.store.tables_points import PointQuote
 from app.store.timeutil import as_utc
 
 logger = logging.getLogger(__name__)
@@ -39,17 +38,6 @@ _inflight: set[Key] = set()  # 이 프로세스에서 찾는 중(이벤트 루�
 _slots: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = weakref.WeakKeyDictionary()
 
 
-class PointQuote(Base):
-    __tablename__ = "point_quotes"
-
-    schedule_id: Mapped[int] = mapped_column(primary_key=True)
-    version: Mapped[int] = mapped_column(primary_key=True)
-    activity_id: Mapped[str] = mapped_column(String(50), primary_key=True)
-    kind: Mapped[str] = mapped_column(String(20), primary_key=True)  # weather·materials·fx·business
-    status: Mapped[str] = mapped_column(String(10))
-    quotes_json: Mapped[list] = mapped_column(JSON, default=list)  # [{text, url, title}]
-    error_code: Mapped[str | None] = mapped_column(String(20), default=None)
-    updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
 
 @dataclass(frozen=True)

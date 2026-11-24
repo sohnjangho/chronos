@@ -26,16 +26,16 @@ from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import JSON, event
-from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy import event
+from sqlalchemy.orm import Session
 
 from app.core.cpm import CpmResult
 from app.core.model import Schedule
 from app.core.points import Point, PointsDiff
 from app.points import quotes
 from app.store.settings import points_config
-from app.store.tables import Base, ScheduleRecord
-from app.store.tables_outreach import UtcDateTime
+from app.store.tables import ScheduleRecord
+from app.store.tables_points import PointCard
 from app.store.timeutil import as_utc
 
 logger = logging.getLogger(__name__)
@@ -51,22 +51,6 @@ REASONS = {"relief": "여유가 늘어남", "out_of_window": "창 밖으로 밀�
 POINT_ACTIONS = ("contact", "recovery")  # [담당자에게 확인 연락] · [만회안 보기]
 
 
-class PointCard(Base):
-    __tablename__ = "point_cards"
-
-    schedule_id: Mapped[int] = mapped_column(primary_key=True)
-    version: Mapped[int] = mapped_column(primary_key=True)
-    what_if: Mapped[bool] = mapped_column(primary_key=True)
-    data_json: Mapped[dict] = mapped_column(JSON)  # {basis, new, more, tightened, removed, diff, trigger}
-    points_json: Mapped[list] = mapped_column(JSON)  # 그때의 포인트(store.points 꼴)
-    risk_status: Mapped[str]
-    risks_json: Mapped[list] = mapped_column(JSON, default=list)  # [asdict(risk.Risk)]
-    generation: Mapped[int] = mapped_column(default=0)  # 다시 적을 때마다 +1 — 늦게 끝난 옛 찾기가 덮어쓰지 않게
-    changed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)  # 이 차이를 처음 적은 때(주의할 일정의 「최근」)
-    outdoor_json: Mapped[dict] = mapped_column(JSON, default=dict)  # 액티비티 → 실외 작업인가(LLM weather_sensitive, 고른 것만)
-    shown_generation: Mapped[int] = mapped_column(default=0)  # 옛 칸(쓰지 않음 — 이미 만든 DB 의 NOT NULL 때문에 둔다)
-    shown_json: Mapped[dict] = mapped_column(JSON, default=dict)  # 대화(chat_session_id) → 카드를 낸 차이 지문(shown_mark)
-    updated_at: Mapped[datetime] = mapped_column(UtcDateTime)
 
 
 def point_json(p: Point) -> dict:

@@ -6,15 +6,12 @@ from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.points import (
-    card,  # noqa: F401  관리 포인트 카드 표(point_cards)도 create_all 전에
-    quotes,  # noqa: F401  근거 문장 표(point_quotes)도 create_all 전에
-)
 from app.security.passwords import hash_password
 from app.store import (
     devices,  # noqa: F401  기기 세션 표(user_devices)도 create_all 전에
     points,  # noqa: F401  관리 포인트 표(management_points)도 create_all 전에
     tables_outreach,  # noqa: F401  계획 4 표를 Base 에 올린다(init_db 의 create_all 전에)
+    tables_points,  # noqa: F401  관리 포인트 카드·근거 문장 표도 create_all 전에
     ui_states,  # noqa: F401  화면 상태 표(열어 둔 창·탭)도 create_all 전에
     wallpapers,  # noqa: F401  내 사진 배경 표도 create_all 전에
 )
