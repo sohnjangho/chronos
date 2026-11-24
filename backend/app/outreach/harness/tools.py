@@ -39,6 +39,7 @@
 import asyncio
 import logging
 import unicodedata
+from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
@@ -87,6 +88,7 @@ OTHER_SITE = "이 통화는 {site} 현장 건입니다"  # 한 현장 통화에�
 CONFIRM_FIRST = "먼저 통화하시는 분이 맞는지 확인해 주세요"  # 우리가 건 통화에서 신원 확인 전
 IDENTITY_TOOLS = frozenset({"my_requests", "schedule_fact"})  # 우리가 건 통화에서 confirm_person 뒤에만 도는 도구
 SITE_TAIL = "현장"
+WORK_TAIL = "공사"  # 「가람초 신축 공사」 — 견줄 때 「현장」처럼 뗀다
 SAY_REGISTERED = "등록된 번호로 다시 연락드리겠습니다"
 SAY_MESSAGE = "담당자가 확인 후 연락드리겠습니다"
 SAY_REPORTED = "담당자가 확인하도록 전달했습니다"
@@ -174,34 +176,50 @@ def _match_site(site: str, sites: dict[int, tuple[str, ...]]) -> int | None:
 
 
 def _site_core(name: str) -> str:
-    """현장 이름의 견줄 꼴: 빈칸·대소문자를 맞추고 끝의 「현장」을 뗀다(「현장」 하나뿐이면 빈 글)."""
-    return _flat(name).removesuffix(SITE_TAIL)
+    """현장 이름의 견줄 꼴: 빈칸·대소문자를 맞추고 끝의 「현장」「공사」를 뗀다(그것뿐이면 빈 글)."""
+    core = _flat(name)
+    while (shorter := core.removesuffix(SITE_TAIL).removesuffix(WORK_TAIL)) != core:
+        core = shorter
+    return core
 
 
-def _names_other_site(said: str, here: Iterable[str], others: Iterable[str]) -> bool:
-    """상대가 말한 것이 이 통화의 현장이 아닌 **다른 실제 현장**인가. here 는 이 현장의 이름들(부를 이름·다듬은 이름·전체 이름 —
-    site_name.names), others 는 다른 현장들의 이름들. 이 현장의 어느 이름으로 보아도 다른 현장일 때만 참이다(부를 이름을 말했는데
-    전체 이름과 견주어 다른 현장이 되지 않게)."""
-    own = [name for name in here if name]
-    cores = {_site_core(name) for name in own}
-    names = [name for name in (_site_core(other) for other in others) if len(name) >= 2 and name not in cores]
-    return bool(own) and all(_other_than(said, name, names) for name in own)
+def _score(said: str, names: Iterable[str]) -> tuple[int, int]:
+    """한 현장이 그 말에 얼마나 구체적으로 걸리나: (길이, 온전함). 말 속에 든 가장 긴 이름 꼴의 길이(온전함 1), 아니면 말이 이름
+    꼴 안에 들 때 말의 길이(온전함 0) 가운데 큰 것. 같은 길이면 이름이 통째로 든 쪽이 이긴다. 두 글자 밑의 꼴은 보지 않는다."""
+    best = (0, 0)
+    for core in (_site_core(name) for name in names):
+        if len(core) < 2:
+            continue
+        if core in said:
+            best = max(best, (len(core), 1))
+        elif said in core:
+            best = max(best, (len(said), 0))
+    return best
 
 
-def _other_than(said: str, here: str, names: list[str]) -> bool:
-    """이 현장 이름 하나(here)로 견준 판정(꼬리 뺀 이름으로 견준다, 두 글자 이상만 이름으로 본다). names 는 다른 현장들의 꼬리 뺀 이름.
-    1 이 현장 이름과 꼭 같으면 이 현장 · 2 이 현장 이름을 품은 더 긴 다른 현장 이름(「가람 2단지」 ⊃ 「가람」)이 들어 있으면 그 현장 ·
-    3 이 현장 이름을 뺀 나머지에 다른 현장 이름이 들어 있으면(「나래 가람」 — 둘 다 말함) 안전하게 다른 현장 · 4 말한 것이 이 현장에
-    걸리지 않고 다른 현장 이름 안에 들면(「나래」 → 「나래 아파트」) 다른 현장. 그 밖(「우리 현장」「B동」「3층」)은 이 현장."""
-    want, core = _site_core(said), _site_core(here)
-    if len(want) < 2 or want == core:
-        return False
-    if any(core in name and name in want for name in names):
-        return True
-    rest = want.replace(core, " ") if len(core) >= 2 else want
-    if any(name in rest for name in names):
-        return True
-    return not (core in want or want in core) and any(want in name for name in names)
+def _which_site(said: str, here: Iterable[str], others: Iterable[Iterable[str]]) -> str:
+    """상대가 말한 현장이 어느 쪽인가 — 「가장 구체적인 이름이 이긴다」(고침 1). 현장마다 이름 꼴(부를 이름·다듬은 이름·전체 이름 —
+    site_name.names)로 _score 를 매겨 가장 높은 현장: 이 현장이면 "here", 다른 실제 현장이면 "other", 이 현장과 다른 현장이 같으면
+    "tie"(다시 묻는다). 아무 이름에도 걸리지 않으면(「우리 현장」「B동」「3층」) 이 현장."""
+    want = _site_core(said)
+    mine = _score(want, here)
+    best = max((_score(want, names) for names in others), default=(0, 0))
+    if best > mine:
+        return "other"
+    return "tie" if best == mine and mine > (0, 0) else "here"
+
+
+def _labels(sites: dict[int, tuple[str, ...]]) -> list[str]:
+    """현장 고르기 물음에 싣는 이름: 부를 이름, 겹치면(빈칸·대소문자 무시) 그 현장들은 다듬은 이름, 그래도 겹치면 전체 이름."""
+    shown = {sid: names[0] for sid, names in sites.items()}
+    for fallback in (lambda names: site_name.clean(names[-1]), lambda names: names[-1]):
+        seen = Counter(_flat(name) for name in shown.values())
+        clashing = [sid for sid, name in shown.items() if seen[_flat(name)] > 1]
+        if not clashing:
+            break
+        for sid in clashing:
+            shown[sid] = fallback(sites[sid])
+    return [_hide(name) for name in shown.values()]
 
 
 def _site_label(name: str) -> str:
@@ -409,14 +427,17 @@ class Toolbox:
             here = site_name.names(session, self.sid) if self.medium == "call" else ()
             if here and scope.facts != "none" and len(_site_core(site)) >= 2:
                 ids = session.scalars(select(ScheduleRecord.id).where(ScheduleRecord.id != self.sid)).all()
-                if _names_other_site(site, here, [name for sid in ids for name in site_name.names(session, sid)]):
+                which = _which_site(site, here, [site_name.names(session, sid) for sid in ids])
+                if which == "other":
                     return {"refused": OTHER_SITE.format(site=_site_label(here[0]))}  # here[0] = 부를 이름
+                if which == "tie":  # 이 현장과 다른 현장을 같은 만큼 말함 — 이 현장 이름만 싣고 다시 묻는다
+                    return {"ask": ASK_SITE, "sites": [_hide(here[0])]}
             return None
         # 후보마다 (부를 이름, 다듬은 이름, 전체 이름) — 맞추기는 모두와, 묻거나 적을 때는 부를 이름
         sites = {sid: names for sid in scope.schedule_ids if (names := site_name.names(session, sid))}
         chosen = _match_site(site, sites)
         if chosen is None:
-            return {"ask": ASK_SITE, "sites": [_hide(names[0]) for names in sites.values()]}
+            return {"ask": ASK_SITE, "sites": _labels(sites)}
         self.scope = scope.pinned(chosen)
         row, person = self.row(session), self.person(session)
         if person is not None:  # 그 줄도 그 현장의 그 사람 대화로
@@ -694,6 +715,8 @@ def _report_from_contact(box: Toolbox, session: Session, a) -> _Step:
     ask = box.pin(session, a.site)  # 현장을 말했으면 굳힌다 — 못 맞춰도 보고는 남긴다(일정 없는 보고)
     if ask is not None and "refused" in ask:  # 한 현장 통화에서 다른 실제 현장의 일 — 이 현장에 붙이지 않고 일정 없는 보고로
         return _Step(ask, f"다른 현장 · {box.report(session, a.kind, a.text, a.quote, unscheduled=True)}")
+    if ask is not None and not box.scope.site_required:  # 이 현장과 다른 현장을 함께 말함 — 어느 현장인지 몰라 일정 없는 보고로
+        return _Step(ask, f"현장을 물음 · {box.report(session, a.kind, a.text, a.quote, unscheduled=True)}")
     return _Step({"say": SAY_REPORTED}, box.report(session, a.kind, a.text, a.quote))
 
 

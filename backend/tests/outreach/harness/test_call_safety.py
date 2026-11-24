@@ -287,8 +287,8 @@ def _block_two(session):
     return sid, who(session, firm(session, sid, "이단지철근", "철근"), "정이단", "01000000111")
 
 
-@pytest.mark.parametrize("site", ["가람 2단지 B동", "가람2단지 현장 3층", "가람 2단지", "나래 가람", "가람 나래 현장"])
-async def test_more_specific_or_mixed_site_is_refused_and_report_kept(session, site):
+@pytest.mark.parametrize("site", ["가람 2단지 B동", "가람2단지 현장 3층", "가람 2단지"])
+async def test_more_specific_site_is_refused_and_report_kept(session, site):
     w = world(session)
     connect(session)
     _block_two(session)
@@ -299,6 +299,23 @@ async def test_more_specific_or_mixed_site_is_refused_and_report_kept(session, s
     await box.call("report_from_contact", {"kind": "delay", "text": "하루 늦어요", "quote": "하루 늦어요", "site": site})
 
     assert fact == {"refused": OTHER}, site
+    session.expire_all()
+    assert [x.schedule_id for x in session.scalars(select(ContactReport))] == [None]
+
+
+@pytest.mark.parametrize("site", ["나래 가람", "가람 나래 현장"])
+async def test_this_and_another_site_named_together_asks_and_report_kept_unscheduled(session, site):
+    """고침 1(가장 구체적인 이름): 이 현장과 다른 현장이 같은 만큼 구체적이면 거절도 답도 아니고 다시 묻는다(이 현장 이름만)."""
+    w = world(session)
+    connect(session)
+    _block_two(session)
+    box, _ = outbound(session, w.park)
+    await box.call("confirm_person", {"is_person": True})
+
+    fact = await box.call("schedule_fact", {"activity": "철근 배근", "site": site})
+    await box.call("report_from_contact", {"kind": "delay", "text": "하루 늦어요", "quote": "하루 늦어요", "site": site})
+
+    assert fact == {"ask": "어느 현장 일인지 여쭤보세요", "sites": [SITE_A]}, site
     session.expire_all()
     assert [x.schedule_id for x in session.scalars(select(ContactReport))] == [None]
 

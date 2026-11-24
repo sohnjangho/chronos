@@ -175,3 +175,14 @@ test('no overflow: list and form shrink, long names wrap or cut', () => {
   expect(css).toMatch(/\.pj-form\s*\{[^}]*overflow-y:\s*auto/);
   expect(css).toMatch(/\.pj-item-name\s*\{[^}]*text-overflow:\s*ellipsis/);
 });
+
+test('a spoken name longer than 40 characters asks for a short one until one is typed', async () => {
+  const long = '아주아주 긴 이름을 가진 가상 복합 업무시설 및 판매시설 신축공사 1공구 및 부대 토목공사';
+  list = [project({ name: `${long} 2026-12-01`, spoken: long })];
+  show();
+  await rows();
+  const warn = '부를 이름을 적어 주세요 — AI 가 이 긴 이름을 그대로 부릅니다';
+  expect(within(form()).getByText(warn)).toBeVisible();
+  await userEvent.type(box('AI 가 부를 이름'), '가상 업무시설');
+  expect(within(form()).queryByText(warn)).toBeNull();
+});

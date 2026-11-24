@@ -166,6 +166,9 @@ function ProjectForm({ project, readOnly, onSaved, onBack }: {
       </div>
       {input('name', '프로젝트 이름')}
       {input('spoken_name', 'AI 가 부를 이름 (통화·문자)', '짧게 — 예: 가람 물류센터. 비우면 프로젝트 이름에서 날짜·판 표시를 뗀 이름으로 부릅니다.', project.spoken_name ? undefined : project.spoken)}
+      {!draft.spoken_name.trim() && project.spoken.length > LIMITS.spoken_name && (
+        <p className="pj-warn" role="note">부를 이름을 적어 주세요 — AI 가 이 긴 이름을 그대로 부릅니다</p>
+      )}
       {input('site_address', '현장 주소 (선택)')}
       {input('summary', '한 줄 소개 — AI 가 참고', `상대가 물을 때 AI 가 참고합니다. ${draft.summary.length} / ${LIMITS.summary}자`)}
       {input('client_builder', '발주처·시공사 (선택)')}

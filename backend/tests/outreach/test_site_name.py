@@ -5,7 +5,7 @@ PM: 실제 통화에서 AI 가 프로젝트 이름을 적힌 그대로(날짜까
 뒤 확인의 이름 목록. 주소·소개·발주처는 지시가 아닌 자료 칸으로만, 번호는 가려서 간다. 이름·번호는 모두 가상이다.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import select
@@ -18,13 +18,14 @@ from app.outreach.voice import after, greeting, inbound
 from app.outreach.voice import instructions as voice_instructions
 from app.security import crypto
 from app.store.tables import ProjectProfile, ScheduleRecord
-from app.store.tables_outreach import OutreachMessage, VoiceSettings
+from app.store.tables_outreach import ContactReport, OutreachMessage, VoiceSettings
 from tests.outreach.harness.test_tools import (
     MARK_A,
     PHONE,
     SITE_B,
     connect,
     outbound,
+    project,
     who,
     world,
 )
@@ -79,6 +80,19 @@ def _rename(session, sid: int, name: str) -> None:
     ("5층 사무동 신축", "5층 사무동 신축"),
     ("2026-11-23", "2026-11-23"),  # 떼고 남는 것이 없으면 원래 이름
     (f"가람 현장 {SENTINEL_PHONE}", "가람 현장"),
+    # 고침 1
+    ("가람 물류센터 (2026-11-23 기준)", "가람 물류센터"),
+    ("가람 물류센터 (v2 수정)", "가람 물류센터"),
+    ("가람 물류센터 – 2026-11-23", "가람 물류센터"),
+    ("가람 물류센터 — 최종", "가람 물류센터"),
+    ("가람 물류센터 (1)", "가람 물류센터"),
+    ("가람 물류센터 사본 (2)", "가람 물류센터"),
+    ("제2023-1호 가람 정비", "제2023-1호 가람 정비"),  # 날짜가 아닌 번호 꼴은 둔다
+    ("가람 정비 제2023-1호", "가람 정비 제2023-1호"),
+    ("가람 물류센터 11-23", "가람 물류센터"),  # 해 없는 날짜는 끝에서만
+    ("가람 물류센터 11월 23일", "가람 물류센터"),
+    ("11-23 가람 물류센터", "11-23 가람 물류센터"),
+    ("11월 23일 가람 물류센터", "11월 23일 가람 물류센터"),
 ])
 def test_clean_strips_dates_versions_and_trailing_notes(name, cleaned):
     assert site_name.clean(name) == cleaned
@@ -354,3 +368,68 @@ def test_review_name_list_includes_spoken_and_cleaned_names(session):
 
     assert {review._flat(n) for n in ("가람 물류", CLEANED, DATED, "나래 2028.05")} <= names and full
     assert review._flat("나래") not in names  # 네 글자 밑은 이름으로 견주지 않는다(전과 같다)
+
+
+# ── 고침 1: 현장 맞추기는 가장 구체적인 이름 ─────────────────────────────
+
+
+async def _this_and_other(session, this: tuple[str, str], other: tuple[str, str]):
+    """우리가 건 통화(이 현장 = world 의 가람, 박현장)와 다른 실제 현장 하나. 둘 다 (전체 이름, 부를 이름)."""
+    w = world(session)
+    _rename(session, w.a, this[0])
+    _profile(session, w.a, spoken_name=this[1])
+    _rename(session, w.b, "다온 현장")  # world 의 둘째 현장은 겹치지 않는 이름으로
+    sid = project(session, other[0], "표식-다", date(2029, 1, 1))
+    if other[1]:
+        _profile(session, sid, spoken_name=other[1])
+    box, _ = await _confirmed_on(session, w)
+    return box
+
+
+ANSWERED = [f"{MARK_A} 철근 배근"]
+
+
+@pytest.mark.parametrize(("this", "other", "said", "answered"), [
+    (("가람 물류센터 신축", "가람"), ("가람초 신축 공사", ""), "가람초 신축", False),
+    (("가람 물류센터 신축", "가람"), ("가람 오피스 신축", "가람"), "가람 오피스", False),
+    (("한빛 아파트 2단지 신축", "한빛 2단지"), ("한빛 오피스텔 신축", "한빛"), "한빛 아파트", True),
+    (("한빛 아파트 2단지 신축", "한빛 2단지"), ("한빛 오피스텔 신축", "한빛"), "한빛 2단지 B동", True),
+    (("한빛 아파트 2단지 신축", "한빛 2단지"), ("한빛 오피스텔 신축", "한빛"), "한빛 오피스텔", False),
+    (("가람 물류센터 신축", "가람"), ("가람초 신축 공사", ""), "가람 물류센터", True),
+    (("가람 물류센터 신축", "가람"), ("가람초 신축 공사", ""), "우리 현장", True),
+])
+async def test_the_most_specific_name_wins(session, this, other, said, answered):
+    box = await _this_and_other(session, this, other)
+
+    fact = await box.call("schedule_fact", {"activity": "철근 배근", "site": said})
+
+    if answered:
+        assert [item["name"] for item in fact["items"]] == ANSWERED, said
+    else:
+        assert fact == {"refused": f"이 통화는 {this[1]} 현장 건입니다"}, said
+
+
+async def test_a_tie_between_this_and_another_site_asks_with_this_name_only(session):
+    box = await _this_and_other(session, ("가람 물류센터 신축", "가람"), ("나래 아파트 신축", "나래"))
+
+    fact = await box.call("schedule_fact", {"activity": "철근 배근", "site": "나래 가람"})
+    await box.call("report_from_contact", {"kind": "delay", "text": "하루 늦어요", "quote": "하루 늦어요", "site": "가람 나래"})
+
+    assert fact == {"ask": tools.ASK_SITE, "sites": ["가람"]}  # 다른 현장 이름은 싣지 않는다
+    session.expire_all()
+    assert [x.schedule_id for x in session.scalars(select(ContactReport))] == [None]  # 어느 현장인지 모르니 붙이지 않는다
+
+
+async def test_site_choice_never_lists_two_identical_names(session):
+    w = world(session)
+    connect(session)
+    who(session, w.rebar_b, "박현장", PHONE)
+    _rename(session, w.a, "가람 물류센터 2026-11-23")
+    _rename(session, w.b, "가람 오피스 신축")
+    _profile(session, w.a, spoken_name="가람")
+    _profile(session, w.b, spoken_name="가람")  # 화면은 막지만(409) 예전 자료가 겹쳐도
+    box, _ = inbound_box(session, "call", PHONE)
+
+    ask = await box.call("schedule_fact", {"activity": "철근 배근"})
+
+    assert ask == {"ask": tools.ASK_SITE, "sites": ["가람 물류센터", "가람 오피스 신축"]}

@@ -194,3 +194,22 @@ def test_deleting_the_schedule_removes_its_profile(client, admin, session, sid):
     assert r.status_code == 200, r.json()
     session.expire_all()
     assert session.get(ProjectProfile, sid) is None
+
+
+@pytest.mark.parametrize("taken", ["가람 물류센터", "가람물류센터", "가람 물류센터 신축"])
+def test_spoken_name_already_used_by_another_project_is_refused(client, user, session, sid, taken):
+    """다른 프로젝트의 부를 이름이나 다듬은 이름과 같으면(빈칸·대소문자 무시) 409 — AI 가 두 현장을 같은 이름으로 부르지 않게."""
+    other = schedules.store(session, schedules.sample())
+    _named(session, other, "가람 물류센터 신축 2026-11-23")
+    client.patch(f"{URL}/{other}", headers=user, json={"spoken_name": "가람 물류센터"})
+
+    r = client.patch(f"{URL}/{sid}", headers=user, json={"spoken_name": taken})
+
+    assert r.status_code == 409 and r.json()["code"] == "spoken_name_taken" and r.json()["detail"] == {"field": "spoken_name"}
+    session.expire_all()
+    assert session.get(ProjectProfile, sid) is None
+
+
+def test_keeping_its_own_spoken_name_is_fine(client, user, sid):
+    client.patch(f"{URL}/{sid}", headers=user, json={"spoken_name": "가람"})
+    assert client.patch(f"{URL}/{sid}", headers=user, json={"spoken_name": "가람", "summary": "소개"}).status_code == 200

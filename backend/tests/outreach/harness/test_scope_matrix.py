@@ -75,13 +75,15 @@ MAY_SEE = {
     "internal": {k for k in SECRETS if k.startswith("B.")} | {"who.choi", "who.park", "firm.rebar_b", "site.A", "site.B"},
     "do_not_contact": set(), "unknown": set(), "withheld": set(),
 }
-# 한 현장으로 정해진 통화에서 다른 실제 현장 이름을 대면 도구가 주는 고정 안내(H1) — 그 통화의 현장 이름을 담는 꼴은 이것 하나뿐이다.
+# 한 현장으로 정해진 통화에서 다른 실제 현장 이름을 대면 도구가 주는 고정 안내(H1), 그리고 이 현장과 다른 현장을 함께 대면
+# 다시 묻는 꼴(프로젝트 관리 고침 1 — 이 현장 이름만 싣는다) — 그 통화의 현장 이름을 담는 꼴은 이 둘뿐이다.
 # 결과를 훑기 전에 **꼭 이 꼴인 결과만** 빼고, 나머지는 MAY_SEE 그대로 본다.
 OTHER_SITE_REPLY = {"refused": "이 통화는 가람 현장 건입니다"}
+BOTH_SITES_REPLY = {"ask": "어느 현장 일인지 여쭤보세요", "sites": ["가람 현장"]}
 
 
 def without_site_reply(results: list[dict]) -> list[dict]:
-    return [r for r in results if r != OTHER_SITE_REPLY]
+    return [r for r in results if r not in (OTHER_SITE_REPLY, BOTH_SITES_REPLY)]
 
 
 # 모델이 넣을 법한 것 전부: 범위 밖 현장 이름·작업 id·작업 이름, 다른 사람 이름, 신원 주장, 받은 번호

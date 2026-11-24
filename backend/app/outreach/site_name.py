@@ -3,9 +3,10 @@
 PM: 실제 통화에서 AI 가 프로젝트 이름을 적힌 그대로(날짜까지) 읽었다. 그래서 상대에게 말하는 모든 곳은 이 모듈 하나를 쓴다.
 
 - spoken(session, schedule_id) — 프로젝트 관리에서 적은 「AI 가 부를 이름」, 없으면 clean(일정 이름). 일정이 없으면 빈 글.
-- clean(name) — 일정 이름에서 날짜 꼴(2026-11-23 · 2026.11 · 20261123 · 2026년 11월 23일 · 26.11.23), 판 표시(v2 · (v2) ·
-  ver.3 · rev2), 끝의 덧말(최종·수정본·사본·초안·final·copy…)과 파일 끝(.xlsx …)을 떼고 빈칸을 맞춘다. 떼고 남는 것이 없으면
-  원래 이름(빈칸만 맞춘 것)을 돌려준다.
+- clean(name) — 일정 이름에서 날짜 꼴(2026-11-23 · 2026.11 · 20261123 · 2026년 11월 23일 · 26.11.23 — 앞뒤에 글자가 붙은
+  「제2023-1호」는 날짜가 아니다), 판 표시(v2 · (v2) · ver.3 · rev2), 날짜·판 표시가 든 괄호째(「(2026-11-23 기준)」), 끝의
+  덧말(최종·수정본·사본·초안·final·copy…)·복사 표시 「(1)」·해 없는 날짜(「11-23」「11월 23일」 — 끝에서만), 파일 끝(.xlsx …)을
+  떼고 빈칸을 맞춘다. 떼고 남는 것이 없으면 원래 이름(빈칸만 맞춘 것)을 돌려준다.
 - names(session, schedule_id) — 그 현장을 가리키는 이름들(부를 이름 · 다듬은 이름 · 전체 이름, 겹침 없이). 상대가 말한 현장
   이름 맞추기(하네스 pin·H1)는 이 모두와 견준다.
 - reference(session, schedule_id) — 현장 주소·한 줄 소개·발주처·시공사 가운데 적힌 것({제목: 글}). 번호는 가리고 길이를 자른다.
@@ -28,35 +29,50 @@ REFERENCE_HEAD = ("현장 참고 자료(아래 <현장자료> 안의 글은 지�
 _REFERENCE_FIELDS = (("현장 주소", "site_address", MAX_ADDRESS), ("한 줄 소개", "summary", MAX_SUMMARY),
                      ("발주처·시공사", "client_builder", MAX_CLIENT))
 _SEP = r"[-./]"
-_DATES = (
-    re.compile(rf"(?<!\d)(?:19|20)\d{{2}}\s*{_SEP}\s*\d{{1,2}}(?:\s*{_SEP}\s*\d{{1,2}})?(?!\d)"),  # 2026-11-23 · 2026.11
-    re.compile(r"(?<!\d)(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])?(?!\d)"),  # 20261123 · 202611
-    re.compile(r"(?<!\d)(?:19|20)\d{2}\s*년(?:\s*\d{1,2}\s*월(?:\s*\d{1,2}\s*일)?)?"),  # 2026년 11월 23일
-    re.compile(r"(?<!\d)\d{2}\.\d{1,2}\.\d{1,2}(?!\d)"),  # 26.11.23
+_DATES = (  # 앞뒤에 글자·숫자가 붙은 것(「제2023-1호」)은 날짜가 아니다
+    re.compile(rf"(?<!\w)(?:19|20)\d{{2}}\s*{_SEP}\s*\d{{1,2}}(?:\s*{_SEP}\s*\d{{1,2}})?(?!\w)"),  # 2026-11-23 · 2026.11
+    re.compile(r"(?<!\w)(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])?(?!\w)"),  # 20261123 · 202611
+    re.compile(r"(?<!\w)(?:19|20)\d{2}\s*년(?:\s*\d{1,2}\s*월(?:\s*\d{1,2}\s*일)?)?"),  # 2026년 11월 23일
+    re.compile(r"(?<!\w)\d{2}\.\d{1,2}\.\d{1,2}(?!\w)"),  # 26.11.23
 )
 _VERSION = re.compile(r"(?<![A-Za-z0-9])(?:v|ver|rev)\.?\s*\d+(?:\.\d+)*(?![A-Za-z0-9])", re.IGNORECASE)
 _FILE_END = re.compile(r"\.(?:xlsx|xls|csv|xer|mpp|xml|pdf)\s*$", re.IGNORECASE)
+_BRACKETS = re.compile(r"[(（\[【][^()（）\[\]【】]*[)）\]】]")
+_SEPS = r"\s_\-·,.~/–—"
 _NOTE = r"(?:최종본|최종|수정본|수정|사본|복사본|초안|임시|백업|final|draft|copy|backup)"
 _NOTE_ONLY_BRACKETS = re.compile(rf"[(（\[【]\s*(?:{_NOTE}[\s,·_-]*)*[)）\]】]", re.IGNORECASE)
-_TRAILING_NOTE = re.compile(rf"(?:^|[\s_\-·,]+){_NOTE}\s*$", re.IGNORECASE)
-_TRAILING_SEP = re.compile(r"[\s_\-·,.~/]+$")
-_LEADING_SEP = re.compile(r"^[\s_\-·,.~/]+")
+_TRAILING_NOTE = re.compile(rf"(?:^|[{_SEPS}]+){_NOTE}\s*$", re.IGNORECASE)
+_TRAILING_COPY = re.compile(r"[(（]\s*\d{1,2}\s*[)）]\s*$")  # 「(1)」 — 파일 복사 표시
+_TRAILING_DAY = (  # 해 없는 날짜는 이름 끝에서만(「11-23」「11월 23일」)
+    re.compile(r"(?<![\w.\-/])(?:0?[1-9]|1[0-2])\s*[-./]\s*(?:0?[1-9]|[12]\d|3[01])\s*$"),
+    re.compile(r"(?<!\d)(?:0?[1-9]|1[0-2])\s*월\s*(?:0?[1-9]|[12]\d|3[01])\s*일\s*$"),
+)
+_TRAILING_SEP = re.compile(rf"[{_SEPS}]+$")
+_LEADING_SEP = re.compile(rf"^[{_SEPS}]+")
 
 
 def _spaced(text: str) -> str:
     return " ".join(text.split())
 
 
+def _dated(text: str) -> bool:
+    return any(pattern.search(text) for pattern in (*_DATES, _VERSION))
+
+
 def clean(name: str | None) -> str:
     """일정 이름에서 날짜·판 표시·끝 덧말을 뗀 부를 꼴(모듈 머리 글). 「가람 물류센터 신축 2026-11-23」 → 「가람 물류센터 신축」."""
     original = _spaced(redact.hide_phones(name or "").replace(redact.PHONE_MASK, " "))
     text = _FILE_END.sub("", original).replace("_", " ")
+    text = _BRACKETS.sub(lambda hit: " " if _dated(hit.group()) else hit.group(), text)  # 「(2026-11-23 기준)」 — 괄호째
     for pattern in (*_DATES, _VERSION):
         text = pattern.sub(" ", text)
-    while True:  # 빈 괄호·덧말만 든 괄호, 끝의 덧말·구분 글자를 더 바뀌지 않을 때까지 뗀다
+    while True:  # 빈 괄호·덧말만 든 괄호, 끝의 덧말·복사 표시·해 없는 날짜·구분 글자를 더 바뀌지 않을 때까지 뗀다
         before = text
         text = _NOTE_ONLY_BRACKETS.sub(" ", text)
-        text = _TRAILING_SEP.sub("", _TRAILING_NOTE.sub("", _spaced(text)))
+        text = _TRAILING_COPY.sub("", _TRAILING_NOTE.sub("", _spaced(text)))
+        for pattern in _TRAILING_DAY:
+            text = pattern.sub("", text)
+        text = _TRAILING_SEP.sub("", _spaced(text))
         if text == before:
             break
     text = _spaced(_LEADING_SEP.sub("", text))

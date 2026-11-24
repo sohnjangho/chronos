@@ -131,3 +131,18 @@ def test_seed_module_registers_outreach_tables():
     out = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[1], capture_output=True,
                          text=True, check=True)
     assert out.stdout.strip() == "True"
+
+
+def test_reseed_finds_the_demo_by_its_marker_not_its_name(session, sid):
+    """시연 일정을 프로젝트 관리에서 이름을 바꿔도 다시 심으면 그 일정을 지운다 · 같은 이름의 사용자 일정은 남긴다."""
+    first = seed.seed_demo(session)
+    session.get(ScheduleRecord, first[0]).name = "이름을 바꾼 시연 일정"
+    session.get(ScheduleRecord, sid).name = NAME  # 사용자가 만든 같은 이름의 일정
+    session.commit()
+
+    again = seed.seed_demo(session)
+
+    session.expire_all()
+    assert session.get(ScheduleRecord, first[0]) is None or first[0] in again
+    assert session.scalars(select(ScheduleRecord.name).where(ScheduleRecord.name == "이름을 바꾼 시연 일정")).all() == []
+    assert session.get(ScheduleRecord, sid).name == NAME
