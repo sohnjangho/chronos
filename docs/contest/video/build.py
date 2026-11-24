@@ -27,18 +27,18 @@ STYLE = os.environ.get('TTS_STYLE', '')
 # ── 장면 ─────────────────────────────────────────────────────────────
 # lines: (자막, 읽을 글). pieces: (파일, 시작, 끝, 몫). cards: 그림 장면.
 S = [
-  # 첫 15초(PM 11-25): 실사 영상 4컷 → 「5일을 당겼다. 준공은 하루.」 → 1/5 카드 → 제목
+  # 첫 20초(PM 11-25, R&D 실증 사례): 실사 영상 4컷 → 「6주가 밀렸다. 과제는 7개월.」 → 간트+CPM 카드 → 제목
   # 실사 영상이 오면 OPEN_VIDEOS 에 파일을 넣는다. 없으면 실사 사진을 천천히 당겨 보인다.
   dict(id='O1', min=9, chip='', kb=True, cards=['c-cut1', 'c-cut2', 'c-cut3', 'c-cut4'], lines=[
-    ('골조가 크리티컬이었습니다. 야간 작업을 넣어 5일을 당겼습니다.', '골조가 크리티컬이었습니다. 야간 작업을 넣어 오 일을 당겼습니다.'),
-    ('그런데 그사이 커튼월 공장 제작이 늦어져 있었습니다.', '그런데 그사이, 커튼월 공장 제작이 늦어져 있었습니다.')]),
+    ('성능 시험이 재시험으로 6주 밀렸습니다. 여유가 있다고 봤습니다.', '성능 시험이 재시험으로, 육 주 밀렸습니다. 여유가 있다고 봤습니다.'),
+    ('그런데 실증 설비를 설치하려던 날, 인허가가 일정표에 없었다는 걸 알았습니다.', '그런데 실증 설비를 설치하려던 날, 인허가가 일정표에 없었다는 걸 알았습니다.')]),
   dict(id='O2', min=4.5, chip='', cards=['c-hook'], lines=[
-    ('준공은 하루 당겨졌습니다. 현장에서 가장 자주 본 실패입니다.', '준공은 하루 당겨졌습니다. 현장에서, 가장 자주 본 실패입니다.')]),
-  dict(id='O3', min=4.5, chip='', kb=True, cards=['c-cold'], nosub=True, lines=[
-    ('지금이라면, 당기기 전에 압니다.', '지금이라면, 당기기 전에 압니다.')]),
+    ('과제 종료가 7개월 늘었습니다. 일정을 맡으며 가장 자주 본 실패입니다.', '과제 종료가, 칠 개월 늘었습니다. 일정을 맡으며, 가장 자주 본 실패입니다.')]),
+  dict(id='O3', min=6, chip='', kb=True, cards=['c-cold'], nosub=True, lines=[
+    ('지금이라면, 일정을 짤 때 압니다.', '지금이라면, 일정을 짤 때 압니다.')]),
   dict(id='S02', chip='', cards=['c-title'], lines=[
-    ('ChronOS. 일정이 바뀔 때마다, 약속한 날짜를 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트입니다.',
-     '크로노스. 일정이 바뀔 때마다, 약속한 날짜를 좌우하는 일이 어디로 옮겨 갔는지, 먼저 알려 주는 에이전트입니다.')]),
+    ('ChronOS. 일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트입니다.',
+     '크로노스. 일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지, 먼저 알려 주는 에이전트입니다.')]),
   dict(id='W1', min=22, chip='WOW 1 · OS + Computer Use', pieces=[('A/A-os-computer-use.mp4', 20, 50, 2), ('A/A-os-computer-use.mp4', 50, 63.3, 1)], lines=[
     ('ChronOS 는 채팅창 하나가 아니라 OS 입니다.', '크로노스는 채팅창 하나가 아니라, 오에스입니다.'),
     ('대화로 지연을 알리면, 에이전트가 스케줄과 지연 기록 창을 직접 열어 일합니다.', '대화로 지연을 알리면, 에이전트가 스케줄과 지연 기록 창을 직접 열어 일합니다.'),
@@ -56,7 +56,7 @@ S = [
   dict(id='S3', min=11, chip='시연 일정 · 5층 사무동 신축 (가상)', pieces=[('S3-gantt-points.mp4', 0, 38.9, 1)], lines=[
     ('시연 일정은 5층 사무동 신축입니다. 6월 말, 준공은 11월 8일, 계획대로 가고 있습니다.',
      '시연 일정은 오 층 사무동 신축입니다. 유월 말, 준공은 십일월 팔 일, 계획대로 가고 있습니다.'),
-    ('지금 약속을 좌우하는 일은 5층 골조와 옥탑 골조입니다.', '지금 약속을 좌우하는 일은, 오 층 골조와 옥탑 골조입니다.')]),
+    ('지금 완료일정을 좌우하는 일은 5층 골조와 옥탑 골조입니다.', '지금 완료일정을 좌우하는 일은, 오 층 골조와 옥탑 골조입니다.')]),
   dict(id='S4', min=9.5, chip='장면 1 · 같은 3일', pieces=[('S4-delay-window.mp4', 0, 29.1, 1)], lines=[
     ('창호 제작이 3일 늦어졌습니다.', '창호 제작이 삼 일 늦어졌습니다.'),
     ('준공도, 관리 포인트도 그대로입니다. 창호 쪽은 여유가 18일입니다.', '준공도, 관리 포인트도 그대로입니다. 창호 쪽은 여유가 십팔 일입니다.')]),
@@ -66,7 +66,7 @@ S = [
     ('하지만 커튼월의 여유가 4일에서 1일로 줄어, 관리 포인트가 바뀌었습니다.', '하지만 커튼월의 여유가 사 일에서 일 일로 줄어, 관리 포인트가 바뀌었습니다.'),
     ('에이전트가 이 순간을 먼저 알립니다.', '에이전트가 이 순간을 먼저 알립니다.')]),
   dict(id='S6', min=18, chip='장면 2 · Liner Search · Premium Data · MCP · Search Agent', pieces=[('S6-outside-risks.mp4', 0, 31.0, 1)], lines=[
-    ('새 관리 포인트에 대해서만 Liner Search 가 바깥 위험을 찾습니다.', '새 관리 포인트에 대해서만, 라이너 서치가 바깥 위험을 찾습니다.'),
+    ('새 관리 포인트에 대해서만 Liner Search 가 외부 영향을 찾습니다.', '새 관리 포인트에 대해서만, 라이너 서치가 외부 영향을 찾습니다.'),
     ('알루미늄 시세와 환율, 업계 소식을 출처와 함께 붙이고, 근거가 된 문장도 바로 열어 봅니다.',
      '알루미늄 시세와 환율, 업계 소식을 출처와 함께 붙이고, 근거가 된 문장도 바로 열어 봅니다.'),
     ('6개월이 지난 글은 쓰지 않고, 찾지 못하면 숫자를 지어내지 않습니다.', '육 개월이 지난 글은 쓰지 않고, 찾지 못하면 숫자를 지어내지 않습니다.')]),
@@ -81,7 +81,7 @@ S = [
   dict(id='S8', min=18, chip='WOW 2 · 당겨도 소용 있나', pieces=[('S8-pull-check.mp4', 0, 34.1, 1)], lines=[
     ('습관처럼 골조를 당기려 하면, 에이전트가 먼저 계산합니다.', '습관처럼 골조를 당기려 하면, 에이전트가 먼저 계산합니다.'),
     ('옥탑 골조를 5일 당겨도, 준공은 하루만 당겨집니다.', '옥탑 골조를 오 일 당겨도, 준공은 하루만 당겨집니다.'),
-    ('지금 약속을 좌우하는 일은 커튼월입니다.', '지금 약속을 좌우하는 일은, 커튼월입니다.'),
+    ('지금 완료일정을 좌우하는 일은 커튼월입니다.', '지금 완료일정을 좌우하는 일은, 커튼월입니다.'),
     ('같은 5일이 커튼월이 늦어지기 전에는 4일의 값어치였습니다.', '같은 오 일이, 커튼월이 늦어지기 전에는 사 일의 값어치였습니다.')]),
   dict(id='S9', min=24, chip='장면 5 · 만회안과 승인', pieces=[('S9-recovery-approve.mp4', 0, 77.0, 1)], lines=[
     ('만회안은 같은 계산으로 견줍니다. 만회안 B 는 준공을 6일 당깁니다.', '만회안은 같은 계산으로 견줍니다. 만회안 비는 준공을 육 일 당깁니다.'),
@@ -95,7 +95,7 @@ S = [
     ('에이전트가 한 일은 단계마다 기록으로 남습니다.', '에이전트가 한 일은, 단계마다 기록으로 남습니다.'),
     ('왜 그렇게 했는지, 나중에 그대로 따라가 볼 수 있습니다.', '왜 그렇게 했는지, 나중에 그대로 따라가 볼 수 있습니다.')]),
   dict(id='S99', chip='', cards=['c-end'], tail=2.0, lines=[
-    ('무엇이 약속을 늦추는지는, 바뀔 때마다 다시 정해집니다.', '무엇이 약속을 늦추는지는, 바뀔 때마다 다시 정해집니다.'),
+    ('무엇이 완료일정을 늦추는지는, 바뀔 때마다 다시 정해집니다.', '무엇이 완료일정을 늦추는지는, 바뀔 때마다 다시 정해집니다.'),
     ('ChronOS', '크로노스.')]),
 ]
 
@@ -113,12 +113,9 @@ if os.environ.get('CHRONOS_SUBMISSION') == '1' and _SUBMAP.exists():
 
 
 # 실사 영상 4컷(개발 세션이 Liner Videos API 로 만듦). 없으면 사진으로 대신한다.
-_RV = '../../chronos/docs/contest/assets/realvideo/'
-# (REC 기준 경로, 시작 초, 끝 초): 칸 길이에 맞춰 이 구간을 조금 빠르게 보인다
-OPEN_VIDEOS = [(_RV + 'cut1-seedance-a.mp4', 1.2, 4.4),   # 빨간 막대를 가리킨다
-               (_RV + 'cut2-seedance-b.mp4', 0.0, 3.2),
-               (_RV + 'cut3-seedance-b.mp4', 0.8, 4.0),
-               (_RV + 'cut4-seedance-b.mp4', 0.0, 3.2)]
+_RV = '../../chronos/docs/contest/assets/realvideo-rnd/'
+# (REC 기준 경로, 시작 초, 끝 초): 칸 길이에 맞춰 이 구간을 조금 빠르게 보인다. R&D 판 영상이 오면 채운다.
+OPEN_VIDEOS = []
 
 
 # ── 그림 (카드·자막) ─────────────────────────────────────────────────
@@ -142,12 +139,12 @@ def card_html(cid):
     if cid.startswith('c-cut'):
         n = int(cid[-1])
         bub = {
-            1: '<div class="bub" style="left:120px;top:110px">골조가 크리티컬이야.<br>야간 작업 넣어서 당기자.</div>',
-            2: '<div class="nar" style="left:120px;top:110px">밤샘 타설. 골조는 예정보다 5일 빨리 끝났다.</div>',
-            3: '<div class="bub" style="right:120px;top:110px">커튼월이 아직<br>안 왔다고요?</div><div class="bub phone" style="right:120px;top:330px">"공장 제작이 3일<br>늦어졌습니다…"</div>',
-            4: '<div class="nar" style="left:120px;top:110px">5일을 당겼는데, 준공은 하루 당겨졌다.</div>',
+            1: '<div class="bub" style="left:120px;top:110px">재시험이면 6주.<br>여유 있으니 괜찮아.</div>',
+            2: '<div class="nar" style="left:120px;top:110px">실증 설비 제작 끝. 다음 주 설치만 하면 된다.</div>',
+            3: '<div class="bub phone" style="right:120px;top:110px">"실증특례 승인 없이는 설치 못 합니다.<br>심의만 3개월이에요."</div><div class="bub" style="right:120px;top:330px">그게 일정표에<br>없었는데…</div>',
+            4: '<div class="nar" style="left:120px;top:110px">실증 운전 12개월을 못 채운다. 과제 종료 7개월 연장.</div>',
         }[n]
-        return f"""<html><head><style>{BASE_CSS}body{{background:#000 url('{img(f'rc{n}.jpg')}') center/cover no-repeat;position:relative}}
+        return f"""<html><head><style>{BASE_CSS}body{{background:#000 url('{img(f'rd1-{n}.jpg')}') center/cover no-repeat;position:relative}}
 .bub{{position:absolute;background:#fff;color:#0f172a;font-size:46px;font-weight:800;line-height:1.35;padding:26px 36px;border-radius:34px;box-shadow:0 14px 40px rgba(0,0,0,.45)}}
 .bub.phone{{background:#e0f2fe;color:#075985;font-weight:700;font-size:40px}}
 .nar{{position:absolute;background:#fbbf24;color:#1c1917;font-size:44px;font-weight:800;padding:20px 32px;border-radius:6px;box-shadow:0 14px 40px rgba(0,0,0,.45)}}
@@ -155,25 +152,24 @@ def card_html(cid):
 <body>{bub}<div class="no">{n}</div><div style="position:absolute;right:40px;bottom:28px;font-size:20px;color:rgba(255,255,255,.75)">연출 이미지 · Liner Images API</div></body></html>"""
     if cid == 'c-hook':
         return f"""<html><head><style>{BASE_CSS}body{{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}}</style></head><body>
-<div style="font-size:120px;font-weight:800;color:#fff;letter-spacing:-.03em;line-height:1.2">5일을 당겼다.</div>
-<div style="font-size:150px;font-weight:800;color:#fbbf24;letter-spacing:-.03em;line-height:1.2;margin-top:10px">준공은 하루.</div></body></html>"""
-    if cid == 'c-cold':
+<div style="font-size:120px;font-weight:800;color:#fff;letter-spacing:-.03em;line-height:1.2">6주가 밀렸다.</div>
+<div style="font-size:150px;font-weight:800;color:#fbbf24;letter-spacing:-.03em;line-height:1.2;margin-top:10px">과제는 7개월.</div></body></html>"""
+    if cid == 'c-cold':  # 기획서 4쪽의 간트+CPM (그때 vs ChronOS 였다면)
+        src = (HERE.parent / 'a4' / 'ChronOS_기획서_rev7.html').read_text(encoding='utf-8')
+        i = src.index('<svg viewBox="0 0 720 ', src.index('<!-- 3 간트 + CPM')); j = src.index('</svg>', i) + 6
+        g = src[i:j].replace('width="100%"', 'width="1180"', 1)
         return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};position:relative}}</style></head><body>
-<div style="position:absolute;left:150px;top:120px;background:#fff;color:#0f172a;font-size:46px;font-weight:800;padding:22px 36px;border-radius:30px">옥탑 골조를 5일 당기면?</div>
-<img src="{img('v-pullcard.png')}" style="position:absolute;left:150px;top:260px;width:1130px;border-radius:18px;border:3px solid #fbbf24">
-<div style="position:absolute;right:150px;top:300px;text-align:right">
-  <div style="font-size:330px;font-weight:800;line-height:.85;color:#fbbf24;letter-spacing:-.05em">1<span style="font-size:160px;color:#64748b">/5</span></div>
-  <div style="font-size:40px;color:#e2e8f0;margin-top:30px;line-height:1.4">당긴 5일 중<br>준공에 반영되는 날</div></div>
-<div style="position:absolute;left:0;right:0;bottom:70px;text-align:center;font-size:54px;font-weight:800;color:#fff">지금이라면, <span style="color:#7dd3fc">당기기 전에 안다.</span></div></body></html>"""
+<div style="position:absolute;left:370px;top:40px">{g}</div>
+<div style="position:absolute;left:0;right:0;bottom:46px;text-align:center;font-size:54px;font-weight:800;color:#fff">지금이라면, <span style="color:#7dd3fc">일정을 짤 때 안다.</span></div></body></html>"""
     if cid == 'c-title':
         return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};padding:150px 170px;position:relative}}</style></head><body>
 <div style="display:inline-block;font:700 24px Menlo;letter-spacing:.12em;color:#7dd3fc;border:2px solid rgba(125,211,252,.5);border-radius:999px;padding:8px 22px">LINER .EXE-THON 2026</div>
 <div style="font-size:200px;font-weight:800;letter-spacing:-.04em;color:#fff;margin-top:40px;line-height:1">Chron<span style="{GRAD}">OS</span></div>
-<div style="font-size:52px;font-weight:700;color:#fff;margin-top:40px;line-height:1.4">일정이 바뀔 때마다, 약속한 날짜를 좌우하는 일이<br>어디로 옮겨 갔는지 먼저 알려 주는 에이전트</div>
+<div style="font-size:52px;font-weight:700;color:#fff;margin-top:40px;line-height:1.4">일정이 바뀔 때마다, 완료일정을 좌우하는 일이<br>어디로 옮겨 갔는지 먼저 알려 주는 에이전트</div>
 <img src="{img('cv-에이전트.jpg')}" style="position:absolute;right:150px;top:120px;width:330px;height:620px;object-fit:cover;object-position:top;border-radius:24px;box-shadow:0 0 120px rgba(251,191,36,.35);border:2px solid rgba(255,255,255,.2)"></body></html>"""
     if cid == 'c-end':
         return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}}</style></head><body>
-<div style="font-size:64px;font-weight:800;color:#fff;line-height:1.4;letter-spacing:-.02em">무엇이 약속을 늦추는지는,<br><span style="{GRAD}">바뀔 때마다 다시 정해집니다.</span></div>
+<div style="font-size:64px;font-weight:800;color:#fff;line-height:1.4;letter-spacing:-.02em">무엇이 완료일정을 늦추는지는,<br><span style="{GRAD}">바뀔 때마다 다시 정해집니다.</span></div>
 <div style="font-size:150px;font-weight:800;color:#fff;letter-spacing:-.04em;margin-top:70px">Chron<span style="{GRAD}">OS</span></div>
 <div style="font:600 28px Menlo;color:#94a3b8;margin-top:30px">Liner .EXE-THON 2026 · github.com/sohnjangho/chronos</div></body></html>"""
     raise KeyError(cid)
