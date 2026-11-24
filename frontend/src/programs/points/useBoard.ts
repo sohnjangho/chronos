@@ -1,7 +1,9 @@
 // 관리 포인트 창의 자료: 포인트 조회(GET …/points)와 바뀜 기록(GET …/points/history)을 함께 읽고, 일정 버전이 바뀌거나
 // (에이전트 도구·승인·되돌리기 — 일정 창들과 같은 일정 저장소를 잡아 따라간다) 지연 기록이 바뀌면(delaysToken) 둘 다 다시 읽는다.
 // 바깥 위험이나 근거 문장을 찾는 중이면 POLL_MS 마다 포인트 조회만 다시 읽되, 버전이 바뀌면 그만두고(둘 다 다시 읽음)
-// 같은 버전에서 POLL_CAP_MS 가 지나면 멈춘다. 내가 누른 근거 문장 상태는 그 버전에서만, 서버가 그 열쇠를 줄 때만 쓴다.
+// POLL_CAP_MS 가 지나면 멈추고 「오래 걸려 … 다시 불러오기」를 보인다(상한은 둘 다 다시 읽을 때마다 — 새 버전·새 지연·다시 불러오기 —
+// 새로 잰다). 다시 읽기가 실패하면 한 번 더 해 보고, 또 실패하면 같은 줄로 알린다. 내가 누른 근거 문장 상태는 그 버전에서만,
+// 서버가 그 열쇠를 줄 때만 쓴다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { useCurrentSchedule } from '../../os/currentSchedule';
@@ -10,6 +12,8 @@ import { errorText, getHistory, getView, retryRisks, type History, type PointsVi
 
 export const POLL_MS = 3000;
 export const POLL_CAP_MS = 15 * 60_000;
+export const STALE_CAP = '오래 걸려 다시 읽기를 멈췄습니다';
+export const STALE_READ = '다시 읽지 못했습니다';
 
 /** 그 일정의 지금 버전(일정 저장소를 잡고 처음 한 번 읽는다 — 에이전트 도구·reloadToken 이 다시 읽게 한다). */
 function useScheduleVersion(sid: number, owner: string): number | null {
@@ -34,12 +38,19 @@ export function useBoard(sid: number, owner: string) {
   const version = useScheduleVersion(sid, owner);
   const delaysToken = useCurrentSchedule((s) => s.delaysToken);
   const [view, setView] = useState<PointsView | null>(null);
+  const hasView = useRef(false);
+  hasView.current = view !== null;
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [hist, setHist] = useState<History | null>(null);
   const [error, setError] = useState('');
   const [again, setAgain] = useState(0); // 폴링이 새 버전을 보면 둘 다 다시 읽는다
   const [mine, setMine] = useState<{ version: number; quotes: Record<string, QuoteState> }>({ version: -1, quotes: {} });
   const [bump, setBump] = useState(0); // 처음 읽은 뒤 일정 버전이 바뀔 때마다
   const last = useRef<number | null>(null);
+  const since = useRef<number | null>(null); // 폴링을 시작한 때(둘 다 다시 읽으면 비운다)
+  const retried = useRef(false);
+  const [stalled, setStalled] = useState<string | null>(null);
+  const [tick, setTick] = useState(0); // 폴링 한 번이 실패하면 다음 차례를 다시 잡는다
   useEffect(() => {
     if (version === null) return;
     if (last.current !== null && last.current !== version) setBump((n) => n + 1);
@@ -50,15 +61,25 @@ export function useBoard(sid: number, owner: string) {
     Promise.all([getView(sid), getHistory(sid)])
       .then(([v, h]) => {
         if (!live) return;
+        since.current = null; // 새로 읽었다 — 폴링 상한을 새로 잰다
+        retried.current = false;
+        setStalled(null);
         setView(v);
         setHist(h);
         setError('');
       })
-      .catch((e) => live && setError(errorText(e, '관리 포인트를 읽지 못했습니다.')));
+      .catch((e) => {
+        if (!live) return;
+        if (!hasView.current) return setError(errorText(e, '관리 포인트를 읽지 못했습니다.'));
+        if (retried.current) return setStalled(STALE_READ);
+        retried.current = true;
+        retryTimer.current = setTimeout(() => setAgain((n) => n + 1), POLL_MS); // 다음 차례에 한 번 더
+      });
     return () => {
       live = false;
     };
   }, [sid, bump, delaysToken, again]);
+  useEffect(() => () => clearTimeout(retryTimer.current), []);
 
   const quotes = useMemo(() => {
     const server = view?.quotes ?? {};
@@ -69,14 +90,13 @@ export function useBoard(sid: number, owner: string) {
   }, [view, mine]);
 
   const waiting = view !== null && (view.risk_status === 'looking' || Object.values(quotes).some((q) => q?.status === 'pending'));
-  const since = useRef<{ version: number; at: number } | null>(null);
   useEffect(() => {
     if (!waiting || !view) {
       since.current = null;
       return;
     }
-    if (since.current?.version !== view.version) since.current = { version: view.version, at: Date.now() };
-    if (Date.now() - since.current.at >= POLL_CAP_MS) return; // 너무 오래 — 멈춘다(사람이 다시 열면 다시 읽는다)
+    since.current ??= Date.now();
+    if (Date.now() - since.current >= POLL_CAP_MS) return setStalled(STALE_CAP); // 너무 오래 — 멈추고 다시 불러오기를 보인다
     const at = view.version;
     let live = true;
     const t = setTimeout(() => {
@@ -86,13 +106,13 @@ export function useBoard(sid: number, owner: string) {
           if (next.version !== at) setAgain((n) => n + 1); // 새 버전 — 폴링을 그만두고 기록까지 다시 읽는다
           else setView(next);
         })
-        .catch(() => undefined);
+        .catch(() => live && setTick((n) => n + 1)); // 이번 차례만 실패 — 다음 차례를 다시 잡는다(상한 안에서)
     }, POLL_MS);
     return () => {
       live = false;
       clearTimeout(t);
     };
-  }, [waiting, view, sid]);
+  }, [waiting, view, sid, tick]);
 
   const onQuote = useCallback(
     (key: string, q: QuoteState) => setMine((m) => (view && m.version === view.version ? { ...m, quotes: { ...m.quotes, [key]: q } } : { version: view?.version ?? -1, quotes: { [key]: q } })),
@@ -100,5 +120,7 @@ export function useBoard(sid: number, owner: string) {
   );
   /** 「다시 찾기」(사람이 누를 때만): 실패한 바깥 위험 찾기를 다시 띄운다 → 조회 꼴. 오류 글은 부른 쪽이 보인다. */
   const onRetry = useCallback(async () => setView(await retryRisks(sid)), [sid]);
-  return { view, hist, error, quotes, onQuote, onRetry };
+  /** 「다시 불러오기」: 둘 다 다시 읽고 폴링 상한을 새로 잰다(바깥 찾기를 새로 하지 않는다). */
+  const reload = useCallback(() => setAgain((n) => n + 1), []);
+  return { view, hist, error, quotes, onQuote, onRetry, stalled, reload };
 }

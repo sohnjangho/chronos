@@ -1,6 +1,7 @@
 // 보드 조각: 위 띠(일정 · 버전 · 기준 · 개수 · 찾기), 주 칸, 포인트 카드. 값은 서버 그대로(날짜는 자르기만).
 import type { ReactNode } from 'react';
 import { scheduleText, type ScheduleItem } from '../../os/ScheduleSelector';
+import { useWindows } from '../../os/windowStore';
 import Badge from '../../shared/ui/Badge';
 import { changedCount, KindIcon, md, span, stamp, weekName } from './format';
 import type { History, Point, PointsView } from './pointsApi';
@@ -71,7 +72,13 @@ export function Top({ sid, schedules, onSchedule, view, hist, query, setQuery, s
           기준 <b>{`여유 ${k}일 이하`}</b> · <b>{`앞으로 ${w}주`}</b>
           {weeks.length > 0 && ` (${md(weeks[0].start)} ~ ${md(weeks[weeks.length - 1].end)})`}
         </span>
-        {isAdmin && <span className="pt-muted">관리자가 개발 콘솔에서 바꿉니다</span>}
+        {isAdmin ? ( /* 개발 콘솔 하네스 탭의 관리 포인트 설정 카드로(계획 5 Task 7) */
+          <button type="button" className="pt-link" onClick={() => useWindows.getState().open('devconsole', { tab: 'harness', focus: 'points' })}>
+            설정에서 바꾸기
+          </button>
+        ) : (
+          <span className="pt-muted">관리자가 바꿀 수 있습니다</span>
+        )}
       </div>
       <div className="pt-counts">
         <span className="pt-count is-crit">

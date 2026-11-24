@@ -75,11 +75,13 @@ const PEOPLE = { activity_id: 'A1510', name: '커튼월 공장 제작', people: 
 let calls: { method: string; url: string; body: unknown }[];
 let viewReply: () => PointsView;
 let retryReply: { status: number; body: unknown };
+let historyFails: number;
 const open = vi.fn();
 
 beforeEach(() => {
   calls = [];
   viewReply = () => VIEW;
+  historyFails = 0;
   retryReply = { status: 200, body: { ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' } };
   signInAsDemo('admin');
   open.mockReset();
@@ -92,7 +94,13 @@ beforeEach(() => {
     if (url === '/api/schedules') return json(200, [{ id: 1, name: '5층 사무동 신축', level: 'L3' }, { id: 2, name: '가람 물류센터', level: 'L2' }]);
     if (url === '/api/schedules/1/points') return json(200, viewReply());
     if (url === '/api/schedules/1/points/risks/retry') return json(retryReply.status, retryReply.body);
-    if (url === '/api/schedules/1/points/history') return json(200, HIST);
+    if (url === '/api/schedules/1/points/history') {
+      if (historyFails > 0) {
+        historyFails -= 1;
+        return json(500, { code: 'http_error', message: '잠시 뒤 다시 해 주세요.' });
+      }
+      return json(200, HIST);
+    }
     if (url === '/api/schedules/1/points/history?activity=A1510') return json(200, { ...HIST, float: FLOAT });
     if (url === '/api/schedules/1/points/A1510/accel') return json(200, ACCEL);
     if (url === '/api/schedules/1/points/A1510/quotes/materials') return json(200, QUOTE);
@@ -148,7 +156,7 @@ test('the board puts point cards in this week / next week / the week after by st
   expect(factory).not.toHaveTextContent('A1510');
 });
 
-test('the top strip shows the schedule, version, basis (admins: changed in the dev console) and the counts', async () => {
+test('the top strip shows the schedule, version, basis (admins: a link to the dev console settings card) and the counts', async () => {
   show();
   await screen.findByRole('region', { name: '이번 주' });
   expect(screen.getByRole('combobox', { name: '일정' })).toHaveValue('1');
@@ -157,7 +165,9 @@ test('the top strip shows the schedule, version, basis (admins: changed in the d
   expect(screen.getByText('크리티컬').closest('.pt-count')).toHaveTextContent('크리티컬 2');
   expect(screen.getByText('크리티컬 직전').closest('.pt-count')).toHaveTextContent('크리티컬 직전 2');
   expect(screen.getByText('이번에 바뀜').closest('.pt-count')).toHaveTextContent('이번에 바뀜 2');
-  expect(screen.getByText('관리자가 개발 콘솔에서 바꿉니다')).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: '설정에서 바꾸기' })); // 관리자: 개발 콘솔의 관리 포인트 설정 카드로
+  expect(open).toHaveBeenCalledWith('devconsole', { tab: 'harness', focus: 'points' });
+  expect(screen.queryByText('관리자가 바꿀 수 있습니다')).toBeNull();
   expect(useWindows.getState().setTitle).toHaveBeenCalledWith('w1', '관리 포인트 — 5층 사무동 신축');
 });
 
@@ -252,7 +262,9 @@ test('field managers read the board and detail but have no contact action and no
   const d = await screen.findByRole('region', { name: /자세히$/ });
   expect(within(d).queryByRole('button', { name: '담당자에게 확인 연락' })).toBeNull();
   expect(within(d).getByRole('button', { name: '만회안 보기' })).toBeVisible();
-  expect(screen.queryByText('관리자가 개발 콘솔에서 바꿉니다')).toBeNull();
+  expect(screen.queryByRole('button', { name: '설정에서 바꾸기' })).toBeNull(); // 값은 읽기만
+  expect(screen.getByText(/여유 3일 이하/).closest('.pt-basis')).toHaveTextContent('기준 여유 3일 이하 · 앞으로 3주');
+  expect(screen.getByText('관리자가 바꿀 수 있습니다')).toBeVisible();
   expect(screen.queryByRole('button', { name: '준비 상태 확인 요청' })).toBeNull(); // G 가 생길 때까지 숨김
   expect(calls.some((c) => c.url.endsWith('/contact'))).toBe(false);
 });
@@ -348,4 +360,59 @@ test('a refused retry shows why', async () => {
   const d = await screen.findByRole('region', { name: /자세히$/ });
   await userEvent.click(within(d).getByRole('button', { name: '다시 찾기' }));
   expect(await within(d).findByText('다시 찾을 것이 없습니다.')).toBeVisible();
+});
+
+const advance = async (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+
+test('after the 15-minute cap it says so with 다시 불러오기, and a new delay restarts the cap and the polling', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' });
+  show();
+  await screen.findByRole('region', { name: '이번 주' });
+  await advance(16 * 60_000);
+  expect(await screen.findByText(/오래 걸려 다시 읽기를 멈췄습니다/)).toBeVisible();
+  const stopped = gets('/api/schedules/1/points');
+  await advance(10_000);
+  expect(gets('/api/schedules/1/points')).toBe(stopped);
+  act(() => useCurrentSchedule.getState().bumpDelays()); // 새 지연 — 새 찾기가 시작된다
+  await waitFor(() => expect(gets('/api/schedules/1/points/history')).toBe(2));
+  await waitFor(() => expect(screen.queryByText(/오래 걸려 다시 읽기를 멈췄습니다/)).toBeNull());
+  const fresh = gets('/api/schedules/1/points');
+  await advance(3000);
+  await waitFor(() => expect(gets('/api/schedules/1/points')).toBe(fresh + 1)); // 상한을 새로 재서 다시 폴링
+});
+
+test('다시 불러오기 re-reads both and polls again', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' });
+  show();
+  await screen.findByRole('region', { name: '이번 주' });
+  await advance(16 * 60_000);
+  fireEvent.click(await screen.findByRole('button', { name: '다시 불러오기' }));
+  await waitFor(() => expect(gets('/api/schedules/1/points/history')).toBe(2));
+  const fresh = gets('/api/schedules/1/points');
+  await advance(3000);
+  await waitFor(() => expect(gets('/api/schedules/1/points')).toBe(fresh + 1));
+});
+
+test('a failed re-read after a new version tries once more on the next tick, then says it could not', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' });
+  show();
+  await screen.findByRole('region', { name: '이번 주' });
+  viewReply = () => ({ ...VIEW, version: 9, quotes: {} });
+  historyFails = 1;
+  await advance(3000); // 폴링이 버전 9 를 봄 → 둘 다 다시 읽기 → 기록 실패
+  await waitFor(() => expect(gets('/api/schedules/1/points/history')).toBe(2));
+  await advance(3000); // 다음 차례에 한 번 더 → 성공
+  await waitFor(() => expect(gets('/api/schedules/1/points/history')).toBe(3));
+  expect(screen.queryByText(/다시 읽지 못했습니다/)).toBeNull();
+  expect(screen.getByRole('region', { name: '이번 주' })).toBeVisible();
+  historyFails = 2;
+  act(() => useCurrentSchedule.getState().bumpDelays());
+  await waitFor(() => expect(gets('/api/schedules/1/points/history')).toBe(4));
+  await advance(3000);
+  await waitFor(() => expect(gets('/api/schedules/1/points/history')).toBe(5));
+  expect(await screen.findByText(/다시 읽지 못했습니다 —/)).toBeVisible();
+  expect(screen.getByRole('region', { name: '이번 주' })).toBeVisible(); // 보던 보드는 그대로
 });

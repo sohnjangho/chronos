@@ -112,7 +112,7 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
   const role = useSession((s) => s.session?.user.role ?? 'user');
   const schedules = useSchedules();
   const current = useCurrentSchedule((s) => s.current);
-  const { view, hist, error, quotes, onQuote, onRetry } = useBoard(sid, `points:${windowId}`);
+  const { view, hist, error, quotes, onQuote, onRetry, stalled, reload } = useBoard(sid, `points:${windowId}`);
   const [picked, setPicked] = useState<string | null>(params?.activity ?? null);
   const [query, setQuery] = useState('');
   const [all, setAll] = useState(false);
@@ -146,6 +146,14 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
       failed={view.risk_status === 'failed'} riskMessage={view.risk_message} onRetry={onRetry}
       canContact={role !== 'field'} onQuote={onQuote} onBack={single ? () => setPicked(null) : undefined} />
   );
+  const stall = stalled && (
+    <p className="pt-stalled" role="status">
+      {`${stalled} — `}
+      <button type="button" className="pt-link" onClick={reload}>
+        다시 불러오기
+      </button>
+    </p>
+  );
   const top = (
     <Top sid={sid} schedules={schedules} onSchedule={(id) => { setPicked(null); setSid(id); }} view={view} hist={hist} query={query} setQuery={setQuery}
       shown={shown.length} isAdmin={role === 'admin'} phone={single} />
@@ -159,6 +167,7 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
       ) : (
         <>
           {top}
+          {stall}
           <PhoneWeeks weeks={weeks} byWeek={byWeek} card={card} week={week} setWeek={setWeek} />
           {strip}
           {all && <HistoryAll hist={hist} />}
@@ -169,6 +178,7 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
   return frame(
     <>
       {top}
+      {stall}
       <div className="pt-main">
         <div className="pt-boardpane">
           {all ? (
