@@ -12,8 +12,10 @@
 - 키: 풀린 키는 이 프로세스 안에만 있다. `KatClient` 를 만들면 키·Account ID 가 로그 거르개에 오른다(`register_secrets` → `redact.add_secrets`).
   이 모듈이 올리는 것은 `ProviderFailed` 뿐이고(한 줄의 읽기 오류도 그 줄만 건너뛴다) 글은 이 파일의 표에서만 온다:
   통신 예외·제공사 오류 본문·실패 글(`failureMessage`)은 어디에도 옮기지 않는다(예외는 이어 붙이지도 않는다).
-  제공사가 준 id 는 꼴이 맞고 키·Account ID·전화번호가 아닐 때만, 코드는 소문자 낱말(`^[a-z_]{1,40}$`)일 때만 받는다.
-  로그에는 종류·코드·상태만 남긴다.
+  제공사가 준 id 는 꼴이 맞고 키·Account ID·전화번호가 아닐 때만, 코드는 낱말(`^[A-Za-z_]{1,40}$`)일 때만 받는다. 문서의
+  코드는 대소문자를 가리지 않고 읽는다(`diagnostics.vendor_entry`). 로그에는 종류·코드·상태만 남긴다 — 문서에 없는 4xx
+  거절만 응답 모양(`_rejection_shape`: 낱말 코드, 검사 오류의 칸 이름·종류 낱말 5개까지, 번호를 가리고 키가 없는 80자
+  이하의 숫자 없는 `error` 글)을 로그 줄과 글 끝 「(제공사 응답: …)」에 옮긴다. 값·숫자·요청 본문은 옮기지 않는다.
 - **`maybe_sent`(보내기만)**: 문자가 갔는지 알 수 없으면 참. 거짓인 것은 둘뿐이다 — 한 바이트도 나가기 전의 실패(요청 전
   거절·이름 풀이·연결·TLS·연결 줄 기다림)와 제공사가 409 밖의 4xx 로 거절한 것(본문을 읽다 끊겨도 받은 상태로 가른다).
   그 밖은 모두 참: 쓰는 중·읽는 중의 시간 초과와 끊김, 읽을 수 없거나 id 가 없는 2xx, 3xx, **모든 5xx**(관문이 대신
@@ -94,7 +96,11 @@ _CALL_WORDS = ("status", "direction", "answeredBy", "hangupCause", "hangupSource
 _CALL_FLAGS = ("callerIdRestricted", "recording")
 _CALL_TIMES = ("dateCreated", "dateUpdated")
 _NOT_SENT = diagnostics.NOT_SENT  # 나가기 전에 끝남(예외 종류)
-_CODE = re.compile(r"[a-z_]{1,40}")  # 제공사 코드 가운데 옮겨 적어도 되는 꼴
+_CODE = re.compile(r"[A-Za-z_]{1,40}")  # 제공사 오류 code 가운데 옮겨 적어도 되는 꼴
+_FAILURE_CODE = re.compile(r"[a-z_]{1,40}")  # get-message 의 failureCode(저장되는 fail_code)는 소문자 낱말만
+_FIELD = re.compile(r"[A-Za-z_.]{1,40}")  # 검사 오류(422)의 칸 이름·종류 낱말 가운데 옮겨 적어도 되는 꼴
+_ERROR_TEXT = re.compile(r"(?:[^\W\d_]|[ .,:;'!?()\[\]/-]){1,80}")  # 오류 글: 글자·빈칸·문장부호뿐(숫자 없음)
+SHAPE_MAX = 5  # 응답 모양에 옮기는 칸 이름·종류 낱말 수
 _WORD = re.compile(r"[a-z][a-z_\-]{0,39}")  # 통화 상태 말(in-progress · no-answer …)
 _ID = re.compile(r"(?=.*[A-Za-z0-9])[A-Za-z0-9_.:\-]{1,100}")  # 글자·숫자가 하나는 있어야 한다
 _IDEMPOTENCY = re.compile(r"[A-Za-z0-9_-]{8,64}")
@@ -311,23 +317,54 @@ class _BodyNotRead(ProviderFailed):
 
 
 def _failed(code: str, label: str, *, message: str | None = None, status: int | None = None, maybe_sent: bool = False,
-            retry_after_s: int | None = None, kind: type[ProviderFailed] = ProviderFailed) -> ProviderFailed:
-    """실패 하나를 만들고 종류만 로그에 남긴다."""
-    logger.warning("제공사 호출 실패: %s code=%s status=%s maybe_sent=%s", label, code, status, maybe_sent)
+            retry_after_s: int | None = None, kind: type[ProviderFailed] = ProviderFailed,
+            shape: str | None = None) -> ProviderFailed:
+    """실패 하나를 만들고 종류(와 있으면 거른 응답 모양)만 로그에 남긴다."""
+    logger.warning("제공사 호출 실패: %s code=%s status=%s maybe_sent=%s%s", label, code, status, maybe_sent,
+                   f" 응답={shape}" if shape else "")
     return kind(code, (message or _MESSAGES[code]) + (MAYBE_SENT if maybe_sent else ""), status,
                 maybe_sent=maybe_sent, retry_after_s=retry_after_s)
 
 
-def _http_failure(status: int, vendor: object, label: str, *, on_item: bool, maybe_sent: bool, retry_after: object,
+def _rejection_shape(data: object, secrets: list[str]) -> str | None:
+    """오류 본문 → 옮겨 적어도 되는 모양 한 줄 또는 None. 꼴이 맞고 키·Account ID 가 없는 것만: 낱말 code, 검사 오류
+    (`detail: [{loc, type}]`·`errors: [{field}]`)의 칸 이름(loc 의 글 조각을 「.」로 이은 것)·종류 낱말을 SHAPE_MAX 개까지,
+    번호를 가린 뒤 숫자 없는 80자 이하의 `error` 글. 값(input·msg·message)과 그 밖의 칸은 보지 않는다."""
+    if not isinstance(data, dict):
+        return None
+    fields: list[str] = []
+    types: list[str] = []
+    for name in ("detail", "errors"):
+        items = data.get(name)
+        for item in items if isinstance(items, list) else ():
+            if not isinstance(item, dict):
+                continue
+            loc = item.get("loc")
+            where = ".".join(p for p in loc if isinstance(p, str)) if isinstance(loc, list) else item.get("field")
+            for found, into in ((_safe(_FIELD, where, secrets), fields), (_safe(_FIELD, item.get("type"), secrets), types)):
+                if found and found not in into and len(into) < SHAPE_MAX:
+                    into.append(found)
+    error = data.get("error")
+    error = _safe(_ERROR_TEXT, redact.hide_phones(error), secrets) if isinstance(error, str) else None
+    parts = [f"code={code}"] if (code := _safe(_CODE, data.get("code"), secrets)) else []
+    parts += [f"fields={','.join(fields)}"] if fields else []
+    parts += [f"types={','.join(types)}"] if types else []
+    parts += [f"error={error}"] if error else []
+    return "; ".join(parts) or None
+
+
+def _http_failure(status: int, data: object, label: str, *, on_item: bool, maybe_sent: bool, retry_after: object,
                   secrets: list[str]) -> ProviderFailed:
-    """2xx 가 아닌 응답 → ProviderFailed. code·글은 연결 진단과 같은 `diagnostics.http_failure`. vendor(오류 본문의 code)가
-    문서에 없는 것이면 소문자 낱말일 때만 글 끝에 옮긴다."""
+    """2xx 가 아닌 응답 → ProviderFailed. code·글은 연결 진단과 같은 `diagnostics.http_failure`. data 는 읽은 오류 본문
+    (JSON 이 아니면 None). 4xx 인데 code 가 문서에 없으면 거른 모양(`_rejection_shape`)을 로그 줄과 글 끝에 옮긴다."""
+    vendor = data.get("code") if isinstance(data, dict) else None
     code, message = diagnostics.http_failure(status, vendor, on_item=on_item, item=_ITEMS.get(label, "메시지"))
-    shown = _safe(_CODE, vendor, secrets)
-    if shown and message == _MESSAGES["bad_request"]:
-        message = f"{message}(제공사 코드 {shown})"
+    shape = None
+    if 400 <= status < 500 and diagnostics.vendor_entry(vendor) is None:
+        shape = _rejection_shape(data, secrets)
+        message = f"{message}(제공사 응답: {shape})" if shape else message
     return _failed(code, label, message=message, status=status, maybe_sent=maybe_sent,
-                   retry_after_s=_retry_after(retry_after) if status == 429 else None)
+                   retry_after_s=_retry_after(retry_after) if status == 429 else None, shape=shape)
 
 
 # ── 제공사 칸 이름을 아는 세 함수(P0-R 뒤 여기만 고친다) ────────────
@@ -367,7 +404,7 @@ def _parse_delivery(data: dict, secrets: list[str], status: int) -> Delivery:
         raise _failed("unknown", "messages", status=status)
     if state != "failed":
         return Delivery(state=state)
-    code = _safe(_CODE, data.get("failureCode"), secrets) or "unknown"
+    code = _safe(_FAILURE_CODE, data.get("failureCode"), secrets) or "unknown"
     text = _FAILURES.get(code) or f"보내지 못했습니다(제공사 코드 {code})."
     return Delivery(state="failed", fail_code=code, fail_text=text, fell_back=False)  # P0 확인: 대신 나간 문자를 알 칸이 없다
 
@@ -456,7 +493,7 @@ class KatClient:
         except (ValueError, RecursionError):
             data = None
         if not 200 <= status < 300:  # 본문을 읽다 끊겼어도 받은 상태로 가른다
-            raise _http_failure(status, data.get("code") if isinstance(data, dict) else None, resource, on_item=on_item,
+            raise _http_failure(status, data, resource, on_item=on_item,
                                 maybe_sent=maybe_sent, retry_after=exchange.retry_after, secrets=self._secrets)
         if code is not None:  # 2xx 를 받고 본문을 읽다 끊겼다 — 보내기였으면 갔을 수 있다
             raise _failed(code, resource, status=status, maybe_sent=maybe_sent)

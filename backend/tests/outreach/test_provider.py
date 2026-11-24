@@ -453,20 +453,98 @@ async def test_known_vendor_codes_get_their_own_message_and_unknown_ones_are_nam
     assert "brand_new_code" in (await failure(client.send_message(sms()))).message
 
 
-async def test_vendor_error_code_is_repeated_only_when_it_is_a_plain_lowercase_word():
+async def test_vendor_error_code_is_repeated_only_when_it_is_a_plain_word():
     key = "katTESTkeyZZZZ9999"  # 코드처럼 생긴 키(글자·숫자뿐)
     conn = ProviderConn(base_url=KAT_BASE, account_id=KAT_ACCOUNT, key=key)
     odd = (key, key.upper(), key.lower(), SENTINEL_KEY, ECHO, f"x_{KAT_ACCOUNT}", 7, None, "a" * 41, f"to_{SENTINEL_DIGITS}",
-           "code9", "Mixed_Case", "UPPER_CODE", "with-dash", "")
+           "code9", "with-dash", "")
     for vendor_code in odd:
         mock = KatMock(key=key, override=answer(422, {"error": ECHO, "code": vendor_code}))
         e = await failure(KatClient(conn, transport=mock).send_message(sms()))
-        assert e.code == "bad_request" and "제공사 코드" not in e.message, vendor_code
+        assert e.code == "bad_request" and "제공사 응답" not in e.message, vendor_code
         assert leaks(*everything_in(e)) == [] and not key_survives(e.message, key), vendor_code
+    for vendor_code in ("Mixed_Case", "UPPER_CODE"):  # 대소문자 낱말은 옮긴다
+        mock = KatMock(key=key, override=answer(422, {"error": ECHO, "code": vendor_code}))
+        e = await failure(KatClient(conn, transport=mock).send_message(sms()))
+        assert e.message.endswith(f"(제공사 응답: code={vendor_code})"), e.message
     lower = "kattestkeyzzzz"  # 소문자뿐인 키가 코드로 되돌아와도 옮기지 않는다
     mock = KatMock(key=lower, override=answer(422, {"code": lower}))
     e = await failure(KatClient(ProviderConn(KAT_BASE, KAT_ACCOUNT, lower), transport=mock).send_message(sms()))
     assert lower not in e.message
+
+
+@pytest.mark.parametrize("vendor_code", ["QUOTA_EXCEEDED", "Quota_Exceeded", "quota_exceeded"])
+async def test_documented_vendor_code_is_read_whatever_its_case(vendor_code):
+    mock = KatMock(override=answer(422, {"error": "Monthly quota exceeded", "code": vendor_code}))
+    e = await failure(KatClient(CONN, transport=mock).send_message(sms()))
+    assert e.code == "bad_request" and "한도" in e.message and "제공사 응답" not in e.message
+    assert diagnostics.http_failure(422, vendor_code) == diagnostics.VENDOR["quota_exceeded"]
+
+
+async def failure_logged(caplog, override, conn: ProviderConn = CONN) -> tuple[ProviderFailed, str]:
+    """보내기 실패 하나와 그 실패 로그 줄."""
+    caplog.set_level(logging.WARNING, logger="app.outreach.provider")
+    caplog.clear()
+    e = await failure(KatClient(conn, transport=KatMock(key=conn.key, override=override)).send_message(sms()))
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("제공사 호출 실패")]
+    assert len(lines) == 1, lines
+    return e, lines[0]
+
+
+async def test_unknown_rejection_keeps_the_code_and_plain_error_text(caplog):
+    e, line = await failure_logged(caplog, answer(422, {"error": "Sender is not allowed.", "code": "brand_new_code"}))
+    shape = "code=brand_new_code; error=Sender is not allowed."
+    assert e.message == f"{diagnostics.MESSAGES['bad_request']}(제공사 응답: {shape})"
+    assert line.endswith(f"status=422 maybe_sent=False 응답={shape}")
+
+
+async def test_validation_body_gives_field_names_and_types_but_no_values(caplog):
+    detail = [{"loc": ["body", "To"], "msg": f"bad {SENTINEL_PHONE}", "type": "missing", "input": ECHO},
+              {"loc": ["body", 0, "Type"], "msg": "x", "type": "literal_error", "input": "secretvalue"},
+              {"loc": ["body", SENTINEL_KEY], "type": "value_error"},  # 꼴이 안 맞는 이름은 뺀다
+              {"loc": "body", "type": 7}]
+    e, line = await failure_logged(caplog, answer(422, {"detail": detail}))
+    shape = "fields=body.To,body.Type; types=missing,literal_error,value_error"
+    assert e.message.endswith(f"(제공사 응답: {shape})") and line.endswith(f"응답={shape}")
+    for text in (e.message, line):
+        assert leaks(text) == [] and "secretvalue" not in text and "msg" not in text and "input" not in text
+    many = {"errors": [{"field": f"field_{chr(97 + i)}", "message": ECHO} for i in range(8)]}
+    e, _ = await failure_logged(caplog, answer(400, many))
+    assert e.message.endswith("(제공사 응답: fields=field_a,field_b,field_c,field_d,field_e)") and leaks(e.message) == []
+
+
+@pytest.mark.parametrize(("error", "shown"), [
+    (f"Recipient {SENTINEL_PHONE} is blocked", "Recipient [번호] is blocked"),  # 번호는 가린다
+    (f"Recipient {SENTINEL_DIGITS} is blocked", "Recipient [번호] is blocked"),
+    ("Limit of 500 per day reached", None),  # 숫자가 남으면 뺀다
+    ("x" * 81, None),  # 너무 길면 뺀다
+    ("line one\nline two", None),
+])
+async def test_error_text_is_kept_only_when_short_plain_and_without_numbers(caplog, error, shown):
+    e, line = await failure_logged(caplog, answer(422, {"error": error, "code": "odd_code"}))
+    shape = "code=odd_code" + (f"; error={shown}" if shown else "")
+    assert e.message.endswith(f"(제공사 응답: {shape})") and line.endswith(f"응답={shape}")
+    assert leaks(e.message, line) == []
+
+
+async def test_key_or_account_echoed_in_the_rejection_never_shows(caplog):
+    key = "kattestkeyzzzz"  # 글자뿐인 키 — 꼴만으로는 걸러지지 않는다
+    conn = ProviderConn(base_url=KAT_BASE, account_id=KAT_ACCOUNT, key=key)
+    body = {"error": f"Bad key {key}", "code": key, "detail": [{"loc": ["body", key], "type": key}],
+            "errors": [{"field": key}], "account": KAT_ACCOUNT, "request": {"To": SENTINEL_DIGITS, "Body": "내일"}}
+    e, line = await failure_logged(caplog, answer(422, body), conn)
+    assert e.message == diagnostics.MESSAGES["bad_request"]
+    for text in (e.message, line, *map(str, everything_in(e))):
+        assert not key_survives(text, key) and leaks(text) == [] and "내일" not in text
+
+
+@pytest.mark.parametrize(("content", "content_type"), [
+    (f"<html>Unprocessable {SENTINEL_PHONE} {SENTINEL_KEY}</html>".encode(), "text/html"),
+    (b"[\"code\", \"quota\"]", "application/json"), (b"", "application/json"), (b"\xff\xfe", "application/json")])
+async def test_unreadable_rejection_body_adds_nothing(caplog, content, content_type):
+    e, line = await failure_logged(caplog, raw(422, content, content_type))
+    assert e.message == diagnostics.MESSAGES["bad_request"] and line.endswith("maybe_sent=False")
+    assert leaks(e.message, line) == []
 
 
 @pytest.mark.parametrize(("body", "content_type"), [(b"<html>ok</html>", "text/html"), (b"[1, 2]", "application/json"),

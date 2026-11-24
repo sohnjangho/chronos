@@ -120,6 +120,14 @@ VENDOR = {  # 제공사 오류 code(문서) → (우리 code, 글)
     "kakao_variable_missing": ("bad_request", "알림톡 문안의 변수가 빠졌습니다."),
     "kakao_variable_unknown": ("bad_request", "알림톡 문안에 없는 변수가 있습니다."),
 }
+_VENDOR_FOLDED = {code.lower(): entry for code, entry in VENDOR.items()}  # 제공사 code 는 대소문자를 가리지 않고 읽는다
+
+
+def vendor_entry(vendor: object) -> tuple[str, str] | None:
+    """제공사 오류 code → VENDOR 의 (우리 code, 글). 대소문자는 보지 않는다(QUOTA_EXCEEDED = quota_exceeded). 모르면 None."""
+    return _VENDOR_FOLDED.get(vendor.lower()) if isinstance(vendor, str) else None
+
+
 FAILURES = {  # failureCode(get-message 문서) → 글
     "invalid_number": "없는 번호입니다(비가입·결번·서비스 정지).",
     "recipient_opted_out": "받는 사람이 수신을 거부한 상태입니다.",
@@ -282,9 +290,9 @@ class Exchange:
 
 
 def http_failure(status: int, vendor: object, *, on_item: bool = False, item: str = "메시지") -> tuple[str, str]:
-    """2xx 가 아닌 응답 → (우리 code, 한국어 글). vendor 는 오류 본문의 code — 문서에 있는 코드면 그 글이 먼저다."""
-    if isinstance(vendor, str) and vendor in VENDOR:
-        return VENDOR[vendor]
+    """2xx 가 아닌 응답 → (우리 code, 한국어 글). vendor 는 오류 본문의 code — 문서에 있는 코드면(대소문자 무시) 그 글이 먼저다."""
+    if (known := vendor_entry(vendor)) is not None:
+        return known
     if 300 <= status < 400:
         return "bad_request", "제공사가 다른 주소로 넘기는 응답을 보내 따라가지 않았습니다. 기본 주소를 확인해 주세요."
     if status == 404 and on_item:
