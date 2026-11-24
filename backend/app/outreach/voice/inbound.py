@@ -46,6 +46,7 @@ from app.outreach.voice import session as voice_session
 from app.outreach.voice.call_run import _LIVE, CallRun, _broken, _tries
 from app.outreach.voice.session import CallSpec, Incoming, VoiceBackend
 from app.store import outreach
+from app.store.schedules import list_records
 from app.store.tables_outreach import (
     Contact,
     OutreachCall,
@@ -258,7 +259,10 @@ def _spec(session, caller: Caller) -> tuple[CallSpec, str | None]:
                                                       facts=door.scope_of(session, caller).grant_facts),
                     tools=toolsets.tool_defs(toolsets.for_class(cls, "call")),
                     max_seconds=limits.max_call_seconds_unknown if cls in LOW_CLASSES else limits.max_call_seconds,
-                    record_to=None)
+                    record_to=None,
+                    # 받아쓰기 낱말: 현장이 정해졌으면 그 현장·작업 이름, 아니면 모든 프로젝트의 이름(현장을 말하면 알아듣게)
+                    vocabulary=site_name.vocabulary(session, [place]) if place is not None
+                    else site_name.vocabulary(session, [r.id for r in list_records(session)], activities=False))
     model = numbers.effective_model(settings.provider, settings.model) if settings is not None else None
     return spec, model
 

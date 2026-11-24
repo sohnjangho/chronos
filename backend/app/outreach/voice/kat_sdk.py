@@ -452,7 +452,8 @@ class _Line:
             kw["voice"] = spec.voice_id  # 고른 음성(voices.pick). 없거나 꼴이 틀리면 넘기지 않아 SDK 기본(구글 Kore · OpenAI marin)
         if s.provider == "google":
             kw["api_version"] = numbers.GOOGLE_LIVE_API_VERSION  # Live 모델은 v1alpha 에만 있다(11-24 실측)
-            kw["input_audio_transcription"] = numbers.google_transcription(spec.language)  # 받아쓰기 언어(language= 는 안 씀)
+            # 받아쓰기 언어(language= 는 안 씀)와 받아쓰기 낱말(현장·작업 이름)
+            kw["input_audio_transcription"] = numbers.google_transcription(spec.language, spec.vocabulary)
         return getattr(self.sdk, SESSIONS[s.provider])(**kw)
 
     async def bounded(self, awaitable: Awaitable, limit: float) -> object:

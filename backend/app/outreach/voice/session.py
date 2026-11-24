@@ -110,7 +110,7 @@ class CallSpec:
     to_number — 걸 번호(받는 통화는 None). from_number — 우리 번호. 둘은 백엔드만 읽는다.
     first_line — 백엔드가 맨 먼저 하게 할 말(greeting 이 지은 것). instructions — 음성 모델의 지시문. 둘에는 번호가 없다.
     tools — 하네스 도구 정의(harness.types.ToolDef 그대로, 이름이 겹치지 않게). max_seconds — 일꾼이 지킬 최대 통화 시간.
-    record_to — 녹음을 둘 폴더(없으면 녹음하지 않음).
+    record_to — 녹음을 둘 폴더(없으면 녹음하지 않음). vocabulary — 받아쓰기 낱말(현장·작업 이름 — site_name.vocabulary). 번호 없음.
     """
 
     direction: Direction
@@ -123,6 +123,7 @@ class CallSpec:
     tools: tuple[ToolDef, ...]
     max_seconds: int
     record_to: Path | None
+    vocabulary: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _check(self.direction in get_args(Direction), "CallSpec.direction 은 out·in 가운데 하나입니다")
@@ -141,10 +142,13 @@ class CallSpec:
         tools = tuple(self.tools)
         _check(all(isinstance(tool, ToolDef) for tool in tools), "CallSpec.tools 는 ToolDef 만 받습니다")
         _check(len({tool.name for tool in tools}) == len(tools), "CallSpec.tools 에 같은 이름의 도구가 두 번 있습니다")
-        for text in (self.first_line, self.instructions):
+        _check(isinstance(self.vocabulary, list | tuple) and all(isinstance(word, str) for word in self.vocabulary),
+               "CallSpec.vocabulary 는 글의 묶음입니다")
+        for text in (self.first_line, self.instructions, *self.vocabulary):
             _check(not has_phone(text, self.to_number, self.from_number),
                    "음성 모델에게 줄 글에 전화번호처럼 보이는 것이 있습니다")
         object.__setattr__(self, "tools", tools)
+        object.__setattr__(self, "vocabulary", tuple(self.vocabulary))
 
     def __repr__(self) -> str:
         return (f"CallSpec(direction={self.direction!r}, language={self.language!r}, voice_id={self.voice_id!r}, "

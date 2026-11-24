@@ -1070,13 +1070,15 @@ def test_simulation_repr_shows_no_number():
 def test_call_spec_has_the_plan_fields_and_is_frozen():
     spec = _spec()
     assert list(spec.__dataclass_fields__) == ["direction", "to_number", "from_number", "language", "voice_id",
-                                               "first_line", "instructions", "tools", "max_seconds", "record_to"]
+                                               "first_line", "instructions", "tools", "max_seconds", "record_to",
+                                               "vocabulary"]  # 받아쓰기 낱말(11-24, 기본 빈 묶음)
     with pytest.raises(FrozenInstanceError):
         spec.to_number = STAFF_NUMBER
     assert isinstance(_spec(tools=list(TOOLS)).tools, tuple)  # 목록으로 줘도 고정된 꼴로
     assert _spec(tools=()).tools == ()
     assert _spec(record_to=Path("recordings/1/2")).record_to == Path("recordings/1/2")
     assert _spec(voice_id=None).voice_id is None and _spec("in").to_number is None
+    assert _spec().vocabulary == () and _spec(vocabulary=["가람"]).vocabulary == ("가람",)
 
 
 def test_call_spec_and_incoming_never_print_numbers():
