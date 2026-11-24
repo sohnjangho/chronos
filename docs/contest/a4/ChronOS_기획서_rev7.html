@@ -6,15 +6,15 @@ body{margin:0;background:#334155;font-family:"Apple SD Gothic Neo","Pretendard",
 .page{width:210mm;height:297mm;margin:0 auto 8mm;position:relative;overflow:hidden;color:#e2e8f0;counter-increment:pg;
   background:#05070d url(img/bg-page.jpg) center/100% 100% no-repeat;
   padding:16mm 16mm 12mm;display:flex;flex-direction:column}
-@media print{body{background:none}.page{margin:0;break-after:page}.shot,.paper,.rc .ph,.chip2,.bub,.nar,.tagon,.lens{box-shadow:0 0 0 1px rgba(255,255,255,.06)!important}.glow-amber{box-shadow:0 0 0 1.5px rgba(251,191,36,.7)!important}.step,.tag2{text-shadow:none!important}.step i{box-shadow:none!important}}
+@media print{body{background:none}.page{margin:0;break-after:page}.shot,.paper,.rc .ph,.chip2,.bub,.nar,.tagon,.lens{box-shadow:0 0 0 1px rgba(255,255,255,.06)!important}.glow-amber{box-shadow:none!important}.step,.tag2{text-shadow:none!important}.step i{box-shadow:none!important}}
 .mono{font-family:"SF Mono","JetBrains Mono",Menlo,monospace}
 .eyebrow{font:700 8.5pt "SF Mono",Menlo;letter-spacing:.16em;color:#7dd3fc;text-transform:uppercase}
 .eyebrow.amber{color:#fbbf24}.eyebrow.red{color:#f87171}
 .toprow{display:flex;justify-content:space-between;align-items:center;gap:4mm}
 h1{margin:4mm 0 0;font-size:34pt;line-height:1.12;letter-spacing:-.035em;font-weight:800;color:#fff}
 h2{margin:3mm 0 0;font-size:24pt;line-height:1.15;letter-spacing:-.03em;font-weight:800;color:#fff}
-h1 em,h2 em{font-style:normal;background:linear-gradient(90deg,#fbbf24,#f97316);-webkit-background-clip:text;background-clip:text;color:transparent}
-h1 .c,h2 .c{background:linear-gradient(90deg,#7dd3fc,#818cf8);-webkit-background-clip:text;background-clip:text;color:transparent}
+h1 em,h2 em{font-style:normal;color:#fbbf24}
+h1 .c,h2 .c{color:#7dd3fc}
 .sub{font-size:11pt;line-height:1.7;color:#cbd5e1;margin:4mm 0 0;max-width:170mm}
 p{margin:0}
 .body{font-size:9.8pt;line-height:1.7;color:#cbd5e1}
@@ -22,7 +22,7 @@ p{margin:0}
 .small{font-size:8.6pt;line-height:1.55;color:#94a3b8}
 .shot{border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.18);box-shadow:0 26px 70px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04),0 0 50px rgba(56,189,248,.16);background:#fff}
 .shot img{display:block;width:100%}
-.glow-amber{box-shadow:0 26px 70px rgba(0,0,0,.6),0 0 80px rgba(251,191,36,.3)!important}
+.glow-amber{border:2px solid #fbbf24!important;box-shadow:none!important}
 .paper{background:#fff;border-radius:12px;padding:4mm;box-shadow:0 26px 70px rgba(0,0,0,.55)}
 .paper img{display:block;width:100%}
 .chip{display:inline-flex;align-items:center;gap:6px;font:700 8pt "SF Mono",Menlo;letter-spacing:.05em;padding:4px 10px;border-radius:999px;background:rgba(125,211,252,.12);color:#7dd3fc;border:1px solid rgba(125,211,252,.35);white-space:nowrap}
@@ -438,7 +438,7 @@ p{margin:0}
     <div class="chip2 amber" style="left:46mm;top:14mm"><i>2</i>"5일 당기면?" → 5일 중 1일</div>
     <div class="chip2" style="left:72mm;top:90mm"><i>3</i>관리 포인트 창에서 커튼월부터</div>
     <div style="position:absolute;right:0;top:40mm;text-align:right">
-      <div style="font-size:74pt;font-weight:800;line-height:.9;letter-spacing:-.05em;background:linear-gradient(180deg,#fde68a,#f97316);-webkit-background-clip:text;background-clip:text;color:transparent">1<span style="font-size:38pt;-webkit-text-fill-color:#64748b">/5</span></div>
+      <div style="font-size:74pt;font-weight:800;line-height:.9;letter-spacing:-.05em;color:#fbbf24">1<span style="font-size:38pt;color:#64748b">/5</span></div>
       <div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">당긴 5일 중<br>마감에 반영되는 날</div>
       <div style="font-size:8.6pt;color:#94a3b8;margin-top:3mm">준공 2027-11-08 → 11-06</div>
     </div>
