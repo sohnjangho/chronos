@@ -50,9 +50,9 @@ PREMIUM = "060-700-0199"  # 정보 이용 번호(가상) — phone.storable 이 
 LANDLINE = "02-2000-0199"  # 유선(가상) — 문자 불가, 전화 가능
 SAT_10 = datetime(2027, 3, 6, 10, 0, tzinfo=KST)  # 토요일 오전
 BRIEF_KEYS = {"id", "name", "role_title", "company_id", "phone_masked", "has_phone", "phone_kind", "channels", "unread",
-              "do_not_contact", "phone_invalid", "last_line", "hidden"}
+              "do_not_contact", "phone_invalid", "last_line", "hidden", "access_level", "projects"}  # 마지막 둘은 11-24
 DETAIL_KEYS = BRIEF_KEYS | {"hours", "working_now", "hours_label", "next_start", "gender", "language", "voice_mode", "voice_id",
-                            "dnc_reason", "note", "linked_activities"}
+                            "dnc_reason", "note", "linked_activities", "project_links"}
 
 
 @pytest.fixture

@@ -85,6 +85,10 @@ _GRANTS: dict[str, tuple[bool, FactLevel]] = {
     "contact": (True, "trade"), "contact_multi": (True, "trade"), "shared": (False, "trade"),
     "do_not_contact": (False, "none"),
 }
+# 관리자 등급(11-24): 연락처 줄의 access_level 이 manager 면 사실 수준이 all(그 프로젝트의 모든 협력사·공종 일정)이 되는 등급.
+# 공유 번호(shared — 한 번호를 여러 사람이 씀)는 넓히지 않는다. 본인 요청은 _GRANTS 그대로.
+MANAGER_LEVEL = "manager"
+_MANAGER_WIDENS = frozenset({"contact", "contact_multi"})
 _FOREIGN = re.compile(r"\+[0-9]{7,15}")
 _FOREIGN_INPUT = re.compile(r"\+[0-9\s\-.()]+")
 _NOT_DIGIT = re.compile(r"[^0-9]")
@@ -244,7 +248,8 @@ def scope_of(session: Session, caller: Caller) -> Scope:
     **admit·resolve 가 돌려준 Caller 만 넘긴다 — 저장해 둔 칸으로 Caller 를 다시 만들어 넘기지 않는다.** 그래도 받은 것을
     그대로 믿지 않고 다시 본다: 내부는 계정을, 연락처 등급은 짝마다 그 일정의 연락처·협력사가 지금도 있고 보이는지.
 
-    internal → 그 계정이 볼 수 있는 일정, 사실 all · contact·contact_multi → 그 짝, 사실 trade, 본인 요청 · shared → 그 짝,
+    internal → 그 계정이 볼 수 있는 일정, 사실 all · contact·contact_multi → 그 짝, 사실 trade(짝의 연락처가 모두 관리자
+    등급이면 all — 그래도 그 짝의 프로젝트뿐, 여러 프로젝트면 현장을 고른 뒤에만), 본인 요청 · shared → 그 짝,
     사실 trade(한 일정에서 두 협력사에 걸치면 none), 본인 요청 없음 · do_not_contact → 그 짝, 아무것도 없음 ·
     unknown·withheld·blocked·outside_test → 빈 범위. outbound 는 outbound_scope 로만 만든다(ValueError).
     볼 것이 하나도 남지 않으면(일정이 없는 내부·지금 내부 계정이 아님·짝이 모두 사라졌거나 숨겨짐) 닫힌 빈 범위 — 타입이
@@ -265,15 +270,26 @@ def scope_of(session: Session, caller: Caller) -> Scope:
         return closed
     if _mixed(pairs):
         facts = "none"
+    elif cls in _MANAGER_WIDENS and _all_managers(session, pairs):
+        facts = "all"
     return Scope(cls, tuple(dict.fromkeys(pair.schedule_id for pair in pairs)), pairs, personal, facts)
 
 
+def _all_managers(session: Session, pairs: tuple[Candidate, ...]) -> bool:
+    """짝의 연락처가 **모두** 관리자 등급인가. Scope 는 일정마다 다른 수준을 담지 못하므로(pinned 가 수준을 그대로 물려준다),
+    같은 번호가 어느 프로젝트에서는 관리자이고 다른 곳에서는 아니면 좁은 쪽(trade)이다."""
+    return bool(pairs) and all(
+        getattr(session.get(Contact, pair.contact_id), "access_level", None) == MANAGER_LEVEL for pair in pairs)
+
+
 def outbound_scope(session: Session, schedule_id: int, contact_id: int) -> Scope:
-    """우리가 먼저 건 통화의 상대: 그 일정 하나에 굳은 범위, 사실은 trade(자기 협력사·공종의 작업과 마일스톤만 — all 이
-    아니다), 본인 요청. 연락처나 그 협력사가 그 일정 것이 아니면 NotFound."""
+    """우리가 먼저 건 통화의 상대: 그 일정 하나에 굳은 범위, 본인 요청. 사실은 trade(자기 협력사·공종의 작업과 마일스톤만),
+    그 연락처가 관리자 등급(access_level manager)이면 all(그 프로젝트의 모든 협력사 일정 — 다른 프로젝트는 아니다).
+    연락처나 그 협력사가 그 일정 것이 아니면 NotFound."""
     person = contacts.get_contact(session, schedule_id, contact_id)
     company = contacts.get_company(session, schedule_id, person.company_id)
-    return Scope("outbound", (schedule_id,), (Candidate(schedule_id, person.id, company.id),), True, "trade")
+    facts: FactLevel = "all" if person.access_level == MANAGER_LEVEL else "trade"
+    return Scope("outbound", (schedule_id,), (Candidate(schedule_id, person.id, company.id),), True, facts)
 
 
 # ── 받기 판정 ───────────────────────────────────────────────────────

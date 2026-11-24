@@ -38,9 +38,11 @@ CallerClass = Literal[
 ]
 FactLevel = Literal["none", "trade", "all"]  # 일정 사실을 어디까지: 없음 · 그 협력사·공종 · 전부(좁은 것부터)
 # 등급마다 줄 수 있는 사실 수준의 끝(Scope 가 이보다 넓으면 ValueError — 만드는 쪽의 실수가 열린 쪽으로 가지 않게).
+# 한 사람 등급(contact·contact_multi·outbound)의 끝이 all 인 것은 관리자 등급 연락처(11-24) 때문이다 — 실제로 줄 수준은
+# 들어오는 문(door.scope_of·outbound_scope)이 그 연락처 줄의 access_level 로 정한다(trade 가 기본, manager 만 all).
 GRANT_CEILING: Mapping[str, str] = MappingProxyType({
     "internal": "all",
-    "contact": "trade", "contact_multi": "trade", "shared": "trade", "outbound": "trade",
+    "contact": "all", "contact_multi": "all", "shared": "trade", "outbound": "all",
     "do_not_contact": "none", "unknown": "none", "withheld": "none", "blocked": "none", "outside_test": "none",
 })
 PERSONAL_CLASSES: frozenset[str] = frozenset({"contact", "contact_multi", "outbound"})  # 「본인에게 온 요청」을 말해도 되는 등급

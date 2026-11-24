@@ -6,7 +6,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.db import get_session
 from app.errors import ApiError
-from app.programs.contacts import copy, csv_import, service
+from app.programs.contacts import copy, csv_import, projects, service
 from app.programs.contacts.schemas import (
     AddressBookOut,
     CompanyIn,
@@ -20,6 +20,8 @@ from app.programs.contacts.schemas import (
     PersonDetail,
     PersonIn,
     PersonPatch,
+    ProjectAdd,
+    ProjectChoice,
     ReadOut,
     RevealOut,
 )
@@ -50,8 +52,9 @@ def patch_company(schedule_id: int, company_id: int, body: CompanyPatch, session
 
 
 @router.post("/{schedule_id}/contacts/people", status_code=201)
-def create_person(schedule_id: int, body: PersonIn, session: SessionDep) -> PersonDetail:
-    return service.create_person(session, schedule_id, body)
+def create_person(schedule_id: int, body: PersonIn, session: SessionDep, user: UserDep) -> PersonDetail:
+    """관리자 등급(access_level manager)으로 만드는 것은 관리자만(403 admin_only_level)."""
+    return service.create_person(session, schedule_id, body, user)
 
 
 @router.get("/{schedule_id}/contacts/people/{contact_id}")
@@ -63,8 +66,27 @@ def person(schedule_id: int, contact_id: int, session: SessionDep) -> PersonDeta
 def patch_person(
     schedule_id: int, contact_id: int, body: PersonPatch, session: SessionDep, user: UserDep
 ) -> PersonDetail:
-    """보낸 칸만. 보이던 수신 거부를 끄는 것(do_not_contact: false)은 관리자만 — 그 번호가 있는 모든 일정에서 풀린다."""
+    """보낸 칸만. 보이던 수신 거부를 끄는 것(do_not_contact: false)은 관리자만 — 그 번호가 있는 모든 일정에서 풀린다.
+    관리자 등급(access_level)을 바꾸는 것도 관리자만. 이름·번호·성별·언어·음성·채널·수신 거부·등급은 같은 사람의 모든 줄에."""
     return service.patch_person(session, schedule_id, contact_id, body, user)
+
+
+@router.get("/{schedule_id}/contacts/people/{contact_id}/projects")
+def person_projects(schedule_id: int, contact_id: int, session: SessionDep, user: UserDep) -> list[ProjectChoice]:
+    """「참여 프로젝트」: 이 사용자가 관리할 수 있는 프로젝트마다 이 사람이 등록됐는지(그 줄의 협력사)."""
+    return projects.choices(session, schedule_id, contact_id, user)
+
+
+@router.post("/{schedule_id}/contacts/people/{contact_id}/projects", status_code=201)
+def add_project(schedule_id: int, contact_id: int, body: ProjectAdd, session: SessionDep, user: UserDep) -> PersonDetail:
+    """다른 프로젝트에 같은 사람으로 등록(그 프로젝트의 협력사를 골라서). 같은 번호가 그곳에 이미 있으면 409 same_number_there."""
+    return projects.add(session, schedule_id, contact_id, body, user)
+
+
+@router.delete("/{schedule_id}/contacts/people/{contact_id}/projects/{other_id}")
+def remove_project(schedule_id: int, contact_id: int, other_id: int, session: SessionDep, user: UserDep) -> PersonDetail:
+    """그 프로젝트에서 뺀다 — 그 줄을 숨길 뿐 지우지 않는다(연락 기록은 그대로)."""
+    return projects.remove(session, schedule_id, contact_id, other_id, user)
 
 
 @router.post("/{schedule_id}/contacts/people/{contact_id}/reveal")

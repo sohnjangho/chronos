@@ -153,6 +153,18 @@
   border: 1px solid var(--warning); background: var(--tone-warning-bg);
 }
 .ct-confirm-text { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+/* 참여 프로젝트(11-24): 프로젝트마다 한 줄, 켠 프로젝트 아래에 협력사 고르기 */
+.ct-projects { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--bg-panel-alt); }
+.ct-proj-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.ct-proj { min-width: 0; }
+.ct-proj-row { display: flex; min-width: 0; width: 100%; }
+.ct-proj-name { flex: 0 1 auto; }
+.ct-proj-co { flex: 0 1 auto; margin-left: auto; color: var(--fg-muted); font-size: var(--fs-12); }
+.ct-proj-pick {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 12px; align-items: end; margin: 6px 0 4px 22px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--bg-panel);
+}
+.ct-proj-pick .ct-actions, .ct-proj-pick .ct-error { grid-column: 1 / -1; }
 
 /* 한 칸씩(폰·좁은 창) */
 .ct-root.is-single .ct-book { border-right: 0; }

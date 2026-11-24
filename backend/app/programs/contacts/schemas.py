@@ -28,6 +28,8 @@ Gender = Literal["male", "female", "unknown"]
 Language = Literal["ko", "en", "zh", "vi"]  # 계획 Task 100 languages.SUPPORTED 와 같은 넷(그 모듈이 생기면 그것으로)
 VoiceMode = Literal["auto", "manual"]  # auto = 연락처 성별로 음성을 고름, manual = voice_id
 Channel = Literal["sms", "kakao", "call"]
+# 관리자 등급(11-24): trade = 자기 협력사·공종의 일정만(기본), manager = 등록된 프로젝트의 모든 협력사 일정. 관리자만 정한다.
+AccessLevel = Literal["trade", "manager"]
 Name = Annotated[str, Nfc, Field(min_length=1, max_length=100)]
 Short = Annotated[str, Nfc, Field(max_length=100)]
 Note = Annotated[str, Nfc, Field(max_length=2000)]
@@ -95,6 +97,7 @@ class PersonIn(Strict):
     do_not_contact: bool = False
     dnc_reason: Reason | None = None
     note: Note = ""
+    access_level: AccessLevel = "trade"  # trade 가 아니면 관리자만(403 admin_only_level)
 
 
 class PersonPatch(Strict):
@@ -116,6 +119,7 @@ class PersonPatch(Strict):
     dnc_reason: Reason | None = None
     note: Note | None = None
     hidden: bool | None = None
+    access_level: AccessLevel | None = None  # 바꾸는 것은 관리자만(403 admin_only_level)
 
     @model_validator(mode="after")
     def _required(self) -> "PersonPatch":
@@ -158,6 +162,19 @@ class PersonBrief(BaseModel):
     phone_invalid: bool
     last_line: str | None
     hidden: bool
+    access_level: AccessLevel
+    projects: int  # 이 사람이 등록된(숨기지 않은) 프로젝트 수 — 이 프로젝트 포함, 혼자면 1
+
+
+class ProjectLink(BaseModel):
+    """같은 사람의 한 프로젝트 줄(같은 person_key). 번호는 없다."""
+
+    schedule_id: int
+    name: str  # 프로젝트(일정) 이름
+    contact_id: int
+    company_id: int
+    company_name: str
+    current: bool  # 지금 연 줄
 
 
 class PersonDetail(PersonBrief):
@@ -172,6 +189,29 @@ class PersonDetail(PersonBrief):
     dnc_reason: str | None
     note: str
     linked_activities: list[ActivityRef]
+    project_links: list[ProjectLink]  # 등록된 프로젝트(숨긴 줄은 빼고, 지금 연 줄은 늘), 일정 id 순
+
+
+class ProjectChoice(BaseModel):
+    """「참여 프로젝트」 고르기의 한 줄 — 이 사용자가 관리할 수 있는 프로젝트마다."""
+
+    schedule_id: int
+    name: str
+    linked: bool  # 이 사람이 그 프로젝트에 (보이게) 등록됨
+    current: bool
+    contact_id: int | None
+    company_id: int | None
+    company_name: str | None
+
+
+class ProjectAdd(Strict):
+    """이 사람을 다른 프로젝트에 등록. company_id = 그 프로젝트의 협력사(새 줄이면 꼭). link_contact_id 를 주면 새 줄 대신
+    그 프로젝트의 같은 번호 연락처를 같은 사람으로 잇는다(「같은 사람으로 연결」)."""
+
+    schedule_id: int
+    company_id: int | None = None
+    role_title: Short | None = None
+    link_contact_id: int | None = None
 
 
 class CompanyGroup(CompanyOut):

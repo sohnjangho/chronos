@@ -25,6 +25,7 @@ from app.errors import ApiError
 from app.outreach import hours as work_hours
 from app.outreach import phone
 from app.outreach.redact import hide_phones
+from app.programs.contacts import links
 from app.programs.contacts.schemas import (
     ActivityRef,
     AddressBookOut,
@@ -252,13 +253,13 @@ def _company_out(row: ContactCompany) -> CompanyOut:
     return CompanyOut(id=row.id, name=row.name, trade=row.trade, note=row.note, hidden=row.hidden)
 
 
-def _brief(row: Contact, unread: dict[int, int], last: dict[int, str], do_not_contact: bool) -> PersonBrief:
+def _brief(row: Contact, unread: dict[int, int], last: dict[int, str], do_not_contact: bool, projects: int = 1) -> PersonBrief:
     return PersonBrief(
         id=row.id, name=row.name, role_title=row.role_title, company_id=row.company_id,
         phone_masked=phone.mask(row.phone), has_phone=bool(row.phone), phone_kind=phone.kind(row.phone),
         channels=[channel for channel, flag in _CHANNELS if getattr(row, flag)], unread=unread.get(row.id, 0),
         do_not_contact=do_not_contact, phone_invalid=row.phone_invalid, last_line=last.get(row.id),
-        hidden=row.hidden,
+        hidden=row.hidden, access_level=row.access_level, projects=projects,
     )
 
 
@@ -285,14 +286,16 @@ def _next_start(hours: dict | None, calendar, now: datetime) -> datetime | None:
 def _detail(session: Session, schedule_id: int, row: Contact) -> PersonDetail:
     unread, last = _threads(session, schedule_id, row.id)
     calendar, now = contacts.calendar_of(session, schedule_id), _now()
+    projects = links.project_links(session, row)
     return PersonDetail(
-        **_brief(row, unread, last, _shows_do_not_contact(session, row)).model_dump(),
+        **_brief(row, unread, last, _shows_do_not_contact(session, row), len(projects)).model_dump(),
         hours=row.hours_json,
         working_now=work_hours.is_working(row.hours_json, calendar, now),
         hours_label=work_hours.label(row.hours_json, calendar, now),
         next_start=_next_start(row.hours_json, calendar, now),
         gender=row.gender, language=row.language, voice_mode=row.voice_mode, voice_id=row.voice_id,
         dnc_reason=row.dnc_reason, note=row.note, linked_activities=_linked(session, schedule_id, row.id),
+        project_links=projects,
     )
 
 
@@ -304,9 +307,10 @@ def address_book(session: Session, schedule_id: int, include_hidden: bool) -> Ad
     unread, last = _threads(session, schedule_id)
     listed = contacts.listed(session, schedule_id, include_hidden=include_hidden)
     refused = outreach.do_not_contact_numbers(session, [p.phone for _, people in listed for p in people if p.phone])
+    counts = links.project_counts(session, schedule_id, [p for _, people in listed for p in people])
     groups = [
         CompanyGroup(**_company_out(company).model_dump(), people=[
-            _brief(p, unread, last, p.do_not_contact or phone.normalize(p.phone) in refused) for p in people])
+            _brief(p, unread, last, p.do_not_contact or phone.normalize(p.phone) in refused, counts[p.id]) for p in people])
         for company, people in listed
     ]
     pending = session.scalar(select(func.count()).select_from(ContactProposal).where(
@@ -335,10 +339,12 @@ def patch_company(session: Session, schedule_id: int, company_id: int, body: Com
     return _company_out(row)
 
 
-def create_person(session: Session, schedule_id: int, body: PersonIn) -> PersonDetail:
-    """번호 종류로 채널을 정하고, 수신 거부로 만들면 그 번호에 mark_do_not_contact(_settle_do_not_contact)."""
+def create_person(session: Session, schedule_id: int, body: PersonIn, user: User | None = None) -> PersonDetail:
+    """번호 종류로 채널을 정하고, 수신 거부로 만들면 그 번호에 mark_do_not_contact(_settle_do_not_contact).
+    새 줄은 새 사람 열쇠(person_key). 관리자 등급으로 만드는 것은 관리자만(user 없이 부르면 — 제안 승인 — 기본 등급뿐)."""
     given = body.model_dump()
     check_texts(given)
+    links.check_level(user, [None], body.access_level)
     number, hours_json = check_phone(body.phone), check_hours(body.hours)
     channels = check_channels(number, {c: given[c] for c in NUMBER_CHANNELS if given[c] is not None}, renumbered=True)
     check_voice(body.voice_mode, body.voice_id)
@@ -347,6 +353,8 @@ def create_person(session: Session, schedule_id: int, body: PersonIn) -> PersonD
                   **body.model_dump(exclude={"phone", "hours", "do_not_contact", *NUMBER_CHANNELS}))
     session.add(row)
     _settle_do_not_contact(session, row, None, False, body.do_not_contact)
+    if user is not None:
+        links.record_level(session, row, None, user)
     session.commit()
     return _detail(session, schedule_id, row)
 
@@ -354,8 +362,9 @@ def create_person(session: Session, schedule_id: int, body: PersonIn) -> PersonD
 def patch_person(
     session: Session, schedule_id: int, contact_id: int, body: PersonPatch, user: User
 ) -> PersonDetail:
-    """보낸 칸만. 숨기기는 hidden. 검사(글자·번호·근무시간·채널·음성·협력사·수신 거부 풀기 권한)를 모두 마친 뒤에 고치고,
-    수신 거부를 번호 기록으로 맞춘다(_settle_do_not_contact). 보이던 수신 거부를 끄는 것은 관리자만."""
+    """보낸 칸만. 숨기기는 hidden. 검사(글자·번호·근무시간·채널·음성·협력사·수신 거부 풀기·등급 권한)를 모두 마친 뒤에 고치고,
+    수신 거부를 번호 기록으로 맞춘다(_settle_do_not_contact). 보이던 수신 거부를 끄는 것·등급을 바꾸는 것은 관리자만.
+    함께 저장되는 칸(links.SHARED_INPUT)을 보내면 같은 사람의 다른 프로젝트 줄에도 같은 값을 저장한다."""
     row = _person(session, schedule_id, contact_id)
     given = body.model_dump(exclude_unset=True)
     check_texts(given)
@@ -369,14 +378,27 @@ def patch_person(
         check_voice(fields.get("voice_mode", row.voice_mode), fields.get("voice_id", row.voice_id))
     if "company_id" in fields:
         _company(session, schedule_id, fields["company_id"])
+    others = links.linked(session, row) if given.keys() & links.SHARED_INPUT else []
     shown = _shows_do_not_contact(session, row)
-    if body.do_not_contact is False and shown and user.role != "admin":
+    shown_others = {other.id: _shows_do_not_contact(session, other) for other in others}
+    if body.do_not_contact is False and (shown or any(shown_others.values())) and user.role != "admin":
         raise ApiError(403, "admin_only", ADMIN_CLEARS)
+    levels = {r.id: r.access_level for r in (row, *others)}
+    if "access_level" in given:
+        links.check_level(user, list(levels.values()), given["access_level"])
     if number != old:
         fields.update(phone=number, phone_invalid=False)
     for column, value in fields.items():
         setattr(row, column, value)
     _settle_do_not_contact(session, row, old, shown, body.do_not_contact)
+    for other in others:  # 같은 사람의 다른 프로젝트 줄 — 수신 거부는 그 줄의 번호 기록 규칙대로
+        other_old = other.phone
+        links.copy_shared(row, other)
+        if "dnc_reason" in given:
+            other.dnc_reason = given["dnc_reason"]
+        _settle_do_not_contact(session, other, other_old, shown_others[other.id], body.do_not_contact)
+    for changed in (row, *others):
+        links.record_level(session, changed, levels[changed.id], user)
     session.commit()
     return _detail(session, schedule_id, row)
 

@@ -209,9 +209,9 @@ def test_replace_cannot_widen_a_scope():
     multi = Scope("contact_multi", (A, B), (IN_A, IN_B), True, "trade")
     with pytest.raises(TypeError):
         dataclasses.replace(multi, site_required=False)
-    with pytest.raises(ValueError):
-        dataclasses.replace(multi, grant_facts="all")  # 연락처 쪽의 끝은 trade
     shared = Scope("shared", (A,), (IN_A, Candidate(A, 13, 21)), False, "trade")
+    with pytest.raises(ValueError):
+        dataclasses.replace(shared, grant_facts="all")  # 공유 번호의 끝은 trade(한 사람 등급은 관리자 등급 때문에 all — 11-24)
     with pytest.raises(ValueError):
         dataclasses.replace(shared, grant_personal=True)  # 대표번호는 개인 요청을 말하지 않는다
     unknown = Scope("unknown", (), (), False, "none")
@@ -238,7 +238,8 @@ def test_grant_never_exceeds_the_class_ceiling(cls):
 
 def test_class_ceilings():
     assert dict(GRANT_CEILING) == {
-        "internal": "all", "contact": "trade", "contact_multi": "trade", "shared": "trade", "outbound": "trade",
+        # 한 사람 등급의 끝은 all(관리자 등급 연락처 — 11-24). 주는 수준은 door 가 access_level 로 정한다(test_door_manager)
+        "internal": "all", "contact": "all", "contact_multi": "all", "shared": "trade", "outbound": "all",
         "do_not_contact": "none", "unknown": "none", "withheld": "none", "blocked": "none", "outside_test": "none",
     }
     for cls in ("internal", "shared", "do_not_contact", "unknown", "withheld", "blocked", "outside_test"):

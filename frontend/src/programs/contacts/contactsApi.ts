@@ -7,6 +7,8 @@ export type PhoneKind = 'mobile' | 'landline' | 'internet' | 'rep' | 'safe' | 't
 export type Gender = 'male' | 'female' | 'unknown';
 export type Language = 'ko' | 'en' | 'zh' | 'vi';
 export type VoiceMode = 'auto' | 'manual';
+/** 관리자 등급(11-24): trade = 자기 협력사·공종 일정만(기본), manager = 등록된 프로젝트의 모든 협력사 일정. 관리자만 바꾼다. */
+export type AccessLevel = 'trade' | 'manager';
 
 export interface Hours {
   /** 월=0 … 일=6 */
@@ -39,6 +41,30 @@ export interface PersonBrief {
   phone_invalid: boolean;
   last_line: string | null;
   hidden: boolean;
+  access_level: AccessLevel;
+  /** 이 사람이 등록된(숨기지 않은) 프로젝트 수 — 이 프로젝트 포함 */
+  projects: number;
+}
+
+/** 같은 사람의 한 프로젝트 줄(번호 없음). */
+export interface ProjectLink {
+  schedule_id: number;
+  name: string;
+  contact_id: number;
+  company_id: number;
+  company_name: string;
+  current: boolean;
+}
+
+/** 「참여 프로젝트」 고르기의 한 줄 — 관리할 수 있는 프로젝트마다. */
+export interface ProjectChoice {
+  schedule_id: number;
+  name: string;
+  linked: boolean;
+  current: boolean;
+  contact_id: number | null;
+  company_id: number | null;
+  company_name: string | null;
 }
 
 export interface PersonDetail extends PersonBrief {
@@ -55,6 +81,8 @@ export interface PersonDetail extends PersonBrief {
   dnc_reason: string | null;
   note: string;
   linked_activities: { id: string; name: string }[];
+  /** 등록된 프로젝트(일정 id 순, 지금 연 줄 포함) */
+  project_links: ProjectLink[];
 }
 
 export interface CompanyGroup extends Company {
@@ -85,6 +113,7 @@ export interface PersonBody {
   dnc_reason?: string | null;
   note?: string;
   hidden?: boolean;
+  access_level?: AccessLevel;
 }
 
 export interface CompanyBody {
@@ -188,6 +217,13 @@ export const patchCompany = (sid: number, id: number, body: CompanyBody) => api<
 /** 전체 번호. 부른 쪽은 양식이 닫히면 잊는다(저장·URL·로그에 두지 않는다). 10분에 30번을 넘으면 429. */
 export const revealPhone = (sid: number, id: number) =>
   api<{ phone: string | null }>(`${base(sid)}/people/${id}/reveal`, { method: 'POST', cache: 'no-store' });
+
+/** 참여 프로젝트(11-24): 관리할 수 있는 프로젝트마다 등록됐는지 · 등록(그 프로젝트의 협력사) · 빼기(그 줄을 숨김). */
+export const getProjects = (sid: number, id: number) => api<ProjectChoice[]>(`${base(sid)}/people/${id}/projects`);
+export const addProject = (sid: number, id: number, body: { schedule_id: number; company_id?: number; link_contact_id?: number }) =>
+  api<PersonDetail>(`${base(sid)}/people/${id}/projects`, send('POST', body));
+export const removeProject = (sid: number, id: number, other: number) =>
+  api<PersonDetail>(`${base(sid)}/people/${id}/projects/${other}`, { method: 'DELETE' });
 
 /** CSV 가져오기(Task 76). dryRun 이면 미리 보기(아무것도 쓰지 않음), 아니면 넣기 — 서버가 파일을 처음부터 다시 판정한다.
  *  파일은 이 요청 몸에만 실린다(저장·URL·로그에 두지 않는다). */

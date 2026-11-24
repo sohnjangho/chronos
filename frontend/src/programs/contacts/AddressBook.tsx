@@ -1,4 +1,5 @@
-// 왼쪽 주소록: 찾기(이름·담당) · 협력사별 묶음(접기) · 사람 줄(이름·담당·새 회신·번호 없음·수신 거부·번호 오류·휴대전화가 아닌 번호 종류) ·
+// 왼쪽 주소록: 찾기(이름·담당) · 협력사별 묶음(접기) · 사람 줄(이름·담당·새 회신·번호 없음·수신 거부·번호 오류·관리자 등급·
+// 여러 프로젝트에 등록된 사람의 「프로젝트 n」·휴대전화가 아닌 번호 종류) ·
 // 아래 [+ 사람 추가][협력사 추가][CSV 가져오기][다른 프로젝트에서 복사 — 관리자] · 숨긴 사람 보기. 번호는 여기 나오지 않는다.
 // above·below: 목록 위(「확인할 연락처 n」「확인할 보고 n」)와 아래(「모르는 번호」 묶음)에 들어오는 칸(Task 85) — 목록과 함께 스크롤한다.
 import { useState, type ReactNode } from 'react';
@@ -48,6 +49,8 @@ function Row({ p, current, onSelect }: { p: PersonBrief; current: boolean; onSel
           {!p.has_phone && <span className="ct-tag is-warn">번호 없음</span>}
           {p.do_not_contact && <span className="ct-tag is-bad">수신 거부</span>}
           {p.phone_invalid && <span className="ct-tag is-bad">번호 오류</span>}
+          {p.access_level === 'manager' && <span className="ct-tag">관리자 등급</span>}
+          {p.projects > 1 && <span className="ct-tag">{`프로젝트 ${p.projects}`}</span>}
           {kind && <span className="ct-tag">{kind}</span>}
           {p.hidden && <span className="ct-tag">숨김</span>}
         </span>

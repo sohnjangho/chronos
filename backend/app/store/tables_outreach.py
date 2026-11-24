@@ -41,6 +41,11 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def new_person_key() -> str:
+    """같은 사람의 연락처 줄(프로젝트마다 하나)을 잇는 열쇠 — 새 줄마다 새 값(11-24)."""
+    return uuid4().hex
+
+
 class ContactCompany(Base):
     """협력사 하나(일정마다 따로)."""
 
@@ -84,6 +89,29 @@ class Contact(Base):
     hidden: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, onupdate=_now)
+    # 관리자 등급(11-24): trade = 자기 협력사·공종의 일정만, manager = 등록된 프로젝트의 모든 협력사 일정(관리자만 바꾼다 —
+    # contact_access_changes 에 기록). 기존 DB 에는 store.upgrade 가 DEFAULT 'trade' 로 더한다.
+    access_level: Mapped[str] = mapped_column(String(10), default="trade")
+    # 같은 사람의 줄(프로젝트마다 하나)을 잇는 열쇠(11-24). 새 줄은 새 값, 기존 DB 의 옛 줄은 NULL(혼자인 사람).
+    # 이름·번호·성별·언어·음성·채널·수신 거부·등급은 같은 열쇠의 줄에 함께 저장된다(programs.contacts.links).
+    person_key: Mapped[str | None] = mapped_column(String(32), default=new_person_key)
+
+
+class ContactAccessChange(Base):
+    """관리자 등급을 정하거나 바꾼 기록 한 줄(11-24 — 감사: 누가 언제 어느 일정·연락처의 등급을 무엇에서 무엇으로).
+    before 는 새 줄이면 NULL. 번호는 두지 않는다. 일정을 지워도 남는다."""
+
+    __tablename__ = "contact_access_changes"
+    __table_args__ = _NO_ID_REUSE
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(index=True)
+    contact_id: Mapped[int]
+    user_id: Mapped[int]
+    login_id: Mapped[str | None] = mapped_column(String(50), default=None)
+    before: Mapped[str | None] = mapped_column(String(10), default=None)
+    after: Mapped[str] = mapped_column(String(10))
+    at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class ContactProposal(Base):

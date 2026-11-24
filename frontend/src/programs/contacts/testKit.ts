@@ -3,13 +3,13 @@
 import { vi } from 'vitest';
 import type { Role } from '../../os/session';
 import { json, signInAsDemo } from '../../test-helpers';
-import type { AddressBook, CompanyGroup, NotifyStatus, PersonBrief, PersonDetail } from './contactsApi';
+import type { AddressBook, CompanyGroup, NotifyStatus, PersonBrief, PersonDetail, ProjectChoice } from './contactsApi';
 
 export function person(over: Partial<PersonBrief> = {}): PersonBrief {
   return {
     id: 1, name: '박현장', role_title: '골조 팀장', company_id: 10, phone_masked: '010-****-0000', has_phone: true,
     phone_kind: 'mobile', channels: ['sms', 'kakao', 'call'], unread: 1, do_not_contact: false, phone_invalid: false,
-    last_line: '정상 진행 중입니다.', hidden: false, ...over,
+    last_line: '정상 진행 중입니다.', hidden: false, access_level: 'trade', projects: 1, ...over,
   };
 }
 
@@ -28,6 +28,11 @@ export const BOOK: AddressBook = {
 };
 
 export const EMPTY: AddressBook = { companies: [], proposals_pending: 0, reports_open: 0 };
+
+export const PROJECTS: ProjectChoice[] = [
+  { schedule_id: 1, name: '5층 사무동 신축', linked: true, current: true, contact_id: 1, company_id: 10, company_name: '대한골조' },
+  { schedule_id: 2, name: '물류센터 증축', linked: false, current: false, contact_id: null, company_id: null, company_name: null },
+];
 
 /** 협력사 8곳에 사람 50명(긴 이름·번호 없음·수신 거부·대표번호 섞음). */
 export function bigBook(): AddressBook {
@@ -57,7 +62,7 @@ export function bigBook(): AddressBook {
 export function detail(p: PersonBrief, over: Partial<PersonDetail> = {}): PersonDetail {
   return {
     ...p, hours: null, working_now: true, hours_label: '근무 중 · 18:00 까지', next_start: '2026-11-24T05:00:00Z', gender: 'unknown', language: 'ko', voice_mode: 'auto',
-    voice_id: null, dnc_reason: null, note: '', linked_activities: [], ...over,
+    voice_id: null, dnc_reason: null, note: '', linked_activities: [], project_links: [], ...over,
   };
 }
 
@@ -73,6 +78,10 @@ interface Call {
 }
 
 let book: Reply;
+/** 다른 일정(프로젝트를 바꾼 뒤·참여 프로젝트의 협력사 고르기)의 주소록 — 기본은 빈 주소록. */
+let otherBook: Reply;
+/** 참여 프로젝트(11-24) 고르기 목록 — 기본은 지금 프로젝트 하나와 등록하지 않은 「물류센터 증축」. */
+let projects: Reply;
 let status: Reply;
 let details: Map<number, PersonDetail>;
 let revealReply: Reply;
@@ -87,7 +96,8 @@ function route(method: string, url: string): Reply {
   if (url === '/api/notify/status') return status;
   if (method === 'GET' && (url === SID || url.startsWith(`${SID}?`))) return book;
   // 다른 일정(프로젝트를 바꾼 뒤)의 주소록은 비어 있다.
-  if (method === 'GET' && /^\/api\/schedules\/\d+\/contacts(\?.*)?$/.test(url)) return { status: 200, body: EMPTY };
+  if (method === 'GET' && /^\/api\/schedules\/\d+\/contacts(\?.*)?$/.test(url)) return otherBook;
+  if (method === 'GET' && /\/people\/\d+\/projects$/.test(url)) return projects;
   const reveal = /\/people\/(\d+)\/reveal$/.exec(url);
   if (reveal) return revealReply;
   const one = /\/people\/(\d+)$/.exec(url);
@@ -125,6 +135,8 @@ function route(method: string, url: string): Reply {
 export function stubContacts(role: Role = 'admin') {
   signInAsDemo(role);
   book = { status: 200, body: BOOK };
+  otherBook = { status: 200, body: EMPTY };
+  projects = { status: 200, body: PROJECTS };
   status = { status: 200, body: STATUS };
   details = new Map([PARK, CHOI, LEE, JUNG, KIM].map((p) => [p.id, detail(p)]));
   details.set(JUNG.id, detail(JUNG, { dnc_reason: '본인 요청' }));
@@ -145,6 +157,8 @@ export function stubContacts(role: Role = 'admin') {
 }
 
 export const mockBook = (b: AddressBook) => void (book = { status: 200, body: b });
+export const mockOtherBook = (b: AddressBook) => void (otherBook = { status: 200, body: b });
+export const mockProjects = (list: ProjectChoice[]) => void (projects = { status: 200, body: list });
 export const mockStatus = (s: NotifyStatus | null, code = 200) => void (status = { status: code, body: s ?? { code: 'not_found', message: '찾을 수 없습니다.' } });
 export const mockDetail = (d: PersonDetail) => void details.set(d.id, d);
 export const mockReveal = (code: number, body: unknown) => void (revealReply = { status: code, body });

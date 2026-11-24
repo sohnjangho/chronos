@@ -1,20 +1,22 @@
 // 사람 추가·고치기 양식(시안 ⑤). 번호는 가린 꼴로 보이고 「눌러서 보기」(reveal)를 눌러야 전체가 이 양식 안에만 보인다 —
 // 양식이 닫히면 함께 사라진다(저장소·URL·로그에 두지 않음). 서버의 422·403 글은 그 칸 아래에(보낸 값은 되풀이하지 않음).
 // 수신 거부는 번호에 붙는다: 번호를 바꾸거나 빼면 옛 번호는 모든 프로젝트에서 계속 막히고 새 번호로 따라가지 않는다(Task 72).
+// 관리자 등급·참여 프로젝트(11-24)는 PersonLinks — 관리자 등급으로 올리는 저장은 확인을 한 번 묻는다.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ApiError } from '../../shared/api';
 import Button from '../../shared/ui/Button';
 import { CALLABLE_LANGUAGES, NOT_CALLABLE } from './CallDialog';
 import {
   getPerson, KIND_LABEL, LANGUAGES, patchPerson, postPerson, revealPhone,
-  type Company, type Gender, type Hours, type Language, type PersonBody, type PersonDetail, type VoiceMode,
+  type AccessLevel, type Company, type Gender, type Hours, type Language, type PersonBody, type PersonDetail, type VoiceMode,
 } from './contactsApi';
 import HoursField from './HoursField';
+import { LEVEL_CONFIRM, LevelField, ProjectsField } from './PersonLinks';
 
-type ErrKey = 'name' | 'role_title' | 'company' | 'phone' | 'channels' | 'hours' | 'voice' | 'dnc' | 'dnc_reason' | 'note' | 'form';
+type ErrKey = 'name' | 'role_title' | 'company' | 'phone' | 'channels' | 'hours' | 'voice' | 'dnc' | 'dnc_reason' | 'note' | 'level' | 'form';
 type Errors = Partial<Record<ErrKey, string>>;
 type PhoneMode = 'masked' | 'revealed' | 'edit';
-type Confirm = null | 'number' | 'clear';
+type Confirm = null | 'number' | 'clear' | 'level';
 type Touched = { sms?: boolean; call?: boolean };
 
 const KAKAO_LOCKED = '카카오톡은 채널·문안 승인 뒤 쓸 수 있습니다.';
@@ -46,6 +48,8 @@ function fieldOf(e: unknown): Errors {
       return { hours: text };
     case 'invalid_voice':
       return { voice: text };
+    case 'admin_only_level':
+      return { level: text };
     case 'admin_only':
       return { dnc: text.startsWith('수신 거부는 관리자만 풀 수 있습니다') ? text : `수신 거부는 관리자만 풀 수 있습니다. ${text}` };
     case 'invalid_text': {
@@ -89,6 +93,8 @@ interface Props {
   kakaoReady: boolean;
   onSaved: (p: PersonDetail) => void;
   onCancel: () => void;
+  /** 참여 프로젝트를 등록하거나 뺐다(양식은 열린 채 — 주소록만 다시 읽는다). */
+  onLinked?: () => void;
 }
 
 /** 고칠 사람의 자세히를 읽은 뒤 양식을 그린다. */
@@ -130,6 +136,7 @@ interface Values {
   dnc: boolean;
   dnc_reason: string;
   note: string;
+  access_level: AccessLevel;
 }
 
 function initialValues(d: PersonDetail | null, companies: Company[], companyId: number | null | undefined): Values {
@@ -145,6 +152,7 @@ function initialValues(d: PersonDetail | null, companies: Company[], companyId: 
     dnc: d?.do_not_contact ?? false,
     dnc_reason: d?.dnc_reason ?? '',
     note: d?.note ?? '',
+    access_level: d?.access_level ?? 'trade',
   };
 }
 
@@ -160,6 +168,7 @@ function buildBody(detail: PersonDetail | null, v: Values, phone: string | null,
     if (touched.sms === false) b.can_sms = false;
     if (touched.call === false) b.can_call = false;
     if (v.dnc && reason) b.dnc_reason = reason;
+    if (v.access_level !== 'trade') b.access_level = v.access_level;
     return b;
   }
   const b: PersonBody = {};
@@ -179,6 +188,7 @@ function buildBody(detail: PersonDetail | null, v: Values, phone: string | null,
   if (v.dnc !== detail.do_not_contact) b.do_not_contact = v.dnc;
   if (v.dnc && reason !== (detail.dnc_reason ?? '')) b.dnc_reason = reason || null;
   if (v.note !== detail.note) b.note = v.note;
+  if (v.access_level !== detail.access_level) b.access_level = v.access_level;
   return b;
 }
 
@@ -235,10 +245,15 @@ function usePersonForm({ scheduleId, companies, companyId, isAdmin, onSaved, onC
   };
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    check(false);
+  };
+  /** 저장 전 확인들. levelOk = 관리자 등급으로 올리는 것을 이미 확인함. */
+  const check = (levelOk: boolean) => {
     if (!v.name.trim()) return setErrors({ name: '이름을 넣어 주세요.' });
     if (!v.company_id) return setErrors({ company: '먼저 협력사를 추가해 주세요.' });
     const voiceBad = v.voice_mode === 'manual' ? voiceProblem(v.voice_id.trim()) : null;
     if (voiceBad) return setErrors({ voice: voiceBad });
+    if (!levelOk && v.access_level === 'manager' && (detail?.access_level ?? 'trade') !== 'manager') return setConfirm('level');
     if (detail?.do_not_contact && !v.dnc && isAdmin) return setConfirm('clear');
     if (detail?.do_not_contact && v.dnc && phoneDirty) return setConfirm('number');
     void save(body());
@@ -247,13 +262,19 @@ function usePersonForm({ scheduleId, companies, companyId, isAdmin, onSaved, onC
   const pick = (dnc: boolean) => void save(dnc ? { ...body(), do_not_contact: true } : body());
   const toggleHidden = () => detail && void save({ hidden: !detail.hidden });
 
-  return { v, set, phoneMode, phone, setPhone, phoneDirty, touched, setTouched, errors, busy, confirm, setConfirm, reveal, changePhone, submit, save, body, pick, toggleHidden };
+  const confirmLevel = () => {
+    setConfirm(null);
+    check(true);
+  };
+
+  return { v, set, phoneMode, phone, setPhone, phoneDirty, touched, setTouched, errors, busy, confirm, setConfirm, reveal, changePhone, submit, save, body, pick, toggleHidden, confirmLevel };
 }
 
 function Form(props: FormProps) {
-  const { detail, companies, projectName, kakaoReady, onCancel } = props;
+  const { detail, companies, projectName, kakaoReady, onCancel, isAdmin, scheduleId, onLinked } = props;
   const f = usePersonForm(props);
   const { v, set, errors } = f;
+  const [projects, setProjects] = useState(detail?.projects ?? 1);
   const linked = detail?.linked_activities ?? [];
   const linkedText = linked.length === 0 ? '맡은 작업은 아직 없습니다' : `맡은 작업: ${linked[0].name}${linked.length > 1 ? ` 외 ${linked.length - 1}개` : ''}`;
   const title = detail ? '사람 고치기' : '사람 추가';
@@ -286,13 +307,20 @@ function Form(props: FormProps) {
         <HoursField value={v.hours} onChange={(h) => set('hours', h)} label={detail?.hours_label} error={errors.hours} />
         <ProfileFields v={v} set={set} voiceError={errors.voice} />
         <DncField v={v} set={set} error={errors.dnc} reasonError={errors.dnc_reason} />
+        <LevelField value={v.access_level} onChange={(l) => set('access_level', l)} isAdmin={isAdmin} />
+        <Err text={errors.level} />
         <Fld label="메모" error={errors.note} wide>
           <textarea className="ct-input ct-textarea" value={v.note} maxLength={2000} rows={3} onChange={(e) => set('note', e.target.value)} />
         </Fld>
+        <ProjectsField scheduleId={scheduleId} detail={detail} onChanged={(d) => (setProjects(d.projects), onLinked?.())} />
       </div>
-      <p className="ct-hint">{`이 프로젝트${projectName ? `(${projectName})` : ''}에만 저장됩니다. ${linkedText}`}</p>
+      <p className="ct-hint">
+        {projects > 1
+          ? `협력사·담당·근무시간·메모는 이 프로젝트${projectName ? `(${projectName})` : ''}에만, 나머지는 참여 프로젝트 ${projects}곳 모두에 저장됩니다. ${linkedText}`
+          : `이 프로젝트${projectName ? `(${projectName})` : ''}에만 저장됩니다. ${linkedText}`}
+      </p>
       <Err text={errors.form} />
-      {f.confirm && <ConfirmBox kind={f.confirm} onCancel={() => f.setConfirm(null)} onClear={() => void f.save(f.body())} onPick={f.pick} />}
+      {f.confirm && <ConfirmBox kind={f.confirm} onCancel={() => f.setConfirm(null)} onClear={() => void f.save(f.body())} onPick={f.pick} onLevel={f.confirmLevel} />}
       <div className="ct-actions">
         {detail && (
           <Button onClick={f.toggleHidden} disabled={f.busy}>
@@ -504,13 +532,21 @@ function PhoneField({ detail, mode, phone, setPhone, dirty, error, onReveal, onC
 }
 
 interface ConfirmProps {
-  kind: 'number' | 'clear';
+  kind: 'number' | 'clear' | 'level';
   onCancel: () => void;
   onClear: () => void;
   onPick: (dnc: boolean) => void;
+  onLevel: () => void;
 }
 
-function ConfirmBox({ kind, onCancel, onClear, onPick }: ConfirmProps) {
+const CONFIRM_LABEL = { number: '새 번호와 수신 거부', clear: '수신 거부 풀기', level: '관리자 등급' } as const;
+const CONFIRM_TEXT = {
+  number: '예전 번호는 계속 수신 거부로 남습니다. 새 번호도 수신 거부로 둘까요?',
+  clear: '이 번호가 있는 모든 프로젝트에서 수신 거부가 풀립니다. 풀까요?',
+  level: LEVEL_CONFIRM,
+} as const;
+
+function ConfirmBox({ kind, onCancel, onClear, onPick, onLevel }: ConfirmProps) {
   const first = useRef<HTMLButtonElement>(null);
   const box = useRef<HTMLDivElement>(null);
   // 양식 아래에 열리므로 상자 전체가 보이게 굴린 뒤 첫 단추에 초점(jsdom 에는 scrollIntoView 가 없다).
@@ -519,12 +555,16 @@ function ConfirmBox({ kind, onCancel, onClear, onPick }: ConfirmProps) {
     first.current?.focus({ preventScroll: true });
   }, []);
   return (
-    <div ref={box} className="ct-confirm" role="alertdialog" aria-label={kind === 'number' ? '새 번호와 수신 거부' : '수신 거부 풀기'} aria-describedby="ct-confirm-text">
+    <div ref={box} className="ct-confirm" role="alertdialog" aria-label={CONFIRM_LABEL[kind]} aria-describedby="ct-confirm-text">
       <p id="ct-confirm-text" className="ct-confirm-text">
-        {kind === 'number' ? '예전 번호는 계속 수신 거부로 남습니다. 새 번호도 수신 거부로 둘까요?' : '이 번호가 있는 모든 프로젝트에서 수신 거부가 풀립니다. 풀까요?'}
+        {CONFIRM_TEXT[kind]}
       </p>
       <div className="ct-actions">
-        {kind === 'number' ? (
+        {kind === 'level' ? (
+          <button ref={first} type="button" className="ui-btn ui-btn-primary" onClick={onLevel}>
+            계속
+          </button>
+        ) : kind === 'number' ? (
           <>
             <button ref={first} type="button" className="ui-btn ui-btn-primary" onClick={() => onPick(true)}>
               새 번호도 수신 거부

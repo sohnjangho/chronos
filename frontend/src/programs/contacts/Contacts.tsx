@@ -303,6 +303,7 @@ function Pane({ mode, setMode, scheduleId, book, selected, setSelectedId, projec
           close();
           reload();
         }}
+        onLinked={reload}
       />
     );
   if (mode.kind === 'company')
