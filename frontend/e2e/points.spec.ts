@@ -125,7 +125,13 @@ async function fake(page: Page, sid: number) {
     const quote = asked ? READY : null;
     return route.fulfill({
       json: {
-        schedule_id: sid, version: 8, what_if: false, basis: { tf_days: 3, window_weeks: 3 }, points: [], risk_status: 'done', risks: [],
+        schedule_id: sid, version: 8, what_if: false, basis: { tf_days: 3, window_weeks: 3 }, risk_status: 'done', risks: [],
+        points: [
+          { activity_id: 'A1480', name: '옥탑 골조', critical: false, tf: 2, es: '2027-05-31', ef: '2027-06-04' },
+          { activity_id: 'A1490', name: '커튼월 제작 도면 승인', critical: true, tf: 0, es: '2027-05-27', ef: '2027-06-02' },
+          { activity_id: 'A1500', name: '커튼월 공장 제작', critical: false, tf: 1, es: '2027-06-03', ef: '2027-06-18' },
+          { activity_id: 'A1600', name: '커튼월·외장 패널 1~3층', critical: true, tf: 0, es: '2027-06-21', ef: '2027-07-09' },
+        ],
         quotes: { 'A1500/materials': quote, 'A1600/business': FAILED }, card: pointsCard(sid, quote),
       },
     });
@@ -256,8 +262,8 @@ for (const size of SIZES) {
       await expect(card.getByText('건너뛴 자료 1개')).toBeVisible();
       await expect(card.getByText(/프로젝트 주소가 없어/)).toBeHidden();
       await expect(card.getByText('설비 배관 4층 — 창 밖으로 밀림')).toBeVisible();
-      await expect(a.getByText('2027.06.03 ~ 2027.06.18 · 담당 (주)가상커튼월')).toBeVisible();
-      await expect(card.getByText('2027.06.21 ~ 2027.07.09 · 실외 작업 · 담당 (주)가상외장')).toBeVisible(); // 건설 · 날씨를 찾은 포인트만
+      await expect(a.getByText('06.03 ~ 06.18 · 담당 (주)가상커튼월')).toBeVisible();
+      await expect(card.getByText('06.21 ~ 07.09 · 실외 작업 · 담당 (주)가상외장')).toBeVisible(); // 건설 · 날씨를 찾은 포인트만
       await expect(card.getByRole('button', { name: '조건으로 넣어 보기' })).toHaveCount(0); // 본문에 날씨 줄 없음
       await card.scrollIntoViewIfNeeded();
       await fits(page, '.ch-root');
@@ -302,8 +308,11 @@ for (const size of SIZES) {
       await fits(page, '.ch-root');
       await shot(page, `05-accel-${tag}`);
       await accel.getByRole('button', { name: '관리 포인트로 보기' }).click();
-      await expect(chat.getByRole('region', { name: '관리 포인트' })).toHaveCount(2);
-      await chat.getByRole('region', { name: '관리 포인트' }).nth(1).scrollIntoViewIfNeeded();
+      const now = chat.getByRole('list', { name: '지금 관리 포인트' });
+      await expect(now.getByRole('listitem').first()).toHaveClass(/pc-in-chain/); // 다음 결정 줄의 포인트가 먼저
+      await expect(chat.getByRole('region', { name: '관리 포인트', exact: true })).toHaveCount(2); // 바뀜 카드도 함께
+      await expect(accel.getByRole('button', { name: '관리 포인트로 보기' })).toBeEnabled();
+      await now.scrollIntoViewIfNeeded();
       await fits(page, '.ch-root');
       await shot(page, `06-accel-points-${tag}`);
 

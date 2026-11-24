@@ -71,6 +71,9 @@
 .cmp-plan-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .cmp-sum .cmp-changes { max-width: 360px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-muted); }
 /* 당김 효과를 따로 셀 수 없는 까닭(긴 글)은 칸 안에서 줄을 바꾼다 */
+/* 「다음 결정 줄」은 두 줄까지 줄을 바꾸고 그 넘어는 …(전체는 title) */
+.cmp-sum td.cmp-chain { min-width: 220px; max-width: 360px; white-space: normal; padding-top: 4px; padding-bottom: 4px; font-size: var(--fs-12); line-height: 17px; }
+.cmp-chain-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .cmp-sum .cmp-reason { display: inline-block; min-width: 160px; max-width: 220px; white-space: normal; text-align: left; font-size: var(--fs-12); }
 .cmp-sum tr.is-pickable { cursor: pointer; }
 .cmp-sum tr.is-pickable:hover td { background: var(--bg-panel-alt); }

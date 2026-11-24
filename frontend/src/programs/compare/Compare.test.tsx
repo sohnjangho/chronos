@@ -64,7 +64,7 @@ test('a plan without a computed Plan shows a dash, not zero', async () => {
   mockSummary({ sides: [{ ...CURRENT, plan_delta: null, deadline: null, deadline_float: null }, RECOVERY] });
   show();
   const cur = within(await screen.findByRole('cell', { name: '현재 일정 (버전 3)' }).then((c) => c.closest('tr')!));
-  expect(cur.getAllByText('—')).toHaveLength(2); // Plan 대비 · 기한 여유
+  expect(cur.getAllByText('—')).toHaveLength(4); // Plan 대비 · 기한 여유 · 준공 반영 · 다음 결정 줄(당김 없음)
 });
 
 test('overlay colors pulled bars', async () => {

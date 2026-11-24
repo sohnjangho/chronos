@@ -1,6 +1,7 @@
 // [담당자에게 확인 연락](계획 5 Task 6, 시안 contact.html): 그 작업 담당 협력사 연락처(번호 없음)를 고르고, 연락 방법을 고르면
 // 서버가 지은 글을 미리 보이고, [초안 만들기] → 서버가 기존 초안 길로 초안을 만든다(보내지 않음). 초안 카드는 부르는 쪽이 그린다.
 import { useEffect, useRef, useState } from 'react';
+import { useSession } from '../../../os/session';
 import { useWindows } from '../../../os/windowStore';
 import Button from '../../../shared/ui/Button';
 import type { Json } from '../thread';
@@ -62,6 +63,7 @@ export default function ContactPicker({ sid, aid, name, whatIf, onClose, onDraft
   onClose(): void;
   onDraft(card: Json): void;
 }) {
+  const field = useSession((s) => s.session?.user.role === 'field'); // 현장 관리자는 연락처를 쓰지 않는다(서버 403)
   const [people, setPeople] = useState<Person[] | null>(null);
   const [error, setError] = useState('');
   const [pick, setPick] = useState<Person | null>(null);
@@ -127,9 +129,11 @@ export default function ContactPicker({ sid, aid, name, whatIf, onClose, onDraft
             </span>
           </>
         )}
-        <button type="button" className="pc-link" onClick={() => useWindows.getState().open('contacts', { id: String(sid) })}>
-          주소록에서 다른 사람 고르기
-        </button>
+        {!field && (
+          <button type="button" className="pc-link" onClick={() => useWindows.getState().open('contacts', { id: String(sid) })}>
+            주소록에서 다른 사람 고르기
+          </button>
+        )}
       </div>
       {preview && <PreviewBox preview={preview} />}
       {error && <p className="ch-error ch-wrap" role="alert">{error}</p>}

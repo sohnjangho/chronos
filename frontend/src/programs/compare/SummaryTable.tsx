@@ -1,7 +1,7 @@
 // 여러 안 요약 표(현재 · Plan · 열린 복사본). 줄을 누르면 그 안이 비교가 된다. 값은 모두 서버 계산값.
 // 가로로 좁으면 표 안에서만 밀리고 「안」 칸은 고정이다.
 // 당김 효과 칸 둘(계획 5): 「준공 반영」 n일 중 m일(PM 11-24 표기, 경고면 주의 색 — 반영이 당긴 날보다 많으면 자원이 섞인 것이라
-// 숫자 그대로·경고 색 없음) · 「다음 결정 줄」. 따로 셀 수 없으면 까닭 글(accel_reason), 당김이 없으면 빈칸.
+// 숫자 그대로·경고 색 없음) · 「다음 결정 줄」(두 줄까지 줄 바꿈). 따로 셀 수 없으면 까닭 글(accel_reason), 당김이 없으면 「—」.
 import Badge from '../../shared/ui/Badge';
 import type { Accel, Peak, SideOut } from './compareApi';
 import { deltaText, dot, floatText, toneOf } from './rows';
@@ -13,18 +13,21 @@ function AccelCells({ a, reason }: { a: Accel | null | undefined; reason: string
   if (!a)
     return (
       <>
-        <td className="cmp-num cmp-reach">{reason && <span className="cmp-muted cmp-reason">{reason}</span>}</td>
-        <td className="cmp-changes" />
+        <td className="cmp-num cmp-reach">{reason ? <span className="cmp-muted cmp-reason">{reason}</span> : <span className="cmp-muted">—</span>}</td>
+        <td className="cmp-chain">
+          <span className="cmp-muted">—</span>
+        </td>
       </>
     );
   const warn = a.warn && a.finish_gain <= a.pulled_days;
+  const chain = chainText(a);
   return (
     <>
       <td className="cmp-num cmp-reach">
         <span className={warn ? 'is-warn' : ''}>{`${a.pulled_days}일 중 ${a.finish_gain}일`}</span>
       </td>
-      <td className="cmp-changes" title={chainText(a) || undefined}>
-        {chainText(a)}
+      <td className="cmp-chain" title={chain || undefined}>
+        {chain ? <span className="cmp-chain-text">{chain}</span> : <span className="cmp-muted">—</span>}
       </td>
     </>
   );

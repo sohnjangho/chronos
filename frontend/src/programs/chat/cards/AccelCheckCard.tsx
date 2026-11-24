@@ -1,39 +1,20 @@
 // 「당겨도 소용 있나」 당김 효과 카드(계획 5 Task 6 — points.accel_check 의 card{kind:"accel_check"}, 서버
 // backend/app/tools/points/accel_check.py AccelCheckOut). PM 승인 시안 shots/mock-card/accel.html 꼴.
 // 숫자·날짜·다음 결정 줄은 서버 계산값 그대로. 「준공 반영 n일 중 m일」(PM 11-24 표기). 반영이 당긴 날보다 많으면(자원이 섞임)
-// 숫자를 그대로 보이고 경고 색을 쓰지 않는다. [관리 포인트로 보기] = API 로 관리 포인트를 읽어 이 카드 아래(대화)에 포인트 카드를
-// 보인다(바뀜 카드가 없으면 지금 포인트 목록). [만회안 보기] = 대화에 만회 계획 요청.
+// 숫자를 그대로 보이고 경고 색을 쓰지 않는다. [관리 포인트로 보기] = API 로 관리 포인트를 읽어(열린 지연이 있으면 그 가정 —
+// 주의할 일정과 같은 차례) 이 카드 아래(대화)에 다음 결정 줄의 포인트를 먼저 ◆ 로 보이고, 바뀜 카드가 있으면 그것도. 다시 누르면 다시
+// 읽는다. [만회안 보기] = 대화에 만회 계획 요청.
 import { useState } from 'react';
 import Badge from '../../../shared/ui/Badge';
 import Button from '../../../shared/ui/Button';
 import { dotDate } from '../labels';
 import { asList, asNum, asObj, asText, Card, signedDays, type CardProps } from './Card';
 import PointsChangedCard from './PointsChangedCard';
+import PointsList, { type ChainItem } from './PointsList';
 import { errorText, getLatestPoints, type PointsView } from './pointsApi';
 import './pointsCards.css';
 
 const RECOVERY_ASK = '만회 계획을 만들어 줘';
-
-function PointsList({ view }: { view: PointsView }) {
-  return (
-    <Card title="지금 관리 포인트" extra={<Badge>{`${view.points.length}곳`}</Badge>}>
-      <p className="ch-meta ch-wrap">{`관리 포인트는 바뀌지 않았습니다 · 기준: 여유 ${view.basis.tf_days}일 이하, 앞으로 ${view.basis.window_weeks}주`}</p>
-      {view.points.length === 0 ? (
-        <p className="ch-meta">지금 관리 포인트가 없습니다.</p>
-      ) : (
-        <ul className="ch-plain">
-          {view.points.map((p) => (
-            <li key={p.activity_id} className="pc-point-h">
-              <b className="ch-wrap">{p.name}</b>
-              {p.critical ? <Badge tone="danger">크리티컬</Badge> : <Badge tone="warning">크리티컬 직전</Badge>}
-              <span className="pc-float ch-meta">{`여유 ${p.tf}일 · ${dotDate(p.es)}`}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
 
 export default function AccelCheckCard({ data, ctx }: CardProps) {
   const [shown, setShown] = useState<PointsView | null>(null);
@@ -60,6 +41,7 @@ export default function AccelCheckCard({ data, ctx }: CardProps) {
       setShown(await getLatestPoints(sid));
     } catch (e) {
       setError(errorText(e, '관리 포인트를 읽지 못했습니다.'));
+    } finally {
       setBusy(false);
     }
   };
@@ -130,7 +112,8 @@ export default function AccelCheckCard({ data, ctx }: CardProps) {
           <Button onClick={() => void ctx.sendText(RECOVERY_ASK)}>만회안 보기</Button>
         </div>
       </Card>
-      {shown && (shown.card ? <PointsChangedCard data={shown.card} ctx={ctx} /> : <PointsList view={shown} />)}
+      {shown && <PointsList view={shown} chain={chain as unknown as ChainItem[]} />}
+      {shown?.card && <PointsChangedCard key={`${shown.version}-${String(shown.what_if)}`} data={shown.card} ctx={ctx} />}
     </>
   );
 }

@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { json } from '../../../test-helpers';
 import { callsTo, openSpy, routes, setup } from '../testKit';
 import { CardView, type CardCtx } from './index';
-import { POLL_MS } from './PointsChangedCard';
+import { POLL_CAP_MS, POLL_MS } from './PointsChangedCard';
+import { signInAsDemo } from '../../../test-helpers';
 
 let sendText = vi.fn<CardCtx['sendText']>();
 /** 그 주소로 보낸 요청 본문들(JSON). */
@@ -81,7 +82,7 @@ describe('points_changed card', () => {
     expect(within(a).getByText('크리티컬 직전')).toBeVisible();
     expect(within(a).getByText('4일')).toBeVisible();
     expect(within(a).getByText('1일')).toBeVisible();
-    expect(within(a).getByText('2027.06.03 ~ 2027.06.18')).toBeVisible();
+    expect(within(a).getByText('06.03 ~ 06.18')).toBeVisible();
     const b = point('커튼월·외장 패널 1~3층');
     expect(within(b).getByText('크리티컬')).toBeVisible();
     expect(within(b).getByText(/여유/).textContent).toBe('여유 0일');
@@ -120,6 +121,96 @@ describe('points_changed card', () => {
     expect(within(point('커튼월·외장 패널 1~3층')).getByRole('button', { name: '조건으로 넣어 보기' })).toBeVisible();
     await userEvent.click(buttons[0]);
     expect(sendText).toHaveBeenCalledWith(expect.stringContaining('6월 강수일 평년 11일'));
+  });
+
+  test('polling stops on a different version: frozen 「지난 버전 카드」, no new quote search', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    routes['POST /api/schedules/1/points/A1500/quotes/materials'] = () => json(200, PENDING);
+    routes['/api/schedules/1/points?what_if=false'] = { ...view(card({ version: 9 })), version: 9 };
+    routes['/api/schedules/1/delays'] = { events: [] };
+    renderCard(card());
+    const a = point('커튼월 공장 제작');
+    fireEvent.click(within(a).getAllByRole('button', { name: '근거 문장 보기' })[0]);
+    expect(await screen.findByText(/근거 문장 찾는 중/)).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS + 10);
+    });
+    expect(await screen.findByText('지난 버전 카드 —')).toBeVisible();
+    expect(screen.getByText('지난 버전 카드라 결과를 더 읽지 않습니다.')).toBeVisible();
+    const gets = () => callsTo('/api/schedules/1/points?what_if=false').length;
+    const after = gets();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+    });
+    expect(gets()).toBe(after); // 멈춤
+    const other = within(a).getByRole('button', { name: '근거 문장 보기' });
+    expect(other).toBeDisabled();
+    expect(other).toHaveAttribute('title', expect.stringContaining('지난 버전 카드'));
+    // 지금 포인트 보기 → 지금 포인트 목록
+    fireEvent.click(screen.getByRole('button', { name: '지금 포인트 보기' }));
+    expect(await screen.findByRole('region', { name: '지금 관리 포인트' })).toBeVisible();
+  });
+
+  test('polling stops on 404 (the what-if is gone)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    routes['/api/schedules/1/points?what_if=true'] = () => json(404, { code: 'no_what_if', message: '가정 관리 포인트가 없습니다.', detail: null });
+    renderCard(card({ what_if: true, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' }));
+    expect(screen.getByText('바깥 위험 찾는 중')).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS + 10);
+    });
+    expect(await screen.findByText('지난 버전 카드 —')).toBeVisible();
+    expect(screen.queryByText('바깥 위험 찾는 중')).toBeNull();
+    const n = callsTo('/api/schedules/1/points?what_if=true').length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+    });
+    expect(callsTo('/api/schedules/1/points?what_if=true')).toHaveLength(n);
+  });
+
+  test('polling stops after the time cap and skips ticks while a read is in flight', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let release = () => {};
+    let hold = true;
+    routes['/api/schedules/1/points?what_if=false'] = () =>
+      hold ? new Promise<Response>((r) => (release = () => r(json(200, view(card({ risk_status: 'looking' })))))) : json(200, view(card({ risk_status: 'looking' })));
+    renderCard(card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 4 + 10);
+    });
+    expect(callsTo('/api/schedules/1/points?what_if=false')).toHaveLength(1); // 앞 읽기가 안 끝나 건너뜀
+    hold = false;
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(POLL_CAP_MS + POLL_MS);
+    });
+    expect(await screen.findByText('오래 걸려 다시 읽기를 멈췄습니다 —')).toBeVisible();
+    const n = callsTo('/api/schedules/1/points?what_if=false').length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+    });
+    expect(callsTo('/api/schedules/1/points?what_if=false')).toHaveLength(n);
+  });
+
+  test('a created draft stays under its point after the chat is reopened', async () => {
+    routes['/api/schedules/1/points/A1500/contact?what_if=false'] = {
+      activity_id: 'A1500', name: '커튼월 공장 제작',
+      people: [{ contact_id: 21, name: '최민준', role_title: '생산 관리', company: '(주)새솔커튼월', trade: '커튼월', do_not_contact: false, channels: ['sms'] }],
+    };
+    routes['POST /api/schedules/1/points/A1500/contact'] = (init?: RequestInit) =>
+      JSON.parse(String(init?.body)).preview
+        ? json(200, { preview: true, channel: 'sms', body: '다시 열어도 남는 초안' })
+        : json(200, { preview: false, card: { kind: 'outreach_draft', schedule_id: 1, message_id: 78, contact: { id: 21, name: '최민준' }, channel: 'sms', body: '다시 열어도 남는 초안', body_ko: null, needs_approval: true } });
+    const data = card({ version: 31 });
+    const first = renderCard(data);
+    await userEvent.click(within(point('커튼월 공장 제작')).getByRole('button', { name: '담당자에게 확인 연락' }));
+    await userEvent.click(await screen.findByRole('radio', { name: /최민준/ }));
+    await screen.findByText('다시 열어도 남는 초안');
+    await userEvent.click(screen.getByRole('button', { name: '초안 만들기' }));
+    expect(await screen.findByRole('region', { name: '문자 초안' })).toBeVisible();
+    first.unmount();
+    renderCard(data);
+    expect(within(point('커튼월 공장 제작')).getByRole('region', { name: '문자 초안' })).toBeVisible();
   });
 
   test('[근거 문장 보기] pending → 「근거 문장 찾는 중」, then polling shows the sentence and link', async () => {
@@ -224,7 +315,14 @@ describe('points_changed card', () => {
     expect(screen.queryByRole('group', { name: '담당자에게 확인 연락' })).toBeNull();
   });
 
-  test('contact picker shows the server refusal (field user) and 「주소록에서 다른 사람 고르기」 opens contacts', async () => {
+  test('field managers do not see the contact button (server also refuses)', () => {
+    signInAsDemo('field');
+    renderCard(card());
+    expect(within(point('커튼월 공장 제작')).queryByRole('button', { name: '담당자에게 확인 연락' })).toBeNull();
+    expect(within(point('커튼월 공장 제작')).getByRole('button', { name: '만회안 보기' })).toBeVisible();
+  });
+
+  test('contact picker shows a server refusal and 「주소록에서 다른 사람 고르기」 opens contacts', async () => {
     routes['/api/schedules/1/points/A1500/contact?what_if=false'] = () => json(403, { code: 'field_no_contacts', message: '현장 관리자는 연락처를 볼 수 없습니다.', detail: null });
     renderCard(card());
     await userEvent.click(within(point('커튼월 공장 제작')).getByRole('button', { name: '담당자에게 확인 연락' }));
@@ -242,11 +340,11 @@ describe('points_changed card', () => {
       trigger: { kind: 'delay', version: 8, delay_ids: [5, 6], latest: { id: 6, activity_id: 'A1490', name: '커튼월 제작 도면 승인', days: 3 } },
       new: [{ ...base.new[0], responsible: ['(주)새솔커튼월'] }, { ...base.new[1], responsible: ['(주)한결외장', '(주)가상실링'] }],
     });
-    expect(screen.getByText('3일 지연으로 관리 포인트 2곳이 바뀌었습니다')).toBeVisible();
-    expect(screen.getByText(/커튼월 제작 도면 승인 \+3일 외 1건 · 지연 가정\(저장 전\)/)).toBeVisible();
-    expect(within(point('커튼월 공장 제작')).getByText('2027.06.03 ~ 2027.06.18 · 담당 (주)새솔커튼월')).toBeVisible();
+    expect(screen.getByText('3일 지연 외 1건으로 관리 포인트 2곳이 바뀌었습니다')).toBeVisible();
+    expect(screen.getByText(/커튼월 제작 도면 승인 \+3일 · 지연 가정\(저장 전\)/)).toBeVisible();
+    expect(within(point('커튼월 공장 제작')).getByText('06.03 ~ 06.18 · 담당 (주)새솔커튼월')).toBeVisible();
     // 날씨 줄이 있는 포인트만(날씨는 바깥 작업일 때만 찾는다) · 건설 일정만
-    expect(within(point('커튼월·외장 패널 1~3층')).getByText('2027.06.21 ~ 2027.07.09 · 실외 작업 · 담당 (주)한결외장, (주)가상실링')).toBeVisible();
+    expect(within(point('커튼월·외장 패널 1~3층')).getByText('06.21 ~ 07.09 · 실외 작업 · 담당 (주)한결외장, (주)가상실링')).toBeVisible();
   });
 
   test('「실외 작업」 is not shown outside construction; version trigger shows n-1 → n', () => {
@@ -274,7 +372,7 @@ describe('points_changed card', () => {
     }));
     expect(screen.getByText('여유가 준 포인트 1')).toBeVisible();
     const p = point('옥탑 골조');
-    expect(within(p).getByText('2027.06.10')).toBeVisible();
+    expect(within(p).getByText('06.10')).toBeVisible();
     expect(within(p).queryByRole('button')).toBeNull();
     expect(screen.queryByText(/건너뛴 자료/)).toBeNull();
   });
@@ -319,17 +417,31 @@ describe('accel_check card', () => {
     expect(screen.getByText('당긴 뒤에도 같은 줄이 준공을 정합니다.')).toBeVisible();
   });
 
-  test('[관리 포인트로 보기] asks the API and shows the points card in the chat', async () => {
-    routes['/api/schedules/1/points?what_if=true'] = () => json(404, { code: 'no_what_if', message: '가정 관리 포인트가 없습니다', detail: null });
-    routes['/api/schedules/1/points?what_if=false'] = view(card());
+  test('[관리 포인트로 보기] shows the next-chain points first (highlighted), then the change card; button comes back', async () => {
+    routes['/api/schedules/1/delays'] = { events: [{ status: 'reflected' }] }; // 열린 지연 없음 → 버전 포인트(가정은 묻지 않음)
+    routes['/api/schedules/1/points?what_if=false'] = {
+      ...view(card()),
+      points: [
+        { activity_id: 'A1700', name: '옥탑 골조', critical: false, tf: 3, es: '2027-06-01', ef: '2027-06-05' },
+        { activity_id: 'A1500', name: '커튼월 공장 제작', critical: false, tf: 1, es: '2027-06-03', ef: '2027-06-18' },
+      ],
+    };
     renderCard(ACCEL);
     await userEvent.click(screen.getByRole('button', { name: '관리 포인트로 보기' }));
-    expect(await screen.findByRole('region', { name: '관리 포인트' })).toBeVisible();
-    expect(screen.getByText('관리 포인트 2곳이 바뀌었습니다')).toBeVisible();
-    expect(screen.getByRole('button', { name: '관리 포인트로 보기' })).toBeDisabled();
+    const list = await screen.findByRole('list', { name: '지금 관리 포인트' });
+    const items = within(list).getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('커튼월 공장 제작');
+    expect(items[0]).toHaveClass('pc-in-chain');
+    expect(items[1]).toHaveTextContent('옥탑 골조');
+    expect(items[1]).not.toHaveClass('pc-in-chain');
+    expect(screen.getByText(/다음 결정 줄의 포인트 1곳 · 버전 8/)).toBeVisible();
+    expect(screen.getByRole('region', { name: '관리 포인트' })).toBeVisible(); // 바뀜 카드도
+    expect(callsTo('/api/schedules/1/points?what_if=true')).toHaveLength(0);
+    expect(screen.getByRole('button', { name: '관리 포인트로 보기' })).toBeEnabled();
   });
 
-  test('[관리 포인트로 보기] without a change card lists the current points', async () => {
+  test('[관리 포인트로 보기] uses the what-if points only while a delay is open', async () => {
+    routes['/api/schedules/1/delays'] = { events: [{ status: 'open' }] };
     routes['/api/schedules/1/points?what_if=true'] = {
       ...view(null), what_if: true,
       points: [{ activity_id: 'A1500', name: '커튼월 공장 제작', critical: false, tf: 1, es: '2027-06-03', ef: '2027-06-18' }],
@@ -338,7 +450,9 @@ describe('accel_check card', () => {
     await userEvent.click(screen.getByRole('button', { name: '관리 포인트로 보기' }));
     const c = await screen.findByRole('region', { name: '지금 관리 포인트' });
     expect(within(c).getByText('커튼월 공장 제작')).toBeVisible();
-    expect(within(c).getByText(/여유 1일/)).toBeVisible();
+    expect(within(c).getByText('여유 1일 · 06.03')).toBeVisible();
+    expect(within(c).getByText(/지연 가정\(저장 전\)/)).toBeVisible();
+    expect(screen.queryByRole('region', { name: '관리 포인트' })).toBeNull();
   });
 
   test('[만회안 보기] asks the agent', async () => {

@@ -23,6 +23,7 @@ test('two new columns: 「준공 반영」 as 「n일 중 m일」 (warning tone 
   const reach = screen.getByText('5일 중 1일');
   expect(reach).toHaveClass('is-warn');
   const next = screen.getByText('커튼월 공장 제작 → 커튼월 자재 반입');
+  expect(next).toHaveClass('cmp-chain-text'); // 두 줄까지 줄 바꿈(… 아님)
   expect(next.closest('td')).toHaveAttribute('title', '커튼월 공장 제작 → 커튼월 자재 반입');
 });
 
@@ -31,11 +32,11 @@ test('ratio > 1 (resources mixed in) shows the numbers as they are without the w
   expect(screen.getByText('0일 중 2일')).not.toHaveClass('is-warn');
 });
 
-test('accel_reason is shown when the copy mixes pulls with other edits; no accel and no reason = blank cells', () => {
+test('accel_reason is shown when the copy mixes pulls with other edits; no accel and no reason = 「—」', () => {
   const mixed = '여러 가지를 함께 바꿔 당김 효과를 따로 셀 수 없습니다';
   draw([CURRENT, { ...RECOVERY, accel: null, accel_reason: mixed }]);
   expect(screen.getByText(mixed)).toBeVisible();
   const own = cells('현재 일정 (버전 3)');
-  expect(own.at(-3)!.textContent).toBe('');
-  expect(own.at(-2)!.textContent).toBe('');
+  expect(own.at(-3)!.textContent).toBe('—');
+  expect(own.at(-2)!.textContent).toBe('—');
 });

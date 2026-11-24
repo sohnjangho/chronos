@@ -41,15 +41,21 @@ const base = (sid: number, aid: string) => `/api/schedules/${sid}/points/${encod
 
 export const getPoints = (sid: number, whatIf: boolean) => api<PointsView>(`/api/schedules/${sid}/points?what_if=${whatIf}`);
 
-/** 열린 지연의 가정 포인트가 있으면 그것, 없으면(404 no_what_if) 지금 버전 포인트. */
+/** 「주의할 일정」과 같은 차례: 열린 지연 사건이 있으면 그 가정 포인트(없으면 404 → 버전 포인트), 없으면 지금 버전 포인트. */
 export async function getLatestPoints(sid: number): Promise<PointsView> {
-  try {
-    return await getPoints(sid, true);
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 404) return getPoints(sid, false);
-    throw e;
+  const delays = await api<{ events: { status: string }[] }>(`/api/schedules/${sid}/delays`).catch(() => null);
+  if (delays?.events.some((e) => e.status === 'open')) {
+    try {
+      return await getPoints(sid, true);
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 404)) throw e;
+    }
   }
+  return getPoints(sid, false);
 }
+
+/** 「2027-06-03」 → 「06.03」(시안과 같은 월.일). 꼴이 다르면 그대로. */
+export const monthDay = (v: unknown) => (typeof v === 'string' ? v.replace(/^\d{4}-(\d{2})-(\d{2})$/, '$1.$2') : '');
 
 /** 실패(멈춘 것 포함)한 바깥 위험 찾기를 다시(사람의 「다시 찾기」) → 조회와 같은 꼴. 실패가 아니면 409. */
 export const retryRisks = (sid: number, whatIf: boolean) => api<PointsView>(`/api/schedules/${sid}/points/risks/retry`, post({ what_if: whatIf }));

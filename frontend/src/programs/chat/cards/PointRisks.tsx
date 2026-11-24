@@ -1,5 +1,6 @@
 // 관리 포인트 카드의 바깥 위험 줄과 [근거 문장 보기](계획 5 Task 6). 숫자·출처·기준 시각은 서버 줄 그대로.
 // 아직 안 눌렀으면 POST(서버가 뒤에서 찾음), 찾는 중이면 카드의 폴링(GET)이 바꾼다. 실패(멈춘 찾기 포함)면 「다시 찾기」(retry).
+// 카드가 멈췄으면(frozen — 지난 버전 old · 너무 오래 cap) 찾는 중을 돌리지 않고 그렇다고 적는다. 지난 버전이면 새로 찾지 않는다.
 import { useState } from 'react';
 import { asList, asText, type CardCtx } from './Card';
 import { errorText, findQuote, type QuoteState } from './pointsApi';
@@ -23,7 +24,13 @@ export function KindIcon({ kind }: { kind: string }) {
   );
 }
 
-function Quotes({ q, busy, onRetry }: { q: QuoteState | null; busy: boolean; onRetry(): void }) {
+/** 카드가 다시 읽기를 멈춘 까닭: old = 지난 버전 카드(또는 가정이 사라짐), cap = 너무 오래 걸림. */
+export type Frozen = 'old' | 'cap' | null;
+export const STALE_HINT = '지난 버전 카드 — 지금 포인트 보기에서 찾을 수 있습니다';
+const FROZEN_WAIT: Record<'old' | 'cap', string> = { old: '지난 버전 카드라 결과를 더 읽지 않습니다.', cap: '오래 걸려 이 카드에서는 더 읽지 않습니다.' };
+
+function Quotes({ q, busy, frozen, onRetry }: { q: QuoteState | null; busy: boolean; frozen: Frozen; onRetry(): void }) {
+  if (frozen && (q === null || q.status === 'pending')) return <span className="pc-fail">{FROZEN_WAIT[frozen]}</span>;
   if (q === null || q.status === 'pending')
     return (
       <span className="pc-wait" role="status">
@@ -49,7 +56,7 @@ function Quotes({ q, busy, onRetry }: { q: QuoteState | null; busy: boolean; onR
   return (
     <span className="pc-fail">
       근거 문장을 찾지 못했습니다.
-      {q.status === 'failed' && (
+      {q.status === 'failed' && frozen !== 'old' && (
         <button type="button" className="pc-link" disabled={busy} onClick={onRetry}>
           다시 찾기
         </button>
@@ -58,9 +65,10 @@ function Quotes({ q, busy, onRetry }: { q: QuoteState | null; busy: boolean; onR
   );
 }
 
-export function RiskRow({ r, quote, whatIf, sid, ctx, pointName, onQuote }: {
+export function RiskRow({ r, quote, whatIf, sid, ctx, pointName, frozen, onQuote }: {
   r: Json;
   quote: QuoteState | null;
+  frozen: Frozen;
   whatIf: boolean;
   sid: number | null;
   ctx: CardCtx;
@@ -106,7 +114,14 @@ export function RiskRow({ r, quote, whatIf, sid, ctx, pointName, onQuote }: {
         <span className="pc-risk-text ch-wrap">{asText(r.line)}</span>
         {ok && src && <span className="pc-src">{src}</span>}
         {ok && actions.includes('quote') && (
-          <button type="button" className="pc-link" aria-expanded={open} onClick={toggle}>
+          <button
+            type="button"
+            className="pc-link"
+            aria-expanded={open}
+            disabled={frozen === 'old' && !open}
+            title={frozen === 'old' && !open ? STALE_HINT : undefined}
+            onClick={toggle}
+          >
             {open ? '근거 문장 접기' : '근거 문장 보기'}
           </button>
         )}
@@ -118,7 +133,7 @@ export function RiskRow({ r, quote, whatIf, sid, ctx, pointName, onQuote }: {
         {why && <span className="pc-why">{why}</span>}
         {open && (
           <div className="pc-quotes">
-            {error ? <p className="ch-error ch-wrap" role="alert">{error}</p> : <Quotes q={quote} busy={busy} onRetry={() => void ask(true)} />}
+            {error ? <p className="ch-error ch-wrap" role="alert">{error}</p> : <Quotes q={quote} busy={busy} frozen={frozen} onRetry={() => void ask(true)} />}
           </div>
         )}
       </div>
