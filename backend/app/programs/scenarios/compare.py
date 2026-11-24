@@ -8,6 +8,8 @@ store.view.plan_source, PM 결정 11-20 밤. 옛 버전이면 지금 버전을 �
   deadline = 켜진 finish_by 가운데 가장 이른 기한(ISO, 없으면 None), deadline_float = 이 안 준공 → 그 기한
   (없으면 None, 늦으면 음수). 차이는 모두 이 안의 조건 넣은 달력의 근무일. violations·uncheckable 은 하네스 점검의 개수,
   peak 는 store.scenarios 요약과 같은 자원 최고 부하. changes: 복사본은 이동 글, 버전은 그 버전의 note.
+  accel: 만회안 복사본의 당김 효과(만들 때 core.accel 로 계산해 요약에 둔 값 — 「준공 반영」 finish_gain/pulled_days,
+  「다음 결정 줄」 next_chain). 그 밖의 안(현재·Plan·버전·이동을 모르는 만약에 복사본)은 None.
 - 줄: 기준 차례, 다음 비교에만 있는 것. 차이는 기준 쪽 달력(그 액티비티의 꼬리표)의 근무일로 other − base.
 계산이 안 되는 안이 있으면 422 schedule_invalid(detail = ScheduleError.detail).
 """
@@ -61,10 +63,12 @@ class _Side:
     """한 안: 저장 모양의 일정·조건과 보일 칸. 계산(ready·lv)은 compute() 뒤에 있다."""
 
     def __init__(self, ref: str, label: str, version: int, schedule: Schedule, conditions: list[dict], *,
-                 changes: list[str], stale: bool = False, status: str | None = None) -> None:
+                 changes: list[str], stale: bool = False, status: str | None = None,
+                 accel: dict | None = None) -> None:
         self.ref, self.label, self.version = ref, label, version
         self.schedule, self.conditions = schedule, conditions
         self.changes, self.stale, self.status = changes, stale, status
+        self.accel = accel
         self.ready: Schedule | None = None
         self.lv: LevelResult | None = None
 
@@ -128,7 +132,8 @@ class _Board:
         if sc.schedule_id != self.schedule_id:
             raise _invalid(ref)
         return _Side(ref, sc.name, sc.base_version, from_json(sc.snapshot_json), list(sc.conditions_json),
-                     changes=[m["text"] for m in sc.moves_json], stale=sc.base_version != n, status=sc.status)
+                     changes=[m["text"] for m in sc.moves_json], stale=sc.base_version != n, status=sc.status,
+                     accel=_accel(sc.summary_json))
 
     def out(self, ref: str) -> dict:
         """안 요약(SideOut). 이 안이 계산되지 않으면 ScheduleError(Plan 이 계산되지 않으면 plan_delta 만 None)."""
@@ -147,8 +152,16 @@ class _Board:
             "critical_count": sum(row.critical for row in side.lv.cpm.rows.values()),
             "violations": len(report.violations), "uncheckable": len(report.uncheckable),
             "peak": _peak(side.schedule, side.lv), "changes": side.changes, "stale": side.stale,
-            "status": side.status,
+            "status": side.status, "accel": side.accel,
         }
+
+
+def _accel(summary: dict) -> dict | None:
+    """만회안 요약의 당김 효과 칸(없으면 None — 이 칸 전에 만든 안·만약에 복사본)."""
+    if "pulled_days" not in summary:
+        return None
+    return {"pulled_days": summary["pulled_days"], "finish_gain": summary["gain"], "warn": summary["accel_warn"],
+            "next_chain": summary["next_chain"]}
 
 
 def _invalid(ref: str) -> ApiError:

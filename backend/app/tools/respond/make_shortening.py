@@ -8,6 +8,7 @@
    (store.view.plan_of, 마지막 계획 변경 때 고정한 예측)을 넘으면 Plan 까지 → 없으면 ToolError.
 3. core.shorten 의 묶음(이동이 있는 것)마다 복사본(source shorten): 일정 = apply_moves(기준 원본, resources=False),
    자원 추가는 입력 조건 in.resource_cap.<자원>(source "단축안")으로 넣는다(같은 id 는 바꿈).
+   묶음마다 당김 효과(core.accel — 당긴 일수 pulled_days·경고 accel_warn·다음 결정 줄 next_chain)를 요약에 넣는다.
 4. 설명·추천은 LLM(hard, strict JSON)이 쓴다. 날짜가 든 설명은 버리고, 만든 안에 없는 추천은 버린다. LLM 이 실패하거나
    추천을 버리면 코드가 고른다: 도달 → 위반 적음 → 이동 적음 → 이득 큼 → key 순. 날짜·이득·위반은 모두 코드 값이다.
 LLM 을 부르기 전에 복사본을 commit 한다(부르는 동안 쓰기 잠금을 쥐지 않는다). 설명·추천은 그 뒤 flush 만 한다.
@@ -24,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.agent.context import PROMPT
 from app.agent.events import AgentEvent
+from app.core.accel import accel_effect
 from app.core.calendar import WorkCalendar
 from app.core.cpm import compute
 from app.core.model import Schedule
@@ -35,9 +37,11 @@ from app.llm.client import LlmClient, LlmFailed, LlmNotReady
 from app.store import approvals, scenarios
 from app.store.delays import delayed_base
 from app.store.schedules import load, run, to_json
+from app.store.settings import accel_warn_ratio, points_config
 from app.store.tables import Scenario
 from app.store.view import plan_of
 from app.tools.context import ToolContext, ToolError, explained_schedule_errors
+from app.tools.points.accel_check import ChainItem, chain_items
 from app.tools.registry import tool
 
 NO_TARGET_MESSAGE = "줄일 목표가 없습니다. 며칠 당길지 알려 주세요(target_days)."
@@ -84,8 +88,11 @@ class OptionOut(BaseModel):
     key: str  # A | B | C
     name: str
     finish: str  # 복사본 준공(YYYY-MM-DD)
-    gain: int  # 기준 준공에서 당긴 근무일
+    gain: int  # 기준 준공에서 당긴 근무일(= 준공 반영 일수)
     reached: bool  # 목표만큼 당겼는가
+    pulled_days: int  # 묶음이 당긴 일수(압축 od 차 + 병행 선행 od − lag, 자원 추가 0) — 「준공 반영」 gain/pulled_days
+    accel_warn: bool  # 반영 비율이 accel_warn_ratio 보다 낮음
+    next_chain: list[ChainItem]  # 넣은 뒤 약속을 정하는 줄 가운데 묶음이 건드리지 않은 작업(「다음 결정 줄」)
     moves: list[str]  # 바꾸는 것(이동 글)
     violations: int
     uncheckable: int
@@ -191,7 +198,17 @@ def _with_caps(conditions: list[dict], schedule: Schedule, moves: tuple[Move, ..
     return [c for c in conditions if not (isinstance(c, dict) and c.get("id") in ids)] + caps
 
 
-def _copies(ctx: ToolContext, schedule_id: int, n: int, base: _Base, result: ShortenResult) -> list[tuple[Package, Scenario]]:
+def _accel(ctx: ToolContext, ready: Schedule, p: Package) -> dict:
+    """묶음의 당김 효과(요약 칸). 준공 반영 일수는 gain 과 같은 셈이다."""
+    cfg = points_config(ctx.session)
+    r = accel_effect(ready, p.moves, warn_ratio=accel_warn_ratio(ctx.session), tf_days=cfg.tf_days,
+                     window_weeks=cfg.window_weeks)
+    return {"pulled_days": r.pulled_days, "accel_warn": r.warn, "next_chain": chain_items(ready, r)}
+
+
+def _copies(
+    ctx: ToolContext, schedule_id: int, n: int, base: _Base, ready: Schedule, result: ShortenResult
+) -> list[tuple[Package, Scenario]]:
     """이동이 있는 묶음마다 복사본(source shorten)."""
     out = []
     for p in result.packages:
@@ -203,7 +220,7 @@ def _copies(ctx: ToolContext, schedule_id: int, n: int, base: _Base, result: Sho
             conditions=_with_caps(base.conditions, base.schedule, p.moves), moves=p.moves,
             delay_event_ids=base.event_ids, created_by=_author(ctx),
             extra_summary={"gain": p.gain, "base_finish": result.base_finish.isoformat(), "note": "",
-                           "recommended": False},
+                           "recommended": False, **_accel(ctx, ready, p)},
         )
         out.append((p, row))
     return out
@@ -212,7 +229,8 @@ def _copies(ctx: ToolContext, schedule_id: int, n: int, base: _Base, result: Sho
 def _option(p: Package, row: Scenario) -> dict:
     s = row.summary_json
     return {"scenario_id": row.id, "key": p.key, "name": row.name, "finish": s["finish"], "gain": p.gain,
-            "reached": p.reached, "moves": [m.text for m in p.moves], "violations": len(s["violations"]),
+            "reached": p.reached, "pulled_days": s["pulled_days"], "accel_warn": s["accel_warn"],
+            "next_chain": s["next_chain"], "moves": [m.text for m in p.moves], "violations": len(s["violations"]),
             "uncheckable": s["uncheckable"], "recommended": False, "note": ""}
 
 
@@ -271,7 +289,7 @@ async def make_shortening(args: ShortenIn, ctx: ToolContext) -> ShortenOut:
         base_finish = level(ready, compute(ready)).finish
         target = _target(ctx, schedule_id, args, base, ready, base_finish)
         result = shorten(ready, target=target)
-        made = _copies(ctx, schedule_id, n, base, result)
+        made = _copies(ctx, schedule_id, n, base, ready, result)
     if not made:
         raise ToolError(NOTHING_MESSAGE)
     options = [_option(p, row) for p, row in made]

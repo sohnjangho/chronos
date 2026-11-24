@@ -74,6 +74,9 @@ class SideOut(BaseModel):
     changes: list[str]  # 복사본은 이동 글, 버전은 note
     stale: bool  # 복사본이 떠 온 버전이 지금 버전이 아님
     status: str | None  # 복사본의 상태(open·submitted·applied·discarded). 복사본이 아니면 None
+    # 만회안의 당김 효과 {pulled_days, finish_gain, warn, next_chain: [{activity_id, name, point}]}
+    # — 「준공 반영」 finish_gain/pulled_days 일, 「다음 결정 줄」. 만회안이 아니면 None
+    accel: dict | None = None
 
 
 class RowCell(BaseModel):

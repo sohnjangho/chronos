@@ -124,8 +124,9 @@ async def test_card_and_compare_window(ctx_chain, use_llm, events, sid_chain):
     rec = o["recommended_scenario_id"]
     assert rec == o["options"][0]["scenario_id"]
     assert events[1].data == {"program": "compare", "params": {"id": str(sid_chain), "base": "current", "other": f"s:{rec}"}}
-    assert set(o["options"][0]) == {"scenario_id", "key", "name", "finish", "gain", "reached", "moves", "violations",
-                                    "uncheckable", "recommended", "note"}
+    assert set(o["options"][0]) == {"scenario_id", "key", "name", "finish", "gain", "reached", "pulled_days",
+                                    "accel_warn", "next_chain", "moves", "violations", "uncheckable", "recommended",
+                                    "note"}
 
 
 async def test_llm_gets_option_json_and_hard_schema(ctx_chain, use_llm):

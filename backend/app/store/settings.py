@@ -205,3 +205,23 @@ def points_config(session: Session) -> PointsConfig:
 def sources_for(session: Session, domain: str) -> set[str]:
     """그 분야에 켜진 바깥 자료 갈래."""
     return set(_read_sources(session).get(domain, OTHER_DOMAIN_SOURCES))
+
+
+# ── 당김 효과(계획 5 F) ──────────────────────────────────────────────
+
+ACCEL_WARN_RATIO_KEY = "accel_warn_ratio"
+DEFAULT_ACCEL_WARN_RATIO = 0.5
+_ACCEL_WARN_RATIO_BOUNDS = (0.1, 1.0)
+
+
+def accel_warn_ratio(session: Session) -> float:
+    """당긴 일수 가운데 준공에 반영된 비율이 이보다 낮으면 경고한다. 범위(0.1~1.0) 밖·숫자 아님은 기본값 0.5."""
+    row = session.get(Setting, ACCEL_WARN_RATIO_KEY)
+    if row is None:
+        return DEFAULT_ACCEL_WARN_RATIO
+    try:
+        value = float(row.value)
+    except ValueError:
+        return DEFAULT_ACCEL_WARN_RATIO
+    lo, hi = _ACCEL_WARN_RATIO_BOUNDS
+    return value if lo <= value <= hi else DEFAULT_ACCEL_WARN_RATIO
