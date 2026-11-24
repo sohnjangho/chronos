@@ -42,7 +42,7 @@ SCHEDULE_NOT_FOUND_MESSAGE = "일정을 찾을 수 없습니다."
 NO_WHAT_IF = "가정 관리 포인트가 없습니다 — 지연을 기록하거나 분석한 뒤에 볼 수 있습니다."
 NOT_A_POINT = "지금 관리 포인트가 아닙니다."
 NO_RISK = "근거 문장을 찾을 바깥 자료 줄이 없습니다."
-NOT_FAILED = "다시 찾을 것이 없습니다 — 바깥 위험 찾기가 실패했을 때만 다시 찾습니다."
+NOT_FAILED = "다시 찾을 것이 없습니다 — 바깥 위험 찾기가 실패했거나 아직 찾지 않았을 때만 찾습니다."
 TOO_LONG = "보낼 글이 너무 깁니다. 직접 줄여서 초안을 만들어 주세요."
 QUESTION_MAX = 200
 RISK_LINES_MAX = 3
@@ -149,7 +149,7 @@ async def quote(session: Session, schedule_id: int, activity_id: str, kind: str,
 
 
 def retry_risks(session: Session, schedule_id: int, body: RetryIn, *, field: bool = False) -> dict:
-    """「다시 찾기」 → 지금 카드 상태(view). 실패한 찾기가 아니면 409 not_failed."""
+    """「다시 찾기」·[바깥 위험 찾기](not_started 의 첫 찾기) → 지금 카드 상태(view). 그 밖이면 409 not_failed."""
     n, row, _ = _row(session, schedule_id, what_if=body.what_if)
     if row is None or not card.retry(session, row):
         session.rollback()

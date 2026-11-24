@@ -27,7 +27,8 @@ def get_points(schedule_id: int, session: SessionDep, user: UserDep, what_if: An
 
 @router.post("/{schedule_id}/points/risks/retry")
 def retry_risks(schedule_id: int, body: RetryIn, session: SessionDep, user: UserDep) -> dict:
-    """「다시 찾기」: 실패(멈춘 것 포함)한 바깥 위험 찾기만 다시 띄운다 → 조회와 같은 꼴. 아니면 409 not_failed."""
+    """「다시 찾기」: 실패(멈춘 것 포함)했거나 아직 찾지 않은(not_started) 바깥 위험 찾기만 띄운다 → 조회와 같은 꼴.
+    아니면 409 not_failed."""
     return service.retry_risks(session, schedule_id, body, field=user.role == "field")
 
 

@@ -40,8 +40,12 @@ from app.store.timeutil import as_utc
 
 logger = logging.getLogger(__name__)
 
-LOOKING, DONE, FAILED, NOTHING = "looking", "done", "failed", "none"
-RISK_MESSAGES = {LOOKING: "바깥 위험 찾는 중", DONE: "", FAILED: "바깥 위험을 찾지 못했습니다", NOTHING: ""}
+LOOKING, DONE, FAILED, NOTHING, NOT_STARTED = "looking", "done", "failed", "none", "not_started"
+RISK_MESSAGES = {LOOKING: "바깥 위험 찾는 중", DONE: "", FAILED: "바깥 위험을 찾지 못했습니다", NOTHING: "",
+                 NOT_STARTED: "바깥 위험을 아직 찾지 않았습니다"}
+# 뒤 작업을 띄울 수 있는가: 서버가 도는 동안만(app.main lifespan 이 켜고 끈다). 씨앗·명령줄(python -m app.seed …)은 프로세스가
+# 곧 끝나 찾기가 「찾는 중」으로 멈추므로, 거기서 적은 줄은 not_started 로 두고 사람이 [바깥 위험 찾기](retry)로 처음 찾는다.
+SERVING = False
 STALE_AFTER = timedelta(minutes=15)  # 이보다 오래 찾는 중이면 멈춘 것(서버가 다시 켜짐 등) — failed 로 보인다
 REASONS = {"relief": "여유가 늘어남", "out_of_window": "창 밖으로 밀림", "finished": "끝남", "gone": "일정에서 빠짐"}
 POINT_ACTIONS = ("contact", "recovery")  # [담당자에게 확인 연락] · [만회안 보기]
@@ -156,7 +160,7 @@ def remember(session: Session, schedule_id: int, version: int, *, what_if: bool,
     """
     data = {**_data(session, diff, points, before, ready, cpm), "trigger": trigger}
     stored = [point_json(p) for p in points]
-    status = LOOKING if data["new"] else NOTHING
+    status = (LOOKING if SERVING else NOT_STARTED) if data["new"] else NOTHING
     row = session.get(PointCard, (schedule_id, version, what_if))
     now = datetime.now(UTC)
     if row is not None and _same(row.data_json, data) and row.points_json == stored:
@@ -203,8 +207,9 @@ def get(session: Session, schedule_id: int, version: int, *, what_if: bool) -> P
 
 
 def retry(session: Session, row: PointCard) -> bool:
-    """사람의 「다시 찾기」: 실패(멈춘 찾기 포함)한 줄만 찾는 중으로 되돌린다(flush 만 — commit 뒤 launch). 아니면 False."""
-    if status_of(row) != FAILED or not row.data_json["new"]:
+    """사람의 「다시 찾기」·[바깥 위험 찾기]: 실패(멈춘 찾기 포함)했거나 아직 찾지 않은(not_started — 씨앗·명령줄에서 적은) 줄만
+    찾는 중으로 바꾼다(flush 만 — commit 뒤 launch). 아니면 False."""
+    if status_of(row) not in (FAILED, NOT_STARTED) or not row.data_json["new"]:
         return False
     row.risk_status, row.risks_json, row.updated_at = LOOKING, [], datetime.now(UTC)
     row.generation += 1
@@ -408,7 +413,8 @@ def payload(session: Session, row: PointCard, *, field: bool = False) -> dict | 
         "tightened": [{**t, "responsible": owners.get(t["activity_id"], []), "actions": list(actions)}
                       for t in data["tightened"]],
         "removed": data["removed"], "skipped": skipped, "skipped_count": len(skipped),
-        "risk_status": status, "risk_message": RISK_MESSAGES[status], "risk_retry": status == FAILED,
+        "risk_status": status, "risk_message": RISK_MESSAGES[status],
+        "risk_retry": status in (FAILED, NOT_STARTED),  # [다시 찾기] / not_started 면 [바깥 위험 찾기]
     }
 
 

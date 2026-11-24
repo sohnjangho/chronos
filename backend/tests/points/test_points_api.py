@@ -728,3 +728,45 @@ def test_call_draft_validation_is_a_clean_422(client, admin, session, monkeypatc
                         headers=admin)
         assert (r.status_code, r.json()["code"]) == (422, "invalid_text")
     assert session.scalars(select(OutreachCall)).all() == []
+
+
+# ── 씨앗·명령줄: 서버 밖에서는 바깥 위험 찾기를 띄우지 않음 ──────────────
+
+
+def test_server_lifespan_turns_background_lookups_on(client):
+    assert card.SERVING is True  # client(TestClient)가 lifespan 을 돌렸다
+
+
+def test_outside_the_server_the_card_waits_for_a_human_start(client, admin, session, monkeypatch):
+    monkeypatch.setattr(card, "SERVING", False)  # 씨앗·명령줄 프로세스와 같다
+    sid, n = _with_c_point(session)
+    assert card.launched == []  # 띄우지 않는다 — 프로세스가 끝나면 「찾는 중」으로 멈추므로
+    c = client.get(_url(sid), headers=admin).json()["card"]
+    assert (c["risk_status"], c["risk_message"], c["risk_retry"]) == ("not_started", "바깥 위험을 아직 찾지 않았습니다",
+                                                                      True)
+    assert c["new"][0]["risks"] == []
+    r = client.post(_url(sid, "/risks/retry"), json={}, headers=admin)  # [바깥 위험 찾기] — 같은 API 로 첫 찾기
+    assert r.status_code == 200, r.json()
+    assert r.json()["risk_status"] == "looking" and card.launched == [(sid, n, False)]
+
+
+def test_outside_the_server_what_if_is_not_started_too(session, monkeypatch):
+    from app.points import service as points_service
+
+    monkeypatch.setattr(card, "SERVING", False)
+    sid = store(session, _near_critical())
+    delays_store.create(session, schedule_id=sid, activity_id="C", start_date=date(2027, 3, 1), days=3, cause="자재 늦음",
+                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="손장호")
+    session.commit()
+    _, _, n, look = points_service.remember_what_if(session, sid)
+    session.commit()
+    assert look is False and card.get(session, sid, n, what_if=True).risk_status == "not_started"
+
+
+def test_seed_cli_leaves_the_last_version_not_started(session, monkeypatch):
+    """씨앗 명령(python -m app.seed …)은 lifespan 밖 — 버전 저장 훅이 띄우지 않고 not_started 로 둔다."""
+    monkeypatch.setattr(card, "SERVING", False)
+    sid = store(session, _base())
+    _save(session, sid, _od(_base(), C=4), 1, commit=False)
+    session.commit()  # 씨앗은 한 트랜잭션으로 commit
+    assert card.launched == [] and card.get(session, sid, 2, what_if=False).risk_status == "not_started"
