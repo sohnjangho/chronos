@@ -11,7 +11,8 @@
   있으면 그대로)을 남기고 요약은 이어 간다.
 - **② 요약**: `LlmClient.chat("normal", …, json_schema={summary_ko, result})` 한 번(시간 TIMEOUT_S · 답 길이 MAX_TOKENS ·
   다시 시도 없음). 자료(`<자료>` JSON — `<`·`>` 는 이스케이프)는 오늘·통화한 날(한국 날짜), 현장, 상대 이름·담당·협력사,
-  목적·물어볼 것, 답(뒤 확인 뒤의 quote_found 가 참이 아니면 「확인 필요」), 저장된 받아쓰기(쪽·초·말 — 줄 MAX_LINES,
+  목적·물어볼 것, 답(뒤 확인 뒤의 quote_found 가 참이 아니면 「확인 필요」), 받아쓰기 출처(ASR_LABEL — 기계 음성 인식이라 틀릴 수
+  있다), 저장된 받아쓰기(쪽·초·말 — 줄 MAX_LINES,
   한 줄 LINE_CHARS, 합 TEXT_CHARS). **번호 없음**: 연락처 번호 칸을 읽지 않고, 모든 자유 글은 `hide_phones` 를 한 번 더
   거친다(저장된 가린 글은 가린 채 — 되살리지 않는다). 지시문은 `app/agent/prompts/call_summary.md`.
 - **언어**(Task 100): 자료에 「통화 언어」(languages.name)를 싣고, 받아쓰기는 그 언어 원문 그대로(번호만 가림) 준다. 요약·결과는
@@ -65,6 +66,7 @@ MAX_QUESTIONS = MAX_ANSWERS = 20
 FIELD_CHARS = 300  # 목적·질문·답·근거 말 한 칸
 SUMMARY_CHARS, RESULT_CHARS = 2000, 300  # 모델 답의 상한 — 넘으면 쓸 수 없는 답
 UNVERIFIED, VERIFIED = "확인 필요", "근거 확인됨"
+ASR_LABEL = "음성 인식 — 틀릴 수 있음"  # 받아쓰기는 기계 음성 인식(11-24 PM: 「완료 일정 좀 알려줘」→「아이유 잠」) — 자료·화면 같은 글
 NO_RESULT = "결과 확인 필요"  # 모델이 결과를 비워 두었을 때 저장하는 제안
 HEARD_OPT_OUT = "통화 중 상대가 수신 거부를 말함"  # 코드가 들은 수신 거부의 까닭(통화 중·통화 뒤 같은 글)
 MARKED_BY_CODE = "코드가 들은 수신 거부 → 수신 거부로 표시(이 등급 묶음에는 도구가 없음)"  # 직접 남긴 때의 사건 detail
@@ -272,6 +274,7 @@ def _material(session: Session, row: OutreachCall, ended: datetime) -> dict:
         "목적": _hide(row.purpose),
         "물어볼 것": [_hide(q) for q in questions[:MAX_QUESTIONS]],
         "답": _answers(row),
+        "받아쓰기 출처": ASR_LABEL,
         "받아쓰기": lines,
         "받아쓰기 잘림": cut,
     }

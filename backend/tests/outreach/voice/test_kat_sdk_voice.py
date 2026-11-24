@@ -70,6 +70,25 @@ async def test_voices_pick_feeds_the_session(world):
     assert kw["voice"] == "Fenrir"
 
 
+# ── 받아쓰기 언어(ASR 보고서 11-24): 구글 SDK 의 language= 는 원격 측정 값뿐이라 받아쓰기 언어를 따로 준다 ─────────
+
+
+@pytest.mark.parametrize(("language", "sent"), [("ko", {"language_codes": ["ko-KR"]}),
+                                                ("en", {"language_codes": ["en-US"]}),
+                                                ("vi", {})])  # 표에 없는 언어는 SDK 기본(자동 감지) 그대로
+async def test_the_call_language_reaches_the_gemini_transcription(world, language, sent):
+    kind, kw = await _session_kwargs(world, _spec(language=language))
+    assert kind == "GeminiRealtime" and kw["language"] == language
+    assert kw["input_audio_transcription"] == sent
+
+
+@pytest.mark.parametrize("language", ["ko", "en"])
+async def test_openai_transcription_language_rides_on_language(world, language):
+    """OpenAI 는 SDK 가 language= 를 받아쓰기(gpt-4o-transcribe) 언어로 이미 쓴다 — 구글 칸은 넘기지 않는다."""
+    kind, kw = await _session_kwargs(world, _spec(language=language), voice(provider="openai", model="gpt-realtime-test"))
+    assert kind == "OpenAIRealtime" and kw["language"] == language and "input_audio_transcription" not in kw
+
+
 # ── 고침 1: 꼴 검사는 voices.well_formed 하나 · OpenAI 오류 줄은 세션 실패 ─────────────────────────────
 
 

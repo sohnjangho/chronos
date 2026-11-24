@@ -96,9 +96,10 @@ class VoiceSdk(FakeSdk):
             kind = "GeminiRealtime"
 
             def __init__(self, *, api_key=None, system_prompt="", model="fake-live", voice="Kore", language="ko",
-                         greeting=True, api_version=None) -> None:
+                         greeting=True, api_version=None, input_audio_transcription=None) -> None:
                 self.setup(voice, greeting, {"api_key": api_key, "model": model, "api_version": api_version,
-                                             "system_prompt": system_prompt, "language": language})
+                                             "system_prompt": system_prompt, "language": language,
+                                             "input_audio_transcription": input_audio_transcription})
 
         class OpenAIRealtime(_Session):
             kind = "OpenAIRealtime"

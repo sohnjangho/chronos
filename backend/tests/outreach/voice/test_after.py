@@ -281,6 +281,25 @@ async def test_unverified_answer_is_labeled_in_summary_prompt(session, world, ll
     assert "확인 필요" in llm.last_body["messages"][0]["content"]
 
 
+async def test_misheard_transcript_is_labelled_and_never_confirms_an_answer(session, world, llm):
+    """받아쓰기는 음성 인식(11-24 PM: 「완료 일정 좀 알려줘」가 「아이유 잠」으로 적힘). 자료에 「음성 인식 — 틀릴 수 있음」이 붙고,
+    근거 말이 잘못 받아 적힌 상대 말에 없으면 답은 「확인 필요」 그대로, 지시문은 근거가 확인된 답을 먼저 쓰라고 한다. 결과는 제안뿐."""
+    row = finished(session, world.who, transcript_json=[
+        {"role": "agent", "text": "안녕하세요, AI 비서입니다. 이 통화는 기록됩니다.", "t": 0.0},
+        {"role": "peer", "text": "아이유 잠", "t": 3.0},
+    ], answers_json=[{"question": "완료 일정", "answer": "12월 5일 완료", "quote": "12월 5일에 끝나요"}])
+    llm.push(_answer())
+    await after.finish(row.id)
+
+    data = material(llm)
+    assert data["받아쓰기 출처"] == after.ASR_LABEL == "음성 인식 — 틀릴 수 있음"
+    assert data["답"][0]["확인"] == "확인 필요" and reread(session, row).answers_json[0]["quote_found"] is False
+    system = llm.last_body["messages"][0]["content"]
+    assert "음성 인식 — 틀릴 수 있음" in system and "근거 확인됨" in system and "record_answer" in system
+    back = reread(session, row)
+    assert (back.result_proposed, back.result_confirmed, back.confirmed_by) == (RESULT, None, None)
+
+
 async def test_summary_records_usage_and_stores_the_proposal(session, world, llm):
     row = finished(session, world.who)
     llm.push(_answer())

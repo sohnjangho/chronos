@@ -643,6 +643,8 @@ async def test_kat_listen_screens_before_answering_and_gives_the_call_only_its_t
         assert kinds[0] == "start" and "tool" in kinds and kinds[-1] == "end"
         _, kw = sdk.sessions[-1]
         assert kw["api_version"] == "v1alpha" and kw["system_prompt"].startswith(in_spec().instructions)
+        assert kw["input_audio_transcription"] == {"language_codes": ["ko-KR"]}  # 받는 통화도 받아쓰기 언어를 분명히
+        assert sdk.sessions[0][1]["input_audio_transcription"] == {"language_codes": ["ko-KR"]}  # 듣기 전 확인도 같은 꼴
         assert agent.disconnects == 0 and task.done() is False
     finally:
         task.cancel()

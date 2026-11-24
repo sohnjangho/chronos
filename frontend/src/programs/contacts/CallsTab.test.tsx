@@ -226,6 +226,7 @@ describe('live call', () => {
     const tr = await within(c).findByRole('log', { name: '받아쓰기' });
     await waitFor(() => expect(within(tr).getAllByRole('listitem')).toHaveLength(2));
     expect(within(tr).getAllByRole('listitem')[1].textContent).toContain('박현장');
+    expect(within(c).getByText('음성 인식 — 틀릴 수 있음')).toBeVisible(); // 받아쓰기는 기계 음성 인식(11-24 PM)
     speak(5, { role: 'peer', text: '토요일 6명 가능합니다', t: 9 });
     await pass(LIVE_POLL_MS);
     await waitFor(() => expect(within(tr).getAllByRole('listitem')).toHaveLength(3));

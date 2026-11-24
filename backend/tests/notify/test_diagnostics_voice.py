@@ -275,12 +275,13 @@ class FakeSdk:
 
         class GeminiRealtime:
             def __init__(self, *, api_key=None, system_prompt="", model="fake-live", voice="Kore", language="ko",
-                         greeting=True, api_version=None) -> None:
+                         greeting=True, api_version=None, input_audio_transcription=None) -> None:
                 if extra_missing:
                     raise ImportError("google-genai is required for GeminiRealtime")
                 sdk.sessions.append(("GeminiRealtime", {"api_key": api_key, "system_prompt": system_prompt,
                                                         "model": model, "language": language,
-                                                        "api_version": api_version}))
+                                                        "api_version": api_version,
+                                                        "input_audio_transcription": input_audio_transcription}))
 
         class OpenAIRealtime:
             def __init__(self, *, api_key=None, system_prompt="", model="fake-rt", voice="marin", language="ko",
@@ -493,6 +494,9 @@ async def test_second_language_call(world):
     assert out["P10"].data == {"first_response_ms": 300, "cut": False}
     kw = sdk.sessions[-1][1]
     assert kw["language"] == "en" and dv.FIRST_LINES["en"] in kw["system_prompt"]
+    # 받아쓰기 언어도 그 통화의 언어(구글은 SDK 의 language= 를 받아쓰기에 쓰지 않는다 — ASR 보고서)
+    assert kw["input_audio_transcription"] == {"language_codes": ["en-US"]}
+    assert sdk.sessions[0][1]["input_audio_transcription"] == {"language_codes": ["ko-KR"]}
     assert "diag_fact" not in kw["system_prompt"]
     assert sdk.agent.calls[1].hangups == 1  # 첫 응답을 본 뒤 진단이 끊는다
 

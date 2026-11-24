@@ -4,7 +4,7 @@
 // - 실패하면 기다림을 두 배로(2 → 4 → 8 → 16 → 30초까지), 한 번 읽히면 다시 2초.
 // - 브라우저 탭이 가려지면 멈추고, 다시 보이면 곧바로 읽고 잇는다. 통화가 live 가 아니게 되거나 카드가 사라지면 멈춘다.
 // - 줄에 넣은(queued) 채 QUEUED_GIVE_UP_MS 를 넘기면 멈추고 「아직 걸리지 않았습니다 — [새로 고침]」(사람이 누르면 다시 읽고 잇는다).
-// 받아쓰기는 서버가 번호를 가린 글이고 늘 글로만 그린다.
+// 받아쓰기는 서버가 번호를 가린 글이고 늘 글로만 그린다. 기계 음성 인식이라 머리에 「음성 인식 — 틀릴 수 있음」을 붙인다(11-24 PM).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { outreachApi, type Call, type CallDetail, type TranscriptLine } from '../../shared/outreach/outreachApi';
 import Button from '../../shared/ui/Button';
@@ -131,7 +131,10 @@ export default function TranscriptPanel({ scheduleId, callId, live, peerName, on
 
   return (
     <div className="cl-tr">
-      <p className="cl-tr-head">{live && !stalled ? '받아쓰기 — 통화하는 동안 이어집니다' : '받아쓰기'}</p>
+      <p className="cl-tr-head">
+        {live && !stalled ? '받아쓰기 — 통화하는 동안 이어집니다' : '받아쓰기'}
+        <span className="cl-tr-asr">음성 인식 — 틀릴 수 있음</span>
+      </p>
       {live && stalled && (
         <p className="th-note is-warn cl-stall">
           아직 걸리지 않았습니다 —{' '}

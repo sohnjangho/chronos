@@ -301,12 +301,13 @@ class FakeSdk:
 
         class GeminiRealtime:
             def __init__(self, *, api_key=None, system_prompt="", model="sdk-default-model", voice="Kore",
-                         language="ko", greeting=True, api_version=None) -> None:
+                         language="ko", greeting=True, api_version=None, input_audio_transcription=None) -> None:
                 if extra_missing:
                     raise ImportError("google-genai is required for GeminiRealtime")
                 sdk.sessions.append(("GeminiRealtime", {"api_key": api_key, "system_prompt": system_prompt,
                                                         "model": model, "language": language, "voice": voice,
-                                                        "api_version": api_version}))
+                                                        "api_version": api_version,
+                                                        "input_audio_transcription": input_audio_transcription}))
 
         class OpenAIRealtime:
             def __init__(self, *, api_key=None, system_prompt="", model="sdk-default-rt", voice="marin",

@@ -307,6 +307,7 @@ class _Agent:
             kw = {"api_key": s.voice_key, "system_prompt": "", "language": "ko", "model": s.model}
             if s.provider == "google":
                 kw["api_version"] = numbers.GOOGLE_LIVE_API_VERSION
+                kw["input_audio_transcription"] = numbers.google_transcription("ko")  # 통화 세션과 같은 꼴을 미리 본다
             getattr(sdk, SESSIONS[s.provider])(**kw)  # 고른 모델의 묶음(extra)이 깔렸는지
             sdk.ToolRegistry  # noqa: B018 — 통화마다 줄 도구 등록부(공개 이름)가 있는지
             agent = sdk.ClawOpsAgent(api_key=s.key, account_id=s.account_id, base_url=s.base_url.rstrip("/"),

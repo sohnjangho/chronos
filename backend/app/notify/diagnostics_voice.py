@@ -55,7 +55,7 @@ from app.notify import diagnostics, voice_names
 from app.notify.diagnostics import NOT_REQUESTED, DiagnosticConn, DiagnosticStep, scrub
 from app.notify.voice_sdk_logs import _quiet_sdk, model_error, session_failure
 from app.outreach import phone, redact
-from app.outreach.voice.numbers import GOOGLE_LIVE_API_VERSION
+from app.outreach.voice.numbers import GOOGLE_LIVE_API_VERSION, google_transcription
 
 SDK_MODULE = "clawops.agent"  # 배포 이름은 koreaaitel, import 이름은 clawops
 SDK_LOGGERS = ("clawops", "clawops.agent", "clawops.agent.pipeline", "clawops.agent.prewarm", "clawops.agent.livekit")
@@ -378,6 +378,7 @@ class _Run:
             kw["voice"] = self.voice.call_voice  # 시험 전화는 「성별 모름」 칸의 음성(Task 99 고침 1)
         if self.voice.provider == "google":
             kw["api_version"] = GOOGLE_LIVE_API_VERSION  # Live 모델은 v1alpha 에만 있다(고침 2)
+            kw["input_audio_transcription"] = google_transcription(lang)  # 실제 통화와 같은 받아쓰기 언어
         return getattr(self.sdk, SESSIONS[self.voice.provider])(**kw)
 
     async def link(self, sdk: object | None, worker_connected: object) -> None:
