@@ -574,7 +574,7 @@ def test_chunk_ceilings_match_what_the_screen_mirrors():
     from app.programs.notify_settings import voice as voice_mod
 
     for wait in (10, 90, 180):
-        assert voice_mod._ceiling((5, 9, 11), wait) == 63
+        assert voice_mod._ceiling((5, 9, 11), wait) == 189  # 63 + P9 의 음성 확인(대조 1 + 음성 8, Task 99 고침 2)
         assert voice_mod._ceiling((5, 6, 7, 8, 11), wait) == voice_mod._ceiling((10,), wait) == 146
         assert voice_mod._ceiling((5, 11, 12, 13), wait) == 121 + wait
         assert voice_mod._ceiling((14,), wait) == 89 + wait

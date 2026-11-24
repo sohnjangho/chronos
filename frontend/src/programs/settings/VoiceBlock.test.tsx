@@ -784,7 +784,7 @@ test('a key whose project has no Live model makes the card 실패 with the reaso
 // ── 요청 시간 제한 = 서버 덩어리 상한(voice.py `_ceiling`) + 덩어리마다 닫기 28초 + 여유 30초 ──
 
 test('the client time limit covers the server ceilings of every chunk plus the shielded close and a margin', () => {
-  expect(limitMs('connection', {}, 90)).toBe((63 + 28 + 30) * 1000);
+  expect(limitMs('connection', {}, 90)).toBe((189 + 28 + 30) * 1000); // P9 가 음성을 하나씩 연다(Task 99)
   expect(limitMs('call', { call: true }, 90)).toBe((146 + 28 + 30) * 1000);
   expect(limitMs('call', { steps: ['P6', 'P7', 'P8', 'P10'], call: true }, 90)).toBe((2 * (146 + 28) + 30) * 1000); // 두 덩어리
   expect(limitMs('inbound', { steps: ['P12', 'P13'], inbound: true }, 90)).toBe((121 + 90 + 28 + 30) * 1000);

@@ -40,6 +40,14 @@ class LiveClosed(Exception):
     """Gemini Live 가 setup 을 거절하고 닫은 흉내(웹소켓 1007) — 글에 계정이 들어도 결과로 가지 않는다."""
 
 
+class Closed(Exception):
+    """웹소켓 닫힘 꼴(websockets 의 ConnectionClosed 처럼 `code`) — 키·모델 거절(1007·1008)·망 끊김(1006)."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(f"received {code} (policy violation) for {ACCOUNT}")
+        self.code = code
+
+
 class LoggingAgent(FakeAgent):
     async def step(self, call, kind, *args):
         if kind == "openai_error":
@@ -51,7 +59,7 @@ class LoggingAgent(FakeAgent):
 class VoiceSdk(FakeSdk):
     """세션에 prewarm·stop 이 있는 가짜(실제 GeminiRealtime·OpenAIRealtime 의 이름). bad = 공급자가 받지 않는 음성."""
 
-    def __init__(self, clock: World, *, bad=(), slow=(), refused=False, **kw) -> None:
+    def __init__(self, clock: World, *, bad=(), slow=(), refused=False, broken=None, boom=(), **kw) -> None:
         super().__init__(clock, **kw)
         self.checks: list[tuple[str, str, bool]] = []
         self.stops = 0
@@ -61,6 +69,8 @@ class VoiceSdk(FakeSdk):
             kind = ""
 
             def setup(self, voice, greeting, kw) -> None:
+                if voice in boom:
+                    raise RuntimeError("뜻밖의 오류")
                 self.voice, self.greeting = voice, greeting
                 sdk.sessions.append((self.kind, {"voice": voice, "greeting": greeting, **kw}))
 
@@ -70,6 +80,10 @@ class VoiceSdk(FakeSdk):
                     await World.hang()
                 if refused:
                     raise Refused("403")
+                if broken is not None and self.kind == "OpenAIRealtime":  # 키·모델 거절도 오류 줄 하나뿐
+                    sdk.world.at(sdk.world.ms + 500, partial(_log, "-"))
+                elif broken is not None:
+                    raise broken
                 if self.voice in bad and self.kind == "GeminiRealtime":
                     raise LiveClosed(f"1007 invalid voice {self.voice} for {ACCOUNT}")
                 if self.voice in bad:  # OpenAI 는 session.update 를 거절해도 오류 사건(줄 하나)만 — 조금 뒤에 온다
@@ -116,8 +130,9 @@ async def test_configured_voices_are_opened_and_closed_without_any_call(world):
     out = await run(world, sdk, voice=diag((MALE, "Aoede"), (FEMALE, "Charon"), (f"영어 · {UNKNOWN}", "Aoede")))
     assert out["P9"].ok and out["P9"].code == "ok" and out["P9"].data == {"checked": 2}
     assert "전화는 걸지 않았습니다" in out["P9"].detail
-    assert sdk.checks == [("GeminiRealtime", "Aoede", False), ("GeminiRealtime", "Charon", False)]  # 같은 이름은 한 번
-    assert sdk.stops == 2 and sdk.dialed == [] and out["P5"].ok and out["P11"].ok
+    assert sdk.checks == [("GeminiRealtime", "Kore", False),  # 먼저 SDK 기본 음성으로 대조(voice 를 넘기지 않음)
+                          ("GeminiRealtime", "Aoede", False), ("GeminiRealtime", "Charon", False)]  # 같은 이름은 한 번
+    assert sdk.stops == 3 and sdk.dialed == [] and out["P5"].ok and out["P11"].ok
     assert "Aoede" not in dump(out) and "Charon" not in dump(out)
 
 
@@ -131,14 +146,14 @@ async def test_a_voice_the_provider_refuses_fails_p9_by_slot_label(world, provid
     assert voice_names.REJECTED in p9.detail and MALE in p9.detail and f"영어 · {UNKNOWN}" in p9.detail
     assert FEMALE not in p9.detail and p9.data == {"checked": 2, "rejected": 1}
     assert "Aoedee" not in dump(out) and ACCOUNT not in dump(out)
-    assert sdk.stops == 2 and sdk.dialed == []
+    assert sdk.stops == 3 and sdk.dialed == []
 
 
 async def test_a_voice_check_that_never_answers_is_bounded_and_unconfirmed(world):
     sdk = VoiceSdk(world, slow={"Aoede"})
     out = await run(world, sdk, voice=diag((MALE, "Aoede"), (FEMALE, "Charon")))
     assert out["P9"].code == "voice_unconfirmed" and not out["P9"].ok and MALE in out["P9"].detail
-    assert sdk.stops == 2 and world.ms < (voice_names.VOICE_OPEN_S + voice_names.VOICE_STOP_S + 5) * 1000 * 2
+    assert sdk.stops == 3 and world.ms < (voice_names.VOICE_OPEN_S + voice_names.VOICE_STOP_S + 5) * 1000 * 2
 
 
 async def test_a_refused_key_is_not_blamed_on_the_voice(world):
@@ -150,7 +165,7 @@ async def test_at_most_eight_voices_are_checked(world):
     sdk = VoiceSdk(world)
     many = tuple((f"{UNKNOWN} {i}", f"Voice{i}") for i in range(11))
     out = await run(world, sdk, voice=diag(*many))
-    assert len(sdk.checks) == voice_names.MAX_VOICES and out["P9"].ok
+    assert len(sdk.checks) == voice_names.MAX_VOICES + 1 and out["P9"].ok  # 대조 하나 + 음성 여덟
     assert any("앞의 8개만" in note for note in out["P9"].notes)
 
 
@@ -191,3 +206,44 @@ def test_the_settings_budget_covers_the_voice_checks():
     assert voice_names.BUDGET_S >= voice_names.MAX_VOICES * (voice_names.VOICE_OPEN_S + voice_names.VOICE_SETTLE_S
                                                                + voice_names.VOICE_STOP_S)
     assert dv.LABELS["P9"]  # 줄 이름은 그대로(화면이 쓴다)
+
+
+# ── 고침 2: 기본 음성으로 먼저 대조 · 줄을 쥐고 있어도 확인 · 뜻밖의 오류는 P9 만 ─────────────────────────
+
+
+@pytest.mark.parametrize("error", [Closed(1007), Closed(1008), Closed(1006), Closed(1011), OSError("network down")])
+async def test_when_the_default_voice_also_fails_no_slot_is_blamed(world, error):
+    """키·모델 거절·망 끊김은 구글 Live 에서 웹소켓 닫힘 코드로 온다 — 기본 음성으로도 열리지 않으면 음성 탓이 아니다."""
+    sdk = VoiceSdk(world, broken=error)
+    out = await run(world, sdk, voice=diag((MALE, "Aoede"), (FEMALE, "Charon")))
+    p9 = out["P9"]
+    assert p9.code == "model_connect_failed" and voice_names.REJECTED not in p9.detail and MALE not in p9.detail
+    assert sdk.checks == [("GeminiRealtime", "Kore", False)] and sdk.stops == 1  # 칸은 하나도 열지 않았다
+    assert ACCOUNT not in dump(out)
+
+
+async def test_openai_control_error_line_is_not_blamed_on_the_voice(world):
+    sdk = VoiceSdk(world, broken=Closed(1008))
+    out = await run(world, sdk, voice=diag((MALE, "cedar"), provider="openai"))
+    assert out["P9"].code == "model_connect_failed" and sdk.checks == [("OpenAIRealtime", "marin", False)]
+
+
+async def test_when_the_default_voice_opens_a_close_code_on_a_slot_is_that_voice(world):
+    sdk = VoiceSdk(world, bad={"Aoedee"})
+    out = await run(world, sdk, voice=diag((MALE, "Aoedee"), (FEMALE, "Charon")))
+    assert out["P9"].code == "voice_rejected" and MALE in out["P9"].detail and FEMALE not in out["P9"].detail
+
+
+async def test_voices_are_checked_even_when_the_line_is_held(world):
+    """AI 전화가 그 번호로 붙어 있으면 플랫폼에는 붙지 않지만, 음성 확인은 플랫폼이 필요 없어 그대로 한다."""
+    sdk = VoiceSdk(world)
+    out = await run(world, sdk, voice=diag((MALE, "Aoede")), worker_connected=True)
+    assert out["P5"].code == "worker_connected" and sdk.agents == []
+    assert out["P9"].ok and sdk.checks == [("GeminiRealtime", "Kore", False), ("GeminiRealtime", "Aoede", False)]
+
+
+async def test_an_unexpected_error_in_the_voice_check_fails_only_p9(world):
+    sdk = VoiceSdk(world, boom={"Boom"})
+    out = await run(world, sdk, voice=diag((MALE, "Boom")))
+    assert out["P9"].code == "unknown" and not out["P9"].ok
+    assert out["P5"].ok and out["P11"].ok

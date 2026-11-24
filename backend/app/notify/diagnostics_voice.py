@@ -467,6 +467,19 @@ class _Run:
                 pass
         return self.skip(9, "not_supported", NOT_SUPPORTED, notes=notes)
 
+    async def check_voices(self, sdk: object | None) -> None:
+        """P9. 플랫폼에 붙지 않았어도(줄을 쥔 AI 전화 — worker_connected 등) SDK 만 있으면 음성은 확인한다(전화가 필요 없다).
+        뜻밖의 오류는 P9 만 실패로 — P5·P11 줄은 그대로 남는다(Task 99 고침 2)."""
+        try:
+            if self.sdk is None:
+                self.sdk = sdk if sdk is not None else load_sdk()
+        except _Fail:
+            pass  # SDK 가 없다 — voices() 가 그 까닭으로 건너뛴다
+        try:
+            await self.voices()
+        except Exception as e:  # noqa: BLE001 — 취소(BaseException)는 그대로 올라간다
+            self.put(9, "unknown", CRASHED, notes=[f"예외: {type(e).__name__}"])
+
     def lookup(self, sdk_call: object) -> _Call:
         call_id = _call_id(sdk_call)
         call = self.calls.get(call_id)
@@ -777,7 +790,7 @@ class _Run:
             fail = _Fail("unknown", CRASHED, f"예외: {type(e).__name__}")
         told = 5 in want
         if 9 in want:
-            await self.voices()
+            await self.check_voices(sdk)
         if told:
             self.report_link(fail)
         if 11 in want:

@@ -58,7 +58,7 @@ const stepOf = (d: VoiceDiagnosis, id: VoiceStepId) => d.steps.find((s) => s.id 
  * 서버의 덩어리(한 번의 연결)마다 시간 상한(초) — backend/app/programs/notify_settings/voice.py:121 `_ceiling` 을 그대로 옮긴 값.
  * 받는 통화는 여기에 기다림(wait)을 더한다. 서버 쪽 시험(test_chunk_ceilings_match_what_the_screen_mirrors)이 같은 값을 고정한다 — 바뀌면 함께 고친다.
  */
-const SERVER_CHUNK_S = { connection: 63, call: 146, answer: 121, reject: 89 };
+const SERVER_CHUNK_S = { connection: 189, call: 146, answer: 121, reject: 89 }; // connection = 63 + P9 음성 확인 126(Task 99)
 /** 상한에 걸린 뒤에도 덩어리마다 끝까지 기다리는 닫기(살아 있는 통화 끊기·연결 끊기, shield) — 서버 6e8fb04. */
 const CLOSE_S = 28;
 const MARGIN_S = 30;
