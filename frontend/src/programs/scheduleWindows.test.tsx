@@ -111,8 +111,8 @@ test('closing the gantt keeps the table, its edits and its history', async () =>
   expect(cell('A3010', 'OD')).toBeInTheDocument();
 });
 
-// 16b 리뷰 minor 1: 창 안의 동작에서 난 안내(오늘이 기간 밖·선행 칸 틀림 등)는 그 창에만, 서버가 거절한 것은 그 일정의 모든 창에.
-test('a notice from an action in one window shows only there; a server rejection shows in every window', async () => {
+// 16b 리뷰 minor 1: 창 안의 동작에서 난 안내(오늘이 기간 밖·선행 칸 틀림 등)는 그 창에만. 재확인 3(22cf11d): 서버가 거절한 것도 고친 창에만.
+test('a notice from an action in one window shows only there; a server rejection shows only in the window that edited', async () => {
   const { table: t, gantt: g } = await openBoth();
   await userEvent.click(within(ganttTools()).getByRole('button', { name: '오늘' }));
   expect(within(g.container).getByRole('status')).toHaveTextContent('이 일정 기간 밖입니다');
@@ -122,8 +122,8 @@ test('a notice from an action in one window shows only there; a server rejection
   expect(within(g.container).queryByRole('alert')).toBeNull();
   mockPatch(422, { code: 'invalid_activity', message: '실제 종료일이 실제 시작일보다 앞설 수 없습니다.', detail: null });
   await editCell('A3010', 'OD', '40');
-  await waitFor(() => expect(within(g.container).getByRole('alert')).toHaveTextContent('실제 종료일이'));
-  expect(within(t.container).getByRole('alert')).toHaveTextContent('실제 종료일이');
+  await waitFor(() => expect(within(t.container).getByRole('alert')).toHaveTextContent('실제 종료일이'));
+  expect(within(g.container).queryByRole('alert')).toBeNull();
 });
 
 // 16b 리뷰 minor 2: 다른 창에서 같은 액티비티를 다시 고르면 다시 따라간다.
