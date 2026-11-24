@@ -70,6 +70,13 @@ h1 .c{background:linear-gradient(90deg,#7dd3fc,#818cf8);-webkit-background-clip:
 .vs>div{padding:2.6mm 3mm;border-bottom:1px solid rgba(255,255,255,.08)}
 .vs .h{color:#94a3b8;font-weight:800}
 .vs .b{color:#fca5a5}.vs .a{color:#7dd3fc;font-weight:700}
+
+.pb{display:grid;grid-template-columns:1fr 1fr;gap:0 7mm;margin-top:3mm}
+.pb>div{display:grid;grid-template-columns:11mm 1fr;gap:3mm;padding:3mm 0;border-top:1px solid rgba(255,255,255,.12)}
+.pb .n{font-size:20pt;font-weight:800;color:#f87171;line-height:1;letter-spacing:-.04em}
+.pb .n small{display:block;font:700 7.4pt "SF Mono",Menlo;color:#64748b;margin-top:1mm;letter-spacing:0}
+.pb b{display:block;color:#fff;font-size:10.4pt;margin-bottom:.8mm}
+.pb p{margin:0;font-size:8.8pt;color:#cbd5e1;line-height:1.55}
 </style></head><body>
 
 <!-- 표지 -->
@@ -112,53 +119,18 @@ h1 .c{background:linear-gradient(90deg,#7dd3fc,#818cf8);-webkit-background-clip:
       <div class="tagon" style="left:34%;top:68%">ChronOS · 당긴 5일 중 1일</div></div>
       <div class="cap"><b>마감을 좌우하는 일은 이미 커튼월로 옮겨 가 있었다.</b> 지금이라면 ChronOS 가 당기기 전에 알려 준다.</div></div>
   </div>
-  <div style="margin-top:7mm;display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:5mm;align-items:stretch">
-    <div style="display:flex;align-items:center;font-size:11pt;font-weight:800;color:#fbbf24;line-height:1.35">그날 밤<br>필요했던 것</div>
-    <div style="border:1px solid rgba(125,211,252,.35);border-radius:10px;padding:3.5mm 4mm;background:rgba(125,211,252,.06)"><b style="color:#7dd3fc;font-size:10.5pt">다시 본다</b><div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">커튼월이 늦어진 순간, 마감을 좌우하는 일이 바뀌었다고 알려 줄 것</div></div>
-    <div style="border:1px solid rgba(251,191,36,.4);border-radius:10px;padding:3.5mm 4mm;background:rgba(251,191,36,.06)"><b style="color:#fbbf24;font-size:10.5pt">따져 본다</b><div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">골조를 당기기 전에 "5일 중 1일"이라고 숫자로 보여 줄 것</div></div>
-    <div style="border:1px solid rgba(125,211,252,.35);border-radius:10px;padding:3.5mm 4mm;background:rgba(125,211,252,.06)"><b style="color:#7dd3fc;font-size:10.5pt">먼저 묻는다</b><div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">커튼월 업체에 제작 일정을 먼저 확인해 기록할 것</div></div>
+  <div style="margin-top:6mm;display:flex;align-items:baseline;gap:4mm">
+    <div style="font-size:15pt;font-weight:800;color:#fff">왜 이렇게 됐나</div>
+    <div style="font-size:9.4pt;color:#94a3b8">공정이 늦어서가 아니라, <span style="color:#f87171;font-weight:800">늦게 알아서</span> 약속을 어겼다.</div>
   </div>
-  <p style="font-size:9.6pt;color:#e2e8f0;margin-top:4mm">ChronOS 는 이 세 가지를 변동이 들어올 때마다 대신 한다.</p>
+  <div class="pb">
+    <div><div class="n">01<small>컷 1</small></div><div><b>공정표는 일주일에 한 번 다시 그린다</b><p>변동은 매일 들어오는데, 벽의 빨간 줄은 지난 회의 때 그대로다.</p></div></div>
+    <div><div class="n">02<small>컷 2</small></div><div><b>당기기 전에 효과를 재 볼 수 없다</b><p>야간 작업에 돈과 사람을 넣고 나서야 결과를 안다.</p></div></div>
+    <div><div class="n">03<small>컷 3</small></div><div><b>바깥 소식은 전화로, 뒤늦게 온다</b><p>업체 사정은 공정표 어디에도 없다. 들은 말은 기록으로 남지 않는다.</p></div></div>
+    <div><div class="n">04<small>컷 4</small></div><div><b>좌우하는 일이 옮겨 가도 알려 주지 않는다</b><p>P6 와 엑셀은 계산은 해도 "어제와 무엇이 바뀌었나"를 말하지 않는다.</p></div></div>
+  </div>
   <p style="font-size:7.6pt;color:#64748b;margin-top:3mm">이해를 돕기 위한 연출 이미지. Liner Images API(openai/gpt-image-2.6-sunburst)로 만들었고, 4번 모니터에는 실제 ChronOS 화면을 합성했다.</p>
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span>02</span></div>
-</section>
-
-<!-- 문제점 -->
-<section class="page"><span class="lbl">시안 D · 문제점</span>
-  <div class="eyebrow" style="color:#f87171">01 · 문제</div>
-  <h1 style="font-size:30pt">약속은 공정이 늦어서가 아니라,<br><span style="color:#f87171">늦게 알아서</span> 어긴다.</h1>
-  <p class="sub" style="font-size:10.5pt">같은 3일 지연이라도 여유가 있는 일이면 마감은 그대로고, 마감을 좌우하는 일이면 마감이 늦는다. 변동이 쌓이면 그 일 자체가 다른 곳으로 옮겨 간다. 그날 밤의 실패는 네 가지 이유가 겹쳐서 생겼다.</p>
-  <div style="margin-top:6mm">
-    <div class="prob"><div class="n">01</div><div><b>변동은 매일, 반영은 일주일에 한 번</b><p>지연과 자재 소식은 매일 들어오는데 공정표는 주간 회의 때 손으로 다시 그린다. 그사이 마감을 좌우하는 일이 바뀌어도 종이 위의 빨간 줄은 그대로다.</p></div><div class="now">지금: 주간 회의(최대 7일 뒤)에 알게 된다 〔PM 확인〕</div></div>
-    <div class="prob"><div class="n">02</div><div><b>좌우하는 일이 옮겨 가도 아무도 알려 주지 않는다</b><p>P6 와 엑셀은 계산은 해도 "어제와 오늘 무엇이 바뀌었나"를 말해 주지 않는다. 그래서 사람은 처음 본 크리티컬을 계속 당긴다.</p></div><div class="now">결과: 골조를 5일 당겨도 마감은 하루</div></div>
-    <div class="prob"><div class="n">03</div><div><b>바깥 위험은 따로 찾아야 한다</b><p>자재값, 환율, 업체 사정은 공정표 어디에도 없다. 담당자의 감과 기억에 맡긴다.</p></div><div class="now">결과: 커튼월 공장 지연을 전화로 뒤늦게 안다</div></div>
-    <div class="prob"><div class="n">04</div><div><b>확인은 전화, 기록은 남지 않는다</b><p>협력사에 전화를 돌려 묻고, 들은 내용은 각자 머릿속에 있다. 다음 주에 같은 걸 또 묻는다.</p></div><div class="now">하루 확인 전화 〔PM 확인〕</div></div>
-  </div>
-  <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:6mm;margin-top:6mm;align-items:stretch">
-    <div style="border:1px solid rgba(251,191,36,.45);background:rgba(251,191,36,.07);border-radius:12px;padding:5mm 6mm">
-      <div style="font-size:9pt;color:#fbbf24;font-weight:800">약속을 하루 어기면</div>
-      <div style="font-size:30pt;font-weight:800;color:#fff;letter-spacing:-.03em;line-height:1.15;margin-top:1mm">1,500만 원</div>
-      <div style="font-size:8.8pt;color:#cbd5e1;margin-top:1.5mm">300억 원 공공 공사의 하루 지체상금(계약금액의 1천분의 0.5, 국가계약법 시행규칙 제75조)</div>
-    </div>
-    <div style="border:1px solid rgba(125,211,252,.35);background:rgba(125,211,252,.06);border-radius:12px;padding:5mm 6mm">
-      <div style="font-size:9pt;color:#7dd3fc;font-weight:800">건설만의 문제가 아니다</div>
-      <div style="font-size:9.6pt;color:#e2e8f0;line-height:1.7;margin-top:1.5mm">생산 라인의 납기, 연구 과제의 평가일, 시스템 구축의 오픈일, 행사의 개막일. 약속한 날짜가 있고 일이 서로 이어져 있으면 구조가 같다.</div>
-    </div>
-  </div>
-  <div style="margin-top:7mm">
-    <div style="font-size:9pt;color:#94a3b8;font-weight:800;margin-bottom:2.5mm">그날의 일주일 · 변동에서 알기까지</div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1.5mm;font-size:8.6pt;text-align:center">
-      <div style="background:rgba(248,113,113,.18);border:1px solid #f87171;border-radius:6px;padding:2.5mm 1mm;color:#fff"><b style="display:block;color:#fca5a5">월</b>커튼월 공장<br>3일 지연</div>
-      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:2.5mm 1mm;color:#94a3b8"><b style="display:block">화</b>야간 골조</div>
-      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:2.5mm 1mm;color:#94a3b8"><b style="display:block">수</b>야간 골조</div>
-      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:2.5mm 1mm;color:#94a3b8"><b style="display:block">목</b>야간 골조</div>
-      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:2.5mm 1mm;color:#94a3b8"><b style="display:block">금</b>야간 골조</div>
-      <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:2.5mm 1mm;color:#94a3b8"><b style="display:block">토</b>골조 완료</div>
-      <div style="background:rgba(251,191,36,.16);border:1px solid #fbbf24;border-radius:6px;padding:2.5mm 1mm;color:#fff"><b style="display:block;color:#fbbf24">다음 주 회의</b>그제야 안다</div>
-    </div>
-    <div style="font-size:8.6pt;color:#94a3b8;margin-top:2.5mm">연출을 위해 줄인 일주일. 모르는 동안 쓴 돈과 사람은 마감을 좌우하지 않는 곳으로 갔다.</div>
-  </div>
-  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span>03</span></div>
 </section>
 
 <!-- 와우 1 OS -->
