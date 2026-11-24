@@ -49,6 +49,11 @@ h1 .c{background:linear-gradient(90deg,#7dd3fc,#818cf8);-webkit-background-clip:
 .lens.amber{border-color:rgba(251,191,36,.9);box-shadow:0 22px 60px rgba(0,0,0,.7),0 0 40px rgba(251,191,36,.35)}
 .tag2{position:absolute;display:flex;align-items:center;gap:6px;font-size:9.6pt;font-weight:800;color:#fff;z-index:6;text-shadow:0 2px 8px rgba(0,0,0,.8)}
 .tag2 i{font-style:normal;width:24px;height:24px;border-radius:50%;background:#38bdf8;color:#05070d;font:800 11pt/24px sans-serif;text-align:center;box-shadow:0 0 16px rgba(56,189,248,.9)}
+
+.chip2{position:absolute;z-index:20;display:flex;align-items:center;gap:7px;background:#0b1220;border:1.5px solid #38bdf8;border-radius:999px;padding:4px 12px 4px 5px;font-size:9.8pt;font-weight:800;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.6);white-space:nowrap}
+.chip2 i{font-style:normal;width:22px;height:22px;border-radius:50%;background:#38bdf8;color:#05070d;font:800 11pt/22px sans-serif;text-align:center}
+.chip2.amber{border-color:#fbbf24}.chip2.amber i{background:#fbbf24}
+.chip2.white{border-color:#e2e8f0}.chip2.white i{background:#fff}
 </style></head><body>
 
 <!-- 표지 -->
@@ -108,18 +113,15 @@ h1 .c{background:linear-gradient(90deg,#7dd3fc,#818cf8);-webkit-background-clip:
   <h1 style="font-size:52pt;margin-top:2mm">Chron<span class="c">OS</span></h1>
   <div style="font-size:20pt;font-weight:800;color:#fff;letter-spacing:-.02em;margin-top:2mm">대화하면, <span style="color:#7dd3fc">일정표가 움직인다.</span></div>
   <p class="sub" style="font-size:11pt">에이전트와 일정 도구가 한 화면에 있다. 대화창에 "커튼월 공장 제작이 3일 늦어졌어"라고 쓰면 에이전트가 답을 글로만 주지 않고 스케줄, 지연 기록, 비교판 창을 직접 열어 일한다. 사람은 대화를 이어 가며 창이 바뀌는 것을 보고, 마지막에 승인한다.</p>
-  <div class="stage" style="height:150mm;margin-top:7mm">
-    <div class="bgwin" style="left:30mm;top:0;width:150mm"><img src="img/os1-스케줄.jpg"></div>
-    <div class="bgwin" style="left:44mm;top:26mm;width:136mm;opacity:.5"><img src="img/os2-지연.jpg"></div>
-    <div class="bgwin" style="left:58mm;top:56mm;width:122mm;opacity:.62"><img src="img/os3-비교판.jpg"></div>
-    <div class="lens" style="left:0;top:4mm;width:56mm;z-index:5"><img src="img/os-대화.jpg"></div>
-    <div class="tag2" style="left:0;top:-3mm"><i style="background:#fff">0</i>에이전트 대화</div>
-    <div class="lens" style="left:66mm;top:9mm;width:62mm;z-index:5"><img src="img/os1-스케줄-부분.jpg"></div>
-    <div class="tag2" style="left:66mm;top:2mm"><i>1</i>스케줄에서 작업을 찾고</div>
-    <div class="lens" style="left:134mm;top:30mm;width:44mm;z-index:5"><img src="img/os2-지연-부분.jpg"></div>
-    <div class="tag2" style="left:126mm;top:23mm"><i>2</i>지연 기록에서 영향을 잰다</div>
-    <div class="lens amber" style="left:58mm;top:112mm;width:120mm;z-index:5"><img src="img/s5-비교판.jpg"></div>
-    <div class="tag2" style="left:58mm;top:105mm"><i style="background:#fbbf24">3</i>비교판에 만회안을 나란히 띄운다</div>
+  <div class="stage" style="height:150mm;margin-top:9mm">
+    <div class="shot" style="position:absolute;left:62mm;top:0;width:118mm"><img src="img/os1-스케줄.jpg"></div>
+    <div class="shot" style="position:absolute;left:68mm;top:40mm;width:114mm"><img src="img/os2-지연.jpg"></div>
+    <div class="shot" style="position:absolute;left:74mm;top:80mm;width:108mm;box-shadow:0 30px 80px rgba(0,0,0,.7),0 0 70px rgba(251,191,36,.3)"><img src="img/os3-비교판.jpg"></div>
+    <div class="shot" style="position:absolute;left:0;top:4mm;width:58mm;z-index:8"><img src="img/os-대화.jpg"></div>
+    <div class="chip2 white" style="left:2mm;top:-4mm"><i>0</i>대화로 요청</div>
+    <div class="chip2" style="left:64mm;top:-4mm"><i>1</i>스케줄에서 작업을 찾고</div>
+    <div class="chip2" style="left:70mm;top:36mm"><i>2</i>지연 기록에서 영향을 재고</div>
+    <div class="chip2 amber" style="left:76mm;top:76mm"><i>3</i>비교판에 만회안을 띄운다</div>
   </div>
   <div class="facts">
     <div><b>한 화면에서</b>대화와 일정 도구가 따로 놀지 않는다. 사람이 고른 작업을 에이전트도 본다.</div>
