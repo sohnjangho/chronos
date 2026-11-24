@@ -63,7 +63,7 @@ function PreviewBox({ preview }: { preview: Preview }) {
   );
 }
 
-export default function PointContact({ sid, aid, name, onClose }: { sid: number; aid: string; name: string; onClose(): void }) {
+export default function PointContact({ sid, aid, name, whatIf, onClose }: { sid: number; aid: string; name: string; whatIf: boolean; onClose(): void }) {
   const [people, setPeople] = useState<Person[] | null>(null);
   const [error, setError] = useState('');
   const [pick, setPick] = useState<Person | null>(null);
@@ -75,13 +75,13 @@ export default function PointContact({ sid, aid, name, onClose }: { sid: number;
 
   useEffect(() => {
     let live = true;
-    getPeople(sid, aid)
+    getPeople(sid, aid, whatIf)
       .then((r) => live && setPeople(r.people))
       .catch((e) => live && setError(errorText(e, '연락처를 읽지 못했습니다.')));
     return () => {
       live = false;
     };
-  }, [sid, aid]);
+  }, [sid, aid, whatIf]);
 
   const show = (who: Person, ch: Channel) => {
     setPick(who);
@@ -89,7 +89,7 @@ export default function PointContact({ sid, aid, name, onClose }: { sid: number;
     setPreview(null);
     setError('');
     const at = ++seq.current;
-    previewContact(sid, aid, who.contact_id, ch)
+    previewContact(sid, aid, who.contact_id, ch, whatIf)
       .then((p) => at === seq.current && setPreview(p))
       .catch((e) => at === seq.current && setError(errorText(e, '보낼 글을 만들지 못했습니다.')));
   };
@@ -99,7 +99,7 @@ export default function PointContact({ sid, aid, name, onClose }: { sid: number;
     setBusy(true);
     setError('');
     try {
-      await draftContact(sid, aid, pick.contact_id, channel);
+      await draftContact(sid, aid, pick.contact_id, channel, whatIf);
       setMade({ contact: pick.contact_id, channel });
     } catch (e) {
       setError(errorText(e, '초안을 만들지 못했습니다.'));

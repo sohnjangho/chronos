@@ -468,3 +468,38 @@ describe('W2 후속 기록된 지연 띠 알림', () => {
     await waitFor(() => expect(token()).toBe(before + 2));
   });
 });
+
+// 리허설(11-24): 창이 열린 채 두 번째 지연을 기록하면 목록이 낡았다 — 지연이 바뀌면(delaysToken) 다시 읽고,
+// 에이전트가 낡은 목록에 없는 사건으로 창을 열면 한 번 다시 읽어 그 사건을 고른다.
+test('a delay recorded elsewhere (delaysToken) re-reads the list', async () => {
+  mockDelays({ ...D, events: [ev()] });
+  show();
+  await waitFor(() => expect(bodyRows()).toHaveLength(1));
+  mockDelays(D);
+  useCurrentSchedule.getState().bumpDelays();
+  await waitFor(() => expect(bodyRows()).toHaveLength(2));
+});
+
+test('opening the window on an event the list does not have yet re-reads once and selects it', async () => {
+  mockDelays({ ...D, events: [ev()] });
+  const r = show();
+  await waitFor(() => expect(bodyRows()).toHaveLength(1));
+  const before = delayCalls().filter((c) => c.method === 'GET' && c.url.endsWith('/delays')).length;
+  mockDelays(D);
+  r.rerender(<Delays windowId="w1" params={{ id: '1', event: '2' }} />);
+  const side = await screen.findByRole('region', { name: '사건 자세히' });
+  expect(await within(side).findByText('자재 반입 지연')).toBeVisible();
+  expect(delayCalls().filter((c) => c.method === 'GET' && c.url.endsWith('/delays')).length).toBe(before + 1);
+});
+
+test('an event id that never shows up re-reads only once', async () => {
+  mockDelays({ ...D, events: [ev()] });
+  const r = show();
+  await waitFor(() => expect(bodyRows()).toHaveLength(1));
+  const gets = () => delayCalls().filter((c) => c.method === 'GET' && c.url.endsWith('/delays')).length;
+  const before = gets();
+  r.rerender(<Delays windowId="w1" params={{ id: '1', event: '99' }} />);
+  await waitFor(() => expect(gets()).toBe(before + 1));
+  await new Promise((res) => setTimeout(res, 50));
+  expect(gets()).toBe(before + 1);
+});

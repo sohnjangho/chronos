@@ -116,6 +116,11 @@ def test_history_has_the_what_if_preview_while_delays_are_open(client, admin, se
     pv = client.get(_url(sid, "/history"), headers=admin).json()["preview"]
     assert pv["what_if"] is True and pv["version"] == 1 and pv["recorded"] is True
     assert [(p["activity_id"], p["became_critical"], p["tf"]) for p in pv["new"]] == [("C", True, 0)]
+    eid = client.get(f"/api/schedules/{sid}/delays", headers=admin).json()["events"][0]["id"]
+    assert client.get(_url(sid, "/history"), headers=admin).json()["open_delays"] == 1
+    assert client.delete(f"/api/schedules/{sid}/delays/{eid}", headers=admin).status_code in (200, 204)
+    got = client.get(_url(sid, "/history"), headers=admin).json()
+    assert (got["open_delays"], got["preview"]) == (0, None)  # 열린 지연이 없으면 가정 줄을 내지 않는다(남은 줄이 있어도)
 
 
 def test_history_of_a_missing_schedule_is_404(client, admin):

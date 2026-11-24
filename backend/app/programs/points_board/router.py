@@ -1,7 +1,8 @@
 """「관리 포인트」 창(계획 5 Task 11, 시안 B 3주 보드)이 읽는 것 — 읽기만 한다(버전·카드·바깥 찾기를 만들지 않는다).
 
 - history: 보드 칸(window — Data Date 부터 w 주, 마지막 칸 끝 = 포인트 계산의 창 끝), 버전마다 포인트 수와 들어옴·빠짐(까닭)·
-  여유 줄어듦(저장한 카드 차이 그대로), 열린 지연의 가정(미리 보기) 줄, activity 를 주면 그 작업의 버전별 여유(여유 흐름).
+  여유 줄어듦(저장한 카드 차이 그대로), 열린 지연의 가정(미리 보기) 줄(열린 지연이 있을 때만 — 주의할 일정과 같은 규칙,
+  open_delays 에 그 수), activity 를 주면 그 작업의 버전별 여유(여유 흐름).
   여유는 그 버전에 포인트였으면 저장한 값, 아니면 그 버전 일정(조건 넣고 자원 맞춤)을 계산한 값 — 엔진 값만, 지어내지 않는다.
 - accel: points.accel_check 와 같은 계산(tools.points.accel_check.check). 일정은 바뀌지 않는다. 없는 작업 404, 실적이 있으면 409
   (받은 id 를 글에 되풀이하지 않는다), 그 밖의 거절(마일스톤·더 줄일 기간 없음) 422.
@@ -25,6 +26,7 @@ from app.harness.assemble import prepare_stored
 from app.points import card
 from app.security.deps import current_user
 from app.store import points as points_store
+from app.store.delays import open_events
 from app.store.messages import schedule_error_message
 from app.store.schedules import NotFound, get_record, load, run
 from app.store.settings import points_config
@@ -117,14 +119,15 @@ def history(session: Session, schedule_id: int, activity: str | None = None) -> 
         points = stored.get(v)
         versions.append(_entry(v, saved_at=at, note=note or "", row=rows.get(v),
                                points=None if points is None else [card.point_json(p) for p in points]))
-    guess = card.get(session, schedule_id, n, what_if=True)
+    open_delays = len(open_events(session, schedule_id))
+    guess = card.get(session, schedule_id, n, what_if=True) if open_delays else None  # 주의할 일정과 같은 규칙
     preview = None if guess is None else _entry(n, saved_at=guess.updated_at, note=PREVIEW_NOTE, row=guess,
                                                 points=list(guess.points_json), what_if=True)
     return {
         "schedule_id": schedule_id, "version": n,
         "basis": {"tf_days": cfg.tf_days, "window_weeks": cfg.window_weeks},
         "window": _window(schedule.data_date or schedule.start, cfg.window_weeks),
-        "versions": versions, "preview": preview,
+        "versions": versions, "preview": preview, "open_delays": open_delays,
         "float": None if activity is None else _float(session, schedule_id, activity,
                                                       [m[0] for m in metas[:FLOAT_MAX]], stored),
     }

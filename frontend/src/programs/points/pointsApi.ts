@@ -42,6 +42,8 @@ export interface Diff {
 export interface PointsView {
   schedule_id: number;
   version: number;
+  /** 열린 지연을 넣은 가정 포인트인가(저장한 버전이 아님). */
+  what_if?: boolean;
   basis: { tf_days: number; window_weeks: number };
   points: Point[];
   diff: Diff | null;
@@ -99,6 +101,8 @@ export interface History {
   window: { data_date: string; weeks: { start: string; end: string }[] };
   versions: HistoryEntry[];
   preview: HistoryEntry | null;
+  /** 열린 지연 수 — 있고 가정 줄(preview)이 있으면 보드는 가정을 먼저 보인다(주의할 일정과 같은 규칙). */
+  open_delays?: number;
   float: FloatRow[] | null;
 }
 
@@ -117,6 +121,8 @@ export interface AccelResult {
   finish_after: string;
   next_chain: { activity_id: string; name: string; point: boolean }[];
   same_chain: boolean;
+  /** 열린 지연이 있고 지연 전과 반영이 다를 때만: 「열린 지연을 빼고 보면 n일 중 m일」. */
+  before_delays_line?: string | null;
 }
 
 export interface Person {
@@ -136,20 +142,23 @@ const post = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Cont
 const root = (sid: number) => `/api/schedules/${sid}/points`;
 const one = (sid: number, aid: string) => `${root(sid)}/${encodeURIComponent(aid)}`;
 
-export const getView = (sid: number) => api<PointsView>(root(sid));
+/** whatIf = 열린 지연을 넣은 가정 포인트(없으면 404 no_what_if). */
+export const getView = (sid: number, whatIf = false) => api<PointsView>(`${root(sid)}${whatIf ? '?what_if=true' : ''}`);
 export const getHistory = (sid: number, activity?: string) =>
   api<History>(`${root(sid)}/history${activity ? `?activity=${encodeURIComponent(activity)}` : ''}`);
 export const postAccel = (sid: number, aid: string, days: number) => api<AccelResult>(`${one(sid, aid)}/accel`, post({ days }));
 /** [근거 문장 보기]·「다시 찾기」(retry) — 사람이 누를 때만. 찾기는 서버가 뒤에서 한다. */
-export const findQuote = (sid: number, aid: string, kind: string, retry: boolean) =>
-  api<QuoteState>(`${one(sid, aid)}/quotes/${encodeURIComponent(kind)}`, post({ what_if: false, retry }));
+export const findQuote = (sid: number, aid: string, kind: string, retry: boolean, whatIf = false) =>
+  api<QuoteState>(`${one(sid, aid)}/quotes/${encodeURIComponent(kind)}`, post({ what_if: whatIf, retry }));
 /** 「다시 찾기」: 실패한 바깥 위험 찾기를 다시 띄운다 → 포인트 조회와 같은 꼴(실패가 아니면 409). */
-export const retryRisks = (sid: number) => api<PointsView>(`${root(sid)}/risks/retry`, post({ what_if: false }));
-export const getPeople = (sid: number, aid: string) => api<{ activity_id: string; name: string; people: Person[] }>(`${one(sid, aid)}/contact`);
-export const previewContact = (sid: number, aid: string, contactId: number, channel: Channel) =>
-  api<Preview>(`${one(sid, aid)}/contact`, post({ contact_id: contactId, channel, preview: true }));
+export const retryRisks = (sid: number, whatIf = false) => api<PointsView>(`${root(sid)}/risks/retry`, post({ what_if: whatIf }));
+const wi = (whatIf: boolean) => (whatIf ? { what_if: true } : {});
+export const getPeople = (sid: number, aid: string, whatIf = false) =>
+  api<{ activity_id: string; name: string; people: Person[] }>(`${one(sid, aid)}/contact${whatIf ? '?what_if=true' : ''}`);
+export const previewContact = (sid: number, aid: string, contactId: number, channel: Channel, whatIf = false) =>
+  api<Preview>(`${one(sid, aid)}/contact`, post({ contact_id: contactId, channel, preview: true, ...wi(whatIf) }));
 /** 초안만 만든다(보내지 않음). */
-export const draftContact = (sid: number, aid: string, contactId: number, channel: Channel) =>
-  api<{ preview: false; card: Record<string, unknown> }>(`${one(sid, aid)}/contact`, post({ contact_id: contactId, channel, preview: false }));
+export const draftContact = (sid: number, aid: string, contactId: number, channel: Channel, whatIf = false) =>
+  api<{ preview: false; card: Record<string, unknown> }>(`${one(sid, aid)}/contact`, post({ contact_id: contactId, channel, preview: false, ...wi(whatIf) }));
 
 export const errorText = (e: unknown, fallback: string) => (e instanceof ApiError && e.message ? e.message : fallback);

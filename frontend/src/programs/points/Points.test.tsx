@@ -76,12 +76,18 @@ let calls: { method: string; url: string; body: unknown }[];
 let viewReply: () => PointsView;
 let retryReply: { status: number; body: unknown };
 let historyFails: number;
+let accelReply: AccelResult;
+let whatIfReply: (() => PointsView) | null;
+let histReply: () => History;
 const open = vi.fn();
 
 beforeEach(() => {
   calls = [];
   viewReply = () => VIEW;
   historyFails = 0;
+  accelReply = ACCEL;
+  whatIfReply = null;
+  histReply = () => HIST;
   retryReply = { status: 200, body: { ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' } };
   signInAsDemo('admin');
   open.mockReset();
@@ -99,10 +105,12 @@ beforeEach(() => {
         historyFails -= 1;
         return json(500, { code: 'http_error', message: '잠시 뒤 다시 해 주세요.' });
       }
-      return json(200, HIST);
+      return json(200, histReply());
     }
+    if (url === '/api/schedules/1/points?what_if=true')
+      return whatIfReply ? json(200, whatIfReply()) : json(404, { code: 'no_what_if', message: '가정 관리 포인트가 없습니다.' });
     if (url === '/api/schedules/1/points/history?activity=A1510') return json(200, { ...HIST, float: FLOAT });
-    if (url === '/api/schedules/1/points/A1510/accel') return json(200, ACCEL);
+    if (url === '/api/schedules/1/points/A1510/accel') return json(200, accelReply);
     if (url === '/api/schedules/1/points/A1510/quotes/materials') return json(200, QUOTE);
     if (url === '/api/schedules/1/points/A1510/contact' && method === 'GET') return json(200, PEOPLE);
     if (url === '/api/schedules/1/points/A1510/contact') {
@@ -220,6 +228,14 @@ test('a card opens the detail: float by version, risk lines (none visible, skipp
   expect(posts()).toEqual([{ method: 'POST', url: '/api/schedules/1/points/A1510/quotes/materials', body: { what_if: false, retry: false } }]);
 });
 
+test('the pull result shows how the same pull did before the open delays when the server says so', async () => {
+  accelReply = { ...ACCEL, before_delays_line: '열린 지연을 빼고 보면 3일 중 2일' };
+  show({ activity: 'A1510' });
+  const d = await screen.findByRole('region', { name: /자세히$/ });
+  await userEvent.click(within(d).getByRole('button', { name: '계산' }));
+  expect(await within(d).findByText('열린 지연을 빼고 보면 3일 중 2일')).toBeVisible();
+});
+
 test('「당겨도 소용 있나」 asks the server and shows the result line and the next chain', async () => {
   show({ activity: 'A1510' });
   const d = await screen.findByRole('region', { name: /자세히$/ });
@@ -232,6 +248,7 @@ test('「당겨도 소용 있나」 asks the server and shows the result line an
   expect(result).toHaveTextContent('당긴 3일 중 0일만 준공에 반영됩니다');
   expect(result).toHaveTextContent('기간 9일 → 6일 · 준공 11.08 → 11.08');
   expect(result).not.toHaveTextContent('준공 반영');
+  expect(result).not.toHaveTextContent('열린 지연을 빼고'); // 없으면 줄도 없다
   expect(result).toHaveTextContent('당긴 뒤에도 같은 줄이 일정을 정합니다: 5층 골조관리 포인트 → 옥탑 골조');
   expect(result.querySelector('.pt-line')).toHaveClass('is-warn');
   expect(posts()).toEqual([{ method: 'POST', url: '/api/schedules/1/points/A1510/accel', body: { days: 3 } }]);
@@ -293,7 +310,7 @@ test('picking another schedule reads that schedule', async () => {
   show();
   await screen.findByRole('region', { name: '이번 주' });
   await userEvent.selectOptions(screen.getByRole('combobox', { name: '일정' }), '2');
-  await waitFor(() => expect(calls.some((c) => c.url === '/api/schedules/2/points')).toBe(true));
+  await waitFor(() => expect(calls.some((c) => c.url.startsWith('/api/schedules/2/points'))).toBe(true));
 });
 
 test('the window never scrolls sideways: columns and the detail scroll only up and down, long names wrap', () => {
@@ -415,4 +432,53 @@ test('a failed re-read after a new version tries once more on the next tick, the
   await waitFor(() => expect(gets('/api/schedules/1/points/history')).toBe(5));
   expect(await screen.findByText(/다시 읽지 못했습니다 —/)).toBeVisible();
   expect(screen.getByRole('region', { name: '이번 주' })).toBeVisible(); // 보던 보드는 그대로
+});
+
+const WHAT_IF: PointsView = {
+  ...VIEW, what_if: true,
+  points: [...VIEW.points, P('A1520', '커튼월 자재 반입', false, 1, '2027-06-21', '2027-06-21')],
+  diff: { ...VIEW.diff!, added: [...VIEW.diff!.added, P('A1520', '커튼월 자재 반입', false, 1, '2027-06-21', '2027-06-21')], before_tf: { A1510: 4, A1520: 4 } },
+};
+
+test('with open delays the board shows the what-if points first (지연 반영 미리 보기) and can go back to the saved version', async () => {
+  histReply = () => ({ ...HIST, open_delays: 2 });
+  whatIfReply = () => WHAT_IF;
+  show();
+  await screen.findByRole('region', { name: '그다음 주' });
+  expect(screen.getByText('지연 반영 미리 보기 · 열린 지연 2건')).toBeVisible();
+  expect(cardNames('그다음 주')).toEqual(['5층 철근 배근', '커튼월 자재 반입']);
+  expect(within(column('그다음 주')).getByRole('button', { name: /커튼월 자재 반입/ })).toHaveTextContent('바뀜 4 → 1');
+  await userEvent.click(within(column('다음 주')).getByRole('button', { name: /커튼월 공장 제작/ }));
+  await userEvent.click(within(detail()).getByRole('button', { name: '근거 문장 보기' }));
+  await waitFor(() => expect(posts()).toEqual([{ method: 'POST', url: '/api/schedules/1/points/A1510/quotes/materials', body: { what_if: true, retry: false } }]));
+  await userEvent.click(screen.getByRole('button', { name: '저장된 버전 보기' }));
+  await waitFor(() => expect(cardNames('그다음 주')).toEqual(['5층 철근 배근']));
+  expect(screen.queryByText(/지연 반영 미리 보기 ·/)).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: '지연 반영 미리 보기로' }));
+  await waitFor(() => expect(cardNames('그다음 주')).toEqual(['5층 철근 배근', '커튼월 자재 반입']));
+});
+
+test('without open delays (no preview) the board reads only the saved version', async () => {
+  histReply = () => ({ ...HIST, preview: null, open_delays: 0 });
+  whatIfReply = () => WHAT_IF;
+  show();
+  await screen.findByRole('region', { name: '그다음 주' });
+  expect(cardNames('그다음 주')).toEqual(['5층 철근 배근']);
+  expect(calls.some((c) => c.url.includes('what_if=true'))).toBe(false);
+  expect(screen.queryByRole('button', { name: '지연 반영 미리 보기로' })).toBeNull();
+});
+
+test('risks not looked up yet (seed card): no polling, 「바깥 위험을 아직 찾지 않았습니다」 and [바깥 위험 찾기] only when pressed', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  viewReply = () => ({ ...VIEW, risk_status: 'not_started', risk_message: '바깥 위험을 아직 찾지 않았습니다' });
+  show({ activity: 'A1510' });
+  const d = await screen.findByRole('region', { name: /자세히$/ });
+  expect(within(d).getByText('바깥 위험을 아직 찾지 않았습니다')).toBeVisible();
+  const reads = gets('/api/schedules/1/points');
+  await advance(10_000);
+  expect(gets('/api/schedules/1/points')).toBe(reads); // 찾는 중이 아니다 — 폴링 없음
+  expect(posts()).toEqual([]);
+  await userEvent.click(within(d).getByRole('button', { name: '바깥 위험 찾기' }));
+  await waitFor(() => expect(posts()).toEqual([{ method: 'POST', url: '/api/schedules/1/points/risks/retry', body: { what_if: false } }]));
+  await waitFor(() => expect(within(d).queryByRole('button', { name: '바깥 위험 찾기' })).toBeNull());
 });

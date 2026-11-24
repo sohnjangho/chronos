@@ -12,7 +12,7 @@ import { useActiveDevice } from '../../os/useIsMobile';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
 import { api } from '../../shared/api';
-import { Column, PointCard, Top } from './Board';
+import { Column, ModeSwitch, PointCard, Top } from './Board';
 import { changeOf, matches, md, riskKinds, weekIndex, weekName } from './format';
 import { HistoryAll, HistoryStrip } from './History';
 import PointDetail from './PointDetail';
@@ -112,7 +112,7 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
   const role = useSession((s) => s.session?.user.role ?? 'user');
   const schedules = useSchedules();
   const current = useCurrentSchedule((s) => s.current);
-  const { view, hist, error, quotes, onQuote, onRetry, stalled, reload } = useBoard(sid, `points:${windowId}`);
+  const { view, hist, error, quotes, onQuote, onRetry, stalled, reload, whatIf, savedOnly, showSaved } = useBoard(sid, `points:${windowId}`);
   const [picked, setPicked] = useState<string | null>(params?.activity ?? null);
   const [query, setQuery] = useState('');
   const [all, setAll] = useState(false);
@@ -143,7 +143,7 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
   const detail = point && (
     <PointDetail sid={sid} point={point} version={view.version} k={view.basis.tf_days} dataDate={dataDate} change={changeOf(view.diff, point)}
       responsible={responsible} risks={view.risks} quotes={quotes} looking={view.risk_status === 'looking'} entries={hist.versions}
-      failed={view.risk_status === 'failed'} riskMessage={view.risk_message} onRetry={onRetry}
+      failed={view.risk_status === 'failed'} notStarted={view.risk_status === 'not_started'} whatIf={whatIf} riskMessage={view.risk_message} onRetry={onRetry}
       canContact={role !== 'field'} onQuote={onQuote} onBack={single ? () => setPicked(null) : undefined} />
   );
   const stall = stalled && (
@@ -154,9 +154,10 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
       </button>
     </p>
   );
+  const mode = <ModeSwitch whatIf={whatIf} savedOnly={savedOnly} hist={hist} showSaved={showSaved} />;
   const top = (
     <Top sid={sid} schedules={schedules} onSchedule={(id) => { setPicked(null); setSid(id); }} view={view} hist={hist} query={query} setQuery={setQuery}
-      shown={shown.length} isAdmin={role === 'admin'} phone={single} />
+      shown={shown.length} isAdmin={role === 'admin'} phone={single} mode={mode} />
   );
   const strip = <HistoryStrip hist={hist} open={all} onToggle={() => setAll((o) => !o)} />;
 

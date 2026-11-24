@@ -112,6 +112,9 @@ async function fake(page: Page, sid: number) {
   const posts: { url: string; body: unknown }[] = [];
   const base = `/api/schedules/${sid}/points`;
   await page.route(new RegExp(`${base}$`), (route) => route.fulfill({ json: view(sid, asked) }));
+  // 이 장면은 저장한 버전 보드 — 가정 조회는 없다고 답한다(서버까지 가지 않음)
+  await page.route(new RegExp(`${base}\\?what_if=true$`), (route) =>
+    route.fulfill({ status: 404, json: { code: 'no_what_if', message: '가정 관리 포인트가 없습니다.', detail: null } }));
   await page.route(new RegExp(`${base}/history(\\?.*)?$`), (route) =>
     route.fulfill({ json: history(sid, new URL(route.request().url()).searchParams.get('activity') ? FLOAT : null) }));
   await page.route(new RegExp(`${base}/[^/]+/accel$`), (route) => {

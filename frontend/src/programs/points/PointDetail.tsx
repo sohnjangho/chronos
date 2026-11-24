@@ -87,6 +87,7 @@ function Accel({ sid, aid }: { sid: number; aid: string }) {
         <div className="pt-accel-r" role="status">
           <p className={`pt-line${result.warn && !over ? ' is-warn' : ''}`}>{result.warn_line ?? `당긴 ${result.pulled_days}일 중 ${result.reached_days}일이 준공에 반영됩니다`}</p>
           <p className="pt-muted">{`기간 ${result.od_before}일 → ${result.od_after}일 · 준공 ${md(result.finish_before)} → ${md(result.finish_after)}`}</p>
+          {result.before_delays_line && <p className="pt-muted">{result.before_delays_line}</p>}
           {result.next_chain.length > 0 && (
             <p className="pt-chain">
               <span className="pt-muted">{result.same_chain ? '당긴 뒤에도 같은 줄이 일정을 정합니다: ' : '당긴 뒤 일정을 정하는 다음 줄: '}</span>
@@ -118,6 +119,8 @@ export interface DetailProps {
   looking: boolean;
   entries: HistoryEntry[];
   failed: boolean;
+  notStarted: boolean;
+  whatIf: boolean;
   riskMessage: string;
   canContact: boolean;
   onQuote(key: string, q: QuoteState): void;
@@ -127,7 +130,7 @@ export interface DetailProps {
 
 export default function PointDetail(props: DetailProps) {
   const { sid, point, version, k, dataDate, change, responsible, risks, quotes, looking, entries, canContact, onQuote, onBack } = props;
-  const { failed, riskMessage, onRetry } = props;
+  const { failed, notStarted, riskMessage, onRetry, whatIf } = props;
   const [contact, setContact] = useState(false);
   const recovery = () =>
     useWindows.getState().open('chat', { ask: `${point.activity_id} 「${point.name}」 일정을 지킬 만회 계획을 만들어 줘` });
@@ -166,12 +169,12 @@ export default function PointDetail(props: DetailProps) {
       <div className="pt-sec">여유 흐름</div>
       <FloatFlow sid={sid} aid={point.activity_id} version={version} k={k} entries={entries} />
       <div className="pt-sec">바깥 위험</div>
-      {failed && <RiskRetry message={riskMessage} onRetry={onRetry} />}
-      <Risks sid={sid} aid={point.activity_id} risks={risks} quotes={quotes} looking={looking} onQuote={onQuote} />
+      {(failed || notStarted) && <RiskRetry message={riskMessage} notStarted={notStarted} onRetry={onRetry} />}
+      <Risks sid={sid} aid={point.activity_id} risks={risks} quotes={quotes} looking={looking} whatIf={whatIf} onQuote={onQuote} />
       <div className="pt-sec">당겨도 소용 있나</div>
       <Accel key={point.activity_id} sid={sid} aid={point.activity_id} />
       {contact && canContact ? (
-        <PointContact sid={sid} aid={point.activity_id} name={point.name} onClose={() => setContact(false)} />
+        <PointContact sid={sid} aid={point.activity_id} name={point.name} whatIf={whatIf} onClose={() => setContact(false)} />
       ) : (
         <div className="pt-actions">
           {canContact && (

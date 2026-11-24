@@ -103,7 +103,7 @@ function useWindowContext(windowId: string, scheduleId: number, scheduleName: st
 }
 
 /** 오른쪽 칸의 모드와 고른 사건. 새 params 가 오면(같은 창을 다시 열면) 양식을 채우거나 사건을 고른다. */
-function useMode(params: Params, data: DelaysData | null) {
+function useMode(params: Params, data: DelaysData | null, reload: () => void) {
   const [mode, setMode] = useState<Mode>(() => prefill(params) ?? { kind: 'detail' });
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const prefilled = useRef(params);
@@ -114,14 +114,22 @@ function useMode(params: Params, data: DelaysData | null) {
     if (next) setMode(next);
   }, [params]);
   const eventParam = useRef<unknown>(null);
+  const reloadedFor = useRef<unknown>(null);
   useEffect(() => {
     if (!data || !params?.event || eventParam.current === params) return;
-    eventParam.current = params;
     const id = Number(params.event);
-    if (!data.events.some((e) => e.id === id)) return;
+    if (!data.events.some((e) => e.id === id)) {
+      // 막 기록된 사건(에이전트가 이 창을 그 사건으로 엶)이 낡은 목록에 없다 — 한 번 다시 읽고 고른다
+      if (reloadedFor.current !== params) {
+        reloadedFor.current = params;
+        reload();
+      }
+      return;
+    }
+    eventParam.current = params;
     setSelectedId(id);
     setMode({ kind: 'detail' });
-  }, [data, params]);
+  }, [data, params, reload]);
   return { mode, setMode, selectedId, setSelectedId };
 }
 
@@ -193,8 +201,8 @@ function SidePane({ mode, setMode, selected, act, submit, view, viewError }: Sid
 }
 
 function DelaysBody({ windowId, scheduleId, params }: { windowId: string; scheduleId: number; params: Params }) {
-  const { data, setData, loadError, view, viewError } = useDelays(scheduleId);
-  const { mode, setMode, selectedId, setSelectedId } = useMode(params, data);
+  const { data, setData, loadError, view, viewError, reload } = useDelays(scheduleId);
+  const { mode, setMode, selectedId, setSelectedId } = useMode(params, data, reload);
   const [filters, setFilters] = useState({ resp: 'all', status: 'all' });
   const act = useActions(scheduleId, setData);
   const selected = data?.events.find((e) => e.id === selectedId) ?? null;

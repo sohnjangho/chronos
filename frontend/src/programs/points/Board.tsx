@@ -48,9 +48,11 @@ export interface TopProps {
   shown: number;
   isAdmin: boolean;
   phone: boolean;
+  /** 열린 지연의 가정과 저장한 버전 사이 전환(배지·단추). */
+  mode?: ReactNode;
 }
 
-export function Top({ sid, schedules, onSchedule, view, hist, query, setQuery, shown, isAdmin, phone }: TopProps) {
+export function Top({ sid, schedules, onSchedule, view, hist, query, setQuery, shown, isAdmin, phone, mode }: TopProps) {
   const { tf_days: k, window_weeks: w } = view.basis;
   const weeks = hist.window.weeks;
   const crit = view.points.filter((p) => p.critical).length;
@@ -68,6 +70,7 @@ export function Top({ sid, schedules, onSchedule, view, hist, query, setQuery, s
           </select>
         ) : null}
         <span className="pt-chip">{`버전 ${view.version}${at ? ` · ${at}` : ''}`}</span>
+        {mode}
         <span className="pt-basis">
           기준 <b>{`여유 ${k}일 이하`}</b> · <b>{`앞으로 ${w}주`}</b>
           {weeks.length > 0 && ` (${md(weeks[0].start)} ~ ${md(weeks[weeks.length - 1].end)})`}
@@ -111,5 +114,24 @@ export function Column({ i, week, points, children }: { i: number; week: { start
         {children}
       </div>
     </section>
+  );
+}
+
+/** 열린 지연이 있으면 보드는 그 가정을 먼저 보인다(「지연 반영 미리 보기」) — 저장한 버전으로 돌아가거나 다시 가정으로. */
+export function ModeSwitch({ whatIf, savedOnly, hist, showSaved }: { whatIf: boolean; savedOnly: boolean; hist: History; showSaved(on: boolean): void }) {
+  if (whatIf)
+    return (
+      <span className="pt-mode">
+        <Badge tone="warning">{`지연 반영 미리 보기${hist.open_delays ? ` · 열린 지연 ${hist.open_delays}건` : ''}`}</Badge>
+        <button type="button" className="pt-link" onClick={() => showSaved(true)}>
+          저장된 버전 보기
+        </button>
+      </span>
+    );
+  if (!savedOnly || !hist.preview) return null;
+  return (
+    <button type="button" className="pt-link" onClick={() => showSaved(false)}>
+      지연 반영 미리 보기로
+    </button>
   );
 }

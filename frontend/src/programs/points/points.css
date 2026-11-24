@@ -208,3 +208,5 @@
 .is-single .pt-actions .ui-btn { flex: 1 1 100%; }
 .pt-retry { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 10px; border-radius: var(--radius-2); background: var(--tone-warning-bg); color: var(--warning-text); font-size: var(--fs-12); }
 .pt-stalled { flex: none; margin: 0; padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--tone-warning-bg); color: var(--warning-text); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.pt-mode { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.pt-retry.is-idle { background: var(--tone-info-bg); color: var(--tone-info-fg); }

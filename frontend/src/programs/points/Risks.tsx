@@ -38,7 +38,7 @@ function Quotes({ q, busy, onRetry }: { q: QuoteState | null; busy: boolean; onR
   );
 }
 
-function RiskRow({ sid, r, quote, onQuote }: { sid: number; r: Risk; quote: QuoteState | null; onQuote(q: QuoteState): void }) {
+function RiskRow({ sid, r, quote, whatIf, onQuote }: { sid: number; r: Risk; quote: QuoteState | null; whatIf: boolean; onQuote(q: QuoteState): void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -49,7 +49,7 @@ function RiskRow({ sid, r, quote, onQuote }: { sid: number; r: Risk; quote: Quot
     setBusy(true);
     setError('');
     try {
-      onQuote(await findQuote(sid, r.activity_id, r.kind, retry));
+      onQuote(await findQuote(sid, r.activity_id, r.kind, retry, whatIf));
     } catch (e) {
       setError(errorText(e, '근거 문장을 찾지 못했습니다.'));
     } finally {
@@ -82,8 +82,9 @@ function RiskRow({ sid, r, quote, onQuote }: { sid: number; r: Risk; quote: Quot
   );
 }
 
-export function Risks({ sid, aid, risks, quotes, looking, onQuote }: {
+export function Risks({ sid, aid, risks, quotes, looking, whatIf, onQuote }: {
   sid: number;
+  whatIf: boolean;
   aid: string;
   risks: Risk[];
   quotes: Record<string, QuoteState | null>;
@@ -102,7 +103,7 @@ export function Risks({ sid, aid, risks, quotes, looking, onQuote }: {
         <ul className="pt-risks">
           {shown.map((r, i) => {
             const key = `${r.activity_id}/${r.kind}`;
-            return <RiskRow key={`${key}-${i}`} sid={sid} r={r} quote={quotes[key] ?? null} onQuote={(q) => onQuote(key, q)} />;
+            return <RiskRow key={`${key}-${i}`} sid={sid} r={r} quote={quotes[key] ?? null} whatIf={whatIf} onQuote={(q) => onQuote(key, q)} />;
           })}
         </ul>
       )}
@@ -124,8 +125,9 @@ export function Risks({ sid, aid, risks, quotes, looking, onQuote }: {
   );
 }
 
-/** 바깥 위험 찾기가 실패했을 때(멈춘 것 포함): 서버 글과 [다시 찾기](사람이 누를 때만). */
-export function RiskRetry({ message, onRetry }: { message: string; onRetry(): Promise<void> }) {
+/** 바깥 위험 찾기가 실패했을 때(멈춘 것 포함): 서버 글과 [다시 찾기]. 아직 찾지 않았을 때(not_started — 씨앗·명령줄에서 적은 카드):
+ * 「바깥 위험을 아직 찾지 않았습니다」와 [바깥 위험 찾기]. 둘 다 사람이 누를 때만 POST …/points/risks/retry. */
+export function RiskRetry({ message, notStarted, onRetry }: { message: string; notStarted: boolean; onRetry(): Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const press = async () => {
@@ -135,16 +137,16 @@ export function RiskRetry({ message, onRetry }: { message: string; onRetry(): Pr
     try {
       await onRetry();
     } catch (e) {
-      setError(errorText(e, '다시 찾지 못했습니다.'));
+      setError(errorText(e, '찾기를 시작하지 못했습니다.'));
     } finally {
       setBusy(false);
     }
   };
   return (
-    <div className="pt-retry" role="alert">
-      <span>{message || '바깥 위험을 찾지 못했습니다'}</span>
+    <div className={`pt-retry${notStarted ? ' is-idle' : ''}`} role={notStarted ? 'status' : 'alert'}>
+      <span>{message || (notStarted ? '바깥 위험을 아직 찾지 않았습니다' : '바깥 위험을 찾지 못했습니다')}</span>
       <button type="button" className="pt-link" disabled={busy} onClick={() => void press()}>
-        다시 찾기
+        {notStarted ? '바깥 위험 찾기' : '다시 찾기'}
       </button>
       {error && <span className="pt-error">{error}</span>}
     </div>
