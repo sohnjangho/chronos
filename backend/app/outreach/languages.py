@@ -75,10 +75,10 @@ LATIN_OK: frozenset[str] = frozenset({"chronos", "mpa", "kgf", "ton", "tons", "r
 _LATIN_WORD = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{3,}(?![A-Za-z0-9])")
 
 
-# 영어 달·요일 이름과 줄임(숫자가 붙어 있어도 — 「Nov30」「30Nov」「Sat.30」, 고침 2)
+# 영어 달·요일 이름과 줄임(숫자·서수가 붙어 있어도 — 「Nov30」「30Nov」「30thNov」「Sat.30」「Weds」, 고침 2·3)
 _CALENDAR_WORD = re.compile(
-    r"(?<![A-Za-z])(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?"
-    r"|nov(?:ember)?|dec(?:ember)?|mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs?(?:day)?)?|fri(?:day)?|sat(?:urday)?"
+    r"(?:(?<![A-Za-z])|(?<=\d(?:st|nd|rd|th)))(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?"
+    r"|nov(?:ember)?|dec(?:ember)?|mon(?:day)?|tue(?:s(?:day)?)?|wed(?:s|nesday)?|thu(?:rs?(?:day)?)?|fri(?:day)?|sat(?:urday)?"
     r"|sun(?:day)?)(?![A-Za-z])", re.IGNORECASE)
 
 

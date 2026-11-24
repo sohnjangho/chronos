@@ -5,16 +5,20 @@
   ValueError(받은 값은 싣지 않는다), 받는 통화는 현장 이름 없는 문장. 번호 찾기는 redact.hide_phones 이고 그 한계를 물려받는다
   (사람이 일부러 띄어 적은 드문 꼴) — 이름 칸에 번호를 적지 않는 것이 첫째 줄이다.
 - 없는 언어는 한국어(DEFAULT_LANGUAGE — languages.code 와 같은 읽기). 언어마다(Task 100 — languages.SUPPORTED 넷) 다섯 표
-  (FIRST_LINES·INBOUND_LINES·INBOUND_LINES_NO_SITE·DISCLOSURES·MUST_NOT_SAY)를 함께 채운다 — 한국어 문장의 뜻 그대로, AI 임과
+  (FIRST_LINES·INBOUND_LINES·INBOUND_LINES_NO_SITE·DISCLOSURES·CORE·MUST_NOT_SAY·KEYWORDS·RETRACT)를 함께 채운다 — 한국어 문장의 뜻 그대로, AI 임과
   「이 통화는 기록됩니다」를 넣고, 틀에는 숫자를 쓰지 않는다. 표에 있어도 통화가 되는지는 languages.CALLABLE 이 정한다(통화 일꾼이
   languages.call_language 로 고른다 — 안 되는 언어는 한국어 문장으로 건다).
-- discloses(language, spoken) — 음성 모델이 **실제로 한** 말(받아쓰기)에 **우리 고정 첫마디의 밝힘 문장**(DISCLOSURES — 「일정 담당
-  ChronOS AI 비서입니다」와 「이 통화는 기록됩니다」, 언어마다)이 들렸는가(고침 2 — 낱말이 아니라 문장으로). 받아쓰기와 문장을 같은
-  꼴(NFKC·소문자·글자와 숫자만, ALIASES — 「크로노스」→chronos)로 고른 뒤, 문장 길이 ±WINDOW_SLACK 의 창 가운데 가장 비슷한 것의
-  difflib 비율이 SIMILAR(0.85) 이상이고 **그 창(낱말 끝까지 늘린 것) 안에** 부정 말(MUST_NOT_SAY · 「안 하/안 됩/못 하」)이 없어야 한다 —
-  창 밖의 부정(「not a human」 · 「no number is shared」)은 상관없다. 현장·사람 이름 자리는 견주는 문장에 들어 있지 않다. 받아쓰기는
-  앞 MAX_HEARD 글자만 본다. SDK 에는 「이 문장을 그대로 말하라」가 없어 첫마디를 모델이 말하므로(지시문은 그대로 말하라고 한다),
-  통화 일꾼이 통화의 첫 발화(session 의 약속 2)를 이것으로 본다(call_run._discloses) — 바꿔 말했으면 고정 첫마디를 한 번 더 시키고 끊는다.
+- discloses(language, spoken) — 음성 모델이 **실제로 한** 첫 발화(받아쓰기)가 우리 밝힘을 했는가. 세 겹을 함께 본다(고침 3):
+  ① 문장 일치 — 받아쓰기와 DISCLOSURES 의 밝힘 문장(현장·사람 이름 자리를 뺀 것)을 NFKC·소문자·ALIASES(「크로노스」「에이 아이」)·
+  글자와 숫자만으로 고르고, 문장 길이 ±WINDOW_SLACK 창 가운데 가장 비슷한 것의 difflib 비율 ≥ SIMILAR(0.75), 묶음마다.
+  ② 핵심 낱말 — 그 맞은 자리(창 둘레에서 문장 글자가 맞은 처음~끝, 낱말 끝까지)에 CORE 가 글자 그대로(「ChronOS AI 비서입니다」 ·
+  「(기록|녹음)(됩니다|돼요|되고 있습니다)」 · 「ChronOS AI assistant」 · 「is (being) recorded」) — 「사람 비서」「non-AI」「faux AI」
+  「unrecorded」「기록됩니까」「비서였습니다」는 아니다. 그 자리와 바로 뒤 낱말 하나(문장부호는 건너고 쉼표는 건너지 않는다 —
+  「recorded? No.」)에 MUST_NOT_SAY 가 없어야 한다. ③ 마디 거부 — 첫 발화 전체의 마디(문장부호·and/but/so/or) 가운데 KEYWORDS 가 든
+  마디에 MUST_NOT_SAY 가 함께 있거나 RETRACT(「just kidding」)가 어디든 있으면 거부. 받아쓰기는 앞 MAX_HEARD 글자만 본다.
+  SDK 에는 「이 문장을 그대로 말하라」가 없어 첫마디를 모델이 말하므로(지시문은 그대로 말하라고 한다), 통화 일꾼이 통화의 첫 발화
+  (session 의 약속 2)를 이것으로 본다(call_run._discloses) — 아니면 고정 첫마디를 한 번 더 시키고 그래도 아니면 끊는다. 이 검사는
+  고정 첫마디 지시와 함께 쓰는 한 겹이다(알려진 틈은 task-100-report 「고침 3」).
 """
 
 import re
@@ -46,24 +50,51 @@ INBOUND_LINES_NO_SITE = {
     "zh": "您好，我是负责日程的ChronOS AI助理。本次通话将被录音。请问有什么可以帮您？",
     "vi": "Xin chào, tôi là trợ lý AI ChronOS phụ trách lịch trình. Cuộc gọi này được ghi âm. Tôi có thể giúp gì cho bạn?",
 }
-# 밝힘 문장: 고정 첫마디에서 현장·사람 이름 자리를 뺀 부분(AI 비서 문장, 기록 문장). 묶음마다 하나가 들려야 한다(묶음 안의 뒤의 것은 같은 뜻의 다른 꼴).
+# 밝힘 문장: 고정 첫마디에서 현장·사람 이름 자리를 뺀 부분(AI 비서 문장, 기록 문장). 묶음마다 하나가 들려야 한다(묶음 안의 뒤의 것은
+# 받아쓰기·말투 변형 — 「돼요」「되고 있습니다」. 「녹음 중입니다」는 넣지 않는다).
 DISCLOSURES = {
-    "ko": (("일정 담당 ChronOS AI 비서입니다",), ("이 통화는 기록됩니다", "이 통화는 녹음됩니다")),
+    "ko": (("일정 담당 ChronOS AI 비서입니다",),
+           ("이 통화는 기록됩니다", "이 통화는 녹음됩니다", "이 통화는 기록돼요", "이 통화는 녹음돼요", "이 통화는 기록되고 있습니다",
+            "이 통화는 녹음되고 있습니다")),
     "en": (("this is the ChronOS AI assistant",), ("This call is recorded", "This call is being recorded")),
     "zh": (("我是负责",), ("日程的ChronOS AI助理",), ("本次通话将被录音",)),  # 현장 이름이 「我是负责」와 「日程的…」 사이에 든다
     "vi": (("tôi là trợ lý AI ChronOS phụ trách lịch trình",), ("Cuộc gọi này được ghi âm",)),
 }
-ALIASES = {"ko": (("크로노스", "chronos"), ("에이아이", "ai"))}  # 받아쓰기가 소리대로 적는 꼴
-SIMILAR = 0.85  # 창과 문장의 difflib 비율
+# 핵심 낱말(묶음마다, 맞은 자리 안에 글자 그대로 — 고침 3): 비율만으로는 「ChronOS 사람 비서」「non-AI」「faux AI」「unrecorded」가 지나간다.
+# 한국어 끝은 다/요만(「입니까」「였습니다」는 아니다). 한국어·중국어는 빈칸을 뺀 자리에, 영어·베트남어는 빈칸 한 칸 자리에 건다.
+CORE = {
+    "ko": (re.compile(r"chronos(?:ai|인공지능)비서(?:입니다|이에요|예요)"),
+           re.compile(r"(?:기록|녹음)이?(?:됩니다|돼요|되요|되고있습니다)")),
+    "en": (re.compile(r"(?<![\w-])chronos\s?(?:ai|a\.\s?i\.?)\s+assistant(?![\w-])"),
+           re.compile(r"(?<![\w-])(?:is|being)\s+recorded(?![\w-])")),
+    "zh": (re.compile(r"我是负责"), re.compile(r"chronosai助理"), re.compile(r"(?<!不)被录音")),
+    "vi": (re.compile(r"(?<!\w)trợ\s?l[ýí]\s?ai\s?chronos(?!\w)"), re.compile(r"(?<!\w)được\s?ghi\s?âm(?!\w)")),
+}
+# 받아쓰기가 소리대로·틀리게 적는 꼴 → 우리 낱말(빈칸이 끼어도 — 「에이 아이」). 고른 뒤, 빈칸을 빼기 전에 바꾼다.
+ALIASES = ((re.compile(r"크로\s*[노너]\s*스"), "chronos"), (re.compile(r"에이\s*아이"), "ai"),
+           (re.compile(r"(?<![a-z])(?:kronos|cronos|chronus)(?![a-z])"), "chronos"))
+SIMILAR = 0.75  # 창과 문장의 difflib 비율(핵심 낱말·마디 거부와 함께 — 혼자 지키는 문이 아니다)
 WINDOW_SLACK = 4  # 창 길이 = 문장 길이 ± 이만큼(글자)
 MAX_HEARD = 600  # 보는 받아쓰기 글자(고른 뒤) — 첫 발화는 짧다
-# 밝힘 문장의 창 안에 있으면 그 문장은 밝힌 것이 아니다(「This call is not recorded」 · 「기록되지 않습니다」 · 不被录音 · không được ghi âm).
+# 부정·끔 말: 맞은 자리 안, 그 자리 바로 뒤 낱말 하나(쉼표를 건너지 않고 · 「recorded? No.」), 그리고 밝힘 낱말(KEYWORDS)이 든 마디 어디든 있으면 밝힌 것이 아니다.
 MUST_NOT_SAY = {
-    "ko": ("아니", "아닙", "아닌", "아님", "아냐", "않", "없"),
-    "en": ("not", "never", "n't", "n’t", "no", "cannot", "without", "neither"),
-    "zh": ("不是", "不会", "不會", "没有", "沒有", "不录", "不錄", "不记录", "不記錄", "并非", "並非", "不被", "无", "無"),
-    "vi": ("không phải", "không được ghi", "không ghi", "chẳng", "không bị", "không có"),
+    "ko": ("않", "아니", "아닙", "아닌", "아님", "아뇨", "아냐", "못", "없", "꺼", "껐", "중단", "중지", "정지", "해제", "금지", "생략",
+           "삭제", "제외", "미녹음", "비녹음"),
+    "en": ("not", "n't", "n’t", "no", "never", "without", "cannot", "neither", "none", "off", "stop", "stopped", "disabled",
+           "nothing", "zero", "nope", "false", "kidding"),
+    "zh": ("不是", "不会", "不會", "没有", "沒有", "不录", "不錄", "不记录", "不記錄", "并非", "並非", "不被", "无", "無", "关闭", "停止",
+           "取消", "删除", "关掉"),
+    "vi": ("không phải", "không được ghi", "không ghi", "chẳng", "không bị", "không có", "tắt", "dừng", "ngừng", "xóa"),
 }
+KEYWORDS = {  # 마디 거부를 거는 밝힘 낱말
+    "ko": ("기록", "녹음", "ai", "인공지능", "비서"),
+    "en": ("ai", "a.i", "assistant", "record", "records", "recorded", "recording"),
+    "zh": ("录音", "记录", "錄音", "記錄", "ai", "助理", "人工智能"),
+    "vi": ("ghi âm", "ghi lại", "ai", "trợ lý"),
+}
+RETRACT = {"ko": ("농담", "장난"), "en": ("kidding", "joking", "nope"), "zh": ("开玩笑",), "vi": ("đùa",)}  # 어디에 있어도 거부
+_CLAUSE = re.compile(r"[.!?;,。！？；，、\n]+|\s(?:and|but|so|or|và|nhưng)\s")
+_COMMA = ",，、"
 _KO_SPACED_NOT = re.compile(r"(?<![가-힣])(?:안|못)\s*(?:하|함|합|했|할|해|됩|돼|되|됨|된|될)")
 _CONTRACTIONS = ("n't", "n’t")
 _BY_WORD = frozenset({"en", "vi"})  # 빈칸으로 낱말을 가르는 언어 — 낱말(조각이 아니라)로 견준다
@@ -113,23 +144,19 @@ def _has(code: str, heard: str, word: str) -> bool:
     return bool(_word(word).search(heard)) if code in _BY_WORD else "".join(word.split()) in heard
 
 
-def _flat(text: str, code: str) -> tuple[str, list[int]]:
-    """(견줄 꼴 — NFKC·소문자·별칭·글자와 숫자만, 그 글자마다 고른 글(_spoken)에서의 자리)."""
-    spoken = _spoken(text, code)
-    flat, where = [], []
-    for at, char in enumerate(spoken):
-        if char.isalnum():
-            flat.append(char)
-            where.append(at)
-    return "".join(flat), where
-
-
-def _spoken(text: str, code: str) -> str:
-    """NFKC·소문자·빈칸 한 칸·별칭을 바꾼 글(부정 말은 이 글에서 찾는다)."""
+def _spoken(text: object) -> str:
+    """NFKC·소문자·빈칸 한 칸·ALIASES 를 바꾼 글(부정·핵심 낱말은 이 글에서 찾는다)."""
     out = " ".join(unicodedata.normalize("NFKC", text).lower().split()) if isinstance(text, str) else ""
-    for heard, meant in ALIASES.get(code, ()):
-        out = out.replace(heard, meant)
+    for pattern, meant in ALIASES:
+        out = pattern.sub(meant, out)
     return out
+
+
+def _flat(text: str, code: str = DEFAULT_LANGUAGE) -> tuple[str, list[int]]:
+    """(견줄 꼴 — _spoken 에서 글자와 숫자만, 그 글자마다 _spoken 글에서의 자리)."""
+    spoken = _spoken(text)
+    pairs = [(char, at) for at, char in enumerate(spoken) if char.isalnum()]
+    return "".join(char for char, _ in pairs), [at for _, at in pairs]
 
 
 def _best(flat: str, target: str) -> tuple[float, int, int]:
@@ -151,36 +178,68 @@ def _best(flat: str, target: str) -> tuple[float, int, int]:
     return best
 
 
-def _negated(code: str, span: str) -> bool:
-    heard = span if code in _BY_WORD else "".join(span.split())
-    return any(_has(code, heard, word) for word in MUST_NOT_SAY[code]) or (code == "ko" and bool(_KO_SPACED_NOT.search(span)))
+def _plain(code: str, text: str) -> str:
+    return text if code in _BY_WORD else "".join(text.split())
 
 
-def _heard(code: str, spoken: str, flat: str, where: list[int], sentence: str) -> bool:
+def _negated(code: str, text: str) -> bool:
+    heard = _plain(code, text)
+    return any(_has(code, heard, word) for word in MUST_NOT_SAY[code]) or (code == "ko" and bool(_KO_SPACED_NOT.search(text)))
+
+
+def _next_word(code: str, spoken: str, at: int) -> str:
+    """맞은 자리 바로 뒤 낱말(문장부호를 건너서 — 쉼표면 빈 글). 베트남어는 두 낱말(「không phải」), 중국어는 세 글자."""
+    while at < len(spoken) and not spoken[at].isalnum():
+        if spoken[at] in _COMMA:
+            return ""
+        at += 1
+    if code == "zh":
+        return spoken[at:at + 3]
+    words = spoken[at:].split()
+    return " ".join(words[:2] if code == "vi" else words[:1])
+
+
+def _heard(code: str, spoken: str, flat: str, where: list[int], sentence: str, core: re.Pattern) -> bool:
     target = _flat(sentence, code)[0]
     ratio, start, end = _best(flat, target)
     if ratio < SIMILAR or end <= start:
         return False
-    # 부정을 볼 자리: 창 둘레(±문장 길이의 1/3)에서 문장 글자가 맞은 첫 글자부터 끝 글자까지 — 가장 비슷한 창이 문장 가운데·끝에 끼어든
-    # 말(「비서가 아닙니다」의 「가 아닙」 · 「tôi không phải là」)을 빼고 잡혀도 그 말까지 덮는다. 문장이 끝난 뒤의 말은 덮지 않는다.
-    around = max(WINDOW_SLACK, len(target) // 3)  # 끼어든 말이 창 밖으로 밀어낸 문장 글자(「tôi」)까지 닿게
+    # 볼 자리: 창 둘레(±문장 길이의 1/3)에서 문장 글자가 맞은 첫 글자부터 끝 글자까지 — 끼어든 말(「가 아닙」 · 「không phải」)까지 덮는다
+    around = max(WINDOW_SLACK, len(target) // 3)
     base = max(0, start - around)
     blocks = [b for b in SequenceMatcher(None, flat[base:end + around], target, autojunk=False).get_matching_blocks() if b.size]
     start, end = base + blocks[0].a, base + blocks[-1].a + blocks[-1].size
     left, right = where[start], where[end - 1] + 1
-    if code != "zh":  # 낱말 끝까지 늘린다(「기록되지 않」의 「않」·「isn't」) — 중국어는 낱말 사이에 빈칸이 없어 창 그대로
+    if code != "zh":  # 낱말 끝까지 늘린다(「기록돼요」·「isn't」) — 중국어는 낱말 사이에 빈칸이 없어 창 그대로
         while left > 0 and spoken[left - 1].isalnum():
             left -= 1
         while right < len(spoken) and (spoken[right].isalnum() or spoken[right] in "'’"):
             right += 1
-    return not _negated(code, spoken[left:right])
+    span = spoken[left:right]
+    if not core.search(_plain(code, span)) or _negated(code, span):
+        return False
+    return not _negated(code, _next_word(code, spoken, right))
+
+
+def _vetoed(code: str, spoken: str) -> bool:
+    """첫 발화 전체에서: 밝힘 낱말이 든 마디에 부정·끔 말이 함께 있거나, 되돌리는 말(「just kidding」)이 어디든 있으면 참(고침 3)."""
+    if any(_has(code, _plain(code, spoken), word) for word in RETRACT[code]):
+        return True
+    for clause in _CLAUSE.split(spoken):
+        heard = _plain(code, clause.strip())
+        if any(_has(code, heard, word) for word in KEYWORDS[code]) and _negated(code, clause.strip()):
+            return True
+    return False
 
 
 def discloses(language: str, spoken: str) -> bool:
     """실제로 한 말에 그 언어의 밝힘 문장(AI 비서 · 기록됨)이 모두 들렸는가(모듈 머리 글). 모르는 언어는 한국어 기준."""
     code = _language(language)
-    text = _spoken(spoken, code) if isinstance(spoken, str) else ""
+    text = _spoken(spoken)
     flat, where = _flat(text, code)
     flat, where = flat[:MAX_HEARD], where[:MAX_HEARD]
-    # _flat 은 이미 고른 글을 다시 고르지만 같은 글이 나온다(자리도 같다)
-    return all(any(_heard(code, text, flat, where, sentence) for sentence in group) for group in DISCLOSURES[code])
+    text = text[:where[-1] + 1] if where else ""
+    if not flat or _vetoed(code, text):
+        return False
+    return all(any(_heard(code, text, flat, where, sentence, core) for sentence in group)
+               for group, core in zip(DISCLOSURES[code], CORE[code], strict=True))

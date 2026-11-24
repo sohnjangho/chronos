@@ -100,7 +100,7 @@ def test_is_korean_reads_the_letters(text, korean):
 @pytest.mark.parametrize("code", sorted(languages.SUPPORTED))
 def test_every_supported_language_has_both_first_lines(code):
     for table in (greeting.FIRST_LINES, greeting.INBOUND_LINES, greeting.INBOUND_LINES_NO_SITE,
-                  greeting.DISCLOSURES, greeting.MUST_NOT_SAY):
+                  greeting.DISCLOSURES, greeting.CORE, greeting.MUST_NOT_SAY, greeting.KEYWORDS, greeting.RETRACT):
         assert code in table
     out_line, in_line = greeting.first_line(code, SITE, NAME), greeting.inbound_line(code, SITE)
     assert SITE in out_line and NAME in out_line and SITE in in_line and "ChronOS" in out_line
@@ -414,11 +414,11 @@ NOISY = {
            "안녕하세요, 가상 물류센터 일정 단당 Kronos AI 비서입니다. 이 통화는 기록됩니다."],  # 두 글자 틀림(긴 문장)
     "en": ["hello this is the chronos ai assistant in charge of the schedule for site a this call is recorded",
            "Hello, this is the Kronos AI assistant in charge of the schedule. This call is recorded.",  # 한 글자 틀림
-           "Hello, this is a ChronOS A.I. assistant in charge of schedules. This call is recordid.",  # 두 곳 틀림
+           "Hello, this is a ChronOS A.I. assistant in charge of schedules. This call is recorded.",  # 두 곳 다름(a · A.I.)
            "Hello, this is the ChronOS AI assistant, not a human. This call is recorded.",  # 다른 곳의 부정
            "Hello, this is the ChronOS AI assistant. This call is recorded and no number is shared."],
     "zh": ["您好 我是负责仓库日程的ChronOS AI助理 本次通话将被录音 请问是王先生吗",
-           "您好，我是负责日程的Chronos AI助里。本次通话将被录音。"],  # 한 글자 틀림
+           "您好，我是负责日呈的Chronos AI助理。本次通话将被录音。"],  # 한 글자 틀림(핵심 낱말 밖)
     "vi": ["xin chào tôi là trợ lý AI ChronOS phụ trách lịch trình của kho cuộc gọi này được ghi âm",
            "Xin chào, tôi là trợ lí AI ChronOS phụ trách lịch trình. Cuộc gọi này được ghi âm."],  # 한 글자 틀림
 }
@@ -488,4 +488,54 @@ def test_disclosure_check_is_bounded_on_long_text():
 
 @pytest.mark.parametrize("said", ["11월 28일(Sat.30) 시작합니다", "Nov30 시작합니다", "30Nov 시작", "12dec 반입", "Mon 09:00 시작"])
 def test_month_and_weekday_names_stuck_to_digits_are_foreign(said):
+    assert languages.has_foreign_words(said)
+
+
+# ── 고침 3: 핵심 낱말 그대로 · 문장 일치 · 마디 거부를 함께, 받아쓰기 변형 허용 ─────────────────────────────
+
+KO_REC, EN_REC = "이 통화는 기록됩니다.", "This call is recorded."
+KO_AI, EN_AI = "안녕하세요, 일정 담당 ChronOS AI 비서입니다.", "Hello, this is the ChronOS AI assistant."
+ATTACKS_3 = {
+    "ko": [f"안녕하세요, 일정 담당 ChronOS 사람 비서입니다. {KO_REC}",
+           f"안녕하세요, 일정 담당 ChronOS 비AI 비서입니다. {KO_REC}",
+           f"안녕하세요, 일정 담당 ChronOS AI 비서였습니다. {KO_REC}",
+           f"안녕하세요, 일정 담당 ChronOS AI 비서입니까? 아뇨. {KO_REC}",
+           f"{KO_AI} 이 통화는 기록됩니다 아님.",
+           f"{KO_AI} 이 통화는 기록됩니까? 아뇨.",
+           f"{KO_AI} 이 통화는 녹음 중지됩니다.",
+           f"{KO_AI} 이 통화는 기록 삭제됩니다.",
+           f"{KO_AI} 이 통화는 기록되었습니다.",
+           f"{KO_AI} 이 통화는 녹음됩니다, 하지만 녹음은 꺼져 있습니다."],
+    "en": [f"Hello, this is the ChronOS human assistant. {EN_REC}",
+           f"Hello, this is the ChronOS non-AI assistant. {EN_REC}",
+           f"Hello, this is the ChronOS ex-AI assistant. {EN_REC}",
+           f"Hello, this is the ChronOS faux AI assistant. {EN_REC}",
+           f"Hello, this is the ChronOS AI assistant? No, I'm a person. {EN_REC}",
+           f"{EN_AI} This call is recorded? No.",
+           f"{EN_AI} This call is unrecorded.",
+           f"{EN_AI} This call is off record.",
+           f"{EN_AI} This call is recorded, recording is off.",
+           f"{EN_AI} This call is recorded. Just kidding, nothing is kept."],
+}
+PASSES_3 = {
+    "ko": [f"{KO_AI} 이 통화는 기록돼요.", f"{KO_AI} 이 통화는 녹음되고 있습니다.",
+           f"안녕하세요 크로노스 에이 아이 비서입니다 {KO_REC}", "안녕하세요 일정 담당 크로너스 에이아이 비서입니다 이 통화는 녹음돼요",
+           f"{KO_AI} {KO_REC} 박현장님 맞으신가요?"],
+    "en": [f"{EN_AI} This call is recorded and no number is shared.", f"{EN_AI} This call is being recorded.",
+           "Hello, this is the ChronOS AI assistant, not a human. This call is recorded."],
+}
+
+
+@pytest.mark.parametrize("code,spoken", [(code, spoken) for code, items in ATTACKS_3.items() for spoken in items])
+def test_round_three_attacks_fail(code, spoken):
+    assert not greeting.discloses(code, spoken), spoken
+
+
+@pytest.mark.parametrize("code,spoken", [(code, spoken) for code, items in PASSES_3.items() for spoken in items])
+def test_korean_asr_variants_and_safe_neighbours_pass(code, spoken):
+    assert greeting.discloses(code, spoken), spoken
+
+
+@pytest.mark.parametrize("said", ["30thNov 시작", "1stNov 반입", "Weds 09:00", "2nd Dec"])
+def test_ordinals_and_weds_are_read_as_dates(said):
     assert languages.has_foreign_words(said)
