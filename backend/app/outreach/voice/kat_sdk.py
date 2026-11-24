@@ -16,7 +16,8 @@ prewarm_enabled=False)`(prewarm 은 고침 1 — 켜 두면 SDK 가 벨 동안 �
 - 모델은 언제나 `numbers.effective_model(provider, model)` — 비면 걸지 않는다(SDK 기본 모델로 두지 않는다. 옛 기본은 404).
 - 키·Account ID·음성 모델 키는 만들 때 `redact.add_secrets`. 걸기 전에 SDK 로거(COVERED)가 `redact.covers` 인지 보고 아니면 걸지 않는다.
   SDK 예외 글은 어디에도 싣지 않는다(종류와 짧은 낱말만). 받아쓰기 글은 손잡이에만 가고 로그에 남기지 않는다.
-- control 연결은 번호당 하나: `place` 안에서만 붙고 끝나면(어떻게 끝나든) 끊는다. 음성 진단과의 배타는 일꾼이 한다
+- control 연결은 번호당 하나: 듣지 않을 때는 `place` 안에서만 붙고 끝나면(어떻게 끝나든) 끊는다. 받는 통화(`listen` — Task 95)가
+  붙어 있으면 `place` 는 그 에이전트로 건다(kat_listen — 번호 하나에 에이전트 하나). 음성 진단과의 배타는 일꾼이 한다
   (runner.run_one 이 줄을 쥐는 동안만 `place` 가 불리고, 진단은 `worker_connected → runner.holds_line` 을 본다).
 - 시험 모드면 허용 번호에만 걸고 넘긴다(문이 이미 봤다 — 둘째 겹). 녹음은 끈다(진단과 같다. `record_to` 는 쓰지 않는다).
 - 끝은 꼭 한 번, 그리고 늘 끝이 있다: 받기 전 사건이 ANSWER_WAIT_S 안에 오지 않음·끊었는데 END_GRACE_S 안에 끝나지 않음·
@@ -123,7 +124,6 @@ NO_ANSWER_EVENT = "건 뒤 받았는지 알리는 사건이 오지 않았습니�
 SESSION_FAILED = "AI 음성 모델 세션을 열지 못했습니다"
 CUT_UNCONFIRMED = "끊었지만 통화가 끝났는지 확인되지 않았습니다"
 TOO_LONG = "통화가 정해진 시간 안에 끝나지 않았습니다"
-NO_LISTEN = "받는 통화는 아직 이 백엔드에 없습니다"
 NO_SAMPLE = "음성 샘플은 음성 SDK 가 제공하지 않습니다"
 
 Sleep = Callable[[float], Awaitable[None]]
@@ -276,15 +276,32 @@ class KatVoice:
             raise VoiceError(found)
         sdk = self._sdk if self._sdk is not None else _load()
         rest = self._sdk if self._sdk is not None else _load(REST_MODULE)
+        from app.outreach.voice import kat_listen
+
+        if self._s.agent_number in kat_listen.AGENTS:  # 듣는 에이전트로 건다 — 둘째 연결은 듣던 연결을 밀어낸다
+            return await kat_listen.place(self, spec, handlers, target)
         line = _Line(self, sdk, rest, spec, handlers, target)
-        with _quiet_sdk(line.clean, SDK_LOGGERS, READY_ENV, watch=line.saw):
+        with kat_listen.holding(self._s.agent_number), _quiet_sdk(line.clean, SDK_LOGGERS, READY_ENV, watch=line.saw):
             try:
                 await line.run()
             finally:
                 await asyncio.shield(line.close())
 
     async def listen(self, number: str, on_incoming: Callable[[Incoming], Awaitable[object]]) -> None:
-        raise VoiceError(NO_LISTEN)  # 받는 통화는 Task 95
+        from app.outreach.voice import kat_listen
+
+        await kat_listen.listen(self, number, on_incoming)  # 받는 쪽(Task 95) — 번호 하나에 에이전트 하나
+
+    async def missed_calls(self, since: object, until: object) -> list:
+        """앱이 꺼진 동안 받지 못한 받는 통화(공개 REST 의 통화 목록 — kat_listen.missed_calls)."""
+        from app.outreach.voice import kat_listen
+
+        return await kat_listen.missed_calls(self, since, until)
+
+    @property
+    def binding(self) -> int:
+        """이 백엔드가 붙을 설정의 해시(키·번호 — 값은 싣지 않는다). 받는 쪽이 바뀐 설정을 알아보고 다시 붙는다."""
+        return hash(self._s)
 
     async def voices(self, language: str) -> list[VoiceInfo]:
         return []  # SDK 에 음성 목록이 없다(P9). 음성은 설정·연락처에 손으로 넣은 이름(없으면 세션 기본값 — 구글 Kore · OpenAI marin)
@@ -381,6 +398,7 @@ class _Line:
         self.transferring: asyncio.Future | None = None
         self.futures: list[asyncio.Future] = []
         self.dialing: asyncio.Future | None = None  # agent.call — 돌아오는 순간 취소돼도 통화를 놓치지 않게
+        self.owns_agent = True  # 이 통화가 만든 에이전트(끝나면 닫는다) — 듣는 에이전트 위의 통화는 kat_listen
 
     def clean(self, text: object, limit: int = 300) -> str:
         return diagnostics.scrub(text, secrets=self.secrets, numbers=self.numbers, limit=limit)
@@ -742,7 +760,7 @@ class _Line:
                 await self.end_by_rest()
         if self.transferring is not None and not self.transferring.done():
             self.transferring.cancel()
-        if self.agent is not None:
+        if self.agent is not None and self.owns_agent:
             try:
                 await self.bounded(self.agent.disconnect(), SDK_HANGUP_S)
             except Exception:  # noqa: BLE001, S110

@@ -186,8 +186,10 @@ def live() -> int:
 
 def holds_line(number: str | None = None) -> bool:
     """일꾼이 음성 백엔드의 연결을 쥐고 있는가(걸기 직전부터 통화가 끝날 때까지). 번호와 상관없이 닫힌 쪽으로 답한다 — 음성 진단이
-    이것으로 붙지 않는다."""
-    return _state.holding is not None or bool(_state.live)
+    이것으로 붙지 않는다. 받는 통화의 듣기(Task 95)가 걸려 있어도 쥐고 있다."""
+    from app.outreach.voice import inbound
+
+    return _state.holding is not None or bool(_state.live) or inbound.listening()
 
 
 def hangup(call_id: int) -> bool:
@@ -203,8 +205,10 @@ def hangup(call_id: int) -> bool:
 
 def status() -> dict:
     """일꾼의 지금 모습(개발 콘솔 진단이 읽는다) — 메모리 값과 백엔드 준비 상태뿐. 번호·키·글은 없다."""
+    from app.outreach.voice import inbound
+
     s = _state
-    return {"running": s.running, "live": live(), "backend": _backend_state(), "listening": False,
+    return {"running": s.running, "live": live(), "backend": _backend_state(), "listening": inbound.listening(),
             "last_call_at": None if s.last_call_at is None else as_utc(s.last_call_at).isoformat(),
             "last_error_kind": s.last_error_kind, "off_reason": s.off_reason}
 
@@ -572,6 +576,9 @@ def start() -> None:
     state.stop, state.wake = asyncio.Event(), asyncio.Event()
     state.running = True
     state.task = asyncio.create_task(_run(state.stop, _now()), name="outreach-call-runner")
+    from app.outreach.voice import inbound
+
+    inbound.start()  # 받는 통화의 듣기 고리(Task 95) — 받는 범위가 「받지 않음」이면 듣지 않는다
     logger.info("통화 일꾼: 띄웁니다")
 
 
@@ -597,4 +604,7 @@ async def stop() -> None:
         raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("통화 일꾼: 멈추는 중 오류 (%s)", _kind(exc))
+    from app.outreach.voice import inbound
+
+    await inbound.stop()  # 받는 쪽도 접는다(통화 중이던 받는 통화는 위에서 끊기를 건넸다 — 같은 live 에 있다)
     state.stop = None

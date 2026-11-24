@@ -1,4 +1,4 @@
-"""거는 통화의 음성 모델 지시문(Task 88). 글 쪽과 같은 고정 줄(rules_text.FIXED)과 우리가 건 상대의 범위 단락을 그대로 쓰고,
+"""거는 통화(Task 88)·받는 통화(Task 95)의 음성 모델 지시문. 글 쪽과 같은 고정 줄(rules_text.FIXED)과 우리가 건 상대의 범위 단락을 그대로 쓰고,
 통화에만 있는 줄을 더한다. 번호·키는 넣지 않는다.
 
 - **번호를 넣지 않는 것이 첫째 줄이다**(리뷰 판정 18): 이 글에는 사람이 적은 자유 글(목적·질문·피할 것·이름)만 들어가고, 넣기 전에
@@ -23,6 +23,15 @@ CALL_LINES = (
     "음성사서함이나 자동 응답으로 넘어가면 말을 남기지 않고 end_call (voicemail) 로 끊습니다.",
     "받은 분이 담당자가 아니면 누가 담당인지 여쭤보고 find_contact 를 redirect=true 로 부릅니다.",
     "전화번호를 말하거나 받아 적지 않습니다. 새 연락처를 알려 주시면 propose_contact 로만 남깁니다.",
+    "용건이 끝나면 인사하고 end_call (done) 으로 끊습니다.",
+)
+
+
+INBOUND_LINES = (  # 받는 통화에만 있는 줄(Task 95) — 도구 이름은 그 등급이 받은 것만 쓰인다(없는 도구는 부를 수 없다)
+    "이 통화는 상대가 걸어 온 전화입니다. 처음 인사에서 AI 비서이고 통화가 기록된다는 것을 밝힙니다.",
+    "상대가 묻는 것에만 답하고, 아래 범위 밖의 것은 「말씀드릴 수 없는 내용입니다」라고 답합니다.",
+    "전화번호를 말하거나 받아 적지 않습니다.",
+    "음성사서함이나 자동 응답이면 말을 남기지 않고 end_call 로 끊습니다.",
     "용건이 끝나면 인사하고 end_call (done) 으로 끊습니다.",
 )
 
@@ -60,4 +69,17 @@ def outbound(site: str, contact_name: str, role_title: str, company: str, purpos
     kept = _items(avoid)
     if kept:
         lines += ["", "말하지 않을 것:", *(f"- {item}" for item in kept)]
+    return "\n".join(lines)
+
+
+def inbound(caller_class: str, site: str | None, name: str | None, language: str) -> str:
+    """받는 통화의 지시문(Task 95). 범위 단락·고정 줄은 하네스의 rules_text 그대로, 등급 이름·번호는 글에 없다. site·name 은
+    번호로 정한 상대가 한 현장·한 사람일 때만 넣는다(자유 글은 가린 뒤에). 등급표 밖이면 ValueError."""
+    lines = ["당신은 건설 현장 일정 담당 ChronOS AI 비서입니다. 걸려 온 전화를 받아 일정에 관한 물음에 답합니다."]
+    if _clean(site):
+        lines.append(f"현장: {_clean(site)}")
+    if _clean(name):
+        lines.append(f"상대 이름(주소록): {_clean(name)}")
+    lines += [f"대화 언어 코드: {_clean(language) or 'ko'}", "", rules_text.scope_paragraph(caller_class),
+              *rules_text.FIXED.values(), *INBOUND_LINES]
     return "\n".join(lines)
