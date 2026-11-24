@@ -42,6 +42,9 @@ __all__ = [
     "ToolToggleOut",
     "TurnDetail",
     "TurnOut",
+    "UpdateEntryOut",
+    "UpdateItemOut",
+    "UpdatesOut",
     "UsageCountersOut",
     "UsageGroup",
     "UsageOut",
@@ -482,3 +485,27 @@ class ToolToggleIn(BaseModel):
 class ToolToggleOut(BaseModel):
     name: str
     enabled: bool
+
+
+class UpdateItemOut(BaseModel):
+    """업데이트 내역 한 줄. note = 작게 붙는 덧말(없으면 null)."""
+
+    text: str
+    note: str | None = None
+
+
+class UpdateEntryOut(BaseModel):
+    """실서버에 올린 판 하나(deploy/updates.jsonl 한 줄)."""
+
+    at: datetime  # 시간대가 붙은 때(+09:00)
+    commit: str  # 짧은 커밋
+    title: str
+    notice: str | None = None  # 모두에게 알릴 한 줄(예: 다시 로그인)
+    added: list[UpdateItemOut] = Field(default_factory=list)  # 새 기능
+    fixed: list[UpdateItemOut] = Field(default_factory=list)  # 고침
+    safety: list[UpdateItemOut] = Field(default_factory=list)  # 안전
+
+
+class UpdatesOut(BaseModel):
+    entries: list[UpdateEntryOut]  # 새것이 위, 많아야 MAX_ENTRIES
+    running_commit: str | None  # 서버가 켤 때 읽은 자기 git HEAD(짧은 꼴), 못 읽으면 null

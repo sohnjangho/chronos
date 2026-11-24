@@ -18,6 +18,7 @@ import {
   mockTurnSequence,
   mockUsage,
   notifyHealth,
+  openCheck,
   outreachDetail,
   outreachRow,
   running,
@@ -62,7 +63,7 @@ afterEach(() => {
 });
 
 describe('지시서 시험', () => {
-  test('seven tabs including harness, sources, registry, and health', () => {
+  test('eight tabs including harness, sources, registry, health and updates', () => {
     show();
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
       '에이전트 구조',
@@ -72,6 +73,7 @@ describe('지시서 시험', () => {
       '시스템 진단',
       '실행 추적',
       '사용량·비용',
+      '업데이트 내역',
     ]);
   });
 
@@ -462,8 +464,8 @@ describe('Fix round 1', () => {
 
   test('health tab renders diagnostics and stops an active turn', async () => {
     render(<DevConsole windowId="w1" params={{ tab: 'health' }} />);
-    expect(await screen.findByText('기본 연결 및 인증 키 준비됨')).toBeVisible();
-    expect(screen.getByText('연결 정상 (컬렉션 1개 · 벡터 42건)')).toBeVisible();
+    expect(await openCheck('AI 모델 연결')).toHaveTextContent('기본 연결 및 인증 키 준비됨');
+    expect(await openCheck('벡터 검색 서버')).toHaveTextContent('연결 정상 (컬렉션 1개 · 벡터 42건)');
     expect(screen.getByText('골조 지연 만회')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: '강제 중단' }));
     await waitFor(() => expect(urls().some((u) => u === '/api/devconsole/turns/7/stop')).toBe(true));
@@ -592,11 +594,11 @@ describe('연락 — 실행 추적 · 알림 연결 · 문자 사용량 (Task 10
   test('the health tab shows the notify connection, worker times and the stored diagnosis with one failure and one needs-check', async () => {
     mockHealth({ notify: notifyHealth() });
     render(<DevConsole windowId="w1" params={{ tab: 'health' }} />);
-    const card = await screen.findByRole('article', { name: '알림 연결' });
+    const card = await openCheck('문자 연결');
     expect(card).toHaveTextContent('시험 모드켬');
     expect(card).toHaveTextContent('허용 번호2개');
     expect(card).toHaveTextContent('070-****-0123');
-    expect(card).toHaveTextContent('확인 필요 1건');
+    expect(card).toHaveTextContent('확인 필요1건');
     const worker = within(card).getByRole('group', { name: '조회 일꾼' });
     expect(worker).toHaveTextContent('돌고 있음');
     expect(worker).toHaveTextContent('받은 문자 조회아직 없음');
@@ -614,7 +616,7 @@ describe('연락 — 실행 추적 · 알림 연결 · 문자 사용량 (Task 10
   test('the health tab says when there is no notify connection', async () => {
     mockHealth({ notify: { ...notifyHealth(), connected: false } });
     render(<DevConsole windowId="w1" params={{ tab: 'health' }} />);
-    const card = await screen.findByRole('article', { name: '알림 연결' });
+    const card = await openCheck('문자 연결');
     expect(card).toHaveTextContent('알림 연결이 없습니다');
     expect(within(card).queryByRole('list', { name: '마지막 연결 진단' })).toBeNull();
   });

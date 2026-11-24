@@ -4,7 +4,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import DevConsole from './DevConsole';
-import { callDetail, done, mockHealth, mockOutreach, mockOutreachList, mockTurn, mockUsage, notifyHealth, outreachRow, setup, urls, voiceHealth } from './testKit';
+import { callDetail, done, mockHealth, mockOutreach, mockOutreachList, mockTurn, mockUsage, notifyHealth, openCheck, outreachRow, setup, urls, voiceHealth } from './testKit';
 
 const show = (tab?: string) => render(<DevConsole windowId="w1" params={tab ? { tab } : undefined} />);
 const CALL = outreachRow({ kind: 'call', id: 77, channel: 'call', caller_class: 'outbound', status: 'failed', needs_check: true, contact_name: '나가상', company_name: '동해설비' });
@@ -102,8 +102,8 @@ describe('시스템 진단 — AI 전화', () => {
   test('shows the model, SDK, worker state and the stored voice diagnosis lines without calling anything', async () => {
     mockHealth({ notify: notifyHealth({ voice: voiceHealth() }) });
     show('health');
-    const card = await screen.findByRole('article', { name: 'AI 전화' });
-    expect(card).toHaveTextContent('연결됨');
+    const card = await openCheck('AI 전화');
+    expect(card).toHaveTextContent('마지막 음성 진단 판정정상');
     expect(card).toHaveTextContent('구글(Gemini Live)');
     expect(card).toHaveTextContent('gemini-3.8-live');
     expect(card).toHaveTextContent('설치됨');
@@ -115,7 +115,7 @@ describe('시스템 진단 — AI 전화', () => {
     const lines = within(card).getByRole('list', { name: '마지막 음성 진단' });
     const rows = within(lines).getAllByRole('listitem');
     expect(rows.map((r) => within(r).getByText(/정상|확인 필요|실패|건너뜀/).textContent)).toEqual(['정상', '확인 필요', '실패', '건너뜀']);
-    expect(within(screen.getByRole('article', { name: '알림 연결' })).getByText('설정됨 — 아래 「AI 전화」 칸')).toBeVisible();
+    expect(within(await openCheck('문자 연결')).getByText('설정됨 — 「AI 전화」 줄')).toBeVisible();
     expect(urls().some((u) => u.includes('diagnose') || u.includes('/voice'))).toBe(false);
   });
 
@@ -123,7 +123,7 @@ describe('시스템 진단 — AI 전화', () => {
     const base = voiceHealth();
     mockHealth({ notify: notifyHealth({ voice: voiceHealth({ worker: { ...base.worker, listening: false, listen_reason: 'taken_over' } }) }) });
     show('health');
-    const card = await screen.findByRole('article', { name: 'AI 전화' });
+    const card = await openCheck('AI 전화');
     const worker = within(card).getByRole('group', { name: '통화 일꾼' });
     expect(worker).toHaveTextContent('붙어 있지 않음 — 다른 접속이 이 번호를 가져감');
     expect(within(card).getByRole('note')).toHaveTextContent('음성 설정을 바꾸거나, 받는 범위를 껐다 켜거나, 서버를 다시 시작하면 다시 붙습니다.');
@@ -133,7 +133,7 @@ describe('시스템 진단 — AI 전화', () => {
     const base = voiceHealth();
     mockHealth({ notify: notifyHealth({ voice: voiceHealth({ worker: { ...base.worker, listening: false, listen_reason: 'off' } }) }) });
     show('health');
-    const card = await screen.findByRole('article', { name: 'AI 전화' });
+    const card = await openCheck('AI 전화');
     expect(within(card).getByRole('group', { name: '통화 일꾼' })).toHaveTextContent('받는 범위가 「받지 않음」');
     expect(within(card).queryByRole('note')).toBeNull();
   });
@@ -141,8 +141,8 @@ describe('시스템 진단 — AI 전화', () => {
   test('no AI 전화 card without voice settings', async () => {
     mockHealth({ notify: notifyHealth() });
     show('health');
-    await screen.findByRole('article', { name: '알림 연결' });
-    expect(screen.queryByRole('article', { name: 'AI 전화' })).toBeNull();
+    await openCheck('문자 연결');
+    expect(screen.queryByRole('button', { name: /^AI 전화 —/ })).toBeNull();
   });
 });
 

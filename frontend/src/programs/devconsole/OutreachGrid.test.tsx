@@ -14,6 +14,7 @@ import {
   mockHealth,
   mockUsage,
   notifyHealth,
+  openCheck,
   outreachGrid,
   setup,
   urls,
@@ -187,7 +188,7 @@ describe('받는 통화', () => {
     const v = voiceHealth();
     mockHealth({ notify: notifyHealth({ voice: { ...v, worker: { ...(v.worker ?? {}), listening: true, listen_reason: null } } }) });
     render(<DevConsole windowId="w1" params={{ tab: 'health' }} />);
-    const worker = await screen.findByRole('group', { name: '통화 일꾼' });
+    const worker = within(await openCheck('AI 전화')).getByRole('group', { name: '통화 일꾼' });
     expect(within(worker).getByText('받는 중(번호 묶임)')).toBeVisible();
   });
 

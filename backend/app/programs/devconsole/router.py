@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.programs.devconsole import catalog, outreach_view, service
+from app.programs.devconsole import catalog, outreach_view, service, updates
 from app.programs.devconsole.schemas import (
     AgentConfigOut,
     AgentConfigPatch,
@@ -17,6 +17,7 @@ from app.programs.devconsole.schemas import (
     ToolToggleOut,
     TurnDetail,
     TurnOut,
+    UpdatesOut,
     UsageGroup,
 )
 from app.security.deps import require_admin
@@ -82,6 +83,11 @@ def write_agent_config(body: AgentConfigPatch, session: SessionDep) -> AgentConf
 @router.get("/health")
 def read_health(session: SessionDep) -> HealthOut:
     return service.health(session)
+
+
+@router.get("/updates")
+def read_updates() -> UpdatesOut:
+    return updates.listing()  # deploy/updates.jsonl 새것부터 + 지금 실서버 판(켤 때 읽은 커밋)
 
 
 @router.post("/turns/{chat_id}/stop")

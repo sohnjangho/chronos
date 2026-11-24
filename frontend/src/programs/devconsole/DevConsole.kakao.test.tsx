@@ -3,7 +3,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import DevConsole from './DevConsole';
-import { kakaoHealth, mockHealth, mockUsage, notifyHealth, setup, urls } from './testKit';
+import { kakaoHealth, mockHealth, mockUsage, notifyHealth, openCheck, setup, urls } from './testKit';
 
 const show = (tab: string) => render(<DevConsole windowId="w1" params={{ tab }} />);
 
@@ -19,22 +19,22 @@ describe('시스템 진단 — 카카오톡', () => {
   test('shows the stored channel and template counts without calling anything', async () => {
     mockHealth({ notify: notifyHealth({ kakao: kakaoHealth() }) });
     show('health');
-    const card = await screen.findByRole('article', { name: '카카오톡' });
+    const card = await openCheck('카카오톡');
     expect(card).toHaveTextContent('한빛 현장 채널');
     expect(card).toHaveTextContent('준비 안 됨');
     expect(within(card).getByText('문안 승인').nextElementSibling).toHaveTextContent('2개');
     expect(within(card).getByText('문안 검수 중').nextElementSibling).toHaveTextContent('1개');
     expect(within(card).getByText('문안 반려').nextElementSibling).toHaveTextContent('1개');
     expect(within(card).getByText('문안 휴면').nextElementSibling).toHaveTextContent('3개');
-    expect(within(screen.getByRole('article', { name: '알림 연결' })).getByText('아래 「카카오톡」 칸')).toBeVisible();
+    expect(within(await openCheck('문자 연결')).getByText('「카카오톡」 줄')).toBeVisible();
     expect(urls().some((u) => u.includes('kakao') || u.includes('/notify'))).toBe(false);
   });
 
   test('says there is no channel and that kakao is not used', async () => {
     mockHealth({ notify: notifyHealth({ kakao: kakaoHealth({ channel: null, templates: { approved: 0, reviewing: 0, rejected: 0, dormant: 0 }, synced_at: null }) }) });
     show('health');
-    const card = await screen.findByRole('article', { name: '카카오톡' });
-    expect(card).toHaveTextContent('카카오톡: 연결된 채널 없음 — 쓰지 않음');
+    const card = await openCheck('카카오톡');
+    expect(card).toHaveTextContent('연결된 채널 없음 — 쓰지 않음');
     expect(within(card).queryByText('문안 승인')).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 // 개발 콘솔 시험 전용 도우미. 화면 코드는 이 파일을 import 하지 않는다. 사람·현장·모델 이름은 모두 가상이다.
+import { fireEvent, screen, within } from '@testing-library/react';
 import { vi } from 'vitest';
 import { json, signInAsDemo } from '../../test-helpers';
 import type {
@@ -399,6 +400,8 @@ function healthSample() {
 
 let sampleCatalog = catalogSample();
 let sampleHealth: Record<string, unknown> = healthSample();
+/** 업데이트 내역(가상) — 없으면 빈 기록. */
+let updatesBody: unknown = { entries: [], running_commit: null };
 let outreachRows: OutreachRow[] = [];
 let outreachMore = false;
 const outreachById = new Map<string, OutreachDetail>();
@@ -416,6 +419,7 @@ export function setup(role: 'admin' | 'user' = 'admin') {
   limitsBody = LIMITS();
   sampleCatalog = catalogSample();
   sampleHealth = healthSample();
+  updatesBody = { entries: [], running_commit: null };
   outreachRows = OUTREACH_ROWS();
   outreachMore = false;
   outreachById.clear();
@@ -432,6 +436,7 @@ export function setup(role: 'admin' | 'user' = 'admin') {
     if (url.startsWith('/api/devconsole/usage?')) return json(200, usageBody);
     if (url === '/api/devconsole/catalog') return json(200, sampleCatalog);
     if (url === '/api/devconsole/health') return json(200, sampleHealth);
+    if (url === '/api/devconsole/updates') return json(200, updatesBody);
     if (/^\/api\/devconsole\/turns\/\d+\/stop$/.test(url) && init?.method === 'POST') {
       return json(200, { chat_session_id: 7, stopped: true });
     }
@@ -539,6 +544,15 @@ function harnessOut(ruleId: string): HarnessTestOut {
 export const mockCatalog = (edit: (c: ReturnType<typeof catalogSample>) => void) => edit(sampleCatalog);
 /** 시스템 진단에 칸을 더한다(새 서버의 info_api·evidence_reuse·holidays·vision). */
 export const mockHealth = (extra: Record<string, unknown>) => void (sampleHealth = { ...sampleHealth, ...extra });
+/** 업데이트 내역 응답. */
+export const mockUpdates = (body: unknown) => void (updatesBody = body);
+/** 시스템 진단의 영역 묶음에서 이름으로 줄을 펼치고 그 자세히 칸을 준다(「먼저 볼 것」에도 같은 줄이 있을 수 있다). */
+export async function openCheck(name: string): Promise<HTMLElement> {
+  const groups = await screen.findByRole('group', { name: '영역 묶음' });
+  const button = within(groups).getByRole('button', { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} —`) });
+  if (button.getAttribute('aria-expanded') !== 'true') fireEvent.click(button);
+  return within(groups).getByRole('region', { name: `${name} 자세히` });
+}
 /** 연락 기록 목록(more = 상한 밖에 더 있음)과 상세(kind/id 열쇠). */
 export const mockOutreachList = (rows: OutreachRow[], more = false) => void ((outreachRows = rows), (outreachMore = more));
 export const mockOutreach = (kind: string, id: number, d: OutreachDetail) => void outreachById.set(`${kind}/${id}`, d);

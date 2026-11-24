@@ -17,11 +17,12 @@ import SourcesTab from './SourcesTab';
 import TraceTimeline from './TraceTimeline';
 import TurnFlowDiagram from './TurnFlowDiagram';
 import TurnPicker from './TurnPicker';
+import UpdatesTab from './UpdatesTab';
 import UsageTab from './UsageTab';
 import { useTurnData } from './useTurnData';
 import './devconsole.css';
 
-type Tab = 'structure' | 'harness' | 'sources' | 'registry' | 'health' | 'trace' | 'usage';
+type Tab = 'structure' | 'harness' | 'sources' | 'registry' | 'health' | 'trace' | 'usage' | 'updates';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'structure', label: '에이전트 구조' },
   { id: 'harness', label: '하네스·차단 시험' },
@@ -30,6 +31,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'health', label: '시스템 진단' },
   { id: 'trace', label: '실행 추적' },
   { id: 'usage', label: '사용량·비용' },
+  { id: 'updates', label: '업데이트 내역' },
 ];
 
 /** active 인 동안 1초마다 다시 그린다(걸린 시간 「n초째」 를 위해). */
@@ -221,6 +223,7 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
       <div className="dc-body" role="tabpanel" aria-label={TABS.find((t) => t.id === tab)!.label}>
         {tab === 'usage' && <UsageTab />}
         {tab === 'health' && <HealthTab />}
+        {tab === 'updates' && <UpdatesTab />}
         {catTab && !catalog && <p className="dc-empty">원천 카탈로그를 불러오는 중…</p>}
         {tab === 'harness' && catalog && <HarnessTab catalog={catalog} onSaved={reloadCatalog} />}
         {tab === 'sources' && catalog && <SourcesTab catalog={catalog} />}

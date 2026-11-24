@@ -547,6 +547,29 @@ export interface VisionHealth {
   message: string;
 }
 
+/** 업데이트 내역 한 줄(note = 작게 붙는 덧말). */
+export interface UpdateItem {
+  text: string;
+  note: string | null;
+}
+
+/** 실서버에 올린 판 하나(deploy/updates.jsonl 한 줄). at 은 시간대가 붙은 ISO. */
+export interface UpdateEntry {
+  at: string;
+  commit: string;
+  title: string;
+  notice: string | null;
+  added: UpdateItem[];
+  fixed: UpdateItem[];
+  safety: UpdateItem[];
+}
+
+/** 새것이 위. running_commit = 서버가 켤 때 읽은 자기 커밋(못 읽으면 null). */
+export interface UpdatesOut {
+  entries: UpdateEntry[];
+  running_commit: string | null;
+}
+
 export const RECENT = 30;
 
 export const devApi = {
@@ -563,6 +586,7 @@ export const devApi = {
   saveAgentConfig: (cfg: AgentConfig) =>
     api<AgentConfig>('/api/devconsole/agent-config', { method: 'PUT', body: JSON.stringify(cfg) }),
   health: () => api<HealthOut>('/api/devconsole/health'),
+  updates: () => api<UpdatesOut>('/api/devconsole/updates'),
   stopTurn: (chatId: number) =>
     api<{ chat_session_id: number; stopped: boolean }>(`/api/devconsole/turns/${chatId}/stop`, { method: 'POST' }),
   setToolEnabled: (name: string, enabled: boolean) =>

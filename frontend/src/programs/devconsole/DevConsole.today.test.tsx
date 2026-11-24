@@ -4,7 +4,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import DevConsole from './DevConsole';
-import { done, mockCatalog, mockHealth, mockTurn, mockUsage, setup } from './testKit';
+import { done, mockCatalog, mockHealth, mockTurn, mockUsage, openCheck, setup } from './testKit';
 
 const structure = () => screen.findByRole('group', { name: '에이전트 구조' });
 const show = (tab?: string) => render(<DevConsole windowId="w1" params={tab ? { tab } : undefined} />);
@@ -165,25 +165,23 @@ describe('시스템 진단 — 정보 API·근거 다시 쓰기·공휴일 표·
   test('new cards show info connections, reuse against searches, holiday years and the vision assignment', async () => {
     mockHealth(NEW);
     show('health');
-    const info = await screen.findByRole('article', { name: '정보 API 연결' });
-    expect(within(info).getByText('공휴일 API')).toBeVisible();
-    expect(within(info).getByText('범용')).toBeVisible();
-    expect(within(info).getByText('기상청 전용')).toBeVisible();
-    expect(within(info).getByText('시험 안 함')).toBeVisible();
-    const reuse = screen.getByRole('article', { name: '근거 다시 쓰기' });
+    const info = await openCheck('정보 API');
+    expect(within(info).getByText('공휴일 API (범용)')).toBeVisible();
+    expect(within(info).getByText('기상청 (기상청 전용)').nextElementSibling).toHaveTextContent('실패 · 시험 안 함');
+    const reuse = await openCheck('근거 다시 쓰기');
     expect(within(reuse).getByText('4건')).toBeVisible();
     expect(within(reuse).getByText('6회 / 9회')).toBeVisible();
-    expect(within(screen.getByRole('article', { name: '공휴일 표' })).getByText('2026 · 2027 · 2028')).toBeVisible();
-    const vision = screen.getByRole('article', { name: '그림 읽기 배정' });
+    expect(within(await openCheck('공휴일 표')).getByText('2026 · 2027 · 2028')).toBeVisible();
+    const vision = await openCheck('그림 읽기');
     expect(within(vision).getByText('liner-claude-router')).toBeVisible();
     expect(within(vision).getByText('기본값')).toBeVisible();
   });
 
   test('an older server without the new fields shows only the old cards', async () => {
     show('health');
-    await screen.findByText('기본 연결 및 인증 키 준비됨');
-    expect(screen.queryByRole('article', { name: '정보 API 연결' })).toBeNull();
-    expect(screen.queryByRole('article', { name: '공휴일 표' })).toBeNull();
+    await screen.findByText('모두 정상');
+    expect(screen.queryByRole('button', { name: /^정보 API —/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^공휴일 표 —/ })).toBeNull();
   });
 });
 
