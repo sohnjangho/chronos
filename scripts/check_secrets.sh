@@ -36,5 +36,7 @@ scan() {
 
 scan "API 키(sk-…)로 보이는 문자열이 있다." -nIE 'sk-[A-Za-z0-9]{20,}'
 scan "api_key 값으로 보이는 문자열이 있다." -nIiE "api[_-]?key[[:space:]]*[:=][[:space:]]*['\"][A-Za-z0-9]{16,}"
+# 개인 홈·세션 절대 경로(계정 이름이 드러난다). 허용: 시험용 가짜 경로 /Users/someone/.
+scan "개인 홈 절대 경로(/Users/…, -Users-…)가 있다. ~/… 나 저장소 상대 경로로 바꿀 것." -nIE -e '/Users/|-Users-' --and --not -e '/Users/someone/'
 
 exit "$found"
