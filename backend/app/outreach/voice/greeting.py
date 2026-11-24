@@ -79,7 +79,7 @@ MAX_HEARD = 600  # 보는 받아쓰기 글자(고른 뒤) — 첫 발화는 짧�
 # 부정·끔 말: 맞은 자리 안, 그 자리 바로 뒤 낱말 하나(쉼표를 건너지 않고 · 「recorded? No.」), 그리고 밝힘 낱말(KEYWORDS)이 든 마디 어디든 있으면 밝힌 것이 아니다.
 MUST_NOT_SAY = {
     "ko": ("않", "아니", "아닙", "아닌", "아님", "아뇨", "아냐", "못", "없", "꺼", "껐", "중단", "중지", "정지", "해제", "금지", "생략",
-           "삭제", "제외", "미녹음", "비녹음"),
+           "삭제", "제외", "미녹음", "비녹음", "무녹음", "미기록", "비기록"),
     "en": ("not", "n't", "n’t", "no", "never", "without", "cannot", "neither", "none", "off", "stop", "stopped", "disabled",
            "nothing", "zero", "nope", "false", "kidding"),
     "zh": ("不是", "不会", "不會", "没有", "沒有", "不录", "不錄", "不记录", "不記錄", "并非", "並非", "不被", "无", "無", "关闭", "停止",
@@ -250,7 +250,8 @@ def _neutral(code: str, text: str, names: list[str]) -> str:
         words = [word for word in re.split(r"[^\w]+", _spoken(name)) if word]
         if not words:
             continue
-        pattern = re.compile(r"[^\w]*".join(re.escape(word) for word in words))
+        # 낱말 경계로(라틴 글자·숫자에 붙지 않게 — 「No」가 「Nothing」을 가리지 않는다). 한글 조사(「님」)·한자 앞뒤에는 붙어도 된다
+        pattern = re.compile(r"(?<![a-z0-9])" + r"[^\w]*".join(re.escape(word) for word in words) + r"(?![a-z0-9])")
         text = pattern.sub(lambda hit: "q" * len(hit.group()), text)
     return text
 

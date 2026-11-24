@@ -543,7 +543,8 @@ def test_ordinals_and_weds_are_read_as_dates(said):
 
 # ── 고침 3 덧: 현장·사람 이름 안의 낱말은 부정으로 보지 않는다 ─────────────────────────────
 
-NAMED = [("en", "No.3 plant", "Park"), ("ko", "못골 현장", "박현장"), ("zh", "无锡工厂", "王先生"), ("en", "Main yard", "Noah Not")]
+NAMED = [("en", "No.3 plant", "Park"), ("ko", "못골 현장", "박현장"), ("zh", "无锡工厂", "王先生"), ("en", "Main yard", "Noah Not"),
+         ("ko", "가상 물류센터", "못골")]  # 사람 이름 뒤에 「님」이 붙어도 가린다
 
 
 @pytest.mark.parametrize("code,site,name", NAMED)
@@ -580,3 +581,18 @@ async def test_call_to_a_site_whose_name_holds_an_off_word_is_not_hung_up(sessio
     assert "No.3 plant" in sim.calls[0].spec.first_line
     back = reread(session, row)
     assert back.fail_reason != call_run.NOT_DISCLOSED and back.status == "completed"
+
+
+def test_a_short_name_masks_only_whole_words():
+    """이름 가림은 낱말 경계로 — 사람 이름 「No」가 「Nothing」의 앞을 가리지 않는다."""
+    first = greeting.first_line("en", "Main yard", "No")
+    assert greeting.discloses("en", first, first)
+    for spoken in ("Hello, this is the ChronOS AI assistant in charge of the schedule for Main yard. Nothing is recorded.",
+                   ("Hello, this is the ChronOS AI assistant in charge of the schedule for Main yard. "
+                    "This call is recorded and nothing is recorded.")):
+        assert not greeting.discloses("en", spoken, first), spoken
+
+
+@pytest.mark.parametrize("word", ["미기록", "비기록", "무녹음"])
+def test_korean_not_recorded_nouns_fail(word):
+    assert not greeting.discloses("ko", f"{KO_AI} 이 통화는 기록됩니다, {word}입니다.")
