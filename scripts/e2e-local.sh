@@ -116,11 +116,18 @@ fi
 
 echo "==> Playwright (1920×1080)"
 cd "${ROOT}/frontend"
+status=0
 E2E_SHOTS_DIR="${SHOTS}" E2E_BASE_URL="http://127.0.0.1:${WEB_PORT}" E2E_LOGIN_ID="${CHRONOS_ADMIN_ID}" \
   E2E_PASSWORD="${CHRONOS_ADMIN_PASSWORD}" E2E_OUTPUT_DIR="${WORK}/playwright" \
-  npx playwright test "$@"
+  npx playwright test "$@" || status=$?
+# 어느 시험이든(통과·실패 상관없이) 시험 서버가 내 컴퓨터 밖으로 나가려 했으면 실패로 끝낸다
 if [ -s "${CHRONOS_E2E_REFUSED_LOG}" ]; then
-  echo "알림: 시험 서버가 내 컴퓨터 밖 연결을 막았습니다:" >&2
+  echo "오류: 시험 서버가 내 컴퓨터 밖 연결을 막았습니다(시험은 바깥에 닿으면 안 됩니다):" >&2
   cat "${CHRONOS_E2E_REFUSED_LOG}" >&2
+  [ "${status}" -ne 0 ] || status=1
+fi
+if [ "${status}" -ne 0 ]; then
+  echo "끝에서 끝까지 시험 실패(종료 코드 ${status})" >&2
+  exit "${status}"
 fi
 echo "끝에서 끝까지 시험 통과 — 화면: ${SHOTS}"
