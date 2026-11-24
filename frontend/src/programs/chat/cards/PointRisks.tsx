@@ -1,6 +1,7 @@
 // 관리 포인트 카드의 바깥 위험 줄과 [근거 문장 보기](계획 5 Task 6). 숫자·출처·기준 시각은 서버 줄 그대로.
 // 아직 안 눌렀으면 POST(서버가 뒤에서 찾음), 찾는 중이면 카드의 폴링(GET)이 바꾼다. 실패(멈춘 찾기 포함)면 「다시 찾기」(retry).
-// 카드가 멈췄으면(frozen — 지난 버전 old · 너무 오래 cap) 찾는 중을 돌리지 않고 그렇다고 적는다. 지난 버전이면 새로 찾지 않는다.
+// 카드가 멈췄으면(frozen — 지난 버전 old · 너무 오래 cap) 찾는 중을 돌리지 않고 그렇다고 적는다. 지난 버전이면 새로 찾지 않고(꺼짐),
+// 너무 오래면 새로 찾기(POST) 대신 「다시 불러오기」(GET 으로 다시 읽고 폴링을 새 상한으로 다시 켬).
 import { useState } from 'react';
 import { asList, asText, type CardCtx } from './Card';
 import { errorText, findQuote, type QuoteState } from './pointsApi';
@@ -29,8 +30,23 @@ export type Frozen = 'old' | 'cap' | null;
 export const STALE_HINT = '지난 버전 카드 — 지금 포인트 보기에서 찾을 수 있습니다';
 const FROZEN_WAIT: Record<'old' | 'cap', string> = { old: '지난 버전 카드라 결과를 더 읽지 않습니다.', cap: '오래 걸려 이 카드에서는 더 읽지 않습니다.' };
 
-function Quotes({ q, busy, frozen, onRetry }: { q: QuoteState | null; busy: boolean; frozen: Frozen; onRetry(): void }) {
-  if (frozen && (q === null || q.status === 'pending')) return <span className="pc-fail">{FROZEN_WAIT[frozen]}</span>;
+/** 너무 오래 걸려 멈춘 카드의 단추: 다시 읽고 폴링을 다시 켠다(새로 찾지 않음). */
+export function ReloadButton({ onReload }: { onReload(): void }) {
+  return (
+    <button type="button" className="pc-link" onClick={onReload}>
+      다시 불러오기
+    </button>
+  );
+}
+
+function Quotes({ q, busy, frozen, onRetry, onReload }: { q: QuoteState | null; busy: boolean; frozen: Frozen; onRetry(): void; onReload(): void }) {
+  if (frozen && (q === null || q.status === 'pending'))
+    return (
+      <span className="pc-fail">
+        {FROZEN_WAIT[frozen]}
+        {frozen === 'cap' && <ReloadButton onReload={onReload} />}
+      </span>
+    );
   if (q === null || q.status === 'pending')
     return (
       <span className="pc-wait" role="status">
@@ -56,7 +72,8 @@ function Quotes({ q, busy, frozen, onRetry }: { q: QuoteState | null; busy: bool
   return (
     <span className="pc-fail">
       근거 문장을 찾지 못했습니다.
-      {q.status === 'failed' && frozen !== 'old' && (
+      {q.status === 'failed' && frozen === 'cap' && <ReloadButton onReload={onReload} />}
+      {q.status === 'failed' && frozen === null && (
         <button type="button" className="pc-link" disabled={busy} onClick={onRetry}>
           다시 찾기
         </button>
@@ -65,10 +82,11 @@ function Quotes({ q, busy, frozen, onRetry }: { q: QuoteState | null; busy: bool
   );
 }
 
-export function RiskRow({ r, quote, whatIf, sid, ctx, pointName, frozen, onQuote }: {
+export function RiskRow({ r, quote, whatIf, sid, ctx, pointName, frozen, onQuote, onReload }: {
   r: Json;
   quote: QuoteState | null;
   frozen: Frozen;
+  onReload(): void;
   whatIf: boolean;
   sid: number | null;
   ctx: CardCtx;
@@ -113,7 +131,8 @@ export function RiskRow({ r, quote, whatIf, sid, ctx, pointName, frozen, onQuote
       <div className="pc-risk-b">
         <span className="pc-risk-text ch-wrap">{asText(r.line)}</span>
         {ok && src && <span className="pc-src">{src}</span>}
-        {ok && actions.includes('quote') && (
+        {ok && actions.includes('quote') && frozen === 'cap' && !open && (quote === null || quote.status === 'pending') && <ReloadButton onReload={onReload} />}
+        {ok && actions.includes('quote') && !(frozen === 'cap' && !open && (quote === null || quote.status === 'pending')) && (
           <button
             type="button"
             className="pc-link"
@@ -133,7 +152,7 @@ export function RiskRow({ r, quote, whatIf, sid, ctx, pointName, frozen, onQuote
         {why && <span className="pc-why">{why}</span>}
         {open && (
           <div className="pc-quotes">
-            {error ? <p className="ch-error ch-wrap" role="alert">{error}</p> : <Quotes q={quote} busy={busy} frozen={frozen} onRetry={() => void ask(true)} />}
+            {error ? <p className="ch-error ch-wrap" role="alert">{error}</p> : <Quotes q={quote} busy={busy} frozen={frozen} onRetry={() => void ask(true)} onReload={onReload} />}
           </div>
         )}
       </div>

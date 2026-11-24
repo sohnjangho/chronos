@@ -5,6 +5,7 @@ import { useSession } from '../../../os/session';
 import { useWindows } from '../../../os/windowStore';
 import Button from '../../../shared/ui/Button';
 import type { Json } from '../thread';
+import { STALE_HINT } from './PointRisks';
 import { draftContact, errorText, getPeople, previewContact, type Channel, type Person, type Preview } from './pointsApi';
 
 const CHANNELS: [Channel, string][] = [['sms', '문자'], ['call', '전화']];
@@ -55,11 +56,13 @@ function PreviewBox({ preview }: { preview: Preview }) {
   );
 }
 
-export default function ContactPicker({ sid, aid, name, whatIf, onClose, onDraft }: {
+export default function ContactPicker({ sid, aid, name, whatIf, stale, onClose, onDraft }: {
   sid: number;
   aid: string;
   name: string;
   whatIf: boolean;
+  /** 지난 버전 카드 — 초안을 만들지 않는다(글이 지금 포인트와 다를 수 있음). */
+  stale: boolean;
   onClose(): void;
   onDraft(card: Json): void;
 }) {
@@ -139,7 +142,7 @@ export default function ContactPicker({ sid, aid, name, whatIf, onClose, onDraft
       {error && <p className="ch-error ch-wrap" role="alert">{error}</p>}
       <div className="ch-actions oc-acts">
         <Button onClick={onClose}>취소</Button>
-        <Button variant="primary" disabled={preview === null || busy} onClick={() => void make()}>
+        <Button variant="primary" disabled={preview === null || busy || stale} title={stale ? STALE_HINT : undefined} onClick={() => void make()}>
           초안 만들기
         </Button>
       </div>

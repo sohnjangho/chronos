@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Badge from '../../../shared/ui/Badge';
 import { Card } from './Card';
-import { STALE_HINT } from './PointRisks';
+import { ReloadButton, STALE_HINT } from './PointRisks';
 import { errorText, getLatestPoints, monthDay, type PointsView } from './pointsApi';
 import './pointsCards.css';
 
@@ -22,11 +22,12 @@ function rows(view: PointsView, chain: ChainItem[]): Row[] {
   return [...first, ...view.points.filter((p) => !seen.has(p.activity_id)).map((p) => ({ ...p, inChain: false }))];
 }
 
-export default function PointsList({ view, chain = [] }: { view: PointsView; chain?: ChainItem[] }) {
+/** mark = ◆ 의 뜻(「다음 결정 줄」 · 멈춘 카드에서는 「이 카드」). */
+export default function PointsList({ view, chain = [], mark = '다음 결정 줄' }: { view: PointsView; chain?: ChainItem[]; mark?: string }) {
   const list = rows(view, chain);
   const inChain = list.filter((r) => r.inChain).length;
   const head = [
-    inChain > 0 && `다음 결정 줄의 포인트 ${inChain}곳`,
+    inChain > 0 && `${mark}의 포인트 ${inChain}곳`,
     view.what_if ? '지연 가정(저장 전)' : `버전 ${view.version}`,
     `기준: 여유 ${view.basis.tf_days}일 이하, 앞으로 ${view.basis.window_weeks}주`,
   ].filter(Boolean).join(' · ');
@@ -39,7 +40,7 @@ export default function PointsList({ view, chain = [] }: { view: PointsView; cha
         <ul className="ch-plain" aria-label="지금 관리 포인트">
           {list.map((p) => (
             <li key={p.activity_id} className={`pc-point-h${p.inChain ? ' pc-in-chain' : ''}`}>
-              {p.inChain && <span className="pc-mark" title="다음 결정 줄" aria-label="다음 결정 줄" />}
+              {p.inChain && <span className="pc-mark" title={mark} aria-label={mark} />}
               <b className="ch-wrap">{p.name}</b>
               {p.critical === true && <Badge tone="danger">크리티컬</Badge>}
               {p.critical === false && <Badge tone="warning">크리티컬 직전</Badge>}
@@ -54,8 +55,9 @@ export default function PointsList({ view, chain = [] }: { view: PointsView; cha
 
 const FROZEN_NOTE: Record<'old' | 'cap', string> = { old: '지난 버전 카드', cap: '오래 걸려 다시 읽기를 멈췄습니다' };
 
-/** 멈춘 카드의 한 줄: 까닭 — [지금 포인트 보기](지금 포인트 목록을 이 카드 아래에). */
-export function FrozenLine({ frozen, sid }: { frozen: 'old' | 'cap'; sid: number | null }) {
+/** 멈춘 카드의 한 줄: 까닭 — [지금 포인트 보기](지금 포인트 목록을 이 카드 아래에, 이 카드의 포인트를 먼저 ◆) ·
+ *  너무 오래 멈췄으면 [다시 불러오기]. */
+export function FrozenLine({ frozen, sid, mine, onReload }: { frozen: 'old' | 'cap'; sid: number | null; mine: ChainItem[]; onReload(): void }) {
   const [view, setView] = useState<PointsView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -78,9 +80,10 @@ export function FrozenLine({ frozen, sid }: { frozen: 'old' | 'cap'; sid: number
         <button type="button" className="pc-link" disabled={busy || sid === null} onClick={() => void load()}>
           지금 포인트 보기
         </button>
+        {frozen === 'cap' && <ReloadButton onReload={onReload} />}
         {error && <span className="ch-error" role="alert">{error}</span>}
       </p>
-      {view && <PointsList view={view} />}
+      {view && <PointsList view={view} chain={mine} mark="이 카드" />}
     </>
   );
 }

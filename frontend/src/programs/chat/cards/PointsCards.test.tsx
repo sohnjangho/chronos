@@ -192,6 +192,83 @@ describe('points_changed card', () => {
     expect(callsTo('/api/schedules/1/points?what_if=false')).toHaveLength(n);
   });
 
+  test('a card frozen by the time cap offers 「다시 불러오기」 (GET + polling again) instead of new searches', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    routes['POST /api/schedules/1/points/A1500/quotes/materials'] = () => json(200, PENDING);
+    let reads = 0;
+    routes['/api/schedules/1/points?what_if=false'] = () => {
+      reads += 1;
+      return json(200, view(card({ risk_status: 'failed', risk_message: '바깥 위험을 찾지 못했습니다', risk_retry: true }), { 'A1500/materials': PENDING }));
+    };
+    routes['/api/schedules/1/delays'] = { events: [] };
+    renderCard(card({ risk_status: 'failed', risk_message: '바깥 위험을 찾지 못했습니다', risk_retry: true }));
+    const a = point('커튼월 공장 제작');
+    fireEvent.click(within(a).getAllByRole('button', { name: '근거 문장 보기' })[0]); // 찾는 중 → 폴링
+    await screen.findByText(/근거 문장 찾는 중/);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_CAP_MS + POLL_MS);
+    });
+    expect(await screen.findByText('오래 걸려 다시 읽기를 멈췄습니다 —')).toBeVisible();
+    // 새로 찾는 단추(POST)는 없고 「다시 불러오기」만: 근거 문장 · 실패한 근거 문장 · 바깥 위험 다시 찾기 자리
+    expect(screen.queryByRole('button', { name: '바깥 위험 다시 찾기' })).toBeNull();
+    expect(within(a).queryByRole('button', { name: '근거 문장 보기' })).not.toBeNull(); // 찾은 적 있는 줄(ready)은 그대로 펼침
+    fireEvent.click(within(point('커튼월·외장 패널 1~3층')).getByRole('button', { name: '근거 문장 보기' })); // 실패한 줄
+    expect(within(point('커튼월·외장 패널 1~3층')).queryByRole('button', { name: '다시 찾기' })).toBeNull();
+    const reloads = screen.getAllByRole('button', { name: '다시 불러오기' });
+    expect(reloads.length).toBeGreaterThanOrEqual(4); // 멈춤 줄 · 찾는 중이던 줄 · 실패한 줄 · 바깥 위험
+    const posts = bodies('/api/schedules/1/points/A1500/quotes/materials', 'POST').length;
+    const before = reads;
+    fireEvent.click(reloads[0]);
+    await waitFor(() => expect(reads).toBe(before + 1));
+    expect(await screen.findByText(/근거 문장 찾는 중/)).toBeVisible(); // 멈춤이 풀림
+    expect(screen.queryByText('오래 걸려 다시 읽기를 멈췄습니다 —')).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 2 + 10);
+    });
+    expect(reads).toBeGreaterThanOrEqual(before + 3); // 새 상한으로 폴링이 다시 돈다
+    expect(bodies('/api/schedules/1/points/A1500/quotes/materials', 'POST')).toHaveLength(posts); // 새로 찾지 않음
+  });
+
+  test('on a past-version card [초안 만들기] is blocked with the same hint; the frozen list marks this card\'s points', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    routes['POST /api/schedules/1/points/A1500/quotes/materials'] = () => json(200, PENDING);
+    routes['/api/schedules/1/points?what_if=false'] = {
+      ...view(null), version: 9,
+      points: [
+        { activity_id: 'A1700', name: '옥탑 골조', critical: false, tf: 3, es: '2027-06-01', ef: '2027-06-05' },
+        { activity_id: 'A1500', name: '커튼월 공장 제작', critical: false, tf: 1, es: '2027-06-03', ef: '2027-06-18' },
+      ],
+    };
+    routes['/api/schedules/1/delays'] = { events: [] };
+    routes['/api/schedules/1/points/A1500/contact?what_if=false'] = {
+      activity_id: 'A1500', name: '커튼월 공장 제작',
+      people: [{ contact_id: 21, name: '최민준', role_title: '생산 관리', company: '(주)새솔커튼월', trade: '커튼월', do_not_contact: false, channels: ['sms'] }],
+    };
+    routes['POST /api/schedules/1/points/A1500/contact'] = () => json(200, { preview: true, channel: 'sms', body: '지난 카드의 글' });
+    renderCard(card({ version: 41 }));
+    const a = point('커튼월 공장 제작');
+    fireEvent.click(within(a).getAllByRole('button', { name: '근거 문장 보기' })[0]);
+    await screen.findByText(/근거 문장 찾는 중/);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 2 + 10);
+    });
+    expect(await screen.findByText('지난 버전 카드 —')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '다시 불러오기' })).toBeNull(); // 지난 버전은 다시 불러오지 않는다
+    fireEvent.click(within(a).getByRole('button', { name: '담당자에게 확인 연락' }));
+    fireEvent.click(await screen.findByRole('radio', { name: /최민준/ }));
+    await screen.findByText('지난 카드의 글');
+    const make = screen.getByRole('button', { name: '초안 만들기' });
+    expect(make).toBeDisabled();
+    expect(make).toHaveAttribute('title', expect.stringContaining('지난 버전 카드'));
+    fireEvent.click(screen.getByRole('button', { name: '지금 포인트 보기' }));
+    const list = await screen.findByRole('list', { name: '지금 관리 포인트' });
+    const items = within(list).getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('커튼월 공장 제작');
+    expect(items[0]).toHaveClass('pc-in-chain');
+    expect(within(items[0]).getByLabelText('이 카드')).toBeInTheDocument();
+    expect(screen.getByText(/이 카드의 포인트 2곳/)).toBeVisible();
+  });
+
   test('a created draft stays under its point after the chat is reopened', async () => {
     routes['/api/schedules/1/points/A1500/contact?what_if=false'] = {
       activity_id: 'A1500', name: '커튼월 공장 제작',
