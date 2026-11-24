@@ -44,9 +44,9 @@ def test_specs():
 async def test_open_window_output_and_event(ctx, events):
     r = await call("ui.open_window", {"program": "gantt", "params": {"id": "1"}}, ctx)
     assert (r.ok, r.output) == (True, {"opened": True})
-    assert events == [AgentEvent("open_window", {"program": "gantt", "params": {"id": "1"}})]
+    assert events == [AgentEvent("open_window", {"program": "gantt", "params": {"id": "1"}, "explicit": True})]
     r = await call("ui.open_window", {"program": "chat"}, ctx)
-    assert r.ok and events[-1].data == {"program": "chat", "params": {}}
+    assert r.ok and events[-1].data == {"program": "chat", "params": {}, "explicit": True}
 
 
 async def test_open_window_rejects_bad_input(ctx, events):
@@ -214,7 +214,7 @@ def test_admin_only_list_matches_the_screen_manifests():
 # Task 56: 자료함은 누구나 연다(관리자 전용 아님).
 async def test_open_window_opens_the_library_for_anyone(ctx, events):
     r = await call("ui.open_window", {"program": "library"}, replace(ctx, user=SimpleNamespace(role="user")))
-    assert r.ok is True and events[-1] == AgentEvent("open_window", {"program": "library", "params": {}})
+    assert r.ok is True and events[-1] == AgentEvent("open_window", {"program": "library", "params": {}, "explicit": True})
 
 
 async def test_create_project_creates_starter_schedule_and_binds_chat(session, ctx, events):
@@ -243,7 +243,7 @@ async def test_open_window_refuses_contacts_for_a_field_manager(ctx, events):
     r = await call("ui.open_window", {"program": "contacts", "params": {"contact": "3"}}, replace(ctx, user=SimpleNamespace(role="field")))
     assert r.ok is False and r.error == "현장 관리자는 열 수 없는 프로그램입니다: 연락처" and events == []
     r = await call("ui.open_window", {"program": "contacts", "params": {"contact": "3"}}, replace(ctx, user=SimpleNamespace(role="user")))
-    assert r.ok is True and events[-1] == AgentEvent("open_window", {"program": "contacts", "params": {"contact": "3"}})
+    assert r.ok is True and events[-1] == AgentEvent("open_window", {"program": "contacts", "params": {"contact": "3"}, "explicit": True})
 
 
 @pytest.mark.skipif(not FRONTEND_PROGRAMS.is_dir(), reason="frontend 폴더가 없다(Docker backend 컨테이너)")

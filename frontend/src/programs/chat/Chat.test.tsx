@@ -88,8 +88,9 @@ describe('지시서 시험 (실제 사건 모양)', () => {
 
   test('open_window is ignored in workflow-only mode, except the questionnaire', async () => {
     useAgentView.setState({ mode: 'workflow' });
-    feed([['open_window', { program: 'delays', params: { id: '1' } }], ['open_window', { program: 'questionnaire', params: { id: '7' } }], ['done', {}]]);
+    feed([['open_window', { program: 'delays', params: { id: '1' } }], ['open_window', { program: 'questionnaire', params: { id: '7' } }], ['open_window', { program: 'gantt', params: {}, explicit: true }], ['done', {}]]);
     await send('q');
+    expect(openSpy).toHaveBeenCalledWith('gantt', {});
     expect(openSpy).not.toHaveBeenCalledWith('delays', expect.anything());
     expect(openSpy).toHaveBeenCalledWith('questionnaire', expect.anything());
     useAgentView.setState({ mode: 'stage' });

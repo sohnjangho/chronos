@@ -49,5 +49,5 @@ def open_window(args: OpenWindowIn, ctx: ToolContext) -> OpenWindowOut:
         raise ToolError(f"관리자만 열 수 있는 프로그램입니다: {ADMIN_ONLY[args.program]}")
     if args.program in NO_FIELD and ctx.user is not None and ctx.user.role == "field":
         raise ToolError(f"현장 관리자는 열 수 없는 프로그램입니다: {NO_FIELD[args.program]}")
-    ctx.emit(AgentEvent("open_window", {"program": args.program, "params": dict(args.params)}))
+    ctx.emit(AgentEvent("open_window", {"program": args.program, "params": dict(args.params), "explicit": True}))
     return OpenWindowOut(opened=True)
