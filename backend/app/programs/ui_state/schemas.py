@@ -8,7 +8,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.tools.ui.open_window import Program
 
-Mode = Literal["desktop", "tablet", "phone"]
+Mode = Literal["desktop", "tablet", "phone", "appearance"]
 
 _NUM = re.compile(r"[1-9]\d{0,6}")  # 일정·연락처·대화·실행 id(7자리까지 — 가장 짧은 전화번호 8자리보다 짧다)
 _NAME = re.compile(r"[a-z][a-z-]{0,30}")  # 탭·구역·보기 이름
@@ -69,4 +69,22 @@ class PhoneState(BaseModel):
     params: Params | None = None
 
 
-MODELS: dict[str, type[BaseModel]] = {"desktop": DesktopState, "tablet": TabletState, "phone": PhoneState}
+class AppearanceState(BaseModel):
+    """바탕화면 배경(frontend/src/os/wallpapers.ts 의 WALLPAPER_IDS·FITS 와 같게). 기기 형태와 상관없이 하나."""
+
+    model_config = _STRICT
+
+    v: Literal[1]
+    wallpaper: Literal[
+        "default", "prism-schedule", "orbits", "contours", "drafting-grid", "sculpt-mono", "chronos-sky",
+        "minimal-warm", "minimal-cool", "photo",
+    ]
+    fit: Literal["fill", "fit", "stretch", "tile", "center"]
+
+
+MODELS: dict[str, type[BaseModel]] = {
+    "desktop": DesktopState,
+    "tablet": TabletState,
+    "phone": PhoneState,
+    "appearance": AppearanceState,
+}

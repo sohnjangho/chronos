@@ -7,6 +7,7 @@
   overflow: hidden;
   background: var(--bg-app);
   color: var(--fg);
+  isolation: isolate; /* 배경 층(.os-wallpaper, z-index -1)이 바탕 위·내용 아래에 */
 }
 
 .tab-head {
@@ -272,6 +273,8 @@
   overflow: hidden;
   background: var(--bg-panel);
 }
+/* 전체 프로그램(홈 화면)에서는 바탕화면 배경이 보이게 */
+.tab-primary:has(.tab-apps) { background: transparent; }
 .tab-primary-body {
   flex: 1;
   min-height: 0;

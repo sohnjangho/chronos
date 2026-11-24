@@ -8,6 +8,7 @@ import { useTheme, type Theme } from '../../os/theme';
 import { useDetectedDevice, useDeviceMode, type DeviceMode, type ResolvedDevice } from '../../os/useIsMobile';
 import { useZoom } from '../../os/zoom';
 import Button from '../../shared/ui/Button';
+import WallpaperCard from './WallpaperCard';
 
 const THEMES: { id: Theme; title: string; subtitle: string; previewClass: string }[] = [
   { id: 'light', title: '주간 모드 (Daylight Sky)', subtitle: '맑은 하늘색 그라데이션 바탕과 밝은 유리 카드', previewClass: 'is-light' },
@@ -105,6 +106,8 @@ export default function AppearanceSection() {
           })}
         </div>
       </section>
+
+      <WallpaperCard />
 
       <section className="st-card" aria-label="에이전트 실시간 작업 화면 연출">
         <div className="st-card-head">

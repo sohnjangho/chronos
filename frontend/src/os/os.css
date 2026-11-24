@@ -17,6 +17,16 @@ body {
   overflow: hidden;
   background: var(--bg-desktop);
 }
+/* 배경 층: 셸 맨 뒤의 고정된 한 장(그림은 인라인 style — WallpaperLayer). 자기 합성 층이라 창이 움직여도 다시 그리지 않는다. */
+.os-wallpaper {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--bg-desktop);
+  transform: translateZ(0);
+}
+.os-desktop { isolation: isolate; }
 .os-screen { position: absolute; inset: 0; }
 .os-windows { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .os-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

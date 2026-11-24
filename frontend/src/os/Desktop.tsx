@@ -20,6 +20,7 @@ import { snapRect, useSnap } from './snap';
 import ToastStack from './ToastStack';
 import Window from './Window';
 import { activeWindow, useWindows } from './windowStore';
+import WallpaperLayer from './WallpaperLayer';
 import WorkflowRibbon from './WorkflowRibbon';
 import './userScope';
 
@@ -48,6 +49,7 @@ export default function Desktop() {
 
   return (
     <div className="os-desktop" style={{ '--inset-right': `${inset}px` } as CSSProperties}>
+      <WallpaperLayer />
       <div
         className="os-screen"
         data-testid="desktop-surface"

@@ -10,6 +10,7 @@
   background: var(--bg-panel);
   color: var(--fg);
   font-size: var(--fs-14);
+  isolation: isolate; /* 배경 층(.os-wallpaper, z-index -1)이 바탕 위·내용 아래에 */
 }
 
 .mob-head {

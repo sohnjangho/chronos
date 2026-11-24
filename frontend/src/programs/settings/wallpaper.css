@@ -1,0 +1,148 @@
+/* 설정 → 화면 → 「배경」 칸(WallpaperCard). 색·글꼴은 tokens.css 변수만 쓴다. */
+.st-wp-body {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@container st-main (max-width: 720px) {
+  .st-wp-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 미리보기: 화면 크기 그대로의 층을 줄여서 보인다 */
+.st-wp-preview {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  overflow: hidden;
+  border-radius: var(--radius-3);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-desktop);
+}
+.st-wp-preview-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  background: var(--bg-desktop);
+}
+.st-wp-preview-win {
+  position: absolute;
+  left: 18%;
+  top: 20%;
+  width: 46%;
+  height: 46%;
+  border-radius: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--bg-topbar) 30%, transparent);
+}
+.st-wp-preview-dock {
+  position: absolute;
+  left: 30%;
+  bottom: 4%;
+  width: 40%;
+  height: 7%;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  border: 1px solid var(--border);
+}
+
+.st-wp-side { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.st-wp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 8px;
+}
+.st-wp-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.st-wp-tile:hover { border-color: var(--accent); }
+.st-wp-tile[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--bg-selected);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.st-wp-tile:disabled { cursor: progress; opacity: 0.7; }
+.st-wp-thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-2);
+  border: 1px solid var(--border);
+  background: var(--bg-desktop);
+  color: var(--fg-muted);
+  font-size: var(--fs-16);
+}
+.st-wp-thumb.is-empty { background: var(--bg-panel-alt); border-style: dashed; }
+.st-wp-name {
+  padding: 0 2px 2px;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.st-wp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.st-wp-upload {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-2);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  cursor: pointer;
+}
+.st-wp-upload.is-busy { opacity: 0.7; cursor: progress; }
+.st-wp-upload:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.st-wp-upload input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: inherit;
+}
+
+/* 배치 방식: 한 줄 고르기(좁으면 줄 바꿈) */
+.st-wp-fits {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  background: var(--bg-panel-alt);
+}
+.st-wp-fit {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  cursor: pointer;
+}
+.st-wp-fit:hover { color: var(--fg); }
+.st-wp-fit[aria-checked="true"] { background: var(--bg-panel); color: var(--fg); box-shadow: 0 1px 2px color-mix(in srgb, var(--bg-topbar) 25%, transparent); }

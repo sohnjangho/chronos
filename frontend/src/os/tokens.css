@@ -12,6 +12,8 @@
   --bg-elevated: var(--bg-panel-alt);
   --text-primary: var(--fg);
   --text-secondary: var(--fg-muted);
+  /* 사진 맞추기·가운데 배치 때 남는 곳 */
+  --bg-wallpaper-matte: #dde3eb;
   --bg-desktop:
     radial-gradient(circle at 18% 16%, #ffffff 0%, transparent 46%),
     radial-gradient(circle at 84% 20%, #bae6fd 0%, transparent 52%),
@@ -124,6 +126,7 @@
   --bg-panel: #131b2b;
   --bg-panel-alt: #0f1623;
   --bg-selected: #1c3258;
+  --bg-wallpaper-matte: #0a0e16;
   --bg-desktop:
     radial-gradient(circle at 78% 18%, #172554 0%, transparent 48%),
     radial-gradient(circle at 16% 80%, #1e1b4b 0%, transparent 50%),

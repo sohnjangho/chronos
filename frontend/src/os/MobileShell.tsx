@@ -18,6 +18,7 @@ import { useTheme } from './theme';
 import ToastStack from './ToastStack';
 import { useDeviceMode, useResolvedDevice } from './useIsMobile';
 import { useWindows } from './windowStore';
+import WallpaperLayer from './WallpaperLayer';
 import './mobile.css';
 
 type TabId = PhoneTab;
@@ -335,6 +336,7 @@ export default function MobileShell() {
 
   return (
     <div className="mob-root" data-testid="mobile-shell" data-device={device}>
+      <WallpaperLayer />
       <MobileHeader
         title={title}
         device={device}

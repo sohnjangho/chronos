@@ -17,6 +17,7 @@ import { useTheme } from './theme';
 import ToastStack from './ToastStack';
 import { useDeviceMode } from './useIsMobile';
 import { useWindows } from './windowStore';
+import WallpaperLayer from './WallpaperLayer';
 import WorkflowRibbon from './WorkflowRibbon';
 import './tablet.css';
 
@@ -290,6 +291,7 @@ export default function TabletShell() {
 
   return (
     <div className="tab-root" data-testid="tablet-shell" data-device="tablet">
+      <WallpaperLayer />
       <header className="tab-head">
         <div className="tab-head-left">
           <ChronosMark size={24} />

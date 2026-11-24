@@ -20,7 +20,7 @@ class UiState(Base):
     __tablename__ = "ui_states"
 
     user_id: Mapped[int] = mapped_column(primary_key=True)
-    mode: Mapped[str] = mapped_column(String(10), primary_key=True)  # 'desktop' | 'tablet' | 'phone'
+    mode: Mapped[str] = mapped_column(String(10), primary_key=True)  # 'desktop' | 'tablet' | 'phone' | 'appearance'(바탕화면 배경)
     state_json: Mapped[dict[str, Any]] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
