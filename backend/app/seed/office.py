@@ -2,6 +2,7 @@
 
 버전 1 = 처음 계획(실적 없음, 「처음 계획」 표시), 버전 2 = 실적 일부와 Data Date 를 넣은 것.
 버전 3(`office_building(..., v3=True)` — 계획 5 관리 포인트·당김 효과 시연) = 6월 말 실적 + 커튼월·창호 조달 줄(액티비티 65개).
+버전 3 은 승인한 계획 변경이다(승인 건 → 승인 → 반영, Plan 을 버전 3 계산으로 다시 찍음 — 준공 편차 0).
 """
 
 from dataclasses import replace
@@ -14,6 +15,7 @@ from app.domains.loader import load as load_pack
 from app.harness.assemble import assemble, holidays_of
 from app.harness.conditions import Condition
 from app.seed.rows import BY, Row, activity
+from app.store import approvals
 from app.store.diff import schedule_changes
 from app.store.schedules import create_schedule, run
 from app.store.versions import mark_plan, save_new_version
@@ -253,8 +255,21 @@ def office_building(session: Session, *, v3: bool = False) -> int:
                      note=f"실적 입력(Data Date {DATA_DATE.isoformat()})",
                      changes=schedule_changes(plan, actual), base_version=1, plan_change=False, commit=False)
     if v3:
-        june = _june(actual)
-        run(june, conditions)
-        save_new_version(session, sid, june, conditions, by_kind="user", by_name=BY, note=V3_NOTE,
-                         changes=schedule_changes(actual, june), base_version=2, plan_change=False, commit=False)
+        _approve_june(session, sid, actual, conditions)
     return sid
+
+
+def _approve_june(session: Session, sid: int, v2: Schedule, conditions: list[dict]) -> None:
+    """버전 3 = 승인한 계획 변경: 앱과 같은 길(승인 건 → 승인 → 반영). 조달 줄을 더해 계획 칸이 바뀌므로
+    반영할 때 Plan 을 버전 3 계산으로 다시 찍는다(store.approvals.is_plan_change — 만회안 승인과 같은 규칙) → 준공 편차 0."""
+    from app.agent.proposals import (  # 무거운 import 는 v3 를 만들 때만
+        Proposal,
+        propose,
+    )
+
+    p = Proposal(kind="change", title=V3_NOTE, before=v2, before_conditions=conditions, after=_june(v2),
+                 after_conditions=conditions, schedule_id=sid, draft_id=None, base_version=2, requested_kind="user")
+    result = propose(session, p, chat_session_id=None, requested_by=BY)
+    if not result.applied:
+        approvals.apply(session, result.row, by_name=BY)
+        approvals.record_decision(session, result.row, "approved", by=BY, note="조달 일정 반영 승인(시연 자료)")
