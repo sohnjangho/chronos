@@ -229,6 +229,61 @@ describe('points_changed card', () => {
     expect(bodies('/api/schedules/1/points/A1500/quotes/materials', 'POST')).toHaveLength(posts); // 새로 찾지 않음
   });
 
+  test('after 「다시 불러오기」 ends with nothing to wait for, a later wait gets a fresh cap', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let looking = true;
+    routes['/api/schedules/1/points?what_if=false'] = () =>
+      json(200, view(looking ? card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중' }) : card()));
+    routes['POST /api/schedules/1/points/A1500/quotes/materials'] = () => json(200, PENDING);
+    renderCard(card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_CAP_MS + POLL_MS);
+    });
+    expect(await screen.findByText('오래 걸려 다시 읽기를 멈췄습니다 —')).toBeVisible();
+    looking = false; // 다시 불러오면 찾기가 끝나 있다 — 기다릴 것 없음
+    fireEvent.click(screen.getAllByRole('button', { name: '다시 불러오기' })[0]);
+    expect(await screen.findByText('알루미늄 3개월 +5.0%')).toBeVisible();
+    expect(screen.queryByText('오래 걸려 다시 읽기를 멈췄습니다 —')).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_CAP_MS + 60_000); // 한참 쉰다
+    });
+    const before = callsTo('/api/schedules/1/points?what_if=false').length;
+    fireEvent.click(within(point('커튼월 공장 제작')).getAllByRole('button', { name: '근거 문장 보기' })[0]); // 새 기다림
+    await screen.findByText(/근거 문장 찾는 중/);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 2 + 10);
+    });
+    expect(screen.queryByText('오래 걸려 다시 읽기를 멈췄습니다 —')).toBeNull(); // 옛 시작으로 바로 멈추지 않음
+    expect(callsTo('/api/schedules/1/points?what_if=false').length).toBeGreaterThan(before);
+  });
+
+  test('unmounting stops polling and a late 「다시 불러오기」 answer does nothing', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let release = () => {};
+    let hold = false;
+    routes['/api/schedules/1/points?what_if=false'] = () =>
+      hold
+        ? new Promise<Response>((r) => (release = () => r(json(200, view(card())))))
+        : json(200, view(card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중' })));
+    const r = renderCard(card({ risk_status: 'looking', risk_message: '바깥 위험 찾는 중' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_CAP_MS + POLL_MS);
+    });
+    await screen.findByText('오래 걸려 다시 읽기를 멈췄습니다 —');
+    hold = true;
+    fireEvent.click(screen.getAllByRole('button', { name: '다시 불러오기' })[0]);
+    r.unmount();
+    const n = callsTo('/api/schedules/1/points?what_if=false').length;
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+    });
+    expect(callsTo('/api/schedules/1/points?what_if=false')).toHaveLength(n); // 폴링 없음
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
   test('on a past-version card [초안 만들기] is blocked with the same hint; the frozen list marks this card\'s points', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     routes['POST /api/schedules/1/points/A1500/quotes/materials'] = () => json(200, PENDING);
