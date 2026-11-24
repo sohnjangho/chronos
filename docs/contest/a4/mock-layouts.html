@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>레이아웃 시안</title>
+<style>
+@page{size:A4;margin:0}*{box-sizing:border-box}
+body{margin:0;background:#cbd5e1;font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif;color:#0f172a;-webkit-print-color-adjust:exact}
+.page{width:210mm;height:297mm;background:#fff;margin:0 auto 8mm;position:relative;overflow:hidden;display:flex;flex-direction:column}
+.mono{font-family:"SF Mono",Menlo,monospace}
+.lbl{position:absolute;top:4mm;right:5mm;font:700 8pt "SF Mono",Menlo;background:#0f172a;color:#fff;padding:2px 8px;border-radius:999px;z-index:9}
+/* A editorial */
+.A{padding:20mm 20mm 14mm}
+.A .kick{font:700 9pt "SF Mono",Menlo;color:#b45309;letter-spacing:.12em}
+.A h1{font-size:38pt;line-height:1.12;letter-spacing:-.03em;margin:5mm 0 6mm;font-weight:800}
+.A .hero{display:flex;justify-content:center;margin:2mm 0 8mm}
+.A .hero img{width:122mm;border-radius:10px;box-shadow:0 24px 60px rgba(15,23,42,.22)}
+.A .pull{font-size:17pt;font-weight:700;line-height:1.45;border-top:2px solid #0f172a;border-bottom:1px solid #cbd5e1;padding:5mm 0;margin:0 0 6mm;color:#0f172a}
+.A p{font-size:10.5pt;line-height:1.8;color:#334155;margin:0 0 3mm;max-width:150mm}
+.A .foot{margin-top:auto;font-size:8pt;color:#64748b;display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:3mm}
+/* B product brief */
+.B{padding:13mm 15mm 11mm}
+.B .top{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid #e2e8f0;padding-bottom:3mm}
+.B .kick{font:700 8.5pt "SF Mono",Menlo;color:#1d4ed8;letter-spacing:.08em}
+.B h1{font-size:22pt;margin:1mm 0 0;letter-spacing:-.02em}
+.B .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin:5mm 0}
+.B .steps div{border-top:3px solid #1d4ed8;padding:2.5mm 3mm 0 0;font-size:9pt}
+.B .steps b{display:block;font:700 8pt "SF Mono",Menlo;color:#1d4ed8}
+.B .main{display:grid;grid-template-columns:100mm 1fr;gap:7mm;align-items:start}
+.B .shot{position:relative}
+.B .shot img{width:100%;border-radius:8px;box-shadow:0 8px 28px rgba(15,23,42,.18);display:block}
+.B .dot{position:absolute;width:20px;height:20px;border-radius:50%;background:#1d4ed8;color:#fff;font:800 10pt/20px sans-serif;text-align:center;box-shadow:0 0 0 3px #fff}
+.B ol{list-style:none;margin:0;padding:0}
+.B li{display:grid;grid-template-columns:22px 1fr;gap:3mm;margin-bottom:4.5mm;font-size:9.6pt;line-height:1.6}
+.B li i{width:20px;height:20px;border-radius:50%;background:#1d4ed8;color:#fff;font:800 10pt/20px sans-serif;text-align:center;font-style:normal}
+.B li b{display:block;font-size:10.4pt}
+.B .nums{display:grid;grid-template-columns:repeat(3,1fr);gap:4mm;margin-top:7mm}
+.B .nums div{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:4mm}
+.B .nums b{display:block;font-size:26pt;font-weight:800;color:#1d4ed8;letter-spacing:-.03em;line-height:1.1}
+.B .nums span{font-size:8.6pt;color:#334155}
+.B .foot{margin-top:auto;font-size:8pt;color:#64748b;display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:3mm}
+/* C 공모전 */
+.C{padding:12mm 14mm 11mm}
+.C .band{background:#1e3a8a;color:#fff;padding:3.5mm 5mm;border-radius:4px;font-size:11pt;font-weight:700}
+.C .band small{display:block;font-weight:500;font-size:8.5pt;color:#bfdbfe;margin-bottom:1mm}
+.C .psst{display:inline-block;margin:5mm 0 2mm;background:#e2e8f0;padding:1.5mm 4mm;border-radius:3px;font-weight:800;font-size:11pt}
+.C h1{font-size:16pt;margin:1mm 0 4mm}
+.C table{width:100%;border-collapse:collapse;font-size:9.4pt}
+.C td{border:1px solid #94a3b8;padding:3mm;vertical-align:top;line-height:1.65}
+.C td.h{background:#f1f5f9;font-weight:700;width:32mm;text-align:center;vertical-align:middle}
+.C .box{border:1.5px solid #1e3a8a;border-radius:4px;padding:3mm 4mm;margin-top:4mm;font-size:9.4pt}
+.C .foot{margin-top:auto;font-size:8pt;color:#64748b;text-align:center;border-top:1px solid #94a3b8;padding-top:2mm}
+</style></head><body>
+
+<section class="page A"><span class="lbl">시안 A · 에디토리얼</span>
+  <div class="kick">장면 4 · 당겨도 소용 있나</div>
+  <h1>골조를 5일 당기면,<br>준공은 하루 당겨진다.</h1>
+  <div class="hero"><img src="img/s4-당김효과.jpg" alt=""></div>
+  <div class="pull">"같은 5일이 커튼월이 늦어지기 전에는 4일의 값어치였다. 지금은 1일이다."</div>
+  <p>습관처럼 묻는다. "옥탑 골조를 5일 당기면?" 에이전트는 야간 작업을 넣기 전에 계산해서 보여 준다. 준공은 11-08 에서 11-06 으로 하루만 당겨지고, 그다음 준공일을 좌우하는 작업은 커튼월 공장 제작이다.</p>
+  <p>1-1 의 그 밤에 내가 몰랐던 것이다.</p>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span>10</span></div>
+</section>
+
+<section class="page B"><span class="lbl">시안 B · 제품 브리프</span>
+  <div class="top"><div><div class="kick">03 · 실제로 도는 시연 · 장면 4</div><h1>당겨도 소용 있나</h1></div><span class="mono" style="font-size:8pt;color:#b45309;font-weight:800">WOW 2</span></div>
+  <div class="steps">
+    <div><b>입력</b>"옥탑 골조를 5일 당기면?"</div>
+    <div><b>계산 · 코드</b>단축을 넣고 CPM·자원을 다시 계산</div>
+    <div><b>결과</b>준공 반영 일수와 다음 결정 줄</div>
+  </div>
+  <div class="main">
+    <div class="shot"><img src="img/s4-당김효과.jpg" alt="">
+      <span class="dot" style="left:80%;top:3%">1</span>
+      <span class="dot" style="left:2%;top:18%">2</span>
+      <span class="dot" style="left:2%;top:50%">3</span>
+      <span class="dot" style="left:2%;top:88%">4</span>
+    </div>
+    <ol>
+      <li><i>1</i><div><b>준공 반영 5일 중 1일</b>당긴 일수 가운데 준공에 실제로 반영되는 일수를 머리에 바로 보인다.</div></li>
+      <li><i>2</i><div><b>판단 전에 경고</b>반영 비율이 기준(설정값)보다 낮으면 노란 띠로 알린다.</div></li>
+      <li><i>3</i><div><b>다음 결정 줄</b>당긴 뒤 준공일을 좌우하는 작업은 커튼월 공장 제작 → 자재 반입 → 설치. ◆ 는 관리 포인트.</div></li>
+      <li><i>4</i><div><b>바로 다음 행동</b>[관리 포인트로 보기]로 그 줄의 바깥 위험과 담당자 연락으로 이어진다.</div></li>
+    </ol>
+  </div>
+  <div class="nums">
+    <div><b>1 / 5일</b><span>지금 당겼을 때 준공 반영</span></div>
+    <div><b>4 / 5일</b><span>커튼월 지연 전이었다면</span></div>
+    <div><b>0회</b><span>일정 변경 (확인용 계산)</span></div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span>10</span></div>
+</section>
+
+<section class="page C"><span class="lbl">시안 C · 공모전 제안서</span>
+  <div class="band"><small>■ 핵심 요약</small>골조 5일 단축 → 준공 1일 단축. 효과 없는 가속을 투입 전에 막는다.</div>
+  <div class="psst">해결방안 (Solution)</div>
+  <h1>3-4. 「당겨도 소용 있나」 계산</h1>
+  <table>
+    <tr><td class="h">기능</td><td>□ 작업을 n일 당겼을 때 준공에 반영되는 일수를 계산<br>□ 반영이 적으면 그다음 준공일을 좌우하는 작업을 제시</td></tr>
+    <tr><td class="h">처리 방식</td><td>○ 계산: 코드(CPM·자원 맞춤) &nbsp; ○ 판단: 사람<br>○ 일정은 바꾸지 않는 확인용 계산</td></tr>
+    <tr><td class="h">시연 결과</td><td>- 옥탑 골조 5일 단축 → 준공 2027-11-08 → 11-06 (1일)<br>- 커튼월 지연 전 같은 단축 → 4일 반영<br>- 다음 결정 줄: 커튼월 공장 제작 → 자재 반입 → 설치</td></tr>
+    <tr><td class="h">기대 효과</td><td>- 야간 작업·장비 추가 비용의 헛수고 방지<br>- 준공 지연 시 지체상금 하루 1,500만 원(300억 원 공사 기준) 위험 감소</td></tr>
+  </table>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:4mm;margin-top:4mm;align-items:start">
+    <img src="img/s4-당김효과.jpg" style="width:100%;border:1px solid #94a3b8" alt="">
+    <div class="box">※ 심사 기준 대응<br>- 완성도: 실제 동작 화면, 숫자는 자동 시험으로 고정<br>- 문제 정의: 1-1 현장 사례를 기능으로 재현</div>
+  </div>
+  <div class="foot">- 10 -</div>
+</section>
+</body></html>

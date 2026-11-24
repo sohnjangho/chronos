@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>다크 키노트 시안</title>
+<style>
+@page{size:A4;margin:0}*{box-sizing:border-box}
+body{margin:0;background:#334155;font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{width:210mm;height:297mm;margin:0 auto 8mm;position:relative;overflow:hidden;color:#e2e8f0;
+  background:radial-gradient(120% 70% at 50% 110%,#0b2a5e 0%,rgba(11,42,94,0) 60%),radial-gradient(80% 50% at 85% 0%,#1e1b4b 0%,rgba(30,27,75,0) 60%),#05070d;
+  padding:16mm 16mm 12mm;display:flex;flex-direction:column}
+.mono{font-family:"SF Mono","JetBrains Mono",Menlo,monospace}
+.eyebrow{font:700 8.5pt "SF Mono",Menlo;letter-spacing:.16em;color:#7dd3fc;text-transform:uppercase}
+.eyebrow.amber{color:#fbbf24}
+h1{margin:4mm 0 0;font-size:38pt;line-height:1.1;letter-spacing:-.035em;font-weight:800;color:#fff}
+h1 em{font-style:normal;background:linear-gradient(90deg,#fbbf24,#f97316);-webkit-background-clip:text;background-clip:text;color:transparent}
+h1 .c{background:linear-gradient(90deg,#7dd3fc,#818cf8);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:12pt;line-height:1.65;color:#cbd5e1;margin:5mm 0 0;max-width:165mm}
+.shot{border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.18);box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04),0 0 60px rgba(56,189,248,.18)}
+.shot img{display:block;width:100%}
+.glow-amber{box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 90px rgba(251,191,36,.28)}
+.chip{display:inline-flex;align-items:center;gap:6px;font:700 8pt "SF Mono",Menlo;letter-spacing:.05em;padding:4px 10px;border-radius:999px;background:rgba(125,211,252,.12);color:#7dd3fc;border:1px solid rgba(125,211,252,.35)}
+.chip.amber{background:rgba(251,191,36,.12);color:#fbbf24;border-color:rgba(251,191,36,.4)}
+.step{position:absolute;display:flex;align-items:center;gap:7px;font-size:10pt;font-weight:700;color:#fff}
+.step i{font-style:normal;width:26px;height:26px;border-radius:50%;background:#38bdf8;color:#05070d;font:800 12pt/26px sans-serif;text-align:center;box-shadow:0 0 18px rgba(56,189,248,.8)}
+.foot{margin-top:auto;display:flex;justify-content:space-between;font-size:8pt;color:#64748b;border-top:1px solid rgba(255,255,255,.08);padding-top:3mm}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:5mm;margin-top:6mm}
+.facts div{border-top:2px solid rgba(255,255,255,.15);padding-top:3mm;font-size:9.6pt;color:#cbd5e1;line-height:1.55}
+.facts b{display:block;color:#fff;font-size:13pt;margin-bottom:1mm}
+.lbl{position:absolute;top:5mm;right:6mm;font:700 7.5pt "SF Mono",Menlo;background:#fff;color:#05070d;padding:2px 8px;border-radius:999px;z-index:9}
+</style></head><body>
+
+<!-- 표지 -->
+<section class="page"><span class="lbl">시안 D · 표지</span>
+  <div style="display:flex;justify-content:space-between;align-items:center"><span class="chip">LINER .EXE-THON 2026</span><span class="mono" style="font-size:8pt;color:#64748b">기획서</span></div>
+  <div class="eyebrow" style="margin-top:14mm">일정 에이전트 OS</div>
+  <h1 style="font-size:56pt;margin-top:2mm">Chron<span class="c">OS</span></h1>
+  <p class="sub" style="font-size:13.5pt;color:#fff;font-weight:600">일정이 바뀔 때마다, 준공일을 좌우하는 작업이<br>어디로 옮겨 갔는지 먼저 알려 주는 에이전트.</p>
+  <p class="sub" style="font-size:10.5pt;margin-top:3mm">채팅창이 아니라 OS 다. 에이전트가 스케줄, 간트, 비교판 창을 직접 열고, 협력사에 전화를 건다.</p>
+  <div style="position:relative;height:128mm;margin-top:10mm">
+    <div class="shot" style="position:absolute;left:14mm;top:0;width:164mm"><img src="img/cv-간트.jpg"></div>
+    <div class="shot" style="position:absolute;left:-6mm;top:62mm;width:86mm"><img src="img/cv-로그인.jpg"></div>
+    <div class="shot glow-amber" style="position:absolute;right:-6mm;top:24mm;width:58mm"><img src="img/cv-에이전트.jpg" style="height:96mm;object-fit:cover;object-position:top"></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5mm;font-size:8.6pt;color:#94a3b8;border-top:1px solid rgba(255,255,255,.1);padding-top:4mm;margin-top:auto">
+    <div><b style="color:#fff;display:block">손장호</b>건설·플랜트 PM 15년차</div>
+    <div><b style="color:#fff;display:block">2026-11-12 ~ 11-25</b>저장소 11-19 신규</div>
+    <div><b style="color:#fff;display:block">github.com/sohnjangho/chronos</b>데모 영상 〔링크〕</div>
+  </div>
+</section>
+
+<!-- 와우 1 OS -->
+<section class="page"><span class="lbl">시안 D · 와우 1</span>
+  <div class="eyebrow">02 · 에이전트가 쓰는 OS</div>
+  <h1>말 한 줄이면,<br>에이전트가 <span class="c">창을 연다.</span></h1>
+  <p class="sub">"커튼월 공장 제작이 3일 늦어졌어." 스케줄에서 작업을 찾고, 지연 기록을 열어 영향을 계산하고, 비교판에 만회안을 띄운다. 사람은 지켜보다가 승인한다.</p>
+  <div style="position:relative;height:150mm;margin-top:9mm">
+    <div class="shot" style="position:absolute;left:0;top:0;width:118mm;opacity:.92"><img src="img/os1-스케줄.jpg"></div>
+    <div class="shot" style="position:absolute;left:30mm;top:34mm;width:128mm"><img src="img/os2-지연.jpg"></div>
+    <div class="shot" style="position:absolute;left:58mm;top:72mm;width:122mm;box-shadow:0 30px 80px rgba(0,0,0,.7),0 0 80px rgba(56,189,248,.35)"><img src="img/os3-비교판.jpg"></div>
+    <div class="step" style="left:122mm;top:4mm"><i>1</i>스케줄에서 찾고</div>
+    <div class="step" style="left:146mm;top:40mm"><i>2</i>지연 기록을 열고</div>
+    <div class="step" style="left:6mm;top:118mm"><i>3</i>비교판에 띄운다</div>
+  </div>
+  <div class="facts">
+    <div><b>Computer Use</b>스크린샷을 흉내 내지 않고, 자기 OS 의 창을 도구로 정확히 연다.</div>
+    <div><b>앱 19개</b>모두 같은 승인함, 하네스, 버전을 쓴다. 새 앱은 붙이는 순간 에이전트가 쓴다.</div>
+    <div><b>사람이 결정</b>창이 열리는 걸 보다가, 마지막에 승인만 누른다.</div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span>05</span></div>
+</section>
+
+<!-- 와우 2 -->
+<section class="page"><span class="lbl">시안 D · 와우 2</span>
+  <div class="eyebrow amber">03 · 당겨도 소용 있나</div>
+  <h1>골조를 5일 당겨도,<br>준공은 <em>하루.</em></h1>
+  <div style="display:grid;grid-template-columns:64mm 1fr;gap:8mm;align-items:center;margin-top:10mm">
+    <div>
+      <div style="font-size:96pt;font-weight:800;line-height:.9;letter-spacing:-.05em;background:linear-gradient(180deg,#fde68a,#f97316);-webkit-background-clip:text;background-clip:text;color:transparent">1<span style="font-size:48pt;color:#64748b;-webkit-text-fill-color:#64748b">/5</span></div>
+      <p style="font-size:11pt;color:#fff;font-weight:700;margin:4mm 0 2mm">당긴 5일 중 준공에 반영되는 날</p>
+      <p style="font-size:9.6pt;color:#94a3b8;line-height:1.6;margin:0">커튼월이 늦어지기 전이었다면 같은 5일이 4일이었다. 준공일을 좌우하는 작업이 이미 커튼월로 옮겨 갔다.</p>
+    </div>
+    <div class="shot glow-amber"><img src="img/s4-당김효과.jpg"></div>
+  </div>
+  <div class="facts" style="margin-top:12mm">
+    <div><b>야간 작업 넣기 전에</b>1-1 의 그 밤에 몰랐던 것을, 힘을 쏟기 전에 계산해 보여 준다.</div>
+    <div><b>계산은 코드</b>AI 는 날짜를 셈하지 않는다. 확인용 계산이라 일정도 바뀌지 않는다.</div>
+    <div><b>다음은 커튼월</b>[관리 포인트로 보기] → 바깥 위험 → 담당자에게 AI 전화.</div>
+  </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span>10</span></div>
+</section>
+</body></html>
