@@ -56,7 +56,9 @@ async def test_changed_points_emit_the_card_with_engine_values(ctx, session, eve
 
     monkeypatch.setattr(risk, "look", look)
     await card.look_now(sid, n, False)
-    quotes._save((sid, n, "C", "materials"), "failed", [], "timeout")
+    point = next(p for p in card.get(session, sid, n, what_if=False).points_json if p["activity_id"] == "C")
+    question = card.quote_question(point, "materials", card.get(session, sid, n, what_if=False).risks_json)
+    quotes._save((sid, n, "C", card.quote_kind("materials", question, what_if=False)), "failed", [], "timeout")
     r = await call("points.check", {}, replace(ctx, schedule_id=sid))
     assert r.ok, r.error
     out = r.output
@@ -99,3 +101,25 @@ async def test_what_if_after_a_delay_emits_a_what_if_card_and_launches(ctx, sess
 async def test_needs_a_schedule(ctx):
     r = await call("points.check", {}, ctx)
     assert r.ok is False
+
+
+async def test_same_version_card_is_emitted_once(ctx, session, events):
+    sid = store(session, _base())
+    _save(session, sid, _c(4), 1)
+    first = await call("points.check", {}, replace(ctx, schedule_id=sid))
+    second = await call("points.check", {}, replace(ctx, schedule_id=sid))
+    assert first.output["card"] is True and second.output["card"] is False and len(events) == 1
+    assert second.output["note"] == "이 바뀜의 카드는 이미 냈습니다(다시 내지 않음)."
+
+
+async def test_what_if_check_does_not_relaunch_a_failed_lookup(ctx, session, events):
+    sid = store(session, make([task("A", 3), task("B", 2), task("C", 3)], [Relation("A", "B")]))
+    delays_store.create(session, schedule_id=sid, activity_id="C", start_date=date(2027, 3, 1), days=3, cause="자재 늦음",
+                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="손장호")
+    session.commit()
+    await call("points.check", {"what_if": True}, replace(ctx, schedule_id=sid))
+    card.get(session, sid, 1, what_if=True).risk_status = "failed"
+    session.commit()
+    card.launched.clear()
+    r = await call("points.check", {"what_if": True}, replace(ctx, schedule_id=sid))
+    assert r.ok and r.output["risk_status"] == "failed" and card.launched == []

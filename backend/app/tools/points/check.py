@@ -3,7 +3,8 @@
 what_if = 열린 지연 사건을 넣은 가정 포인트(지연 기록·분석은 버전을 만들지 않는다): 지금 계산해 카드 차이를 적고, 새 포인트가
 있으면 바깥 위험 찾기를 뒤에서 띄운다(이 도구는 기다리지 않는다 — 카드는 「바깥 위험 찾는 중」). 아니면 지금 버전의 저장한
 차이(버전을 만들 때 적은 것)를 읽기만 한다. 날짜·여유는 저장한 엔진 값 그대로다. 근거 문장은 채우지 않는다(사람이 누를 때만).
-사건: 바뀜(added·became_critical·tightened)이 있으면 card {kind: "points_changed", …}(app.points.card.payload).
+사건: 바뀜(added·became_critical·tightened)이 있으면 card {kind: "points_changed", …}(app.points.card.payload). 버전 줄은 같은
+차이의 카드를 한 번만 낸다(shown_generation). 실패한 바깥 위험 찾기를 다시 띄우지 않는다(사람의 「다시 찾기」만).
 """
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,6 +21,7 @@ SHOWN = "관리 포인트가 바뀌어 카드를 냈습니다. 바깥 위험 줄
 SAME = "관리 포인트는 바뀌지 않았습니다(카드 없음)."
 FIRST = "처음 계산한 포인트라 견줄 앞 상태가 없습니다(카드 없음)."
 LOOKING = " 바깥 위험은 뒤에서 찾는 중입니다."
+ALREADY = "이 바뀜의 카드는 이미 냈습니다(다시 내지 않음)."
 
 
 class PointsCheckIn(BaseModel):
@@ -62,10 +64,19 @@ def check(args: PointsCheckIn, ctx: ToolContext) -> PointsCheckOut:
         except ApiError as e:
             raise ToolError(e.message) from None
     payload = got.pop("card")
+    row = card.get(session, schedule_id, got["version"], what_if=args.what_if)
+    if payload is not None and not args.what_if and row is not None and row.shown_generation == row.generation:
+        payload = None  # 이 차이의 카드는 이미 냈다 — 같은 카드를 다시 내지 않는다
+        repeat = True
+    else:
+        repeat = False
     if payload is not None:
         ctx.emit(AgentEvent("card", payload))
+        if row is not None:
+            row.shown_generation = row.generation
+            session.commit()
     got.pop("risk_message")
-    note = SHOWN if payload is not None else (FIRST if got["diff"] is None else SAME)
+    note = SHOWN if payload is not None else (ALREADY if repeat else FIRST if got["diff"] is None else SAME)
     if payload is not None and got["risk_status"] == card.LOOKING:
         note += LOOKING
     return PointsCheckOut(**got, card=payload is not None, note=note)

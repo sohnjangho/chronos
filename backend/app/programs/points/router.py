@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.programs.points import service
-from app.programs.points.service import ContactIn, QuoteIn
+from app.programs.points.service import ContactIn, QuoteIn, RetryIn
 from app.security.deps import current_user, require_contacts
 from app.store.tables import User
 
@@ -21,6 +21,12 @@ ContactsUser = Annotated[User, Depends(require_contacts)]
 def get_points(schedule_id: int, session: SessionDep, what_if: Annotated[bool, Query()] = False) -> dict:
     """지금 버전의 포인트·마지막 차이·바깥 위험·근거 문장 상태·카드(바뀜이 없으면 null). what_if = 지연 분석의 가정."""
     return service.view(session, schedule_id, what_if=what_if)
+
+
+@router.post("/{schedule_id}/points/risks/retry")
+def retry_risks(schedule_id: int, body: RetryIn, session: SessionDep) -> dict:
+    """「다시 찾기」: 실패(멈춘 것 포함)한 바깥 위험 찾기만 다시 띄운다 → 조회와 같은 꼴. 아니면 409 not_failed."""
+    return service.retry_risks(session, schedule_id, body)
 
 
 @router.post("/{schedule_id}/points/{activity_id}/quotes/{kind}")

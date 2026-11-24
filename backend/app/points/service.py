@@ -89,7 +89,7 @@ def refresh_quietly(session: Session, schedule_id: int, version: int, *, commit:
             diff, prev, cur, ready, cpm = _refresh(session, schedule_id, version, computed)
             look = diff is not None and card.remember(
                 session, schedule_id, version, what_if=False, diff=diff, points=cur,
-                before={p.activity_id: p for p in prev}, ready=ready, cpm=cpm)
+                before={p.activity_id: p for p in prev}, ready=ready, cpm=cpm, trigger=card.version_trigger(version))
         if look:  # 바깥 위험은 저장이 commit 된 뒤 뒤에서 찾는다(응답을 막지 않는다)
             card.launch_after_commit(session, schedule_id, version, what_if=False)
         end_write(session, commit)
@@ -130,6 +130,14 @@ def remember_what_if(session: Session, schedule_id: int, analysis: DelayAnalysis
     points, diff = what_if(session, schedule_id, analysis)
     n = load(session, schedule_id)[2]
     base = points_store.get(session, schedule_id, n) or ()
+    events = delays_store.open_events(session, schedule_id)
+    names = {a.id: a.name for a in analysis.final_schedule.activities}
+    last = max(events, key=lambda e: e.id, default=None)
+    trigger = {"kind": "delay", "version": n, "delay_ids": sorted(e.id for e in events),
+               "latest": None if last is None else {"id": last.id, "activity_id": last.activity_id,
+                                                    "name": names.get(last.activity_id, last.activity_id),
+                                                    "days": last.days}}
     look = card.remember(session, schedule_id, n, what_if=True, diff=diff, points=points,
-                         before={p.activity_id: p for p in base}, ready=analysis.final_schedule, cpm=analysis.final_cpm)
+                         before={p.activity_id: p for p in base}, ready=analysis.final_schedule, cpm=analysis.final_cpm,
+                         trigger=trigger)
     return points, diff, n, look

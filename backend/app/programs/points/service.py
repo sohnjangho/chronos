@@ -3,16 +3,20 @@
 - view: 지금 버전의 포인트·마지막 차이·바깥 위험·근거 문장 상태·카드 꼴(바뀜이 없으면 card null). what_if 면 지연 분석의
   가정 줄(app.points.card). 읽기만 한다 — 바깥 위험 찾기·근거 문장 채우기를 부르지 않는다. 날짜·여유는 저장한 엔진 값 그대로.
   지금 버전 포인트가 표에 없으면(이 기능 전 버전) 계산해 둔다(카드 줄은 만들지 않는다).
-- quote: 사람이 누른 때만 quotes.fill(question=, mode="general", retry=). 그 위험 줄(ok)이 있어야 한다.
+- quote: 사람이 누른 때만 quotes.fill(question=, mode="general", retry=). 그 위험 줄(ok)이 있어야 한다. 질문은
+  card.quote_question(업체 갈래는 받은 제목을 넣지 않음), 열쇠 kind 는 card.quote_kind(가정 여부·질문 지문).
+- retry_risks: 사람의 「다시 찾기」 — 실패·멈춘 바깥 위험 찾기만 다시 띄운다(자동으로는 다시 찾지 않는다).
 - people / contact: 담당 협력사(그 작업이 협력사 공종 말·연결 기록에 걸리는 곳 — 하네스 facts.allowed_for 와 같은 규칙)의 사람을
-  보이고(번호 없음), 사람이 고른 연락처로 질문 글을 코드가 짓는다(포인트·위험 줄의 값만 — 숫자를 지어내지 않는다). preview 면
+  보이고(번호 없음), 사람이 고른 연락처로 질문 글을 코드가 짓는다(포인트·위험 줄의 값만 — 숫자를 지어내지 않는다). AI 통화의
+  물어볼 것에는 코드가 지은 줄만 넣는다(업체 소식 제목 같은 바깥 글은 빼다 — 지시로 들어가지 않게). 문자에는 사람이 읽으므로
+  제목도 넣되 글자 검사(check_body)를 지난 줄만. preview 면
   글만, 아니면 기존 초안 길(메시지 API·통화 API 의 사람 초안, 보내지 않음)로 초안을 만들고 기존 초안 카드 꼴을 돌려준다.
   보내기는 늘 사람이 [보내기]·[전화 걸기]를 누르고 나가는 문(시험 모드·허용 번호·근무시간·권한)이 그대로 본다.
 """
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.cpm import ScheduleError
@@ -38,6 +42,8 @@ SCHEDULE_NOT_FOUND_MESSAGE = "일정을 찾을 수 없습니다."
 NO_WHAT_IF = "가정 관리 포인트가 없습니다 — 지연을 기록하거나 분석한 뒤에 볼 수 있습니다."
 NOT_A_POINT = "지금 관리 포인트가 아닙니다."
 NO_RISK = "근거 문장을 찾을 바깥 자료 줄이 없습니다."
+NOT_FAILED = "다시 찾을 것이 없습니다 — 바깥 위험 찾기가 실패했을 때만 다시 찾습니다."
+TOO_LONG = "보낼 글이 너무 깁니다. 직접 줄여서 초안을 만들어 주세요."
 QUESTION_MAX = 200
 RISK_LINES_MAX = 3
 
@@ -47,6 +53,12 @@ class QuoteIn(BaseModel):
 
     what_if: bool = False
     retry: bool = False  # 「다시 찾기」 — 실패한 것만 다시 부른다
+
+
+class RetryIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    what_if: bool = False
 
 
 class ContactIn(BaseModel):
@@ -97,7 +109,7 @@ def view(session: Session, schedule_id: int, *, what_if: bool = False) -> dict:
         "schedule_id": schedule_id, "version": n, "what_if": what_if, "basis": basis, "points": points,
         "diff": row.data_json["diff"] if row is not None else None,
         "risk_status": status, "risk_message": card.RISK_MESSAGES[status], "risks": risks,
-        "quotes": card.quote_states(session, schedule_id, n, risks),
+        "quotes": card.quote_states(session, row) if row is not None else {},
         "card": card.payload(session, row) if row is not None else None,
     }
 
@@ -123,21 +135,27 @@ def _point(session: Session, schedule_id: int, activity_id: str, *, what_if: boo
 # ── [근거 문장 보기] ─────────────────────────────────────────────────
 
 
-def _quote_question(point: dict, lines: list[str]) -> str:
-    return (f"「{point['name']}」 작업({point['es']}~{point['ef']}) 기간에 영향을 줄 수 있는 다음 바깥 소식의 근거가 되는 "
-            f"기사·자료 문장을 찾아 주세요: {' / '.join(lines)}")
-
-
 async def quote(session: Session, schedule_id: int, activity_id: str, kind: str, body: QuoteIn) -> dict:
     n, point, _, risks = _point(session, schedule_id, activity_id, what_if=body.what_if)
-    lines = [r["line"] for r in risks if r["kind"] == kind and r["status"] == "ok"]
-    if not lines:
+    question = card.quote_question(point, kind, risks)
+    if question is None:
         raise ApiError(404, "no_risk", NO_RISK)
+    stored = card.quote_kind(kind, question, what_if=body.what_if)
     session.commit()  # fill 은 쌓인 쓰기 없이 부른다(자기 세션으로 pending 을 적는다)
-    await quotes.fill(schedule_id, n, activity_id, kind, question=_quote_question(point, lines), mode="general",
-                      retry=body.retry)
+    await quotes.fill(schedule_id, n, activity_id, stored, question=question, mode="general", retry=body.retry)
     session.expire_all()
-    return card.quote_json(quotes.get(session, schedule_id, n, activity_id, kind)) or {}
+    return card.quote_json(quotes.get(session, schedule_id, n, activity_id, stored)) or {}
+
+
+def retry_risks(session: Session, schedule_id: int, body: RetryIn) -> dict:
+    """「다시 찾기」 → 지금 카드 상태(view). 실패한 찾기가 아니면 409 not_failed."""
+    n, row, _ = _row(session, schedule_id, what_if=body.what_if)
+    if row is None or not card.retry(session, row):
+        session.rollback()
+        raise ApiError(409, "not_failed", NOT_FAILED)
+    session.commit()
+    card.launch(schedule_id, n, what_if=body.what_if)
+    return view(session, schedule_id, what_if=body.what_if)
 
 
 # ── [담당자에게 확인 연락] ───────────────────────────────────────────
@@ -173,6 +191,8 @@ def _span(point: dict) -> str:
 
 def _state_line(point: dict, before: int | None) -> str:
     tf = point["tf"]
+    if tf < 0:
+        return f"여유가 {-tf}일 모자랍니다"
     if before is not None and before > tf:
         return f"여유가 {before}일에서 {tf}일로 줄었습니다" if tf > 0 else f"여유가 {before}일에서 없어졌습니다"
     if point["critical"] or tf <= 0:
@@ -180,14 +200,24 @@ def _state_line(point: dict, before: int | None) -> str:
     return f"여유가 {tf}일입니다"
 
 
-def _risk_lines(risks: list[dict]) -> list[str]:
-    return [hide_phones(r["line"]) for r in risks if r["status"] == "ok"][:RISK_LINES_MAX]
+def _clean(line: str) -> bool:
+    try:
+        outreach_service.check_body(line)
+    except ApiError:
+        return False
+    return True
+
+
+def _risk_lines(risks: list[dict], *, outside_text: bool) -> list[str]:
+    """ok 위험 줄(번호 가림, 글자 검사를 지난 것). outside_text 가 아니면 업체 갈래(받은 제목)는 뺀다."""
+    lines = [hide_phones(r["line"]) for r in risks if r["status"] == "ok" and (outside_text or r["kind"] != "business")]
+    return [line for line in lines if _clean(line)][:RISK_LINES_MAX]
 
 
 def message_body(site: str, person: str, point: dict, before: int | None, risks: list[dict]) -> str:
     head = f"[{site}] " if site else ""
     text = f"{head}{person} 님, 「{point['name']}」({_span(point)}) {_state_line(point, before)}."
-    lines = _risk_lines(risks)
+    lines = _risk_lines(risks, outside_text=True)  # 사람이 읽는 문자
     if lines:
         text += f" 참고한 바깥 소식: {'; '.join(lines)}."
     return text + " 일정대로 진행할 수 있는지 알려 주시겠어요?"
@@ -197,7 +227,8 @@ def call_text(point: dict, before: int | None, risks: list[dict]) -> tuple[str, 
     purpose = f"「{point['name']}」 일정 확인"[:QUESTION_MAX]
     first = f"「{point['name']}」({_span(point)}) 작업을 일정대로 마칠 수 있나요? {_state_line(point, before)}."
     questions = [first[:QUESTION_MAX]]
-    questions += [f"{line} — 이 소식이 일정에 영향을 주나요?"[:QUESTION_MAX] for line in _risk_lines(risks)[:2]]
+    questions += [f"{line} — 이 소식이 일정에 영향을 주나요?"[:QUESTION_MAX]
+                  for line in _risk_lines(risks, outside_text=False)[:2]]  # AI 통화 지시 — 코드가 지은 줄만
     return purpose, questions
 
 
@@ -207,19 +238,27 @@ async def contact(session: Session, schedule_id: int, activity_id: str, body: Co
     person = hide_phones(who.name)
     if body.channel == "sms":
         text = message_body(site_name.spoken(session, schedule_id), person, point, before, risks)
+        try:  # 길이·글자를 서비스 전에 본다(422, 500 아님)
+            draft = MessageIn(contact_id=who.id, channel="sms", body=text, activity_id=activity_id)
+            outreach_service.check_body(draft.body)
+        except ValidationError:
+            raise ApiError(422, "invalid_text", TOO_LONG) from None
         if body.preview:
-            return {"preview": True, "channel": "sms", "body": text}
-        made = await outreach_service.create(session, schedule_id, MessageIn(
-            contact_id=who.id, channel="sms", body=text, activity_id=activity_id), user)
+            return {"preview": True, "channel": "sms", "body": draft.body}
+        made = await outreach_service.create(session, schedule_id, draft, user)
         return {"preview": False, "card": {
             "kind": "outreach_draft", "schedule_id": schedule_id, "message_id": made.message.id,
             "contact": card_contact(session, who), "channel": "sms", "body": made.message.body, "body_ko": None,
             "needs_approval": True}}
     purpose, questions = call_text(point, before, risks)
+    try:
+        draft_call = CallIn(contact_id=who.id, purpose=purpose, questions=questions, activity_id=activity_id)
+        outreach_service.check_body(purpose, *questions)
+    except ValidationError:
+        raise ApiError(422, "invalid_text", TOO_LONG) from None
     if body.preview:
         return {"preview": True, "channel": "call", "purpose": purpose, "questions": questions}
-    made = calls_service.create(session, schedule_id, CallIn(
-        contact_id=who.id, purpose=purpose, questions=questions, activity_id=activity_id), user)
+    made = calls_service.create(session, schedule_id, draft_call, user)
     return {"preview": False, "card": {
         "kind": "outreach_call_draft", "schedule_id": schedule_id, "call_id": made.id,
         "contact": card_contact(session, who), "purpose": hide_phones(purpose),
