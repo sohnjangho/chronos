@@ -157,6 +157,13 @@ p{margin:0}
 .ct{display:flex;align-items:center;gap:2mm;font-size:10pt;font-weight:800;color:#fff;margin-bottom:1mm}
 .ct i{font-style:normal;width:18px;height:18px;border-radius:50%;background:#fbbf24;color:#05070d;font:800 10pt/18px sans-serif;text-align:center}
 .hl.line{background:none}
+.rs{display:grid;gap:2.6mm;margin-top:6mm}
+.r{display:grid;grid-template-columns:30mm 1fr;gap:4mm;border:1px solid rgba(248,113,113,.3);background:rgba(248,113,113,.05);border-radius:10px;padding:3mm 4mm}
+.r .n{font-size:22pt;font-weight:800;color:#f87171;letter-spacing:-.04em;line-height:1.05}
+.r .n small{font-size:10pt;color:#fca5a5;margin-left:1mm}
+.r b{display:block;color:#fff;font-size:10.2pt;margin-bottom:.8mm}
+.r p{margin:0;font-size:8.7pt;color:#cbd5e1;line-height:1.5}
+.r .src{font-size:7.6pt;color:#64748b;margin-top:1mm}
 </style></head><body>
 
 <!-- 1 표지 (와우 1 모양, PM 11-24) -->
@@ -190,26 +197,26 @@ p{margin:0}
       <div><div class="q">「누가, 언제, 얼마나 불편한지」</div>
         <ul><li><b>누가</b> 일정을 맡은 PM. 건설·플랜트, 생산, R&amp;D·실증 과제</li>
         <li><b>언제</b> 일정표를 처음 짤 때(빠진 절차), 그리고 변동이 들어올 때마다(옮겨 간 크리티컬 패스)</li>
-        <li><b>얼마나</b> 재시험 6주가 과제 종료 7개월 연장으로(사례). 공공 공사는 하루 지체상금 1,500만 원(300억 원 기준)</li></ul></div>
-      <div class="pg2">3–4쪽</div></div>
+        <li><b>얼마나</b> 재시험 6주가 과제 종료 7개월 연장으로(가상 사례). 규제 특례 심의만 최대 120일, 인허가는 지역별 45~150일(조사). 공공 공사는 하루 지체상금 1,500만 원(300억 원 기준)</li></ul></div>
+      <div class="pg2">3–5쪽</div></div>
     <div class="cr"><div class="w"><b>30</b><span>완성도</span></div>
       <div><div class="q">「시연에서 문제를 해결하는 과정」</div>
         <ul><li><b>실제 도는 에이전트 OS</b> 앱 19개, 도구 40여 개, 승인함·버전·4겹 하네스</li>
         <li><b>시연 6장면</b> 말 한 줄 → 공정표 초안, 관리 포인트 이동, 담당자에게 먼저 묻기(문자·AI 전화), 당김 효과, 만회안 승인</li>
         <li><b>검증</b> 서버 시험 8,282 · 화면 시험 2,167 · 실제 Liner 46단계 시나리오</li></ul></div>
-      <div class="pg2">7–13쪽<br>15–26쪽</div></div>
+      <div class="pg2">8–14쪽<br>16–27쪽</div></div>
     <div class="cr amber"><div class="w"><b>20</b><span>Liner 활용</span></div>
       <div><div class="q">「Liner Model 과 Liner Search 를 핵심 기능에 알맞게」</div>
         <ul><li><b>Model = 두뇌</b> 요청 이해, 일정 초안, 만회안 설명, 연락 글과 통화 요약. Router 를 cost · balanced · quality 로 나눠 쓴다</li>
         <li><b>Search = 근거</b> 새 관리 포인트에만 Premium Data · MCP · Search Agent 로 외부 영향을 출처와 함께 찾는다</li>
         <li><b>나눈 경계</b> 날짜는 코드가 계산하고, Liner 는 판단과 근거를 맡는다. 도구 호출 22/22, MCP 5/5</li></ul></div>
-      <div class="pg2">6쪽<br>14쪽</div></div>
+      <div class="pg2">7쪽<br>15쪽</div></div>
     <div class="cr"><div class="w"><b>20</b><span>확장성</span></div>
       <div><div class="q">「다른 조직과 직무로 · 시간과 비용이 실제로 줄어드는가」</div>
         <ul><li><b>분야</b> 엔진과 한 바퀴는 그대로, 분야마다 볼 외부 자료만 바꾼다. 건설·생산 시연, R&amp;D 사례, 9개 분야</li>
         <li><b>시간</b> 옮겨 간 것을 아는 때: 주간 회의 → 변동 직후</li>
         <li><b>OS 라서</b> 원가 · 품질 · 구매 앱을 같은 책상에 붙이고, 협력사는 문자와 전화로 들어온다</li></ul></div>
-      <div class="pg2">27–28쪽</div></div>
+      <div class="pg2">28–29쪽</div></div>
   </div>
   <div class="nums" style="margin-top:7mm">
     <div><b>19</b><span>앱 · 하나의 OS</span></div>
@@ -276,6 +283,29 @@ p{margin:0}
       <div class="card"><div class="k">쉬운 용어</div><p class="small" style="color:#cbd5e1;margin-top:1mm"><b style="color:#fff">크리티컬 패스</b> 하루 늦으면 완료일정도 하루 늦는 작업의 줄.<br><b style="color:#fff">여유</b> 완료일정을 밀지 않고 늦출 수 있는 기간.<br><b style="color:#fff">관리 포인트</b> 크리티컬이거나 여유가 거의 없는 가까운 작업. 변동마다 다시 뽑는다.</p></div>
     </div>
   </div>
+  <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
+</section>
+
+<!-- 4b 조사: R&D 실증 일정의 문제 (PM 11-25) -->
+<section class="page">
+  <div class="eyebrow red">01 · 문제 · 조사로 확인한 것</div>
+  <h1 style="font-size:28pt">R&amp;D 실증 일정은<br><em>연구 밖</em>에서 늦어진다</h1>
+  <p class="sub" style="font-size:10.2pt">앞의 사례는 가상이지만, 그 구조는 공개 자료에서 반복해 확인된다. 실증 단계로 가면 인허가, 특례 심의, 부처 간 조율처럼 연구자가 통제하지 못하는 외부 절차가 일정을 좌우한다.</p>
+  <div class="rs">
+    <div class="r"><div class="n">120<small>일</small></div><div><b>규제 특례를 받기까지 최대 120일</b><p>관계부처는 신청 접수일부터 90일 이내(1회 30일 연장 가능)에 특례심의위원회에 안건을 올린다. 업계는 이 기간을 시장 적기 진출의 장애로 꼽는다.</p><div class="src">매일일보, 「개선 필요한 '규제샌드박스'…심사 기간 단축 필요」, 2024.06.30</div></div></div>
+    <div class="r"><div class="n">자주<small>발생</small></div><div><b>승인 뒤에도 실증이 바로 시작되지 않는다</b><p>"실증 목적에 맞지 않는 부가조건으로 인해 사업자들의 사업 개시와 실증 진행이 어려운 경우도 자주 발생." 반대가 심한 사안은 심의가 상당 기간 지연되는 사례도 있다.</p><div class="src">국무조정실 · 정책브리핑, 「'규제샌드박스' 심의 지연 방지…」, 2024.08.01</div></div></div>
+    <div class="r"><div class="n">45~150<small>일</small></div><div><b>인허가 기간은 지역마다 3배 넘게 다르다</b><p>수소 인프라 구축의 가장 큰 애로는 인허가 지연이고(딜로이트), 정부의 수소생산기지 구축사업에서도 인허가 문제로 중단·지연이 빈번했다. 지역별 인허가 기간은 최소 45일에서 최대 150일.</p><div class="src">기후에너지경제, 「'속도' 막는 수소 규제…」, 2025.12.10</div></div></div>
+    <div class="r"><div class="n">몇<small>년</small></div><div><b>R&amp;D·실증 단계에서 인허가로 지연된다</b><p>"다양한 R&amp;D 및 실증 단계에서 인허가 규제로 인해 지연." 액화수소 샌드박스는 규제특례 신청 등의 절차에 몇 년이 걸렸다고 업계가 말한다.</p><div class="src">가스신문, 「수소 업계 R&amp;D·실증단계서 규제 많아…」, 2024.09.24</div></div></div>
+    <div class="r"><div class="n">58.0<small>%</small></div><div><b>연구자 과반이 "실증 지원 체계가 부족하다"</b><p>실증·일반 연구자 설문에서 응답자의 58.0%가 연구개발 실증 투자가 체계적이지 못해 보완이 필요하다고 답했다(충분하다 10.8%). 법령 부처, 사업수행 부처, 지원기관이 서로 달라 소통이 원활하지 않다는 지적도 있다.</p><div class="src">한국과학기술기획평가원(KISTEP), 「정부 연구개발 실증사업의 현황 분석 및 투자 전략 수립에 관한 연구」, 2018.12</div></div></div>
+  </div>
+  <div style="font-size:12pt;font-weight:800;color:#fff;margin-top:6mm">그래서 일정에서는</div>
+  <div class="tbl" style="grid-template-columns:52mm 1fr 1fr;margin-top:2.5mm;font-size:8.8pt">
+    <div class="th">조사에서 본 것</div><div class="th">일정에 생기는 일</div><div class="th" style="color:#7dd3fc">ChronOS 가 하는 일</div>
+    <div>인허가·특례 심의는 연구 밖의 작업</div><div>연구자가 짠 일정표에서 빠지기 쉽다</div><div style="color:#e0f2fe">일정 초안을 만들 때 법령 검색(Liner)으로 처리 기간의 근거를 찾아 작업으로 넣는다</div>
+    <div>기간이 길고 들쭉날쭉(90~120일, 45~150일)</div><div>작은 연구 지연도 크리티컬 패스를 옮긴다</div><div style="color:#e0f2fe">변동마다 다시 계산하고, 관리 포인트가 옮겨 가면 먼저 알린다</div>
+    <div>부처와 기관이 여럿, 소통이 어긋남</div><div>담당자 확인이 늦고 기록이 남지 않는다</div><div style="color:#e0f2fe">에이전트가 담당자에게 먼저 묻고, 답과 근거를 기록한다</div>
+  </div>
+  <p class="small" style="margin-top:3mm">앞 사례의 숫자(실증특례 심의 약 3개월, 과제 7개월 연장)는 가상이다. 심의 기간은 위 조사의 범위(90~120일)에 맞춰 잡았다. 조사 자료는 규제샌드박스와 수소 분야가 많아, 모든 R&amp;D 실증에 같은 숫자가 적용되지는 않는다.</p>
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
 </section>
 
@@ -566,7 +596,7 @@ p{margin:0}
     <div><div class="shot" style="border-radius:12px"><img src="img/cap/device-iphone-chat.jpg"></div><p class="small" style="margin-top:2mm"><b style="color:#fff">폰 · 대화</b></p></div>
     <div><div class="shot" style="border-radius:12px"><img src="img/cap/device-iphone-field.jpg"></div><p class="small" style="margin-top:2mm"><b style="color:#fff">폰 · 현장 점검</b> 아래 탭 5개. 현장 계정은 점검, 일정, 현장 AI 만 본다.</p></div>
   </div>
-  <p class="small" style="margin-top:2mm"><b style="color:#fff">PC</b> 창을 여러 개 띄우는 OS 화면(1쪽, 7쪽). 에이전트가 창을 차례로 연다.</p>
+  <p class="small" style="margin-top:2mm"><b style="color:#fff">PC</b> 창을 여러 개 띄우는 OS 화면(1쪽, 8쪽). 에이전트가 창을 차례로 연다.</p>
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
 </section>
 
