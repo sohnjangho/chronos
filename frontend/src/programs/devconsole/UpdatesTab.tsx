@@ -15,6 +15,10 @@ const TZ = 'Asia/Seoul';
 const dayOf = (iso: string) => new Date(iso).toLocaleDateString('ko-KR', { timeZone: TZ, month: 'long', day: 'numeric', weekday: 'short' });
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('ko-KR', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
 
+/** 짧은 커밋 비교: 한쪽이 다른 쪽으로 시작하면 같은 판(둘 다 7자 이상 — git 기본 짧은 꼴). */
+const sameCommit = (a: string | null, b: string) =>
+  a !== null && a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a));
+
 const itemText = (i: UpdateItem) => `${i.text} ${i.note ?? ''}`.toLowerCase();
 
 /** 찾기: 이름 · 커밋 · 알림이 맞으면 판 전체, 아니면 맞는 항목만. 하나도 없으면 null. */
@@ -98,7 +102,7 @@ export default function UpdatesTab() {
     else days.push({ day, list: [e] });
   }
   const running = data?.running_commit ?? null;
-  const known = running !== null && entries.some((e) => e.commit === running);
+  const known = entries.some((e) => sameCommit(running, e.commit));
 
   return (
     <div className="dc-scroll dc-up">
@@ -136,7 +140,7 @@ export default function UpdatesTab() {
           <h3 className="dc-up-dayhead">{`${d.day} · ${d.list.length}판`}</h3>
           <div className="dc-up-feed">
             {d.list.map((e) => (
-              <Card key={`${e.at}-${e.commit}`} e={e} live={e.commit === running} kind={kind} />
+              <Card key={`${e.at}-${e.commit}`} e={e} live={sameCommit(running, e.commit)} kind={kind} />
             ))}
           </div>
         </section>

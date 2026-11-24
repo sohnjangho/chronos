@@ -20,6 +20,20 @@ const LISTEN: Record<string, string> = {
 };
 const STUCK = new Set(['gave_up', 'taken_over', 'auth_rejected']);
 
+/** 서버 칸마다 화면 어디에 보이나(계약 — healthChecks.test 가 __fixtures__/health-fields.json 의 모든 이름이 여기 있는지 본다). */
+export const NOTIFY_SHOWN: Record<keyof Required<NotifyHealth>, string> = {
+  connected: '상태 · 요약', status: '상태 · 요약', checked_at: '설정 · 마지막 연결 시험 · 마지막 확인', test_mode: '설정', allow_count: '설정',
+  sender_masked: '설정 · 요약', inbound_mode: '설정', agent: '설정 · 에이전트 권한', worker: '조회 일꾼 · 상태', needs_check: '상태 · 요약 · 할 일',
+  last_diagnosis: '진단 걸음 · 상태', kakao: '「카카오톡」 줄', voice: '「AI 전화」 줄',
+};
+export const KAKAO_SHOWN: Record<keyof Required<KakaoHealth>, string> = {
+  available: '저장된 값 · 목록 읽는 길', channel: '요약 · 저장된 값', templates: '요약 · 문안 넷', synced_at: '마지막 확인', ready: '상태',
+};
+export const VOICE_SHOWN: Record<keyof Required<VoiceHealth>, string> = {
+  provider: '기술 이름 · 음성 설정', model: '음성 설정', status: '상태 · 요약', checked_at: '마지막 확인 · 음성 설정', sdk_installed: '음성 설정',
+  last_diagnosis: '진단 걸음 · 상태', worker: '통화 일꾼 · 상태',
+};
+
 export function notify(nh: NotifyHealth): Check {
   const base = { id: 'notify', source: 'notify', area: 'contact' as const, name: '문자 연결', tech: '알림 연결', raw: nh };
   if (!nh.connected) {
@@ -30,17 +44,22 @@ export function notify(nh: NotifyHealth): Check {
     };
   }
   const flags = diagFlags(nh.last_diagnosis);
+  const w = nh.worker;
+  const stopped = !!w && w.running === false;
+  const workerError = w && typeof w.last_error_kind === 'string' ? w.last_error_kind : null;
   let state: CheckState = fromStatus(nh.status) ?? 'unknown';
-  if (nh.needs_check > 0 || flags.failed.length || flags.check.length || flags.unfinished) state = worse(state, 'check');
+  if (nh.needs_check > 0 || flags.failed.length || flags.check.length || flags.unfinished || stopped || workerError) state = worse(state, 'check');
   const label = nh.status === 'ok' ? '정상' : nh.status === 'failed' ? '실패' : '모름';
   const steps = [...flags.failed, ...flags.check].map((s) => `${s.id} 「${s.detail || s.label}」`);
   const agent = nh.agent ?? {};
-  const w = nh.worker;
   return {
     ...base, state,
-    summary: [`연결 ${label}`, nh.sender_masked ? `발신 ${nh.sender_masked}` : null, nh.needs_check > 0 ? `보냈는지 모름 ${nh.needs_check}건 — 자동으로 다시 보내지 않습니다` : null, steps.length ? `마지막 진단 ${steps.join(' · ')}` : null]
+    summary: [`연결 ${label}`, nh.sender_masked ? `발신 ${nh.sender_masked}` : null, nh.needs_check > 0 ? `보냈는지 모름 ${nh.needs_check}건 — 자동으로 다시 보내지 않습니다` : null,
+      stopped ? '조회 일꾼 멈춤 — 예약 문자 · 상태 조회 · 받은 문자가 돌지 않습니다' : null, workerError ? `조회 일꾼 마지막 오류 ${workerError}` : null,
+      steps.length ? `마지막 진단 ${steps.join(' · ')}` : null]
       .filter(Boolean).join(' · '),
-    todo: nh.status === 'failed' ? '설정 → 알림 연결 → 연결 시험' : nh.needs_check > 0 ? `연락처에서 ${nh.needs_check}건 확인` : state === 'ok' ? null : '설정 → 알림 연결 → 연결 진단',
+    todo: nh.status === 'failed' ? '설정 → 알림 연결 → 연결 시험' : nh.needs_check > 0 ? `연락처에서 ${nh.needs_check}건 확인`
+      : stopped || workerError ? '서버 기록에서 조회 일꾼 오류를 보고, 필요하면 서버를 다시 시작' : state === 'ok' ? null : '설정 → 알림 연결 → 연결 진단',
     impact: '현장에 보내는 문자 · 알림톡 · AI 전화가 모두 이 연결로 나갑니다. 보냈는지 모르는 문자는 사람이 확인해야 합니다.',
     fields: [
       { title: '설정', rows: [

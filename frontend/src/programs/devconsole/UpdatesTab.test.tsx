@@ -57,6 +57,22 @@ describe('업데이트 내역', () => {
     expect(screen.getAllByText('지금 실서버 판')).toHaveLength(1);
   });
 
+  test('the live commit matches by prefix either way (a longer or shorter sha), but not below 7 characters', async () => {
+    mockUpdates({ entries: ENTRIES, running_commit: '5c69aab0123' });
+    const { unmount } = show();
+    expect(within(await screen.findByRole('article', { name: /받는 전화/ })).getByText('지금 실서버 판')).toBeVisible();
+    unmount();
+    mockUpdates({ entries: [{ ...ENTRIES[1], commit: '5c69aab9f' }], running_commit: '5c69aab' });
+    const second = show();
+    expect(within(await screen.findByRole('article', { name: /받는 전화/ })).getByText('지금 실서버 판')).toBeVisible();
+    second.unmount();
+    mockUpdates({ entries: ENTRIES, running_commit: '5c69' });
+    show();
+    await screen.findByRole('article', { name: /받는 전화/ });
+    expect(screen.queryByText('지금 실서버 판')).toBeNull();
+    expect(screen.getByText(/지금 실서버 커밋 5c69 은 기록에 없습니다/)).toBeVisible();
+  });
+
   test('a running commit not in the record is said so; an unreadable one too', async () => {
     mockUpdates({ entries: ENTRIES, running_commit: 'abc1234' });
     const { unmount } = show();

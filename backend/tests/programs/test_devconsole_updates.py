@@ -6,6 +6,12 @@ import subprocess
 import pytest
 
 from app.programs.devconsole import updates
+from app.programs.devconsole.schemas import (
+    HealthOut,
+    KakaoHealthOut,
+    NotifyHealthOut,
+    VoiceHealthOut,
+)
 from app.security.passwords import hash_password
 from app.security.tokens import issue_token
 from app.store.tables import User
@@ -155,3 +161,19 @@ def test_read_running_commit_failure_is_none(monkeypatch, outcome):
 def test_repo_root_holds_the_deploy_log():
     assert updates.UPDATES_FILE == updates.REPO_ROOT / "deploy" / "updates.jsonl"
     assert (updates.REPO_ROOT / "backend" / "app").is_dir()
+
+
+# ── 진단 칸 계약: 서버 응답 모델의 칸 이름 = 화면 대응표가 읽는 고정본(frontend …/__fixtures__/health-fields.json) ──
+
+
+def test_health_fields_fixture_matches_the_response_model():
+    """서버가 진단 칸을 더하거나 빼면 여기서 깨진다 → 고정본을 고치면 화면 시험(healthChecks.test)이 대응표에 더하라고 깨진다."""
+    fixture = updates.REPO_ROOT / "frontend" / "src" / "programs" / "devconsole" / "__fixtures__" / "health-fields.json"
+    want = {
+        "top": sorted(HealthOut.model_fields),
+        "notify": sorted(NotifyHealthOut.model_fields),
+        "kakao": sorted(KakaoHealthOut.model_fields),
+        "voice": sorted(VoiceHealthOut.model_fields),
+    }
+    got = json.loads(fixture.read_text(encoding="utf-8"))
+    assert got == want, f"{fixture} 를 이 값으로 고치고 화면 대응표에 새 칸을 더하세요:\n{json.dumps(want, ensure_ascii=False, indent=2)}"

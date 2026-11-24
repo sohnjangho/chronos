@@ -1,0 +1,46 @@
+{
+  "top": [
+    "active_turns",
+    "db",
+    "evidence_reuse",
+    "holidays",
+    "info_api",
+    "llm",
+    "notify",
+    "presence",
+    "qdrant",
+    "search",
+    "vision"
+  ],
+  "notify": [
+    "agent",
+    "allow_count",
+    "checked_at",
+    "connected",
+    "inbound_mode",
+    "kakao",
+    "last_diagnosis",
+    "needs_check",
+    "sender_masked",
+    "status",
+    "test_mode",
+    "voice",
+    "worker"
+  ],
+  "kakao": [
+    "available",
+    "channel",
+    "ready",
+    "synced_at",
+    "templates"
+  ],
+  "voice": [
+    "checked_at",
+    "last_diagnosis",
+    "model",
+    "provider",
+    "sdk_installed",
+    "status",
+    "worker"
+  ]
+}

@@ -2,6 +2,8 @@
 import { describe, expect, test } from 'vitest';
 import type { HealthOut } from './devApi';
 import { AREAS, buildChecks, firstLook, MAPPED, type Check } from './healthChecks';
+import fields from './__fixtures__/health-fields.json';
+import { KAKAO_SHOWN, NOTIFY_SHOWN, VOICE_SHOWN } from './healthContact';
 import { kakaoHealth, notifyHealth, voiceHealth } from './testKit';
 
 /** 지금 서버가 보내는 모든 칸(선택 칸 포함). 서버 응답에 칸이 늘면 이 꼴이 타입 검사에서 깨진다 → MAPPED 에 더한다. */
@@ -92,6 +94,29 @@ describe('대응표', () => {
     expect(c.area).toBe('other');
     expect(c.state).toBe('fail');
     expect(c.raw).toEqual({ status: 'error', message: '백업 실패' });
+  });
+
+  test('server contract: every field name the server model has (top, notify, kakao, voice) is mapped by the screen', () => {
+    // 고정본은 백엔드 시험(test_devconsole_updates.py)이 서버 모델과 같은지 본다 — 서버가 칸을 더하면 거기서, 대응표가 빠지면 여기서 깨진다.
+    const unmapped = (names: string[], shown: object) => names.filter((k) => !(k in shown));
+    expect(unmapped(fields.top, MAPPED)).toEqual([]);
+    expect(unmapped(fields.notify, NOTIFY_SHOWN)).toEqual([]);
+    expect(unmapped(fields.kakao, KAKAO_SHOWN)).toEqual([]);
+    expect(unmapped(fields.voice, VOICE_SHOWN)).toEqual([]);
+  });
+
+  test('a stopped SMS worker or its last error is at least 확인 필요 (same rule as the call worker)', () => {
+    const ok = notifyHealth({ needs_check: 0, last_diagnosis: null });
+    expect(byId(buildChecks({ ...FULL, notify: ok }, FETCHED), 'notify').state).toBe('ok');
+    const stopped = byId(buildChecks({ ...FULL, notify: { ...ok, worker: { ...ok.worker, running: false } } }, FETCHED), 'notify');
+    expect(stopped.state).toBe('check');
+    expect(stopped.summary).toContain('조회 일꾼 멈춤');
+    expect(stopped.todo).toBeTruthy();
+    const erred = byId(buildChecks({ ...FULL, notify: { ...ok, worker: { ...ok.worker, last_error_kind: 'ReadTimeout' } } }, FETCHED), 'notify');
+    expect(erred.state).toBe('check');
+    expect(erred.summary).toContain('ReadTimeout');
+    const failed = byId(buildChecks({ ...FULL, notify: { ...ok, status: 'failed', worker: { ...ok.worker, running: false } } }, FETCHED), 'notify');
+    expect(failed.state).toBe('fail'); // 더 나쁜 쪽은 그대로
   });
 
   test('no notify connection is 확인 필요 (texts and calls do not go out); a kakao without channel is 정상 · 쓰지 않음', () => {

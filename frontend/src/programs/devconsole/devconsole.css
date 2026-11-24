@@ -891,7 +891,7 @@
 .dc-up-top .dc-cat-h2 { font-size: var(--fs-20, 20px); line-height: 26px; }
 .dc-up-tools { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; }
 .dc-up-tools .dc-chip-bar { flex-wrap: nowrap; }
-.dc-up-tools .dc-search { flex: 0 1 220px; }
+.dc-up-tools .dc-search { flex: 0 0 260px; }
 .dc-up-day { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .dc-up-dayhead { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--fg-muted); font-size: var(--fs-13); font-weight: 700; }
 .dc-up-dayhead::after { content: ''; flex: 1; height: 1px; background: var(--border); }
@@ -925,6 +925,7 @@
 @container dc (max-width: 860px) {
   .dc-up-kinds { grid-template-columns: minmax(0, 1fr); }
   .dc-up-tools, .dc-up-tools .dc-chip-bar { flex-wrap: wrap; }
+  .dc-up-tools .dc-search { flex: 1 1 200px; }
 }
 @container dc (max-width: 620px) {
   .dc-up { padding: 12px; }
