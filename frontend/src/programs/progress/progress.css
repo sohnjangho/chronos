@@ -367,3 +367,46 @@
 .pg-handoff-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; }
 .pg-fcheck { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-12); cursor: pointer; }
 
+
+/* ── 사진 사람 판독(PM 11-24, 시안 B): 묶은 목록 + 찾기 | 크게 보기 + 입력. 목록·자세히 칸만 세로로 스크롤한다. ── */
+.pg-hr-pill { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 999px; font-size: var(--fs-11); font-weight: 700; line-height: 18px; background: var(--tone-warning-bg); color: var(--warning-text); }
+.pg-hr-note { margin: 0; padding: 6px 10px; border-radius: var(--radius-3); background: var(--tone-info-bg); color: var(--tone-info-fg); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.pg-hr {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-width: 0; height: 640px; max-height: calc(100vh - 220px); min-height: 420px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-4); overflow: hidden;
+}
+@container (max-width: 900px) {
+  .pg-hr { grid-template-columns: minmax(0, 1fr); height: auto; max-height: none; }
+}
+.pg-hr-list { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.pg-hr-bar { flex: none; display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.pg-hr-search { max-width: 320px; }
+.pg-hr-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.pg-hr-empty { padding: 12px; margin: 0; }
+.pg-hr-group { margin: 0; padding: 6px 12px; background: var(--bg-panel-alt); color: var(--fg-muted); font-size: var(--fs-12); font-weight: 700; }
+.pg-hr-ul { list-style: none; margin: 0; padding: 0; }
+.pg-hr-row {
+  width: 100%; display: grid; grid-template-columns: 64px minmax(0, 1.2fr) minmax(0, 1fr); gap: 10px; align-items: center;
+  padding: 6px 12px; border: 0; border-bottom: 1px solid var(--border); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.pg-hr-row:hover { background: var(--bg-panel-alt); }
+.pg-hr-row[aria-current="true"] { background: var(--bg-selected); }
+.pg-hr-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pg-hr-thumb { width: 64px; height: 44px; object-fit: cover; border-radius: var(--radius-2); display: block; background: var(--bg-panel-alt); }
+.pg-hr-cell { min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-12); }
+.pg-hr-cell small { color: var(--fg-muted); font-size: var(--fs-12); }
+.pg-hr-clip { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-hr-side { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px 18px; border-left: 2px solid var(--border); background: var(--bg-panel-alt); box-sizing: border-box; }
+.pg-hr-detail { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.pg-hr-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pg-hr-title { margin: 0; font-size: var(--fs-16); overflow-wrap: anywhere; }
+.pg-hr-photo { box-sizing: border-box; width: 100%; height: 300px; object-fit: contain; display: block; background: var(--bg-app); border: 1px solid var(--border); border-radius: var(--radius-3); }
+.pg-hr-nophoto { display: flex; align-items: center; justify-content: center; color: var(--fg-muted); font-size: var(--fs-12); }
+.pg-hr-kv { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 4px 8px; margin: 0; font-size: var(--fs-13); line-height: 20px; }
+.pg-hr-kv dt { color: var(--fg-muted); }
+.pg-hr-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.pg-hr-sec { margin: 4px 0 0; padding-top: 10px; border-top: 1px solid var(--border); font-size: var(--fs-13); }
+.pg-hr-form { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; align-items: end; }
+.pg-hr-retake { grid-template-columns: minmax(0, 1fr) auto; }
+.pg-hr-hint { margin: 0; overflow-wrap: anywhere; }
+.pg-hr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

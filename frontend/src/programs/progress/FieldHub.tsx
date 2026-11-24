@@ -11,6 +11,7 @@ import ContactButton from '../../shared/outreach/ContactButton';
 import { checkinText, handoffText, pollText } from '../../shared/outreach/contactKit';
 import ReplyCandidates, { MEMO_MAX } from '../../shared/outreach/ReplyCandidates';
 import { fieldApi, type FieldActivityOption, type FieldData, type FieldItem, type FieldKind } from './fieldApi';
+import HumanRead, { isHumanItem } from './HumanRead';
 
 const TABS: { id: FieldKind; label: string }[] = [
   { id: 'checkin', label: '일일 체크인' },
@@ -39,6 +40,9 @@ function StatusBadge({ item }: { item: FieldItem }) {
     return item.response_choice === 'ready' ? <Badge tone="success">인계·투입 준비 완료</Badge> : <Badge tone="warning">사전 조치 필요</Badge>;
   }
   if (item.status === 'pending') return <Badge tone="warning">회신 대기</Badge>;
+  if (item.status === 'human_wait') return <Badge tone="info">관리자 확인 중</Badge>;
+  if (item.status === 'retake') return <Badge tone="warning">다시 찍어 주세요</Badge>;
+  if (item.status === 'retaken') return <Badge tone="neutral">다시 올림</Badge>;
   if (item.response_choice === 'unread') return <Badge tone="warning">판독하지 않음</Badge>;
   if (item.response_choice === 'delayed' || item.response_choice === 'infeasible' || item.response_choice === 'risk') {
     return <Badge tone="danger">지연·불가 우려</Badge>;
@@ -301,7 +305,12 @@ function PhotoCard({ item, busy, onApply }: { item: FieldItem; busy: boolean; on
   // 진도 값이 없으면 0% 로 채우지 않고 판독하지 않음으로 본다(PM 11-24).
   const aiProgress = typeof p.ai_progress === 'number' ? p.ai_progress : item.reported_progress;
   const unread = item.response_choice === 'unread' || aiProgress === null;
-  const aiReason = typeof p.ai_reason === 'string' ? p.ai_reason : typeof p.ai_stage === 'string' ? p.ai_stage : item.response_note;
+  // 사람 판독(PM 11-24): AI 가 못 읽은 사진에 관리자가 넣은 진도 — AI 추정으로 적지 않는다.
+  const human = item.response_choice === 'human' ? ((p.human_read ?? {}) as Record<string, unknown>) : null;
+  const asked = (p.retake ?? {}) as Record<string, unknown>;
+  const aiReason = human
+    ? `사람 판독 · ${String(human.by ?? '')} — ${String(human.reason ?? '')}`
+    : typeof p.ai_reason === 'string' ? p.ai_reason : typeof p.ai_stage === 'string' ? p.ai_stage : item.response_note;
   const risks = Array.isArray(p.ai_risks) ? (p.ai_risks as string[]) : [];
   const tag = typeof p.evidence_tag === 'string' ? p.evidence_tag : `#${item.activity_id}`;
   const dataUrl = typeof p.photo_data_url === 'string' ? p.photo_data_url : null;
@@ -320,12 +329,20 @@ function PhotoCard({ item, busy, onApply }: { item: FieldItem; busy: boolean; on
       </div>
       {unread ? (
         <div className="pg-ai-result">
-          <p className="pg-risk-line">{`판독하지 않음 — ${String(p.unread_reason ?? '진도 값이 없습니다.')}`}</p>
+          {item.status === 'human_wait' && <p className="pg-hr-note">AI 가 판독하지 못해 관리자가 확인 중입니다.</p>}
+          {item.status === 'retake' && (
+            <>
+              <p className="pg-risk-line">{`관리자가 다시 찍어 달라고 했습니다 — ${String(asked.reason ?? '')}`}</p>
+              <p className="pg-muted">위 「사진 올리기」에서 이 작업 사진을 다시 올려 주세요.</p>
+            </>
+          )}
+          {item.status === 'retaken' && <p className="pg-muted">다시 올린 사진으로 바뀌었습니다.</p>}
+          {item.status !== 'retake' && <p className="pg-risk-line">{`판독하지 않음 — ${String(p.unread_reason ?? '진도 값이 없습니다.')}`}</p>}
         </div>
       ) : (
         <div className="pg-ai-result">
           <div className="pg-ai-bar-head">
-            <span>AI 추정 진도율</span>
+            <span>{human ? '사람 판독 진도율' : 'AI 추정 진도율'}</span>
             <b>{`${aiProgress}%`}</b>
           </div>
           <div className="pg-ai-bar" role="progressbar" aria-valuenow={aiProgress} aria-valuemin={0} aria-valuemax={100}>
@@ -497,13 +514,23 @@ function HandoffCard({
   );
 }
 
-export default function FieldHub({ scheduleId }: { scheduleId: number }) {
+export default function FieldHub({
+  scheduleId,
+  initialTab = 'checkin',
+  initialPhotoView = 'ai',
+}: {
+  scheduleId: number;
+  initialTab?: FieldKind;
+  /** 사진 탭 안: AI 판독 카드 / 사람 판독 목록(관리자 — 「주의할 일정」의 「사람 판독 n」에서 열면 human). */
+  initialPhotoView?: 'ai' | 'human';
+}) {
   const role = useSession((s) => s.session?.user.role ?? 'user');
   const device = useActiveDevice();
   const isSimpleField = role === 'field' || device === 'phone';
   const waits = role === 'field' ? FIELD_WAITS : undefined; // 현장 관리자에게만 — 다른 역할은 바로 반영될 수 있다
   const [data, setData] = useState<FieldData | null>(null);
-  const [tab, setTab] = useState<FieldKind>('checkin');
+  const [tab, setTab] = useState<FieldKind>(initialTab);
+  const [photoView, setPhotoView] = useState<'ai' | 'human'>(initialPhotoView);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -549,7 +576,13 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
   if (!data) return <p className="pg-empty">현장 모바일 협업 현황을 불러오는 중…</p>;
 
   const s = data.summary;
-  const shown = data.items.filter((i) => i.kind === tab);
+  const canHuman = data.can_human_read === true;
+  const humanItems = data.items.filter(isHumanItem);
+  const humanView = canHuman && tab === 'photo' && photoView === 'human';
+  // 사람 판독을 하는 사람에게는 사람 판독 줄을 AI 판독 카드에서 빼고 「사람 판독」 목록에 모은다. 올린 사람(현장 관리자)은 카드로 상태를 본다.
+  const shown = data.items.filter((i) => i.kind === tab && !(canHuman && tab === 'photo' && isHumanItem(i)));
+  const humanWait = s.photo_human_wait ?? 0;
+  const humanDone = humanItems.filter((i) => i.response_choice === 'human').length;
   const reach: Reach = { scheduleId, site: data.schedule_name };
 
   return (
@@ -586,10 +619,21 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
           {TABS.map((t) => (
             <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
               {t.label}
+              {t.id === 'photo' && canHuman && humanWait > 0 && <span className="pg-hr-pill">{`사람 판독 대기 ${humanWait}`}</span>}
             </button>
           ))}
         </div>
         <span className="sch-gap" />
+        {canHuman && tab === 'photo' && (
+          <div role="group" aria-label="사진 판독 보기" className="pg-seg">
+            <button type="button" aria-pressed={photoView === 'ai'} onClick={() => setPhotoView('ai')}>
+              {`AI 판독 ${shown.length}`}
+            </button>
+            <button type="button" aria-pressed={photoView === 'human'} onClick={() => setPhotoView('human')}>
+              {`사람 판독 대기 ${humanWait} · 요청 ${s.photo_retake ?? 0} · 판독함 ${humanDone}`}
+            </button>
+          </div>
+        )}
         {!isSimpleField && tab === 'checkin' && (
           <Button variant="primary" disabled={busy} onClick={() => void run(() => fieldApi.dispatchCheckins(scheduleId))}>
             관리자 에이전트: 오늘의 체크인 일괄 발송
@@ -605,7 +649,20 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
       {error && <p className="pg-risk-line" role="alert">{error}</p>}
       {notice && <p className="pg-muted" role="status">{notice}</p>}
 
-      {tab === 'photo' && (
+      {humanView && (
+        <HumanRead
+          scheduleId={scheduleId}
+          items={humanItems}
+          activities={data.activities}
+          busy={busy}
+          onHumanRead={(id, progress, reason) =>
+            run(() => fieldApi.humanRead(scheduleId, id, { progress, reason }), '사람 판독을 승인함에 올렸습니다 — 승인되기 전에는 일정이 바뀌지 않습니다.')
+          }
+          onRetake={(id, reason) => run(() => fieldApi.retake(scheduleId, id, reason), '다시 찍기 요청을 남겼습니다 — 올린 사람의 현장 점검 화면에 보입니다.')}
+        />
+      )}
+
+      {tab === 'photo' && !humanView && (
         <PhotoUploader activities={data.activities} busy={busy} onUpload={(body) => run(() => fieldApi.uploadPhoto(scheduleId, body))} />
       )}
 
@@ -654,7 +711,7 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
         </section>
       )}
 
-      <div className="pg-field-grid">
+      {!humanView && <div className="pg-field-grid">
         {shown.length === 0 && <p className="pg-muted">등록된 항목이 없습니다.</p>}
         {shown.map((item) => {
           if (item.kind === 'checkin') {
@@ -716,7 +773,7 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
             <HandoffCard key={item.id} item={item} busy={busy} reach={reach} onSave={(body) => run(() => fieldApi.updateHandoff(scheduleId, item.id, body), '저장했습니다.')} />
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }

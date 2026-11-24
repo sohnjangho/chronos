@@ -68,6 +68,8 @@ function reasonText(reason: string, s: Json): string[] {
       return ['내 규칙을 저장합니다.'];
     case 'field_report':
       return ['현장 관리자가 올린 건이라 승인 수준과 상관없이 승인을 기다립니다 — 승인되기 전에는 일정이 바뀌지 않습니다.'];
+    case 'human_read':
+      return ['AI 가 판독하지 못한 사진에 사람이 넣은 진도라 승인 수준과 상관없이 승인을 기다립니다 — 넣은 사람도 승인할 수 있습니다.'];
     default:
       return [];
   }
@@ -91,7 +93,7 @@ export function noReasonText(mode: Mode, auto: boolean): string {
 }
 
 export const reasonTone = (r: string) =>
-  r === 'structure_changed' ? 'warning' : r === 'first_save' || r === 'rule_save' || r === 'plan_reset' || r === 'field_report' ? 'info' : 'danger';
+  r === 'structure_changed' ? 'warning' : r === 'first_save' || r === 'rule_save' || r === 'plan_reset' || r === 'field_report' || r === 'human_read' ? 'info' : 'danger';
 
 /**
  * 조건 점검. 점검하지 않은 조건은 통과에 넣지 않고 따로 센다. 색: 위반이 있으면 bad, 형식 틀림이 있으면 warn,

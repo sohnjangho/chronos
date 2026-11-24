@@ -9,7 +9,8 @@ export interface FieldItem {
   activity_id: string;
   activity_name: string;
   trade: string;
-  status: 'pending' | 'responded' | 'applied';
+  /** human_wait: AI 가 못 읽어 사람 판독 대기 · retake: 다시 찍기 요청 · retaken: 같은 작업 사진을 다시 올림(PM 11-24). */
+  status: 'pending' | 'responded' | 'applied' | 'human_wait' | 'retake' | 'retaken';
   title: string;
   prompt_text: string;
   response_choice: string | null;
@@ -26,6 +27,9 @@ export interface FieldSummary {
   checkin_total: number;
   checkin_responded: number;
   photo_total: number;
+  /** 사람 판독 대기 · 다시 찍기 요청 수(PM 11-24). */
+  photo_human_wait?: number;
+  photo_retake?: number;
   poll_total: number;
   poll_feasible: number;
   poll_conditional: number;
@@ -49,6 +53,8 @@ export interface FieldData {
   items: FieldItem[];
   /** 이번 요청의 알림(체크인 일괄 발송에서 건너뛴 것 등). */
   notice?: string | null;
+  /** 이 사람이 사진 사람 판독·다시 찍기 요청을 할 수 있는가(관리자, 설정으로 사용자까지 — 현장 관리자는 못 한다). */
+  can_human_read?: boolean;
 }
 
 const json = (method: string, body?: unknown): RequestInit => ({
@@ -79,4 +85,8 @@ export const fieldApi = {
     body: { pred_handover_ok: boolean; material: boolean; equipment: boolean; workforce: boolean; response_note: string },
   ) => api<FieldData>(`/api/schedules/${sid}/field/${itemId}/handoff`, json('POST', body)),
   apply: (sid: number, itemId: number) => api<FieldData>(`/api/schedules/${sid}/field/${itemId}/apply`, json('POST')),
+  humanRead: (sid: number, itemId: number, body: { progress: number; reason: string }) =>
+    api<FieldData>(`/api/schedules/${sid}/field/${itemId}/human-read`, json('POST', body)),
+  retake: (sid: number, itemId: number, reason: string) =>
+    api<FieldData>(`/api/schedules/${sid}/field/${itemId}/retake`, json('POST', { reason })),
 };

@@ -330,7 +330,10 @@ function Body({
   );
 }
 
-export default function ProgressTab({ initialView = 'dashboard' }: { initialView?: 'dashboard' | 'field' } = {}) {
+export default function ProgressTab({
+  initialView = 'dashboard',
+  humanRead = false,
+}: { initialView?: 'dashboard' | 'field'; /** 현장 허브를 사진 탭의 사람 판독 목록으로 연다(「주의할 일정」의 「사람 판독 n」). */ humanRead?: boolean } = {}) {
   const scheduleId = useScheduleStore().getState().scheduleId;
   const version = useSchedule((s) => s.view?.version);
   const weightMode = useSchedule((s) => s.view?.weight_mode);
@@ -396,7 +399,7 @@ export default function ProgressTab({ initialView = 'dashboard' }: { initialView
           />
         )}
         {view === 'field' ? (
-          <FieldHub scheduleId={scheduleId} />
+          <FieldHub scheduleId={scheduleId} {...(humanRead ? { initialTab: 'photo', initialPhotoView: 'human' } as const : {})} />
         ) : error ? (
           <p className="pg-empty" role="alert">
             {error}

@@ -100,10 +100,10 @@ describe('R2 승인이 필요한 이유·숫자·차이 표', () => {
   });
 
   test('a later finish says 늦어짐 and every reason has a Korean label', () => {
-    const all = ['finish_changed', 'critical_path_changed', 'condition_changed', 'first_save', 'structure_changed', 'milestone_changed', 'condition_violated', 'plan_reset', 'rule_save', 'field_report'];
+    const all = ['finish_changed', 'critical_path_changed', 'condition_changed', 'first_save', 'structure_changed', 'milestone_changed', 'condition_violated', 'plan_reset', 'rule_save', 'field_report', 'human_read'];
     render(detail({ reasons: all, summary: { finish: { before: '2027-03-10', after: '2027-03-16', delta_days: 6 } } }));
     const why = screen.getByRole('region', { name: '승인이 필요한 이유' });
-    for (const label of ['준공일', '크리티컬 패스', '조건 변경', '새 일정의 첫 저장', '구조 변경', '주요 날짜', '조건 위반', 'Plan 다시 잡기', '내 규칙 저장', '현장 보고']) {
+    for (const label of ['준공일', '크리티컬 패스', '조건 변경', '새 일정의 첫 저장', '구조 변경', '주요 날짜', '조건 위반', 'Plan 다시 잡기', '내 규칙 저장', '현장 보고', '사람 판독']) {
       expect(within(why).getByText(label)).toBeVisible();
     }
     expect(within(why).getByText('2027.03.10 → 2027.03.16 (6일 늦어짐)')).toBeVisible();

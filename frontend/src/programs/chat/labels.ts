@@ -22,6 +22,7 @@ const REASONS: Record<string, string> = {
   plan_reset: 'Plan 다시 정함',
   rule_save: '규칙 저장',
   field_report: '현장 보고',
+  human_read: '사람 판독',
 };
 export const reasonLabel = (reason: string) => REASONS[reason] ?? reason;
 

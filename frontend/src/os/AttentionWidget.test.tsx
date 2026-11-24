@@ -144,3 +144,15 @@ test('reason text leaves out points when the server does not count them', () => 
   expect(reasonText(item('x', 'warning', { open_delays: 1, points_count: null }))).toBe('지연 사건 1건');
   expect(reasonText(item('x', 'warning', { open_delays: 1, points_count: 0 }))).toBe('지연 사건 1건');
 });
+
+// PM 11-24: 사진 사람 판독 대기가 있는 일정은 등급이 ok 여도 「사람 판독 n」 배지로 보이고, 누르면 그 일정의 사람 판독 목록을 연다.
+test('a schedule with photos waiting for a human reading shows 사람 판독 n and opens the human-read list', async () => {
+  mockAttention([item('물류센터', 'ok', { id: 7, human_read_wait: 2 }), item('브래킷 BR-200', 'ok', { id: 2, human_read_wait: 0 })]);
+  const open = vi.spyOn(useWindows.getState(), 'open').mockImplementation(() => '');
+  render(<AttentionWidget />);
+  expect(await screen.findByText('주의할 일정 1')).toBeVisible();
+  expect(screen.getByText('사람 판독 2')).toBeVisible();
+  expect(screen.queryByText('브래킷 BR-200')).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: /물류센터/ }));
+  expect(open).toHaveBeenCalledWith('progress', { id: '7', view: 'field', tab: 'human-read' });
+});

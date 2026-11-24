@@ -19,6 +19,8 @@ export interface AttentionItem {
   points_count?: number | null;
   /** 마지막 바뀜의 새 포인트 + 여유가 준 포인트 수(열린 지연이 있으면 그 가정 기준). 등급에는 넣지 않는다. */
   points_changed?: number;
+  /** 사진 사람 판독 대기 수(PM 11-24). 사람 판독을 할 수 있는 사람에게만 0 보다 크다. 등급에는 넣지 않는다. */
+  human_read_wait?: number;
 }
 
 /** 한 줄 까닭. 예: "준공 +4일 · 지연 사건 1건 · 관리 포인트 4곳" */

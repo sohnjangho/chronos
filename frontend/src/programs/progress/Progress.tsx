@@ -6,7 +6,7 @@ import ProgressTab from './ProgressTab';
 export default function Progress({ windowId, params }: ProgramProps) {
   return (
     <ScheduleFrame windowId={windowId} params={params} programId="progress" name="공정률">
-      <ProgressTab initialView={params?.view === 'field' ? 'field' : 'dashboard'} />
+      <ProgressTab initialView={params?.view === 'field' ? 'field' : 'dashboard'} humanRead={params?.tab === 'human-read'} />
     </ScheduleFrame>
   );
 }
