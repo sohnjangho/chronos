@@ -85,6 +85,8 @@ function onEvent(id: number, type: string, data: unknown) {
   if (!isObj(data)) return;
   const open = useWindows.getState().open;
   if (type === 'open_window' && typeof data.program === 'string') {
+    // 「워크플로우 창만 포커스」: 도구 프로그램 창은 열지 않는다(질문지는 답이 필요해 예외).
+    if (useAgentView.getState().mode === 'workflow' && data.program !== 'questionnaire' && data.program !== 'workflow') return;
     const params = isObj(data.params) ? Object.fromEntries(Object.entries(data.params).map(([k, v]) => [k, String(v)])) : {};
     // 질문지 창은 이 대화를 알아야 제출 뒤 이어 갈 수 있다(Task 15).
     open(data.program, data.program === 'questionnaire' && params.id ? { ...params, session: String(id) } : params);

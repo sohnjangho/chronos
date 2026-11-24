@@ -2,6 +2,7 @@ import { act, render, renderHook, screen, waitFor, within } from '@testing-libra
 import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { useAgentView } from '../../os/agentView';
 import { useAiChat } from '../../os/aiChat';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useUiContext } from '../../os/uiContext';
@@ -83,6 +84,15 @@ describe('지시서 시험 (실제 사건 모양)', () => {
     feed([['open_window', { program: 'schedule', params: { tab: 'gantt' } }], ['done', {}]]);
     await send('q');
     expect(openSpy).toHaveBeenCalledWith('schedule', { tab: 'gantt' });
+  });
+
+  test('open_window is ignored in workflow-only mode, except the questionnaire', async () => {
+    useAgentView.setState({ mode: 'workflow' });
+    feed([['open_window', { program: 'delays', params: { id: '1' } }], ['open_window', { program: 'questionnaire', params: { id: '7' } }], ['done', {}]]);
+    await send('q');
+    expect(openSpy).not.toHaveBeenCalledWith('delays', expect.anything());
+    expect(openSpy).toHaveBeenCalledWith('questionnaire', expect.anything());
+    useAgentView.setState({ mode: 'stage' });
   });
 
   test('llm_not_ready shows a settings button', async () => {
