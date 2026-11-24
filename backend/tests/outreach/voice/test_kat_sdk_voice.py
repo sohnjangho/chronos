@@ -8,7 +8,17 @@ from types import SimpleNamespace
 import pytest
 
 from app.outreach.voice import voices
-from tests.outreach.voice.test_backend_for import FakeSdk, World, kat, place, voice
+from app.outreach.voice.session import END_LOST, END_PEER
+from tests.outreach.voice.test_backend_for import (
+    SAID,
+    SDK_LOG,
+    FakeAgent,
+    FakeSdk,
+    World,
+    kat,
+    place,
+    voice,
+)
 from tests.outreach.voice.test_simulated import _spec
 
 pytestmark = pytest.mark.usefixtures("time_guard")
@@ -58,3 +68,52 @@ async def test_voices_pick_feeds_the_session(world):
     manual = voices.pick("male", "manual", "Fenrir", "ko", settings)  # 연락처의 직접 지정이 먼저
     _, kw = await _session_kwargs(world, _spec(voice_id=manual))
     assert kw["voice"] == "Fenrir"
+
+
+# ── 고침 1: 꼴 검사는 voices.well_formed 하나 · OpenAI 오류 줄은 세션 실패 ─────────────────────────────
+
+
+@pytest.mark.parametrize(("value", "ok"), [("Puck", True), ("ko-KR.Wavenet:A_1", True), ("cedar", True), ("v-1", True),
+                                           ("010-0000-0000", False), ("01000000000", False), ("목소리", False),
+                                           ("Kore voice", False), ("-Kore", False), ("a" * 101, False), ("", False),
+                                           (None, False), (7, False)])
+def test_well_formed_is_the_one_shape_check(value, ok):
+    assert voices.well_formed(value) is ok
+
+
+OPENAI_ERROR = "OpenAI error: {'type': 'invalid_request_error', 'message': \"Invalid value: 'Puckk'. Supported values are…\"}"
+
+
+class LoggingAgent(FakeAgent):
+    """실제 OpenAIRealtime 처럼 세션 오류를 `clawops.agent` 로거의 ERROR 줄로만 알린다(사건은 오지 않는다)."""
+
+    async def step(self, call, kind, *args):
+        if kind == "openai_error" and not call.over:
+            SDK_LOG.error(OPENAI_ERROR)
+            return None
+        return await super().step(call, kind, *args)
+
+
+class LoggingSdk(FakeSdk):
+    def ClawOpsAgent(self, **kw):  # 실제 SDK 의 이름
+        agent = LoggingAgent(self, **kw)
+        self.agents.append(agent)
+        return agent
+
+
+async def test_an_openai_error_before_the_opening_ends_the_call_as_lost(world, caplog):
+    """세션 설정(session.update)이 거절되면 OpenAI 는 오류 사건만 보내고 SDK 는 줄 하나만 남긴다 — 지시문·첫마디·소리 꼴이 빠진
+    세션이 그대로 돌지 않게, 첫 발화 전의 그 줄은 세션 실패(END_LOST)다."""
+    sdk = LoggingSdk(world, ((1000, "call_start"), (1200, "openai_error"), (1300, "transcript", "assistant", "Hello"),
+                             (9000, "call_end")))
+    rec = await place(kat(world, sdk, v=voice(provider="openai", model="gpt-realtime-test")), _spec(voice_id="Puckk"))
+    assert rec.log[-1][:2] == ("end", END_LOST) and world.ms < 9000
+    assert "Puckk" not in str(rec.log)
+
+
+async def test_an_openai_error_after_the_opening_does_not_cut_a_good_call(world):
+    """첫 발화가 나간 뒤의 오류(예: 끝난 응답을 취소)는 통화를 끊지 않는다 — 사람과 하던 통화를 오류 줄 하나로 끊지 않게."""
+    sdk = LoggingSdk(world, ((1000, "call_start"), (1300, "transcript", "assistant", SAID), (2000, "openai_error"),
+                             (3000, "call_end")))
+    rec = await place(kat(world, sdk, v=voice(provider="openai", model="gpt-realtime-test")))
+    assert rec.log[-1][:2] == ("end", END_PEER)

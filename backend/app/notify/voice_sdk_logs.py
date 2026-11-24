@@ -8,6 +8,7 @@ from contextlib import contextmanager
 
 _SESSION_FAILED = re.compile(r"Session start failed for (\S+?): ")  # SDK(clawops.agent)가 AI 음성 모델 세션을 열지 못한 줄
 _HTTP = re.compile(r"\bHTTP (\d{3})\b")
+_MODEL_ERROR = "OpenAI error:"  # SDK(OpenAIRealtime)가 모델의 오류 사건을 받으면 남기는 줄의 머리 — 세션은 그대로 돈다
 _marker = {"holders": 0, "saved": None}  # 겹쳐 도는 진단이 있어도 준비 표시 환경 변수를 처음 값으로 되돌린다
 
 
@@ -81,3 +82,11 @@ def session_failure(record: logging.LogRecord) -> tuple[str, int | None] | None:
         code = _HTTP.search(f"{text}\n{record.exc_text or ''}")
         status = int(code.group(1)) if code else None
     return found.group(1), status
+
+
+def model_error(record: logging.LogRecord) -> bool:
+    """「OpenAI error: …」 줄인가(OpenAIRealtime 이 모델의 오류 사건을 받은 줄 — 세션 설정이 거절돼도 이것뿐이다). 글은 남기지 않는다."""
+    try:
+        return record.getMessage().startswith(_MODEL_ERROR)
+    except Exception:  # noqa: BLE001 — 읽지 못하는 줄은 보지 않는다
+        return False

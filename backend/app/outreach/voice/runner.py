@@ -419,7 +419,9 @@ def _spec(session: Session, row: OutreachCall, contact: Contact, number: str, ag
     site = record.name if record is not None else ""
     company = contacts.get_company(session, row.schedule_id, contact.company_id)
     language = contact.language or greeting.DEFAULT_LANGUAGE
-    voice_id = row.voice_id or voices.pick(contact.gender, contact.voice_mode, contact.voice_id, language, settings)
+    # 통화 줄의 음성은 꼴이 맞을 때만 — 틀린 값은 SDK 기본이 아니라 연락처·설정의 음성으로 간다(Task 99 고침 1)
+    stored = row.voice_id if voices.well_formed(row.voice_id) else None
+    voice_id = stored or voices.pick(contact.gender, contact.voice_mode, contact.voice_id, language, settings)
     text = instructions.outbound(site, contact.name, contact.role_title, company.name, row.purpose, row.questions_json,
                                  row.avoid_json, language)
     return CallSpec(direction="out", to_number=number, from_number=agent_number, language=language, voice_id=voice_id,

@@ -10,6 +10,8 @@ import Contacts from './Contacts';
 import { detail, lastWrite, mockDetail, mockWrite, PARK, stubContacts, writes } from './testKit';
 
 const SHAPE = '음성 id 는 영문·숫자와 . _ : - 로 64자까지입니다.';
+const PHONE = '음성 id 가 전화번호처럼 보입니다. 공급자의 음성 이름을 넣어 주세요.';
+const RISK = /공급자에 없는 이름이면 이 사람에게 거는 전화는 상대가 받은 뒤 끊깁니다/;
 
 beforeEach(() => {
   stubContacts();
@@ -45,6 +47,7 @@ test('직접 지정 opens a manual voice id field (no list) and a new person pos
   const id = within(voice).getByLabelText('음성 id');
   expect(id.tagName).toBe('INPUT');
   expect(within(voice).getByText(/음성 SDK 가 음성 목록을 주지 않아/)).toBeVisible();
+  expect(within(voice).getByText(RISK)).toBeVisible(); // 없는 이름의 위험(고침 1)
   expect(within(voice).queryByRole('listbox')).toBeNull();
   await userEvent.type(within(f).getByLabelText('이름'), '오배관');
   await userEvent.type(id, 'Fenrir');
@@ -63,6 +66,12 @@ test('manual without an id or with a wrong shape is caught before sending', asyn
   await userEvent.type(within(voice).getByLabelText('음성 id'), '목소리 하나');
   await userEvent.click(within(f).getByRole('button', { name: '저장' }));
   expect(within(voice).getByText(SHAPE)).toBeVisible();
+  for (const phone of ['010-0000-0000', '01000000000', '07000000100']) {
+    await userEvent.clear(within(voice).getByLabelText('음성 id'));
+    await userEvent.type(within(voice).getByLabelText('음성 id'), phone);
+    await userEvent.click(within(f).getByRole('button', { name: '저장' }));
+    expect(within(voice).getByText(PHONE)).toBeVisible();
+  }
   expect(writes()).toEqual([]);
 });
 

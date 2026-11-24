@@ -14,6 +14,7 @@ const VOICE = `${ONE}/voice`;
 const LIMITS = { max_call_seconds: 300, daily_sms_total: 50, daily_calls_total: 10 };
 const HINT = '상대와 반대 성별의 음성을 고르세요';
 const BAD = '음성 이름은 영문으로 시작하고 영문·숫자·점(.)·줄표(-)·밑줄(_)만 쓸 수 있습니다.';
+const RISK = '공급자에 없는 이름이면 이 칸을 쓰는 전화는 상대가 받은 뒤 끊깁니다. 저장한 뒤 [음성 진단]으로 확인하세요.';
 
 function conn(): NotifyConnection {
   return {
@@ -71,6 +72,7 @@ test('three manual fields — no voice list, no sample button — with the oppos
     expect(field).toHaveAttribute('placeholder', '비우면 기본 음성(Gemini: Kore)');
   }
   expect(within(p).getByText(HINT)).toBeVisible();
+  expect(within(p).getByText(RISK)).toBeVisible(); // 없는 이름의 위험(고침 1)
   expect(within(p).getByText(/음성 SDK 가 음성 목록과 샘플을 주지 않아/)).toBeVisible();
   expect(within(p).queryByRole('listbox')).toBeNull();
   expect(within(p).queryByRole('button', { name: /샘플|▶/ })).toBeNull();

@@ -21,6 +21,15 @@ const KAKAO_LOCKED = '카카오톡은 채널·문안 승인 뒤 쓸 수 있습�
 const VOICE_ID = /^[A-Za-z0-9._:-]{1,64}$/;
 const VOICE_SHAPE = '음성 id 는 영문·숫자와 . _ : - 로 64자까지입니다.';
 const VOICE_NEEDED = '음성을 직접 지정하려면 음성 id 를 넣어 주세요.';
+/** 서버(Task 99 고침 1)와 같은 글. 국내 전화번호 꼴(010-0000-0000 · 01000000000 · 070…)만 본다 — 나머지는 서버가 한 번 더. */
+const VOICE_PHONE = '음성 id 가 전화번호처럼 보입니다. 공급자의 음성 이름을 넣어 주세요.';
+const PHONE_LIKE = /^0\d{1,2}[-. ]?\d{3,4}[-. ]?\d{4}$/;
+
+function voiceProblem(id: string): string | null {
+  if (!id) return VOICE_NEEDED;
+  if (PHONE_LIKE.test(id)) return VOICE_PHONE;
+  return VOICE_ID.test(id) ? null : VOICE_SHAPE;
+}
 const MOBILE_ONLY = '문자·카카오톡은 휴대전화 번호로만 보낼 수 있습니다.';
 
 /** 서버 오류를 칸으로. 모르는 코드는 서버의 한국어 글을 양식 아래에. 보낸 값은 싣지 않는다(서버 글에도 없음). */
@@ -227,7 +236,8 @@ function usePersonForm({ scheduleId, companies, companyId, isAdmin, onSaved, onC
     e.preventDefault();
     if (!v.name.trim()) return setErrors({ name: '이름을 넣어 주세요.' });
     if (!v.company_id) return setErrors({ company: '먼저 협력사를 추가해 주세요.' });
-    if (v.voice_mode === 'manual' && !VOICE_ID.test(v.voice_id.trim())) return setErrors({ voice: v.voice_id.trim() ? VOICE_SHAPE : VOICE_NEEDED });
+    const voiceBad = v.voice_mode === 'manual' ? voiceProblem(v.voice_id.trim()) : null;
+    if (voiceBad) return setErrors({ voice: voiceBad });
     if (detail?.do_not_contact && !v.dnc && isAdmin) return setConfirm('clear');
     if (detail?.do_not_contact && v.dnc && phoneDirty) return setConfirm('number');
     void save(body());
@@ -396,6 +406,9 @@ function ProfileFields({ v, set, voiceError }: { v: Values; set: SetValue; voice
             ? '음성 SDK 가 음성 목록을 주지 않아 음성 id 를 직접 넣습니다 — 영문·숫자와 . _ : - 로 64자까지.'
             : '자동은 설정의 「AI 전화」에서 고른 음성(연락처 성별·언어에 맞춰)입니다.'}
         </p>
+        {v.voice_mode === 'manual' && (
+          <p className="ct-hint is-warn">공급자에 없는 이름이면 이 사람에게 거는 전화는 상대가 받은 뒤 끊깁니다. 설정의 「AI 전화」 음성 칸에 같은 이름을 넣고 [음성 진단]으로 먼저 확인하세요.</p>
+        )}
         <Err text={voiceError} />
       </fieldset>
     </div>

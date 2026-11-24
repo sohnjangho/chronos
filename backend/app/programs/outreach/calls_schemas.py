@@ -7,8 +7,16 @@ calls_service(422 invalid_text, 값은 싣지 않음). 모르는 칸은 422.
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, BaseModel, Field, StrictInt, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    Field,
+    StrictInt,
+    model_validator,
+)
 
+from app.outreach.voice import voices
 from app.programs.outreach.schemas import (
     ActivityId,
     ActivityOut,
@@ -25,7 +33,17 @@ Language = Literal["ko", "en", "zh", "vi"]  # 주소록 API 의 Language 와 같
 Purpose = Annotated[str, Nfc, Field(min_length=1, max_length=PURPOSE_MAX)]
 Line = Annotated[str, Nfc, Field(min_length=1, max_length=LINE_MAX)]
 Lines = Annotated[list[Line], Field(max_length=LINES_MAX)]
-VoiceId = Annotated[str, Field(min_length=1, max_length=100)]
+VOICE_SHAPE = "음성 id 는 영문·숫자로 시작하고 영문·숫자와 . _ : - 만 쓸 수 있습니다(전화번호 꼴은 안 됩니다)."
+
+
+def _voice_shape(value: str) -> str:
+    """음성 SDK 에 넘길 수 있는 꼴만(Task 99 고침 1 — 어댑터·일꾼과 같은 voices.well_formed). 보낸 값은 오류에 싣지 않는다."""
+    if not voices.well_formed(value):
+        raise ValueError(VOICE_SHAPE)
+    return value
+
+
+VoiceId = Annotated[str, Field(min_length=1, max_length=100), AfterValidator(_voice_shape)]
 
 
 class CallIn(Strict):

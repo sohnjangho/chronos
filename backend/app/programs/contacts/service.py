@@ -73,6 +73,7 @@ LINE_TEXT = "이름·담당·공종에는 줄 바꿈이나 보이지 않는 제�
 FREE_TEXT = "메모·까닭에는 보이지 않는 제어 글자나 글 방향을 바꾸는 글자를 쓸 수 없습니다."
 NO_VOICE = "음성을 직접 지정하려면 음성을 골라 주세요."
 VOICE_SHAPE = "음성 id 는 영문·숫자와 . _ : - 로 64자까지입니다."
+VOICE_PHONE = "음성 id 가 전화번호처럼 보입니다. 공급자의 음성 이름을 넣어 주세요."
 _VOICE_ID = re.compile(r"[A-Za-z0-9._:-]{1,64}")
 _LINE_BAD = frozenset({"Cc", "Cf", "Zl", "Zp"})
 # 메모에서 막는 보이지 않는 글자: 글 방향 바꾸기·표시(Bidi_Control 전부), 줄·문단 구분, 폭 없는 빈칸
@@ -176,6 +177,8 @@ def check_voice(voice_mode: str, voice_id: str | None) -> None:
         raise ApiError(422, "invalid_voice", NO_VOICE)
     if voice_id is not None and not _VOICE_ID.fullmatch(voice_id):
         raise ApiError(422, "invalid_voice", VOICE_SHAPE)
+    if voice_id is not None and hide_phones(voice_id) != voice_id:  # Task 99 고침 1 — 번호를 음성 칸에 넣은 것
+        raise ApiError(422, "invalid_voice", VOICE_PHONE)
 
 
 # ── 응답 만들기 ─────────────────────────────────────────────────────────────────

@@ -114,6 +114,7 @@ export default function VoicePicker({ voice, disabled, onSaved, onCancel }: {
       <p className="st-muted">음성 SDK 가 음성 목록과 샘플을 주지 않아 음성 이름(id)을 직접 넣습니다. 공급자 안내에 있는 음성 이름을 그대로 씁니다.</p>
       <SlotFields values={base} placeholder={`비우면 ${defaultVoice(voice.provider)}`} off={off} errorOf={baseError} onChange={(slot, value) => setBase((b) => ({ ...b, [slot]: value }))} />
       <p className="st-muted">상대와 반대 성별의 음성을 고르세요</p>
+      <p className="st-warn">공급자에 없는 이름이면 이 칸을 쓰는 전화는 상대가 받은 뒤 끊깁니다. 저장한 뒤 [음성 진단]으로 확인하세요.</p>
       {Object.entries(byLanguage).map(([code, slots]) => (
         <div key={code} className="st-vc-key" role="group" aria-label={`${languageName(code)} 음성`}>
           <div className="st-vc-number-line">

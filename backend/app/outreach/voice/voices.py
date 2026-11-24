@@ -8,13 +8,17 @@
   어울리는 것을 앞에 세워 준다(빼지는 않는다). settings 는 읽기만 한다(없으면 None).
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from app.outreach.redact import hide_phones
 from app.outreach.voice.session import VoiceInfo
 
 SLOTS = {"male": "voice_male_contact", "female": "voice_female_contact", "unknown": "voice_unknown"}
+# 음성 이름의 꼴(Task 99): 설정 칸(영문 시작 · 100자)과 연락처 직접 지정(영문·숫자·._:- · 64자)이 받는 꼴을 모두 덮는다.
+_SHAPE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:\-]{0,99}")
 OPPOSITE = {"male": "female", "female": "male", "unknown": None}
 
 
@@ -25,6 +29,11 @@ class Choice:
     voice_id: str | None
     source: Literal["manual", "language", "default", "none"]
     slot: str | None  # 본 칸(직접 지정이면 None)
+
+
+def well_formed(value: object) -> bool:
+    """음성 SDK 에 넘겨도 되는 음성 이름인가 — 꼴(_SHAPE)에 맞고 전화번호처럼 보이지 않는다. 어댑터·일꾼·통화 API 가 같이 쓴다."""
+    return isinstance(value, str) and bool(_SHAPE.fullmatch(value)) and hide_phones(value) == value
 
 
 def _id(value: object) -> str | None:

@@ -51,9 +51,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import partial
 
-from app.notify import diagnostics
+from app.notify import diagnostics, voice_names
 from app.notify.diagnostics import NOT_REQUESTED, DiagnosticConn, DiagnosticStep, scrub
-from app.notify.voice_sdk_logs import _quiet_sdk, session_failure
+from app.notify.voice_sdk_logs import _quiet_sdk, model_error, session_failure
 from app.outreach import phone, redact
 from app.outreach.voice.numbers import GOOGLE_LIVE_API_VERSION
 
@@ -129,6 +129,7 @@ NO_MODEL = "AI 음성 모델에 연결하지 못했습니다"
 NO_MODEL_HINT = {404: " 모델을 다시 골라 주세요.", 400: " 음성 모델 키를 확인해 주세요.", 401: " 음성 모델 키를 확인해 주세요.",
                  403: " 음성 모델 키를 확인해 주세요."}
 NO_MODEL_SKIP = "AI 음성 모델에 연결되지 않아 확인하지 못했습니다."
+MODEL_REJECTED = "AI 음성 모델이 통화 설정을 받지 않았습니다 — 설정한 음성 이름과 모델을 확인해 주세요."
 REASONS = {"no-answer": ("no_answer", "전화를 받지 않았습니다."), "busy": ("busy", "통화 중이었습니다."),
            "rejected": ("declined", "상대가 전화를 거절했습니다."), "canceled": ("canceled", "전화가 취소됐습니다."),
            "failed": ("call_failed", "전화 연결에 실패했습니다.")}
@@ -147,6 +148,8 @@ class VoiceDiag:
     provider: str  # "google"(GeminiRealtime) | "openai"(OpenAIRealtime)
     key: str = field(repr=False)
     model: str | None = None  # None 이면 SDK 기본값
+    voices: tuple[tuple[str, str], ...] = field(default=(), repr=False)  # (칸 이름표, 음성 이름) — P9 가 전화 없이 확인
+    call_voice: str | None = field(default=None, repr=False)  # 시험 전화의 음성(「성별 모름」 칸). None 이면 SDK 기본
 
 
 @dataclass
@@ -268,6 +271,7 @@ class _Call:
         self.failed = ""  # call_failed 의 사유 낱말
         self.rest_tried = False  # 끝이 확인되지 않아 REST 로 끝내 봤다(한 번만)
         self.error: _Fail | None = None  # 걸지 못한 까닭
+        self.model_error = False  # 에이전트가 말하기 전에 모델이 오류를 냈다(OpenAI 가 세션 설정을 거절 — Task 99 고침 1)
 
 
 class _Run:
@@ -294,6 +298,7 @@ class _Run:
         self.seen: Counter[str] = Counter()  # 창에서 본 통화: match · stranger · unreadable · over
         self.restricted = self.reject_seen = False  # 번호 표시 제한 · 거절을 부른 뒤 SDK 가 거절로 표시했는가
         self.no_model: dict[str, int | None] = {}  # AI 음성 모델 세션을 열지 못한 통화 id → HTTP 상태(SDK 로그 줄에서)
+        self.model_errors = 0  # 「OpenAI error:」 줄의 수(voice_names 가 음성마다 본다)
         self.out: dict[int, VoiceStep] = {}
 
     def saw(self, record: logging.LogRecord) -> None:
@@ -301,6 +306,10 @@ class _Run:
         found = session_failure(record)
         if found is not None:
             self.no_model[found[0]] = found[1]
+        if model_error(record):  # 에이전트가 아직 말하지 않은 우리 통화는 설정이 빠진 세션이다
+            self.model_errors += 1
+            for call in {*self.calls.values(), *([self.live] if self.live is not None else [])}:
+                call.model_error = call.model_error or (call.wanted and not call.ended and call.first is None)
 
     def model_failed(self, call: _Call) -> str | None:
         """그 통화에서 SDK 가 AI 음성 모델 세션을 열지 못했으면 사람이 읽을 까닭(HTTP 상태만), 아니면 None."""
@@ -366,6 +375,8 @@ class _Run:
         kw = {"api_key": self.voice.key, "system_prompt": prompt, "language": lang}
         if self.voice.model:
             kw["model"] = self.voice.model
+        if self.voice.call_voice:
+            kw["voice"] = self.voice.call_voice  # 시험 전화는 「성별 모름」 칸의 음성(Task 99 고침 1)
         if self.voice.provider == "google":
             kw["api_version"] = GOOGLE_LIVE_API_VERSION  # Live 모델은 v1alpha 에만 있다(고침 2)
         return getattr(self.sdk, SESSIONS[self.voice.provider])(**kw)
@@ -441,9 +452,12 @@ class _Run:
         self.skip(n, "skipped_not_connected", NOT_LINKED if told else f"{NOT_LINKED} {fail.detail}",
                   notes=[f"연결 실패: {fail.code}"])
 
-    def voices(self) -> None:
+    async def voices(self) -> None:
         if self.sdk is None:
             return self.skip(9, "skipped_no_sdk", NO_SDK)
+        session_class = getattr(self.sdk, SESSIONS.get(getattr(self.voice, "provider", None), ""), None)
+        if self.voice.voices and session_class is not None and not _secret_problem(self.voice.key, "음성 모델 키"):
+            return await voice_names.check(self, session_class)  # 설정한 음성을 전화 없이 확인
         notes = []
         for name in SESSIONS.values():
             try:
@@ -608,6 +622,8 @@ class _Run:
         if no_model is not None:
             status = self.no_model[_call_id(call.session)]
             return self.put(n, "model_connect_failed", no_model, data={"http_status": status})
+        if call.model_error:
+            return self.put(n, "model_rejected", MODEL_REJECTED)
         if call.started is None:
             code, text = REASONS.get(call.failed, REASONS["failed"])
             return self.put(n, code, text, notes=[f"call_failed: {call.failed or '-'}"])
@@ -621,7 +637,7 @@ class _Run:
         """P7(전사 이벤트의 수와 역할) · P8(도구 호출 수)."""
         if call.error is not None or call.started is None:
             return self.skip(n, "skipped_no_call", NO_CALL, maybe=call.maybe)
-        if self.model_failed(call) is not None:
+        if self.model_failed(call) is not None or call.model_error:
             return self.skip(n, "skipped_no_model", NO_MODEL_SKIP)
         total = sum(call.roles.values())
         if n == 8 and call.tools:
@@ -700,6 +716,8 @@ class _Run:
             self.put(12, "accepted_not_started", "전화를 받았지만 통화가 시작되지 않았습니다.")
         elif 12 in want and not call.ended:
             self.put(12, "cut_unconfirmed", CUT_UNCONFIRMED)
+        elif 12 in want and call.model_error:
+            self.put(12, "model_rejected", MODEL_REJECTED)
         elif 12 in want:
             ms = self.response_ms(call)
             self.put(12, "ok", "걸려 온 전화 1통을 받았습니다 · " + (f"첫 응답 {ms}ms" if ms is not None else NO_RESPONSE_TIME),
@@ -759,7 +777,7 @@ class _Run:
             fail = _Fail("unknown", CRASHED, f"예외: {type(e).__name__}")
         told = 5 in want
         if 9 in want:
-            self.voices()
+            await self.voices()
         if told:
             self.report_link(fail)
         if 11 in want:

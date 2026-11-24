@@ -35,9 +35,9 @@ from starlette.concurrency import run_in_threadpool
 
 from app.db import get_session
 from app.errors import ApiError
-from app.notify import diagnostics, diagnostics_voice, live_models
+from app.notify import diagnostics, diagnostics_voice, live_models, voice_names
 from app.outreach import phone, provider, redact
-from app.outreach.voice import numbers, runner
+from app.outreach.voice import numbers, runner, voices
 from app.programs.notify_settings import diagnose, service
 from app.programs.notify_settings.voice_schemas import (
     SLOT_FIELDS,
@@ -72,6 +72,10 @@ HALTED = ("cut_unconfirmed", "accepted_not_started")  # 앞 통화의 끝이 확
 RECALL_WINDOW = timedelta(minutes=10)
 CALLS_KEPT = 20
 MARGIN_S = 10
+# 음성 칸의 이름표(화면과 같은 말) — 진단 결과에는 음성 이름이 아니라 이 이름표가 실린다(Task 99 고침 1)
+SLOT_LABELS = {"voice_male_contact": "남성 연락처에게 걸 때", "voice_female_contact": "여성 연락처에게 걸 때",
+               "voice_unknown": "성별 모름"}
+LANGUAGE_NAMES = {"ko": "한국어", "en": "영어", "zh": "중국어", "vi": "베트남어"}
 SDK_TOP = diagnostics_voice.SDK_MODULE.split(".")[0]
 FREE_TIER_NOTICE = ("무료 등급 키로 한 통화의 내용은 구글의 제품 개선에 쓰일 수 있습니다. 실제 협력사와 통화하기 전에 유료 등급 키로 "
                     "바꿔 주세요.")
@@ -131,6 +135,8 @@ def _ceiling(steps: tuple[int, ...], wait: int) -> float:
         total += wait + diagnostics_voice.INBOUND_START_S + diagnostics_voice.INBOUND_HOLD_S + cut
     if 14 in wanted:
         total += wait + diagnostics_voice.REJECT_GRACE_S + cut
+    if 9 in wanted:
+        total += voice_names.BUDGET_S  # 설정한 음성을 하나씩 열고 닫는다(전화 없음)
     return total
 
 
@@ -317,6 +323,17 @@ def _settings(session: Session, conn_id: int, *, fresh: bool = False) -> VoiceSe
     return row
 
 
+def _configured_voices(row: VoiceSettings) -> tuple[tuple[str, str], ...]:
+    """설정한 음성 (칸 이름표, 음성 이름): 세 칸, 그다음 언어별(언어 차례). 꼴이 맞는 이름만."""
+    found = [(label, getattr(row, slot)) for slot, label in SLOT_LABELS.items() if voices.well_formed(getattr(row, slot))]
+    by_language = row.voices_by_language_json if isinstance(row.voices_by_language_json, dict) else {}
+    for code in sorted(by_language):
+        slots = by_language[code] if isinstance(by_language[code], dict) else {}
+        found += [(f"{LANGUAGE_NAMES.get(code, code)} · {label}", slots[slot]) for slot, label in SLOT_LABELS.items()
+                  if voices.well_formed(slots.get(slot))]
+    return tuple(found)
+
+
 def _prepare_sync(session: Session, conn_id: int, data: VoiceDiagnoseIn) -> _Prep:
     conn = service.get(session, conn_id)
     if len(data.allow_numbers_version or "") > service.MAX_CHARS["allow_numbers_version"]:
@@ -336,7 +353,9 @@ def _prepare_sync(session: Session, conn_id: int, data: VoiceDiagnoseIn) -> _Pre
         conn=diagnostics.DiagnosticConn(base_url=conn.base_url, key=key, account_id=conn.account_id,
                                         sender=conn.sender_number or ""),
         voice=diagnostics_voice.VoiceDiag(provider=row.provider, key=voice_key,
-                                          model=numbers.effective_model(row.provider, row.model)))
+                                          model=numbers.effective_model(row.provider, row.model),
+                                          voices=_configured_voices(row),
+                                          call_voice=row.voice_unknown if voices.well_formed(row.voice_unknown) else None))
     session.rollback()  # 트랜잭션을 끝내고 부른다
     return prep
 
@@ -504,6 +523,8 @@ def _status(steps: list[dict]) -> str | None:
     | 없음                                         | 돌린 적 없음·건너뜀, 셋 가운데 모름 있음 | None(앞 값 그대로) |
     | 없음                                         | 돌린 적 없음·건너뜀, 모름 없음           | "unknown"          |
     """
+    if any(line["id"] == "P9" and line["ran_at"] and line["code"] == "voice_rejected" for line in steps):
+        return "failed"  # 공급자가 받지 않은 음성 — 그 칸을 쓰는 전화는 받은 뒤 끊긴다(Task 99 고침 1)
     judged = {line["id"]: line for line in steps if line["id"] in ("P5", "P11", "P6")}
     definite = [line for line in judged.values() if not (line["pending"] or line["maybe_sent"])]
     if any(line["ran_at"] and not line["ok"] and not line["skipped"] for line in definite):

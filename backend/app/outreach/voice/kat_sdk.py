@@ -55,10 +55,10 @@ from app.notify.diagnostics_voice import (
     SESSIONS,
     end_by_rest,
 )
-from app.notify.voice_sdk_logs import _quiet_sdk, session_failure
+from app.notify.voice_sdk_logs import _quiet_sdk, model_error, session_failure
 from app.outreach import phone, redact
 from app.outreach.harness.types import NotReady, ToolDef
-from app.outreach.voice import numbers
+from app.outreach.voice import numbers, voices
 from app.outreach.voice.session import (
     END_AGENT,
     END_LOST,
@@ -98,9 +98,6 @@ FIRST_RULE = {"ko": "통화가 연결되면 다음 문장을 한 글자도 바�
               "en": 'When the call connects, first say exactly this sentence: "{line}"'}
 _MODEL = re.compile(r"[A-Za-z0-9._\-]{1,80}")
 _WORD = re.compile(r"[a-z_\-]{1,30}")
-# 세션에 넘길 음성 이름(Task 99): 설정 칸(영문 시작 · 100자)과 연락처 직접 지정(영문·숫자·._:- · 64자)이 받는 꼴을 모두 덮는다.
-# 이 꼴이 아니거나 번호처럼 보이면 넘기지 않는다(SDK 기본 음성) — 통화 API 의 voice_id 처럼 꼴을 보지 않은 글도 SDK 로 가지 않게.
-_VOICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:\-]{0,99}")
 logger = logging.getLogger(__name__)
 
 READY = "음성 SDK 로 걸 수 있습니다"
@@ -159,10 +156,6 @@ class _Setup:
     agent_number: str | None = field(repr=False)
     test_mode: bool = True
     allowed: frozenset[str] = field(default=frozenset(), repr=False)
-
-
-def _voice_ok(value: object) -> bool:
-    return isinstance(value, str) and bool(_VOICE.fullmatch(value)) and redact.hide_phones(value) == value
 
 
 def _setup(conn: object, voice: object) -> _Setup:
@@ -403,8 +396,16 @@ class _Line:
     def saw(self, record: object) -> None:
         """SDK 로그 가운데 AI 음성 모델 세션을 열지 못한 줄(통화 id 만 읽는다) — 실제 SDK 는 그 뒤 call_end 를 보내지 않는다."""
         found = session_failure(record)
-        if found is not None and self.ours is not None and _same_call(found[0], _call_id(self.ours)):
+        failed = found is not None and self.ours is not None and _same_call(found[0], _call_id(self.ours))
+        # OpenAI 는 세션 설정(지시문·첫마디·소리 꼴·음성)을 거절해도 오류 사건만 보내고 SDK 는 줄 하나만 남긴다(Task 99 고침 1).
+        # 에이전트가 말하기 전이면 그 세션은 설정이 빠진 채 돈다 — 세션 실패로. 말한 뒤의 오류는 사람과 하던 통화를 끊지 않는다.
+        if failed or (self.ours is not None and not self.agent_spoke() and model_error(record)):
             self.events.append(("session_failed", self.ours, (), self.clock()))
+
+    def agent_spoke(self) -> bool:
+        """에이전트의 받아쓰기가 한 조각이라도 왔는가(아직 고리가 읽지 않은 사건까지)."""
+        return not self.opening or self.pending is not None or any(
+            name == "transcript" and args[:1] == ("assistant",) for name, _, args, _ in self.events)
 
     def screen(self, incoming: object) -> None:
         """`on_incoming` 훅: 거는 동안 걸려 온 전화는 모두 받지 않는다(받는 통화는 Task 95). 기다리지 않고 던지지 않는다."""
@@ -429,7 +430,7 @@ class _Line:
         rule = FIRST_RULE.get(spec.language.split("-")[0].lower(), FIRST_RULE["en"]).format(line=spec.first_line)
         kw = {"api_key": s.voice_key, "system_prompt": f"{spec.instructions}\n\n{rule}", "language": spec.language,
               "model": s.model}
-        if _voice_ok(spec.voice_id):
+        if voices.well_formed(spec.voice_id):  # 꼴이 틀리거나 번호처럼 보이는 글은 SDK 로 가지 않는다
             kw["voice"] = spec.voice_id  # 고른 음성(voices.pick). 없거나 꼴이 틀리면 넘기지 않아 SDK 기본(구글 Kore · OpenAI marin)
         if s.provider == "google":
             kw["api_version"] = numbers.GOOGLE_LIVE_API_VERSION  # Live 모델은 v1alpha 에만 있다(11-24 실측)

@@ -1139,7 +1139,8 @@ def test_ceilings_come_from_the_diagnostics_caps():
     link = diagnostics.RESOLVE_TIMEOUT_S + dv.CONNECT_TIMEOUT_S
     cut = dv.SDK_HANGUP_S + dv.END_GRACE_S + dv.REST_END_S  # 끊기(SDK 는 5초까지 소리를 마저 보냄) · 끝 사건 · REST 로 끝내기
     close = cut + dv.HANGUP_TIMEOUT_S  # 살아 있는 통화 끊기 + 연결 끊기
-    assert voice._ceiling((5, 9, 11), 90) == link + close + voice.MARGIN_S == 63
+    assert voice._ceiling((5, 11), 90) == link + close + voice.MARGIN_S == 63
+    assert voice._ceiling((5, 9, 11), 90) == 63 + voice.voice_names.BUDGET_S  # P9 는 설정한 음성을 하나씩 연다(Task 99 고침 1)
     assert voice._ceiling((5, 6, 7, 8, 11), 90) == voice._ceiling((10,), 90) == link + dv.CALL_CUT_S + cut + close + 10 == 146
     assert voice._ceiling((5, 11, 12, 13), 90) == link + 90 + dv.INBOUND_START_S + dv.INBOUND_HOLD_S + cut + close + 10 == 211
     assert voice._ceiling((14,), 180) == link + 180 + dv.REJECT_GRACE_S + cut + close + 10 == 269
