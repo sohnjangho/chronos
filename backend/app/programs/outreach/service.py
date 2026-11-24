@@ -455,6 +455,14 @@ class ReplyContact(BaseModel):
     role_title: str
 
 
+class ReplyRequest(BaseModel):
+    """그 답이 이어진 우리 요청(같은 일정의 보낸 줄): 화면이 「07:10 요청의 답」·묶음 번호로 어느 요청인지 보인다."""
+
+    message_id: int
+    at: datetime
+    batch_id: int | None
+
+
 class ReplyOut(BaseModel):
     """그 현장 항목에 이어진 받은 문자 하나. text 는 번호를 가린 글. 사람 확인용 후보일 뿐 — 이 API 는 아무것도 바꾸지 않는다."""
 
@@ -463,6 +471,7 @@ class ReplyOut(BaseModel):
     text: str
     at: datetime
     answers: list
+    request: ReplyRequest | None  # reply_to_id 로 이어진 이 일정의 보낸 줄(없으면 null)
 
 
 def replies(session: Session, schedule_id: int, field_item_id: int) -> list[ReplyOut]:
@@ -479,6 +488,10 @@ def replies(session: Session, schedule_id: int, field_item_id: int) -> list[Repl
     ids = {r.contact_id for r in rows if r.contact_id is not None}
     people = {c.id: c for c in session.scalars(select(Contact).where(
         Contact.schedule_id == schedule_id, Contact.id.in_(ids)))} if ids else {}
+    asked_ids = {r.reply_to_id for r in rows if r.reply_to_id is not None}
+    requests = {m.id: m for m in session.scalars(select(OutreachMessage).where(
+        OutreachMessage.schedule_id == schedule_id, OutreachMessage.direction == "out",
+        OutreachMessage.id.in_(asked_ids)))} if asked_ids else {}
     out = []
     for row in rows:
         who = people.get(row.contact_id) if row.contact_id is not None else None
@@ -487,5 +500,13 @@ def replies(session: Session, schedule_id: int, field_item_id: int) -> list[Repl
             contact=ReplyContact(name=who.name, role_title=who.role_title) if who else ReplyContact(name=GONE_CONTACT,
                                                                                                     role_title=""),
             text=hide_phones(row.body), at=as_utc(row.sent_at or row.created_at),
-            answers=row.answers_json if isinstance(row.answers_json, list) else []))
+            answers=row.answers_json if isinstance(row.answers_json, list) else [],
+            request=_request(requests.get(row.reply_to_id) if row.reply_to_id is not None else None)))
     return out
+
+
+def _request(asked: OutreachMessage | None) -> ReplyRequest | None:
+    if asked is None:
+        return None
+    return ReplyRequest(message_id=asked.id, at=as_utc(asked.sent_at or asked.claimed_at or asked.created_at),
+                        batch_id=asked.batch_id)

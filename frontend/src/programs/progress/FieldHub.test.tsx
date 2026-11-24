@@ -221,7 +221,8 @@ const poll = item({ id: 7, kind: 'poll', status: 'pending', response_choice: nul
   title: '[만회안 의견] A1025 선행 공종 병행 착수(SS+2d)', prompt_text: '북측 존부터 2일 중첩 착수할 수 있습니까?' });
 const handoff = item({ id: 9, kind: 'handoff', title: '[D-3 핸드오프] A1000 → A1010', status: 'pending', response_choice: 'hold', activity_name: '기초 거푸집',
   trade: '철근 → 거푸집', payload_json: { pred_id: 'A1000', succ_start: '2026-12-03', days_left: 3, pred_handover_ok: true, checklist: { material: true, equipment: false, workforce: true } } });
-const reply = (message_id: number, text: string) => ({ message_id, contact: { name: '박현장', role_title: '공무' }, text, at: '2026-11-26T23:40:00Z', answers: [] });
+const reply = (message_id: number, text: string) =>
+  ({ message_id, contact: { name: '박현장', role_title: '공무' }, text, at: '2026-11-26T23:40:00Z', answers: [], request: null });
 
 describe('연락 시작하기(Task 104)', () => {
   test('a waiting check-in card opens the batch dialog with 체크인 요청, its trade and text filled from the item', async () => {
@@ -327,4 +328,23 @@ describe('회신 후보(Task 104)', () => {
     await userEvent.click(await within(handCard).findByRole('button', { name: '회신 칸에 넣기' }));
     expect(within(handCard).getByLabelText('핸드오프 메모')).toHaveValue('장비는 모레 들어옵니다');
   });
+});
+
+
+// 후속(리뷰): 이미 쓴 메모는 덮지 않고 새 줄로 뒤에 붙인다(메모 칸은 여러 줄·1000자).
+test('[회신 칸에 넣기] keeps what the person already typed and adds the reply on a new line', async () => {
+  const fetchFn = stubFetch({
+    '/api/schedules/1/field': data([checkin]), '/api/notify/status': NOTIFY,
+    '/api/schedules/1/outreach/replies?field_item_id=5': [reply(31, '정상 진행 중입니다.')],
+  });
+  render(<FieldHub scheduleId={1} />);
+  const card = await screen.findByRole('article', { name: checkin.title });
+  const memo = within(card).getByLabelText('현장 메모');
+  expect(memo).toHaveAttribute('maxlength', '1000');
+  await userEvent.type(memo, '오전 양중 완료');
+  await userEvent.click(await within(card).findByRole('button', { name: '회신 칸에 넣기' }));
+  expect(memo).toHaveValue('오전 양중 완료\n정상 진행 중입니다.');
+  await userEvent.click(within(card).getByRole('button', { name: '회신 칸에 넣기' }));
+  expect(memo).toHaveValue('오전 양중 완료\n정상 진행 중입니다.\n정상 진행 중입니다.');
+  expect(fetchFn.mock.calls.filter(([, init]) => (init?.method ?? 'GET') !== 'GET')).toEqual([]);
 });

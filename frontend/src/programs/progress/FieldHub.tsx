@@ -9,7 +9,7 @@ import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import ContactButton from '../../shared/outreach/ContactButton';
 import { checkinText, handoffText, pollText } from '../../shared/outreach/contactKit';
-import ReplyCandidates from '../../shared/outreach/ReplyCandidates';
+import ReplyCandidates, { MEMO_MAX } from '../../shared/outreach/ReplyCandidates';
 import { fieldApi, type FieldActivityOption, type FieldData, type FieldItem, type FieldKind } from './fieldApi';
 
 const TABS: { id: FieldKind; label: string }[] = [
@@ -30,6 +30,8 @@ const FIELD_WAITS = '승인함에 올렸습니다 — 승인되기 전에는 일
 /** 연락(Task 104): 카드가 문자로도 알릴 때 쓰는 일정 id·현장(일정) 이름. 받는 사람·보내기는 공용 창(BatchSendDialog)이 한다. */
 interface Reach { scheduleId: number; site: string }
 const ALSO_NOTIFY = '문자·카카오톡으로도 알리기';
+/** 메모 칸은 여러 줄(회신 후보를 새 줄로 붙인다) — 세로로만 늘린다(가로로 넘치지 않게). */
+const MEMO_STYLE = { resize: 'vertical', display: 'block' } as const;
 
 function StatusBadge({ item }: { item: FieldItem }) {
   if (item.approval_id !== null) return <Badge tone="info">{`승인함 #${item.approval_id} 상신`}</Badge>;
@@ -160,16 +162,18 @@ function CheckinCard({
           </label>
         )}
       </div>
-      <input
-        type="text"
+      <textarea
         className="pg-finput-text"
+        rows={2}
+        maxLength={MEMO_MAX}
+        style={MEMO_STYLE}
         placeholder={choice === 'delayed' ? '지연 사유를 간단히 적어 주세요 (예: 자재 반입 2일 지연)' : '현장 특이사항 · 메모 한 줄 (선택)'}
         aria-label="현장 메모"
         value={note}
         disabled={busy}
         onChange={(e) => setNote(e.target.value)}
       />
-      <ReplyCandidates scheduleId={reach.scheduleId} fieldItemId={item.id} onUse={setNote} disabled={busy} />
+      <ReplyCandidates scheduleId={reach.scheduleId} fieldItemId={item.id} current={note} onUse={setNote} disabled={busy} />
       <div className="pg-fcard-foot">
         {waiting && (
           <ContactButton scheduleId={reach.scheduleId} label={ALSO_NOTIFY} title={`체크인 알리기 — ${item.title}`}
@@ -377,16 +381,18 @@ function PollCard({
           </button>
         ))}
       </div>
-      <input
-        type="text"
+      <textarea
         className="pg-finput-text"
+        rows={2}
+        maxLength={MEMO_MAX}
+        style={MEMO_STYLE}
         placeholder="현장 조건 또는 불가 사유 (예: 야간 소음 민원, 인력 보강 시 가능)"
         aria-label="현장 의견 사유"
         value={note}
         disabled={busy}
         onChange={(e) => setNote(e.target.value)}
       />
-      <ReplyCandidates scheduleId={reach.scheduleId} fieldItemId={item.id} onUse={setNote} disabled={busy} />
+      <ReplyCandidates scheduleId={reach.scheduleId} fieldItemId={item.id} current={note} onUse={setNote} disabled={busy} />
       <div className="pg-fcard-foot">
         {item.status === 'pending' && (
           <ContactButton scheduleId={reach.scheduleId} label={ALSO_NOTIFY} title={`의견 조회 알리기 — ${item.title}`}
@@ -455,16 +461,18 @@ function HandoffCard({
           <span>투입 인력 배치</span>
         </label>
       </div>
-      <input
-        type="text"
+      <textarea
         className="pg-finput-text"
+        rows={2}
+        maxLength={MEMO_MAX}
+        style={MEMO_STYLE}
         placeholder="인계·투입 특이사항"
         aria-label="핸드오프 메모"
         value={note}
         disabled={busy}
         onChange={(e) => setNote(e.target.value)}
       />
-      <ReplyCandidates scheduleId={reach.scheduleId} fieldItemId={item.id} onUse={setNote} disabled={busy} />
+      <ReplyCandidates scheduleId={reach.scheduleId} fieldItemId={item.id} current={note} onUse={setNote} disabled={busy} />
       <div className="pg-fcard-foot">
         <ContactButton scheduleId={reach.scheduleId} label="담당자에게 알리기" title={`담당자에게 알리기 — ${item.title}`}
           preset={{ templateUse: 'D-3 준비 확인', trade: item.trade.split('→').pop()!.trim(), fieldItemId: item.id, body: handoffText(item) }} />

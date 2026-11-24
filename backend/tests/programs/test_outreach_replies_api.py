@@ -20,7 +20,7 @@ from tests.outreach_doubles import SENTINEL_DIGITS, SENTINEL_PHONE
 
 NOW = datetime(2026, 11, 27, 0, 0, tzinfo=UTC)
 ITEM_404 = {"code": "not_found", "message": "현장 항목을 찾을 수 없습니다."}
-KEYS = {"message_id", "contact", "text", "at", "answers"}
+KEYS = {"message_id", "contact", "text", "at", "answers", "request"}
 
 
 def url(sid: int, item: int) -> str:
@@ -89,6 +89,10 @@ def test_replies_are_scoped_to_project_and_item(client, user, session, sid, sid2
     assert rows[1]["text"] == "정상 진행 중입니다. 오후에 철근 반입 예정."
     assert rows[1]["answers"] == []
     assert rows[1]["at"].startswith("2026-11-27T00:05")
+    # 어느 요청의 답인지: reply_to_id 로 이어진 우리 줄(id·보낸 때·묶음)
+    assert rows[1]["request"]["message_id"] == asked
+    assert rows[1]["request"]["at"].startswith("2026-11-27T00:00")
+    assert rows[1]["request"]["batch_id"] is None
 
     # 다른 일정의 항목을 이 일정 길로 · 이 일정의 항목을 다른 일정 길로 · 없는 항목 → 모두 같은 404
     for sid_, item in ((sid, theirs), (sid2, mine), (sid, 99999)):
@@ -131,3 +135,23 @@ def test_field_manager_is_403_and_no_login_is_401(client, field_user, session, s
 
 def test_field_item_id_is_required(client, user, sid):
     assert client.get(f"/api/schedules/{sid}/outreach/replies", headers=user).status_code == 422
+
+
+def test_request_of_a_reply_is_only_from_this_project(client, user, session, sid, sid2):
+    """reply_to_id 가 다른 일정의 줄을 가리키면(있을 수 없는 자료라도) 그 요청은 보이지 않는다. 묶음이면 batch_id."""
+    item = _item(session, sid)
+    who = _person(session, sid)
+    theirs = _msg(session, sid2, None, direction="out", body="다른 일정의 요청")
+    batch = _msg(session, sid, who, direction="out", minutes=1, field_item_id=item, body="묶음 요청")
+    session.get(OutreachMessage, batch).batch_id = batch
+    session.commit()
+    _msg(session, sid, who, minutes=3, field_item_id=item, reply_to_id=theirs, body="엉뚱한 연결")
+    _msg(session, sid, who, minutes=4, field_item_id=item, reply_to_id=batch, body="묶음의 답")
+    _msg(session, sid, who, minutes=5, field_item_id=item, body="요청 없이 이어진 답")
+
+    rows = client.get(url(sid, item), headers=user).json()
+
+    assert [r["text"] for r in rows] == ["요청 없이 이어진 답", "묶음의 답", "엉뚱한 연결"]
+    assert rows[0]["request"] is None
+    assert rows[1]["request"]["message_id"] == batch and rows[1]["request"]["batch_id"] == batch
+    assert rows[2]["request"] is None
