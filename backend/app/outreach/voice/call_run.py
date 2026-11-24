@@ -6,9 +6,9 @@
   통화는 이어진다), 끝에 모은 것을 한꺼번에 다시 적는다.
 - 첫 발화가 AI 비서·기록을 밝히지 않으면(greeting.discloses — 그 통화 언어의 꼭 하는 말·부정 말, Task 100) 고정 첫마디를 한 번
   더 시키고, 그래도 아니면 끊는다.
-- 상대 말이 수신 거부 말이면(door.is_stop — 문자와 같은 규칙, 단 「그만」 같은 한 낱말 규칙은 빼고) 모델을 기다리지 않고 도구 길
-  (box.call("mark_do_not_contact") — 번호 찾기·사건이 도구와 같다)로 표시하고 끊는다. 한 통화에 한 번. 표시가 실패했으면
-  통화 뒤 일(after.finish)이 받아쓰기를 다시 보고 표시한다(H1).
+- 상대 말이 수신 거부 말이면(door.is_stop — 문자와 같은 규칙, 단 「그만」 같은 한 낱말 규칙은 빼고) 모델을 기다리지 않고
+  after.mark_heard(도구 길 — 그 등급 묶음에 도구가 없으면 번호 기준 저장소에 직접)로 표시하고 끊는다. 한 통화에 한 번. 표시가
+  실패했으면 통화 뒤 일(after.finish)이 받아쓰기를 다시 보고 표시한다(H1).
 - 끝: 받음 → completed(+길이·사용량) · 받은 뒤 연결·세션이 끊김(END_LOST) → failed 「확인 필요」 · 받지 않음/통화 중/
   실패 → 그 상태(+받지 않음은 gate.after_no_answer) · 고장 → failed(`call_result` backend_error). 모든 쓰기는 짧은 세션을 스레드에서.
 - 통화 뒤 일(after_call → Task 89 after.finish)은 끝 손잡이 안에서 돌지 않는다: 통화를 돌린 쪽이 place 가 끝난 뒤 `run_after`
@@ -236,10 +236,10 @@ class CallRun:
             await self._hang()
 
     async def _opt_out(self) -> None:
-        """상대가 수신 거부를 말함: 도구 길로 그 번호를 표시하고(실패해도 — 통화 뒤 일이 다시 본다) 끊는다. SDK 에 「이 말을 하라」가
-        없어 끊는 것이 실제로 하는 일이다."""
+        """상대가 수신 거부를 말함: 그 번호를 표시하고(실패해도 — 통화 뒤 일이 다시 본다) 끊는다. SDK 에 「이 말을 하라」가 없어
+        끊는 것이 실제로 하는 일이다."""
         self.opted_out = True
-        await self.box.call("mark_do_not_contact", {"reason": after.HEARD_OPT_OUT})  # 예외를 내지 않는다(취소만 지나간다)
+        await after.mark_heard(self.box)  # 예외를 내지 않는다(취소만 지나간다)
         await self._hang()
 
     async def _hang(self) -> None:

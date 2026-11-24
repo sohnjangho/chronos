@@ -75,13 +75,13 @@ MAY_SEE = {
     "internal": {k for k in SECRETS if k.startswith("B.")} | {"who.choi", "who.park", "firm.rebar_b", "site.A", "site.B"},
     "do_not_contact": set(), "unknown": set(), "withheld": set(),
 }
-# 한 현장으로 정해진 통화에서 다른 현장 이름을 대면 도구가 고정 안내 「이 통화는 가람 현장 건입니다」를 준다(H1) — 그 통화의 현장
-# 이름은 나와도 된다(우리가 건 통화는 첫마디에도 현장을 밝힌다).
-SINGLE_SITE_CALL = {"outbound", "contact", "shared"}
+# 한 현장으로 정해진 통화에서 다른 실제 현장 이름을 대면 도구가 주는 고정 안내(H1) — 그 통화의 현장 이름을 담는 꼴은 이것 하나뿐이다.
+# 결과를 훑기 전에 **꼭 이 꼴인 결과만** 빼고, 나머지는 MAY_SEE 그대로 본다.
+OTHER_SITE_REPLY = {"refused": "이 통화는 가람 현장 건입니다"}
 
 
-def may_see(cls: str, medium: str) -> set[str]:
-    return MAY_SEE[cls] | ({"site.A"} if medium == "call" and cls in SINGLE_SITE_CALL else set())
+def without_site_reply(results: list[dict]) -> list[dict]:
+    return [r for r in results if r != OTHER_SITE_REPLY]
 
 
 # 모델이 넣을 법한 것 전부: 범위 밖 현장 이름·작업 id·작업 이름, 다른 사람 이름, 신원 주장, 받은 번호
@@ -162,9 +162,9 @@ async def test_scope_never_comes_from_model_arguments(session, fake_channel, cls
     """모든 등급 × 모든 도구 × 두 매체: 범위 밖 현장 이름·작업 id·작업 이름으로 불러도 결과 JSON 에 범위 밖 것이 없다."""
     box, _ = arrange(session, cls, medium)
 
-    blob = json.dumps(await run_attacks(box), ensure_ascii=False)
+    blob = json.dumps(without_site_reply(await run_attacks(box)), ensure_ascii=False)
 
-    leaked = sorted(key for key, text in SECRETS.items() if key not in may_see(cls, medium) and text in blob)
+    leaked = sorted(key for key, text in SECRETS.items() if key not in MAY_SEE[cls] and text in blob)
     assert leaked == []
     expected = {key for key in MAY_SEE[cls] if key.split(".")[0] in "AB" and not key.endswith((".start", ".finish", ".day"))}
     assert {key for key in expected if SECRETS[key] in blob} == expected  # 범위 안의 것은 실제로 답했다(빈 시험이 아니다)
@@ -236,10 +236,10 @@ async def test_known_number_never_gets_beyond_class_scope(session, fake_channel,
 
     assert box.scope == scope and (scope.caller_class, scope.facts) == ("contact", "trade")
     assert claims[1] == {"refused": REFUSED}
-    assert claims[2] == ({"refused": "이 통화는 가람 현장 건입니다"} if medium == "call" else {"refused": REFUSED})
+    assert claims[2] == (OTHER_SITE_REPLY if medium == "call" else {"refused": REFUSED})
     assert claims[3] == {"items": [], "redirected": False}
-    blob = json.dumps(claims, ensure_ascii=False)
-    assert not [key for key, text in SECRETS.items() if key not in may_see("contact", medium) and text in blob]
+    blob = json.dumps(without_site_reply(claims), ensure_ascii=False)
+    assert not [key for key, text in SECRETS.items() if key not in MAY_SEE["contact"] and text in blob]
     assert session.get(ScheduleRecord, box.scope.schedule_ids[0]).current_version == 1
 
 

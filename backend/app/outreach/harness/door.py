@@ -64,8 +64,13 @@ AUTO_KINDS = ("auto_reply", "notice")  # 자동 답·고정 안내(메시지 종
 # 뒤에 공손한 맺음말(STOP_ENDINGS)만 붙었을 때만. 「수신거부 아닙니다」「그만 철수합니다」는 수신 거부가 아니다.
 STOP_WHOLE = ("그만", "stop")
 STOP_WORD = "수신거부"
-STOP_ENDINGS = ("", "요", "입니다", "합니다", "해요", "할게요", "할께요", "하겠습니다", "해주세요", "해주십시오", "부탁합니다",
-                "부탁드립니다", "부탁드려요", "부탁해요", "바랍니다", "원합니다", "신청", "신청합니다")
+STOP_ENDINGS = ("", "요", "입니다", "합니다", "해요", "할게", "할게요", "할께요", "하겠습니다", "해주세요", "해줘", "해주십시오",
+                "처리해주세요", "부탁합니다", "부탁드립니다", "부탁드려요", "부탁드릴게요", "부탁해요", "바랍니다", "원합니다", "신청",
+                "신청합니다")
+# 문장 끝의 「(앞으로|다시는) 전화·연락·문자 (하지|주지) 마세요 / 마십시오 / 마요 / 말아 주세요」(글자만 남겨 견준다). 「마시고」처럼
+# 문장 끝이 아닌 꼴은 아니다(「전화하지 마시고 문자 주세요」).
+STOP_PHRASE = re.compile(r"(앞으로|다시는)?(전화|연락|문자)(하지|주지)?(마세요|마십시오|마요|말아주세요)$")
+_SENTENCE = re.compile(r"([^.?!\n]*)([.?!\n]|$)")  # 문장 하나와 그 끝 부호(. ? ! 줄 바꿈 · 끝)
 # 기계가 보낸 글의 표지(빈칸을 빼고 견준다) — 주소록에 없는 번호의 글에만 쓴다(연락처의 글은 _CODE_ONLY 와 맨 앞 AD_MARK 만)
 MACHINE_MARKS = ("인증번호", "인증코드", "verificationcode", "(광고)", "[web발신]", "[국제발신]", "무료수신거부")
 AD_MARK = "(광고)"
@@ -324,11 +329,22 @@ def _letters(text: str) -> str:
 
 
 def is_stop(text: str | None, *, single_words: bool = True) -> bool:
-    """수신 거부 말인가 — 들어오는 문자(admit)와 통화 중 상대 말(voice.call_run·after)이 같이 쓰는 규칙 하나. 글을 맞추고(_flat)
-    통신사 머리를 뗀 뒤 STOP_WORD·STOP_ENDINGS 규칙, single_words 면 STOP_WHOLE(「그만」「stop」 한 낱말)도. 통화는
-    single_words=False — 말에서는 「그만」이 너무 자주 나온다."""
-    core = _letters(_RELAY_PREFIX.sub("", _flat(text)))
-    return (single_words and core in STOP_WHOLE) or (core.startswith(STOP_WORD) and core[len(STOP_WORD):] in STOP_ENDINGS)
+    """수신 거부 말인가 — 들어오는 문자(admit)와 통화 중 상대 말(voice.call_run·after)이 같이 쓰는 규칙 하나. 통신사 머리를 떼고
+    **문장마다**(. ? ! 줄 바꿈으로 나눔) 글자만 남겨 본다: STOP_WORD 로 시작하고 나머지가 STOP_ENDINGS 이거나, STOP_PHRASE 로
+    끝나면 수신 거부. 「?」로 끝난 문장은 물음이라 아니다(「수신거부요?」). single_words 면 글 **전체**가 STOP_WHOLE 낱말(「그만」
+    「stop」)일 때도 — 통화는 single_words=False(말에서는 「그만」이 너무 자주 나온다)."""
+    if not isinstance(text, str):
+        return False
+    norm = _RELAY_PREFIX.sub("", unicodedata.normalize("NFKC", text).casefold().strip())
+    if single_words and _letters(norm) in STOP_WHOLE:
+        return True
+    for sentence, end in _SENTENCE.findall(norm):
+        core = _letters(sentence)
+        if end == "?" or not core:
+            continue
+        if (core.startswith(STOP_WORD) and core[len(STOP_WORD):] in STOP_ENDINGS) or STOP_PHRASE.search(core):
+            return True
+    return False
 
 
 def _is_machine(flat: str, plain: str, in_book: bool) -> bool:

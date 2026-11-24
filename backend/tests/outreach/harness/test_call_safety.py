@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from app.outreach.harness import door, tools
-from app.store.tables_outreach import ContactReport
+from app.store.tables_outreach import ContactReport, OutreachCall
 from tests.outreach.harness.test_tools import (
     MARK_A,
     PHONE,
@@ -24,6 +24,7 @@ from tests.outreach.harness.test_tools import (
     message,
     outbound,
     trail,
+    who,
     world,
 )
 
@@ -85,17 +86,30 @@ async def test_other_site_on_an_outbound_call_gets_only_the_fixed_line(session, 
     assert log(session, row)[-1]["detail"].startswith(f"tool={name} ")
 
 
-async def test_other_site_report_is_not_filed_under_this_site(session):
+async def test_other_site_report_is_kept_without_a_schedule(session):
+    """다른 실제 현장의 일을 알리면 이 현장 보고로 붙이지 않되 버리지도 않는다 — 일정 없는 보고 한 줄."""
     _, box, row = await _confirmed(session)
 
     r = await box.call("report_from_contact", {"kind": "delay", "text": "하루 늦어요", "quote": "하루 늦어요", "site": SITE_B})
 
     assert r == {"refused": OTHER}
-    assert session.scalars(select(ContactReport)).all() == []
-    assert trail(session, row)[-1] == ("scope_denied", "blocked")
+    session.expire_all()
+    assert [(x.schedule_id, x.kind, x.text, x.call_id) for x in session.scalars(select(ContactReport))] == [
+        (None, "delay", "하루 늦어요", row.id)]
+    assert trail(session, row)[-1] == ("tool:report_from_contact", "allowed")
 
 
-@pytest.mark.parametrize("site", [SITE_A, "가람현장", " 가람  현장 ", "가람", "가람 ", ""])
+async def test_report_naming_a_part_of_this_site_is_filed_here(session):
+    w, box, _ = await _confirmed(session)
+
+    await box.call("report_from_contact", {"kind": "delay", "text": "B동 하루 늦어요", "quote": "하루 늦어요", "site": "B동"})
+
+    session.expire_all()
+    assert [x.schedule_id for x in session.scalars(select(ContactReport))] == [w.a]
+
+
+@pytest.mark.parametrize("site", [SITE_A, "가람현장", " 가람  현장 ", "가람", "가람 ", "", "가람 아파트", "우리 현장", "B동", "3층",
+                                  "다른 현장"])
 async def test_this_site_named_any_way_still_answers(session, site):
     _, box, _ = await _confirmed(session)
 
@@ -177,3 +191,55 @@ async def test_inbound_contact_call_keeps_todays_rule(session):
     mine = await box.call("my_requests", {})
 
     assert [item["text"] for item in mine["items"]] == ["가람 쪽 요청"]
+
+
+# ── 고침 1: 흔한 거부 말(문자·통화 같은 규칙, 문장마다) ───────────────────
+
+
+@pytest.mark.parametrize("text", [
+    "앞으로 전화하지 마세요", "다시는 연락 주지 마십시오", "문자 마요", "전화 하지 마세요.", "연락하지 말아 주세요",
+    "저한테 다시는 전화하지 마세요", "수신거부 부탁드릴게요", "수신 거부 부탁드려요", "수신 거부 처리해 주세요", "수신거부 해 주세요",
+    "수신거부 해줘", "수신거부 할게", "수신거부 할게요", "네. 수신거부요.", "알겠습니다\n다시는 전화하지 마세요!",
+    "네 알겠어요. 앞으로 문자하지 마세요",
+])
+def test_common_opt_out_phrases_count_for_text_and_speech(text):
+    assert door.is_stop(text) and door.is_stop(text, single_words=False)
+
+
+@pytest.mark.parametrize("text", [
+    "전화하지 마시고 문자 주세요", "수신거부요?", "다시는 전화하지 마세요?", "수신 거부 해 주세요? 어떻게요", "수신거부 아닙니다",
+    "그만 말씀하세요", "전화 주세요", "걱정 마세요", "연락 주세요. 마세요라고 하신 건 아니고요",
+])
+def test_near_misses_are_not_opt_out(text):
+    assert not door.is_stop(text) and not door.is_stop(text, single_words=False)
+
+
+def test_text_door_hears_the_common_phrases(session):
+    world(session)
+    connect(session)
+    assert door.admit(session, "sms", PHONE, now=WORK, body="다시는 연락하지 마세요").verdict == "stop"
+    assert door.admit(session, "sms", PHONE, now=WORK, body="전화하지 마시고 문자 주세요").verdict != "stop"
+    assert door.admit(session, "sms", PHONE, now=WORK, body="수신거부요?").verdict != "stop"
+
+
+# ── 고침 1: 확인 전에는 사람 목록이 없다 ──────────────────────────────────
+
+
+async def test_find_contact_before_identity_lists_nobody_but_still_redirects(session, fake_channel):
+    w = world(session)
+    connect(session)
+    kim = who(session, w.rebar_a, "김철근", "01000000133", role_title="철근 기사")
+    box, row = outbound(session, w.park)
+
+    listed = await box.call("find_contact", {"query": "철근"})
+    sent = await box.call("find_contact", {"query": "김철근", "redirect": True})
+    await box.call("confirm_person", {"is_person": True})
+    after = await box.call("find_contact", {"query": "김철근"})
+
+    assert listed == {"redirected": False}
+    assert sent == {"redirected": True}  # 「담당은 그 사람」은 그대로 된다 — 목록만 주지 않는다
+    session.expire_all()
+    follow = session.scalars(select(OutreachCall).where(OutreachCall.prev_call_id == row.id)).all()
+    assert [f.contact_id for f in follow] == [kim.id]
+    assert [item["name"] for item in after["items"]] == ["김철근"]
+    assert "김철근" not in str(listed) + str(sent)

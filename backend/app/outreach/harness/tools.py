@@ -4,9 +4,10 @@
 - 일정·연락처·협력사는 Scope 에서만 온다. 인자에는 id 칸이 없고(toolsets.ARGS, extra="forbid"), 현장은 이름으로만 받아 그
   상대의 후보(scope.schedule_ids) 안에서 코드가 맞춘다 — 맞으면 scope.pinned 로 굳히고 `site_pinned` 를 남긴다. 굳기 전에는
   사실도 본인 요청도 사람 찾기도 가지 않는다. 호출마다 범위의 짝이 지금도 있고 보이는지 다시 본다(사라지면 범위가 닫힌다).
-- **한 현장으로 정해진 통화**에서 상대가 다른 현장 이름(site)을 대면 그 현장 것을 조용히 주지 않는다: 고정 안내 OTHER_SITE
-  「이 통화는 <그 현장> 현장 건입니다」 하나만 주고 scope_denied 하나를 남긴다(빈칸·「현장」 꼬리는 가리지 않고 견준다). 문자는
-  그대로다(H1 — 통화만).
+- **한 현장으로 정해진 통화**에서 상대가 **다른 실제 현장**(저장된 다른 일정의 이름 — 빈칸·「현장」 꼬리를 떼고 서로 들어 있음)을
+  대면 그 현장 것을 조용히 주지 않는다: 고정 안내 OTHER_SITE 「이 통화는 <그 현장> 현장 건입니다」 하나만 주고 scope_denied 하나.
+  그 밖의 말(「우리 현장」「B동」「3층」「가람 아파트」)은 이 현장 일로 답한다. 보고(report_from_contact)는 버리지 않고 일정 없는
+  보고로 남긴다. 문자는 그대로다(H1 — 통화만).
 - **우리가 건 통화**(outbound·call)는 confirm_person(is_person=True) 이 그 통화에 적히기 전에는 그 사람의 요청·일정을 주는 도구
   (IDENTITY_TOOLS: my_requests · schedule_fact)가 CONFIRM_FIRST 로 거절한다(scope_denied). 아니라고 하면(is_person=False) 다시
   닫힌다. 받는 통화는 문이 번호로 상대를 정했으므로 그대로다(H1).
@@ -175,11 +176,19 @@ def _site_core(name: str) -> str:
     return _flat(name).removesuffix(SITE_TAIL)
 
 
-def _same_site(said: str, name: str) -> bool:
-    """상대가 말한 현장이 그 현장인가: 말한 것이 없거나 한 글자뿐이거나(맞추지 않는 말 — _match_site 와 같다), 그 이름(꼬리 뺌)과
-    같거나 그 안에 든다(「가람」 → 「가람 현장」)."""
+def _names_other_site(said: str, here: str, others: Iterable[str]) -> bool:
+    """상대가 말한 것이 이 통화의 현장이 아닌 **다른 실제 현장**인가. 꼬리 뺀 이름이 서로 들어 있으면 그 현장을 말한 것으로 본다.
+    다른 현장과 꼭 같으면 다른 현장, 이 현장과 꼭 같거나 이 현장에 걸리면 이 현장. 한 글자 이하는 아무 현장도 아니다."""
     want = _site_core(said)
-    return len(want) < 2 or want == _site_core(name) or want in _site_core(name)
+    if len(want) < 2 or want == _site_core(here):
+        return False
+
+    def hit(name: str) -> bool:
+        core = _site_core(name)
+        return len(core) >= 2 and (core in want or want in core)
+
+    cores = [_site_core(name) for name in others]
+    return want in cores or (not hit(here) and any(hit(name) for name in others))
 
 
 def _site_label(name: str) -> str:
@@ -385,8 +394,10 @@ class Toolbox:
         scope = self.scope
         if not scope.site_required:
             record = session.get(ScheduleRecord, self.sid) if self.sid is not None and self.medium == "call" else None
-            if record is not None and scope.facts != "none" and not _same_site(site, record.name):
-                return {"refused": OTHER_SITE.format(site=_site_label(record.name))}
+            if record is not None and scope.facts != "none" and len(_site_core(site)) >= 2:
+                others = session.scalars(select(ScheduleRecord.name).where(ScheduleRecord.id != record.id)).all()
+                if _names_other_site(site, record.name, others):
+                    return {"refused": OTHER_SITE.format(site=_site_label(record.name))}
             return None
         sites = {sid: record.name for sid in scope.schedule_ids if (record := session.get(ScheduleRecord, sid)) is not None}
         chosen = _match_site(site, sites)
@@ -417,15 +428,15 @@ class Toolbox:
         counted = select(func.count(model.id)).where(back.in_(self.conversation(session)), *where)
         return (session.scalar(counted) or 0) < cap
 
-    def report(self, session: Session, kind: str, text: str, quote: str = "") -> str:
+    def report(self, session: Session, kind: str, text: str, quote: str = "", *, unscheduled: bool = False) -> str:
         """보고 한 줄(한 대화에 MAX_REPORTS 줄까지 — 뒤 확인 줄은 세지 않음, 긴급 알림은 따로 MAX_EMERGENCY_REPORTS 줄까지). 돌려주는 것은 사건에
-        적을 한마디."""
+        적을 한마디. unscheduled 면 일정 없는 보고(다른 현장의 일)."""
         urgent = kind == "emergency"
         if not self.room(session, ContactReport, MAX_EMERGENCY_REPORTS if urgent else MAX_REPORTS,
                          (ContactReport.kind == "emergency") if urgent else ContactReport.kind.not_in(("emergency", REVIEW_KIND))):
             return f"보고는 {OVER}이라 남기지 않음"
         person = self.person(session)
-        outreach.add_report(session, schedule_id=self.sid, medium=self.medium, contact_id=person.id if person else None,
+        outreach.add_report(session, schedule_id=None if unscheduled else self.sid, medium=self.medium, contact_id=person.id if person else None,
                             kind=kind, text=_hide(text), quote=_hide(quote), status="open", created_at=self.now(),
                             **self.link())
         return "보고 남김"
@@ -494,6 +505,15 @@ def _carried(box: Toolbox, session: Session) -> dict[str, Any] | None:
 
 
 def _find_contact(box: Toolbox, session: Session, a) -> _Step:
+    """사람 찾기. 우리가 건 통화에서 신원 확인 전에는 목록을 주지 않는다 — 「담당은 그 사람」 후속 줄은 그대로 만든다(H1)."""
+    step = _finding(box, session, a)
+    if box.needs_identity and "items" in step.result:
+        step.result = {"redirected": step.result["redirected"]}
+        step.note += " · 신원 확인 전이라 목록은 주지 않음"
+    return step
+
+
+def _finding(box: Toolbox, session: Session, a) -> _Step:
     nobody = _Step({"items": [], "redirected": False}, "0명")
     if not box.scope.schedule_ids:
         return nobody
@@ -658,8 +678,8 @@ def _take_message(box: Toolbox, session: Session, a) -> _Step:
 
 def _report_from_contact(box: Toolbox, session: Session, a) -> _Step:
     ask = box.pin(session, a.site)  # 현장을 말했으면 굳힌다 — 못 맞춰도 보고는 남긴다(일정 없는 보고)
-    if ask is not None and "refused" in ask:  # 한 현장 통화에서 다른 현장의 일 — 이 현장 보고로 남기지 않는다
-        return _Step(ask, denied=True)
+    if ask is not None and "refused" in ask:  # 한 현장 통화에서 다른 실제 현장의 일 — 이 현장에 붙이지 않고 일정 없는 보고로
+        return _Step(ask, f"다른 현장 · {box.report(session, a.kind, a.text, a.quote, unscheduled=True)}")
     return _Step({"say": SAY_REPORTED}, box.report(session, a.kind, a.text, a.quote))
 
 

@@ -14,8 +14,9 @@ from app.outreach.voice.simulated import Hangup, Ring, Say
 from app.security import crypto
 from app.store import outreach as store
 from app.store.tables_outreach import DoNotContactNumber, VoiceSettings
+from tests.outreach.harness.test_door_class import account
 from tests.outreach.harness.test_gate import connect, person
-from tests.outreach.voice.test_inbound import AGENT_NUMBER, AT, calls_in, ring
+from tests.outreach.voice.test_inbound import AGENT_NUMBER, AT, STRANGER, calls_in, ring
 from tests.outreach.voice.test_inbound import rules as inbound_rules
 from tests.outreach.voice.test_runner import place, queued, reread, rules
 from tests.outreach_doubles import SENTINEL_DIGITS, SENTINEL_KEY, assert_clean
@@ -53,8 +54,8 @@ def fresh_inbound(monkeypatch):
 
 @pytest.fixture
 def side(session, sid):
-    """알림 연결(ok·시험 모드 끔·승인 받기·받는 범위 「주소록에 있는 번호만」) + 음성 설정 + 연락처 한 사람 — 걸기·받기 둘 다."""
-    row = connect(session, inbound_mode="known")
+    """알림 연결(ok·시험 모드 끔·승인 받기·받는 범위 「모두」) + 음성 설정 + 연락처 한 사람 — 걸기·받기 둘 다."""
+    row = connect(session, inbound_mode="all")  # 모르는 번호 전화도 받는다(고침 1 — 도구 없는 등급)
     session.add(VoiceSettings(connection_id=row.id, provider="google", secret_ciphertext=crypto.encrypt(SENTINEL_KEY),
                               secret_last4="9999", model="sim-model", agent_number=AGENT_NUMBER, voices_by_language_json={},
                               voice_unknown="sim-n1", voice_male_contact="sim-f1", status="ok"))
@@ -66,7 +67,8 @@ def side(session, sid):
 # ── 거는 통화 ──────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("said", ["수신거부", "수신 거부할게요.", "수신거부 해 주세요", "수신 거부 부탁드립니다"])
+@pytest.mark.parametrize("said", ["수신거부", "수신 거부할게요.", "수신거부 해 주세요", "수신 거부 부탁드립니다",
+                                  "다시는 전화하지 마세요.", "네. 앞으로 연락하지 말아 주세요"])
 async def test_opt_out_on_an_outbound_call_marks_and_hangs_up(session, side, said, caplog):
     row = queued(session, side.who)
 
@@ -141,10 +143,61 @@ async def test_inbound_stop_word_alone_is_not_an_opt_out(session, side):
     assert _marked(session) == [] and sim.calls[0].ended == ("peer", 2)
 
 
+# ── 고침 1: 묶음에 도구가 없는 등급(모르는 번호·내부) ──────────────────────
+
+
+def _caller(session, who):
+    """그 등급으로 걸려 오는 번호 — 모르는 번호, 내부 계정의 번호."""
+    if who == "internal":
+        account(session, number="01000000122")
+        session.commit()
+        return "01000000122"
+    return STRANGER
+
+
+@pytest.mark.parametrize("who", ["unknown", "internal"])
+async def test_caller_without_the_tool_is_still_marked(session, side, who, caplog):
+    number = _caller(session, who)
+
+    sim = await ring(Ring(number, AT), Say("peer", "다시는 전화하지 마세요", t=2), Say("peer", "그리고요", t=4), Hangup("peer"))
+
+    (row,) = calls_in(session)
+    assert row.caller_class == who
+    assert _marked(session) == [number]
+    assert sim.calls[0].ended == ("agent", 2)
+    seen = [(rule, verdict) for rule, verdict, _ in inbound_rules(row)]
+    assert seen.count((MARK, "noted")) == 1 and ("tool_not_allowed", "blocked") not in seen  # 도구 호출이 아니라 코드가 남김
+    assert number not in str(inbound_rules(row))
+    assert_clean(caplog, number)
+
+
+async def test_caller_without_the_tool_is_marked_after_the_call_if_it_failed(session, side, monkeypatch):
+    tries = _flaky(monkeypatch)
+
+    await ring(Ring(STRANGER, AT), Say("peer", "수신거부", t=2), Hangup("peer"))
+
+    (row,) = calls_in(session)
+    assert len(tries) == 2 and _marked(session) == [STRANGER]
+    assert [(rule, verdict) for rule, verdict, _ in inbound_rules(row)].count((MARK, "noted")) == 1
+
+
+async def test_withheld_caller_has_nothing_to_mark(session, side, monkeypatch):
+    tries = _flaky(monkeypatch, fails=0)
+
+    sim = await ring(Ring(None, AT), Say("peer", "수신거부", t=2), Hangup("peer"))
+
+    (row,) = calls_in(session)
+    assert row.caller_class == "withheld" and tries == [] and _marked(session) == []
+    assert sim.calls[0].ended == ("agent", 2)  # 끊기는 한다
+    assert MARK not in [rule for rule, _, _ in inbound_rules(row)]
+
+
 # ── 한 통화에 한 번 ────────────────────────────────────────────────────
 
 
 class _Box:
+    names = frozenset({"mark_do_not_contact"})
+
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
 

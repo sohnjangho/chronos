@@ -756,6 +756,7 @@ async def test_outbound_callee_cannot_find_or_redirect_to_another_company(sessio
     connect(session, agent_call="delegate" if delegated else "approve")
     kim = who(session, w.rebar_a, "김철근", "01000000122", role_title="철근 기사")
     box, row = outbound(session, w.park, purpose="타설 인원 확인", questions_json=["토요일 인원"], activity_id="R")
+    await box.call("confirm_person", {"is_person": True})  # 확인 전에는 목록이 없다(test_call_safety)
 
     missing = await box.call("find_contact", {"query": "없는사람", "redirect": True})
     for query in ("이설비", "이", "설", "설비", "소장", "설비 소장", "가람설비", "비"):  # 한 글자씩 훑어도
@@ -768,7 +769,7 @@ async def test_outbound_callee_cannot_find_or_redirect_to_another_company(sessio
     assert count(session, OutreachCall, OutreachCall.id != row.id) == 0 and count(session, OutreachMessage) == 0
     assert count(session, OutreachCall, OutreachCall.contact_id == w.lee.id) == 0
     assert fake_channel.delivered == []
-    assert {e["detail"].split(" → ")[1] for e in log(session, row)[:-1]} == {"0명"}  # 사건도 「없음」과 같다
+    assert {e["detail"].split(" → ")[1] for e in log(session, row)[1:-1]} == {"0명"}  # 사건도 「없음」과 같다
 
 
 async def test_redirect_target_is_anyone_the_callers_own_search_returns(session, fake_channel):
@@ -795,6 +796,7 @@ async def test_notes_and_reasons_are_hidden_before_model(session):
               dnc_reason=f"{NEW} 로만 연락")
     w.rebar_a.name = f"가람철근 {NEW}"
     box, _ = outbound(session, w.park)
+    await box.call("confirm_person", {"is_person": True})  # 확인 전에는 목록이 없다(test_call_safety)
 
     r = await box.call("find_contact", {"query": "김철근"})
 
@@ -1660,6 +1662,7 @@ async def test_redirect_makes_followup_in_same_medium_per_permission(session, fa
     kim = who(session, w.rebar_a, "김철근", "01000000122", role_title="철근 기사", language="vi")
     box, row = outbound(session, w.park, purpose="타설 인원 확인", questions_json=["토요일 인원"], purpose_key="pour-3f",
                         activity_id="R")
+    await box.call("confirm_person", {"is_person": True})  # 확인 전에는 목록이 없다(test_call_safety)
 
     r = await box.call("find_contact", {"query": "김철근", "redirect": True})
 
@@ -1694,6 +1697,7 @@ async def test_redirect_needs_exactly_one_match(session, fake_channel):
     who(session, w.rebar_a, "김철근", "01000000122")
     who(session, w.rebar_a, "김철수", "01000000123")
     box, row = outbound(session, w.park)
+    await box.call("confirm_person", {"is_person": True})  # 확인 전에는 목록이 없다(test_call_safety)
 
     two = await box.call("find_contact", {"query": "김철", "redirect": True})
     none = await box.call("find_contact", {"query": "없는사람", "redirect": True})

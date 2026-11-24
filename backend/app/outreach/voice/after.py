@@ -21,8 +21,11 @@
   없는 답도 토큰을 썼으므로 센다. 연결 없음·호출 실패·시간 초과는 받은 토큰이 없어 세지 않는다 — llm_calls 에는 LlmClient 가 남긴다).
 - **④ 결과 제안**: `result_proposed`(가린 글 — 모델이 결과를 비우면 NO_RESULT 「결과 확인 필요」)만 쓴다 — `result_confirmed`·`confirmed_by` 는 사람이 확정하는 칸이라 건드리지 않는다.
 - **⓪ 수신 거부 뒤받침**(H1): 받아쓰기의 상대 말에 수신 거부 말(door.is_stop, 한 낱말 규칙 빼고 — call_run 과 같은 규칙)이 있는데
-  그 번호가 아직 수신 거부가 아니면(통화 중 표시가 실패함) 그 통화의 도구 상자로 `mark_do_not_contact` 를 한 번 더 부른다. box 가
-  없거나 그 등급의 묶음에 그 도구가 없으면 하지 않는다(통화 중에도 못 했다). 실패는 종류만 로그 — 뒤 확인·요약은 이어 간다.
+  그 번호가 아직 수신 거부가 아니면(통화 중 표시가 실패함) `mark_heard` 로 한 번 더 남긴다. box 가 없으면 하지 않는다. 실패는
+  종류만 로그 — 뒤 확인·요약은 이어 간다.
+- `mark_heard(box)`(통화 중 call_run 도 쓴다): 그 등급 묶음에 `mark_do_not_contact` 가 있으면 도구 길(box.call — 번호·사건이 도구와
+  같다), 없으면(모르는 번호·내부 — 문자 문은 등급과 상관없이 표시한다) 짧은 세션에서 번호 기준 저장소에 직접 남기고 사건
+  `tool:mark_do_not_contact` noted 하나(도구를 부른 것이 아니라 코드가 남긴 것). 번호가 없으면(발신번호 없음) 하지 않는다.
 - DB 일은 짧은 세션을 스레드에서. 모델을 부르는 동안 쥔 쓰기가 없다. 로그에는 예외의 종류만.
 """
 
@@ -41,7 +44,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply
 from app.outreach import hours, languages
-from app.outreach.harness import door, review
+from app.outreach.harness import door, events, review
 from app.outreach.harness.tools import Toolbox
 from app.outreach.harness.types import CallerClass, Ref, Scope
 from app.outreach.redact import hide_phones
@@ -64,6 +67,8 @@ SUMMARY_CHARS, RESULT_CHARS = 2000, 300  # 모델 답의 상한 — 넘으면 �
 UNVERIFIED, VERIFIED = "확인 필요", "근거 확인됨"
 NO_RESULT = "결과 확인 필요"  # 모델이 결과를 비워 두었을 때 저장하는 제안
 HEARD_OPT_OUT = "통화 중 상대가 수신 거부를 말함"  # 코드가 들은 수신 거부의 까닭(통화 중·통화 뒤 같은 글)
+MARKED_BY_CODE = "코드가 들은 수신 거부 → 수신 거부로 표시(이 등급 묶음에는 도구가 없음)"  # 직접 남긴 때의 사건 detail
+MARK_TOOL = "mark_do_not_contact"
 SCHEMA = {
     "type": "object",
     "properties": {"summary_ko": {"type": "string"}, "result": {"type": "string"}},
@@ -105,8 +110,29 @@ async def finish(call_id: int, box: Toolbox | None = None) -> None:
 # ── ⓪ 수신 거부 뒤받침 ──────────────────────────────────────────────
 
 
+async def mark_heard(box: Toolbox) -> None:
+    """코드가 들은 수신 거부를 남긴다(모듈 머리 글). 예외를 내지 않는다(취소만 지나간다)."""
+    if MARK_TOOL in box.names:
+        await box.call(MARK_TOOL, {"reason": HEARD_OPT_OUT})  # 도구는 예외를 내지 않는다
+        return
+    try:
+        await asyncio.to_thread(_mark_directly, box)
+    except Exception as exc:  # noqa: BLE001 — 못 남기면 통화 뒤 뒤받침이 다시 본다
+        logger.warning("통화: 수신 거부를 표시하지 못했습니다 (%s)", _kind(exc))
+
+
+def _mark_directly(box: Toolbox) -> None:
+    with _db() as session:
+        number = box.number(session)  # 도구와 같은 번호 — 한 사람이면 그 연락처, 아니면 줄의 peer_number
+        if number is None:
+            return
+        outreach.mark_do_not_contact(session, number, reason=HEARD_OPT_OUT)
+        events.record(session, box.ref, f"tool:{MARK_TOOL}", "noted", MARKED_BY_CODE, now=box.now())
+        session.commit()
+
+
 async def _opt_out_again(call_id: int, box: Toolbox | None) -> None:
-    if box is None or "mark_do_not_contact" not in box.names:
+    if box is None:
         return
     try:
         missed = await asyncio.to_thread(_opt_out_missed, call_id, box)
@@ -114,7 +140,7 @@ async def _opt_out_again(call_id: int, box: Toolbox | None) -> None:
         logger.warning("통화 뒤: 수신 거부를 다시 보지 못했습니다 (%s)", _kind(exc))
         return
     if missed:
-        await box.call("mark_do_not_contact", {"reason": HEARD_OPT_OUT})  # 도구는 예외를 내지 않는다(사건도 도구 길 그대로)
+        await mark_heard(box)
 
 
 def _opt_out_missed(call_id: int, box: Toolbox) -> bool:
