@@ -23,6 +23,8 @@
 - runner.hours — 통화 일꾼의 「걸기 직전 다시 보기」가 늘 근무 중으로 본다(문의 gate.hours 와 따로 — 문은 사람이 넣은 09:00 에 봤다).
 - call.silence — 통화 손잡이의 침묵 확인(SILENCE_S)을 끈다.
 - call.time_limit — 통화 손잡이의 최대 통화 시간(정리 말·끊기)을 끈다.
+- call.opt_out — 통화 중 수신 거부 듣기와 통화 뒤 뒤받침(H1)을 끈다(call_run·after 가 읽는 door.is_stop 만).
+- tools.confirm_first — 거는 통화의 「신원 확인 전에는 그 사람의 자료를 주지 않음」(H1)을 끈다.
 """
 
 import os
@@ -36,7 +38,7 @@ from app.outreach.harness import door, gate, registry, review, tools, toolsets
 from app.outreach.harness.door import Admission
 from app.outreach.harness.types import GATE_RULES, Caller
 from app.outreach.text import responder
-from app.outreach.voice import call_run, runner
+from app.outreach.voice import after, call_run, runner
 from app.store.tables import DelayEvent
 from app.store.tables_outreach import Contact
 
@@ -219,6 +221,18 @@ def _review() -> AbstractContextManager:
 # ── 통화(음성 열 — Task 97) ──────────────────────────────────────────
 
 
+def _call_opt_out() -> AbstractContextManager:
+    """통화 중 수신 거부 듣기(call_run)와 통화 뒤 뒤받침(after) — 같은 겹(H1)의 두 자리만: 그 두 모듈이 읽는 door.is_stop 을 늘 거짓으로
+    (문자의 들어오는 문은 그대로)."""
+    deaf = _Proxy(door, is_stop=lambda *args, **kwargs: False)
+    return _swap((call_run, "door", deaf), (after, "door", deaf))
+
+
+def _confirm_first() -> AbstractContextManager:
+    """거는 통화의 신원 확인 전 거절(tools.IDENTITY_TOOLS)을 끈다 — 확인하지 않아도 확인된 것처럼."""
+    return _swap((tools.Toolbox, "needs_identity", property(lambda self: False)))
+
+
 def _runner_hours() -> AbstractContextManager:
     return _swap((runner, "_working", lambda *args: True))
 
@@ -246,4 +260,5 @@ BREAKS: dict[str, Callable[[], AbstractContextManager]] = {
 # 음성 열에만 있는 지키는 곳(통화 일꾼·통화 손잡이) — BREAKS 와 같은 꼴, 격자는 둘을 함께 찾는다
 VOICE_BREAKS: dict[str, Callable[[], AbstractContextManager]] = {
     "runner.hours": _runner_hours, "call.silence": _call_silence, "call.time_limit": _call_time_limit,
+    "call.opt_out": _call_opt_out, "tools.confirm_first": _confirm_first,
 }

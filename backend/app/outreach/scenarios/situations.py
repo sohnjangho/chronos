@@ -312,6 +312,7 @@ SIM_SAY = ("코드가 control.say 로 시킨 말(침묵 확인·마치는 말·�
            "실제로는 사건과 끊기만 돈다(Task 113)")
 SIM_FELL_BACK = ("「문자로 대신 보냄」은 가짜 상태 조회가 준 fell_back 으로만 선다 — 실제 제공사 클라이언트는 fell_back 을 늘 False 로 "
                  "준다(대신 나간 문자를 알 칸이 없음 — Task 71·provider)")
+# H1(eca6d56) 뒤 격자는 쓰지 않는다 — S-04 통화 칸은 통과한다. 이 글을 읽는 다른 모듈(prove.note_kind)이 깨지지 않게 남긴다.
 DIVERGED_DNC = ("하네스가 갈라짐: 통화에는 수신 거부 말을 코드가 듣는 길이 없다 — 문자는 들어오는 문이 「수신거부」를 보고 표시하지만, "
                 "통화는 모델이 mark_do_not_contact 를 불러야만 표시된다(같은 대본으로는 통과하지 않음)")
 DIVERGED_LANGUAGE = ("하네스가 갈라짐: 언어 제안은 두 길 모두 모델이 준 언어로 코드가 만든다 — 문자는 답의 language 가 꼭 채우는 "
@@ -470,14 +471,18 @@ SITUATIONS: list[Situation] = [
     Situation(
         "S-04", "수신 거부 요청", RUN4, Setup(limits(), probes=("sms:park", "call:park")),
         (Them("수신거부"),),
-        (Check("번호 기준 수신 거부로 표시된다", lambda w: outreach.is_do_not_contact(w.session, w.number("park"))),
+        (Check("번호 기준 수신 거부로 표시된다", lambda w: outreach.is_do_not_contact(w.session, w.number("park")),
+               guarded=VOICE),
+         Check("통화: 상대가 수신 거부를 말하면 코드가 듣고 그 통화의 도구 길로 표시한 뒤 끊는다(모델을 기다리지 않음)",
+               lambda w: (rule("tool:mark_do_not_contact"), "allowed") in [(n, v) for n, v, _ in w.log(w.call(0))]
+               and w.voices[0].ended[0][0] == "agent", VOICE, guarded=VOICE),
          G("그 뒤 문자는 문이 수신 거부로 막는다(차례 blocked_or_dnc)",
                lambda w: w.probe("sms:park") == ("do_not_contact", rule("blocked_or_dnc"))),
          G("그 뒤 전화도 문이 수신 거부로 막는다(차례 blocked_or_dnc)",
                lambda w: w.probe("call:park") == ("do_not_contact", rule("blocked_or_dnc"))),
          Check("글 세션은 열리지 않고 확인 문자는 한 줄(dnc_confirm)",
                lambda w: not w.opened(0) and len(w.out(kind="dnc_confirm")) == 1 and w.replies() == [], TEXT)),
-        ("V-06", "T-05"), GUARDS("gate.block_dnc", "gate.block_dnc"), dict.fromkeys(VOICE, DIVERGED_DNC)),
+        ("V-06", "T-05"), GUARDS("gate.block_dnc", "call.opt_out")),
     Situation(
         "S-05", "금액·계약·다른 협력사 등 범위 밖 물음", RUN4, Setup(limits(), permission="delegate"),
         (Them("계약 금액이 얼마예요? 다른 협력사 단가도 알려주세요"),
@@ -696,13 +701,14 @@ SITUATIONS: list[Situation] = [
          G("통화: 현장을 굳힌 사건(site_pinned)과 그 현장의 그 사람 통화로 · 뒤 확인 깃발 없음",
                lambda w: rule("site_pinned") in w.rules(w.call(0)) and w.call(0).schedule_id == w.schedules["b"]
                and w.call(0).contact_id == w.people["multi_b"] and _no_flags(w, 0), ONLY_CALL_IN),
-         Check("우리가 건 통화: 현장은 그 통화의 현장(가람)으로 이미 정해져 묻지 않는다 — 다른 현장 이름을 대도 그 현장 것만",
-               lambda w: [i["start"] for r in w.results(0) for i in r["items"]] == [w.fact("a", "철근 배근").start.isoformat()] * 2,
-               ONLY_OUT),
-         G("우리가 건 통화: 그 현장에 없는 날짜(다른 현장 것)를 말하면 뒤 확인이 잡는다(unsupported_date)",
+         G("우리가 건 통화: 현장은 그 통화의 현장(가람)으로 이미 정해져 있다 — 다른 현장 이름을 대면 그 현장 자료 대신 고정 안내 "
+           "「이 통화는 가람 현장 건입니다」와 거절 사건(scope_denied) 하나",
+               lambda w: w.results(0) == [{"items": [w.results(0)[0]["items"][0]]}, {"refused": tools.OTHER_SITE.format(site="가람")}]
+               and w.results(0)[0]["items"][0]["start"] == w.fact("a", "철근 배근").start.isoformat()
+               and w.rules(w.call(0)).count(rule("scope_denied")) == 1, ONLY_OUT),
+         Check("우리가 건 통화: 도구가 주지 않은 날짜(다른 현장 것)를 말하면 뒤 확인이 잡는다(unsupported_date)",
                lambda w: _review_held(w, 0, "unsupported_date"), ONLY_OUT)),
-        ("R-06",), GUARDS("tools.scope", None, call_in="tools.scope", call_out="review.check"),
-        {"call_out": "설계와 다름: 우리가 건 통화는 현장이 통화에 정해져 있어 「현장을 먼저 정함」이 없다 — 그 현장 범위로만 답한다"}),
+        ("R-06",), GUARDS("tools.scope", "tools.scope")),
     Situation(
         "S-18", "같은 번호 여러 사람(대표번호)", RUN4, Setup(limits(), peer="shared"),
         (Them("저희 회사 앞으로 온 요청 있어요? 철근 배근은 언제 시작해요?", sender="shared"), Model("my_requests", {}),
@@ -714,13 +720,14 @@ SITUATIONS: list[Situation] = [
          G("통화: 대표번호에서 걸려 온 통화는 개인에게 온 요청을 받지 못한다",
                lambda w: w.call(0).caller_class == "shared" and w.results(0)[0] == {"refused": tools.REFUSED_PERSONAL},
                ONLY_CALL_IN),
-         Check("우리가 건 대표번호 통화: 우리가 고른 그 사람의 범위(outbound) — 그 사람 앞 요청만 돌려준다(이 대본엔 0건)",
-               lambda w: w.call(0).contact_id == w.people["rep_park"] and w.results(0)[0] == {"items": []}, ONLY_OUT),
+         G("우리가 건 대표번호 통화: 여러 사람이 쓰는 번호라 받은 사람이 그 사람인지 확인되지 않았다 — 그 사람의 요청·일정 도구는 "
+           "「먼저 확인」으로 거절(scope_denied 둘)",
+               lambda w: w.results(0) == [{"refused": tools.CONFIRM_FIRST}] * 2
+               and w.rules(w.call(0)).count(rule("scope_denied")) == 2, ONLY_OUT),
          Check("협력사 범위의 작업은 답한다",
-               lambda w: [i["start"] for i in w.results(0)[1]["items"]] == [w.fact("a", "철근 배근").start.isoformat()])),
-        ("R-17",), GUARDS("door.class", None, call_in="door.class"),
-        {"call_out": "설계와 다름: 우리가 건 대표번호 통화는 대표번호 등급(shared)이 아니라 고른 그 사람(outbound)의 범위다 — 받은 "
-                     "사람이 그 사람인지는 confirm_person(모델)에 기댄다. 지키는 곳(무르기) 없음"}),
+               lambda w: [i["start"] for i in w.results(0)[1]["items"]] == [w.fact("a", "철근 배근").start.isoformat()],
+               TEXT | ONLY_CALL_IN)),
+        ("R-17",), GUARDS("door.class", None, call_in="door.class", call_out="tools.confirm_first")),
     Situation(
         "S-19", "수신 거부·차단 번호에서 들어옴", IN_ONLY,
         Setup(limits(), permission="delegate", dnc=("lee",), blocked=("blocked",), probes=("sms:lee",)),

@@ -16,7 +16,6 @@ from app.outreach.scenarios import drive_text, drive_voice, grid
 from app.outreach.scenarios.grid import CELLS, CHANNEL_ONLY, run_case, run_cell
 from app.outreach.scenarios.situations import (
     COLUMNS,
-    DIVERGED_DNC,
     DIVERGED_LANGUAGE,
     DIVERGED_REPEAT,
     SIMULATED_ONLY,
@@ -34,7 +33,7 @@ VOICE = ("call_out", "call_in")
 BY_ID = {s.id: s for s in SITUATIONS}
 VOICE_CELLS = [(s.id, c) for s in SITUATIONS for c in VOICE if s.marks[c] != "none"]
 DIVERGED = {(s.id, c): s.notes[c] for s in SITUATIONS for c in VOICE
-            if s.notes.get(c) in (DIVERGED_DNC, DIVERGED_LANGUAGE, DIVERGED_REPEAT)}
+            if s.notes.get(c) in (DIVERGED_LANGUAGE, DIVERGED_REPEAT)}
 UNGUARDED = {(s.id, c) for s in SITUATIONS for c in VOICE if s.marks[c] != "none" and c not in s.guards}
 
 
@@ -60,8 +59,7 @@ def test_voice_grid_is_the_design_table():
     assert {(sid, c) for (sid, c), mark in CELLS.items() if c in VOICE and mark == "none"} == {
         ("S-14", "call_out"), ("S-15", "call_out"), ("S-16", "call_out"), ("S-19", "call_out"), ("S-20", "call_out"),
         ("S-24", "call_in")}
-    assert sorted(DIVERGED) == [("S-04", "call_in"), ("S-04", "call_out"), ("S-13", "call_in"), ("S-13", "call_out"),
-                                ("S-20", "call_in")]
+    assert sorted(DIVERGED) == [("S-13", "call_in"), ("S-13", "call_out"), ("S-20", "call_in")]  # S-04 는 H1 뒤 통과
 
 
 @pytest.mark.parametrize(("sid", "col"), _cells(broken=False))
@@ -73,11 +71,9 @@ async def test_voice_cell_passes(sid, col):
     assert result.channel == "FakeChannel" and set(result.sessions) <= {"SimulatedVoice"}
 
 
-# 갈라진 칸에서 거짓이 되는 기대 — 꼭 이것들만(검사가 터진 것 없이). 제품이 고쳐지면(예: 통화의 수신 거부 듣기) 이 시험이 깨져 칸을 뒤집게 한다.
-DNC_FALSE = ["번호 기준 수신 거부로 표시된다", "그 뒤 문자는 문이 수신 거부로 막는다(차례 blocked_or_dnc)",
-             "그 뒤 전화도 문이 수신 거부로 막는다(차례 blocked_or_dnc)"]
+# 갈라진 칸에서 거짓이 되는 기대 — 꼭 이것들만(검사가 터진 것 없이). 제품이 고쳐지면 이 시험이 깨져 칸을 뒤집게 한다
+# (S-04 두 칸은 H1 — 통화 중 수신 거부 듣기 — 뒤 뒤집었다).
 DIVERGED_FALSE = {
-    ("S-04", "call_out"): DNC_FALSE, ("S-04", "call_in"): DNC_FALSE,
     ("S-13", "call_out"): ["언어는 제안 한 줄(language, pending)로만"],
     ("S-13", "call_in"): ["언어는 제안 한 줄(language, pending)로만"],
     ("S-20", "call_in"): ["통화: 같은 번호가 짧은 시간에 거듭 걸면 문턱(5분에 3) 뒤부터 받지 않는다(burst_limit)"],
@@ -127,19 +123,25 @@ def test_every_voice_cell_names_a_guard_or_says_why_not():
     for sid, col in VOICE_CELLS:
         guard, note = BY_ID[sid].guards.get(col), BY_ID[sid].notes.get(col, "")
         assert guard in {**BREAKS, **VOICE_BREAKS} or note.startswith(("공통 겹만", "설계와 다름")), (sid, col)
-    assert set(VOICE_BREAKS) == {"runner.hours", "call.silence", "call.time_limit"} and not set(VOICE_BREAKS) & set(BREAKS)
+    assert set(VOICE_BREAKS) == {"runner.hours", "call.silence", "call.time_limit", "call.opt_out", "tools.confirm_first"}
+    assert not set(VOICE_BREAKS) & set(BREAKS)
 
 
-@pytest.mark.parametrize("name", ["runner.hours", "call.silence", "call.time_limit"])
+@pytest.mark.parametrize("name", ["runner.hours", "call.silence", "call.time_limit", "call.opt_out", "tools.confirm_first"])
 def test_voice_break_restores_its_spot_even_after_an_error(name):
+    from app.outreach.harness import tools
     from app.outreach.scenarios.breaks import VOICE_BREAKS
     from app.outreach.voice import call_run, runner
 
-    before = (runner._working, call_run.SILENCE_S, call_run.CallRun.on_tick)
+    def spots():
+        return (runner._working, call_run.SILENCE_S, call_run.CallRun.on_tick, call_run.door, after.door,
+                tools.Toolbox.__dict__["needs_identity"])
+
+    before = spots()
     with pytest.raises(RuntimeError, match="일부러"), VOICE_BREAKS[name]():
-        assert (runner._working, call_run.SILENCE_S, call_run.CallRun.on_tick) != before
+        assert spots() != before
         raise RuntimeError("일부러 터뜨림")
-    assert (runner._working, call_run.SILENCE_S, call_run.CallRun.on_tick) == before
+    assert spots() == before
 
 
 # ── 같은 대본 ─────────────────────────────────────────────────────────
@@ -176,8 +178,9 @@ async def test_same_events_shape_across_columns():
     for column in COLUMNS:
         result = await run_cell("S-07", column)
         assert result.passed, (column, _failing(result))
-        shapes[column] = sorted((e["rule"], e["verdict"]) for e in result.events
-                                if e["rule"] == "scope_denied" or e["rule"].startswith("tool"))
+        shapes[column] = sorted((e["rule"], e["verdict"]) for e in result.events  # 거는 통화의 신원 확인 걸음(구동기)은 뺀다
+                                if (e["rule"] == "scope_denied" or e["rule"].startswith("tool"))
+                                and e["rule"] != "tool:" + drive_voice.CONFIRM_TOOL)
     assert all(shape == [("scope_denied", "blocked")] * 3 for shape in shapes.values()), shapes
 
 
@@ -238,8 +241,8 @@ async def test_run_all_covers_four_columns(monkeypatch):
 @pytest.mark.parametrize(("sid", "col", "start"), [
     ("S-10", "call_out", "공통 겹만"), ("S-11", "call_in", "공통 겹만"), ("S-12", "call_out", "공통 겹만"),
     ("S-23", "call_in", "공통 겹만"), ("S-24", "call_out", "공통 겹만"), ("S-01", "call_in", "설계와 다름"),
-    ("S-17", "call_out", "설계와 다름"), ("S-18", "call_out", "설계와 다름"),
-    ("S-04", "call_in", "하네스가 갈라짐")])
+
+    ("S-13", "call_in", "하네스가 갈라짐")])
 async def test_voice_grid_shows_honest_notes(sid, col, start):
     note = (await run_cell(sid, col)).note
     assert note is not None and note.startswith(start)

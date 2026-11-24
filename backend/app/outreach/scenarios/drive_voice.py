@@ -4,6 +4,11 @@
 대본 → 가짜 통화(SimulatedVoice) 걸음:
 - Them → 상대 말 `Say("peer", 글)` · Model → `Tool(이름, 인자)` · ModelSays → 모델 말 `Say("agent", 글)` · Wait → `Silence(초)`
   (통화 밖이면 시계만 민다) · 통화의 끝은 상대가 끊음(`Hangup("peer")`).
+- **거는 통화의 신원 확인 걸음**: 우리가 건 통화에서 대본의 모델 걸음이 그 사람의 자료를 주는 도구(tools.IDENTITY_TOOLS)를
+  처음 부르기 바로 앞에, 상대가 먼저 말한 뒤이므로 `confirm_person(is_person=True)` 한 걸음을 끼운다 — 그 번호가 **한 사람**의 것일
+  때만(문의 등급표 door.resolve 가 대표번호 shared 로 보는 번호는 받은 사람이 누구인지 대본이 말하지 않으므로 확인하지 않는다 — 여러
+  현장에 걸친 한 사람 contact_multi 는 확인한다). 글 구동기에는 없는 걸음이고,
+  그 결과는 어느 Them 의 도구 결과에도 넣지 않는다.
 - 통화 한 통은 **같은 번호의 이어진 말**이다: 다른 이름표(sender)의 Them 은 그 번호에서 걸려 온 새 통화, Permit(권한 바꿈 — 사람이
   설정에서 한다)은 지금 통화를 마치고 다음 통화부터 듣는다. 통화 사이는 GAP_S 초.
 - call_out: 상대(Setup.peer)와의 첫 통화는 사람이 거는 통화 — 그날 09:00 에 사람이 문에 넣고(`gate.dispatch("call")` — 통로는
@@ -31,7 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.llm.client import LlmReply, Usage
-from app.outreach.harness import gate, registry
+from app.outreach.harness import door, gate, registry, tools
 from app.outreach.harness.types import Actor, Outcome
 from app.outreach.scenarios.drive_text import (
     ADMIN,
@@ -86,6 +91,7 @@ from app.store.tables_outreach import (
 )
 
 VOICE_COLUMNS: tuple[Column, ...] = ("call_out", "call_in")
+CONFIRM_TOOL = "confirm_person"  # 거는 통화의 신원 확인 걸음(구동기가 끼움)
 STEP_S = 2  # 통화 속 말 사이(초) — 침묵 확인(call_run.SILENCE_S)보다 짧게
 SETTLE_ROUNDS, SETTLE_WAIT_S = 20, 5.0  # 받는 통화의 뒤 일(통화 끝·뒤 확인·요약·회신 문자)을 기다리는 끝
 SUMMARY = {"summary_ko": "대본 통화를 요약했습니다.", "result": "대본 결과"}  # 가짜 요약 모델의 답
@@ -126,12 +132,17 @@ class _Leg:
     hears: list[int] = field(default_factory=list)  # 이 통화에 든 Them 의 차례
     clock: float = 0.0
     missed: object | None = None  # 받지 않은 통화의 걸음(Setup.channel_results) — None 이면 받는다
+    identity_at: int | None = None  # 그 사람의 자료를 주는 도구를 처음 부르는 걸음의 자리(거는 통화)
+    confirm: bool = False  # 그 자리 앞에 신원 확인 걸음을 끼운다(거는 통화 · 한 사람의 번호)
     sim: SimulatedVoice | None = None
     row_id: int | None = None  # 통화 줄(거는 통화는 만든 줄, 받는 통화는 그 벨의 줄)
 
     def script(self, at: datetime) -> list:
         """이 통화의 가짜 대본 — 받는 통화는 그 시각의 벨로 시작한다."""
-        talk = [self.missed] if self.missed is not None else [*self.steps, Hangup("peer")]
+        steps = list(self.steps)
+        if self.confirm and self.identity_at is not None:
+            steps.insert(self.identity_at, Tool(CONFIRM_TOOL, {"is_person": True}))
+        talk = [self.missed] if self.missed is not None else [*steps, Hangup("peer")]
         return talk if self.outbound else [Ring(NUMBERS[self.sender] or None, at=at), *talk]
 
 
@@ -190,6 +201,8 @@ class _Run:
             elif isinstance(turn, Model):
                 if current is None:
                     raise ValueError("모델 걸음은 Them 뒤에만 옵니다")
+                if current.outbound and current.identity_at is None and turn.tool in tools.IDENTITY_TOOLS:
+                    current.identity_at = len(current.steps)
                 current.steps.append(Tool(turn.tool, dict(turn.args)))
                 current.tools_of.append(len(self.heard) - 1)
             elif isinstance(turn, ModelSays):
@@ -237,6 +250,8 @@ class _Run:
                     session.add(row)
                     session.flush()
                     leg.row_id = row.id
+                    # 받은 사람을 확인하는 것은 한 사람의 번호일 때만 — 문의 등급표가 대표번호(shared, 여러 사람)로 보면 하지 않는다
+                    leg.confirm = door.resolve(session, person.phone, now=self.asked_at).caller_class != "shared"
             session.commit()
         for leg in self.legs:
             if leg.row_id is not None:
@@ -275,7 +290,12 @@ class _Run:
         for them in leg.hears:
             self.heard[them].seen_instructions.append(record.spec.instructions)
             self.heard[them].seen_tools.append(tuple(tool.name for tool in record.spec.tools))
-        for them, result in zip(leg.tools_of, record.tool_results, strict=False):
+        results = list(record.tool_results)
+        if leg.confirm and leg.identity_at is not None:  # 구동기가 끼운 신원 확인 걸음의 결과는 어느 Them 의 것도 아니다
+            inserted = next((i for i, r in enumerate(results) if r.name == CONFIRM_TOOL), None)
+            if inserted is not None:
+                del results[inserted]
+        for them, result in zip(leg.tools_of, results, strict=False):
             self.heard[them].tool_results.append(result.result)
 
     async def permit(self, turn: Permit) -> None:
