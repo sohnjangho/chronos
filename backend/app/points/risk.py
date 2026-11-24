@@ -5,7 +5,7 @@
 - 날씨 = 기상청(info.weather 안의 조회 함수): ES 가 오늘부터 3일 안이면 단기예보, 뒤면 ES 달의 지난 n년 통계.
   프로젝트 주소(프로젝트 관리)가 없거나 기상청 지점을 모르면 skipped. 자재·환율 = Liner Search `include_knowledge: true`
   (Premium Data — The World Bank 월별 금속, Xignite 환율). 업체 = Liner MCP `search_business` 첫 줄을 자재·공종 낱말
-  (「알루미늄 커튼월 공급 동향」 — 공종은 TRADES 에서만, 금속은 TRADE_METAL 로 맞을 때만)으로 찾는다 — 회사·사람 이름은 질의에 넣지 않는다(씨앗 협력사는 가상이라 비슷한 이름의 실제 회사
+  (「알루미늄 커튼월 공급 동향」 — 공종은 TRADES 에서만, 금속은 TRADE_METAL 로 맞을 때만)으로 찾고 6개월 안의 글만 쓴다 — 회사·사람 이름은 질의에 넣지 않는다(씨앗 협력사는 가상이라 비슷한 이름의 실제 회사
   소식이 붙는다. 실제 회사라는 표시가 연락처에 생기기 전까지는 이름을 쓰지 않는다).
 - 숫자는 받은 표에서 코드가 읽고 계산한다. 없거나 숫자가 아니면 status none 「… · 바깥 자료 없음」(숫자 없음).
 - 결과는 근거 표에 출처와 함께 남긴다(날씨 mode weather, 나머지 mode knowledge, 대화 없음). 같은 질의를
@@ -67,6 +67,9 @@ TRADES = ("커튼월", "창호", "외장 패널", "철골", "철근", "골조", 
           "승강기", "도장", "조립", "가공", "부품", "금형", "포장", "용접", "사출", "도금", "주조")
 TRADE_METAL = {"커튼월": "aluminum", "창호": "aluminum", "외장 패널": "aluminum", "철골": "iron ore", "철근": "iron ore",
                "전기": "copper", "배관": "copper"}  # 공종 → 질의 앞에 붙일 금속(LLM 이 그 금속을 골랐을 때만)
+BUSINESS_RESULTS = 5
+BUSINESS_RECENT_DAYS = 183  # 업체 갈래는 6개월 안의 글만
+BLOG_HOSTS = ("tistory.com", "brunch.co.kr", "velog.io", "medium.com", "post.naver.com", "egloos.com", "wordpress.com")
 _COMPANY_MARKS = re.compile(r"\(주\)|㈜|주식회사|\s+")
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _PAIR = re.compile(r"\(([A-Z]{3})\)\s*to\s.*\(([A-Z]{3})\)")
@@ -310,17 +313,44 @@ async def _fx(session: Session) -> _Found:
     return _Found(f"{FX_LABEL} · {NO_DATA}")
 
 
-async def _business(session: Session, label: str) -> _Found:
-    """label = 자재·공종 낱말(회사 이름 없음). 줄은 「{label} · {출처 제목} · {호스트}」 — 회사 이름은 출처 제목에 있을 때만."""
+def _published(value: str | None) -> date | None:
+    """결과의 date 칸(「2026-11-20」·「2026-11-20T…」·「2026.11.20」) → 날짜. 읽지 못하면 None."""
+    if not value:
+        return None
     try:
-        result = await mcp_client.field_search(session, label, "business", max_results=3)
+        return date.fromisoformat(value.strip()[:10].replace(".", "-"))
+    except ValueError:
+        return None
+
+
+def _host_rank(host: str) -> int:
+    """간단한 호스트 규칙: 공공·기관(.go.kr·.or.kr·.gov·.org)·뉴스(호스트에 news) 0, 블로그·카페·글 모음 2, 그 밖 1."""
+    host = host.lower()
+    if host.endswith((".go.kr", ".or.kr", ".gov", ".org")) or "news" in host:
+        return 0
+    if "blog" in host or "cafe." in host or host.endswith(BLOG_HOSTS):
+        return 2
+    return 1
+
+
+async def _business(session: Session, label: str) -> _Found:
+    """label = 자재·공종 낱말(회사 이름 없음). 줄은 「{label} · {출처 제목} · {호스트}」 — 회사 이름은 출처 제목에 있을 때만.
+
+    결과 가운데 날짜가 있고 오늘부터 BUSINESS_RECENT_DAYS 안인 것만 쓴다(날짜 없음·오래된 글은 버림). 여럿이면 _host_rank 가
+    낮은 것(뉴스·기관 먼저, 블로그 나중), 같으면 받은 차례. 남는 것이 없으면 none.
+    """
+    try:
+        result = await mcp_client.field_search(session, label, "business", max_results=BUSINESS_RESULTS)
     except SearchNotReady:
         raise _NotSent from None
     except SearchFailed as e:
         raise _Failed(e.code) from None
-    if not result.hits:
+    today = weather._now().date()
+    fresh = [h for h in result.hits
+             if (d := _published(h.date)) is not None and 0 <= (today - d).days <= BUSINESS_RECENT_DAYS]
+    if not fresh:
         return _Found(f"{label} · {NO_DATA}")
-    first = result.hits[0]
+    first = min(fresh, key=lambda h: _host_rank(h.hostname))  # min 은 같은 값이면 앞의 것
     return _Found(f"{label} · {first.title} · {first.hostname}", first.date, first.hostname, first)
 
 

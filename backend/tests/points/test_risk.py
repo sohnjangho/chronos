@@ -354,6 +354,36 @@ async def test_business_first_result_line(session, fakes):
     assert call["name"] == "search_business" and call["arguments"]["query"] == "골조 공급 동향"
 
 
+def _news(title: str, host: str, when: str | None) -> dict:
+    row = hit(title, f"https://{host}/a", hostname=host, date=when)
+    if when is None:
+        row.pop("date")
+    return row
+
+
+@pytest.mark.parametrize("rows,want", [
+    ([_news("커튼월 공급 지연", "blog.naver.com", "2024-03-02")], None),  # 오래된 블로그 글
+    ([_news("커튼월 공급 지연", "news.example.com", "2026-05-01")], None),  # 6개월(183일) 넘음
+    ([_news("커튼월 공급 지연", "news.example.com", None), _news("날짜 틀림", "news.example.com", "어제")], None),
+    ([_news("블로그 글", "example.tistory.com", "2026-11-01"), _news("뉴스", "www.constnews.example.kr", "2026-10-01")],
+     "뉴스"),  # 여럿이면 뉴스 먼저
+    ([_news("옛 뉴스", "news.example.com", "2025-01-01"), _news("새 블로그", "blog.example.com", "2026-11-20")],
+     "새 블로그"),  # 6개월 안의 것이 블로그뿐이면 그것
+    ([_news("기관 알림", "www.kosis.or.kr", "2026.11.02"), _news("일반", "www.example.com", "2026-11-10T08:00:00Z")],
+     "기관 알림"),
+])
+async def test_business_uses_recent_results_news_first(session, fakes, rows, want):
+    fakes.mcp.rows = rows
+    sid = _schedule(session)
+    fakes.classify({**NOTHING, "trade": "골조"})
+    [r] = await risk.look(session, sid, 1, [SOON])
+    if want is None:
+        assert (r.status, r.line, r.evidence_id) == ("none", f"골조 공급 동향 · {NO_DATA}", None)
+    else:
+        assert r.status == "ok" and r.line.split(" · ")[1] == want
+    assert fakes.mcp.bodies("tools/call")[0]["params"]["arguments"]["limit"] == 5
+
+
 async def test_business_no_result_is_none(session, fakes):
     fakes.mcp.call = {"result": {"content": [{"type": "text", "text": json.dumps({"results": [], "totalCount": 0})}],
                                  "isError": False}}
