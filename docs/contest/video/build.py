@@ -27,14 +27,15 @@ STYLE = os.environ.get('TTS_STYLE', '')
 # ── 장면 ─────────────────────────────────────────────────────────────
 # lines: (자막, 읽을 글). pieces: (파일, 시작, 끝, 몫). cards: 그림 장면.
 S = [
-  dict(id='S00', chip='', cards=['c-3days'], lines=[
-    ('일정은 매 순간 바뀝니다.', '일정은 매 순간 바뀝니다.'),
-    ('같은 3일 지연이라도, 어디가 늦었느냐에 따라 약속이 지켜지기도 하고 늦어지기도 합니다.',
-     '같은 삼 일 지연이라도, 어디가 늦었느냐에 따라 약속이 지켜지기도 하고, 늦어지기도 합니다.')]),
-  dict(id='S01', min=16, chip='현장에서 겪은 장면', cards=['c-cut1', 'c-cut2', 'c-cut3', 'c-cut4'], lines=[
+  # 첫 15초(PM 11-25): 실사 영상 4컷 → 「5일을 당겼다. 준공은 하루.」 → 1/5 카드 → 제목
+  # 실사 영상이 오면 OPEN_VIDEOS 에 파일을 넣는다. 없으면 실사 사진을 천천히 당겨 보인다.
+  dict(id='O1', min=9, chip='', kb=True, cards=['c-cut1', 'c-cut2', 'c-cut3', 'c-cut4'], lines=[
     ('골조가 크리티컬이었습니다. 야간 작업을 넣어 5일을 당겼습니다.', '골조가 크리티컬이었습니다. 야간 작업을 넣어 오 일을 당겼습니다.'),
-    ('그런데 그사이 커튼월 공장 제작이 늦어져 있었습니다.', '그런데 그사이, 커튼월 공장 제작이 늦어져 있었습니다.'),
+    ('그런데 그사이 커튼월 공장 제작이 늦어져 있었습니다.', '그런데 그사이, 커튼월 공장 제작이 늦어져 있었습니다.')]),
+  dict(id='O2', min=4.5, chip='', cards=['c-hook'], lines=[
     ('준공은 하루 당겨졌습니다. 현장에서 가장 자주 본 실패입니다.', '준공은 하루 당겨졌습니다. 현장에서, 가장 자주 본 실패입니다.')]),
+  dict(id='O3', min=4.5, chip='', kb=True, cards=['c-cold'], nosub=True, lines=[
+    ('지금이라면, 당기기 전에 압니다.', '지금이라면, 당기기 전에 압니다.')]),
   dict(id='S02', chip='', cards=['c-title'], lines=[
     ('ChronOS. 일정이 바뀔 때마다, 약속한 날짜를 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트입니다.',
      '크로노스. 일정이 바뀔 때마다, 약속한 날짜를 좌우하는 일이 어디로 옮겨 갔는지, 먼저 알려 주는 에이전트입니다.')]),
@@ -111,6 +112,10 @@ if os.environ.get('CHRONOS_SUBMISSION') == '1' and _SUBMAP.exists():
         _seg['lines'] = _new
 
 
+# 실사 영상 4컷(개발 세션이 Liner Videos API 로 만듦). 없으면 사진으로 대신한다.
+OPEN_VIDEOS = []  # 예: ['../../chronos/docs/contest/assets/realvideo/cut1.mp4', …] (REC 기준 경로)
+
+
 # ── 그림 (카드·자막) ─────────────────────────────────────────────────
 BASE_CSS = """*{box-sizing:border-box}html,body{margin:0;width:1920px;height:1080px;font-family:"Apple SD Gothic Neo","Pretendard",sans-serif}"""
 DARK_BG = "background:radial-gradient(120% 70% at 50% 110%,#0b2a5e 0%,rgba(11,42,94,0) 60%),radial-gradient(80% 50% at 85% 0%,#1e1b4b 0%,rgba(30,27,75,0) 60%),#05070d;color:#e2e8f0"
@@ -143,6 +148,18 @@ def card_html(cid):
 .nar{{position:absolute;background:#fbbf24;color:#1c1917;font-size:44px;font-weight:800;padding:20px 32px;border-radius:6px;box-shadow:0 14px 40px rgba(0,0,0,.45)}}
 .no{{position:absolute;left:60px;bottom:60px;width:72px;height:72px;border-radius:50%;background:#fbbf24;color:#05070d;font:800 40px/72px sans-serif;text-align:center}}</style></head>
 <body>{bub}<div class="no">{n}</div><div style="position:absolute;right:40px;bottom:28px;font-size:20px;color:rgba(255,255,255,.75)">연출 이미지 · Liner Images API</div></body></html>"""
+    if cid == 'c-hook':
+        return f"""<html><head><style>{BASE_CSS}body{{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}}</style></head><body>
+<div style="font-size:120px;font-weight:800;color:#fff;letter-spacing:-.03em;line-height:1.2">5일을 당겼다.</div>
+<div style="font-size:150px;font-weight:800;color:#fbbf24;letter-spacing:-.03em;line-height:1.2;margin-top:10px">준공은 하루.</div></body></html>"""
+    if cid == 'c-cold':
+        return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};position:relative}}</style></head><body>
+<div style="position:absolute;left:150px;top:120px;background:#fff;color:#0f172a;font-size:46px;font-weight:800;padding:22px 36px;border-radius:30px">옥탑 골조를 5일 당기면?</div>
+<img src="{img('v-pullcard.png')}" style="position:absolute;left:150px;top:260px;width:1130px;border-radius:18px;border:3px solid #fbbf24">
+<div style="position:absolute;right:150px;top:300px;text-align:right">
+  <div style="font-size:330px;font-weight:800;line-height:.85;color:#fbbf24;letter-spacing:-.05em">1<span style="font-size:160px;color:#64748b">/5</span></div>
+  <div style="font-size:40px;color:#e2e8f0;margin-top:30px;line-height:1.4">당긴 5일 중<br>준공에 반영되는 날</div></div>
+<div style="position:absolute;left:0;right:0;bottom:70px;text-align:center;font-size:54px;font-weight:800;color:#fff">지금이라면, <span style="color:#7dd3fc">당기기 전에 안다.</span></div></body></html>"""
     if cid == 'c-title':
         return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};padding:150px 170px;position:relative}}</style></head><body>
 <div style="display:inline-block;font:700 24px Menlo;letter-spacing:.12em;color:#7dd3fc;border:2px solid rgba(125,211,252,.5);border-radius:999px;padding:8px 22px">LINER .EXE-THON 2026</div>
@@ -336,7 +353,7 @@ def build(seg):
     jobs = []
     if lines:
         for k, (sub, _) in enumerate(lines):
-            jobs.append({'html': overlay_html(seg['chip'], sub, dark_bg=dark), 'out': str(WORK / f'{sid}-o{k}.png'), 'transparent': True})
+            jobs.append({'html': overlay_html(seg['chip'], None if seg.get('nosub') else sub, dark_bg=dark), 'out': str(WORK / f'{sid}-o{k}.png'), 'transparent': True})
     else:
         jobs.append({'html': overlay_html(seg['chip'], None, note=seg.get('note')), 'out': str(WORK / f'{sid}-o0.png'), 'transparent': True})
     for cid in seg.get('cards', []):
@@ -346,9 +363,20 @@ def build(seg):
     inputs, fc, vlabels = [], [], []
     if seg.get('cards'):
         cs = seg['cards']; each = T / len(cs)
+        vids = OPEN_VIDEOS if sid == 'O1' and OPEN_VIDEOS and all((REC / v).exists() for v in OPEN_VIDEOS) else None
         for k, cid in enumerate(cs):
-            inputs += ['-loop', '1', '-t', f'{each:.3f}', '-i', WORK / f'{cid}.png']
-            fc.append(f'[{k}:v]scale=1920:1080,fps={FPS},format=yuv420p,setsar=1[v{k}]')
+            if vids:  # 실사 영상: 앞부분을 칸 길이만큼, 화면을 채우게
+                inputs += ['-i', REC / vids[k]]
+                fc.append(f'[{k}:v]trim=0:{each:.3f},setpts=PTS-STARTPTS,fps={FPS},scale=1920:1080:force_original_aspect_ratio=increase,'
+                          f'crop=1920:1080,format=yuv420p,setsar=1,tpad=stop_mode=clone:stop_duration=2,trim=duration={each:.3f}[v{k}]')
+            elif seg.get('kb'):  # 사진을 천천히 당겨 보인다
+                nf = int(each * FPS) + 1
+                inputs += ['-loop', '1', '-framerate', str(FPS), '-t', f'{each:.3f}', '-i', WORK / f'{cid}.png']
+                fc.append(f"[{k}:v]scale=2304:1296,zoompan=z='1+0.06*on/{nf}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps={FPS},"
+                          f'format=yuv420p,setsar=1,trim=duration={each:.3f}[v{k}]')
+            else:
+                inputs += ['-loop', '1', '-t', f'{each:.3f}', '-i', WORK / f'{cid}.png']
+                fc.append(f'[{k}:v]scale=1920:1080,fps={FPS},format=yuv420p,setsar=1[v{k}]')
             vlabels.append(f'[v{k}]')
     else:
         tw = sum(p[3] for p in seg['pieces'])
