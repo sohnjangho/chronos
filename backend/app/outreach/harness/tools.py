@@ -177,18 +177,20 @@ def _site_core(name: str) -> str:
 
 
 def _names_other_site(said: str, here: str, others: Iterable[str]) -> bool:
-    """상대가 말한 것이 이 통화의 현장이 아닌 **다른 실제 현장**인가. 꼬리 뺀 이름이 서로 들어 있으면 그 현장을 말한 것으로 본다.
-    다른 현장과 꼭 같으면 다른 현장, 이 현장과 꼭 같거나 이 현장에 걸리면 이 현장. 한 글자 이하는 아무 현장도 아니다."""
-    want = _site_core(said)
-    if len(want) < 2 or want == _site_core(here):
+    """상대가 말한 것이 이 통화의 현장이 아닌 **다른 실제 현장**인가(꼬리 뺀 이름으로 견준다, 두 글자 이상만 이름으로 본다).
+    1 이 현장 이름과 꼭 같으면 이 현장 · 2 이 현장 이름을 품은 더 긴 다른 현장 이름(「가람 2단지」 ⊃ 「가람」)이 들어 있으면 그 현장 ·
+    3 이 현장 이름을 뺀 나머지에 다른 현장 이름이 들어 있으면(「나래 가람」 — 둘 다 말함) 안전하게 다른 현장 · 4 말한 것이 이 현장에
+    걸리지 않고 다른 현장 이름 안에 들면(「나래」 → 「나래 아파트」) 다른 현장. 그 밖(「우리 현장」「B동」「3층」)은 이 현장."""
+    want, core = _site_core(said), _site_core(here)
+    if len(want) < 2 or want == core:
         return False
-
-    def hit(name: str) -> bool:
-        core = _site_core(name)
-        return len(core) >= 2 and (core in want or want in core)
-
-    cores = [_site_core(name) for name in others]
-    return want in cores or (not hit(here) and any(hit(name) for name in others))
+    names = [name for name in (_site_core(other) for other in others) if len(name) >= 2 and name != core]
+    if any(core in name and name in want for name in names):
+        return True
+    rest = want.replace(core, " ") if len(core) >= 2 else want
+    if any(name in rest for name in names):
+        return True
+    return not (core in want or want in core) and any(want in name for name in names)
 
 
 def _site_label(name: str) -> str:

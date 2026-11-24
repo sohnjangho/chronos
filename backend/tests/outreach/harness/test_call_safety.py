@@ -7,6 +7,8 @@
 번호·이름·회사는 모두 가상이다(test_tools 의 도우미).
 """
 
+from datetime import date
+
 import pytest
 from sqlalchemy import select
 
@@ -19,10 +21,12 @@ from tests.outreach.harness.test_tools import (
     SITE_B,
     WORK,
     connect,
+    firm,
     inbound,
     log,
     message,
     outbound,
+    project,
     trail,
     who,
     world,
@@ -243,3 +247,88 @@ async def test_find_contact_before_identity_lists_nobody_but_still_redirects(ses
     assert [f.contact_id for f in follow] == [kim.id]
     assert [item["name"] for item in after["items"]] == ["김철근"]
     assert "김철근" not in str(listed) + str(sent)
+
+
+# ── 고침 2: 거부 말은 문장 전체 · 때·남 얘기는 빼고 ─────────────────────────
+
+
+@pytest.mark.parametrize("text", [
+    "소장님한테 전화하지 마세요", "현장에 전화 주지 마세요", "지금은 전화하지 마세요", "오늘은 연락하지 마세요",
+    "지금 운전 중이니 전화하지 마세요", "연락 주지 마세요. 지금 운전 중이라", "당분간 문자하지 마세요", "이따 전화하지 마세요",
+    "내일은 연락 주지 마세요", "아직 전화하지 마세요", "잠깐 전화하지 마세요", "김반장에게 문자하지 마세요",
+])
+def test_temporary_or_third_party_requests_are_not_opt_out(text):
+    assert not door.is_stop(text) and not door.is_stop(text, single_words=False)
+
+
+@pytest.mark.parametrize("text", [
+    "전화하지 마세요", "앞으로 연락하지 마세요", "다시는 전화 주지 마세요", "이제 연락하지 말아 주세요", "저한테 전화하지 마세요",
+    "제게 문자하지 마십시오", "이 번호로 전화하지 마세요", "더 이상 연락하지 마세요", "이제 더는 전화하지 마세요",
+    "앞으로 저한테 다시는 연락하지 마세요",
+])
+def test_whole_sentence_opt_out_phrases(text):
+    assert door.is_stop(text) and door.is_stop(text, single_words=False)
+
+
+def test_text_door_keeps_the_explicit_forms(session):
+    world(session)
+    connect(session)
+    for body in ("수신거부", "수신 거부 해 주세요", "수신거부요", "앞으로 연락하지 마세요"):
+        assert door.admit(session, "sms", PHONE, now=WORK, body=body).verdict == "stop", body
+    assert door.admit(session, "sms", PHONE, now=WORK, body="지금은 전화하지 마세요").verdict != "stop"
+
+
+# ── 고침 2: 겹치는 현장 이름 ─────────────────────────────────────────────
+
+
+def _block_two(session):
+    """가람 현장과 이름이 겹치는 실제 현장 「가람 2단지」(사람 한 명)."""
+    sid = project(session, "가람 2단지", "표식-이", date(2029, 1, 1))
+    return sid, who(session, firm(session, sid, "이단지철근", "철근"), "정이단", "01000000111")
+
+
+@pytest.mark.parametrize("site", ["가람 2단지 B동", "가람2단지 현장 3층", "가람 2단지", "나래 가람", "가람 나래 현장"])
+async def test_more_specific_or_mixed_site_is_refused_and_report_kept(session, site):
+    w = world(session)
+    connect(session)
+    _block_two(session)
+    box, _ = outbound(session, w.park)
+    await box.call("confirm_person", {"is_person": True})
+
+    fact = await box.call("schedule_fact", {"activity": "철근 배근", "site": site})
+    await box.call("report_from_contact", {"kind": "delay", "text": "하루 늦어요", "quote": "하루 늦어요", "site": site})
+
+    assert fact == {"refused": OTHER}, site
+    session.expire_all()
+    assert [x.schedule_id for x in session.scalars(select(ContactReport))] == [None]
+
+
+@pytest.mark.parametrize("site", ["가람", "가람 현장 B동", "가람 아파트 3층"])
+async def test_this_site_still_answers_next_to_a_longer_name(session, site):
+    w = world(session)
+    connect(session)
+    _block_two(session)
+    box, _ = outbound(session, w.park)
+    await box.call("confirm_person", {"is_person": True})
+
+    fact = await box.call("schedule_fact", {"activity": "철근 배근", "site": site})
+
+    assert [item["name"] for item in fact["items"]] == [f"{MARK_A} 철근 배근"], site
+
+
+@pytest.mark.parametrize(("site", "answered"), [("가람 2단지 B동", True), ("2단지 3층", True), ("가람 2단지", True),
+                                                ("가람", False), ("가람 현장", False), ("나래", False)])
+async def test_reverse_direction_on_the_longer_site(session, site, answered):
+    """「가람 2단지」 통화에서는 그 이름 안의 「가람」이 다른 현장이 아니다 — 「가람」만 말하면 다른 실제 현장."""
+    world(session)
+    connect(session)
+    _, jung = _block_two(session)
+    box, _ = outbound(session, jung)
+    await box.call("confirm_person", {"is_person": True})
+
+    fact = await box.call("schedule_fact", {"activity": "철근 배근", "site": site})
+
+    if answered:
+        assert [item["name"] for item in fact["items"]] == ["표식-이 철근 배근"], site
+    else:
+        assert fact == {"refused": "이 통화는 가람 2단지 현장 건입니다"}, site
