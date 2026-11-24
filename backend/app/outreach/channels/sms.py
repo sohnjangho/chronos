@@ -68,9 +68,12 @@ def _prepare(row_id: int) -> Delivered | tuple[provider.Provider, provider.Messa
         with contextmanager(get_session)() as session:
             row = session.get(OutreachMessage, row_id)
             if (row is None or row.direction != "out" or row.status != "sending" or row.channel != "sms"
-                    or sms_text.problem(row.body) is not None):  # 문의 앞 확인과 같은 검사(비었거나 실을 수 없는 글)
+                    or not row.body.strip()):
                 return Delivered("failed", fail_code=NOT_SENDABLE)
             contact = session.get(Contact, row.contact_id) if row.contact_id is not None else None
+            language = contact.language if contact is not None else None
+            if sms_text.problem(row.body, language) is not None:  # 문의 앞 확인과 같은 검사(비었거나 실을 수 없는 글)
+                return Delivered("failed", fail_code=NOT_SENDABLE)
             stored = contact.phone if contact is not None else row.peer_number
             number = phone.normalize(stored)
             if (number is None or stored != number or (row.contact_id is not None and contact is None)
@@ -79,7 +82,7 @@ def _prepare(row_id: int) -> Delivered | tuple[provider.Provider, provider.Messa
             conn = outreach.connection(session)
             if conn is None or not conn.sender_number:
                 return Delivered("failed", fail_code="bad_sender")
-            row.body = sms_text.sms_safe(row.body)  # 줄에는 실제로 나가는 글을 남긴다
+            row.body = sms_text.sms_safe(row.body, language)  # 줄에는 실제로 나가는 글을 남긴다(베트남어 상대는 성조 없이)
             request = provider.MessageRequest(channel="sms", to=number, sender=conn.sender_number, body=row.body,
                                               idempotency_key=row.idempotency_key)
             client = provider.client_for(conn)

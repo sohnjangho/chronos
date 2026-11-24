@@ -252,6 +252,15 @@ def test_letters_that_cannot_be_carried_are_kept_and_refused_not_dropped(text, k
     assert sms_text.problem("가" * 1000) is None and sms_text.byte_size("가" * 1000) == 2000
 
 
+def test_vietnamese_contact_text_goes_without_tone_marks():
+    text = "Xin ch\u00e0o anh, ng\u00e0y mai \u0111\u1ed5 b\u00ea t\u00f4ng \u0110\u01b0\u1eddng 3 (\ud0c0\uc124)"
+    plain = "Xin chao anh, ngay mai do be tong Duong 3 (\ud0c0\uc124)"  # 한글은 그대로
+    assert sms_text.sms_safe(text, "vi") == plain and sms_text.problem(text, "vi-VN") is None
+    assert sms_text.sms_safe(plain, "vi") == plain  # 두 번 거쳐도 같다
+    assert sms_text.problem(text, "ko") == sms_text.problem(text) == sms_text.NOT_CARRIED  # 베트남어 상대에게만 뺀다
+    assert sms_text.sms_safe("caf\u00e9 \u6f22\u5b57", "vi") == "cafe \u6f22\u5b57"
+
+
 async def test_sms_and_fallback_text_go_out_in_what_the_provider_can_carry():
     mock = KatMock()
     await KatClient(CONN, transport=mock).send_message(sms(body="8시 \u2014 타설 \U0001f477"))
@@ -535,7 +544,7 @@ async def failure_logged(caplog, override, conn: ProviderConn = CONN) -> tuple[P
 
 async def test_unknown_rejection_keeps_the_code_and_plain_error_text(caplog):
     e, line = await failure_logged(caplog, answer(422, {"error": "Sender is not allowed.", "code": "brand_new_code"}))
-    shape = "code=brand_new_code; error=Sender is not allowed."
+    shape = "code=brand_new_code; error=Sender is not allowed"  # 끝 마침표는 뗀다
     assert e.message == f"{diagnostics.MESSAGES['bad_request']}(제공사 응답: {shape})"
     assert line.endswith(f"status=422 maybe_sent=False 응답={shape}")
 
@@ -556,12 +565,12 @@ async def test_validation_body_gives_field_names_and_types_but_no_values(caplog)
 
 
 @pytest.mark.parametrize(("error", "shown"), [
-    ("Sender is not allowed.", "Sender is not allowed."),
+    ("Sender is not allowed.", "Sender is not allowed"),
     ("Invalid recipient: " + SENTINEL_PHONE, "Invalid recipient"),  # 첫 「:」 뒤는 자른다
     (f"Recipient {SENTINEL_PHONE} is blocked", None),  # 번호를 가린 표시도 ASCII 밖이라 통째로 뺀다
     (f"Recipient {SENTINEL_DIGITS} is blocked", None),
     ("Sender kim.cheolsu is not allowed", None),  # 낱말 속 「.」「@」는 이름·주소일 수 있다
-    ("Contact ops@example is blocked", None),
+    ("Contact ops@example is blocked", None), ("Sender kim..cheolsu is not allowed", None), ("Sender kim. lee", None),
     ("받는 사람 박현장 님 내일 타설 확인 부탁드립니다", None),  # 우리 글이 되돌아와도 옮기지 않는다
     ("Limit of 500 per day reached", None),  # 숫자가 남으면 뺀다
     ("x" * 61, None),  # 너무 길면 뺀다

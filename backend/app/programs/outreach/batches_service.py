@@ -162,12 +162,14 @@ def _replay(session: Session, schedule_id: int, rows: list[OutreachMessage]) -> 
 
 def _same_request(rows: list[OutreachMessage], body: BatchIn) -> bool:
     """저장된 묶음이 이 요청과 같은 내용인가(받는 사람 차례·통로·글·문안·연결). 카카오톡을 문이 문자로 바꿨으면 그것도 같음.
-    나간 문자 줄의 글은 문자 통로가 실을 수 있는 글(sms_text.sms_safe)로 바꿔 적으므로 바꾼 글과도 견준다."""
+    나간 문자 줄의 글은 문자 통로가 실을 수 있는 글(sms_text.sms_safe — 베트남어 상대는 성조 없이)로 바꿔 적으므로 바꾼 글과도
+    견준다."""
     if [row.contact_id for row in rows] != body.contact_ids:
         return False
     return all(
         (row.channel == body.channel or (row.fallback_sms and body.channel == "kakao"))
-        and (body.body is None or row.body == body.body or (row.channel == "sms" and row.body == sms_text.sms_safe(body.body)))
+        and (body.body is None or row.body == body.body
+             or (row.channel == "sms" and row.body in (sms_text.sms_safe(body.body), sms_text.sms_safe(body.body, "vi"))))
         and row.template_id == body.template_id
         and dict(row.template_vars_json or {}) == (body.template_vars or {})
         and (row.activity_id, row.field_item_id, row.approval_id) == (body.activity_id, body.field_item_id, body.approval_id)

@@ -18,6 +18,7 @@ TEXT_RULES = (
     "전화번호는 알지 못하고, 묻거나 적지 않습니다.",
     "답을 보내는 것은 시스템이 정합니다. 보냈다·전송했다고 말하지 않습니다.",
     "긴 줄표와 그림 글자(이모지)는 쓰지 않습니다(문자에 실리지 않습니다). 줄표 대신 쉼표나 「-」를 씁니다.",
+    "중국어 상대에게는 영어로, 베트남어 상대에게는 성조·발음 부호 없이 씁니다(문자에 실리지 않는 글자를 피합니다).",
 )
 REQUEST_CHARS = 200  # 「우리가 보낸 요청」 한 줄에 싣는 글자
 NAME_CHARS = 100
@@ -43,7 +44,7 @@ def inbound(caller_class: CallerClass, site: str | None, name: str | None, langu
     lines += ["", paragraph, "", "지킬 것:", *(f"- {line}" for line in rules_text.fixed_lines(caller_class, facts)),
               *(f"- {line}" for line in TEXT_RULES), "",
               # 「상대의 언어: vi(베트남어). 베트남어로 씁니다.」 — 음성 쪽과 같은 상수(Task 100). 모르는 언어는 한국어
-              f"{languages.line(language, languages.WRITE)} 한국어가 아닌 언어로 답하면 text_ko 에 그 뜻을 한국어로 적습니다."]
+              f"{languages.text_line(language)} 한국어가 아닌 언어로 답하면 text_ko 에 그 뜻을 한국어로 적습니다."]
     if request and (shown := _clean(request, REQUEST_CHARS)):
         lines.append(f"우리가 보낸 요청: {shown}")
     return "\n".join(lines)

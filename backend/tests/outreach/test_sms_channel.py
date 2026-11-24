@@ -453,6 +453,21 @@ async def test_text_the_provider_cannot_carry_is_refused_at_the_gate_and_kept_as
 
 
 @pytest.mark.real_channel("sms")
+async def test_vietnamese_contact_gets_the_text_without_tone_marks(session, sid, fake_provider):
+    connect(session)
+    who = person(session, sid, language="vi")
+    row = message(session, who, body="Ng\u00e0y mai \u0111\u1ed5 b\u00ea t\u00f4ng")
+    twin = message(session, who, body="Ng\u00e0y mai \u0111\u1ed5 b\u00ea t\u00f4ng")
+    session.commit()
+
+    assert (await send(row, USER, WORK)).code == "accepted"
+    assert (await send(twin, USER, WORK)).code == "duplicate"  # 같은 글은 나간 글(성조 없이)끼리 견준다
+
+    [req] = fake_provider.sent
+    assert req.body == reread(session, row).body == "Ngay mai do be tong"
+
+
+@pytest.mark.real_channel("sms")
 @pytest.mark.parametrize(("shape", "suffix"), [
     ("code=brand_new; fields=body.To; error=Sender is not allowed.",
      "(제공사 응답: code=brand_new; fields=body.To; error=Sender is not allowed.)"),

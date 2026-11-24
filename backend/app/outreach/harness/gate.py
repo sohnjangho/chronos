@@ -363,6 +363,8 @@ def _decide(session: Session, kind: str, row_id: int, actor: Actor, now: datetim
     if isinstance(reach, Outcome):
         return stop(reach, "blocked_test" if reach.rule == TEST_MODE else "draft")
     contact, number, channel = reach
+    if lane == "sms":  # 「같은 글」은 실제로 나갈 글로 견준다(문자 통로가 같은 것을 줄에 적는다 — 베트남어 상대는 성조 없이)
+        body = sms_text.sms_safe(body, contact.language if contact is not None else None)
 
     # 위임 없는 에이전트는 권한(5)을 근무시간(3)보다 먼저 본다 — 근무 밖이라 예약해도 때가 되면 권한에서 멈추므로, 나가지 않을 것을
     # 「다음 근무 시작에 보냅니다」라고 알리지 않는다(Task 81 고침 1). 사람·일꾼은 차례 그대로.
@@ -437,7 +439,10 @@ def _reachable(session: Session, kind: str, row: _Row, actor: Actor, conn: Notif
         return Outcome("not_sendable", "연락처 번호를 다시 저장해 주세요", PRECHECK)
     if not all(_can_take(contact, number, name) for name in wanted):
         return Outcome("not_sendable", "이 번호로는 그 방법으로 연락할 수 없습니다", PRECHECK)
-    if lane == "sms" and (why := sms_text.problem(body)) is not None:  # 실제로 나갈 글(sms_safe 뒤)이 비었거나 못 싣거나 길다
+    language = contact.language if contact is not None else None
+    if lane == "sms" and (why := sms_text.problem(body, language)) is not None:  # 실제로 나갈 글(sms_safe 뒤)이 비었거나 못 싣거나 길다
+        if row.kind == "auto_reply":  # 자동 답은 사람이 고쳐 보내는 글이 아니다 — 고치라고 하지 않는다
+            why = {sms_text.NOT_CARRIED: sms_text.AUTO_NOT_CARRIED, sms_text.TOO_LONG: sms_text.AUTO_TOO_LONG}.get(why, why)
         return Outcome("not_sendable", why, PRECHECK)
     if kind == "message" and row.kind == "dnc_confirm" and body.strip() != DNC_CONFIRM_TEXT:
         return Outcome("not_sendable", "수신 거부 확인 문자는 정해 둔 글만 보냅니다", PRECHECK)

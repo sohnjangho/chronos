@@ -133,9 +133,24 @@ def test_instructions_name_the_language_with_one_shared_line(code):
     inbound = voice_instructions.inbound("contact", SITE, NAME, code)
     text = text_instructions.inbound("contact", SITE, NAME, code, None)
     assert speak in outbound.splitlines() and speak in inbound.splitlines()
-    assert any(line.startswith(write) for line in text.splitlines())
+    texted = languages.line(languages.text_language(code), languages.WRITE)  # 문자로 쓸 언어(중국어 상대는 영어)
+    assert any(line.startswith(texted) for line in text.splitlines())
     assert "대화 언어 코드" not in outbound + inbound
     assert rules_text.FIXED["language"] in outbound  # 상대가 쓰는 언어에 맞춘다는 고정 줄은 그대로
+
+
+@pytest.mark.parametrize(("code", "written"), [("ko", "ko"), ("en", "en"), ("zh", "en"), ("zh-CN", "en"), ("vi", "vi"),
+                                             ("xx", "ko")])
+def test_texts_to_chinese_contacts_go_in_english_and_vietnamese_without_tones(code, written):
+    """문자는 EUC-KR 로 실린다(11-24 결정): 중국어 상대는 영어로, 베트남어 상대는 성조 없이. 통화 언어는 그대로."""
+    assert languages.text_language(code) == written
+    line = languages.text_line(code)
+    assert line.startswith(languages.line(written, languages.WRITE))
+    assert ("영어로 씁니다" in line and "중국어" in line) if code.startswith("zh") else "중국어" not in line
+    assert ("성조" in line) == (written == "vi")
+    assert line in text_instructions.inbound("contact", SITE, NAME, code, None)
+    assert line in drafting._user_text({"상대": {"언어": code}}, "인원 확인", code)
+    assert languages.call_language("zh") == "ko" and languages.code("zh") == "zh"  # 통화·주소록은 그대로
 
 
 def test_draft_request_names_the_language_and_needs_a_translation():

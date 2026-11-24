@@ -15,7 +15,7 @@
   제공사가 준 id 는 꼴이 맞고 키·Account ID·전화번호가 아닐 때만, 코드는 낱말(`^[A-Za-z_]{1,40}$`)일 때만 받는다. 문서의
   코드는 대소문자를 가리지 않고 읽는다(`diagnostics.vendor_entry`). 로그에는 종류·코드·상태만 남긴다 — 문서에 없는 4xx
   거절만 응답 모양(`_rejection_shape`: 낱말 코드, 검사 오류의 칸 이름·종류 낱말 5개까지, 첫 「:」 앞까지 자른 ASCII 60자
-  이하의 `error` 글 — 숫자·「.」「@」 든 낱말이 있으면 뺀다)을 로그 줄과 글 끝 「(제공사 응답: …)」, `ProviderFailed.shape` 에
+  이하의 `error` 글 — 끝 마침표는 떼고, 숫자나 「.」「@」가 남으면 뺀다)을 로그 줄과 글 끝 「(제공사 응답: …)」, `ProviderFailed.shape` 에
   옮긴다(문자 통로가 그것을 줄의 실패 까닭에 붙인다). 값·숫자·요청 본문은 옮기지 않는다.
 - **`maybe_sent`(보내기만)**: 문자가 갔는지 알 수 없으면 참. 거짓인 것은 둘뿐이다 — 한 바이트도 나가기 전의 실패(요청 전
   거절·이름 풀이·연결·TLS·연결 줄 기다림)와 제공사가 409 밖의 4xx 로 거절한 것(본문을 읽다 끊겨도 받은 상태로 가른다).
@@ -101,7 +101,7 @@ _CODE = re.compile(r"[A-Za-z_]{1,40}")  # 제공사 오류 code 가운데 옮겨
 _FAILURE_CODE = re.compile(r"[a-z_]{1,40}")  # get-message 의 failureCode(저장되는 fail_code)는 소문자 낱말만
 _FIELD = re.compile(r"[A-Za-z_.]{1,40}")  # 검사 오류(422)의 칸 이름·종류 낱말 가운데 옮겨 적어도 되는 꼴
 _ERROR_TEXT = re.compile(r"[A-Za-z .,;'!?()/-]{1,60}")  # 오류 글: ASCII 글자·빈칸·문장부호뿐(숫자·한글·「:」 없음)
-_NAME_LIKE = re.compile(r"[A-Za-z0-9][.@][A-Za-z0-9]")  # 낱말 속의 「.」「@」(kim.cheolsu·a@b) — 이름·주소일 수 있다
+_NAME_LIKE = re.compile(r"[.@]")  # 끝 마침표 밖의 「.」「@」(kim.cheolsu·kim..cheolsu·a@b) — 이름·주소일 수 있다
 SHAPE_MAX = 5  # 응답 모양에 옮기는 칸 이름·종류 낱말 수
 _WORD = re.compile(r"[a-z][a-z_\-]{0,39}")  # 통화 상태 말(in-progress · no-answer …)
 _ID = re.compile(r"(?=.*[A-Za-z0-9])[A-Za-z0-9_.:\-]{1,100}")  # 글자·숫자가 하나는 있어야 한다
@@ -334,8 +334,8 @@ def _failed(code: str, label: str, *, message: str | None = None, status: int | 
 def _rejection_shape(data: object, secrets: list[str]) -> str | None:
     """오류 본문 → 옮겨 적어도 되는 모양 한 줄 또는 None. 꼴이 맞고 키·Account ID 가 없는 것만: 낱말 code, 검사 오류
     (`detail: [{loc, type}]`·`errors: [{field}]`)의 칸 이름(loc 의 글 조각을 「.」로 이은 것)·종류 낱말을 SHAPE_MAX 개까지,
-    `error` 글(번호를 가리고 첫 「:」 앞까지 자른 것이 ASCII 글자·빈칸·문장부호 60자 이하이고 낱말 속에 「.」「@」가 없을
-    때만 — 아니면 통째로 뺀다). 값(input·msg·message)과 그 밖의 칸은 보지 않는다."""
+    `error` 글(번호를 가리고 첫 「:」 앞까지 자르고 끝 마침표를 뗀 것이 ASCII 글자·빈칸·문장부호 60자 이하이고 「.」「@」가
+    없을 때만 — 아니면 통째로 뺀다). 값(input·msg·message)과 그 밖의 칸은 보지 않는다."""
     if not isinstance(data, dict):
         return None
     fields: list[str] = []
@@ -351,7 +351,7 @@ def _rejection_shape(data: object, secrets: list[str]) -> str | None:
                 if found and found not in into and len(into) < SHAPE_MAX:
                     into.append(found)
     error = data.get("error")
-    error = redact.hide_phones(error).split(":", 1)[0].strip() if isinstance(error, str) else None
+    error = redact.hide_phones(error).split(":", 1)[0].strip().removesuffix(".") if isinstance(error, str) else None
     error = None if error is None or _NAME_LIKE.search(error) else _safe(_ERROR_TEXT, error, secrets)
     parts = [f"code={code}"] if (code := _safe(_CODE, data.get("code"), secrets)) else []
     parts += [f"fields={','.join(fields)}"] if fields else []

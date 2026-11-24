@@ -10,8 +10,12 @@ CP949 에만 있는 한글(똠·햏 등)도 KS X 1001 밖이다(파이썬 euc_kr
 
 import unicodedata
 
+from app.outreach import languages
+
 SMS_BYTES_MAX = 2000  # 긴 문자(LMS) 한 건의 EUC-KR 바이트 상한
 NOT_CARRIED = "문자로 실을 수 없는 글자가 있습니다(예: 베트남어 성조, 일부 한자). 다른 표기로 고쳐 주세요."
+AUTO_NOT_CARRIED = "자동 답에 문자로 실을 수 없는 글자가 있어 보내지 않았습니다."  # 자동 답은 사람이 고쳐 보내지 않는다
+AUTO_TOO_LONG = "자동 답이 문자 한 건에 싣기에 너무 길어 보내지 않았습니다."
 EMPTY = "보낼 글이 없습니다"
 TOO_LONG = f"문자 한 건에 싣기에 글이 너무 깁니다(한글 {SMS_BYTES_MAX // 2}자 안으로 줄여 주세요)."
 # 흔한 것은 비슷한 글자로(「…」·둥근 따옴표는 KS X 1001 에 있지만 1바이트 글자로)
@@ -35,17 +39,26 @@ def _size(ch: str) -> int | None:
     return size if size <= 2 else None
 
 
-def sms_safe(text: str) -> str:
-    """문자로 나갈 글 → NFC 로 맞추고 SMS_SWAPS 로 바꾼 뒤, KS X 1001 밖인 기호·꾸밈·빈칸 갈래 글자만 뺀 글. 글자·숫자·
-    표시(L·N·M 갈래)와 그 밖의 것은 남긴다 — 실을 수 있는지는 `problem` 이 본다. 두 번 거쳐도 같다."""
+def _without_tones(text: str) -> str:
+    """베트남어 성조·발음 부호를 뺀 글(không dấu): đ/Đ → d/D, NFD 로 풀어 붙는 부호(Mn)를 뺀다. 한글은 풀어도 부호가 없어 그대로."""
+    decomposed = unicodedata.normalize("NFD", text.replace("\u0111", "d").replace("\u0110", "D"))
+    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+
+
+def sms_safe(text: str, language: object = None) -> str:
+    """문자로 나갈 글 → (연락처 언어가 베트남어일 때만 성조를 빼고) NFC 로 맞추고 SMS_SWAPS 로 바꾼 뒤, KS X 1001 밖인
+    기호·꾸밈·빈칸 갈래 글자만 뺀 글. 글자·숫자·표시(L·N·M 갈래)와 그 밖의 것은 남긴다 — 실을 수 있는지는 `problem` 이
+    본다. 두 번 거쳐도 같다."""
+    if languages.code(language) == "vi":
+        text = _without_tones(text)
     swapped = unicodedata.normalize("NFC", text).translate(SMS_SWAPS)
     return "".join(ch for ch in swapped
                    if _size(ch) is not None or (ch not in _EMOJI_MARKS and unicodedata.category(ch) not in _DROPPABLE))
 
 
-def problem(text: str) -> str | None:
+def problem(text: str, language: object = None) -> str | None:
     """sms_safe 를 거친 글을 문자로 보낼 수 없는 까닭(한국어) 또는 None: 비었다·실을 수 없는 글자가 남았다·너무 길다."""
-    safe = sms_safe(text)
+    safe = sms_safe(text, language)
     if not safe.strip():
         return EMPTY
     sizes = [_size(ch) for ch in safe]

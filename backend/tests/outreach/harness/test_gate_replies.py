@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import create_engine
 
 from app import db
+from app.outreach import sms_text
 from app.outreach.harness import events, gate
 from app.outreach.harness.types import Ref
 from app.store.tables_outreach import (
@@ -291,6 +292,19 @@ async def test_same_reply_is_compared_as_the_text_that_went_out(session, sid, fa
     session.commit()
 
     assert (await send(same, AGENT, WORK)).code == "duplicate" and fake_channel.delivered == []
+
+
+@pytest.mark.parametrize(("body", "why"), [("\u94a2\u7b4b \u4e22", sms_text.AUTO_NOT_CARRIED), ("가" * 1001, sms_text.AUTO_TOO_LONG)])
+async def test_unsendable_auto_reply_does_not_ask_a_person_to_fix_it(session, sid, fake_channel, body, why):
+    connect(session, **DELEGATED)
+    who = person(session, sid)
+    reply = message(session, who, kind="auto_reply", origin="agent", body=body)
+    session.commit()
+
+    out = await send(reply, AGENT, WORK)
+
+    assert (out.code, out.message) == ("not_sendable", why) and "고쳐" not in why and "줄여" not in why
+    assert reread(session, reply).fail_reason == why and fake_channel.delivered == []
 
 
 async def test_same_reply_twice_is_blocked(session, sid, fake_channel):

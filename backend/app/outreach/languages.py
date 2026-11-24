@@ -6,6 +6,8 @@
   한국어로 건다(call_language). 진단이 다른 언어로 통과하면 이 묶음에 더한다.
 - line(code, verb): 모델 지시문(음성·글·초안 모두 같은 상수)에 넣는 「상대의 언어: en(영어). 영어로 말합니다/씁니다.」 한 줄.
   지시문 자체는 한국어로 쓴다.
+- 문자(EUC-KR 로 실린다 — app.outreach.sms_text)로 쓸 언어(11-24 결정): 중국어 상대에게는 영어로(`text_language` — 중국어
+  글자 대부분이 실리지 않는다), 베트남어 상대에게는 성조 없이(không dấu). 글 지시문·초안은 `text_line` 을 쓴다. 통화는 그대로.
 - is_korean(text): 글의 글자 가운데 한글이 충분한가 — 받은 문자를 번역할지, 뒤 확인(한국어 규칙)을 믿을지 정할 때 쓴다.
 - has_foreign_words(text): 한국어 글에 섞인 라틴 낱말(3자 이상, LATIN_OK 밖) — 「철근 배근 at 가상 물류센터 starts on November 30」처럼
   한글이 많아도 영어 날짜·말이 든 글을 뒤 확인이 한국어로 믿지 않게(고침 1). 2자(AI·OK·kg·mm)와 숫자가 붙은 코드(A1210·RC30·30MPa)는
@@ -54,6 +56,26 @@ def line(value: object, verb: str) -> str:
     """지시문의 언어 한 줄(verb 는 SPEAK · WRITE)."""
     picked = code(value)
     return LINE.format(code=picked, name=SUPPORTED[picked], verb=verb)
+
+
+TEXT_INSTEAD = {"zh": "en"}  # 문자로 쓸 언어가 연락처 언어와 다른 것
+TEXT_NOTES = {
+    "zh": "상대는 중국어를 쓰지만 문자에는 중국어 글자가 실리지 않아 영어로 씁니다.",
+    "vi": "베트남어는 성조·발음 부호 없이 씁니다(예: Xin chao, ngay mai lam viec). 부호가 든 글자는 문자에 실리지 않습니다.",
+}
+
+
+def text_language(value: object) -> str:
+    """문자·글 답에 쓸 언어: 중국어 상대는 영어, 그 밖은 연락처 언어(code)."""
+    picked = code(value)
+    return TEXT_INSTEAD.get(picked, picked)
+
+
+def text_line(value: object) -> str:
+    """글 지시문·초안의 언어 한 줄: line(text_language, WRITE) 에 그 언어의 문자 쓰기 안내를 붙인 것."""
+    picked = code(value)
+    note = TEXT_NOTES.get(picked)
+    return line(text_language(picked), WRITE) + (f" {note}" if note else "")
 
 
 def _hangul(char: str) -> bool:

@@ -15,7 +15,8 @@
 - 부르기는 한 번: `LlmClient.chat("normal", …, json_schema={body, body_ko})`, 시간 TIMEOUT_S·답 길이 MAX_TOKENS.
   연결 없음은 DraftNotReady, 실패·시간 초과·쓸 수 없는 답은 DraftFailed(글·답 내용은 남기지 않는다).
 - 한국어(`ko`)가 아닌 사람은 body(그 언어)와 body_ko(한국어 번역)가 둘 다 있어야 한다. `ko` 면 body_ko 는 None.
-  쓸 언어는 자료 뒤 한 줄 `languages.line(언어, WRITE)`(Task 100 — 음성·글 지시문과 같은 상수). 모르는 언어 코드는 한국어.
+  쓸 언어는 자료 뒤 한 줄 `languages.text_line(언어)`(Task 100 — 글 지시문과 같은 상수. 중국어 상대는 영어로, 베트남어는
+  성조 없이). 모르는 언어 코드는 한국어.
 """
 
 import json
@@ -145,7 +146,7 @@ def _user_text(data: dict, hint: str, language: str) -> str:
     block = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
     asked = _hide(hint).strip() or "(없음 — 최근 대화와 고른 작업에 맞춰 써 주세요)"
     # 쓸 언어 한 줄(Task 100 — 음성·글 지시문과 같은 상수): 「상대의 언어: en(영어). 영어로 씁니다.」
-    return f"<자료>{block}</자료>\n\n{languages.line(language, languages.WRITE)}\n\n담당자 요청: {asked}"
+    return f"<자료>{block}</자료>\n\n{languages.text_line(language)}\n\n담당자 요청: {asked}"
 
 
 def _text(value: object) -> str | None:

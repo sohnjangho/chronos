@@ -37,7 +37,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
 from app import db
-from app.outreach import redact, site_name
+from app.outreach import languages, redact, site_name
 from app.outreach.harness import door, events, gate, review, tools, toolsets
 from app.outreach.harness.types import CallerClass, Ref, Scope
 from app.outreach.text import instructions
@@ -324,8 +324,8 @@ def _propose_language(session: Session, box: tools.Toolbox, language: str, at: d
     person = box.person(session)
     if person is None or not LANGUAGE.fullmatch(language or ""):
         return
-    if language.split("-")[0].lower() == (person.language or "ko").split("-")[0].lower():
-        return
+    if language.split("-")[0].lower() in {(person.language or "ko").split("-")[0].lower(), languages.text_language(person.language)}:
+        return  # 문자로 쓰는 언어로 답한 것(중국어 상대에게 영어)도 바꿈 제안이 아니다
     waiting = select(ContactProposal.id).where(ContactProposal.kind == "language", ContactProposal.contact_id == person.id,
                                                ContactProposal.language == language[:10], ContactProposal.status == "pending")
     if session.scalar(waiting.limit(1)) is not None or not box.room(session, ContactProposal, tools.MAX_PROPOSALS):

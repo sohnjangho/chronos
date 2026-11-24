@@ -445,6 +445,20 @@ async def test_other_language_reply_and_language_proposal(session, fake_provider
     assert session.get(Contact, w.park.id).language == "ko"
 
 
+async def test_english_reply_to_a_chinese_contact_is_not_a_language_change(session, fake_provider, fake_channel, scripted):
+    """중국어 상대에게 문자는 영어로 쓴다(11-24 결정) — 영어로 답했다고 연락처 언어 바꿈을 제안하지 않는다."""
+    w = setup(session)
+    w.park.language = "zh"
+    session.commit()
+    scripted(Reply("We will let you know.", text_ko="다시 알려 드리겠습니다.", language="en"))
+    await arrive(fake_provider, text_in(body="\u660e\u5929\u5de5\u4f5c\u5417?"))
+
+    await answer()
+
+    [reply] = replies(session)
+    assert reply.body == "We will let you know." and session.scalars(select(ContactProposal)).all() == []
+
+
 async def test_flagged_reply_is_held_even_when_delegated(session, fake_provider, fake_channel, scripted):
     """모델이 도구 결과에 없는 날짜를 씀 → 뒤 확인에 걸려 초안으로(「확인 뒤 보내기」), 위임이어도 나가지 않는다."""
     setup(session, agent_sms="delegate")
