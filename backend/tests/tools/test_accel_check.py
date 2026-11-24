@@ -7,15 +7,21 @@ from dataclasses import replace
 from datetime import date
 
 import pytest
+from sqlalchemy import select
 
+from app import seed
 from app.agent import context
 from app.core.accel import MIXED_REASON
+from app.core.cpm import compute
 from app.core.model import Relation
+from app.core.resources import level
+from app.harness.assemble import prepare_stored
 from app.programs.scenarios import compare
 from app.store import scenarios
 from app.store.schedules import load
 from app.store.settings import accel_warn_ratio
-from app.store.tables import Setting
+from app.store.tables import DelayEvent, ScheduleRecord, Setting
+from app.tools.points import accel_check
 from app.tools.registry import call, list_tools
 from tests.approval_doubles import finish_by
 from tests.schedules import make, store, task
@@ -164,3 +170,30 @@ async def test_scenario_create_returns_accel(ctx, session, events):
     assert r.ok, r.error
     assert (r.output["accel"]["pulled_days"], r.output["accel"]["finish_gain"], r.output["accel_reason"]) == (3, 1, None)
     assert events[0].data["accel"] == r.output["accel"]
+
+
+# ── 열린 지연 전과 견준 줄 ─────────────────────────────────────────────
+
+
+def _open_delay(session, sid: int, aid: str, days: int, start: date) -> None:
+    session.add(DelayEvent(schedule_id=sid, activity_id=aid, start_date=start, days=days, created_by="김하늘"))
+    session.commit()
+
+
+def test_seed_v3_open_curtain_delay_contrasts_before_four_after_one(session):
+    seed.seed_demo(session, seed.DEMO_V3)
+    sid = session.scalars(select(ScheduleRecord).where(ScheduleRecord.name == seed.OFFICE)).one().id
+    assert accel_check.check(session, sid, "A1300", 5).before_delays_line is None  # 열린 지연 없음
+    schedule, conditions, _ = load(session, sid)
+    ready = prepare_stored(schedule, conditions)
+    _open_delay(session, sid, "A1404", 3, level(ready, compute(ready)).dates["A1404"][0])  # 커튼월 공장 제작 +3
+    o = accel_check.check(session, sid, "A1300", 5)  # 옥탑 골조 5일 당김
+    assert (o.pulled_days, o.reached_days, o.warn) == (5, 1, True)
+    assert o.before_delays_line == "열린 지연을 빼고 보면 5일 중 4일"
+
+
+async def test_before_delays_line_only_when_it_differs(ctx, session):
+    sid = store(session, chain())
+    _open_delay(session, sid, "A", 1, date(2027, 3, 1))  # A 가 늦어져도 C 당김은 그대로 먹힌다
+    r = await call("points.accel_check", {"activity_id": "C", "days": 2}, replace(ctx, schedule_id=sid))
+    assert (r.output["reached_days"], r.output["before_delays_line"]) == (2, None)

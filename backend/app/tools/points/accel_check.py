@@ -2,6 +2,8 @@
 
 기준은 만회안(shorten.make)과 같다: 지금 버전에 열린 지연 사건을 넣고(store.delays.delayed_base) 저장 조건을 넣은 일정.
 계산은 core.accel(엔진 값만). 경고 비율은 설정 accel_warn_ratio, 관리 포인트 표시는 설정 points_tf_days·points_window_weeks.
+열린 지연을 넣었으면 그것을 뺀 일정(지금 버전 + 저장 조건)으로 한 번 더 계산해, 당긴 일수·반영 일수가 다를 때만
+before_delays_line 「열린 지연을 빼고 보면 n일 중 m일」을 붙인다(같은 당김이 지연 전에는 얼마나 먹혔는지).
 사건: card {kind: "accel_check", …}(출력과 같음). 일정은 바뀌지 않는다.
 """
 
@@ -20,11 +22,13 @@ from app.core.accel import (
 )
 from app.harness.assemble import prepare_stored
 from app.store.delays import delayed_base
+from app.store.schedules import load
 from app.store.settings import accel_warn_ratio, points_config
 from app.tools.context import ToolContext, ToolError, explained_schedule_errors
 from app.tools.registry import tool
 
 WARN_LINE = "당긴 {n}일 중 {m}일만 준공에 반영됩니다"
+BEFORE_DELAYS_LINE = "열린 지연을 빼고 보면 {n}일 중 {m}일"
 SUMMARY_LINE = "{name} {n}일 당김 → 준공 {m}일 당겨짐"
 
 
@@ -58,6 +62,8 @@ class AccelCheckOut(BaseModel):
     finish_after: str
     next_chain: list[ChainItem]  # 다음에 약속을 정하는 줄(위상 순)
     same_chain: bool  # 당긴 뒤에도 같은 줄이 약속을 정한다
+    # 열린 지연을 뺀 일정에서 같은 당김의 (당긴 일수, 반영 일수)가 다를 때만 「열린 지연을 빼고 보면 n일 중 m일」
+    before_delays_line: str | None = None
 
 
 def warn_line(result: AccelResult) -> str | None:
@@ -73,8 +79,16 @@ def check(session: Session, schedule_id: int, activity_id: str, days: int) -> Ac
     ready = prepare_stored(db.schedule, db.conditions)
     moves = pull_request(ready, activity_id, days)
     cfg = points_config(session)
-    result = accel_effect(ready, moves, warn_ratio=accel_warn_ratio(session), tf_days=cfg.tf_days,
-                          window_weeks=cfg.window_weeks)
+    ratio = accel_warn_ratio(session)
+    result = accel_effect(ready, moves, warn_ratio=ratio, tf_days=cfg.tf_days, window_weeks=cfg.window_weeks)
+    before_line = None
+    if db.event_ids:
+        plain, conditions, _ = load(session, schedule_id)
+        clean = prepare_stored(plain, conditions)
+        was = accel_effect(clean, pull_request(clean, activity_id, days), warn_ratio=ratio, tf_days=cfg.tf_days,
+                           window_weeks=cfg.window_weeks)
+        if (was.pulled_days, was.finish_gain) != (result.pulled_days, result.finish_gain):
+            before_line = BEFORE_DELAYS_LINE.format(n=was.pulled_days, m=was.finish_gain)
     a = next(a for a in ready.activities if a.id == activity_id)
     return AccelCheckOut(
         schedule_id=schedule_id, activity_id=a.id, name=a.name, od_before=a.od, od_after=moves[0].od,
@@ -82,7 +96,7 @@ def check(session: Session, schedule_id: int, activity_id: str, days: int) -> Ac
         warn_line=warn_line(result),
         summary_line=SUMMARY_LINE.format(name=a.name, n=result.pulled_days, m=result.finish_gain),
         finish_before=result.finish_before.isoformat(), finish_after=result.finish_after.isoformat(),
-        next_chain=chain_items(ready, result), same_chain=result.same_chain,
+        next_chain=chain_items(ready, result), same_chain=result.same_chain, before_delays_line=before_line,
     )
 
 
