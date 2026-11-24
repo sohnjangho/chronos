@@ -485,6 +485,44 @@ describe('points_changed card', () => {
     expect(screen.getByText(/버전 7 → 8 · 기준/)).toBeVisible();
   });
 
+  test('not_started (written outside the server): no 「찾는 중」, no polling, [바깥 위험 찾기] on press only', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const idle = card({ risk_status: 'not_started', risk_message: '바깥 위험을 아직 찾지 않았습니다', risk_retry: true, new: card().new.map((n) => ({ ...n, risks: [] })) });
+    routes['POST /api/schedules/1/points/risks/retry'] = () => json(200, view({ ...idle, risk_status: 'looking', risk_message: '바깥 위험 찾는 중', risk_retry: false }));
+    routes['/api/schedules/1/points?what_if=false'] = view(card());
+    renderCard(idle);
+    expect(screen.getByText('바깥 위험을 아직 찾지 않았습니다')).toBeVisible();
+    expect(screen.queryByText(/찾는 중/)).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+    });
+    expect(callsTo('/api/schedules/1/points?what_if=false')).toHaveLength(0); // 폴링 없음
+    expect(bodies('/api/schedules/1/points/risks/retry', 'POST')).toHaveLength(0); // 누르기 전엔 찾지 않음
+    fireEvent.click(screen.getByRole('button', { name: '바깥 위험 찾기' }));
+    expect(await screen.findByText('바깥 위험 찾는 중')).toBeVisible();
+    expect(bodies('/api/schedules/1/points/risks/retry', 'POST')).toEqual([{ what_if: false }]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS + 10);
+    });
+    expect(await screen.findByText('알루미늄 3개월 +5.0%')).toBeVisible(); // 찾는 중이 되면 폴링
+  });
+
+  test('[바깥 위험 찾기] is hidden on a frozen (past-version) card', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    routes['POST /api/schedules/1/points/A1500/quotes/materials'] = () => json(200, PENDING);
+    routes['/api/schedules/1/points?what_if=false'] = { ...view(null), version: 9 };
+    renderCard(card({ version: 51, risk_status: 'not_started', risk_message: '바깥 위험을 아직 찾지 않았습니다', risk_retry: true }));
+    expect(screen.getByRole('button', { name: '바깥 위험 찾기' })).toBeVisible();
+    fireEvent.click(within(point('커튼월 공장 제작')).getAllByRole('button', { name: '근거 문장 보기' })[0]);
+    await screen.findByText(/근거 문장 찾는 중/);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 2 + 10);
+    });
+    expect(await screen.findByText('지난 버전 카드 —')).toBeVisible();
+    expect(screen.getByText('바깥 위험을 아직 찾지 않았습니다')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '바깥 위험 찾기' })).toBeNull();
+  });
+
   test('failed risk search offers 「다시 찾기」 (risk_retry) and polls the new state', async () => {
     const failed = card({ risk_status: 'failed', risk_message: '바깥 위험을 찾지 못했습니다', risk_retry: true, new: card().new.map((n) => ({ ...n, risks: [] })) });
     routes['POST /api/schedules/1/points/risks/retry'] = () => json(200, view({ ...failed, risk_status: 'looking', risk_message: '바깥 위험 찾는 중', risk_retry: false }));

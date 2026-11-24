@@ -156,6 +156,19 @@ function RiskState({ c, frozen, onCard, onReload }: { c: Json; frozen: Frozen; o
         {asText(c.risk_message) || '바깥 위험 찾는 중'}
       </p>
     );
+  if (status === 'not_started')
+    // 서버 밖(씨앗·명령줄)에서 적은 카드 — 찾지 않았다. 사람이 누를 때만 같은 다시 찾기 API 로 처음 찾는다(멈춘 카드는 숨김).
+    return (
+      <p className="pc-fail ch-wrap">
+        {asText(c.risk_message) || '바깥 위험을 아직 찾지 않았습니다'}
+        {sid !== null && frozen === null && (
+          <button type="button" className="pc-link" disabled={busy} onClick={() => void retry()}>
+            바깥 위험 찾기
+          </button>
+        )}
+        {error && <span className="ch-error" role="alert">{error}</span>}
+      </p>
+    );
   if (status !== 'failed') return null;
   return (
     <p className="pc-fail ch-wrap">
