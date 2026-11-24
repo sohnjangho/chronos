@@ -167,7 +167,7 @@ def pages():
         pair = APPS[k:k + 2]
         groups = ' · '.join(dict.fromkeys(GROUP[a[0]] for a in pair))
         eye = 'amber' if '일정' in groups else ''
-        out.append(f'<section class="page">\n  <div class="eyebrow {eye}">05 · 프로그램 설명 · {groups}</div>\n')
+        out.append(f'<section class="page">\n  <div class="eyebrow {eye}">06 · 프로그램 설명 · {groups}</div>\n')
         out += [block(*a) for a in pair]
         if len(pair) == 1:
             out.append(extra_block())
