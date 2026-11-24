@@ -4,10 +4,15 @@
   빈칸으로 바꾼다(숫자 사이에 낀 것은 빼서 붙인다 — 번호를 쪼개 숨기지 못하게). 번호를 빼고 남는 것이 없으면 거는 통화는
   ValueError(받은 값은 싣지 않는다), 받는 통화는 현장 이름 없는 문장. 번호 찾기는 redact.hide_phones 이고 그 한계를 물려받는다
   (사람이 일부러 띄어 적은 드문 꼴) — 이름 칸에 번호를 적지 않는 것이 첫째 줄이다.
-- 없는 언어는 한국어(DEFAULT_LANGUAGE). 다른 언어는 Task 100 이 네 표(FIRST_LINES·INBOUND_LINES·INBOUND_LINES_NO_SITE·
-  MUST_SAY)를 함께 채운다 — 틀에는 숫자를 쓰지 않는다.
-- discloses(language, spoken) — 음성 모델이 **실제로 한** 말(받아쓰기)에 AI 임과 기록됨이 들어 있는가. SDK 에는 「이 문장을 그대로
-  말하라」가 없어 첫마디를 모델이 말하므로, 통화 일꾼이 통화의 첫 발화(session 의 약속 2)를 이것으로 보고, 뒤 확인도 쓴다.
+- 없는 언어는 한국어(DEFAULT_LANGUAGE — languages.code 와 같은 읽기). 언어마다(Task 100 — languages.SUPPORTED 넷) 다섯 표
+  (FIRST_LINES·INBOUND_LINES·INBOUND_LINES_NO_SITE·MUST_SAY·MUST_NOT_SAY)를 함께 채운다 — 한국어 문장의 뜻 그대로, AI 임과
+  「이 통화는 기록됩니다」를 넣고, 틀에는 숫자를 쓰지 않는다. 표에 있어도 통화가 되는지는 languages.CALLABLE 이 정한다(통화 일꾼이
+  languages.call_language 로 고른다 — 안 되는 언어는 한국어 문장으로 건다).
+- discloses(language, spoken) — 음성 모델이 **실제로 한** 말(받아쓰기)에 AI 임과 기록됨이 들어 있고(MUST_SAY 묶음마다 하나) 부정
+  말(MUST_NOT_SAY — 「AI 가 아니고」「기록되지 않습니다」 · not · 不是 · không phải …)이 없는가. SDK 에는 「이 문장을 그대로
+  말하라」가 없어 첫마디를 모델이 말하므로, 통화 일꾼이 통화의 첫 발화(session 의 약속 2)를 이것으로 본다(call_run._discloses).
+  한국어·중국어는 빈칸을 빼고 글자 조각으로, 영어·베트남어는 **낱말로** 본다(「wait」 속의 ai 는 AI 가 아니고, 「Nottingham」 속의
+  not 은 부정이 아니다).
 """
 
 import re
@@ -15,20 +20,45 @@ import unicodedata
 
 from app.outreach import redact
 
-DEFAULT_LANGUAGE = "ko"
+DEFAULT_LANGUAGE = "ko"  # languages.DEFAULT 와 같다(이 모듈은 하네스 낱말·번호 가리기만 import 한다 — 표의 언어는 languages.SUPPORTED 넷)
 FIRST_LINES = {
     "ko": "안녕하세요, {site} 일정 담당 ChronOS AI 비서입니다. 이 통화는 기록됩니다. {name}님 맞으신가요?",
+    "en": "Hello, this is the ChronOS AI assistant in charge of the schedule for {site}. This call is recorded. "
+          "Am I speaking with {name}?",
+    "zh": "您好，我是负责{site}日程的ChronOS AI助理。本次通话将被录音。请问是{name}吗？",
+    "vi": "Xin chào, tôi là trợ lý AI ChronOS phụ trách lịch trình của {site}. Cuộc gọi này được ghi âm. "
+          "Xin hỏi có phải {name} ạ?",
 }
 INBOUND_LINES = {
     "ko": "안녕하세요, {site} 일정 담당 ChronOS AI 비서입니다. 이 통화는 기록됩니다. 무엇을 도와드릴까요?",
+    "en": "Hello, this is the ChronOS AI assistant in charge of the schedule for {site}. This call is recorded. "
+          "How can I help you?",
+    "zh": "您好，我是负责{site}日程的ChronOS AI助理。本次通话将被录音。请问有什么可以帮您？",
+    "vi": "Xin chào, tôi là trợ lý AI ChronOS phụ trách lịch trình của {site}. Cuộc gọi này được ghi âm. "
+          "Tôi có thể giúp gì cho bạn?",
 }
 INBOUND_LINES_NO_SITE = {
     "ko": "안녕하세요, 일정 담당 ChronOS AI 비서입니다. 이 통화는 기록됩니다. 무엇을 도와드릴까요?",
+    "en": "Hello, this is the ChronOS AI assistant in charge of schedules. This call is recorded. How can I help you?",
+    "zh": "您好，我是负责日程的ChronOS AI助理。本次通话将被录音。请问有什么可以帮您？",
+    "vi": "Xin chào, tôi là trợ lý AI ChronOS phụ trách lịch trình. Cuộc gọi này được ghi âm. Tôi có thể giúp gì cho bạn?",
 }
-# 꼭 하는 말: 묶음마다 하나는 들어 있어야 한다(빈칸을 빼고 소문자로 견준다 — 받아쓰기는 띄어쓰기·표기가 흔들린다).
+# 꼭 하는 말: 묶음마다 하나는 들어 있어야 한다(소문자로 견준다 — 받아쓰기는 띄어쓰기·표기가 흔들린다).
 MUST_SAY = {
     "ko": (("ai", "에이아이", "인공지능"), ("기록", "녹음")),
+    "en": (("ai", "a.i", "a. i", "artificial intelligence"), ("recorded", "recording")),
+    "zh": (("ai", "人工智能"), ("录音", "记录", "錄音", "記錄")),
+    "vi": (("ai", "trí tuệ nhân tạo"), ("ghi âm", "ghi lại")),
 }
+# 하면 안 되는 말(부정): 하나라도 들어 있으면 밝힌 것이 아니다 — 「AI 가 아니고 … 기록되지 않습니다」를 밝힌 것으로 치지 않는다.
+MUST_NOT_SAY = {
+    "ko": ("아니", "아닙", "아닌", "않"),
+    "en": ("not", "never", "n't", "n’t"),
+    "zh": ("不是", "不会", "不會", "没有", "沒有", "不录", "不錄", "不记录", "不記錄", "并非", "並非"),
+    "vi": ("không phải", "không được ghi", "không ghi", "chẳng"),
+}
+_CONTRACTIONS = ("n't", "n’t")
+_BY_WORD = frozenset({"en", "vi"})  # 빈칸으로 낱말을 가르는 언어 — 낱말(조각이 아니라)로 견준다
 _SPACE_LIKE = frozenset({"Cc", "Cf", "Zl", "Zp"})  # 제어·보이지 않는 글자·줄 나눔
 _HIDDEN = "\x00"  # 제어·보이지 않는 글자를 잠깐 바꿔 두는 표
 _BETWEEN_DIGITS = re.compile(rf"(?<=[0-9０-９]){_HIDDEN}+(?=[0-9０-９])")
@@ -36,7 +66,8 @@ _EMPTY_BRACKETS = re.compile(r"[(（\[]\s*[)）\]]")  # 번호를 빼고 남은 
 
 
 def _language(language: object) -> str:
-    code = language.strip().lower() if isinstance(language, str) else ""
+    """languages.code 와 같은 읽기: 「EN」「en-US」「 vi 」 → 앞의 코드, 표에 없으면 한국어."""
+    code = language.strip().lower().replace("_", "-").split("-")[0] if isinstance(language, str) else ""
     return code if code in FIRST_LINES else DEFAULT_LANGUAGE
 
 
@@ -64,7 +95,20 @@ def inbound_line(language: str, site: str | None) -> str:
     return INBOUND_LINES[code].format(site=site_name) if site_name else INBOUND_LINES_NO_SITE[code]
 
 
+def _word(word: str) -> re.Pattern:
+    """낱말 하나(앞뒤에 다른 글자가 붙지 않은 것). 줄인 꼴 「n't」는 앞 낱말에 붙어 있으므로 뒤만 본다."""
+    body = r"\s+".join(re.escape(part) for part in word.split())
+    return re.compile(("" if word in _CONTRACTIONS else r"(?<!\w)") + body + r"(?!\w)")
+
+
+def _has(code: str, heard: str, word: str) -> bool:
+    return bool(_word(word).search(heard)) if code in _BY_WORD else "".join(word.split()) in heard
+
+
 def discloses(language: str, spoken: str) -> bool:
-    """실제로 한 말에 그 언어의 「꼭 하는 말」(AI 임 · 기록됨)이 모두 들어 있는가. 모르는 언어는 한국어 기준."""
-    heard = "".join(spoken.split()).lower() if isinstance(spoken, str) else ""
-    return all(any(word in heard for word in group) for group in MUST_SAY[_language(language)])
+    """실제로 한 말에 그 언어의 「꼭 하는 말」(AI 임 · 기록됨)이 모두 들어 있고 부정 말이 없는가. 모르는 언어는 한국어 기준."""
+    code = _language(language)
+    text = unicodedata.normalize("NFKC", spoken).lower() if isinstance(spoken, str) else ""
+    heard = " ".join(text.split()) if code in _BY_WORD else "".join(text.split())
+    return (all(any(_has(code, heard, word) for word in group) for group in MUST_SAY[code])
+            and not any(_has(code, heard, word) for word in MUST_NOT_SAY[code]))

@@ -6,6 +6,11 @@
 - 상대 말이 한 줄도 없음 · 근거 말이 없는 답 · 상한을 넘은 말 · 읽을 수 없는 날짜 꼴 · 다 읽지 못한 작업 이름 → 깃발.
 - 예외가 나면 판정이 없다 — 부른 쪽은 「깨끗하지 않음」으로 다뤄야 한다.
 
+**한국어가 아닌 말**(Task 100 — languages.is_korean): 아래 읽기는 모두 한국어 규칙이라 영어·중국어·베트남어의 흐린 말·부정·날짜·
+금액·옮긴 작업 이름을 읽지 못한다. 그래서 우리 말(said)이 한국어가 아니면 said 검사(날짜·범위 밖 이름·금액·모르는 상대)마다,
+상대 말이 한국어가 아니면 unsupported_answer 에 FOREIGN 깃발 — 다른 언어의 대화는 늘 「내용 확인 필요」(문자 자동 답은 초안에
+남고, 통화는 보고 한 줄)이고 「깨끗함」이 되지 않는다.
+
 깃발(types.REVIEW_FLAGS 만 쓴다)과 규칙:
 1. unsupported_answer — 그 줄 answers_json 의 답마다, 그 줄에 달린 contact_reports(kind review 밖)의 근거 말마다
    quote_found = heard(근거 말, 상대 말). 답은 근거 말이 비었거나 못 들었으면 깃발, 보고는 근거 말이 **있는데** 못 들었을 때만
@@ -42,7 +47,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.model import Schedule
-from app.outreach import redact
+from app.outreach import languages, redact
 from app.outreach.harness import events, facts
 from app.outreach.harness.review_dates import (
     _DATED,
@@ -84,6 +89,7 @@ TAIL_WORDS = 4  # 맞은 말 뒤로 뒤집는 말을 찾는 낱말 수
 
 REVIEW_KIND, REVIEW_TEXT = "review", "내용 확인 필요"
 UNCHECKED, NO_PEER = "상한을 넘어 다 견주지 못함", "상대 말이 없음"
+FOREIGN = "한국어가 아니어서 다 견주지 못함"  # 흐린 말·뒤집는 말·날짜·금액·이름 읽기는 한국어 규칙이다(Task 100)
 _SAID = {  # 깃발(돌려주는 차례) → 사건에 남기는 고정 글
     "unsupported_answer": "답의 근거 말이 상대 말에 없음",
     "unsupported_date": "도구 결과에 없는 날짜를 말함",
@@ -520,8 +526,11 @@ def check(session: Session, ref: Ref, *, said: list[str], peer_lines: list[str],
     # (답·보고 — 날짜는 따로)이 있을 때만 그 검사로 깃발이 선다(Task 86 고침 — 「혹시 내일 작업 있나요?」에 답만 해도 걸리던 것)
     if not spoke or unheard:
         notes["unsupported_answer"] = f"{unheard}건" if spoke else NO_PEER
+    elif not languages.is_korean("\n".join(raw for raw in _listed(peer_lines)[:MAX_PEER_LINES] if isinstance(raw, str))):
+        notes["unsupported_answer"] = FOREIGN  # 「maybe」「not sure」를 흐린 말·뒤집는 말로 읽지 못한다 — 근거로 믿지 않는다
 
     text, whole = _said_text(said)
+    foreign = not languages.is_korean(text)  # 한국어가 아닌 말: 날짜·금액·이름 검사를 다 했다고 하지 않는다(깃발)
     flat = "".join(ch for ch in text if ch.isalnum())
     counts = {"unsupported_date": _unsupported_dates(text, tool_results, today), "money_said": _money(text)}
     read = {}
@@ -536,6 +545,8 @@ def check(session: Session, ref: Ref, *, said: list[str], peer_lines: list[str],
     for flag, count in counts.items():
         if not whole or not read.get(flag, True):
             notes[flag] = UNCHECKED
+        elif foreign:
+            notes[flag] = FOREIGN
         elif count:
             notes[flag] = f"{count}건"
 

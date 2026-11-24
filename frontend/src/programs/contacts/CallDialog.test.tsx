@@ -10,6 +10,7 @@ import { useWindows } from '../../os/windowStore';
 import { CALL_UNKNOWN, SCHEDULE_UNKNOWN } from '../../shared/outreach/labels';
 import { CALL_TIMEOUT_MS } from '../../shared/outreach/outreachApi';
 import { call, callGets, callPosts, callReqs, change, draftCall, failCall, failPerson, holdCall, nextPlace, rowOf, stubCalls } from './callKit';
+import { NOT_CALLABLE } from './CallDialog';
 import Contacts from './Contacts';
 import { detail, mockDetail, PARK } from './testKit';
 import ThreadPane from './ThreadPane';
@@ -352,3 +353,29 @@ describe('writing and rewriting', () => {
 
 /** 박현장의 자세히(근무시간·성별·음성) — stubCalls 뒤에 부른다. */
 const mockDetailOf = (over: Parameters<typeof detail>[1]) => mockDetail(detail(PARK, over));
+
+// Task 100 — 통화가 준비되지 않은 언어(진단 P10 전 — 중국어·베트남어)는 걸기 창이 「한국어로 겁니다」라고 말한다.
+describe('language not ready for calls', () => {
+  test('a Vietnamese draft says it goes in Korean; English and Korean do not', async () => {
+    stubCalls([{ ...DRAFT, language: 'vi' }]);
+    showWith('7');
+    const d = await screen.findByRole('dialog', { name: '전화 걸기' });
+    expect(await within(d).findByText(NOT_CALLABLE)).toHaveClass('is-warn');
+    await userEvent.click(inDialog('고치기'));
+    const pick = within(dialog()).getByRole('combobox', { name: '언어' });
+    await userEvent.selectOptions(pick, 'en');
+    expect(within(dialog()).queryByText(NOT_CALLABLE)).toBeNull();
+    await userEvent.selectOptions(pick, 'zh');
+    expect(within(dialog()).getByText(NOT_CALLABLE)).toBeVisible();
+    await userEvent.selectOptions(pick, 'ko');
+    expect(within(dialog()).queryByText(NOT_CALLABLE)).toBeNull();
+  });
+
+  test('a new call for a Chinese-speaking person starts in Chinese and says so', async () => {
+    stubCalls([]);
+    mockDetailOf({ language: 'zh' });
+    showWith();
+    await userEvent.click(await screen.findByRole('button', { name: '전화 걸기' }));
+    expect(await within(dialog()).findByText(NOT_CALLABLE)).toBeVisible();
+  });
+});

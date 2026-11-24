@@ -121,7 +121,7 @@ describe('thread', () => {
     expect(within(b).getByText('Xin chào <img src=x onerror=alert(1)> https://example.invalid/a')).toBeVisible();
     expect(b.querySelector('img, a')).toBeNull();
     expect(within(b).getByText('안녕하세요')).toBeVisible();
-    expect(within(b).getByText('번역')).toBeVisible();
+    expect(within(b).getByText('AI 번역')).toBeVisible(); // 받은 글의 번역은 AI 가 옮긴 것(Task 100)
     expect(within(b).getByText('↩ 11/24 A1210 지상 골조 요청에 대한 답')).toBeVisible();
   });
 

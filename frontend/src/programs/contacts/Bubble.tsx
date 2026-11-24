@@ -151,8 +151,9 @@ export default function Bubble(p: BubbleProps) {
         <p className="th-bub">{m.body}</p>
       )}
       {m.body_ko && (
-        <p className="th-ko">
-          <span className="th-ko-tag">번역</span>
+        // 받은 글의 번역은 일꾼이 AI 로 옮긴 것(Task 100) — 틀릴 수 있어 그렇게 밝힌다. 초안의 번역은 초안과 함께 쓴 한국어 뜻
+        <p className="th-ko" lang="ko" title={m.direction === 'in' ? 'AI 가 옮긴 글입니다 — 틀릴 수 있으니 원문과 함께 보세요' : undefined}>
+          <span className="th-ko-tag">{m.direction === 'in' ? 'AI 번역' : '번역'}</span>
           {m.body_ko}
         </p>
       )}

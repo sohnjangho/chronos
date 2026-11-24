@@ -7,7 +7,7 @@
 
 import re
 
-from app.outreach import redact
+from app.outreach import languages, redact
 from app.outreach.harness import rules_text
 from app.outreach.harness.types import CallerClass
 
@@ -20,7 +20,6 @@ TEXT_RULES = (
 )
 REQUEST_CHARS = 200  # 「우리가 보낸 요청」 한 줄에 싣는 글자
 NAME_CHARS = 100
-_LANGUAGE = re.compile(r"[A-Za-z]{2,3}(-[A-Za-z]{2,4})?")
 _LINE = re.compile(r"\s+")
 
 
@@ -32,7 +31,6 @@ def _clean(text: str | None, limit: int) -> str:
 def inbound(caller_class: CallerClass, site: str | None, name: str | None, language: str, request: str | None) -> str:
     """들어온 문자 응대의 지시문. caller_class 는 범위 단락을 고르는 데만 쓴다(글에 이름이 나오지 않는다). 등급표 밖이면 ValueError."""
     paragraph = rules_text.scope_paragraph(caller_class)
-    code = language if isinstance(language, str) and _LANGUAGE.fullmatch(language) else "ko"
     lines = [HEAD]
     if site and (shown := _clean(site, NAME_CHARS)):
         lines.append(f"현장: {shown}")
@@ -40,7 +38,8 @@ def inbound(caller_class: CallerClass, site: str | None, name: str | None, langu
         lines.append(f"상대 이름(주소록): {shown}")
     lines += ["", paragraph, "", "지킬 것:", *(f"- {line}" for line in rules_text.FIXED.values()),
               *(f"- {line}" for line in TEXT_RULES), "",
-              f"상대의 언어: {code}. 한국어가 아닌 언어로 답하면 text_ko 에 그 뜻을 한국어로 적습니다."]
+              # 「상대의 언어: vi(베트남어). 베트남어로 씁니다.」 — 음성 쪽과 같은 상수(Task 100). 모르는 언어는 한국어
+              f"{languages.line(language, languages.WRITE)} 한국어가 아닌 언어로 답하면 text_ko 에 그 뜻을 한국어로 적습니다."]
     if request and (shown := _clean(request, REQUEST_CHARS)):
         lines.append(f"우리가 보낸 요청: {shown}")
     return "\n".join(lines)

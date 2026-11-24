@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useUiContext } from '../../os/uiContext';
 import { useWindows } from '../../os/windowStore';
+import { NOT_CALLABLE } from './CallDialog';
 import Contacts from './Contacts';
 import { detail, lastWrite, mockDetail, mockWrite, PARK, stubContacts, writes } from './testKit';
 
@@ -97,4 +98,21 @@ test('a person with a manual voice shows the id; changing it sends only voice_id
   await userEvent.click(within(f).getByRole('button', { name: '저장' }));
   await waitFor(() => expect(writes()).toHaveLength(2));
   expect(lastWrite()?.body).toEqual({ voice_mode: 'auto' });
+});
+
+// Task 100 — 언어 고르기: 넷(한국어·영어·중국어·베트남어). 통화가 준비되지 않은 언어(진단 P10 전 — 중국어·베트남어)는 그렇게 말한다.
+test('language: four to pick, and a language not ready for calls says calls go in Korean', async () => {
+  mockWrite(200, detail(PARK, { language: 'vi' }));
+  const f = await editForm();
+  const select = within(f).getByRole('combobox', { name: '언어' });
+  expect([...(select as HTMLSelectElement).options].map((o) => o.textContent)).toEqual(['한국어', '영어', '중국어', '베트남어']);
+  expect(within(f).queryByText(NOT_CALLABLE)).toBeNull();
+  await userEvent.selectOptions(select, 'en');
+  expect(within(f).queryByText(NOT_CALLABLE)).toBeNull();
+  expect(within(f).getByText(/영어로 쓰고 한국어 번역을 함께/)).toBeVisible();
+  await userEvent.selectOptions(select, 'vi');
+  expect(within(f).getByText(NOT_CALLABLE)).toBeVisible();
+  await userEvent.click(within(f).getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(lastWrite()?.method).toBe('PATCH'));
+  expect(lastWrite()?.body).toEqual({ language: 'vi' });
 });

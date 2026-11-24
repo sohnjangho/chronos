@@ -4,7 +4,8 @@
 
 - 받아쓰기는 `{role: agent|peer, text(redact.hide_phones), t}` — 우리 말과 상대 말을 가른다. 통화 중에는 한 줄씩 짧게 적고(실패해도
   통화는 이어진다), 끝에 모은 것을 한꺼번에 다시 적는다.
-- 첫 발화가 AI 비서·기록을 밝히지 않으면(greeting.discloses + 부정 말 거르기) 고정 첫마디를 한 번 더 시키고, 그래도 아니면 끊는다.
+- 첫 발화가 AI 비서·기록을 밝히지 않으면(greeting.discloses — 그 통화 언어의 꼭 하는 말·부정 말, Task 100) 고정 첫마디를 한 번
+  더 시키고, 그래도 아니면 끊는다.
 - 끝: 받음 → completed(+길이·사용량) · 받은 뒤 연결·세션이 끊김(END_LOST) → failed 「확인 필요」 · 받지 않음/통화 중/
   실패 → 그 상태(+받지 않음은 gate.after_no_answer) · 고장 → failed(`call_result` backend_error). 모든 쓰기는 짧은 세션을 스레드에서.
 - 통화 뒤 일(after_call → Task 89 after.finish)은 끝 손잡이 안에서 돌지 않는다: 통화를 돌린 쪽이 place 가 끝난 뒤 `run_after`
@@ -57,7 +58,6 @@ NOT_DISCLOSED = "첫마디에 AI 비서·기록 안내가 없어 끊었습니다
 LOST = "통화 연결이 중간에 끊겼습니다 — 확인 필요"
 TOOL_CAP = "이 통화에서는 더 처리할 수 없습니다"
 _LIVE = ("dialing", "in_call")
-_NEGATIONS = ("아니", "않")  # discloses 는 낱말만 본다 — 「AI 가 아니고 … 기록되지 않습니다」를 밝힌 것으로 치지 않는다
 
 
 async def after_call(call_id: int, box: Toolbox | None = None) -> None:
@@ -248,8 +248,9 @@ class CallRun:
 
 
 def _discloses(language: str, spoken: str) -> bool:
-    heard = "".join(spoken.split()) if isinstance(spoken, str) else ""
-    return greeting.discloses(language, spoken) and not any(word in heard for word in _NEGATIONS)
+    """그 통화 언어(spec.language)로 AI 임·기록됨을 밝혔는가 — 부정 말(「AI 가 아니고 … 기록되지 않습니다」 · not …)은 greeting 이
+    언어마다 거른다(Task 100 — 예전에는 여기서 한국어 부정 말만 걸렀다)."""
+    return greeting.discloses(language, spoken)
 
 
 # ── 통화의 쓰기(스레드에서, 짧은 세션, 곧바로 commit) ─────────────────────────────

@@ -9,7 +9,7 @@
 
 from collections.abc import Iterable
 
-from app.outreach import redact
+from app.outreach import languages, redact
 from app.outreach.harness import rules_text
 
 MAX_ITEMS = 10  # 질문·피할 것 각각 이만큼까지
@@ -57,7 +57,7 @@ def outbound(site: str, contact_name: str, role_title: str, company: str, purpos
         f"현장: {_clean(site)}",
         f"건 분: {who}",
         f"통화 목적: {_clean(purpose) or '일정 확인'}",
-        f"대화 언어 코드: {_clean(language) or 'ko'}",
+        languages.line(language, languages.SPEAK),  # 「상대의 언어: en(영어). 영어로 말합니다.」(Task 100 — 글 쪽과 같은 상수)
         "",
         rules_text.scope_paragraph("outbound"),
         *rules_text.FIXED.values(),
@@ -80,6 +80,6 @@ def inbound(caller_class: str, site: str | None, name: str | None, language: str
         lines.append(f"현장: {_clean(site)}")
     if _clean(name):
         lines.append(f"상대 이름(주소록): {_clean(name)}")
-    lines += [f"대화 언어 코드: {_clean(language) or 'ko'}", "", rules_text.scope_paragraph(caller_class),
+    lines += [languages.line(language, languages.SPEAK), "", rules_text.scope_paragraph(caller_class),
               *rules_text.FIXED.values(), *INBOUND_LINES]
     return "\n".join(lines)

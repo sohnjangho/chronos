@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ApiError } from '../../shared/api';
 import Button from '../../shared/ui/Button';
+import { CALLABLE_LANGUAGES, NOT_CALLABLE } from './CallDialog';
 import {
   getPerson, KIND_LABEL, LANGUAGES, patchPerson, postPerson, revealPhone,
   type Company, type Gender, type Hours, type Language, type PersonBody, type PersonDetail, type VoiceMode,
@@ -353,6 +354,18 @@ function ChannelsField({ detail, followsNumber, touched, setTouched, kakaoReady,
 
 type SetValue = <K extends keyof Values>(k: K, val: Values[K]) => void;
 
+/** 고른 언어로 무엇이 달라지나(Task 100): 한국어가 아니면 문자는 그 언어 + 한국어 번역, 통화가 준비되지 않은 언어는 한국어로 건다. */
+function LanguageHint({ language }: { language: Language }) {
+  if (language === 'ko') return null;
+  const label = LANGUAGES.find((l) => l.key === language)?.label ?? language;
+  return (
+    <>
+      <p className="ct-hint">{`문자는 ${label}로 쓰고 한국어 번역을 함께 보입니다. 받은 문자도 한국어로 옮겨 보입니다.`}</p>
+      {!CALLABLE_LANGUAGES.has(language) && <p className="ct-hint is-warn">{NOT_CALLABLE}</p>}
+    </>
+  );
+}
+
 /** 성별 · 언어 · 음성(자동/직접 지정). 음성 SDK 가 음성 목록을 주지 않아(Task 99 · 진단 P9) 직접 지정은 음성 id 를 손으로 넣는다. */
 function ProfileFields({ v, set, voiceError }: { v: Values; set: SetValue; voiceError?: string }) {
   const genders = [
@@ -383,6 +396,7 @@ function ProfileFields({ v, set, voiceError }: { v: Values; set: SetValue; voice
           ))}
         </select>
       </label>
+      <LanguageHint language={v.language} />
       <fieldset className="ct-fieldset" aria-label="음성">
         <legend className="ct-label">음성(AI 전화)</legend>
         <div className="ct-checks">

@@ -5,6 +5,7 @@
 // 새 통화는 먼저 쓰고 [저장](초안 — 걸지 않음)한 뒤 그 초안을 확인하고 건다. [전화 걸기]는 진짜 전화로 이어진다: 한 번에 요청 하나(두 번 눌러도),
 // 걸기 바로 전에 그 줄을 다시 읽어 보인 것과 다르면 걸지 않고 새 내용을 보인다(승인한 내용 = 거는 내용). 결과는 문의 판정 글 그대로이고,
 // 답을 못 받으면(시간 초과 포함) 「…확인하지 못했습니다」(실패가 아니다) 뒤 다시 읽는다. 번호는 서버가 가려 주고 번호가 든 글은 서버가 막는다.
+// 통화가 준비되지 않은 언어(Task 100 — 진단 P10 전)면 「이 언어는 통화가 준비되지 않았습니다 — 한국어로 겁니다」(서버가 한국어로 건다).
 import { useEffect, useRef, useState } from 'react';
 import { useWindows } from '../../os/windowStore';
 import { ApiError } from '../../shared/api';
@@ -21,6 +22,9 @@ import XferDialog from './XferDialog';
 export const TITLE = '전화 걸기';
 export const CHANGED = '내용이 바뀌었습니다 — 확인한 뒤 다시 눌러 주세요';
 export const UNREAD = '지금 상태를 읽지 못해 걸지 않았습니다 — 다시 눌러 주세요';
+/** AI 전화가 되는 언어(서버 languages.CALLABLE 과 같다 — 음성 진단 P10 이 통과한 언어만, 11-24 영어). 나머지는 서버가 한국어로 건다. */
+export const CALLABLE_LANGUAGES: ReadonlySet<string> = new Set(['ko', 'en']);
+export const NOT_CALLABLE = '이 언어는 통화가 준비되지 않았습니다 — 한국어로 겁니다';
 const PLACEABLE = new Set(['draft', 'blocked_hours']);
 const RETRY_TIME = new Set(['past_time', 'outside_hours']); // 다른 시각을 고르면 되는 거절
 const KST_MS = 9 * 3_600_000;
@@ -270,6 +274,8 @@ export default function CallDialog({ scheduleId, person, callId, blocked, onClos
   const draftLike = row !== null && PLACEABLE.has(row.status) && ours;
   const at = draftLike ? scheduleAt(row, detail) : undefined;
   const shownNote = note && row && note.text === callStatusLabel(row).text ? null : note; // 지금 상태 줄이 같은 말을 하면 한 번만
+  const language = editing || row === null ? form.language : row.language; // 쓰는 중이면 고르는 값, 아니면 저장된 값
+  const notCallable = ours && !data.loadError && !(callId !== null && row === null) && !CALLABLE_LANGUAGES.has(language);
 
   const foot = editing ? (
     <>
@@ -313,6 +319,7 @@ export default function CallDialog({ scheduleId, person, callId, blocked, onClos
               onSchedule={(when) => void schedule(row, when)} />
           </>
         )}
+        {notCallable && <p className="th-note is-warn">{NOT_CALLABLE}</p>}
         {shownNote && (
           <p role="status" className={`th-note is-${shownNote.tone}`}>
             {shownNote.text}

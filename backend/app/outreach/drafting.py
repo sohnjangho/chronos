@@ -15,6 +15,7 @@
 - 부르기는 한 번: `LlmClient.chat("normal", …, json_schema={body, body_ko})`, 시간 TIMEOUT_S·답 길이 MAX_TOKENS.
   연결 없음은 DraftNotReady, 실패·시간 초과·쓸 수 없는 답은 DraftFailed(글·답 내용은 남기지 않는다).
 - 한국어(`ko`)가 아닌 사람은 body(그 언어)와 body_ko(한국어 번역)가 둘 다 있어야 한다. `ko` 면 body_ko 는 None.
+  쓸 언어는 자료 뒤 한 줄 `languages.line(언어, WRITE)`(Task 100 — 음성·글 지시문과 같은 상수). 모르는 언어 코드는 한국어.
 """
 
 import json
@@ -28,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cpm import ScheduleError
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady
-from app.outreach import hours
+from app.outreach import hours, languages
 from app.outreach.harness import facts
 from app.outreach.redact import hide_phones
 from app.store import contacts, outreach, schedules, view
@@ -138,11 +139,12 @@ def material(session: Session, schedule_id: int, who: Contact, channel: str, act
     }
 
 
-def _user_text(data: dict, hint: str) -> str:
+def _user_text(data: dict, hint: str, language: str) -> str:
     # 자료 안의 < > 는 JSON 이스케이프로 — 상대 글이 </자료> 를 써도 자료 밖으로 나오지 않는다
     block = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
     asked = _hide(hint).strip() or "(없음 — 최근 대화와 고른 작업에 맞춰 써 주세요)"
-    return f"<자료>{block}</자료>\n\n담당자 요청: {asked}"
+    # 쓸 언어 한 줄(Task 100 — 음성·글 지시문과 같은 상수): 「상대의 언어: en(영어). 영어로 씁니다.」
+    return f"<자료>{block}</자료>\n\n{languages.line(language, languages.WRITE)}\n\n담당자 요청: {asked}"
 
 
 def _text(value: object) -> str | None:
@@ -159,7 +161,7 @@ def _drafted(parsed: object, language: str) -> Drafted:
     if body is None:
         logger.warning("에이전트 초안: 답에 글이 없음")
         raise DraftFailed
-    if language == "ko":
+    if languages.code(language) == "ko":  # 모르는 언어도 한국어(languages.code)
         return Drafted(body, None)
     if body_ko is None:
         logger.warning("에이전트 초안: 한국어가 아닌 상대인데 한국어 번역이 없음")
@@ -175,7 +177,8 @@ async def draft_message(session: Session, schedule_id: int, contact_id: int, cha
     who = contacts.get_contact(session, schedule_id, contact_id)
     messages = [
         {"role": "system", "content": PROMPT.read_text(encoding="utf-8")},
-        {"role": "user", "content": _user_text(material(session, schedule_id, who, channel, activity_id), hint)},
+        {"role": "user", "content": _user_text(material(session, schedule_id, who, channel, activity_id), hint,
+                                               who.language)},
     ]
     try:
         reply = await client_for(session).chat("normal", messages, json_schema=SCHEMA, timeout_s=TIMEOUT_S,

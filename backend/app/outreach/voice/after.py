@@ -14,6 +14,8 @@
   목적·물어볼 것, 답(뒤 확인 뒤의 quote_found 가 참이 아니면 「확인 필요」), 저장된 받아쓰기(쪽·초·말 — 줄 MAX_LINES,
   한 줄 LINE_CHARS, 합 TEXT_CHARS). **번호 없음**: 연락처 번호 칸을 읽지 않고, 모든 자유 글은 `hide_phones` 를 한 번 더
   거친다(저장된 가린 글은 가린 채 — 되살리지 않는다). 지시문은 `app/agent/prompts/call_summary.md`.
+- **언어**(Task 100): 자료에 「통화 언어」(languages.name)를 싣고, 받아쓰기는 그 언어 원문 그대로(번호만 가림) 준다. 요약·결과는
+  한국어만 쓴다 — 한국어가 아닌 답(languages.is_korean 거짓)은 쓸 수 없는 답이다.
 - **실패**(연결 없음·호출 실패·시간 초과·쓸 수 없는 답): summary_ko 는 빈 글 그대로, 결과 제안도 없고 통화 기록은 바뀌지 않는다.
   사용량 `add_usage(session, "summary", ref=("call", id), model, input_tokens, output_tokens, cost)` 은 **답이 온 때만**(쓸 수
   없는 답도 토큰을 썼으므로 센다. 연결 없음·호출 실패·시간 초과는 받은 토큰이 없어 세지 않는다 — llm_calls 에는 LlmClient 가 남긴다).
@@ -35,7 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.llm.client import LlmClient, LlmFailed, LlmNotReady, LlmReply
-from app.outreach import hours
+from app.outreach import hours, languages
 from app.outreach.harness import door, review
 from app.outreach.harness.tools import Toolbox
 from app.outreach.harness.types import CallerClass, Ref, Scope
@@ -209,6 +211,7 @@ def _material(session: Session, row: OutreachCall, ended: datetime) -> dict:
         "현장": _hide(record.name if record is not None else ""),
         "상대": _peer(session, row),
         "방향": "우리가 건 통화" if row.direction == "out" else "받은 통화",
+        "통화 언어": languages.name(row.language),  # 받아쓰기는 이 언어 그대로, 요약은 한국어(Task 100)
         "목적": _hide(row.purpose),
         "물어볼 것": [_hide(q) for q in questions[:MAX_QUESTIONS]],
         "답": _answers(row),
@@ -250,8 +253,8 @@ def _text(value: object, limit: int) -> str | None:
 def _usable(reply: LlmReply) -> tuple[str, str] | None:
     parsed = reply.parsed if isinstance(reply.parsed, dict) else {}
     summary, result = _text(parsed.get("summary_ko"), SUMMARY_CHARS), _text(parsed.get("result"), RESULT_CHARS)
-    if not summary or result is None:
-        return None
+    if not summary or result is None or not languages.is_korean(summary) or not languages.is_korean(result):
+        return None  # 요약·결과는 한국어만(Task 100 — 영어 통화라도 영어 요약은 담당자가 읽을 글이 아니다)
     return summary, result or NO_RESULT
 
 
