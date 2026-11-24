@@ -63,6 +63,7 @@ export function routes(over: Routes = {}): Routes {
     '/api/llm/assignments': ASSIGNMENTS,
     '/api/llm/connections/1/models': { models: MODELS },
     '/api/settings/approval': { mode: 'important' },
+    '/api/settings/human-read': { role: 'admin' },
     '/api/auth/users': [{ id: 1, name: '손장호', role: 'admin', login_id: 'jhsohn' }],
     ...over,
   };

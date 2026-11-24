@@ -23,6 +23,9 @@ export type MePatch = { name?: string; password?: string };
 export const settingsApi = {
   approval: () => api<{ mode: ApprovalMode }>('/api/settings/approval'),
   saveApproval: (mode: ApprovalMode) => api<{ mode: ApprovalMode }>('/api/settings/approval', json('PUT', { mode })),
+  /** 사진 사람 판독을 할 수 있는 등급(PM 11-24): admin = 관리자만(기본), user = 사용자까지. 현장 관리자는 늘 못 한다. */
+  humanRead: () => api<{ role: 'admin' | 'user' }>('/api/settings/human-read'),
+  saveHumanRead: (role: 'admin' | 'user') => api<{ role: 'admin' | 'user' }>('/api/settings/human-read', json('PUT', { role })),
   updateMe: (body: MePatch) => api<User>('/api/auth/me', json('PATCH', body)),
   accounts: () => api<Account[]>('/api/auth/users'),
   createAccount: (body: NewAccount) => api<Account>('/api/auth/users', json('POST', body)),

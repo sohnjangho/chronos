@@ -4,6 +4,7 @@ import { useWindows } from '../../os/windowStore';
 import Button from '../../shared/ui/Button';
 import Field from '../../shared/ui/Field';
 import { APPROVAL_MODES, approvalLabel, type ApprovalMode, type LlmError } from './model';
+import HumanReadRoleCard from './HumanReadRoleCard';
 import { ErrorLine, toProblem } from './parts';
 import { settingsApi } from './settingsApi';
 
@@ -191,6 +192,8 @@ export default function ApprovalSection() {
           </Button>
         </div>
       </section>
+
+      <HumanReadRoleCard />
 
       <section className="st-card st-card-subtle" aria-label="개발 콘솔 에이전트 설정">
         <div className="st-card-head">

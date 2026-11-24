@@ -54,14 +54,27 @@ test('admin saves the approval level', async () => {
   const { fetchMock } = renderAs('admin', { section: 'approval' }, { 'PUT /api/settings/approval': { mode: 'auto' } });
   expect(heading()).toHaveTextContent('승인 수준');
   expect(await screen.findByRole('radio', { name: /^중요한 것만/ })).toBeChecked();
-  expect(screen.getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['all', 'important', 'auto']);
-  const save = screen.getByRole('button', { name: '저장' });
+  const level = screen.getByRole('group', { name: '승인 수준' });
+  expect(within(level).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['all', 'important', 'auto']);
+  const save = screen.getAllByRole('button', { name: '저장' })[0];
   expect(save).toBeDisabled();
   await userEvent.click(screen.getByRole('radio', { name: /^자동/ }));
   await userEvent.click(save);
   expect(await screen.findByText('저장했습니다.')).toBeVisible();
   expect(sent(fetchMock, 'PUT /api/settings/approval')).toEqual([{ mode: 'auto' }]);
   expect(save).toBeDisabled();
+});
+
+// PM 11-24: 사진 사람 판독을 누가 할지(기본 관리자만, 넓히면 사용자까지). 현장 관리자는 고를 수 없다.
+test('admin widens photo human reading to users', async () => {
+  const { fetchMock } = renderAs('admin', { section: 'approval' }, { 'PUT /api/settings/human-read': { role: 'user' } });
+  const card = await screen.findByRole('region', { name: '사진 사람 판독' });
+  expect(await within(card).findByRole('radio', { name: /^관리자만/ })).toBeChecked();
+  expect(within(card).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['admin', 'user']);
+  await userEvent.click(within(card).getByRole('radio', { name: /^관리자와 사용자/ }));
+  await userEvent.click(within(card).getByRole('button', { name: '저장' }));
+  expect(await within(card).findByText('저장했습니다.')).toBeVisible();
+  expect(sent(fetchMock, 'PUT /api/settings/human-read')).toEqual([{ role: 'user' }]);
 });
 
 test('section param opens that section and an admin-only one falls back to 내 정보 for a user', () => {
