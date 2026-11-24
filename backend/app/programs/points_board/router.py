@@ -3,14 +3,15 @@
 - history: 보드 칸(window — Data Date 부터 w 주, 마지막 칸 끝 = 포인트 계산의 창 끝), 버전마다 포인트 수와 들어옴·빠짐(까닭)·
   여유 줄어듦(저장한 카드 차이 그대로), 열린 지연의 가정(미리 보기) 줄, activity 를 주면 그 작업의 버전별 여유(여유 흐름).
   여유는 그 버전에 포인트였으면 저장한 값, 아니면 그 버전 일정(조건 넣고 자원 맞춤)을 계산한 값 — 엔진 값만, 지어내지 않는다.
-- accel: points.accel_check 와 같은 계산(tools.points.accel_check.check). 일정은 바뀌지 않는다.
+- accel: points.accel_check 와 같은 계산(tools.points.accel_check.check). 일정은 바뀌지 않는다. 없는 작업 404, 실적이 있으면 409
+  (받은 id 를 글에 되풀이하지 않는다), 그 밖의 거절(마일스톤·더 줄일 기간 없음) 422.
 권한은 일정 읽기와 같다(로그인한 누구나 — 현장 관리자 포함). 조회·연락 API(app.programs.points)와 같은 경로 아래에 붙는다.
 """
 
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,6 +33,9 @@ from app.tools.points import accel_check
 
 SCHEDULE_NOT_FOUND_MESSAGE = "일정을 찾을 수 없습니다."
 PREVIEW_NOTE = "열린 지연을 넣은 가정"
+NO_ACTIVITY = "작업을 찾을 수 없습니다."
+HAS_ACTUALS = "실적이 있는 작업은 당길 수 없습니다."
+ACTIVITY_ID_MAX = 64
 HISTORY_MAX = 30  # 바뀜 기록에 싣는 최근 버전 수
 FLOAT_MAX = 8  # 여유 흐름에 싣는 최근 버전 수(포인트가 아니었던 버전은 그 버전을 계산한다)
 
@@ -127,7 +131,12 @@ def history(session: Session, schedule_id: int, activity: str | None = None) -> 
 
 
 def accel(session: Session, schedule_id: int, activity_id: str, days: int) -> dict:
-    _current(session, schedule_id)
+    schedule, _ = _current(session, schedule_id)
+    act = next((a for a in schedule.activities if a.id == activity_id), None)
+    if act is None:  # 받은 id 를 글에 되풀이하지 않는다
+        raise ApiError(404, "not_found", NO_ACTIVITY)
+    if act.actual_start is not None or act.actual_finish is not None:
+        raise ApiError(409, "has_actuals", HAS_ACTUALS)
     try:
         out = accel_check.check(session, schedule_id, activity_id, days)
     except AccelRefused as e:
@@ -145,6 +154,7 @@ def get_history(schedule_id: int, session: SessionDep, activity: Annotated[str |
 
 
 @board_router.post("/{schedule_id}/points/{activity_id}/accel")
-def post_accel(schedule_id: int, activity_id: str, body: AccelIn, session: SessionDep) -> dict:
+def post_accel(schedule_id: int, activity_id: Annotated[str, Path(max_length=ACTIVITY_ID_MAX)], body: AccelIn,
+               session: SessionDep) -> dict:
     """「당겨도 소용 있나」 — 도구 points.accel_check 와 같은 계산(읽기)."""
     return accel(session, schedule_id, activity_id, body.days)

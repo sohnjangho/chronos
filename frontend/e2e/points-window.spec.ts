@@ -204,7 +204,7 @@ for (const size of SIZES) {
       const tag = `${size.name}-${theme}`;
 
       const w = win(page);
-      await page.waitForTimeout(500); // 앞 시험에서 연 창은 다시 열린다(서버에 둔 창 배치)
+      await w.waitFor({ state: 'visible', timeout: 3000 }).catch(() => undefined); // 앞 시험에서 연 창은 다시 열린다(서버에 둔 창 배치)
       if (!(await w.isVisible())) await page.locator('.os-dock-btn[aria-label="관리 포인트"], .os-dock-btn[aria-label^="관리 포인트,"]').click();
       await expect(w).toBeVisible();
       if ((await w.locator('.os-lt-max').getAttribute('title')) === '최대화') await w.locator('.os-lt-max').click();

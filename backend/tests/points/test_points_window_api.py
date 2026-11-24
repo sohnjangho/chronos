@@ -175,9 +175,13 @@ def test_accel_api_refusals_and_bad_input(client, admin, session):
         data_date=date(2027, 3, 2))
     sid = store(session, done)
     r = client.post(_url(sid, "/A/accel"), json={"days": 1}, headers=admin)
-    assert (r.status_code, r.json()["code"]) == (422, "accel_refused") and "실적" in r.json()["message"]
-    r = client.post(_url(sid, "/NOPE/accel"), json={"days": 1}, headers=admin)
-    assert (r.status_code, r.json()["code"]) == (422, "accel_refused")
+    assert (r.status_code, r.json()["code"]) == (409, "has_actuals") and "실적" in r.json()["message"]
+    r = client.post(_url(sid, "/NOPE<b>/accel"), json={"days": 1}, headers=admin)
+    assert (r.status_code, r.json()["code"]) == (404, "not_found") and "NOPE" not in r.text  # 받은 id 를 되풀이하지 않는다
+    assert client.post(_url(sid, f"/{'X' * 65}/accel"), json={"days": 1}, headers=admin).status_code == 422
+    one_day = replace(_side(), activities=(*_side().activities, task("M", 1, name="M 작업")))
+    r = client.post(_url(store(session, one_day), "/M/accel"), json={"days": 1}, headers=admin)
+    assert (r.status_code, r.json()["code"]) == (422, "accel_refused")  # 1일짜리 — 더 줄일 기간 없음
     for bad in ({"days": 0}, {"days": 366}, {"days": 2, "x": 1}, {}):
         assert client.post(_url(sid, "/B/accel"), json=bad, headers=admin).status_code == 422
     r = client.post(_url(999, "/B/accel"), json={"days": 1}, headers=admin)

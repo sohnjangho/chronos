@@ -7,7 +7,7 @@ import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import { md, span, stamp } from './format';
 import PointContact from './PointContact';
-import { Risks } from './Risks';
+import { RiskRetry, Risks } from './Risks';
 import { errorText, getHistory, postAccel, type AccelResult, type FloatRow, type HistoryEntry, type Point, type QuoteState, type Risk } from './pointsApi';
 
 const DAYS_MAX = 365;
@@ -86,7 +86,7 @@ function Accel({ sid, aid }: { sid: number; aid: string }) {
       {result && (
         <div className="pt-accel-r" role="status">
           <p className={`pt-line${result.warn && !over ? ' is-warn' : ''}`}>{result.warn_line ?? `당긴 ${result.pulled_days}일 중 ${result.reached_days}일이 준공에 반영됩니다`}</p>
-          <p className="pt-muted">{`준공 반영 ${result.pulled_days}일 중 ${result.reached_days}일 · 기간 ${result.od_before}일 → ${result.od_after}일 · 준공 ${md(result.finish_before)} → ${md(result.finish_after)}`}</p>
+          <p className="pt-muted">{`기간 ${result.od_before}일 → ${result.od_after}일 · 준공 ${md(result.finish_before)} → ${md(result.finish_after)}`}</p>
           {result.next_chain.length > 0 && (
             <p className="pt-chain">
               <span className="pt-muted">{result.same_chain ? '당긴 뒤에도 같은 줄이 일정을 정합니다: ' : '당긴 뒤 일정을 정하는 다음 줄: '}</span>
@@ -117,13 +117,17 @@ export interface DetailProps {
   quotes: Record<string, QuoteState | null>;
   looking: boolean;
   entries: HistoryEntry[];
+  failed: boolean;
+  riskMessage: string;
   canContact: boolean;
   onQuote(key: string, q: QuoteState): void;
+  onRetry(): Promise<void>;
   onBack?: () => void;
 }
 
 export default function PointDetail(props: DetailProps) {
   const { sid, point, version, k, dataDate, change, responsible, risks, quotes, looking, entries, canContact, onQuote, onBack } = props;
+  const { failed, riskMessage, onRetry } = props;
   const [contact, setContact] = useState(false);
   const recovery = () =>
     useWindows.getState().open('chat', { ask: `${point.activity_id} 「${point.name}」 일정을 지킬 만회 계획을 만들어 줘` });
@@ -162,6 +166,7 @@ export default function PointDetail(props: DetailProps) {
       <div className="pt-sec">여유 흐름</div>
       <FloatFlow sid={sid} aid={point.activity_id} version={version} k={k} entries={entries} />
       <div className="pt-sec">바깥 위험</div>
+      {failed && <RiskRetry message={riskMessage} onRetry={onRetry} />}
       <Risks sid={sid} aid={point.activity_id} risks={risks} quotes={quotes} looking={looking} onQuote={onQuote} />
       <div className="pt-sec">당겨도 소용 있나</div>
       <Accel key={point.activity_id} sid={sid} aid={point.activity_id} />

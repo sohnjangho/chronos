@@ -123,3 +123,30 @@ export function Risks({ sid, aid, risks, quotes, looking, onQuote }: {
     </>
   );
 }
+
+/** 바깥 위험 찾기가 실패했을 때(멈춘 것 포함): 서버 글과 [다시 찾기](사람이 누를 때만). */
+export function RiskRetry({ message, onRetry }: { message: string; onRetry(): Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const press = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await onRetry();
+    } catch (e) {
+      setError(errorText(e, '다시 찾지 못했습니다.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="pt-retry" role="alert">
+      <span>{message || '바깥 위험을 찾지 못했습니다'}</span>
+      <button type="button" className="pt-link" disabled={busy} onClick={() => void press()}>
+        다시 찾기
+      </button>
+      {error && <span className="pt-error">{error}</span>}
+    </div>
+  );
+}

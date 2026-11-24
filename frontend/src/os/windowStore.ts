@@ -45,6 +45,7 @@ export const SCHEDULE_BOUND_PROGRAMS = new Set([
   'progress',
   'conditions',
   'delays',
+  'points',
   'compare',
   'contacts',
 ]);

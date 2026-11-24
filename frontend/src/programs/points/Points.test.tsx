@@ -73,10 +73,14 @@ const PEOPLE = { activity_id: 'A1510', name: '커튼월 공장 제작', people: 
 ] };
 
 let calls: { method: string; url: string; body: unknown }[];
+let viewReply: () => PointsView;
+let retryReply: { status: number; body: unknown };
 const open = vi.fn();
 
 beforeEach(() => {
   calls = [];
+  viewReply = () => VIEW;
+  retryReply = { status: 200, body: { ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' } };
   signInAsDemo('admin');
   open.mockReset();
   useWindows.setState({ open, setTitle: vi.fn() } as never);
@@ -86,7 +90,8 @@ beforeEach(() => {
     const method = init?.method ?? 'GET';
     calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : null });
     if (url === '/api/schedules') return json(200, [{ id: 1, name: '5층 사무동 신축', level: 'L3' }, { id: 2, name: '가람 물류센터', level: 'L2' }]);
-    if (url === '/api/schedules/1/points') return json(200, VIEW);
+    if (url === '/api/schedules/1/points') return json(200, viewReply());
+    if (url === '/api/schedules/1/points/risks/retry') return json(retryReply.status, retryReply.body);
     if (url === '/api/schedules/1/points/history') return json(200, HIST);
     if (url === '/api/schedules/1/points/history?activity=A1510') return json(200, { ...HIST, float: FLOAT });
     if (url === '/api/schedules/1/points/A1510/accel') return json(200, ACCEL);
@@ -105,6 +110,7 @@ afterEach(() => {
   useCurrentSchedule.setState({ current: null });
   useUiContext.getState().reset();
   useDeviceMode.getState().setMode('auto');
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -138,9 +144,11 @@ test('the board puts point cards in this week / next week / the week after by st
   expect(factory).toHaveTextContent('바뀜 4 → 1');
   expect(within(factory).getByRole('img', { name: '자재' })).toBeInTheDocument(); // 자료가 있는 위험 갈래만
   expect(within(factory).queryByRole('img', { name: '환율' })).toBeNull();
+  expect(factory).toHaveTextContent('(주)가람커튼월'); // 담당(카드에 있을 때) — 작업 ID 는 보이지 않는다
+  expect(factory).not.toHaveTextContent('A1510');
 });
 
-test('the top strip shows the schedule, version, basis with the settings link for admins, and the counts', async () => {
+test('the top strip shows the schedule, version, basis (admins: changed in the dev console) and the counts', async () => {
   show();
   await screen.findByRole('region', { name: '이번 주' });
   expect(screen.getByRole('combobox', { name: '일정' })).toHaveValue('1');
@@ -149,8 +157,7 @@ test('the top strip shows the schedule, version, basis with the settings link fo
   expect(screen.getByText('크리티컬').closest('.pt-count')).toHaveTextContent('크리티컬 2');
   expect(screen.getByText('크리티컬 직전').closest('.pt-count')).toHaveTextContent('크리티컬 직전 2');
   expect(screen.getByText('이번에 바뀜').closest('.pt-count')).toHaveTextContent('이번에 바뀜 2');
-  await userEvent.click(screen.getByRole('button', { name: '설정에서 바꾸기' }));
-  expect(open).toHaveBeenCalledWith('devconsole', { tab: 'harness' });
+  expect(screen.getByText('관리자가 개발 콘솔에서 바꿉니다')).toBeVisible();
   expect(useWindows.getState().setTitle).toHaveBeenCalledWith('w1', '관리 포인트 — 5층 사무동 신축');
 });
 
@@ -176,7 +183,7 @@ test('the history strip shows the preview and versions; 모두 보기 groups eve
   expect(v8).toHaveTextContent('빠짐 · 경량 벽체 1~3층 — 창 밖으로 밀림');
   expect(v8).toHaveTextContent('들어옴 · 커튼월 공장 제작 · 여유 4일 → 1일');
   expect(screen.getByRole('region', { name: '미리 보기' })).toHaveTextContent('들어옴 · 커튼월 자재 반입 · 크리티컬이 됨 · 여유 0일');
-  expect(screen.getByRole('region', { name: '버전 1' })).toHaveTextContent('처음 계산한 버전이라');
+  expect(screen.getByRole('region', { name: '버전 1' })).toHaveTextContent('앞과 견준 기록이 없습니다');
   await userEvent.type(screen.getByRole('searchbox', { name: '바뀜 기록 찾기' }), '경량');
   expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['버전 8']);
   await userEvent.click(screen.getByRole('button', { name: '보드로' }));
@@ -213,7 +220,8 @@ test('「당겨도 소용 있나」 asks the server and shows the result line an
   await userEvent.click(within(d).getByRole('button', { name: '계산' }));
   const result = await within(d).findByRole('status');
   expect(result).toHaveTextContent('당긴 3일 중 0일만 준공에 반영됩니다');
-  expect(result).toHaveTextContent('준공 반영 3일 중 0일 · 기간 9일 → 6일');
+  expect(result).toHaveTextContent('기간 9일 → 6일 · 준공 11.08 → 11.08');
+  expect(result).not.toHaveTextContent('준공 반영');
   expect(result).toHaveTextContent('당긴 뒤에도 같은 줄이 일정을 정합니다: 5층 골조관리 포인트 → 옥탑 골조');
   expect(result.querySelector('.pt-line')).toHaveClass('is-warn');
   expect(posts()).toEqual([{ method: 'POST', url: '/api/schedules/1/points/A1510/accel', body: { days: 3 } }]);
@@ -244,7 +252,7 @@ test('field managers read the board and detail but have no contact action and no
   const d = await screen.findByRole('region', { name: /자세히$/ });
   expect(within(d).queryByRole('button', { name: '담당자에게 확인 연락' })).toBeNull();
   expect(within(d).getByRole('button', { name: '만회안 보기' })).toBeVisible();
-  expect(screen.queryByRole('button', { name: '설정에서 바꾸기' })).toBeNull();
+  expect(screen.queryByText('관리자가 개발 콘솔에서 바꿉니다')).toBeNull();
   expect(screen.queryByRole('button', { name: '준비 상태 확인 요청' })).toBeNull(); // G 가 생길 때까지 숨김
   expect(calls.some((c) => c.url.endsWith('/contact'))).toBe(false);
 });
@@ -281,4 +289,63 @@ test('the window never scrolls sideways: columns and the detail scroll only up a
   expect(css).toMatch(/\.pt-col-b \{[^}]*overflow-y: auto; overflow-x: hidden/);
   expect(css).toMatch(/\.pt-side \{[^}]*overflow-y: auto; overflow-x: hidden/);
   expect(css).toMatch(/\.pt-card-h b \{[^}]*overflow-wrap: anywhere/);
+});
+
+const gets = (url: string) => calls.filter((c) => c.method === 'GET' && c.url === url).length;
+
+test('while risks are being looked up it re-reads only the points every 3 s, and stops after 15 minutes', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' });
+  show();
+  await screen.findByRole('region', { name: '이번 주' });
+  expect(gets('/api/schedules/1/points')).toBe(1);
+  await act(async () => void (await vi.advanceTimersByTimeAsync(3000)));
+  await waitFor(() => expect(gets('/api/schedules/1/points')).toBe(2));
+  expect(gets('/api/schedules/1/points/history')).toBe(1); // 같은 버전 — 기록은 다시 읽지 않는다
+  await act(async () => void (await vi.advanceTimersByTimeAsync(16 * 60_000)));
+  const stopped = gets('/api/schedules/1/points');
+  await act(async () => void (await vi.advanceTimersByTimeAsync(30_000)));
+  expect(gets('/api/schedules/1/points')).toBe(stopped);
+  expect(stopped).toBeLessThanOrEqual(2 + 15 * 20 + 1);
+});
+
+test('when polling sees a new version it stops polling and re-reads the history too; my quote state is dropped', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  viewReply = () => ({ ...VIEW, risk_status: 'looking', risk_message: '바깥 위험 찾는 중' });
+  show();
+  await screen.findByRole('region', { name: '이번 주' });
+  viewReply = () => ({ ...VIEW, version: 9, quotes: {} });
+  await act(async () => void (await vi.advanceTimersByTimeAsync(3000)));
+  await waitFor(() => expect(gets('/api/schedules/1/points/history')).toBe(2));
+  const after = gets('/api/schedules/1/points');
+  await act(async () => void (await vi.advanceTimersByTimeAsync(10_000)));
+  expect(gets('/api/schedules/1/points')).toBe(after); // 새 버전은 찾는 중이 아니다 — 폴링 끝
+});
+
+test('a delay change (delaysToken) re-reads the points and the history together', async () => {
+  show();
+  await screen.findByRole('region', { name: '이번 주' });
+  act(() => useCurrentSchedule.getState().bumpDelays());
+  await waitFor(() => expect(gets('/api/schedules/1/points/history')).toBe(2));
+  expect(gets('/api/schedules/1/points')).toBe(2);
+});
+
+test('a failed risk lookup shows the server message and [다시 찾기] retries only when pressed', async () => {
+  viewReply = () => ({ ...VIEW, risk_status: 'failed', risk_message: '바깥 위험을 찾지 못했습니다' });
+  show({ activity: 'A1510' });
+  const d = await screen.findByRole('region', { name: /자세히$/ });
+  expect(within(d).getByRole('alert')).toHaveTextContent('바깥 위험을 찾지 못했습니다');
+  expect(posts()).toEqual([]);
+  await userEvent.click(within(d).getByRole('button', { name: '다시 찾기' }));
+  await waitFor(() => expect(within(d).queryByRole('button', { name: '다시 찾기' })).toBeNull());
+  expect(posts()).toEqual([{ method: 'POST', url: '/api/schedules/1/points/risks/retry', body: { what_if: false } }]);
+});
+
+test('a refused retry shows why', async () => {
+  viewReply = () => ({ ...VIEW, risk_status: 'failed', risk_message: '바깥 위험을 찾지 못했습니다' });
+  retryReply = { status: 409, body: { code: 'not_failed', message: '다시 찾을 것이 없습니다.' } };
+  show({ activity: 'A1510' });
+  const d = await screen.findByRole('region', { name: /자세히$/ });
+  await userEvent.click(within(d).getByRole('button', { name: '다시 찾기' }));
+  expect(await within(d).findByText('다시 찾을 것이 없습니다.')).toBeVisible();
 });

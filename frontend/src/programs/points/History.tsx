@@ -72,7 +72,7 @@ export function HistoryAll({ hist }: { hist: History }) {
               {e.count !== null && <span className="pt-muted">{`포인트 ${e.count}곳(크리티컬 ${e.critical ?? 0})`}</span>}
             </div>
             {!e.recorded ? (
-              <p className="pt-muted pt-hist-empty">처음 계산한 버전이라 앞과 견준 기록이 없습니다.</p>
+              <p className="pt-muted pt-hist-empty">앞과 견준 기록이 없습니다.</p>
             ) : lines.length === 0 ? (
               <p className="pt-muted pt-hist-empty">관리 포인트는 그대로입니다.</p>
             ) : (

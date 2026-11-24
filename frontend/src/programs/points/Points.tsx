@@ -2,8 +2,8 @@
 // 시작)를 주 칸(이번 주 · 다음 주 · 그다음 주 …)에 시작일 순 카드로 놓고, 아래 얇은 띠에 버전마다 들어옴·빠짐을 보인다.
 // 카드를 누르면 오른쪽 자세히(여유 흐름 · 바깥 위험 · 당겨도 소용 있나 · 담당자 연락 · 만회안). 폰·좁은 창은 주 하나씩(‹ › · 밀기) → 누르면 자세히.
 // params: id(일정, 없으면 OS 지금 일정) · activity(고를 포인트). 모든 값은 서버 계산값 — 화면은 날짜를 계산하지 않는다.
-// 현장 관리자는 읽기만(담당자 연락 단추 없음). 「설정에서 바꾸기」(기준 k·w)는 개발 콘솔이라 관리자에게만.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject, type TouchEvent } from 'react';
+// 현장 관리자는 읽기만(담당자 연락 단추 없음). 기준 k·w 는 관리자가 개발 콘솔에서 바꾼다(Task 7 이 링크를 잇는다).
+import { useEffect, useRef, useState, type ReactNode, type RefObject, type TouchEvent } from 'react';
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import type { ProgramProps } from '../../os/registry';
 import type { ScheduleItem } from '../../os/ScheduleSelector';
@@ -16,12 +16,12 @@ import { Column, PointCard, Top } from './Board';
 import { changeOf, matches, md, riskKinds, weekIndex, weekName } from './format';
 import { HistoryAll, HistoryStrip } from './History';
 import PointDetail from './PointDetail';
-import { errorText, getHistory, getView, type History, type Point, type PointsView, type QuoteState } from './pointsApi';
+import type { Point } from './pointsApi';
+import { useBoard } from './useBoard';
 import './points.css';
 
 const NAME = '관리 포인트';
 const NARROW_MAX = 720; // 프로젝트 관리·연락처와 같은 폭
-const POLL_MS = 3000;
 const positiveInt = (s: string | undefined) => (s && /^\d+$/.test(s) && Number(s) > 0 ? Number(s) : null);
 
 /** 폰이거나 창 몸이 NARROW_MAX 이하면 주 하나씩(재지 못했으면 — 시험 환경 — 넓은 보드). */
@@ -54,45 +54,6 @@ function useSchedules() {
     };
   }, [reloadToken]);
   return items;
-}
-
-const prefer = (server: QuoteState | null | undefined, mine: QuoteState | undefined) =>
-  server && server.status !== 'pending' ? server : mine ?? server ?? null;
-
-/** 포인트 조회·바뀜 기록. 바깥 위험이나 근거 문장을 찾는 중이면 POLL_MS 마다 포인트 조회만 다시 읽는다. */
-function useBoard(sid: number) {
-  const [view, setView] = useState<PointsView | null>(null);
-  const [hist, setHist] = useState<History | null>(null);
-  const [error, setError] = useState('');
-  const [mine, setMine] = useState<Record<string, QuoteState>>({});
-  useEffect(() => {
-    let live = true;
-    Promise.all([getView(sid), getHistory(sid)])
-      .then(([v, h]) => {
-        if (!live) return;
-        setView(v);
-        setHist(h);
-      })
-      .catch((e) => live && setError(errorText(e, '관리 포인트를 읽지 못했습니다.')));
-    return () => {
-      live = false;
-    };
-  }, [sid]);
-  const quotes = useMemo(() => {
-    const out: Record<string, QuoteState | null> = { ...(view?.quotes ?? {}) };
-    for (const [k, q] of Object.entries(mine)) out[k] = prefer(view?.quotes[k], q);
-    return out;
-  }, [view, mine]);
-  const waiting = view !== null && (view.risk_status === 'looking' || Object.values(quotes).some((q) => q?.status === 'pending'));
-  useEffect(() => {
-    if (!waiting) return;
-    const t = setTimeout(() => {
-      getView(sid).then(setView).catch(() => undefined);
-    }, POLL_MS);
-    return () => clearTimeout(t);
-  }, [waiting, view, sid]);
-  const onQuote = useCallback((key: string, q: QuoteState) => setMine((m) => ({ ...m, [key]: q })), []);
-  return { view, hist, error, quotes, onQuote };
 }
 
 /** 폰·좁은 창: 주 하나씩(‹ › · 옆으로 밀기). */
@@ -151,7 +112,7 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
   const role = useSession((s) => s.session?.user.role ?? 'user');
   const schedules = useSchedules();
   const current = useCurrentSchedule((s) => s.current);
-  const { view, hist, error, quotes, onQuote } = useBoard(sid);
+  const { view, hist, error, quotes, onQuote, onRetry } = useBoard(sid, `points:${windowId}`);
   const [picked, setPicked] = useState<string | null>(params?.activity ?? null);
   const [query, setQuery] = useState('');
   const [all, setAll] = useState(false);
@@ -173,14 +134,16 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
   const shown = [...view.points].sort((a, b) => (a.es < b.es ? -1 : a.es > b.es ? 1 : 0)).filter((p) => matches(p, query));
   const byWeek = weeks.map((_, i) => shown.filter((p) => weekIndex(p.es, weeks) === i));
   const point = view.points.find((p) => p.activity_id === picked) ?? null;
-  const responsible = [...(view.card?.new ?? []), ...(view.card?.tightened ?? [])].find((x) => x.activity_id === picked)?.responsible ?? [];
+  const owners = new Map([...(view.card?.new ?? []), ...(view.card?.tightened ?? [])].map((x) => [x.activity_id, x.responsible ?? []]));
+  const responsible = (picked && owners.get(picked)) || [];
   const card = (p: Point) => (
-    <PointCard key={p.activity_id} p={p} change={changeOf(view.diff, p)} kinds={riskKinds(view.risks, p.activity_id)} dataDate={dataDate}
+    <PointCard key={p.activity_id} p={p} change={changeOf(view.diff, p)} kinds={riskKinds(view.risks, p.activity_id)} dataDate={dataDate} owners={owners.get(p.activity_id) ?? []}
       picked={p.activity_id === picked} onPick={() => setPicked(p.activity_id)} />
   );
   const detail = point && (
     <PointDetail sid={sid} point={point} version={view.version} k={view.basis.tf_days} dataDate={dataDate} change={changeOf(view.diff, point)}
       responsible={responsible} risks={view.risks} quotes={quotes} looking={view.risk_status === 'looking'} entries={hist.versions}
+      failed={view.risk_status === 'failed'} riskMessage={view.risk_message} onRetry={onRetry}
       canContact={role !== 'field'} onQuote={onQuote} onBack={single ? () => setPicked(null) : undefined} />
   );
   const top = (
@@ -232,6 +195,7 @@ function Body({ windowId, sid, setSid, params }: { windowId: string; sid: number
 export default function Points({ windowId, params }: ProgramProps) {
   const current = useCurrentSchedule((s) => s.current);
   const [chosen, setChosen] = useState<number | null>(null);
+  useEffect(() => setChosen(null), [params]); // 메뉴바에서 일정을 바꾸면(syncSchedule 이 params 를 바꿈) 창 안에서 고른 일정을 놓는다
   const sid = chosen ?? positiveInt(params?.id) ?? current?.id ?? null;
   useEffect(() => {
     if (sid !== null) return;

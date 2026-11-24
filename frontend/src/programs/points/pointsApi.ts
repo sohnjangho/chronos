@@ -143,6 +143,8 @@ export const postAccel = (sid: number, aid: string, days: number) => api<AccelRe
 /** [근거 문장 보기]·「다시 찾기」(retry) — 사람이 누를 때만. 찾기는 서버가 뒤에서 한다. */
 export const findQuote = (sid: number, aid: string, kind: string, retry: boolean) =>
   api<QuoteState>(`${one(sid, aid)}/quotes/${encodeURIComponent(kind)}`, post({ what_if: false, retry }));
+/** 「다시 찾기」: 실패한 바깥 위험 찾기를 다시 띄운다 → 포인트 조회와 같은 꼴(실패가 아니면 409). */
+export const retryRisks = (sid: number) => api<PointsView>(`${root(sid)}/risks/retry`, post({ what_if: false }));
 export const getPeople = (sid: number, aid: string) => api<{ activity_id: string; name: string; people: Person[] }>(`${one(sid, aid)}/contact`);
 export const previewContact = (sid: number, aid: string, contactId: number, channel: Channel) =>
   api<Preview>(`${one(sid, aid)}/contact`, post({ contact_id: contactId, channel, preview: true }));
