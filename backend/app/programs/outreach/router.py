@@ -37,6 +37,14 @@ def thread(
     return service.thread(session, schedule_id, contact_id, before, limit, user)
 
 
+@router.get("/{schedule_id}/outreach/replies")
+def replies(
+    schedule_id: int, session: SessionDep, field_item_id: Annotated[int, Query(ge=1)],
+) -> list[service.ReplyOut]:
+    """그 현장 항목에 이어진 받은 문자(회신 후보, 새것부터). 번호는 가린 글. 다른 일정·없는 항목 404."""
+    return service.replies(session, schedule_id, field_item_id)
+
+
 @router.post("/{schedule_id}/outreach/messages")
 async def create_message(schedule_id: int, body: MessageIn, session: SessionDep, user: UserDep) -> MessageResult:
     """초안을 만들고, send 면 나가는 문에 넣는다 → {message, outcome | null}. 막힌 것도 200."""

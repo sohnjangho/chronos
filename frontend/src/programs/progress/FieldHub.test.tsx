@@ -1,7 +1,7 @@
 // 현장 허브(FieldHub) 카드 시험: 사진 판독 결과(F1), 회신 전 카드·저장 알림·의견 조회 작성 칸(F7).
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { resizeImage } from '../../shared/files/resizeImage';
 import { useSession } from '../../os/session';
 import { signInAsDemo, stubFetch } from '../../test-helpers';
@@ -10,6 +10,14 @@ import type { FieldData, FieldItem } from './fieldApi';
 
 // 리뷰 I-2: jsdom 에는 그림 그리기가 없어 줄이기는 가짜로 — 무엇을 줄여 달라 했는지와 줄인 결과를 보내는지를 본다.
 vi.mock('../../shared/files/resizeImage', () => ({ resizeImage: vi.fn() }));
+// Task 104: 공용 여러 명에게 보내기 창(Task 103 — 그 창의 시험이 따로 있다)은 가짜로 — 누가 어떤 preset 으로 여는지만 본다.
+vi.mock('../../shared/outreach/BatchSendDialog', () => ({
+  default: ({ title, preset, onClose }: { title: string; preset: object; onClose(): void }) => (
+    <div role="dialog" aria-label={title} data-preset={JSON.stringify(preset)}>
+      <button type="button" onClick={onClose}>창 닫기</button>
+    </div>
+  ),
+}));
 
 const SUMMARY = { checkin_total: 0, checkin_responded: 0, photo_total: 1, poll_total: 0, poll_feasible: 0, poll_conditional: 0, poll_infeasible: 0, handoff_total: 0, handoff_ready: 0 };
 
@@ -203,4 +211,120 @@ test('the bulk check-in says how many were skipped and why', async () => {
   render(<FieldHub scheduleId={1} />);
   await userEvent.click(await screen.findByRole('button', { name: '관리자 에이전트: 오늘의 체크인 일괄 발송' }));
   expect(await screen.findByText(skipped)).toBeVisible();
+});
+
+
+// ── Task 104: 현장 허브에서 연락 시작하기 · 회신 후보 ────────────────────────────────
+const NOTIFY = { ready: true, test_mode: true, allow_count: 0, agent: { sms: 'approve', kakao: 'approve', call: 'approve' }, inbound_mode: 'off', kakao_ready: false };
+const presetOf = (name: string) => JSON.parse(screen.getByRole('dialog', { name }).getAttribute('data-preset')!);
+const poll = item({ id: 7, kind: 'poll', status: 'pending', response_choice: null, activity_name: '외장 패널', trade: '외장팀',
+  title: '[만회안 의견] A1025 선행 공종 병행 착수(SS+2d)', prompt_text: '북측 존부터 2일 중첩 착수할 수 있습니까?' });
+const handoff = item({ id: 9, kind: 'handoff', title: '[D-3 핸드오프] A1000 → A1010', status: 'pending', response_choice: 'hold', activity_name: '기초 거푸집',
+  trade: '철근 → 거푸집', payload_json: { pred_id: 'A1000', succ_start: '2026-12-03', days_left: 3, pred_handover_ok: true, checklist: { material: true, equipment: false, workforce: true } } });
+const reply = (message_id: number, text: string) => ({ message_id, contact: { name: '박현장', role_title: '공무' }, text, at: '2026-11-26T23:40:00Z', answers: [] });
+
+describe('연락 시작하기(Task 104)', () => {
+  test('a waiting check-in card opens the batch dialog with 체크인 요청, its trade and text filled from the item', async () => {
+    stubFetch({ '/api/schedules/1/field': data([checkin]), '/api/notify/status': NOTIFY });
+    render(<FieldHub scheduleId={1} />);
+    const card = await screen.findByRole('article', { name: checkin.title });
+    const notify = within(card).getByRole('button', { name: '문자·카카오톡으로도 알리기' });
+    await waitFor(() => expect(notify).toBeEnabled());
+    await userEvent.click(notify);
+    expect(presetOf(`체크인 알리기 — ${checkin.title}`)).toEqual({
+      templateUse: '체크인 요청', trade: '시공팀 박과장', fieldItemId: 5,
+      body: '[크로노스] 5층 사무동 신축 11월 23일 현장 사무실 설치 체크인 부탁드립니다(인원·시작 시각·막히는 점). 이 번호로 답 문자 주세요.',
+    });
+    await userEvent.click(screen.getByRole('button', { name: '창 닫기' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  test('a poll card has the same button with the question as the text', async () => {
+    stubFetch({ '/api/schedules/1/field': data([poll]), '/api/notify/status': NOTIFY });
+    render(<FieldHub scheduleId={1} />);
+    await userEvent.click(await screen.findByRole('tab', { name: '만회안 의견 조회' }));
+    const notify = within(screen.getByRole('article', { name: poll.title })).getByRole('button', { name: '문자·카카오톡으로도 알리기' });
+    await waitFor(() => expect(notify).toBeEnabled());
+    await userEvent.click(notify);
+    expect(presetOf(`의견 조회 알리기 — ${poll.title}`)).toEqual({
+      trade: '외장팀', fieldItemId: 7,
+      body: '[크로노스] 5층 사무동 신축 외장 패널 만회안 의견을 여쭙니다 — 북측 존부터 2일 중첩 착수할 수 있습니까? 이 번호로 답 문자 주세요.',
+    });
+  });
+
+  test('a hand-off card tells the successor trade with the D-3 text', async () => {
+    stubFetch({ '/api/schedules/1/field': data([handoff]), '/api/notify/status': NOTIFY });
+    render(<FieldHub scheduleId={1} />);
+    await userEvent.click(await screen.findByRole('tab', { name: 'D-3 핸드오프 점검' }));
+    const notify = screen.getByRole('button', { name: '담당자에게 알리기' });
+    await waitFor(() => expect(notify).toBeEnabled());
+    await userEvent.click(notify);
+    expect(presetOf(`담당자에게 알리기 — ${handoff.title}`)).toEqual({
+      templateUse: 'D-3 준비 확인', trade: '거푸집', fieldItemId: 9,
+      body: '[크로노스] 기초 거푸집 시작 3일 전입니다(12월 3일). 자재·장비·인력 준비 상태를 이 번호로 답 문자 주세요.',
+    });
+  });
+
+  test('without a notify connection the buttons are grey with 알림 연결이 없습니다', async () => {
+    stubFetch({ '/api/schedules/1/field': data([checkin]), '/api/notify/status': { ...NOTIFY, ready: false } });
+    render(<FieldHub scheduleId={1} />);
+    const notify = within(await screen.findByRole('article', { name: checkin.title })).getByRole('button', { name: '문자·카카오톡으로도 알리기' });
+    await waitFor(() => expect(notify).toHaveAttribute('title', '알림 연결이 없습니다'));
+    expect(notify).toBeDisabled();
+  });
+
+  test('the field manager sees no 알리기 button and no reply candidates', async () => {
+    signInAsDemo('field', '박현장', 'site1', 3);
+    const fetchFn = stubFetch({ '/api/schedules/1/field': data([checkin, handoff]), '/api/notify/status': NOTIFY, '/api/schedules/1/outreach/replies?field_item_id=5': [reply(31, '정상 진행')] });
+    render(<FieldHub scheduleId={1} />);
+    await screen.findByRole('article', { name: checkin.title });
+    expect(screen.queryByRole('button', { name: '문자·카카오톡으로도 알리기' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '문자 회신 후보' })).toBeNull();
+    await userEvent.click(screen.getByRole('tab', { name: 'D-3 핸드오프 점검' }));
+    expect(screen.queryByRole('button', { name: '담당자에게 알리기' })).toBeNull();
+    expect(fetchFn.mock.calls.map(([u]) => String(u)).filter((u) => u.includes('outreach') || u.includes('notify'))).toEqual([]);
+  });
+});
+
+describe('회신 후보(Task 104)', () => {
+  const second = { ...checkin, id: 6, title: '[체크인 요청] A1030 가설 전기' };
+
+  test('each card shows only its own replies, and [회신 칸에 넣기] fills the memo without saving or picking progress', async () => {
+    const fetchFn = stubFetch({
+      '/api/schedules/1/field': data([checkin, second]), '/api/notify/status': NOTIFY,
+      '/api/schedules/1/outreach/replies?field_item_id=5': [reply(31, '정상 진행 중입니다. 오후에 철근 반입 예정.')],
+      '/api/schedules/1/outreach/replies?field_item_id=6': [reply(32, '가설 전기는 내일 들어갑니다')],
+    });
+    render(<FieldHub scheduleId={1} />);
+    const card = await screen.findByRole('article', { name: checkin.title });
+    const box = await within(card).findByRole('region', { name: '문자 회신 후보' });
+    expect(box).toHaveTextContent('"정상 진행 중입니다. 오후에 철근 반입 예정." — 박현장');
+    expect(within(card).queryByText(/가설 전기는 내일/)).toBeNull();
+    expect(within(await within(screen.getByRole('article', { name: second.title })).findByRole('region', { name: '문자 회신 후보' })).getByText(/가설 전기는 내일/)).toBeVisible();
+
+    await userEvent.click(within(box).getByRole('button', { name: '회신 칸에 넣기' }));
+    expect(within(card).getByLabelText('현장 메모')).toHaveValue('정상 진행 중입니다. 오후에 철근 반입 예정.');
+    expect(within(card).queryAllByRole('button', { pressed: true })).toHaveLength(0);
+    expect(within(card).getByLabelText('진도율 (%)')).toHaveValue(null);
+    expect(fetchFn.mock.calls.filter(([, init]) => (init?.method ?? 'GET') !== 'GET')).toEqual([]);
+  });
+
+  test('poll and hand-off cards fill their own memo fields', async () => {
+    stubFetch({
+      '/api/schedules/1/field': data([poll, handoff]), '/api/notify/status': NOTIFY,
+      '/api/schedules/1/outreach/replies?field_item_id=7': [reply(33, '주간 인력 보강이면 가능합니다')],
+      '/api/schedules/1/outreach/replies?field_item_id=9': [reply(34, '장비는 모레 들어옵니다')],
+    });
+    render(<FieldHub scheduleId={1} />);
+    await userEvent.click(await screen.findByRole('tab', { name: '만회안 의견 조회' }));
+    const pollCard = screen.getByRole('article', { name: poll.title });
+    await userEvent.click(await within(pollCard).findByRole('button', { name: '회신 칸에 넣기' }));
+    expect(within(pollCard).getByLabelText('현장 의견 사유')).toHaveValue('주간 인력 보강이면 가능합니다');
+    expect(within(pollCard).getByRole('button', { name: '의견 회신 완료' })).toBeDisabled(); // 선택은 사람이
+
+    await userEvent.click(screen.getByRole('tab', { name: 'D-3 핸드오프 점검' }));
+    const handCard = screen.getByRole('article', { name: handoff.title });
+    await userEvent.click(await within(handCard).findByRole('button', { name: '회신 칸에 넣기' }));
+    expect(within(handCard).getByLabelText('핸드오프 메모')).toHaveValue('장비는 모레 들어옵니다');
+  });
 });

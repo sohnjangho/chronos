@@ -4,7 +4,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useSession } from '../../os/session';
 import { forgetSchedules } from '../../shared/schedule/scheduleStore';
 import { signInAsDemo } from '../../test-helpers';
-import { cell, editCell, headers, makeView, mockPatch, renderSchedule, row, rowOrNull, schedule, server, setup, toolbar, writes } from './testKit';
+import { json } from '../../test-helpers';
+import { cell, editCell, fetchMock, headers, makeView, mockPatch, renderSchedule, row, rowOrNull, schedule, server, setup, toolbar, writes } from './testKit';
+
+// Task 104: 공용 여러 명에게 보내기 창(Task 103 — 그 창의 시험이 따로 있다)은 가짜로 — 어떤 preset 으로 여는지만 본다.
+vi.mock('../../shared/outreach/BatchSendDialog', () => ({
+  default: ({ title, preset, onClose }: { title: string; preset: object; onClose(): void }) => (
+    <div role="dialog" aria-label={title} data-preset={JSON.stringify(preset)}>
+      <button type="button" onClick={onClose}>창 닫기</button>
+    </div>
+  ),
+}));
 
 beforeEach(() => {
   localStorage.clear();
@@ -256,5 +266,47 @@ describe('역할', () => {
     expect(screen.getByRole('region', { name: '관계' })).toBeVisible();
     await userEvent.dblClick(cell('A3010', 'OD'));
     expect(within(cell('A3010', 'OD')).getByRole('textbox')).toBeVisible();
+  });
+});
+
+
+// ── Task 104: 고른 작업 행의 [연락] → 여러 명에게 보내기 창(연결할 작업 = 그 행, 글은 비움) ──────────────
+describe('연락(Task 104)', () => {
+  /** 알림 상태(GET /api/notify/status)를 더한 가짜 서버. */
+  function withNotify(ready: boolean) {
+    const inner = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) =>
+      String(input) === '/api/notify/status' ? json(200, { ready, test_mode: true, allow_count: 0, agent: {}, inbound_mode: 'off', kakao_ready: false }) : inner(input, init),
+    );
+  }
+
+  test('[연락] waits for a picked row, then opens the batch dialog linked to that activity with an empty text', async () => {
+    withNotify(true);
+    await renderSchedule();
+    const contact = button('연락');
+    await waitFor(() => expect(contact).toHaveAttribute('title', '작업 행을 먼저 고르세요'));
+    expect(contact).toBeDisabled();
+    await userEvent.click(row('A2020'));
+    await waitFor(() => expect(contact).toBeEnabled());
+    await userEvent.click(contact);
+    const dialog = screen.getByRole('dialog', { name: '연락 — A2020 지상 1~5층 골조' });
+    expect(JSON.parse(dialog.getAttribute('data-preset')!)).toEqual({ activityId: 'A2020' });
+    expect(writes()).toEqual([]);
+  });
+
+  test('without a notify connection [연락] is grey with 알림 연결이 없습니다', async () => {
+    withNotify(false);
+    await renderSchedule();
+    await userEvent.click(row('A2020'));
+    await waitFor(() => expect(button('연락')).toHaveAttribute('title', '알림 연결이 없습니다'));
+    expect(button('연락')).toBeDisabled();
+  });
+
+  test('the field manager has no 연락 group', async () => {
+    signInAsDemo('field', '박현장', 'site1', 3);
+    withNotify(true);
+    await renderSchedule();
+    expect(within(toolbar()).queryByRole('button', { name: '연락' })).toBeNull();
+    expect(within(toolbar()).queryByText('협력사 연락')).toBeNull();
   });
 });

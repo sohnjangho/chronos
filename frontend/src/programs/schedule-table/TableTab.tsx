@@ -228,6 +228,8 @@ export default function TableTab() {
         onAdd={add}
         onDelete={() => setAsking(sel?.id ?? null)}
         onExport={() => download(`${view.name} v${view.version}.csv`, toCsv(view, columns, (aid) => texts.get(aid) ?? NO_TEXT))}
+        scheduleId={view.id}
+        selected={sel}
       />
       {sel && asking === sel.id && <DeleteConfirm activity={sel} onDone={() => setAsking(null)} />}
       <DelayNotice />

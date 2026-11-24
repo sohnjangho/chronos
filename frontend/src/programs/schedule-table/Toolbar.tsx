@@ -8,6 +8,8 @@ import type { ColKey } from '../../shared/schedule/columns';
 import { ColumnPanel } from '../../shared/schedule/FilterPanel';
 import Popover from '../../shared/schedule/Popover';
 import type { Activity, WeightMode } from '../../shared/schedule/scheduleApi';
+import ContactButton from '../../shared/outreach/ContactButton';
+import { PICK_ROW, useCanContact } from '../../shared/outreach/contactKit';
 
 interface ToolbarProps {
   visible: ColKey[];
@@ -21,12 +23,34 @@ interface ToolbarProps {
   onAdd(): void;
   onDelete(): void;
   onExport(): void;
+  scheduleId: number;
+  /** 고른 작업 행([연락]이 그 행을 연결한다). */
+  selected?: Activity;
+}
+
+/** 고른 작업 행의 [연락](Task 104) → 여러 명에게 보내기 창(연결할 작업 = 그 행, 글은 비움). 현장 관리자에게는 묶음째 없다. */
+function ContactGroup({ scheduleId, activity }: { scheduleId: number; activity?: Activity }) {
+  return (
+    <div className="sch-rib-group">
+      <div className="sch-rib-stack is-stretch">
+        <ContactButton
+          scheduleId={scheduleId}
+          activityId={activity?.id}
+          preset={{}}
+          title={activity ? `연락 — ${activity.id} ${activity.name}` : '연락'}
+          blocked={activity ? null : PICK_ROW}
+        />
+      </div>
+      <span className="sch-rib-label">협력사 연락</span>
+    </div>
+  );
 }
 
 /** 위 도구줄: 엑셀/PPT 스타일 2줄 리본 구역(편집 · 보기·설정 · 이력 · 진척·내보내기). */
 export default function Toolbar(p: ToolbarProps) {
   // 현장 관리자는 일정을 고칠 수 없다(서버도 403) — 편집 묶음을 그리지 않는다(F4).
   const canEdit = useSession((s) => s.session?.user.role !== 'field');
+  const canContact = useCanContact();
   return (
     <div role="toolbar" aria-label="스케줄표 도구" className="sch-toolbar">
       {canEdit && (
@@ -66,6 +90,7 @@ export default function Toolbar(p: ToolbarProps) {
         </div>
         <span className="sch-rib-label">진척·내보내기</span>
       </div>
+      {canContact && <ContactGroup scheduleId={p.scheduleId} activity={p.selected} />}
     </div>
   );
 }

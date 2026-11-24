@@ -164,6 +164,7 @@ export default function GanttTab() {
         }}
         visible={cols.visible} onVisible={cols.change} deadlineLabel={deadlineLabel(view)} hasSelection={!!selected} hasDataDate={!!view.data_date}
         onZoom={vp.nav.zoom} onFit={vp.nav.fit} onExpandAll={g.expandAll} onCollapseAll={g.collapseAll} onPage={vp.nav.page}
+        scheduleId={stored.id} selectedActivity={stored.activities.find((a) => a.id === selected)}
         {...act}
       />
       {preview && <PreviewBanner scheduleId={stored.id} source={preview.source} />}{noPlan && <NoPlanBanner />}

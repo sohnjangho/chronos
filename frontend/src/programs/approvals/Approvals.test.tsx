@@ -10,6 +10,15 @@ import Approvals from './Approvals';
 import manifest from './index';
 import { AUTO, bodyOf, callsTo, detailOf, item, openSpy, setup, SUMMARY } from './testKit';
 
+// Task 104: 공용 여러 명에게 보내기 창(Task 103 — 그 창의 시험이 따로 있다)은 가짜로 — 어떤 preset 으로 여는지만 본다.
+vi.mock('../../shared/outreach/BatchSendDialog', () => ({
+  default: ({ title, preset, onClose }: { title: string; preset: object; onClose(): void }) => (
+    <div role="dialog" aria-label={title} data-preset={JSON.stringify(preset)}>
+      <button type="button" onClick={onClose}>창 닫기</button>
+    </div>
+  ),
+}));
+
 const DECIDE = '/api/approvals/3/decide';
 const detail = (over: Parameters<typeof detailOf>[0]) => <ApprovalDetailView item={detailOf(over)} scheduleName="5층 사무동 신축" />;
 const noteBox = () => screen.getByRole('textbox', { name: /의견/ });
@@ -463,5 +472,51 @@ describe('결정 상자 안내의 버전', () => {
     render(<Approvals windowId="w1" />);
     await screen.findByRole('heading', { name: '만회안 B 반영 — 크레인 2대' });
     expect(await screen.findByText('버전 2 기준으로 만든 건이라 지금 일정(버전 3)에는 그대로 반영되지 않습니다 — 승인하면 충돌로 남습니다.')).toBeVisible();
+  });
+});
+
+
+// ── Task 104: 대기 건의 [승인권자에게 알림](문안 「승인 대기 알림」, 받는 사람은 이 프로젝트 주소록에서 창이 고른다) ──────────
+describe('승인권자에게 알림(Task 104)', () => {
+  function stubNotify(ready: boolean) {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === '/api/notify/status'
+        ? json(200, { ready, test_mode: true, allow_count: 0, agent: {}, inbound_mode: 'off', kakao_ready: false })
+        : json(404, { code: 'not_found', message: '찾을 수 없습니다.', detail: null })));
+  }
+
+  test('a pending item opens the batch dialog linked to it with the waiting-approval text', async () => {
+    signInAsDemo('user');
+    stubNotify(true);
+    render(detail({ created_at: '2026-11-24T03:00:00Z' }));
+    const notify = screen.getByRole('button', { name: '승인권자에게 알림' });
+    await waitFor(() => expect(notify).toBeEnabled());
+    await userEvent.click(notify);
+    const dialog = screen.getByRole('dialog', { name: '승인권자에게 알림 — 만회안 B 반영 — 크레인 2대' });
+    expect(JSON.parse(dialog.getAttribute('data-preset')!)).toEqual({
+      approvalId: 3, templateUse: '승인 대기 알림',
+      body: '[크로노스] 승인을 기다리는 건이 있습니다: 만회안 B 반영 — 크레인 2대(11월 24일). 승인함에서 확인해 주세요. 문의는 이 번호로 문자 주세요.',
+    });
+  });
+
+  test('decided items and items without a schedule have no button', () => {
+    signInAsDemo('user');
+    stubNotify(true);
+    const { unmount } = render(detail({ status: 'approved', decided_by: '김하늘', decided_at: '2026-11-24T03:00:00Z' }));
+    expect(screen.queryByRole('button', { name: '승인권자에게 알림' })).toBeNull();
+    unmount();
+    render(detail({ kind: 'first_save', schedule_id: null }));
+    expect(screen.queryByRole('button', { name: '승인권자에게 알림' })).toBeNull();
+  });
+
+  test('grey without a notify connection, absent for the field manager', async () => {
+    signInAsDemo('user');
+    stubNotify(false);
+    const { unmount } = render(detail({}));
+    await waitFor(() => expect(screen.getByRole('button', { name: '승인권자에게 알림' })).toHaveAttribute('title', '알림 연결이 없습니다'));
+    unmount();
+    signInAsDemo('field', '박현장', 'site1', 3);
+    render(detail({}));
+    expect(screen.queryByRole('button', { name: '승인권자에게 알림' })).toBeNull();
   });
 });

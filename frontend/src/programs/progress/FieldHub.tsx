@@ -7,6 +7,9 @@ import { ApiError } from '../../shared/api';
 import { resizeImage } from '../../shared/files/resizeImage';
 import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
+import ContactButton from '../../shared/outreach/ContactButton';
+import { checkinText, handoffText, pollText } from '../../shared/outreach/contactKit';
+import ReplyCandidates from '../../shared/outreach/ReplyCandidates';
 import { fieldApi, type FieldActivityOption, type FieldData, type FieldItem, type FieldKind } from './fieldApi';
 
 const TABS: { id: FieldKind; label: string }[] = [
@@ -24,6 +27,9 @@ const SAMPLE_PHOTOS = [
 
 /** 현장 관리자가 올린 보고는 승인 수준과 상관없이 승인을 기다린다(서버 agent/proposals) — 올린 뒤 알리는 글. */
 const FIELD_WAITS = '승인함에 올렸습니다 — 승인되기 전에는 일정이 바뀌지 않습니다.';
+/** 연락(Task 104): 카드가 문자로도 알릴 때 쓰는 일정 id·현장(일정) 이름. 받는 사람·보내기는 공용 창(BatchSendDialog)이 한다. */
+interface Reach { scheduleId: number; site: string }
+const ALSO_NOTIFY = '문자·카카오톡으로도 알리기';
 
 function StatusBadge({ item }: { item: FieldItem }) {
   if (item.approval_id !== null) return <Badge tone="info">{`승인함 #${item.approval_id} 상신`}</Badge>;
@@ -53,11 +59,13 @@ function SamplePhotoGraphic({ kindKey }: { kindKey: string }) {
 function CheckinCard({
   item,
   busy,
+  reach,
   onSave,
   onSubmitReport,
 }: {
   item: FieldItem;
   busy: boolean;
+  reach: Reach;
   onSave(choice: string, progress: number | null, rd: number | null, note: string): Promise<void>;
   onSubmitReport(choice: string, progress: number | null, rd: number | null, note: string): Promise<void>;
 }) {
@@ -161,7 +169,12 @@ function CheckinCard({
         disabled={busy}
         onChange={(e) => setNote(e.target.value)}
       />
+      <ReplyCandidates scheduleId={reach.scheduleId} fieldItemId={item.id} onUse={setNote} disabled={busy} />
       <div className="pg-fcard-foot">
+        {waiting && (
+          <ContactButton scheduleId={reach.scheduleId} label={ALSO_NOTIFY} title={`체크인 알리기 — ${item.title}`}
+            preset={{ templateUse: '체크인 요청', trade: item.trade, fieldItemId: item.id, body: checkinText(item, reach.site) }} />
+        )}
         <Button
           variant="primary"
           className="pg-submit-one"
@@ -333,10 +346,12 @@ function PhotoCard({ item, busy, onApply }: { item: FieldItem; busy: boolean; on
 function PollCard({
   item,
   busy,
+  reach,
   onSubmitPoll,
 }: {
   item: FieldItem;
   busy: boolean;
+  reach: Reach;
   onSubmitPoll(choice: string, note: string): Promise<void>;
 }) {
   const [choice, setChoice] = useState<string | null>(item.status === 'pending' ? null : (item.response_choice ?? 'feasible'));
@@ -371,7 +386,12 @@ function PollCard({
         disabled={busy}
         onChange={(e) => setNote(e.target.value)}
       />
+      <ReplyCandidates scheduleId={reach.scheduleId} fieldItemId={item.id} onUse={setNote} disabled={busy} />
       <div className="pg-fcard-foot">
+        {item.status === 'pending' && (
+          <ContactButton scheduleId={reach.scheduleId} label={ALSO_NOTIFY} title={`의견 조회 알리기 — ${item.title}`}
+            preset={{ trade: item.trade, fieldItemId: item.id, body: pollText(item, reach.site) }} />
+        )}
         <Button
           variant="primary"
           className="pg-submit-one"
@@ -388,10 +408,12 @@ function PollCard({
 function HandoffCard({
   item,
   busy,
+  reach,
   onSave,
 }: {
   item: FieldItem;
   busy: boolean;
+  reach: Reach;
   onSave(body: { pred_handover_ok: boolean; material: boolean; equipment: boolean; workforce: boolean; response_note: string }): Promise<void>;
 }) {
   const p = item.payload_json || {};
@@ -442,7 +464,10 @@ function HandoffCard({
         disabled={busy}
         onChange={(e) => setNote(e.target.value)}
       />
+      <ReplyCandidates scheduleId={reach.scheduleId} fieldItemId={item.id} onUse={setNote} disabled={busy} />
       <div className="pg-fcard-foot">
+        <ContactButton scheduleId={reach.scheduleId} label="담당자에게 알리기" title={`담당자에게 알리기 — ${item.title}`}
+          preset={{ templateUse: 'D-3 준비 확인', trade: item.trade.split('→').pop()!.trim(), fieldItemId: item.id, body: handoffText(item) }} />
         <Button disabled={busy} onClick={() => void onSave({ pred_handover_ok: predOk, material, equipment, workforce, response_note: note })}>
           점검 저장
         </Button>
@@ -516,6 +541,7 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
 
   const s = data.summary;
   const shown = data.items.filter((i) => i.kind === tab);
+  const reach: Reach = { scheduleId, site: data.schedule_name };
 
   return (
     <div className="pg-field-wrap" role="region" aria-label="현장 모바일 협업 허브">
@@ -628,6 +654,7 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
                 key={item.id}
                 item={item}
                 busy={busy}
+                reach={reach}
                 onSave={(choice, prog, rd, note) =>
                   run(
                     () =>
@@ -664,6 +691,7 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
                 key={item.id}
                 item={item}
                 busy={busy}
+                reach={reach}
                 onSubmitPoll={(choice, note) =>
                   run(async () => {
                     const saved = await fieldApi.respond(scheduleId, item.id, { response_choice: choice, response_note: note });
@@ -676,7 +704,7 @@ export default function FieldHub({ scheduleId }: { scheduleId: number }) {
             );
           }
           return (
-            <HandoffCard key={item.id} item={item} busy={busy} onSave={(body) => run(() => fieldApi.updateHandoff(scheduleId, item.id, body), '저장했습니다.')} />
+            <HandoffCard key={item.id} item={item} busy={busy} reach={reach} onSave={(body) => run(() => fieldApi.updateHandoff(scheduleId, item.id, body), '저장했습니다.')} />
           );
         })}
       </div>

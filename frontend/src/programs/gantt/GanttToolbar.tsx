@@ -6,6 +6,8 @@ import type { ColKey } from '../../shared/schedule/columns';
 import { ColumnPanel } from '../../shared/schedule/FilterPanel';
 import Popover from '../../shared/schedule/Popover';
 import { GANTT_PALETTE, type GanttColors } from '../../shared/schedule/ganttColors';
+import ContactButton from '../../shared/outreach/ContactButton';
+import { PICK_ROW, useCanContact } from '../../shared/outreach/contactKit';
 import type { GroupBy } from './grouping';
 import type { Layers } from './model';
 
@@ -34,6 +36,27 @@ export interface ToolbarProps {
   onImage(): void;
   /** 기한 세로선 이름(분야 표시 설정, 예: 납기·준공 기한). 범례가 같은 말을 쓴다. */
   deadlineLabel: string;
+  scheduleId: number;
+  /** 고른 작업 행([연락]이 그 행을 연결한다). */
+  selectedActivity?: { id: string; name: string };
+}
+
+/** 고른 작업 행의 [연락](Task 104) → 여러 명에게 보내기 창(연결할 작업 = 그 행, 글은 비움). 현장 관리자에게는 묶음째 없다. */
+function ContactGroup({ scheduleId, activity }: { scheduleId: number; activity?: { id: string; name: string } }) {
+  return (
+    <div className="sch-rib-group">
+      <div className="sch-rib-stack is-stretch">
+        <ContactButton
+          scheduleId={scheduleId}
+          activityId={activity?.id}
+          preset={{}}
+          title={activity ? `연락 — ${activity.id} ${activity.name}` : '연락'}
+          blocked={activity ? null : PICK_ROW}
+        />
+      </div>
+      <span className="sch-rib-label">협력사 연락</span>
+    </div>
+  );
 }
 
 type LayerSpec = { key: keyof Layers; label: string; swatch: string };
@@ -148,6 +171,7 @@ function ColorPanel({
 }
 
 export default function GanttToolbar(p: ToolbarProps) {
+  const canContact = useCanContact();
   return (
     <div role="toolbar" aria-label="간트 도구" className="sch-toolbar gt-toolbar">
       <div className="sch-rib-group">
@@ -225,6 +249,7 @@ export default function GanttToolbar(p: ToolbarProps) {
         </div>
         <span className="sch-rib-label">내보내기</span>
       </div>
+      {canContact && <ContactGroup scheduleId={p.scheduleId} activity={p.selectedActivity} />}
     </div>
   );
 }

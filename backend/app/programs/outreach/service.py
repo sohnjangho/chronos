@@ -18,7 +18,8 @@
 import unicodedata
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, func, select, update
+from pydantic import BaseModel
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
@@ -441,3 +442,50 @@ async def agent_draft(session: Session, schedule_id: int, body: AgentDraftIn, us
     finally:
         _drafting.discard(key)
     return _one(session, schedule_id, row, user)
+
+
+# ── 현장 항목의 회신 후보(Task 104) ───────────────────────────────────────────
+
+GONE_CONTACT = "지워진 연락처"  # 묶음 결과(batches_service)와 같은 글
+REPLIES_MAX = 50
+
+
+class ReplyContact(BaseModel):
+    name: str
+    role_title: str
+
+
+class ReplyOut(BaseModel):
+    """그 현장 항목에 이어진 받은 문자 하나. text 는 번호를 가린 글. 사람 확인용 후보일 뿐 — 이 API 는 아무것도 바꾸지 않는다."""
+
+    message_id: int
+    contact: ReplyContact
+    text: str
+    at: datetime
+    answers: list
+
+
+def replies(session: Session, schedule_id: int, field_item_id: int) -> list[ReplyOut]:
+    """그 일정의 그 현장 항목에 이어진 받은 문자(새것부터, REPLIES_MAX 개까지). 이어짐 = 받은 줄의 field_item_id 가 그
+    항목이거나, 그 항목으로 보낸 우리 줄에 reply_to_id 로 걸림. 항목이 없거나 다른 일정 것이면 404(없는 것과 같은 글)."""
+    _check_links(session, schedule_id, field_item_id=field_item_id)
+    asked = select(OutreachMessage.id).where(OutreachMessage.schedule_id == schedule_id,
+                                             OutreachMessage.direction == "out",
+                                             OutreachMessage.field_item_id == field_item_id)
+    rows = session.scalars(select(OutreachMessage).where(
+        OutreachMessage.schedule_id == schedule_id, OutreachMessage.direction == "in",
+        or_(OutreachMessage.field_item_id == field_item_id, OutreachMessage.reply_to_id.in_(asked)),
+    ).order_by(OutreachMessage.created_at.desc(), OutreachMessage.id.desc()).limit(REPLIES_MAX)).all()
+    ids = {r.contact_id for r in rows if r.contact_id is not None}
+    people = {c.id: c for c in session.scalars(select(Contact).where(
+        Contact.schedule_id == schedule_id, Contact.id.in_(ids)))} if ids else {}
+    out = []
+    for row in rows:
+        who = people.get(row.contact_id) if row.contact_id is not None else None
+        out.append(ReplyOut(
+            message_id=row.id,
+            contact=ReplyContact(name=who.name, role_title=who.role_title) if who else ReplyContact(name=GONE_CONTACT,
+                                                                                                    role_title=""),
+            text=hide_phones(row.body), at=as_utc(row.sent_at or row.created_at),
+            answers=row.answers_json if isinstance(row.answers_json, list) else []))
+    return out

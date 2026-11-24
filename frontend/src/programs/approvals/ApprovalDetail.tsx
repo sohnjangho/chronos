@@ -2,6 +2,8 @@
 import { useCurrentSchedule } from '../../os/currentSchedule';
 import { useWindows } from '../../os/windowStore';
 import { domainLabel } from '../../shared/domainLabels';
+import ContactButton from '../../shared/outreach/ContactButton';
+import { approvalText, useCanContact } from '../../shared/outreach/contactKit';
 import Badge from '../../shared/ui/Badge';
 import Button from '../../shared/ui/Button';
 import { STATUS, type ApprovalDetail as Detail, type Json } from './apvApi';
@@ -201,6 +203,23 @@ function DiffTable({ item }: { item: Detail }) {
   );
 }
 
+/** 대기 건의 [승인권자에게 알림](Task 104) — 문안 「승인 대기 알림」(지금은 같은 뜻의 문자 글), 받는 사람은 창이 이 프로젝트 주소록에서
+ * 고른다. 일정에 묶인 대기 건만(주소록이 일정마다라서). 현장 관리자·알림 연결 없음은 ContactButton 이 다룬다. */
+function NotifyApprover({ item }: { item: Detail }) {
+  const can = useCanContact();
+  if (!can || item.status !== 'pending' || item.schedule_id === null) return null;
+  return (
+    <div className="apv-decided">
+      <ContactButton
+        scheduleId={item.schedule_id}
+        label="승인권자에게 알림"
+        title={`승인권자에게 알림 — ${item.title}`}
+        preset={{ approvalId: item.id, templateUse: '승인 대기 알림', body: approvalText(item) }}
+      />
+    </div>
+  );
+}
+
 function metaOf(item: Detail, scheduleName: string | null): string[] {
   const request = item.request ? `요청: "${item.request}"` : '';
   if (item.kind === 'rule') return [request, '일정은 바뀌지 않습니다'];
@@ -217,6 +236,7 @@ export default function ApprovalDetail({ item, scheduleName }: Props) {
         <h2 className="apv-title apv-wrap">{item.title}</h2>
         <p className="apv-meta apv-wrap">{meta.filter(Boolean).join(' · ')}</p>
         <DecidedLine item={item} />
+        <NotifyApprover item={item} />
         {!rule && <Why item={item} />}
         {!rule && <Notes item={item} />}
       </header>
