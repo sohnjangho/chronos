@@ -38,6 +38,7 @@ class ProjectOut(BaseModel):
     updated_at: UtcDatetime | None
     updated_by: str
     same_name: bool = False  # 부를 이름이 다른 프로젝트의 부를 이름·다듬은 이름과 같다(통화에서 구별 못 함)
+    same_as: str | None = None  # 그 겹치는 프로젝트의 이름
 
 
 class ProjectPatch(BaseModel):

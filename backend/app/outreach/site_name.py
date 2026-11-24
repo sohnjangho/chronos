@@ -11,9 +11,12 @@ PM: 실제 통화에서 AI 가 프로젝트 이름을 적힌 그대로(날짜까
   관리의 같은 이름 검사가 이 하나를 쓴다.
 - names(session, schedule_id) — 그 현장을 가리키는 이름들(부를 이름 · 다듬은 이름 · 전체 이름, 겹침 없이). 상대가 말한 현장
   이름 맞추기(하네스 pin·H1)는 이 모두와 견준다.
-- vocabulary(session, schedule_ids, activities=True) — 통화 받아쓰기 낱말(구글 Live custom_vocabulary): 그 현장들의 부를 이름·
-  다듬은 이름 → 건설 낱말(CONSTRUCTION_WORDS) → 작업 이름. 빈칸을 맞추고 겹침 없이, MAX_PHRASE 자를 넘거나 번호처럼 보이는
-  것(voice.session.has_phone)은 빼고, 모두 MAX_VOCABULARY 개까지.
+- vocabulary(session, schedule_ids, activities=True) — 통화 받아쓰기 낱말(구글 Live custom_vocabulary): 건설 낱말
+  (CONSTRUCTION_WORDS — 먼저 넣어 상한에 잘리지 않게) → 그 현장들의 부를 이름·다듬은 이름 → 작업 이름. 빈칸을 맞추고 겹침 없이,
+  MAX_PHRASE 자를 넘거나 번호 가리개(redact.hide_phones)에 걸리는 것은 빼고, 모두 MAX_VOCABULARY 개까지. 짓다가 무엇이든
+  실패하면 건설 낱말만(낱말이 통화를 막지 않는다). 이 모듈은 음성 층을 import 하지 않는다(하네스가 이 모듈을 쓴다) — 대표번호·
+  그 통화의 번호까지 보는 마지막 거르기는 CallSpec(낱말을 빼고 통화는 만든다)과 진단 준비(notify_settings.voice)가 한다.
+- diagnosis_vocabulary(session) — [음성 진단]이 보내는 낱말: 건설 낱말 + 첫 프로젝트(id 가 가장 작은 것)의 이름들.
 - reference(session, schedule_id) — 현장 주소·한 줄 소개·발주처·시공사 가운데 적힌 것({제목: 글}). 번호는 가리고 길이를 자른다.
 - reference_lines(ref) — 지시문에 넣을 참고 자료 단락: 지시가 아니라 자료라는 한 줄 + `<현장자료>` JSON(< > 는 이스케이프).
 
@@ -21,16 +24,19 @@ PM: 실제 통화에서 AI 가 프로젝트 이름을 적힌 그대로(날짜까
 """
 
 import json
+import logging
 import re
 import unicodedata
 from collections.abc import Iterable
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.outreach import redact
 from app.outreach.harness import facts
-from app.outreach.voice.session import has_phone
 from app.store.tables import ProjectProfile, ScheduleRecord
+
+logger = logging.getLogger(__name__)
 
 MAX_SPOKEN, MAX_ADDRESS, MAX_SUMMARY, MAX_CLIENT = 40, 120, 200, 80
 MAX_VOCABULARY, MAX_PHRASE = 100, 40  # 받아쓰기 낱말 수·한 낱말 글자
@@ -133,21 +139,33 @@ def names(session: Session, schedule_id: int | None) -> tuple[str, ...]:
 
 
 def vocabulary(session: Session, schedule_ids: Iterable[int], *, activities: bool = True) -> tuple[str, ...]:
-    """통화 받아쓰기 낱말(모듈 머리 글). activities 가 거짓이면 현장 이름과 건설 낱말만(현장을 모르는 받는 통화)."""
-    ids = list(schedule_ids)
-    records = [record for sid in ids if (record := _record(session, sid)) is not None]
-    # 부를 이름·다듬은 이름(전체 이름은 날짜가 섞여 뺀다)
-    found = [name for record in records for name in (spoken(session, record.id), clean(record.name))]
-    found += CONSTRUCTION_WORDS
-    if activities:
-        found += [name for sid in ids for name in facts.names(session, sid).values()]
-    out: dict[str, None] = {}
-    for word in (_spaced(name) for name in found):
-        if word and len(word) <= MAX_PHRASE and not has_phone(word):
-            out.setdefault(word)
-        if len(out) >= MAX_VOCABULARY:
-            break
-    return tuple(out)
+    """통화 받아쓰기 낱말(모듈 머리 글). activities 가 거짓이면 건설 낱말과 현장 이름만(현장을 모르는 받는 통화·진단)."""
+    try:
+        records = [record for sid in schedule_ids if (record := _record(session, sid)) is not None]
+        # 부를 이름·다듬은 이름(전체 이름은 날짜가 섞여 뺀다)
+        found = [*CONSTRUCTION_WORDS, *(name for record in records
+                                        for name in (spoken(session, record.id), clean(record.name)))]
+        if activities:
+            found += [name for record in records for name in facts.names(session, record.id).values()]
+        out: dict[str, None] = {}
+        for word in (_spaced(name) for name in found):
+            if word and len(word) <= MAX_PHRASE and redact.hide_phones(word) == word:
+                out.setdefault(word)
+            if len(out) >= MAX_VOCABULARY:
+                break
+        return tuple(out)
+    except Exception:  # noqa: BLE001 — 낱말은 덤이다: 무엇이 깨져도 통화는 건설 낱말로 간다
+        logger.warning("받아쓰기 낱말을 짓지 못해 건설 낱말만 씁니다")
+        return CONSTRUCTION_WORDS
+
+
+def diagnosis_vocabulary(session: Session) -> tuple[str, ...]:
+    """[음성 진단]이 실제 통화와 같은 꼴로 보내는 낱말: 건설 낱말 + 첫 프로젝트의 이름들(작업 이름 없이)."""
+    try:
+        first = session.scalar(select(ScheduleRecord.id).order_by(ScheduleRecord.id).limit(1))
+    except Exception:  # noqa: BLE001
+        first = None
+    return vocabulary(session, [first] if first is not None else [], activities=False)
 
 
 def reference(session: Session, schedule_id: int | None) -> dict[str, str]:

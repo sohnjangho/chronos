@@ -17,7 +17,7 @@ import type { Project } from './projectsApi';
 
 const project = (over: Partial<Project>): Project => ({
   id: 1, name: '가람 물류센터 신축 2026-11-23', spoken_name: '', spoken: '가람 물류센터 신축', site_address: '', summary: '',
-  client_builder: '', updated_at: null, updated_by: '', same_name: false, ...over,
+  client_builder: '', updated_at: null, updated_by: '', same_name: false, same_as: null, ...over,
 });
 const GARAM = project({});
 const NARAE = project({ id: 2, name: '나래 아파트 2단지', spoken: '나래 아파트 2단지', summary: '지하 2층 지상 25층' });
@@ -43,6 +43,7 @@ beforeEach(() => {
       const id = Number(url.split('/').pop());
       const merged = { ...list.find((p) => p.id === id)!, ...body, updated_by: '김하늘', updated_at: '2026-11-24T01:00:00Z' };
       merged.spoken = merged.spoken_name || merged.spoken;
+      list = list.map((p) => (p.id === id ? merged : p)); // 다시 읽는 목록에도(서버처럼)
       return json(200, merged);
     }
     return json(404, { code: 'not_found', message: '찾을 수 없습니다.' });
@@ -189,13 +190,30 @@ test('a spoken name longer than 40 characters asks for a short one until one is 
 
 
 test('projects whose names collide carry a chip in the list and a line in the form', async () => {
-  list = [project({ same_name: true }), project({ id: 3, name: '가람 물류센터 신축 (v2)', same_name: true }), NARAE];
+  list = [project({ same_name: true, same_as: '가람 물류센터 신축 (v2)' }),
+    project({ id: 3, name: '가람 물류센터 신축 (v2)', same_name: true, same_as: GARAM.name }), NARAE];
   show();
   const found = await rows();
   const chip = '이름이 같은 프로젝트 — 부를 이름을 적어 주세요';
   expect(found.map((r) => within(r).queryByText(chip) !== null)).toEqual([true, true, false]);
-  expect(within(form()).getByText(/통화에서 이름이 같은 다른 프로젝트와 구별할 수 없습니다/)).toBeVisible();
+  expect(within(form()).getByText(/통화에서 「가람 물류센터 신축 \(v2\)」와 구별할 수 없습니다/)).toBeVisible();
+  expect(within(form()).getByText(/구별할 수 없습니다.*날짜·판 표시를 뗀 이름과도/)).toBeVisible();
+  expect(within(found[0]).getByText(chip)).toHaveAttribute('title', '「가람 물류센터 신축 (v2)」와 이름이 같습니다');
   await userEvent.click(found[2]);
   expect(box('프로젝트 이름').value).toBe('나래 아파트 2단지');
   expect(within(form()).queryByText(/구별할 수 없습니다/)).toBeNull();
+});
+
+
+test('after a save the list is read again so other projects\' same-name marks refresh', async () => {
+  list = [project({ same_name: true, same_as: '가람 물류센터 신축 (v2)' }),
+    project({ id: 3, name: '가람 물류센터 신축 (v2)', same_name: true, same_as: GARAM.name })];
+  show();
+  await rows();
+  const chip = '이름이 같은 프로젝트 — 부를 이름을 적어 주세요';
+  list = [project({ spoken_name: '가람 1단지', spoken: '가람 1단지' }), project({ id: 3, name: '가람 물류센터 신축 (v2)' })];
+  await userEvent.type(box('AI 가 부를 이름'), '가람 1단지');
+  await userEvent.click(within(form()).getByRole('button', { name: '저장' }));
+  await screen.findByText('저장했습니다.');
+  await waitFor(() => expect(within(nav()).queryAllByText(chip)).toHaveLength(0));
 });

@@ -149,6 +149,7 @@ class VoiceDiag:
     model: str | None = None  # None 이면 SDK 기본값
     voices: tuple[tuple[str, str], ...] = field(default=(), repr=False)  # (칸 이름표, 음성 이름) — P9 가 전화 없이 확인
     call_voice: str | None = field(default=None, repr=False)  # 시험 전화의 음성(「성별 모름」 칸). None 이면 SDK 기본
+    vocabulary: tuple[str, ...] = field(default=(), repr=False)  # 받아쓰기 낱말 — 실제 통화와 같은 꼴(site_name.diagnosis_vocabulary)
 
 
 @dataclass
@@ -378,7 +379,8 @@ class _Run:
             kw["voice"] = self.voice.call_voice  # 시험 전화는 「성별 모름」 칸의 음성(Task 99 고침 1)
         if self.voice.provider == "google":
             kw["api_version"] = GOOGLE_LIVE_API_VERSION  # Live 모델은 v1alpha 에만 있다(고침 2)
-            kw["input_audio_transcription"] = google_transcription(lang)  # 실제 통화와 같은 받아쓰기 언어
+            # 실제 통화와 같은 받아쓰기 설정(언어 + 낱말) — 구글이 낱말 칸을 거절하면 진단에서 먼저 보인다
+            kw["input_audio_transcription"] = google_transcription(lang, self.voice.vocabulary)
         return getattr(self.sdk, SESSIONS[self.voice.provider])(**kw)
 
     async def link(self, sdk: object | None, worker_connected: object) -> None:

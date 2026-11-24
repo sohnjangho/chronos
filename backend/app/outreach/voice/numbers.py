@@ -7,7 +7,7 @@
   `input_audio_transcription` 을 그대로 Live 설정에 넣는다 — google-genai `AudioTranscriptionConfig.language_codes`(BCP-47,
   「비우면 자동 감지」). `google_transcription(언어, 낱말)` 가 그 값을 준다. OpenAI 는 SDK 가 `language=` 를 받아쓰기 언어로 이미 쓴다.
 - 받아쓰기 낱말(11-24): 같은 설정의 `custom_vocabulary`(SDK 의 `adaptation_phrases` 는 폐기 표시라 쓰지 않는다) — 통화 명세의
-  `CallSpec.vocabulary`(site_name.vocabulary 가 지음). v1alpha 가 이 칸을 받는 것은 관리자가 실제 키로(통화 없이) 확인했다.
+  `CallSpec.vocabulary`(site_name.vocabulary 가 지음). v1alpha 가 이 칸을 받는 것은 컨트롤러가 실제 키로 확인했다(전화는 걸지 않음).
 """
 
 from collections.abc import Sequence

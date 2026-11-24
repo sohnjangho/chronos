@@ -501,6 +501,18 @@ async def test_second_language_call(world):
     assert sdk.agent.calls[1].hangups == 1  # 첫 응답을 본 뒤 진단이 끊는다
 
 
+async def test_diagnosis_sends_the_same_transcription_shape_as_real_calls(world):
+    """받아쓰기 낱말(custom_vocabulary)도 실제 통화와 같은 꼴로 보낸다 — 구글이 그 칸을 거절하면 [음성 진단]에서 먼저 보인다."""
+    sdk = FakeSdk(world, calls=[GOOD_CALL, ((1000, "call_start"), (1300, "transcript", "assistant", "Hello"))])
+    voice = replace(VOICE, vocabulary=("타설", "가람 물류센터"))
+    await run(world, sdk, voice=voice, steps=(6, 10), call_to=SENTINEL_PHONE, lang2="en")
+    assert sdk.sessions[0][1]["input_audio_transcription"] == {"language_codes": ["ko-KR"],
+                                                              "custom_vocabulary": ["타설", "가람 물류센터"]}
+    assert sdk.sessions[-1][1]["input_audio_transcription"] == {"language_codes": ["en-US"],
+                                                               "custom_vocabulary": ["타설", "가람 물류센터"]}
+    assert "가람" not in repr(voice)  # 낱말은 repr 에 싣지 않는다(다른 설정 값과 같이)
+
+
 @pytest.mark.parametrize("lang2", ["ko", "xx", "", None, 7, "EN ", ["en"]])
 async def test_unknown_second_language_is_skipped_without_a_call(world, lang2):
     sdk = FakeSdk(world)

@@ -36,8 +36,9 @@ from starlette.concurrency import run_in_threadpool
 from app.db import get_session
 from app.errors import ApiError
 from app.notify import diagnostics, diagnostics_voice, live_models, voice_names
-from app.outreach import phone, provider, redact
+from app.outreach import phone, provider, redact, site_name
 from app.outreach.voice import inbound, numbers, runner, voices
+from app.outreach.voice.session import has_phone
 from app.programs.notify_settings import diagnose, service
 from app.programs.notify_settings.voice_schemas import (
     SLOT_FIELDS,
@@ -334,6 +335,12 @@ def _configured_voices(row: VoiceSettings) -> tuple[tuple[str, str], ...]:
     return tuple(found)
 
 
+def _diagnosis_words(session: Session, conn: NotifyConnection, row: VoiceSettings) -> tuple[str, ...]:
+    """[음성 진단]의 받아쓰기 낱말 — 실제 통화와 같은 꼴. CallSpec 과 같은 번호 거르기(이 연결의 번호 포함)를 거친다."""
+    own = numbers.effective_agent_number(conn, row)
+    return tuple(word for word in site_name.diagnosis_vocabulary(session) if not has_phone(word, own))
+
+
 def _prepare_sync(session: Session, conn_id: int, data: VoiceDiagnoseIn) -> _Prep:
     conn = service.get(session, conn_id)
     if len(data.allow_numbers_version or "") > service.MAX_CHARS["allow_numbers_version"]:
@@ -355,7 +362,8 @@ def _prepare_sync(session: Session, conn_id: int, data: VoiceDiagnoseIn) -> _Pre
         voice=diagnostics_voice.VoiceDiag(provider=row.provider, key=voice_key,
                                           model=numbers.effective_model(row.provider, row.model),
                                           voices=_configured_voices(row),
-                                          call_voice=row.voice_unknown if voices.well_formed(row.voice_unknown) else None))
+                                          call_voice=row.voice_unknown if voices.well_formed(row.voice_unknown) else None,
+                                          vocabulary=_diagnosis_words(session, conn, row)))
     session.rollback()  # 트랜잭션을 끝내고 부른다
     return prep
 

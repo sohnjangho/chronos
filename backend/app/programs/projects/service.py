@@ -5,7 +5,8 @@
 - 검사(칸마다): 길이 상한(LIMITS) · 줄 바꿈·보이지 않는 글자(주소록과 같은 contacts.service.check_texts) · 번호
   (voice.session.has_phone — redact.hide_phones 가 가리는 꼴과 대표번호. 통화 명세가 번호 든 글을 받지 않으므로 여기서 막는다).
   걸리면 422, 값은 싣지 않는다. 부를 이름이 다른 프로젝트의 부를 이름·다듬은 이름과 같으면 409 spoken_name_taken, 새 이름의
-  다듬은 꼴이 그러면 409 name_taken — 견주기는 현장 맞추기와 같은 site_name.key. 이미 겹친 것은 목록에 same_name.
+  다듬은 꼴이 그러면 409 name_taken(글에 겹치는 프로젝트 이름) — 견주기는 현장 맞추기와 같은 site_name.key. 이미 겹친 것·부를
+  이름을 비워 겹치게 된 것은 거절하지 않고 same_name·same_as(겹치는 프로젝트 이름)로 알린다.
 - 남기는 것: 소개 줄의 updated_at·updated_by, 서버 기록 한 줄(사용자 id·일정 id·바꾼 칸 이름 — 글은 싣지 않는다).
 """
 
@@ -28,9 +29,10 @@ NOT_FOUND = "프로젝트를 찾을 수 없습니다."
 NO_NAME = "프로젝트 이름을 적어 주세요."
 LINE_TEXT = "줄 바꿈이나 보이지 않는 제어 글자를 쓸 수 없습니다."
 NO_PHONE = "전화번호는 적을 수 없습니다(에이전트가 통화·문자에서 읽는 글입니다)."
-NAME_TAKEN = ("다른 프로젝트가 이미 이 이름(날짜·판 표시를 뗀 이름)으로 불립니다. AI 가 두 현장을 구별할 수 있게 다른 이름을 "
-              "적어 주세요.")
-TAKEN = "다른 프로젝트가 이미 이 이름으로 불립니다. AI 가 두 현장을 같은 이름으로 부르지 않게 다른 이름을 적어 주세요."
+NAME_TAKEN = ("「{other}」 프로젝트가 이미 이 이름(날짜·판 표시를 뗀 이름)으로 불립니다. AI 가 두 현장을 구별할 수 있게 다른 "
+              "이름을 적어 주세요.")
+TAKEN = ("「{other}」 프로젝트가 이미 이 이름(부를 이름이나 날짜·판 표시를 뗀 이름)으로 불립니다. AI 가 두 현장을 같은 이름으로 "
+         "부르지 않게 다른 이름을 적어 주세요.")
 LIMITS = {"name": 120, "spoken_name": site_name.MAX_SPOKEN, "site_address": site_name.MAX_ADDRESS,
           "summary": site_name.MAX_SUMMARY, "client_builder": site_name.MAX_CLIENT}
 LABELS = {"name": "프로젝트 이름", "spoken_name": "AI 가 부를 이름", "site_address": "현장 주소", "summary": "한 줄 소개",
@@ -45,28 +47,35 @@ def _record(session: Session, schedule_id: int) -> ScheduleRecord:
     return record
 
 
-def _out(session: Session, record: ScheduleRecord, same_name: bool = False) -> ProjectOut:
+def _out(session: Session, record: ScheduleRecord, same_as: str | None = None) -> ProjectOut:
     profile = session.get(ProjectProfile, record.id)
     values = {field: getattr(profile, field) if profile is not None else "" for field in PROFILE_FIELDS}
     return ProjectOut(id=record.id, name=record.name, spoken=site_name.spoken(session, record.id), **values,
                       updated_at=profile.updated_at if profile is not None else None,
-                      updated_by=profile.updated_by if profile is not None else "", same_name=same_name)
+                      updated_by=profile.updated_by if profile is not None else "", same_name=same_as is not None, same_as=same_as)
 
 
-def _same_names(session: Session) -> set[int]:
-    """부를 이름(실제로 부르는 이름)이 다른 프로젝트의 부를 이름·다듬은 이름과 같은 프로젝트들 — 예전에 겹쳐 들어온 것."""
-    keys = {record.id: _keys(session, record) for record in list_records(session)}
-    return {sid for sid, (spoken, _) in keys.items()
-            if spoken and any(spoken in other for oid, other in keys.items() if oid != sid)}
+def _same_as(session: Session) -> dict[int, str]:
+    """부를 이름(실제로 부르는 이름)이 다른 프로젝트의 부를 이름·다듬은 이름과 같은 프로젝트 → 겹치는 (첫) 프로젝트의 이름.
+    예전에 겹쳐 들어온 것과 부를 이름을 비워 다듬은 이름으로 돌아간 것(거절하지 않고 알린다)."""
+    records = list_records(session)
+    keys = {record.id: _keys(session, record) for record in records}
+    out = {}
+    for record in records:
+        spoken = keys[record.id][0]
+        other = next((o for o in records if o.id != record.id and spoken in keys[o.id]), None) if spoken else None
+        if other is not None:
+            out[record.id] = other.name
+    return out
 
 
 def list_projects(session: Session) -> list[ProjectOut]:
-    same = _same_names(session)
-    return [_out(session, record, record.id in same) for record in list_records(session)]
+    same = _same_as(session)
+    return [_out(session, record, same.get(record.id)) for record in list_records(session)]
 
 
 def get_project(session: Session, schedule_id: int) -> ProjectOut:
-    return _out(session, _record(session, schedule_id), schedule_id in _same_names(session))
+    return _out(session, _record(session, schedule_id), _same_as(session).get(schedule_id))
 
 
 def _check(field: str, value: str) -> None:
@@ -86,10 +95,13 @@ def _keys(session: Session, record: ScheduleRecord) -> tuple[str, str]:
     return site_name.key(site_name.spoken(session, record.id)), site_name.key(site_name.clean(record.name))
 
 
-def _taken(session: Session, schedule_id: int, name: str) -> bool:
-    """그 이름이 다른 프로젝트의 부를 이름이나 다듬은 이름과 같은가."""
+def _taken(session: Session, schedule_id: int, name: str) -> str | None:
+    """그 이름이 다른 프로젝트의 부를 이름이나 다듬은 이름과 같으면 그 프로젝트의 이름."""
     want = site_name.key(name)
-    return bool(want) and any(want in _keys(session, other) for other in list_records(session) if other.id != schedule_id)
+    if not want:
+        return None
+    return next((other.name for other in list_records(session)
+                 if other.id != schedule_id and want in _keys(session, other)), None)
 
 
 def patch_project(session: Session, schedule_id: int, body: ProjectPatch, user: User) -> ProjectOut:
@@ -99,10 +111,11 @@ def patch_project(session: Session, schedule_id: int, body: ProjectPatch, user: 
         raise ApiError(422, "invalid_name", NO_NAME, detail={"field": "name"})
     for field, value in sent.items():
         _check(field, value)
-    if sent.get("spoken_name") and _taken(session, schedule_id, sent["spoken_name"]):
-        raise ApiError(409, "spoken_name_taken", TAKEN, detail={"field": "spoken_name"})
-    if "name" in sent and sent["name"] != record.name and _taken(session, schedule_id, site_name.clean(sent["name"])):
-        raise ApiError(409, "name_taken", NAME_TAKEN, detail={"field": "name"})
+    # 부를 이름을 비우는 것은 거절하지 않는다 — 다듬은 이름이 겹치면 응답의 same_name·same_as 로 알린다
+    if sent.get("spoken_name") and (other := _taken(session, schedule_id, sent["spoken_name"])):
+        raise ApiError(409, "spoken_name_taken", TAKEN.format(other=other), detail={"field": "spoken_name"})
+    if "name" in sent and sent["name"] != record.name and (other := _taken(session, schedule_id, site_name.clean(sent["name"]))):
+        raise ApiError(409, "name_taken", NAME_TAKEN.format(other=other), detail={"field": "name"})
     profile = session.get(ProjectProfile, schedule_id)
     changed = [field for field, value in sent.items()
                if value != (record.name if field == "name" else getattr(profile, field, ""))]

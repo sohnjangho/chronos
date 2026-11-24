@@ -23,7 +23,7 @@ from app.main import app
 from app.notify import diagnostics, live_models
 from app.notify import diagnostics_voice as dv
 from app.notify.diagnostics import DiagnosticStep
-from app.outreach import redact
+from app.outreach import redact, site_name
 from app.programs.notify_settings import diagnose as diagnose_mod
 from app.programs.notify_settings import router as router_mod
 from app.programs.notify_settings import voice
@@ -432,6 +432,7 @@ def test_voice_diagnose_uses_stored_keys_and_returns_step_lines(client, admin, f
     assert isinstance(seen["steps"], list) and type(spy.calls[0]["budget"]) is dv.VoiceBudget
     prep = voice._prepare_sync(session, cid, voice.VoiceDiagnoseIn(**call_body(conn)))
     assert prep.call_to == SENTINEL_DIGITS and prep.agent_number == AGENT_DIGITS
+    assert prep.voice.vocabulary == site_name.diagnosis_vocabulary(session)  # 실제 통화와 같은 받아쓰기 낱말 꼴
     for secret in (SENTINEL_KEY, GOOGLE_KEY, KAT_ACCOUNT, SENTINEL_DIGITS, AGENT_DIGITS):
         assert secret not in repr(prep)  # 평문 값은 repr(로그·오류 글)에 나오지 않는다
     assert body["state"] == "done" and body["part"] == "connection" and body["by"]

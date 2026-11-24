@@ -15,6 +15,8 @@ export interface Project {
   updated_by: string;
   /** 부를 이름이 다른 프로젝트의 부를 이름·다듬은 이름과 같다 — 통화에서 구별하지 못한다. */
   same_name: boolean;
+  /** 겹치는 프로젝트의 이름(같은 것이 없으면 null). */
+  same_as: string | null;
 }
 
 export type ProjectFields = Pick<Project, 'name' | 'spoken_name' | 'site_address' | 'summary' | 'client_builder'>;

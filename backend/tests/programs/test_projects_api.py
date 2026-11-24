@@ -60,7 +60,7 @@ def test_list_gives_every_project_with_an_empty_profile_and_the_spoken_name(clie
     first = r.json()[0]
     assert first == {"id": sid, "name": "가람 물류센터 신축 2026-11-23", "spoken_name": "", "spoken": "가람 물류센터 신축",
                      "site_address": "", "summary": "", "client_builder": "", "updated_at": None, "updated_by": "",
-                     "same_name": False}
+                     "same_name": False, "same_as": None}
 
 
 def test_patch_saves_profile_and_rename_and_the_agent_name_follows(client, user, session, sid):
@@ -208,6 +208,7 @@ def test_spoken_name_already_used_by_another_project_is_refused(client, user, se
     r = client.patch(f"{URL}/{sid}", headers=user, json={"spoken_name": taken})
 
     assert r.status_code == 409 and r.json()["code"] == "spoken_name_taken" and r.json()["detail"] == {"field": "spoken_name"}
+    assert "「가람 물류센터 신축 2026-11-23」" in r.json()["message"]  # 어느 프로젝트와 겹치는지
     session.expire_all()
     assert session.get(ProjectProfile, sid) is None
 
@@ -227,6 +228,7 @@ def test_renaming_to_a_name_another_project_is_called_by_is_refused(client, user
     r = client.patch(f"{URL}/{sid}", headers=user, json={"name": name})
 
     assert r.status_code == 409 and r.json()["code"] == "name_taken" and r.json()["detail"] == {"field": "name"}
+    assert "「가람 물류센터 신축 2026-11-23」" in r.json()["message"] and "날짜·판 표시를 뗀 이름" in r.json()["message"]
     session.expire_all()
     assert session.get(ScheduleRecord, sid).name == "시험 일정"
 
@@ -249,6 +251,8 @@ def test_existing_duplicates_are_flagged_in_the_list(client, user, session, sid)
 
     flags = {p["id"]: p["same_name"] for p in client.get(URL, headers=user).json()}
     assert flags == {sid: True, other: True, third: False}
+    same_as = {p["id"]: p["same_as"] for p in client.get(URL, headers=user).json()}
+    assert same_as == {sid: "가람 물류센터 (v2)", other: "가람 물류센터 2026-11-23", third: None}
     assert client.get(f"{URL}/{sid}", headers=user).json()["same_name"] is True
 
     client.patch(f"{URL}/{other}", headers=user, json={"spoken_name": "가람 2단지"})
@@ -258,3 +262,15 @@ def test_existing_duplicates_are_flagged_in_the_list(client, user, session, sid)
     client.patch(f"{URL}/{other}", headers=user, json={"name": "가람 2단지 물류센터"})
     flags = {p["id"]: p["same_name"] for p in client.get(URL, headers=user).json()}
     assert flags == {sid: False, other: False, third: False}
+
+
+def test_clearing_the_spoken_name_is_allowed_but_warns_when_the_cleaned_name_collides(client, user, session, sid):
+    """부를 이름을 비우면 다듬은 이름으로 부른다 — 그것이 겹치면 거절하지 않고 같은 이름 표시로 알린다."""
+    other = schedules.store(session, schedules.sample())
+    _named(session, sid, "가람 물류센터 2026-11-23")
+    _named(session, other, "가람 물류센터 (v2)")
+    client.patch(f"{URL}/{sid}", headers=user, json={"spoken_name": "가람 1단지"})
+
+    r = client.patch(f"{URL}/{sid}", headers=user, json={"spoken_name": ""})
+
+    assert r.status_code == 200 and r.json()["same_name"] is True and r.json()["same_as"] == "가람 물류센터 (v2)"
