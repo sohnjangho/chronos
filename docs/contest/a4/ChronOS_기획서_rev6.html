@@ -77,6 +77,15 @@ ul.tight{margin:2px 0 6px 0;padding-left:16px;} ul.tight li{margin:1px 0;}
 .cover .hero .inset{position:absolute;right:-4mm;bottom:-8mm;width:43%;border-radius:10px;box-shadow:0 18px 40px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.4);}
 .cover .meta{margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:8pt;color:#cbd5e1;border-top:1px solid rgba(255,255,255,.14);padding-top:9px;}
 .cover .meta b{display:block;color:#fff;font-size:9pt;}
+.cv-stage{position:relative;height:138mm;margin-top:8mm;}
+.cv{position:absolute;margin:0;}
+.cv img{width:100%;display:block;border-radius:9px;border:1px solid rgba(255,255,255,.25);box-shadow:0 16px 40px rgba(0,0,0,.45);}
+.cv figcaption{color:#cbd5e1;font-size:7.6pt;margin-top:3px;}
+.cv-gantt{left:20mm;top:0;width:162mm;}
+.cv-gantt::before{content:"간트차트 · 빨간 막대가 준공일을 좌우하는 작업";position:absolute;top:-5mm;left:0;font-size:7.6pt;color:#cbd5e1;}
+.cv-login{left:-3mm;top:66mm;width:92mm;}
+.cv-agent{right:-4mm;top:22mm;width:56mm;}
+.cv-agent img{max-height:104mm;object-fit:cover;object-position:top;}
 .comic{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
 .comic .cell{display:flex;flex-direction:column;}
 .comic .ph{aspect-ratio:3/2;}
@@ -113,13 +122,18 @@ ul.tight{margin:2px 0 6px 0;padding-left:16px;} ul.tight li{margin:1px 0;}
       <span class="pill">LINER .EXE-THON 2026 · 기획서</span>
       <span style="font-family:var(--mono);font-size:8pt;color:#94a3b8">ChronOS</span>
     </div>
-    <h1>골조를 5일 당겼다.<br>준공은 하루 당겨졌다.</h1>
-    <p class="sub">공정이 늦어서 약속을 놓치는 것이 아니다. 준공일을 좌우하는 작업이 다른 곳으로 옮겨 간 것을 늦게 알아서 놓친다.</p>
-    <p class="sub" style="color:#e2e8f0;margin-top:3mm">ChronOS(크로노스)는 채팅창이 아니라 <b style="color:#7dd3fc">일정 OS</b>다. 에이전트가 스케줄, 지연 기록, 비교판 창을 직접 열어 가며 일하고, 15년차 PM이 변동마다 하던 세 가지를 대신 한다. 다시 보고, 따져 보고, 먼저 묻는다.</p>
-    <div class="hero">
-      <img src="img/os2-지연.jpg" alt="에이전트가 지연 기록 창을 연 ChronOS 화면">
-      <img class="inset" src="img/s4-당김효과.jpg" alt="당긴 5일 중 1일만 준공에 반영됩니다 카드">
+    <div style="margin-top:12mm">
+      <div style="font-family:var(--mono);font-size:9pt;color:#7dd3fc;letter-spacing:.1em">일정 에이전트 OS</div>
+      <h1 style="font-size:40pt;margin:2mm 0 1mm;letter-spacing:-.02em">ChronOS <span style="font-size:18pt;font-weight:600;color:#94a3b8">크로노스</span></h1>
+      <p class="sub" style="font-size:12.5pt;color:#e2e8f0;margin:3mm 0 0">일정이 바뀔 때마다 준공일을 좌우하는 작업이 어디로 옮겨 갔는지 알려 주고, 그곳의 위험을 근거와 함께 찾아 담당자에게 먼저 묻는 일정 에이전트.</p>
+      <p class="sub" style="font-size:10.5pt;margin-top:2.5mm">채팅창이 아니라 OS 로 만들었다. 에이전트가 스케줄, 간트차트, 비교판 창을 직접 열어 가며 일하고, 사람은 같은 화면을 보다가 승인한다.</p>
     </div>
+    <div class="cv-stage">
+      <figure class="cv cv-gantt"><img src="img/cv-간트.jpg" alt="간트차트"></figure>
+      <figure class="cv cv-login"><img src="img/cv-로그인.jpg" alt="로그인"><figcaption>로그인 · 관리자, 사용자, 현장 관리자 3등급</figcaption></figure>
+      <figure class="cv cv-agent"><img src="img/cv-에이전트.jpg" alt="에이전트 대화"><figcaption>에이전트 대화 · 「관리 포인트가 바뀌었습니다」</figcaption></figure>
+    </div>
+    <div style="margin-top:6mm;border-left:3px solid #f59e0b;padding-left:10px;color:#fde68a;font-size:11pt;font-weight:700">골조를 5일 당겼다. 준공은 하루 당겨졌다. <span style="font-weight:500;color:#cbd5e1;font-size:9.6pt">약속은 공정이 늦어서가 아니라, 좌우하는 작업이 옮겨 간 걸 늦게 알아서 놓친다.</span></div>
     <div class="meta">
       <div><b>참가자</b>손장호 · 건설·플랜트 PM 15년차 (개인)</div>
       <div><b>개발 기간</b>2026-11-12 ~ 11-25 · 저장소 11-19 신규</div>
