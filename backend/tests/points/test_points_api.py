@@ -171,7 +171,7 @@ def _risks(aid: str) -> list[Risk]:
     return [
         Risk(aid, "materials", "알루미늄 3개월 +5.0% · The World Bank · 2026-10", 11, "2026-10", "The World Bank", "ok",
              "외장재"),
-        Risk(aid, "weather", "현장 주소가 없어 날씨를 보지 않음", None, None, None, "skipped", "실외 작업"),
+        Risk(aid, "weather", "프로젝트 주소가 없어 날씨를 보지 않음", None, None, None, "skipped", "실외 작업"),
         Risk(aid, "fx", "원·달러 · 바깥 자료 없음", None, None, None, "none", "수입"),
     ]
 
@@ -198,7 +198,7 @@ async def test_look_now_stores_risks_grouped_with_skipped_apart(client, admin, s
     lines = [(r["kind"], r["status"], r["actions"], r["quote"]) for r in c["new"][0]["risks"]]
     assert lines == [("materials", "ok", ["quote"], None), ("fx", "none", [], None)]  # skipped 는 본문에 없다
     assert c["skipped"] == [{"activity_id": "C", "name": "작업 C", "kind": "weather",
-                             "line": "현장 주소가 없어 날씨를 보지 않음"}]
+                             "line": "프로젝트 주소가 없어 날씨를 보지 않음"}]
     assert c["skipped_count"] == 1
     await card.look_now(sid, n, False)  # 끝난 줄은 다시 찾지 않는다
     assert len(fake_look) == 1

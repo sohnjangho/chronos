@@ -249,8 +249,8 @@ async def test_weather_history_when_es_later(session, fakes):
     assert not fakes.kma.of("VilageFcst") and fakes.kma.of("AsosDaly")[0].url.params["stnIds"] == "108"
 
 
-@pytest.mark.parametrize("address,line", [(None, "현장 주소가 없어 날씨를 보지 않음"),
-                                          ("   ", "현장 주소가 없어 날씨를 보지 않음"),
+@pytest.mark.parametrize("address,line", [(None, "프로젝트 주소가 없어 날씨를 보지 않음"),
+                                          ("   ", "프로젝트 주소가 없어 날씨를 보지 않음"),
                                           ("화성 기지 1호", "지점을 몰라 날씨를 보지 않음")])
 async def test_weather_skipped_without_place_others_go_on(session, fakes, address, line):
     sid = _schedule(session, address=address)

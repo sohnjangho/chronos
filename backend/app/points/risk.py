@@ -3,7 +3,7 @@
 - 무엇을 찾을지는 LLM(light)이 액티비티 이름·WBS·자원·분야만 보고 고른다(weather_sensitive · materials · imported ·
   supplier · why). 날짜·주소는 보이지 않는다. 답은 엄격히 읽고 목록 밖·모양이 틀린 값은 버린다.
 - 날씨 = 기상청(info.weather 안의 조회 함수): ES 가 오늘부터 3일 안이면 단기예보, 뒤면 ES 달의 지난 n년 통계.
-  현장 주소(프로젝트 관리)가 없거나 기상청 지점을 모르면 skipped. 자재·환율 = Liner Search `include_knowledge: true`
+  프로젝트 주소(프로젝트 관리)가 없거나 기상청 지점을 모르면 skipped. 자재·환율 = Liner Search `include_knowledge: true`
   (Premium Data — The World Bank 월별 금속, Xignite 환율). 업체 = Liner MCP `search_business` 첫 줄.
 - 숫자는 받은 표에서 코드가 읽고 계산한다. 없거나 숫자가 아니면 status none 「… · 바깥 자료 없음」(숫자 없음).
 - 결과는 근거 표에 출처와 함께 남긴다(날씨 mode weather, 나머지 mode knowledge, 대화 없음). 같은 질의를
@@ -49,7 +49,7 @@ Status = Literal["ok", "none", "skipped"]
 MATERIALS = ("copper", "aluminum", "iron ore")  # 0단계 실측으로 Premium Data 에 있는 금속(The World Bank)
 MATERIAL_NAMES = {"copper": "구리", "aluminum": "알루미늄", "iron ore": "철광석"}
 NO_DATA = "바깥 자료 없음"
-NO_ADDRESS = "현장 주소가 없어 날씨를 보지 않음"
+NO_ADDRESS = "프로젝트 주소가 없어 날씨를 보지 않음"
 NO_STATION = "지점을 몰라 날씨를 보지 않음"
 FX_QUERY = "USD KRW exchange rate"
 FX_LABEL = "원·달러"
