@@ -16,6 +16,8 @@ class AttentionItem(BaseModel):
     violations: int
     open_delays: int
     level: Literal["danger", "warning", "ok"]
+    points_count: int | None = None  # 지금 버전의 관리 포인트 수(계산이 안 되는 일정은 None)
+    points_changed: int = 0  # 마지막 바뀜의 새 포인트 + 여유가 준 포인트 수(열린 지연이 있으면 그 가정 기준)
 
 
 class AttentionOut(BaseModel):

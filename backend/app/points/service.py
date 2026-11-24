@@ -15,6 +15,7 @@ from app.core.delay import DelayAnalysis
 from app.core.model import Schedule
 from app.core.points import Point, PointsDiff, compute_points, diff_points
 from app.harness.assemble import prepare_stored
+from app.points import card
 from app.store import delays as delays_store
 from app.store import points as points_store
 from app.store.schedules import NotFound, end_write, load, run
@@ -63,21 +64,34 @@ def refresh(session: Session, schedule_id: int, version: int, *, computed: CpmRe
     computed = 그 버전의 run(일정, 조건) 결과(있으면 다시 맞추지 않는다). 없는 버전이면 NotFound, 계산이 안 되는
     일정이면 ScheduleError(아무것도 적지 않는다).
     """
-    cur = _points(session, *_state(session, schedule_id, version, computed))
+    return _refresh(session, schedule_id, version, computed)[0]
+
+
+def _refresh(session: Session, schedule_id: int, version: int, computed: CpmResult | None
+             ) -> tuple[PointsDiff | None, tuple[Point, ...], tuple[Point, ...], Schedule, CpmResult]:
+    """refresh 와 같고 (차이, 앞 포인트, 이 버전 포인트, 조건 넣은 일정, 맞춘 CPM) 을 준다(카드가 빠진 까닭을 가른다)."""
+    ready, cpm = _state(session, schedule_id, version, computed)
+    cur = _points(session, ready, cpm)
     prev, prev_tf = _previous(session, schedule_id, version)
     points_store.put(session, schedule_id, version, cur)
-    return diff_points(prev, cur, prev_tf=prev_tf)
+    return diff_points(prev, cur, prev_tf=prev_tf), prev or (), cur, ready, cpm
 
 
 def refresh_quietly(session: Session, schedule_id: int, version: int, *, commit: bool,
                     computed: CpmResult | None = None) -> PointsDiff | None:
-    """버전을 만든 뒤 훅: refresh 를 SAVEPOINT 안에서 하고 commit(아니면 flush). 실패는 로그 한 줄만 남기고 None —
+    """버전을 만든 뒤 훅: refresh 와 카드 차이 적기(app.points.card.remember)를 SAVEPOINT 안에서 하고 commit(아니면 flush).
+    새 포인트가 있으면 바깥 트랜잭션이 commit 된 뒤 바깥 위험 찾기를 띄운다. 실패는 로그 한 줄만 남기고 None —
     SAVEPOINT 만 되돌리므로 부른 쪽의 저장(commit 이 아니면 아직 열린 트랜잭션)을 깨지 않는다.
     (pysqlite 로 확인: 바깥 트랜잭션이 쓰는 중이든 아니든 안쪽만 되돌아간다 — 시험 test_points_service.)
     """
     try:
         with session.begin_nested():
-            diff = refresh(session, schedule_id, version, computed=computed)
+            diff, prev, cur, ready, cpm = _refresh(session, schedule_id, version, computed)
+            look = diff is not None and card.remember(
+                session, schedule_id, version, what_if=False, diff=diff, points=cur,
+                before={p.activity_id: p for p in prev}, ready=ready, cpm=cpm)
+        if look:  # 바깥 위험은 저장이 commit 된 뒤 뒤에서 찾는다(응답을 막지 않는다)
+            card.launch_after_commit(session, schedule_id, version, what_if=False)
         end_write(session, commit)
         return diff
     except Exception as e:  # 어떤 실패도 저장을 막지 않는다
@@ -105,3 +119,17 @@ def what_if(session: Session, schedule_id: int, analysis: DelayAnalysis | None =
     diff = diff_points(base, points, prev_tf=_tf(analysis.base_cpm))
     assert diff is not None  # base 는 None 이 아니다
     return points, diff
+
+
+def remember_what_if(session: Session, schedule_id: int, analysis: DelayAnalysis | None = None
+                     ) -> tuple[tuple[Point, ...], PointsDiff, int, bool]:
+    """what_if 를 계산해 카드 차이(what_if 줄, 지금 버전 n)를 적는다(flush 만). → (포인트, 차이, n, 뒤에서 바깥 위험을
+    찾아야 하는가 — 부른 쪽이 commit 한 뒤 card.launch(…, n, what_if=True)). NotFound·ScheduleError 는 그대로."""
+    if analysis is None:
+        analysis, _, _ = delays_store.analyze_open(session, schedule_id)
+    points, diff = what_if(session, schedule_id, analysis)
+    n = load(session, schedule_id)[2]
+    base = points_store.get(session, schedule_id, n) or ()
+    look = card.remember(session, schedule_id, n, what_if=True, diff=diff, points=points,
+                         before={p.activity_id: p for p in base}, ready=analysis.final_schedule, cpm=analysis.final_cpm)
+    return points, diff, n, look

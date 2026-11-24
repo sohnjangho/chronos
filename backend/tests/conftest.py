@@ -52,6 +52,17 @@ def quiet_file_worker(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def quiet_points_risks(monkeypatch):
+    """관리 포인트 바깥 위험 찾기(계획 5 Task 5)의 뒤 작업을 띄우지 않는다 — 시험이 LLM·Liner·기상청에 나가지 않고 스레드가
+    남지 않게. 띄우려던 것은 card.launched 에 (일정, 버전, what_if) 로 쌓인다. 시험은 card.look_now 를 직접 부른다."""
+    from app.points import card
+
+    launched: list[tuple[int, int, bool]] = []
+    monkeypatch.setattr(card, "launched", launched, raising=False)
+    monkeypatch.setattr(card, "launch", lambda sid, version, *, what_if: launched.append((sid, version, what_if)))
+
+
+@pytest.fixture(autouse=True)
 def quiet_outreach_worker(monkeypatch):
     """연락 일꾼(Task 71 — 예약 발송·상태 조회·들어온 문자)과 통화 일꾼(Task 88). 시험에서는 앱(lifespan)이 일꾼을 띄우지 않는다 — 시험은
     worker.tick(now=…) 을 한 바퀴씩 직접 부른다. 일꾼의 메모리 상태(status)도 시험마다 새것. 진짜 start 는

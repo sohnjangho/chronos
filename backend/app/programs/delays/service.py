@@ -20,6 +20,7 @@ from app.core.delay import DelayAnalysis
 from app.core.model import Schedule
 from app.errors import ApiError
 from app.harness.assemble import prepare_stored
+from app.points import card
 from app.points import service as points_service
 from app.programs.delays.schemas import (
     DelayIn,
@@ -97,11 +98,16 @@ def _computed[T](make: Callable[[], T]) -> T:
 
 
 def _what_if(session: Session, schedule_id: int, analysis: DelayAnalysis | None) -> WhatIfPointsOut | None:
-    """열린 사건을 넣은 가정 관리 포인트(방금 한 분석을 다시 쓴다). 실패해도 응답은 그대로 — 로그만, null."""
+    """열린 사건을 넣은 가정 관리 포인트(방금 한 분석을 다시 쓴다). 카드 차이(what_if 줄)도 적고 commit 한 뒤, 새 포인트가
+    있으면 바깥 위험 찾기를 뒤에서 띄운다(응답을 막지 않는다). 실패해도 응답은 그대로 — 로그만, null."""
     try:
-        points, diff = points_service.what_if(session, schedule_id, analysis)
+        points, diff, n, look = points_service.remember_what_if(session, schedule_id, analysis)
+        session.commit()
+        if look:
+            card.launch(schedule_id, n, what_if=True)
         return WhatIfPointsOut.model_validate({"points": [asdict(p) for p in points], "diff": asdict(diff)})
     except Exception as e:  # 지연 응답을 막지 않는다
+        session.rollback()
         logger.warning("가정 관리 포인트 계산 실패: 일정 %s (%s)", schedule_id, type(e).__name__)
         logger.debug("가정 관리 포인트 계산 실패 자세히", exc_info=True)
         return None

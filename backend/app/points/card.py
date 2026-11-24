@@ -1,0 +1,310 @@
+"""「관리 포인트가 바뀌었습니다」 카드(계획 5 Task 5): 차이를 적어 두고, 새 포인트의 바깥 위험을 뒤에서 찾고, 카드 꼴을 짓는다.
+
+- 표 point_cards: (일정, 버전, what_if) 한 줄. what_if = 지연 분석의 가정 포인트(버전은 그때의 지금 버전 — 덮어쓴다).
+  차이를 사람이 읽을 꼴(new·tightened·removed — 이름·여유는 엔진 값 그대로)과 그때의 포인트, 위험 찾기 상태·결과를 둔다.
+- 「새 포인트」 = added + became_critical(ES 순, points_max_new 개까지). 바깥 위험(app.points.risk.look)은 이것만 찾는다.
+  찾기는 응답을 막지 않는 뒤 작업이다: 버전 저장은 commit 이 된 뒤(after_commit), 지연 분석·points.check 는 commit 뒤 바로.
+  찾는 동안 risk_status 는 looking(「바깥 위험 찾는 중」). look 약속대로 앞뒤로 commit 한다. 같은 차이를 다시 적으면(같은
+  내용) 찾은 것을 그대로 둔다 — 다시 부르지 않는다(바깥 호출은 돈이 든다).
+- 빠진 포인트에는 까닭을 붙인다: 여유가 늘어남(relief) · 창 밖으로 밀림(out_of_window — ES 가 Data Date + w주 뒤로, 완화가
+  아니다) · 끝남(finished) · 일정에서 빠짐(gone).
+- 카드(payload)는 added·became_critical·tightened 가 하나라도 있을 때만(없으면 None — 다 끝난 일정·바뀜 없음은 카드 없음).
+  위험은 포인트마다 묶고, 건너뛴 것(skipped)은 따로 모은다(화면은 「건너뛴 자료 n개」로 접는다). 근거 문장 상태는 quotes.get
+  으로 읽기만 한다 — 채우기(fill)는 사람이 [근거 문장 보기]를 누른 API 에서만.
+- 번호·키는 어디에도 없다. 실패 로그는 종류만.
+"""
+
+import asyncio
+import logging
+import threading
+from collections.abc import Callable, Coroutine, Mapping, Sequence
+from dataclasses import asdict
+from datetime import UTC, date, datetime, timedelta
+
+from sqlalchemy import JSON, event
+from sqlalchemy.orm import Mapped, Session, mapped_column
+
+from app.core.cpm import CpmResult
+from app.core.model import Schedule
+from app.core.points import Point, PointsDiff
+from app.points import quotes
+from app.store.settings import points_config
+from app.store.tables import Base
+from app.store.tables_outreach import UtcDateTime
+from app.store.timeutil import as_utc
+
+logger = logging.getLogger(__name__)
+
+LOOKING, DONE, FAILED, NOTHING = "looking", "done", "failed", "none"
+RISK_MESSAGES = {LOOKING: "바깥 위험 찾는 중", DONE: "", FAILED: "바깥 위험을 찾지 못했습니다", NOTHING: ""}
+STALE_AFTER = timedelta(minutes=15)  # 이보다 오래 찾는 중이면 멈춘 것(서버가 다시 켜짐 등) — failed 로 보인다
+REASONS = {"relief": "여유가 늘어남", "out_of_window": "창 밖으로 밀림", "finished": "끝남", "gone": "일정에서 빠짐"}
+POINT_ACTIONS = ("contact", "recovery")  # [담당자에게 확인 연락] · [만회안 보기]
+
+
+class PointCard(Base):
+    __tablename__ = "point_cards"
+
+    schedule_id: Mapped[int] = mapped_column(primary_key=True)
+    version: Mapped[int] = mapped_column(primary_key=True)
+    what_if: Mapped[bool] = mapped_column(primary_key=True)
+    data_json: Mapped[dict] = mapped_column(JSON)  # {basis, new, more, tightened, removed, diff}
+    points_json: Mapped[list] = mapped_column(JSON)  # 그때의 포인트(store.points 꼴)
+    risk_status: Mapped[str]
+    risks_json: Mapped[list] = mapped_column(JSON, default=list)  # [asdict(risk.Risk)]
+    generation: Mapped[int] = mapped_column(default=0)  # 다시 적을 때마다 +1 — 늦게 끝난 옛 찾기가 덮어쓰지 않게
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
+def point_json(p: Point) -> dict:
+    return {"activity_id": p.activity_id, "name": p.name, "critical": p.critical, "tf": p.tf,
+            "es": p.es.isoformat(), "ef": p.ef.isoformat()}
+
+
+def _from_json(d: dict) -> Point:
+    return Point(d["activity_id"], d["name"], d["critical"], d["tf"], date.fromisoformat(d["es"]),
+                 date.fromisoformat(d["ef"]))
+
+
+def diff_json(diff: PointsDiff) -> dict:
+    return {"added": [point_json(p) for p in diff.added], "removed": list(diff.removed),
+            "tightened": [list(t) for t in diff.tightened], "became_critical": list(diff.became_critical),
+            "before_tf": dict(diff.before_tf)}
+
+
+def new_points(diff: PointsDiff, points: Sequence[Point]) -> list[Point]:
+    """added + became_critical, ES 순(같으면 포인트 차례)."""
+    ids = {p.activity_id for p in diff.added} | set(diff.became_critical)
+    return [p for p in points if p.activity_id in ids]  # points 는 이미 ES 순
+
+
+def _removed(ids: Sequence[str], before: Mapping[str, Point], ready: Schedule, cpm: CpmResult, window_weeks: int
+             ) -> list[dict]:
+    edge = (ready.data_date or ready.start) + timedelta(weeks=window_weeks)
+    acts = {a.id: a for a in ready.activities}
+    out = []
+    for i in ids:
+        act, row, prev = acts.get(i), cpm.rows.get(i), before.get(i)
+        if act is None or row is None:
+            reason = "gone"
+        elif act.actual_finish is not None:
+            reason = "finished"
+        elif row.es > edge:
+            reason = "out_of_window"
+        else:
+            reason = "relief"
+        item = {"activity_id": i, "name": prev.name if prev else (act.name if act else i), "reason": reason,
+                "label": REASONS[reason]}
+        if prev is not None:
+            item["before_tf"] = prev.tf
+        if row is not None and reason == "relief":
+            item["tf"] = row.tf
+        out.append(item)
+    return out
+
+
+def _data(session: Session, diff: PointsDiff, points: Sequence[Point], before: Mapping[str, Point], ready: Schedule,
+          cpm: CpmResult) -> dict:
+    cfg = points_config(session)
+    fresh = new_points(diff, points)
+    became = set(diff.became_critical)
+    new = []
+    for p in fresh[:cfg.max_new]:
+        item = {**point_json(p), "became_critical": p.activity_id in became}
+        if p.activity_id in diff.before_tf:  # 모르면 키 없음 — 화면은 「여유 n일 →」을 빼고 쓴다
+            item["before_tf"] = diff.before_tf[p.activity_id]
+        new.append(item)
+    by_id = {p.activity_id: p for p in points}
+    fresh_ids = {p.activity_id for p in fresh}
+    tightened = [{**point_json(by_id[i]), "before_tf": a} for i, a, _ in diff.tightened
+                 if i not in fresh_ids and i in by_id]
+    return {"basis": {"tf_days": cfg.tf_days, "window_weeks": cfg.window_weeks}, "new": new,
+            "more": max(0, len(fresh) - cfg.max_new), "tightened": tightened,
+            "removed": _removed(diff.removed, before, ready, cpm, cfg.window_weeks), "diff": diff_json(diff)}
+
+
+def changed(data: Mapping) -> bool:
+    d = data["diff"]
+    return bool(d["added"] or d["became_critical"] or d["tightened"])
+
+
+def remember(session: Session, schedule_id: int, version: int, *, what_if: bool, diff: PointsDiff,
+             points: Sequence[Point], before: Mapping[str, Point], ready: Schedule, cpm: CpmResult) -> bool:
+    """차이를 적는다(flush 만). 뒤에서 바깥 위험을 찾아야 하면 True(새 포인트가 있고, 같은 차이를 이미 찾았거나 찾는 중이 아님).
+
+    before = 앞 상태의 포인트(id → Point, 빠진 포인트의 이름·앞 여유). ready·cpm = 뒤 상태(빠진 까닭을 가른다).
+    """
+    data = _data(session, diff, points, before, ready, cpm)
+    stored = [point_json(p) for p in points]
+    status = LOOKING if data["new"] else NOTHING
+    row = session.get(PointCard, (schedule_id, version, what_if))
+    now = datetime.now(UTC)
+    if row is not None and row.data_json == data and row.points_json == stored and status_of(row) in (LOOKING, DONE):
+        return False  # 같은 차이 — 찾은 것(또는 찾는 중)을 그대로
+    if row is None:
+        row = PointCard(schedule_id=schedule_id, version=version, what_if=what_if, generation=0)
+        session.add(row)
+    row.data_json, row.points_json, row.risk_status, row.risks_json = data, stored, status, []
+    row.generation, row.updated_at = (row.generation or 0) + 1, now
+    session.flush()
+    return status == LOOKING
+
+
+def status_of(row: PointCard) -> str:
+    if row.risk_status == LOOKING and datetime.now(UTC) - as_utc(row.updated_at) >= STALE_AFTER:
+        return FAILED
+    return row.risk_status
+
+
+def get(session: Session, schedule_id: int, version: int, *, what_if: bool) -> PointCard | None:
+    return session.get(PointCard, (schedule_id, version, what_if))
+
+
+def stored_points(row: PointCard) -> list[Point]:
+    return [_from_json(d) for d in row.points_json]
+
+
+# ── 뒤에서 바깥 위험 찾기 ─────────────────────────────────────────────
+
+_tasks: set = set()  # 끝나기 전에 사라지지 않게 쥔다(asyncio 작업·스레드)
+
+
+def _engine():
+    from app.db import (
+        current_engine,  # app.db 가 이 모듈을 import 한다 — 돌림 import 를 피해 부를 때 읽는다
+    )
+
+    return current_engine()
+
+
+async def look_now(schedule_id: int, version: int, what_if: bool) -> None:
+    """그 줄의 새 포인트 바깥 위험을 찾아 적는다. 자기 세션을 쓴다(look 앞뒤 commit). 그 사이 다시 적혔으면(generation) 버린다."""
+    from app.points import risk  # 무거운 import(LLM·바깥 자료)는 부를 때
+    from app.store.schedules import load
+
+    engine = _engine()
+    if engine is None:
+        return
+    with Session(engine) as session:
+        try:
+            row = get(session, schedule_id, version, what_if=what_if)
+            if row is None or row.risk_status != LOOKING:
+                return
+            generation = row.generation
+            ids = {item["activity_id"] for item in row.data_json["new"]}
+            chosen = [p for p in stored_points(row) if p.activity_id in ids]
+            current = load(session, schedule_id)[2]
+            session.commit()  # look 앞: 쌓인 쓰기 없이
+            found = [] if current != version else await risk.look(session, schedule_id, version, chosen)
+            row = get(session, schedule_id, version, what_if=what_if)
+            if row is None or row.generation != generation:
+                session.commit()  # look 이 적은 근거 줄은 남긴다
+                return
+            row.risks_json, row.risk_status, row.updated_at = [asdict(r) for r in found], DONE, datetime.now(UTC)
+            session.commit()
+        except Exception as exc:  # noqa: BLE001 — 뒤 작업은 상태를 끝내야 한다. 예외 글은 남기지 않는다
+            logger.warning("관리 포인트 바깥 위험 찾기 실패: 일정 %s 버전 %s (%s)", schedule_id, version, type(exc).__name__)
+            session.rollback()
+            _mark_failed(session, schedule_id, version, what_if)
+
+
+def _mark_failed(session: Session, schedule_id: int, version: int, what_if: bool) -> None:
+    try:
+        row = get(session, schedule_id, version, what_if=what_if)
+        if row is not None and row.risk_status == LOOKING:
+            row.risk_status, row.updated_at = FAILED, datetime.now(UTC)
+            session.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("관리 포인트 바깥 위험 실패 표시도 못 함 (%s)", type(exc).__name__)
+
+
+def _start(job: Callable[[], Coroutine]) -> None:
+    """뒤 작업을 띄운다: 이벤트 루프 안이면 그 루프의 작업, 밖(동기 API·스레드)이면 자기 루프를 가진 스레드.
+    시험은 이 함수를 바꿔 끼운다(conftest — 바깥 호출 없음)."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        task = loop.create_task(job())
+        _tasks.add(task)
+        task.add_done_callback(_tasks.discard)
+        return
+    thread = threading.Thread(target=lambda: asyncio.run(job()), name="points-risk", daemon=True)
+    _tasks.add(thread)
+    thread.start()
+
+
+def launch(schedule_id: int, version: int, *, what_if: bool) -> None:
+    """commit 이 끝난 뒤에 부른다."""
+    _start(lambda: look_now(schedule_id, version, what_if))
+
+
+def launch_after_commit(session: Session, schedule_id: int, version: int, *, what_if: bool) -> None:
+    """그 세션의 바깥 트랜잭션이 commit 된 뒤에 launch(버전 저장이 commit=False 로 부른 쪽 트랜잭션 안일 때도). SAVEPOINT
+    commit 에는 띄우지 않고, 바깥 트랜잭션이 되돌려지면 띄우지 않는다(한 번만)."""
+    live = [True]
+
+    def fire(s: Session) -> None:
+        if live[0] and not s.in_nested_transaction():
+            live[0] = False
+            launch(schedule_id, version, what_if=what_if)
+
+    def end(_s: Session, transaction) -> None:
+        if transaction.parent is None:  # commit 이면 fire 가 먼저 돌았다
+            live[0] = False
+
+    event.listen(session, "after_commit", fire)
+    event.listen(session, "after_transaction_end", end)
+
+
+# ── 카드·조회 꼴 ──────────────────────────────────────────────────────
+
+
+def quote_json(state: quotes.QuoteState | None) -> dict | None:
+    if state is None:
+        return None
+    return {"status": state.status, "message": state.message, "error_code": state.error_code,
+            "quotes": [{"text": q.text, "url": q.url, "title": q.title} for q in state.quotes]}
+
+
+def quote_states(session: Session, schedule_id: int, version: int, risks: Sequence[Mapping]) -> dict[str, dict | None]:
+    """'activity_id/kind' → 근거 문장 상태(아직 누르지 않았으면 None). ok 위험만. 읽기만 한다."""
+    out: dict[str, dict | None] = {}
+    for r in risks:
+        if r.get("status") == "ok":
+            key = f"{r['activity_id']}/{r['kind']}"
+            if key not in out:
+                out[key] = quote_json(quotes.get(session, schedule_id, version, r["activity_id"], r["kind"]))
+    return out
+
+
+def _risk_actions(r: Mapping) -> list[str]:
+    if r.get("status") != "ok":
+        return []
+    return ["quote", "condition"] if r.get("kind") == "weather" else ["quote"]  # [조건으로 넣어 보기]는 날씨만
+
+
+def payload(session: Session, row: PointCard) -> dict | None:
+    """chat 카드 card{kind: "points_changed", …}. 바뀜(added·became_critical·tightened)이 없으면 None."""
+    data = row.data_json
+    if not changed(data):
+        return None
+    status = status_of(row)
+    risks = row.risks_json or []
+    states = quote_states(session, row.schedule_id, row.version, risks)
+    names = {p["activity_id"]: p["name"] for p in row.points_json}
+    new = []
+    for item in data["new"]:
+        mine = [{**r, "quote": states.get(f"{r['activity_id']}/{r['kind']}"), "actions": _risk_actions(r)}
+                for r in risks if r["activity_id"] == item["activity_id"] and r["status"] != "skipped"]
+        new.append({**item, "risks": mine, "actions": list(POINT_ACTIONS)})
+    skipped = [{"activity_id": r["activity_id"], "name": names.get(r["activity_id"], r["activity_id"]),
+                "kind": r["kind"], "line": r["line"]} for r in risks if r["status"] == "skipped"]
+    return {
+        "kind": "points_changed", "schedule_id": row.schedule_id, "version": row.version, "what_if": row.what_if,
+        "basis": data["basis"], "new": new, "more": data["more"],
+        "tightened": [{**t, "actions": list(POINT_ACTIONS)} for t in data["tightened"]],
+        "removed": data["removed"], "skipped": skipped, "skipped_count": len(skipped),
+        "risk_status": status, "risk_message": RISK_MESSAGES[status],
+    }
