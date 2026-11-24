@@ -26,7 +26,7 @@ export function stubFetch(routes: Record<string, Route>) {
 }
 
 // 설정 프로그램 시험이 아직 이 기본값에 기댄다(그 시험은 이 작업에서 고칠 수 없음). 새 시험은 signInAsDemo 를 쓴다.
-export function signInAs(role: Role = 'admin', name = '손장호') {
+export function signInAs(role: Role = 'admin', name = '홍길동') {
   useSession.getState().signIn({ token: 'tok', loginId: 'jhsohn', user: { id: 1, name, role } });
 }
 

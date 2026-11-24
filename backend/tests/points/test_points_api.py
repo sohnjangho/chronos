@@ -43,7 +43,7 @@ def _od(schedule, **ods):
 
 
 def _save(session, sid, schedule, base: int, **k) -> int:
-    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="손장호", note="고침", changes=[],
+    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="홍길동", note="고침", changes=[],
                             base_version=base, plan_change=False, **k)
 
 
@@ -500,7 +500,7 @@ def test_attention_counts_points_and_changes(client, admin, session):
 def test_attention_uses_the_what_if_change_while_delays_are_open(client, admin, session):
     sid = store(session, _near_critical())
     delays_store.create(session, schedule_id=sid, activity_id="C", start_date=date(2027, 3, 1), days=3, cause="자재 늦음",
-                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="손장호")
+                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="홍길동")
     session.commit()
     assert client.post(f"/api/schedules/{sid}/delays/analyze", headers=admin).status_code == 200
     item = next(i for i in client.get("/api/attention", headers=admin).json()["items"] if i["id"] == sid)
@@ -845,7 +845,7 @@ def test_outside_the_server_what_if_is_not_started_too(session, monkeypatch):
     monkeypatch.setattr(card, "SERVING", False)
     sid = store(session, _near_critical())
     delays_store.create(session, schedule_id=sid, activity_id="C", start_date=date(2027, 3, 1), days=3, cause="자재 늦음",
-                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="손장호")
+                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="홍길동")
     session.commit()
     _, _, n, look = points_service.remember_what_if(session, sid)
     session.commit()

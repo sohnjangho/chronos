@@ -25,7 +25,7 @@ const SAMPLE_TPL_CURRENT = {
     { id: 's2', heading: '2. WBS 현황', block_kind: 'table', data_binding: 'wbs_table', table_columns: ['WBS', '계획', '실적'], section_prompt: '' },
   ],
   style: { tone: '~습니다', date_format: 'YYYY.MM.DD', number_precision: 1, header_note: '', learned_rules: ['첫 줄에 SPI 표기'] },
-  created_by: '손장호',
+  created_by: '홍길동',
   updated_at: '2026-11-22T09:00:00Z',
 };
 
@@ -50,7 +50,7 @@ const SAMPLE_REPORT = {
   data_date: '2027.06.01',
   schedule_version: 1,
   status: 'draft',
-  created_by: '손장호',
+  created_by: '홍길동',
   updated_at: '2026-11-22T09:05:00Z',
   blocks: [
     {

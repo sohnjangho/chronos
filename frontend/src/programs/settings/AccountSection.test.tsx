@@ -21,7 +21,7 @@ type Account = {
 afterEach(resetAll);
 
 test('admin lists accounts and adds one; the password field is cleared', async () => {
-  let users: Account[] = [{ id: 1, name: '손장호', role: 'admin', login_id: 'jhsohn' }];
+  let users: Account[] = [{ id: 1, name: '홍길동', role: 'admin', login_id: 'jhsohn' }];
   const { fetchMock } = renderAs('admin', ACCOUNT, {
     '/api/auth/users': () => json(200, users),
     'POST /api/auth/users': (init?: RequestInit) => {
@@ -54,7 +54,7 @@ test('editing an account sends only what changed and shows the server message in
   });
   await userEvent.click(await screen.findByText('jhsohn'));
   const form = screen.getByRole('region', { name: '계정 고치기' });
-  expect(within(form).getByLabelText('이름')).toHaveValue('손장호');
+  expect(within(form).getByLabelText('이름')).toHaveValue('홍길동');
   await userEvent.selectOptions(within(form).getByLabelText('등급'), 'user');
   await userEvent.click(within(form).getByRole('button', { name: '저장' }));
   expect(await within(form).findByText('관리자가 한 명은 있어야 합니다.')).toBeVisible();
@@ -70,7 +70,7 @@ test('a long login id without hyphens may wrap in the edit form', async () => {
 });
 
 test('admin can select field role (현장 관리자) when creating an account', async () => {
-  let users: Account[] = [{ id: 1, name: '손장호', role: 'admin', login_id: 'jhsohn' }];
+  let users: Account[] = [{ id: 1, name: '홍길동', role: 'admin', login_id: 'jhsohn' }];
   const { fetchMock } = renderAs('admin', ACCOUNT, {
     '/api/auth/users': () => json(200, users),
     'POST /api/auth/users': (init?: RequestInit) => {
@@ -95,7 +95,7 @@ test('admin can select field role (현장 관리자) when creating an account', 
 
 test('admin approves a pending signup applicant and can delete a non-self user account', async () => {
   let users: Account[] = [
-    { id: 1, name: '손장호', role: 'admin', login_id: 'jhsohn', status: 'active' },
+    { id: 1, name: '홍길동', role: 'admin', login_id: 'jhsohn', status: 'active' },
     {
       id: 9,
       name: '이가입',

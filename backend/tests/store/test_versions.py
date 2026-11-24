@@ -43,7 +43,7 @@ from tests.schedules import make, store, task
 def test_json_roundtrip(sample_schedule):
     assert from_json(to_json(sample_schedule)) == sample_schedule
 def test_save_bumps_version_and_logs(session, sid, sample_schedule):
-    n = save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="손장호", note="x", changes=[{"id": "A", "field": "od", "from": 3, "to": 4}], base_version=1, plan_change=False)
+    n = save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="홍길동", note="x", changes=[{"id": "A", "field": "od", "from": 3, "to": 4}], base_version=1, plan_change=False)
     assert n == 2 and session.query(ChangeLog).filter_by(schedule_id=sid).count() == 1
 def test_stale_base_version_conflicts(session, sid, sample_schedule):
     save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1, plan_change=False)
@@ -53,7 +53,7 @@ def test_stale_base_version_conflicts(session, sid, sample_schedule):
 def test_restore_creates_new_version_keeping_history(session, sid, sample_schedule):
     # 지시서 시험은 버전 2 가 이미 있다고 본다(sid 는 버전 1 만 있다). 한 번 고친 뒤 되돌린다.
     save_new_version(session, sid, sample_schedule, [], by_kind="user", by_name="a", note="", changes=[], base_version=1, plan_change=False)
-    assert restore(session, sid, 1, by_name="손장호") == 3 and len(list_versions(session, sid)) == 3
+    assert restore(session, sid, 1, by_name="홍길동") == 3 and len(list_versions(session, sid)) == 3
 
 
 # ── 덧붙인 시험 ─────────────────────────────────────────────────────
@@ -158,14 +158,14 @@ def test_load_unknown_raises_not_found(session, sid):
 
 def test_save_writes_version_and_change_log(session, sid, sample_schedule):
     changes = [{"id": "A", "field": "od", "from": 3, "to": 4}]
-    save_new_version(session, sid, sample_schedule, [{"c": 1}], by_kind="user", by_name="손장호", note="A 기간 3 → 4", changes=changes, base_version=1, plan_change=False)
+    save_new_version(session, sid, sample_schedule, [{"c": 1}], by_kind="user", by_name="홍길동", note="A 기간 3 → 4", changes=changes, base_version=1, plan_change=False)
     v2 = session.get(ScheduleVersion, (sid, 2))
     assert (v2.note, v2.by_kind, v2.by_name, v2.is_plan, v2.conditions_json) == (
-        "A 기간 3 → 4", "user", "손장호", False, [{"c": 1}]
+        "A 기간 3 → 4", "user", "홍길동", False, [{"c": 1}]
     )
     log = session.query(ChangeLog).filter_by(schedule_id=sid).one()
     assert (log.version_n, log.by_kind, log.by_name, log.summary, log.changes_json) == (
-        2, "user", "손장호", "A 기간 3 → 4", changes
+        2, "user", "홍길동", "A 기간 3 → 4", changes
     )
 
 
@@ -182,11 +182,11 @@ def test_conflict_saves_nothing(session, sid, sample_schedule):
 def test_restore_copies_old_content_and_lists_newest_first(session, sid, sample_schedule):
     changed = replace(sample_schedule, activities=sample_schedule.activities[:1], relations=())
     save_new_version(session, sid, changed, [{"c": 1}], by_kind="user", by_name="a", note="", changes=[], base_version=1, plan_change=False)
-    assert restore(session, sid, 1, by_name="손장호") == 3
+    assert restore(session, sid, 1, by_name="홍길동") == 3
     assert load(session, sid) == (sample_schedule, [], 3)
     versions = list_versions(session, sid)
     assert [v.n for v in versions] == [3, 2, 1]
-    assert (versions[0].by_kind, versions[0].by_name, versions[0].note) == ("user", "손장호", "1번 버전으로 되돌림")
+    assert (versions[0].by_kind, versions[0].by_name, versions[0].note) == ("user", "홍길동", "1번 버전으로 되돌림")
 
 
 def test_restore_unknown_version_raises_not_found(session, sid):
@@ -290,7 +290,7 @@ def test_restore_records_differences(session, sid, sample_schedule):
         relations=(Relation("A", "C", "SS", 1),),
     )
     _save(session, sid, changed, 1)
-    restore(session, sid, 1, by_name="손장호")
+    restore(session, sid, 1, by_name="홍길동")
     log = session.query(ChangeLog).filter_by(schedule_id=sid, version_n=3).one()
     assert log.summary == "1번 버전으로 되돌림"
     assert sorted(log.changes_json, key=lambda c: (c["id"], c["field"])) == [

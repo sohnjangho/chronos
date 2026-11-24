@@ -23,7 +23,7 @@ def _c(od: int):
 
 
 def _save(session, sid, schedule, base: int) -> int:
-    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="손장호", note="고침", changes=[],
+    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="홍길동", note="고침", changes=[],
                             base_version=base, plan_change=False)
 
 
@@ -85,7 +85,7 @@ async def test_unchanged_version_gives_no_card(ctx, session, events):
 async def test_what_if_after_a_delay_emits_a_what_if_card_and_launches(ctx, session, events):
     sid = store(session, make([task("A", 3), task("B", 2), task("C", 3)], [Relation("A", "B")]))  # C 여유 2
     delays_store.create(session, schedule_id=sid, activity_id="C", start_date=date(2027, 3, 1), days=3, cause="자재 늦음",
-                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="손장호")
+                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="홍길동")
     session.commit()
     r = await call("points.check", {"what_if": True}, replace(ctx, schedule_id=sid))
     assert r.ok, r.error
@@ -115,7 +115,7 @@ async def test_same_version_card_is_emitted_once(ctx, session, events):
 async def test_what_if_check_does_not_relaunch_a_failed_lookup(ctx, session, events):
     sid = store(session, make([task("A", 3), task("B", 2), task("C", 3)], [Relation("A", "B")]))
     delays_store.create(session, schedule_id=sid, activity_id="C", start_date=date(2027, 3, 1), days=3, cause="자재 늦음",
-                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="손장호")
+                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="홍길동")
     session.commit()
     await call("points.check", {"what_if": True}, replace(ctx, schedule_id=sid))
     card.get(session, sid, 1, what_if=True).risk_status = "failed"
@@ -141,7 +141,7 @@ async def test_what_if_card_once_per_chat_until_a_new_delay(ctx, session, events
     def delay(days):
         delays_store.create(session, schedule_id=sid, activity_id="C", start_date=date(2027, 3, 1), days=days,
                             cause="자재 늦음", responsibility="undecided", daily_cost=None, evidence="", source="user",
-                            created_by="손장호")
+                            created_by="홍길동")
         session.commit()
 
     delay(3)

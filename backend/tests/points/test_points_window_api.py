@@ -35,7 +35,7 @@ def _od(schedule, **ods):
 
 
 def _save(session, sid, schedule, base: int, note: str = "고침") -> int:
-    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="손장호", note=note, changes=[],
+    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="홍길동", note=note, changes=[],
                             base_version=base, plan_change=False)
 
 

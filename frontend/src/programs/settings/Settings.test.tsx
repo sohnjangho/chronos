@@ -44,7 +44,7 @@ test('admin sees the expanded sections and opens LLM 연결 first', () => {
 test('내 정보 shows name, role and login id; a user sees the approval level read-only', async () => {
   renderAs('user');
   expect(heading()).toHaveTextContent('내 정보');
-  for (const text of ['손장호', '사용자', 'jhsohn']) expect(screen.getByText(text)).toBeVisible();
+  for (const text of ['홍길동', '사용자', 'jhsohn']) expect(screen.getByText(text)).toBeVisible();
   expect(await screen.findByText('중요한 것만')).toBeVisible();
   expect(screen.getByText('관리자가 정합니다.')).toBeVisible();
   expect(screen.queryByRole('radio')).toBeNull();
@@ -121,14 +121,14 @@ test('program menus list the sections for the role and open them in the settings
 
 test('user updates own profile name and password in 내 정보', async () => {
   const { fetchMock } = renderAs('user', { section: 'me' }, {
-    'PATCH /api/auth/me': { id: 1, name: '홍길동', role: 'user' },
+    'PATCH /api/auth/me': { id: 1, name: '임꺽정', role: 'user' },
   });
   await userEvent.clear(screen.getByLabelText('표시 이름'));
-  await userEvent.type(screen.getByLabelText('표시 이름'), '홍길동');
+  await userEvent.type(screen.getByLabelText('표시 이름'), '임꺽정');
   await userEvent.type(screen.getByLabelText('새 비밀번호'), 'new-secret-9');
   await userEvent.click(screen.getByRole('button', { name: '변경 저장' }));
   expect(await screen.findByText('내 정보를 저장했습니다.')).toBeVisible();
-  expect(sent(fetchMock, 'PATCH /api/auth/me')).toEqual([{ name: '홍길동', password: 'new-secret-9' }]);
+  expect(sent(fetchMock, 'PATCH /api/auth/me')).toEqual([{ name: '임꺽정', password: 'new-secret-9' }]);
 });
 
 test('화면 · 테마 toggles theme and 차트 · 표 기본값 renders gantt palette swatches', async () => {

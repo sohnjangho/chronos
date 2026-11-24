@@ -28,7 +28,7 @@ def _base():
 
 
 def _save(session, sid, schedule, base: int, **k) -> int:
-    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="손장호", note="고침", changes=[],
+    return save_new_version(session, sid, schedule, [], by_kind="user", by_name="홍길동", note="고침", changes=[],
                             base_version=base, plan_change=False, **k)
 
 
@@ -82,7 +82,7 @@ def test_refresh_reports_tightened_and_removed(session):
     assert diff.added == () and diff.removed == ()
     assert diff.tightened == (("C", 1, 0),)
     assert diff.became_critical == ("C",) and diff.before_tf == {"C": 1}
-    n4 = restore(session, sid, 1, by_name="손장호")  # 되돌리기도 같은 훅
+    n4 = restore(session, sid, 1, by_name="홍길동")  # 되돌리기도 같은 훅
     diff = service.refresh(session, sid, n4)
     assert diff.removed == ("C",)
 
@@ -145,7 +145,7 @@ def _near_critical():
 
 def _delay_c(session, sid) -> None:
     delays_store.create(session, schedule_id=sid, activity_id="C", start_date=date(2027, 3, 1), days=3, cause="자재 늦음",
-                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="손장호")
+                        responsibility="undecided", daily_cost=None, evidence="", source="user", created_by="홍길동")
     session.commit()
 
 
