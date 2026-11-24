@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import JSON, String, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.store.tables import Base, User
@@ -40,13 +41,16 @@ def get_all(session: Session, user: User) -> dict[str, dict[str, Any]]:
 
 
 def put(session: Session, user: User, mode: str, state: dict[str, Any]) -> str:
-    """덮어쓴다(나중에 쓴 것이 이긴다). 서버 시각 updated_at 을 돌려준다."""
+    """덮어쓴다(나중에 쓴 것이 이긴다). 서버 시각 updated_at 을 돌려준다.
+
+    한 문장 upsert(INSERT … ON CONFLICT DO UPDATE) — 두 기기의 첫 저장이 겹쳐도 겹침 오류 없이 나중 것이 남는다.
+    """
     now = datetime.now(UTC)
-    row = session.get(UiState, (user.id, mode))
-    if row is None:
-        session.add(UiState(user_id=user.id, mode=mode, state_json=state, updated_at=now))
-    else:
-        row.state_json = state
-        row.updated_at = now
+    stmt = sqlite_insert(UiState).values(user_id=user.id, mode=mode, state_json=state, updated_at=now)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[UiState.user_id, UiState.mode],
+        set_={"state_json": stmt.excluded.state_json, "updated_at": stmt.excluded.updated_at},
+    )
+    session.execute(stmt)
     session.commit()
     return _iso(now)

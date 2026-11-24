@@ -57,6 +57,9 @@ def get_states(session: SessionDep, user: UserDep) -> dict[str, dict[str, Any]]:
 
 @router.put("/{mode}")
 async def put_state(mode: Mode, request: Request, session: SessionDep, user: UserDep) -> dict[str, str]:
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_BYTES:  # 읽기 전에 막는다(길이를 밝히지 않은 본문은 읽은 뒤 parse_state 가 잰다)
+        raise _bad("ui_state_too_large", "화면 상태가 너무 큽니다.")
     state = parse_state(mode, await request.body())
     at = await run_in_threadpool(ui_states.put, session, user, mode, state)
     return {"mode": mode, "updated_at": at}

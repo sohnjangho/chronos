@@ -61,6 +61,21 @@ const topY = () => MENUBAR_H + useWindows.getState().insetTop;
 const startPos = () => ({ x: START.x, y: topY() + 20 });
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
 
+let autoDepth = 0;
+/**
+ * 지금 바뀌는 것이 화면에 맞춘 자동 조정(되살리기·브라우저 크기·오른쪽 패널·리본)이다 — 사람이 바꾼 것이 아니다.
+ * layoutSync 는 이때 저장하지 않는다(작은 화면이 큰 화면 배치를 덮지 않게).
+ */
+export const autoFitting = (): boolean => autoDepth > 0;
+function auto(fn: () => void): void {
+  autoDepth += 1;
+  try {
+    fn();
+  } finally {
+    autoDepth -= 1;
+  }
+}
+
 /** 창을 메뉴바 아래, 화면 안으로. */
 function clampPos(x: number, y: number, w: number, h: number) {
   const s = screenSize();
@@ -349,23 +364,25 @@ function bulkActions(set: SetState, get: () => WindowState) {
       const back = shown().sort((a, b) => a.z - b.z)[0];
       if (back) raise(back.id);
     },
-    setInsetRight(px: number) {
-      const growing = px > get().insetRight;
-      set({ insetRight: px });
-      set((s) => ({ wins: s.wins.map((w) => (growing ? narrowed(w) : widened(w))) }));
-    },
-    setInsetTop(px: number) {
-      set({ insetTop: Math.max(0, px) });
-      // 리본에 걸리는 창은 그 아래로 내리고 내린 만큼 줄인다 — 아래 끝이 Dock 밑으로 가지 않게(접힐 때는 되돌리지 않는다).
-      // 확대한 창은 다시 그려 workArea 를 따른다.
-      const top = topY();
-      const h = window.innerHeight;
-      set((s) => ({
-        wins: s.wins.map((w) =>
-          w.maximized ? { ...w } : w.y < top ? { ...w, y: top, h: clamp(w.h - (top - w.y), MIN_H, h - top) } : w,
-        ),
-      }));
-    },
+    setInsetRight: (px: number) =>
+      auto(() => {
+        const growing = px > get().insetRight;
+        set({ insetRight: px });
+        set((s) => ({ wins: s.wins.map((w) => (growing ? narrowed(w) : widened(w))) }));
+      }),
+    setInsetTop: (px: number) =>
+      auto(() => {
+        set({ insetTop: Math.max(0, px) });
+        // 리본에 걸리는 창은 그 아래로 내리고 내린 만큼 줄인다 — 아래 끝이 Dock 밑으로 가지 않게(접힐 때는 되돌리지 않는다).
+        // 확대한 창은 다시 그려 workArea 를 따른다.
+        const top = topY();
+        const h = window.innerHeight;
+        set((s) => ({
+          wins: s.wins.map((w) =>
+            w.maximized ? { ...w } : w.y < top ? { ...w, y: top, h: clamp(w.h - (top - w.y), MIN_H, h - top) } : w,
+          ),
+        }));
+      }),
     syncSchedule(scheduleId: number | null) {
       set((s) => ({
         wins: s.wins.map((w) => {
@@ -461,7 +478,7 @@ export const useWindows = create<WindowState>((set, get) => {
     resize: (id, w, h) => patch(id, (win) => sizeWithin(win, w, h)),
     setBounds: (id, rect) => patch(id, () => fitRect(rect)),
     setTitle: (id, title) => patch(id, () => ({ title })),
-    fitToScreen: () => set((s) => ({ wins: s.wins.map((w) => ({ ...w, ...fitRect(w) })) })),
+    fitToScreen: () => auto(() => set((s) => ({ wins: s.wins.map((w) => ({ ...w, ...fitRect(w) })) }))),
     activeProgramId: () => activeWindow(get())?.programId ?? null,
     restoreLayout(saved, deactivated) {
       clearMotionTimers();
@@ -476,7 +493,7 @@ export const useWindows = create<WindowState>((set, get) => {
         ...(r.params ? { params: r.params } : {}),
       }));
       const last = wins[wins.length - 1];
-      set({ ...initial, insetRight: get().insetRight, insetTop: get().insetTop, wins, seq: wins.length, topZ: wins.length, lastOpen: last ? { x: last.x, y: last.y } : null, deactivated: deactivated && wins.length > 0 });
+      auto(() => set({ ...initial, insetRight: get().insetRight, insetTop: get().insetTop, wins, seq: wins.length, topZ: wins.length, lastOpen: last ? { x: last.x, y: last.y } : null, deactivated: deactivated && wins.length > 0 }));
     },
     reset() {
       clearMotionTimers();

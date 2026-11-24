@@ -94,25 +94,32 @@ export interface DesktopLayout {
 const LIMIT = 20000;
 const bound = (n: number, lo: number) => Math.max(lo, Math.min(LIMIT, Math.round(n)));
 
-/** 지금 창 배치(닫히는 중인 창은 뺀다). */
-export function desktopLayout(s: { wins: Win[]; deactivated: boolean }): DesktopLayout {
-  const wins = s.wins
-    .filter((w) => !isClosing(w))
-    .sort((a, b) => a.z - b.z)
-    .map((w) => ({
-      program: w.programId,
-      x: bound(w.x, -LIMIT),
-      y: bound(w.y, -LIMIT),
-      w: bound(w.w, 0),
-      h: bound(w.h, 0),
-      min: w.minimized,
-      max: w.maximized,
-      ...withParams(keptParams(w.programId, w.params)),
-    }));
-  return { v: 1, wins, deactivated: s.deactivated };
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** 저장할 창 하나. 자리가 깨진 창(NaN·무한)은 null — 서버가 거절할 모양을 보내지 않는다. */
+function toSaved(w: RestoredWin): SavedWin | null {
+  if (![w.x, w.y, w.w, w.h].every(finite)) return null;
+  return {
+    program: w.programId,
+    x: bound(w.x, -LIMIT),
+    y: bound(w.y, -LIMIT),
+    w: bound(w.w, 0),
+    h: bound(w.h, 0),
+    min: w.minimized,
+    max: w.maximized,
+    ...withParams(keptParams(w.programId, w.params)),
+  };
 }
 
-const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+/** 되살릴 창 목록(뒤 → 앞)을 저장 모양으로. 화면에 맞추기 전 자리 그대로다. */
+export function savedDesktop(l: { wins: RestoredWin[]; deactivated: boolean }): DesktopLayout {
+  return { v: 1, wins: l.wins.map(toSaved).filter((w): w is SavedWin => w !== null), deactivated: l.deactivated };
+}
+
+/** 지금 창 배치(닫히는 중인 창은 뺀다). */
+export function desktopLayout(s: { wins: Win[]; deactivated: boolean }): DesktopLayout {
+  return savedDesktop({ wins: s.wins.filter((w) => !isClosing(w)).sort((a, b) => a.z - b.z), deactivated: s.deactivated });
+}
 
 /** 저장된 배치 → 되살릴 창. 모양이 틀리면 null. 열 수 없는 프로그램·겹친 프로그램은 뺀다. */
 export function readDesktop(raw: unknown, role: Role): { wins: RestoredWin[]; deactivated: boolean } | null {

@@ -137,3 +137,48 @@ def test_field_user_can_keep_own_state(client, session):
 def test_updated_at_is_recent_utc(client, user):
     at = client.put("/api/me/ui-state/tablet", json=TABLET, headers=user).json()["updated_at"]
     assert abs(datetime.fromisoformat(at) - datetime.now(UTC)) < timedelta(minutes=1)
+
+
+def test_concurrent_first_puts_do_not_collide(client, monkeypatch):
+    # 두 기기가 처음 저장을 같이 보내도(줄이 아직 없을 때) 겹침 오류(500) 없이 한 줄로 끝난다.
+    # 「읽고 없으면 넣기」였다면 모두가 읽은 뒤 넣게 맞춰(읽기 뒤 장벽) 겹침을 늘 재현한다.
+    import threading
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import Session
+
+    from app.db import get_session
+    from app.store import ui_states
+
+    me = SimpleNamespace(id=1)
+    barrier = threading.Barrier(6)
+    after_read = threading.Barrier(6)
+    real_get = Session.get
+
+    def get_then_wait(self, *args, **kwargs):
+        found = real_get(self, *args, **kwargs)
+        if args and args[0] is UiState:
+            after_read.wait(timeout=5)
+        return found
+
+    monkeypatch.setattr(Session, "get", get_then_wait)
+    errors: list[BaseException] = []
+
+    def first_put(i: int) -> None:
+        try:
+            with contextmanager(get_session)() as s:
+                barrier.wait(timeout=10)
+                ui_states.put(s, me, "desktop", {**DESKTOP, "deactivated": bool(i % 2)})
+        except BaseException as e:  # noqa: BLE001 — 시험이 모은다
+            errors.append(e)
+
+    threads = [threading.Thread(target=first_put, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+    assert errors == []
+    with contextmanager(get_session)() as s:
+        assert s.scalar(select(func.count()).select_from(UiState)) == 1

@@ -6,14 +6,16 @@
 // - 사람이 바뀌면(로그아웃·다른 사람) shellReset 이 endLayouts 로 앞 사람 것을 마저 쓰고 끊는다 — 비운 화면을 앞 사람
 //   것으로 쓰지 않고, 다음 사람 토큰으로 앞 사람 것을 보내지 않는다.
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { api } from '../shared/api';
-import { desktopLayout, focusOf, readDesktop, type Focus, type LayoutMode } from './layoutMemory';
+import { api, ApiError } from '../shared/api';
+import { desktopLayout, focusOf, readDesktop, savedDesktop, type Focus, type LayoutMode } from './layoutMemory';
 import { loadPref, savePref } from './prefs';
 import { useSession, type Role } from './session';
-import { useWindows } from './windowStore';
+import { autoFitting, useWindows } from './windowStore';
 
 export const LOCAL_DELAY_MS = 300;
 export const SERVER_DELAY_MS = 1000;
+/** 서버 쓰기가 실패하면(연결·5xx) 이만큼 기다려 다시 — 그 뒤로는 다음 변경·숨김 때. */
+export const RETRY_MS = [2000, 5000, 15000] as const;
 const pref = (mode: LayoutMode) => `layout.${mode}`;
 
 interface Cached {
@@ -54,6 +56,8 @@ class Channel {
   private queued = false;
   private localTimer: ReturnType<typeof setTimeout> | null = null;
   private serverTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retries = 0;
 
   constructor(
     private readonly mode: LayoutMode,
@@ -120,6 +124,7 @@ class Channel {
     this.json = json;
     this.touched = true;
     this.unsent = true;
+    this.retries = 0;
     if (this.localTimer) clearTimeout(this.localTimer);
     this.localTimer = setTimeout(() => this.writeLocal(), LOCAL_DELAY_MS);
     if (this.serverTimer) clearTimeout(this.serverTimer);
@@ -134,7 +139,8 @@ class Channel {
 
   private send() {
     if (this.serverTimer) clearTimeout(this.serverTimer);
-    this.serverTimer = null;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.serverTimer = this.retryTimer = null;
     if (!this.ready || this.closed || this.json === this.ackedJson) return;
     if (this.inflight) {
       this.queued = true;
@@ -146,9 +152,16 @@ class Channel {
       .then((r) => {
         this.ackedJson = body;
         this.ackedAt = Date.parse(r.updated_at) || this.ackedAt;
+        this.retries = 0;
         this.writeLocal();
       })
-      .catch(() => undefined)
+      .catch((e: unknown) => {
+        // 연결 끊김·서버 오류만 다시(모양이 틀린 422·권한 401 은 다시 보내도 같다).
+        const again = !(e instanceof ApiError) || e.status === 0 || e.status >= 500;
+        if (again && !this.closed && this.retries < RETRY_MS.length) {
+          this.retryTimer = setTimeout(() => this.send(), RETRY_MS[this.retries++]);
+        }
+      })
       .finally(() => {
         this.inflight = false;
         if (this.queued) {
@@ -167,6 +180,7 @@ class Channel {
 
   close() {
     this.flush();
+    if (this.retryTimer) clearTimeout(this.retryTimer);
     this.closed = true;
     live.delete(this);
   }
@@ -194,27 +208,44 @@ const signedIn = () => {
   return user ? { userId: user.id, role: user.role } : null;
 };
 
-/** 데스크톱: 창 배치를 되살리고(창이 하나도 없을 때만) 바뀔 때마다 기억한다. */
+/**
+ * 데스크톱: 창 배치를 되살리고(창이 하나도 없을 때만) 사람이 바꿀 때마다 기억한다.
+ * 화면에 맞춘 자동 조정(되살리며 줄이기·브라우저 크기·패널)은 기억하지 않는다 — 기억하는 자리는 맞추기 전 자리다.
+ * 개발 모드(StrictMode)가 효과를 두 번 돌려도 첫 판단(fresh)·첫 모양을 그대로 쓴다(마운트마다 한 번, 사람별).
+ */
 export function useDesktopLayout(): void {
   const userId = useSession((s) => s.session?.user.id ?? null);
   const role = useSession((s) => s.session?.user.role ?? null);
+  const first = useRef<{ userId: number; fresh: boolean; baseline: unknown } | null>(null);
   useLayoutEffect(() => {
     const me = signedIn();
     if (userId === null || !me) return;
     const store = useWindows.getState;
-    const fresh = store().wins.length === 0;
     const restore = (raw: unknown) => {
       const l = readDesktop(raw, me.role);
       if (!l) return null;
       store().restoreLayout(l.wins, l.deactivated);
-      return desktopLayout(store());
+      return savedDesktop(l);
     };
-    if (fresh) restore(loadCached('desktop', userId)?.state);
-    const channel = new Channel('desktop', userId, me.role, desktopLayout(store()), {
+    if (first.current?.userId !== userId) {
+      const fresh = store().wins.length === 0;
+      const restored = fresh ? restore(loadCached('desktop', userId)?.state) : null;
+      first.current = { userId, fresh, baseline: restored ?? desktopLayout(store()) };
+    }
+    const { fresh, baseline } = first.current;
+    const channel = new Channel('desktop', userId, me.role, baseline, {
       apply: restore,
       openFocus: (f) => void store().open(f.program, f.params),
     }, fresh);
-    const unsub = useWindows.subscribe((s) => channel.update(desktopLayout(s)));
+    // 이번 바뀜이 배치를 바꿨을 때만, 그리고 자동 맞춤이 아닐 때만 기억한다(제목·움직임 표시 같은 바뀜에 맞춘 자리가 실려 가지 않게).
+    let seen = JSON.stringify(desktopLayout(store()));
+    const unsub = useWindows.subscribe((s) => {
+      const now = desktopLayout(s);
+      const json = JSON.stringify(now);
+      if (json === seen) return;
+      seen = json;
+      if (!autoFitting()) channel.update(now);
+    });
     return () => {
       unsub();
       channel.close();

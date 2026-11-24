@@ -277,3 +277,67 @@ test('tablet: the open program comes back after a reload', async () => {
   expect(within(rail()).getByRole('button', { name: /간트/ })).toHaveAttribute('aria-current', 'page');
   expect(stored('tablet', 1).state).toEqual({ v: 1, active: 'gantt' });
 });
+
+test('automatic fitting (restore on a smaller screen, browser resize) does not save; a move by hand does', async () => {
+  signInAsDemo('user', '김하늘', 'demo-user', 1);
+  const big = { v: 1, wins: [{ program: 'gantt', x: 1500, y: 100, w: 1800, h: 1200, min: false, max: false }], deactivated: false };
+  const at = '2026-11-24T01:00:00+00:00';
+  localStorage.setItem(KEY('desktop', 1), JSON.stringify({ state: big, at: Date.parse(at), dirty: false }));
+  server = { desktop: { state: big, updated_at: at } };
+  screenIs(1280, 800);
+  render(<App />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/me/ui-state', expect.anything()));
+  await act(() => new Promise((r) => setTimeout(r, 1200)));
+  expect(byProgram('gantt').x + byProgram('gantt').w).toBeLessThanOrEqual(1280); // 화면에는 맞췄다
+  expect(puts.map((p) => p.body)).toEqual([]);
+  expect(stored('desktop', 1).state).toEqual(big); // 큰 화면 배치는 그대로 남는다
+  screenIs(1024, 700);
+  act(() => void window.dispatchEvent(new Event('resize')));
+  await act(() => new Promise((r) => setTimeout(r, 1200)));
+  expect(puts).toEqual([]);
+  act(() => s().setBounds(byProgram('gantt').id, { x: 30, y: 70, w: 600, h: 400 })); // 손으로 크기 조절
+  await waitFor(() => expect(puts.length).toBe(1));
+  expect(JSON.parse(puts[0].body).wins[0]).toMatchObject({ program: 'gantt', x: 30, y: 70, w: 600, h: 400 });
+});
+
+test('desktop under StrictMode (double mount): a newer server layout applies and the phone continues here', async () => {
+  signInAsDemo('user', '김하늘', 'demo-user', 1);
+  localStorage.setItem(KEY('desktop', 1), JSON.stringify({ state: { v: 1, wins: [{ program: 'gantt', x: 10, y: 60, w: 600, h: 400, min: false, max: false }], deactivated: false }, at: 1000, dirty: false }));
+  server = {
+    desktop: { state: { v: 1, wins: [{ program: 'cpm', x: 40, y: 80, w: 700, h: 500, min: false, max: false }], deactivated: false }, updated_at: '2026-11-24T01:00:00+00:00' },
+    phone: { state: { v: 1, tab: 'contacts', sub: 'gantt', params: { contact: '12' } }, updated_at: '2026-11-24T02:00:00+00:00' },
+  };
+  render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+  await waitFor(() => expect(s().wins.map((w) => w.programId)).toEqual(['cpm', 'contacts']));
+  expect(s().activeProgramId()).toBe('contacts');
+});
+
+test('a failed save is retried with back-off', async () => {
+  signInAsDemo('user', '김하늘', 'demo-user', 1);
+  server = { desktop: { state: { v: 1, wins: [], deactivated: false }, updated_at: '2026-11-24T01:00:00+00:00' } };
+  let fail = true;
+  const fetchFn = fakeServer();
+  const real = fetchFn.getMockImplementation()!;
+  fetchFn.mockImplementation(async (input, init) => {
+    if (init?.method === 'PUT' && fail) {
+      fail = false;
+      puts.push({ mode: 'desktop', body: String(init.body), init });
+      return json(500, { code: 'internal', message: 'x', detail: null });
+    }
+    return real(input, init);
+  });
+  render(<App />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/me/ui-state', expect.anything()));
+  await settle();
+  act(() => void s().open('gantt'));
+  await waitFor(() => expect(puts.length).toBe(1), { timeout: 2000 }); // 1초 뒤 첫 시도 — 실패
+  await act(() => new Promise((r) => setTimeout(r, 1000)));
+  expect(puts.length).toBe(1); // 바로 다시 보내지 않는다
+  await waitFor(() => expect(puts.length).toBe(2), { timeout: 3000 }); // 2초 뒤 다시
+  await settle();
+  expect(stored('desktop', 1).dirty).toBe(false);
+});

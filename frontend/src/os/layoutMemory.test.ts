@@ -1,7 +1,7 @@
 // 열어 둔 창·탭의 모양: 거르기(권한·params·번호)와 화면 형태별 읽기.
 import { beforeAll, expect, test } from 'vitest';
 import { registerPrograms } from '../programs';
-import { focusOf, keptParams, phoneFor, readDesktop, readPhone, readTablet, tabletFor, type PhoneLayout } from './layoutMemory';
+import { desktopLayout, focusOf, keptParams, phoneFor, readDesktop, readPhone, readTablet, tabletFor, type PhoneLayout } from './layoutMemory';
 
 beforeAll(() => registerPrograms());
 
@@ -94,4 +94,10 @@ test('nothing phone-like survives into any layout', () => {
     readPhone({ v: 1, tab: 'contacts', sub: 'gantt', params: p }, 'user'),
   ];
   for (const l of all) expect(JSON.stringify(l)).not.toMatch(PHONE_LIKE);
+});
+
+test('desktop: a window with a broken (NaN / infinite) place is left out instead of saving a state the server rejects', () => {
+  const w = (programId: string, x: number) => ({ id: programId, programId, title: programId, x, y: 60, w: 600, h: 400, z: 1, minimized: false, maximized: false });
+  const l = desktopLayout({ wins: [w('gantt', Number.NaN), w('cpm', 10), w('delays', Number.POSITIVE_INFINITY)], deactivated: false });
+  expect(l.wins.map((x) => x.program)).toEqual(['cpm']);
 });
