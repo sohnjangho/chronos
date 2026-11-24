@@ -64,7 +64,10 @@ def test_invalid_request_shape(client):
 
 
 def test_tampered_token_401(client, admin_token):
-    r = client.get("/api/auth/me", headers=auth(admin_token[:-2] + "xx"))
+    flipped = "A" if admin_token[-3] != "A" else "B"  # 서명 속 한 글자를 반드시 다른 글자로
+    tampered = admin_token[:-3] + flipped + admin_token[-2:]
+    assert tampered != admin_token
+    r = client.get("/api/auth/me", headers=auth(tampered))
     assert r.status_code == 401
     assert r.json()["code"] == "unauthorized"
     assert r.json()["message"] == "다시 로그인해 주세요."
