@@ -1,8 +1,10 @@
-// 하네스 규칙 목록: 묶음(일정 계산 · 에이전트 루프 · 바깥 정보 · 권한 · 가져오기·생성 · 현장) + 찾기 + [차단 시험].
+// 하네스 규칙 목록: 묶음(일정 계산 · 에이전트 루프 · 바깥 정보 · 권한 · 가져오기·생성 · 현장 · 연락 하네스) + 찾기 + [차단 시험].
+// 「연락 하네스」 묶음(Task 98)은 규칙 줄이 아니라 상황 격자(OutreachGrid)로 그린다 — 같은 묶음 고르기·찾기를 쓴다.
 // 시험 결과(관측값)는 접힌 나무로 보인다(화면 검수 3).
 import { useState } from 'react';
 import Badge from '../../shared/ui/Badge';
-import { devApi, type HarnessRule, type HarnessTestOut } from './devApi';
+import { devApi, type HarnessRule, type HarnessTestOut, type OutreachGridOut } from './devApi';
+import OutreachGrid from './OutreachGrid';
 import RawBlock from './RawBlock';
 
 const GROUPS = ['일정 계산', '에이전트 루프', '바깥 정보', '권한', '가져오기·생성', '현장', '기타'];
@@ -87,7 +89,7 @@ function RuleRow({ rule, tested, testing, onTest }: RowProps) {
 
 const matches = (r: HarnessRule, q: string) => !q || [r.id, r.title, r.description, r.code, r.area].some((t) => t.toLowerCase().includes(q));
 
-export default function HarnessRules({ rules }: { rules: HarnessRule[] }) {
+export default function HarnessRules({ rules, outreach }: { rules: HarnessRule[]; outreach?: OutreachGridOut }) {
   const [group, setGroup] = useState('전체');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Record<string, HarnessTestOut>>({});
@@ -95,6 +97,9 @@ export default function HarnessRules({ rules }: { rules: HarnessRule[] }) {
   const q = query.trim().toLowerCase();
   const shown = rules.filter((r) => (group === '전체' || groupOf(r) === group) && matches(r, q));
   const present = GROUPS.filter((g) => rules.some((r) => groupOf(r) === g));
+  const cells = outreach ? outreach.rows.reduce((n, r) => n + Object.values(r.cells).filter((c) => c.runnable).length, 0) + outreach.channel_only.length : 0;
+  const showRules = group !== outreach?.group;
+  const showGrid = outreach && (group === '전체' || group === outreach.group);
 
   async function runTest(ruleId: string) {
     setBusyId(ruleId);
@@ -112,13 +117,19 @@ export default function HarnessRules({ rules }: { rules: HarnessRule[] }) {
         <div className="dc-chip-bar" role="group" aria-label="하네스 묶음 필터">
           {['전체', ...present].map((g) => (
             <button key={g} type="button" className={`dc-mode-btn${group === g ? ' is-on' : ''}`} aria-pressed={group === g} onClick={() => setGroup(g)}>
-              {g === '전체' ? `전체 ${rules.length}` : `${g} ${rules.filter((r) => groupOf(r) === g).length}`}
+              {g === '전체' ? `전체 ${rules.length + cells}` : `${g} ${rules.filter((r) => groupOf(r) === g).length}`}
             </button>
           ))}
+          {outreach && (
+            <button type="button" className={`dc-mode-btn${group === outreach.group ? ' is-on' : ''}`} aria-pressed={group === outreach.group}
+              onClick={() => setGroup(outreach.group)}>
+              {`${outreach.group} ${cells}`}
+            </button>
+          )}
         </div>
         <input type="search" className="dc-search" aria-label="규칙 찾기" placeholder="번호 · 규칙 · 코드로 찾기" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
-      {shown.length === 0 ? (
+      {!showRules ? null : shown.length === 0 ? (
         <p className="dc-empty">찾는 규칙이 없습니다.</p>
       ) : (
         <table className="dc-cat-table" aria-label="하네스 규칙 목록">
@@ -147,6 +158,7 @@ export default function HarnessRules({ rules }: { rules: HarnessRule[] }) {
           ))}
         </table>
       )}
+      {showGrid && <OutreachGrid grid={outreach} query={q} />}
     </>
   );
 }

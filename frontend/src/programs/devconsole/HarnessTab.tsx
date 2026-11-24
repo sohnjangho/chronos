@@ -214,7 +214,7 @@ export default function HarnessTab({ catalog, onSaved }: { catalog: CatalogOut; 
           ))}
         </ul>
       </div>
-      <HarnessRules rules={catalog.harness} />
+      <HarnessRules rules={catalog.harness} outreach={catalog.outreach_grid} />
     </div>
   );
 }

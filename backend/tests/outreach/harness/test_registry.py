@@ -384,8 +384,8 @@ def test_pin_scanner_catches_every_form(tmp_path):
 
 
 def test_no_app_module_pins_channels():
-    assert registry.SANDBOX_MODULES == frozenset({"app.outreach.scenarios.drive_text",
-                                                  "app.outreach.scenarios.drive_voice"})  # 모래상자 실행 모듈(Task 86·97 구동기)
+    assert registry.SANDBOX_MODULES == frozenset({"app.outreach.scenarios.drive_text", "app.outreach.scenarios.drive_voice",
+                                                  "app.outreach.scenarios.prove"})  # 모래상자 실행 모듈(Task 86·97 구동기 · 98 자식)
     app_dir = BACKEND / "app"
     offenders = {}
     for path in sorted(app_dir.rglob("*.py")):

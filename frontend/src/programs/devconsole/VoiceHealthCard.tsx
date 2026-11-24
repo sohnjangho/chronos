@@ -20,7 +20,7 @@ function Worker({ w }: { w: Record<string, unknown> | null }) {
   if (!w) return <p className="dc-muted">통화 일꾼 상태를 읽을 수 없습니다.</p>;
   const off = typeof w.off_reason === 'string' ? ` (${OFF[w.off_reason] ?? w.off_reason})` : '';
   const why = typeof w.listen_reason === 'string' ? w.listen_reason : null;
-  const listen = w.listening ? '붙어 있음' : why ? `붙어 있지 않음 — ${LISTEN[why] ?? why}` : '붙어 있지 않음';
+  const listen = w.listening ? '받는 중(번호 묶임)' : why ? `붙어 있지 않음 — ${LISTEN[why] ?? why}` : '붙어 있지 않음';
   return (
     <>
     <dl className="dc-health-kv" role="group" aria-label="통화 일꾼">

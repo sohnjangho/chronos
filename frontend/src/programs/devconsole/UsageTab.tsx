@@ -178,7 +178,8 @@ function CallUsageTable({ c }: { c: CallUsage }) {
   const minutes = `${Math.floor(c.call_seconds / 60)}분 ${c.call_seconds % 60}초`;
   return (
     <div className="dc-u-wrap">
-      <p className="dc-u-search">{`통화 시간 ${minutes} (건 통화·받은 통화) · 건 통화 ${count(c.calls_placed)}통 (걸려고 줄에 넣은 것 — 결과를 모르는 통화 포함)`}</p>
+      <p className="dc-u-search">{`통화 시간 ${minutes} (건 통화·받은 통화) · 건 통화 ${count(c.calls_placed)}통 (걸려고 줄에 넣은 것 — 결과를 모르는 통화 포함)`}
+        {c.calls_answered !== undefined && ` · 받은 통화 ${count(c.calls_answered)}통 · 받기 전 거절 ${count(c.calls_rejected ?? 0)}통`}</p>
       <table className="dc-u" aria-label="통화 사용량">
         <thead>
           <tr>

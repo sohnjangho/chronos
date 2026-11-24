@@ -64,8 +64,8 @@ def read_catalog(session: SessionDep) -> dict[str, Any]:
 
 
 @router.post("/harness/{rule_id}/test")
-def test_harness_rule(rule_id: str, session: SessionDep) -> dict[str, Any]:
-    return catalog.run_harness_test(rule_id, session)
+def test_harness_rule(rule_id: str, session: SessionDep, broken: bool = False) -> dict[str, Any]:
+    return catalog.run_harness_test(rule_id, session, broken)  # broken: 연락 하네스 칸을 지키는 곳을 끄고(자식 안에서만)
 
 
 @router.get("/agent-config")

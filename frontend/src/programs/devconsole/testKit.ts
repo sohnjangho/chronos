@@ -2,6 +2,7 @@
 import { vi } from 'vitest';
 import { json, signInAsDemo } from '../../test-helpers';
 import type {
+  GridNoteKind,
   HarnessMark,
   HarnessTestOut,
   NodeKey,
@@ -9,6 +10,7 @@ import type {
   NotifyHealth,
   NotifyStep,
   OutreachDetail,
+  OutreachGridOut,
   OutreachRow,
   StructureNode,
   TraceItem,
@@ -323,6 +325,8 @@ function catalogSample() {
       pipeline_prompts: [{ name: 'wbs', file: 'app/agent/prompts/wbs.md', chars: 120, content: '# WBS prompt body' }],
       domains: [],
     },
+    /** 연락 하네스 묶음(Task 98) — 예전 서버는 없다. mockCatalog 로 outreachGrid() 를 넣는다. */
+    outreach_grid: undefined as OutreachGridOut | undefined,
     registry: {
       tools: [
         {
@@ -403,6 +407,8 @@ export function setup(role: 'admin' | 'user' = 'admin') {
   byId.set(38, done({ turn_id: 38, request: OLDER.request, started_at: OLDER.started_at }, { unpaired: true }));
   usageBody = usage();
   harnessPatch = {};
+  cellReply = null;
+  limitsBody = LIMITS();
   sampleCatalog = catalogSample();
   sampleHealth = healthSample();
   outreachRows = OUTREACH_ROWS();
@@ -435,8 +441,11 @@ export function setup(role: 'admin' | 'user' = 'admin') {
       sampleCatalog.registry.skills = sampleCatalog.registry.skills.filter((s) => s.id !== id);
       return new Response(null, { status: 204 });
     }
-    const h = /^\/api\/devconsole\/harness\/([^/]+)\/test$/.exec(url);
-    if (h && init?.method === 'POST') return json(200, harnessOut(h[1]));
+    const h = /^\/api\/devconsole\/harness\/([^/?]+)\/test(\?broken=1)?$/.exec(url);
+    if (h && init?.method === 'POST') return cellReply ? cellReply(h[1], !!h[2]) : json(200, harnessOut(h[1]));
+    const lim = /^\/api\/notify\/connections\/(\d+)\/limits$/.exec(url);
+    if (lim && init?.method === 'PUT') return json(200, (limitsBody = { ...limitsBody, values: { ...limitsBody.values, ...JSON.parse(String(init.body)) } }));
+    if (lim) return json(200, limitsBody);
     if (url === '/api/devconsole/agent-config' && init?.method === 'PUT') return json(200, JSON.parse(String(init.body)));
     if (url === '/api/devconsole/agent-config') return json(200, sampleCatalog.agent_config);
     return json(404, { code: 'not_found', message: '찾을 수 없습니다.', detail: null });
@@ -448,6 +457,57 @@ const ERRORS: Record<number, string> = { 403: '관리자만 쓸 수 있습니다
 function detailResponse(d: TurnDetail | number) {
   return typeof d === 'number' ? json(d, { code: 'error', message: ERRORS[d] ?? '오류', detail: null }) : json(200, d);
 }
+
+/** 연락 하네스 격자(Task 98)의 가짜 묶음 — 줄 셋(S-04 · S-21 · S-24)과 채널에만 있는 것 셋. 칸 말은 서버 꼴 그대로. */
+export function outreachGrid(over: Partial<OutreachGridOut> = {}): OutreachGridOut {
+  const cell = (mark: string, guard: string | null, note: string | null = null, note_kind: GridNoteKind | null = null) => (
+    { mark, runnable: mark !== 'none', guard, note, note_kind });
+  return {
+    group: '연락 하네스',
+    principles: ['나가는 문: 같은 검사 같은 차례', '들어오는 문', '도구 묶음', '신원 규칙', '바꾸지 않는다', '기록', '뒤 확인'],
+    limits_note: '격자의 칸은 운영 상한이 아니라 대본이 적어 둔 상한으로 돈다.',
+    connection_id: 3,
+    columns: [{ key: 'call_out', label: '전화 걸기' }, { key: 'call_in', label: '전화 받기' }, { key: 'sms_in', label: '문자 받기' },
+      { key: 'sms_reply', label: '우리 문자·카카오톡에 온 답' }],
+    rows: [
+      { id: 'S-04', title: '수신 거부 요청', refs: ['V-06'], cells: {
+        call_out: cell('run', 'gate.block_dnc', '하네스가 갈라짐: 통화에는 수신 거부 말을 코드가 듣는 길이 없다', 'diverged'),
+        call_in: cell('run', 'gate.block_dnc'), sms_in: cell('run', 'gate.block_dnc'), sms_reply: cell('run', 'gate.block_dnc') } },
+      { id: 'S-21', title: '근무시간 밖', refs: ['V-12'], cells: {
+        call_out: cell('예약', 'runner.hours'),
+        call_in: cell('run', 'call.silence', '가짜에서만 — 코드가 시킨 말은 가짜 통화에서만 들린다', 'simulated'),
+        sms_in: cell('30분 규칙', 'gate.hours'), sms_reply: cell('예약', 'gate.hours') } },
+      { id: 'S-24', title: '결과 모름', refs: [], cells: {
+        call_out: cell('run', null, '공통 겹만 — 지키는 곳 없음', 'common_only'), call_in: cell('none', null),
+        sms_in: cell('none', null), sms_reply: cell('run', 'gate.duplicate') } },
+    ],
+    channel_only: [
+      { id: 'C-V1', case: 'voicemail', title: '음성사서함', medium: 'call', refs: ['V-04'], column: 'call_out', ...cell('run', 'gate.permission') },
+      { id: 'C-S1', case: 'sms_length', title: '길이·나눠 보내기', medium: 'sms', refs: [], column: 'sms_in', ...cell('run', null) },
+      { id: 'C-K1', case: 'kakao_not_ready', title: '카카오톡 준비 안 됨', medium: 'kakao', refs: [], column: 'sms_reply', ...cell('run', null) },
+    ],
+    error: null,
+    ...over,
+  };
+}
+
+/** 격자 칸 응답(서버 꼴). passed 와 broken 으로 「통과·실패·가드 확인됨」을 만든다. */
+export function cellOut(ruleId: string, passed: boolean, broken = false): HarnessTestOut {
+  return {
+    rule_id: ruleId, title: ruleId, blocked: passed, engine: 'live_harness', elapsed_ms: 640,
+    simulated_input: '모래상자 자식 프로세스에서 grid 실실행', model_feedback: { passed },
+    passed, checks: [{ text: '그 칸의 기대', ok: passed, guarded: true }, { text: '다른 기대', ok: true }],
+    events: [{ ref: 'message:1', rule: 'test_mode', verdict: 'blocked', detail: null, group: 'gate_decision', group_label: '나가는 문 판정' }],
+    note: null, broken_guard: broken ? 'gate.block_dnc' : null, guard_confirmed: broken ? !passed : null,
+  };
+}
+
+let cellReply: ((ruleId: string, broken: boolean) => Response | Promise<Response>) | null = null;
+/** 격자 칸 시험 응답을 고른다(차례·지연을 시험이 정한다). */
+export const mockCells = (fn: (ruleId: string, broken: boolean) => Response | Promise<Response>) => void (cellReply = fn);
+const LIMITS = () => ({ values: { daily_sms_total: 50, daily_calls_total: 10 }, defaults: { daily_sms_total: 50, daily_calls_total: 10 },
+  ranges: { daily_sms_total: [0, 1000] as [number, number], daily_calls_total: [0, 1000] as [number, number] } });
+let limitsBody = LIMITS();
 
 /** 차단 시험 응답: 실엔진(live_harness)으로 막았다. mockHarness 로 칸을 덮어쓴다. */
 function harnessOut(ruleId: string): HarnessTestOut {

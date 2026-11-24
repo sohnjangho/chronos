@@ -505,7 +505,7 @@ def test_usage_when_nothing_happened(client, admin):
                                               for k in ("text_reply", "draft", "translation")],
                               "calls": {"call_seconds": 0, "calls_placed": 0, "models": [
                                   {"kind": k, "count": 0, "seconds": 0, "input_tokens": 0, "output_tokens": 0, "cost": None}
-                                  for k in ("voice_model", "summary")]}}}
+                                  for k in ("voice_model", "summary")], "calls_answered": 0, "calls_rejected": 0}}}
 
 
 def test_catalog_and_harness_block_simulation(client, admin):

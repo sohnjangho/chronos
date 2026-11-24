@@ -253,6 +253,8 @@ class CallUsageOut(BaseModel):
     call_seconds: int
     calls_placed: int
     models: list[CallModelUsageOut]
+    calls_answered: int = 0  # 받은 통화 · 받기 전 거절한 통화(Task 98 — outreach_usage.summary 그대로)
+    calls_rejected: int = 0
 
 
 class OutreachUsageOut(BaseModel):

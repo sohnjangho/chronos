@@ -1,0 +1,63 @@
+/* 하네스 탭 「연락 하네스」 묶음(Task 98). 격자만 가로로 밀리고 창은 밀리지 않는다(.dc-og-scroll). 색은 공용 토큰만. */
+.dc-og { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dc-og .dc-cat-h3 { margin: 0; font-size: var(--fs-15); font-weight: 700; }
+.dc-og .dc-principles-box summary,
+.dc-og-limits summary { cursor: pointer; font-size: var(--fs-12); }
+.dc-og-limits {
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  background: var(--bg-panel-alt);
+  min-width: 0;
+}
+.dc-og-limits details > *:not(summary) { margin-top: 8px; }
+.dc-og-limits p { margin: 0; font-size: var(--fs-12); }
+.dc-og-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dc-og-sum { font-size: var(--fs-12); color: var(--fg-muted); }
+.dc-og-scroll { max-width: 100%; min-width: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-2); }
+.dc-og-table { min-width: 1180px; }
+.dc-og-table td { vertical-align: top; }
+.dc-og-title { min-width: 13em; font-weight: 600; }
+.dc-og-title small { display: block; font-weight: 400; margin-top: 2px; }
+.dc-og-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 9.5em; }
+.dc-og-cell .dc-tag { margin-left: 0; }
+.dc-og-mark { min-width: 1.2em; font-weight: 700; color: var(--fg); }
+.dc-og-acts { display: flex; flex-wrap: wrap; gap: 4px; flex-basis: 100%; }
+.dc-og-acts .dc-btn { padding: 1px 8px; font-size: var(--fs-11); }
+.dc-og-res {
+  display: inline-block;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: inherit;
+  font-size: var(--fs-11);
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  background: var(--bg-app);
+  color: var(--fg-muted);
+}
+button.dc-og-res { cursor: pointer; }
+.dc-og-res.is-pass { background: var(--tone-success-bg); color: var(--success-text); border-color: var(--success); }
+.dc-og-res.is-fail { background: var(--tone-danger-bg); color: var(--danger); border-color: var(--danger); }
+.dc-og-res.is-todo { background: transparent; border-color: var(--border); }
+.dc-og-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--bg-panel);
+  min-width: 0;
+}
+.dc-og-result-one { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dc-og-result-one p { margin: 0; font-size: var(--fs-12); overflow-wrap: anywhere; }
+.dc-og-note { padding: 6px 8px; border-radius: var(--radius-2); background: var(--tone-warning-bg); color: var(--warning-text); }
+.dc-og-checks, .dc-og-events { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-12); }
+.dc-og-checks li { overflow-wrap: anywhere; }
+.dc-og-checks li.is-ok > span:first-child { color: var(--success); }
+.dc-og-checks li.is-bad { color: var(--danger); }
+.dc-og-events { list-style: none; padding-left: 0; }
+.dc-og-events code { font-size: var(--fs-11); color: var(--fg-muted); }
+.dc-og-group { font-weight: 600; }

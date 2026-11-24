@@ -171,7 +171,7 @@ def test_call_detail_has_the_flow_but_no_inbound_branch(client, admin, session):
     session.commit()
     _record(session, Ref("call", call.id), "admission", "allowed", "known_caller")
     body = _detail(client, admin, "call", call.id)
-    assert body["branches_lit"] == [] and body["flow"][0]["count"] == 1
+    assert body["branches_lit"] == ["call_answered"] and body["flow"][0]["count"] == 1  # 받은 통화의 가지는 Task 98(문자 가지 없음)
 
 
 # ── 도구 목록 ───────────────────────────────────────────────────────

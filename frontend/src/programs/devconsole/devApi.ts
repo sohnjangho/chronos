@@ -249,6 +249,51 @@ export interface HarnessTestOut {
   elapsed_ms?: number;
   simulated_input: string;
   model_feedback: Record<string, unknown>;
+  /** 연락 하네스 격자 칸(Task 98 — 모래상자 자식 프로세스): 대본의 기대가 모두 참인가 · 기대마다 · 하네스 사건 · 칸 말. */
+  passed?: boolean;
+  checks?: { text: string; ok: boolean; guarded?: boolean }[];
+  events?: { ref: string; rule: string; verdict: string; detail: string | null; group: string | null; group_label: string }[];
+  note?: string | null;
+  /** 가드 끄고 돌리기: 무른 지키는 곳 · 무르니 실패했는가(= 가드 확인됨). 그냥 돌리기는 null. */
+  broken_guard?: string | null;
+  guard_confirmed?: boolean | null;
+}
+
+/** 칸 말의 종류 — 운영 동작이 아님을 가려 보인다(가짜에서만 · 하네스 갈라짐 · 공통 겹만 · 설계와 다름). */
+export type GridNoteKind = 'simulated' | 'diverged' | 'common_only' | 'design_diff';
+export interface GridCell {
+  /** run = ● · none = — · 그 밖은 설계 표의 글(막음·받지 않음·기록만·예약 …). */
+  mark: string;
+  runnable: boolean;
+  /** 그 칸을 지키는 곳(무르기 이름) — 없으면 null(가드 끄고 돌리기 없음). */
+  guard: string | null;
+  note: string | null;
+  note_kind: GridNoteKind | null;
+}
+export interface GridRow {
+  id: string;
+  title: string;
+  refs: string[];
+  cells: Record<string, GridCell>;
+}
+export interface GridCase extends GridCell {
+  id: string;
+  case: string;
+  title: string;
+  medium: 'call' | 'sms' | 'kakao';
+  refs: string[];
+  column: string;
+}
+/** 카탈로그의 「연락 하네스」 묶음(Task 98). connection_id = 기본 알림 연결(운영 상한은 공용 LimitsForm 이 읽고 고친다). */
+export interface OutreachGridOut {
+  group: string;
+  principles: string[];
+  limits_note: string;
+  connection_id: number | null;
+  columns: { key: string; label: string }[];
+  rows: GridRow[];
+  channel_only: GridCase[];
+  error: string | null;
 }
 
 export interface GuideSource {
@@ -339,6 +384,8 @@ export interface CatalogOut {
     tools: ToolRegistryItem[];
     skills: SkillRegistryItem[];
   };
+  /** 연락 하네스 묶음(Task 98). 예전 서버는 없다. */
+  outreach_grid?: OutreachGridOut;
 }
 
 export interface HealthOut {
@@ -399,6 +446,9 @@ export interface CallUsage {
   call_seconds: number;
   calls_placed: number;
   models: CallModelUsage[];
+  /** 받은 통화 · 받기 전 거절한 통화(Task 98). 예전 서버는 없다. */
+  calls_answered?: number;
+  calls_rejected?: number;
 }
 
 /** 시스템 진단의 AI 전화(Task 110). 키·끝 4자리·번호는 없다. worker = 통화 일꾼 runner.status(). */
@@ -488,7 +538,9 @@ export const devApi = {
   outreach: (kind: OutreachKind, id: number) => api<OutreachDetail>(`/api/devconsole/outreach/${kind}/${id}`),
   usage: (days: number, group: UsageGroup) => api<UsageOut>(`/api/devconsole/usage?days=${days}&group=${group}`),
   catalog: () => api<CatalogOut>('/api/devconsole/catalog'),
-  testHarness: (ruleId: string) => api<HarnessTestOut>(`/api/devconsole/harness/${ruleId}/test`, { method: 'POST' }),
+  /** broken: 연락 하네스 칸을 지키는 곳을 그 자식 프로세스 안에서만 끄고 돌린다(서버는 문·도구를 건드리지 않는다). */
+  testHarness: (ruleId: string, broken = false) =>
+    api<HarnessTestOut>(`/api/devconsole/harness/${ruleId}/test${broken ? '?broken=1' : ''}`, { method: 'POST' }),
   getAgentConfig: () => api<AgentConfig>('/api/devconsole/agent-config'),
   saveAgentConfig: (cfg: AgentConfig) =>
     api<AgentConfig>('/api/devconsole/agent-config', { method: 'PUT', body: JSON.stringify(cfg) }),

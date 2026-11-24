@@ -364,7 +364,18 @@ def detail(session: Session, kind: str, row_id: int) -> OutreachDetailOut:
     items, attempts, omitted = timeline(row.harness_json, fields["at"], kind)
     return OutreachDetailOut(head=head, timeline=items, groups=_groups(items), attempts=attempts,
                              needs_check=sum(i.harness.needs_check for i in items), omitted=omitted,
-                             flow=outreach_branches.flow(items), branches_lit=outreach_branches.branches(session, kind, row))
+                             flow=outreach_branches.flow(items),
+                             branches_lit=outreach_branches.branches(session, kind, row) + _answered(kind, row))
+
+
+def _answered(kind: str, row: Any) -> list[str]:
+    """받는 통화 줄의 가지(Task 98) — 받기 판정이 응대였고 통화가 끝났으면(in_call → completed) call_answered, 받기 전에
+    거절했으면(받기 판정 막음) call_rejected. 받지 못함(통화 중 한도 — noted)·아직 통화 중·사건 없음은 둘 다 아님."""
+    if kind != CALL_KIND or row.direction != "in":
+        return []
+    verdict = outreach_branches._admission(row.harness_json)
+    return ["call_answered"] if verdict == "allowed" and row.status == "completed" else \
+        ["call_rejected"] if verdict == "blocked" else []
 
 
 # ── 시스템 진단 · 사용량 ────────────────────────────────────────────

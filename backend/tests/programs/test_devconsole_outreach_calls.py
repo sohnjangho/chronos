@@ -281,7 +281,7 @@ def test_usage_call_minutes_and_model_usage_cost_only_if_reported(client, admin,
 
     body = calls()
     assert (body["call_seconds"], body["calls_placed"]) == (150, 2)  # 결과를 모르는 통화도 건 통화로 센다 — 실패 셈은 없다
-    assert set(body) == {"call_seconds", "calls_placed", "models"}
+    assert set(body) == {"call_seconds", "calls_placed", "models", "calls_answered", "calls_rejected"}  # 받은·거절(Task 98)
     assert body["models"] == [
         {"kind": "voice_model", "count": 1, "seconds": 120, "input_tokens": 0, "output_tokens": 0, "cost": None},
         {"kind": "summary", "count": 2, "seconds": 0, "input_tokens": 300, "output_tokens": 70, "cost": 0.001},

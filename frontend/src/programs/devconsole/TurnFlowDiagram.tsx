@@ -190,12 +190,16 @@ const INBOUND_HANDLED = { key: 'inbound_handled', label: '받은 문자 응대',
 const INBOUND_REFUSED = { key: 'inbound_refused', label: '받은 문자 — 막고 안내함', on: '안내 답 줄로 이어짐', warn: true };
 /** 통화 줄(Task 110): 걸기 직전 재확인을 지나 dialing 으로 차지됐을 때만 켜진다. */
 const CALL_PLACED = { key: 'call_placed', label: 'AI 전화 걺', on: '걸기 직전 재확인을 지남', warn: false };
+/** 받은 통화(Task 98): 받아 통화가 끝났으면 응대, 받기 전에 거절했으면 거절(한 칸에 하나만 보인다). */
+const CALL_ANSWERED = { key: 'call_answered', label: '받은 통화 응대', on: '통화가 끝남', warn: false };
+const CALL_REJECTED = { key: 'call_rejected', label: '받은 통화 — 받기 전 거절', on: '받기 판정이 막음', warn: true };
 
 /** 연락 하나의 흐름도: 다섯 마디(차례는 서버가 준 대로)마다 그 줄의 사건 수와 판정(서버의 판정 글). 사건이 없는 마디와 꺼진 가지는
  * 흐리다. 넓으면 한 줄, 좁은 창에서는 다음 줄로 접혀 가로로 넘치지 않는다. */
 export function OutreachFlow({ flow, lit, kind = 'message', direction = 'out' }: { flow: OutreachFlowNode[]; lit: string[]; kind?: 'message' | 'call'; direction?: string }) {
-  // 통화: 거는 통화만 「AI 전화 걺」 가지(받은 통화의 가지는 Task 98). 문자: 받은 문자 응대 · 막고 안내함 가운데 하나.
-  const branch = kind === 'call' ? (direction === 'in' ? [] : [CALL_PLACED]) : [lit.includes(INBOUND_REFUSED.key) ? INBOUND_REFUSED : INBOUND_HANDLED];
+  // 통화: 거는 통화는 「AI 전화 걺」, 받은 통화는 응대 · 받기 전 거절 가운데 하나. 문자: 받은 문자 응대 · 막고 안내함 가운데 하나.
+  const inbound = lit.includes(CALL_REJECTED.key) ? CALL_REJECTED : CALL_ANSWERED;
+  const branch = kind === 'call' ? [direction === 'in' ? inbound : CALL_PLACED] : [lit.includes(INBOUND_REFUSED.key) ? INBOUND_REFUSED : INBOUND_HANDLED];
   return (
     <ol className="dc-o-flow" aria-label="연락 흐름도">
       {flow.map((n) => (

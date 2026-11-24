@@ -243,4 +243,5 @@ def call_usage(summary: UsageSummary) -> CallUsageOut:
         used = used or _NONE
         models.append(CallModelUsageOut(kind=kind, count=used.count, seconds=used.seconds, input_tokens=used.input_tokens,
                                         output_tokens=used.output_tokens, cost=used.cost))
-    return CallUsageOut(call_seconds=summary.call_seconds, calls_placed=summary.calls_placed, models=models)
+    return CallUsageOut(call_seconds=summary.call_seconds, calls_placed=summary.calls_placed, models=models,
+                        calls_answered=summary.calls_answered, calls_rejected=summary.calls_rejected)

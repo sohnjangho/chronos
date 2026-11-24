@@ -16,7 +16,7 @@ from app.domains.loader import domains, levels_prompt, load
 from app.errors import ApiError
 from app.harness.checks import check as check_schedule
 from app.harness.conditions import BASE_RULES, Condition
-from app.programs.devconsole import harness_live, outreach_branches
+from app.programs.devconsole import harness_live, outreach_branches, outreach_catalog
 from app.programs.devconsole.harness_db import (
     LOOP_TOOL,
     ScriptedLiner,
@@ -278,6 +278,7 @@ def get_catalog(session: Session) -> dict[str, Any]:
             "tools": tools_out,
             "skills": skills_out,
         },
+        "outreach_grid": outreach_catalog.grid(session),  # 「연락 하네스」 묶음(Task 98) — 칸은 모래상자 자식 프로세스에서 돈다
     }
 
 
@@ -446,8 +447,12 @@ def _run_loop_scenario(rule_id: str, cfg: dict[str, Any]) -> tuple[str, dict[str
     return sim, fb, held
 
 
-def run_harness_test(rule_id: str, session: Session) -> dict[str, Any]:
+def run_harness_test(rule_id: str, session: Session, broken: bool = False) -> dict[str, Any]:
     """관리자가 [차단 시험]을 눌렀을 때 실엔진(하네스·승인·컨텍스트)으로 위반/차단 결과를 측정해 돌려준다."""
+    if outreach_catalog.is_cell(rule_id):  # 연락 하네스 격자 칸(S-07@call_in · C-V1) — 모래상자 자식 프로세스에서
+        return outreach_catalog.run(rule_id, broken)
+    if broken:
+        raise ApiError(422, "not_supported", "가드 끄고 돌리기는 연락 하네스 격자 칸에만 있습니다.")
     rule = next((r for r in HARNESS_RULES if r["id"] == rule_id), None)
     if rule is None:
         raise ApiError(404, "not_found", f"하네스 규칙을 찾을 수 없습니다: {rule_id}")
