@@ -20,8 +20,9 @@ WORK = OUT / 'work'
 TTS_DIR = OUT / 'tts'
 SR = 24000
 FPS = 30
+TTS_MODEL = os.environ.get('TTS_MODEL', 'gemini-3.8-flash-tts')
 VOICE = os.environ.get('TTS_VOICE', 'Charon')
-STYLE = '차분하고 또렷한 제품 발표 내레이션 톤으로, 조금 빠르게 읽어 주세요: '
+STYLE = os.environ.get('TTS_STYLE', '')
 
 # ── 장면 ─────────────────────────────────────────────────────────────
 # lines: (자막, 읽을 글). pieces: (파일, 시작, 끝, 몫). cards: 그림 장면.
@@ -40,13 +41,17 @@ S = [
   dict(id='W1', min=22, chip='WOW 1 · OS + Computer Use', pieces=[('A/A-os-computer-use.mp4', 20, 50, 2), ('A/A-os-computer-use.mp4', 50, 63.3, 1)], lines=[
     ('ChronOS 는 채팅창 하나가 아니라 OS 입니다.', '크로노스는 채팅창 하나가 아니라, 오에스입니다.'),
     ('대화로 지연을 알리면, 에이전트가 스케줄과 지연 기록 창을 직접 열어 일합니다.', '대화로 지연을 알리면, 에이전트가 스케줄과 지연 기록 창을 직접 열어 일합니다.'),
-    ('만회안을 부탁하면 비교판을 띄웁니다.', '만회안을 부탁하면, 비교판을 띄웁니다.')]),
+    ('사람은 창이 열리고 숫자가 바뀌는 것을 눈으로 따라갑니다.', '사람은 창이 열리고 숫자가 바뀌는 것을, 눈으로 따라갑니다.'),
+    ('만회안을 부탁하면 비교판을 띄웁니다.', '만회안을 부탁하면, 비교판을 띄웁니다.'),
+    ('남의 화면을 흉내 내지 않고, 자기 OS 의 창을 도구로 정확히 엽니다.', '남의 화면을 흉내 내지 않고, 자기 오에스의 창을 도구로 정확히 엽니다.')]),
   dict(id='W1b', min=12, chip='WOW 1 · 워크플로우', pieces=[('B/B-workflow.mp4', 26, 52.3, 1)], lines=[
-    ('요청마다 워크플로우를 그 자리에서 짜고, 잘 된 순서는 스킬로 저장합니다.', '요청마다 워크플로우를 그 자리에서 짜고, 잘 된 순서는 스킬로 저장합니다.')]),
+    ('요청마다 워크플로우를 그 자리에서 짜고, 잘 된 순서는 스킬로 저장합니다.', '요청마다 워크플로우를 그 자리에서 짜고, 잘 된 순서는 스킬로 저장합니다.'),
+    ('단계를 누르면 어떤 도구를 왜 썼는지, 어느 모델이 무엇을 돌려줬는지 보입니다.', '단계를 누르면, 어떤 도구를 왜 썼는지, 어느 모델이 무엇을 돌려줬는지 보입니다.')]),
   dict(id='S2', min=20, chip='WOW 4 · AI 공정표 초안', pieces=[('S2-create-v2.mp4', 12, 54, 4), ('S2-create-v2.mp4', 54, 190, 1.2), ('S2-create-v2.mp4', 190, 224.3, 4)], lines=[
     ('공정표 초안도 말 한 줄로 만듭니다.', '공정표 초안도, 말 한 줄로 만듭니다.'),
     ('모자란 정보는 질문지로 묻고, 날짜는 AI 가 아니라 코드가 계산합니다.', '모자란 정보는 질문지로 묻고, 날짜는 에이아이가 아니라 코드가 계산합니다.'),
-    ('규칙 점검을 통과한 초안만 승인함으로 가고, 확정은 사람이 합니다.', '규칙 점검을 통과한 초안만 승인함으로 가고, 확정은 사람이 합니다.')]),
+    ('규칙 점검을 통과한 초안만 승인함으로 가고, 확정은 사람이 합니다.', '규칙 점검을 통과한 초안만 승인함으로 가고, 확정은 사람이 합니다.'),
+    ('이번 초안은 작업 68개, 규칙 위반 없이 한 번에 통과했습니다.', '이번 초안은 작업 육십팔 개, 규칙 위반 없이 한 번에 통과했습니다.')]),
   dict(id='S3', min=11, chip='시연 일정 · 5층 사무동 신축 (가상)', pieces=[('S3-gantt-points.mp4', 0, 38.9, 1)], lines=[
     ('시연 일정은 5층 사무동 신축입니다. 6월 말, 준공은 11월 8일, 계획대로 가고 있습니다.',
      '시연 일정은 오 층 사무동 신축입니다. 유월 말, 준공은 십일월 팔 일, 계획대로 가고 있습니다.')]),
@@ -61,25 +66,32 @@ S = [
   dict(id='S6', min=18, chip='장면 2 · Liner Search · Premium Data · MCP · Search Agent', pieces=[('S6-outside-risks.mp4', 0, 31.0, 1)], lines=[
     ('새 관리 포인트에 대해서만 Liner Search 가 바깥 위험을 찾습니다.', '새 관리 포인트에 대해서만, 라이너 서치가 바깥 위험을 찾습니다.'),
     ('알루미늄 시세와 환율, 업계 소식을 출처와 함께 붙이고, 근거가 된 문장도 바로 열어 봅니다.',
-     '알루미늄 시세와 환율, 업계 소식을 출처와 함께 붙이고, 근거가 된 문장도 바로 열어 봅니다.')]),
+     '알루미늄 시세와 환율, 업계 소식을 출처와 함께 붙이고, 근거가 된 문장도 바로 열어 봅니다.'),
+    ('6개월이 지난 글은 쓰지 않고, 찾지 못하면 숫자를 지어내지 않습니다.', '육 개월이 지난 글은 쓰지 않고, 찾지 못하면 숫자를 지어내지 않습니다.')]),
   dict(id='S7a', min=10, chip='WOW 3 · AI 전화', pieces=[('S7-call-edit.mp4', 0, 29.35, 1)], lines=[
     ('포인트가 옮겨 간 곳의 담당자에게, AI 가 먼저 전화합니다.', '포인트가 옮겨 간 곳의 담당자에게, 에이아이가 먼저 전화합니다.'),
     ('무엇을 묻고 무엇을 말하지 않을지는 사람이 정합니다.', '무엇을 묻고, 무엇을 말하지 않을지는 사람이 정합니다.')]),
   dict(id='S7b', chip='WOW 3 · AI 전화 · 통화 중', pieces=[('S7-call-edit.mp4', 29.35, 117.0, 1)],
        audio='loopback-s7-film-edit/mix.wav', note='통화 음성: 시험 통화 녹음으로 재구성 (상대 역 AI · 전화망 없음)', lines=[]),
   dict(id='S7c', min=9, chip='WOW 3 · 통화 카드', pieces=[('S7-call-edit.mp4', 117.0, 138.8, 1)], lines=[
-    ('통화가 끝나면 질문마다 답과 근거가 된 말이 남습니다.', '통화가 끝나면, 질문마다 답과 근거가 된 말이 남습니다.')]),
+    ('통화가 끝나면 질문마다 답과 근거가 된 말이 남습니다.', '통화가 끝나면, 질문마다 답과 근거가 된 말이 남습니다.'),
+    ('근거가 없는 답은 사실로 기록하지 않습니다.', '근거가 없는 답은, 사실로 기록하지 않습니다.')]),
   dict(id='S8', min=18, chip='WOW 2 · 당겨도 소용 있나', pieces=[('S8-pull-check.mp4', 0, 34.1, 1)], lines=[
     ('습관처럼 골조를 당기려 하면, 에이전트가 먼저 계산합니다.', '습관처럼 골조를 당기려 하면, 에이전트가 먼저 계산합니다.'),
     ('옥탑 골조를 5일 당겨도, 준공은 하루만 당겨집니다.', '옥탑 골조를 오 일 당겨도, 준공은 하루만 당겨집니다.'),
-    ('지금 약속을 좌우하는 일은 커튼월입니다.', '지금 약속을 좌우하는 일은, 커튼월입니다.')]),
+    ('지금 약속을 좌우하는 일은 커튼월입니다.', '지금 약속을 좌우하는 일은, 커튼월입니다.'),
+    ('같은 5일이 커튼월이 늦어지기 전에는 4일의 값어치였습니다.', '같은 오 일이, 커튼월이 늦어지기 전에는 사 일의 값어치였습니다.')]),
   dict(id='S9', min=24, chip='장면 5 · 만회안과 승인', pieces=[('S9-recovery-approve.mp4', 0, 77.0, 1)], lines=[
     ('만회안은 같은 계산으로 견줍니다. 만회안 B 는 준공을 6일 당깁니다.', '만회안은 같은 계산으로 견줍니다. 만회안 비는 준공을 육 일 당깁니다.'),
-    ('결정은 사람이 승인함에서 하고, 에이전트는 관리 포인트를 다시 뽑습니다.', '결정은 사람이 승인함에서 하고, 에이전트는 관리 포인트를 다시 뽑습니다.')]),
+    ('결정은 사람이 승인함에서 하고, 에이전트는 관리 포인트를 다시 뽑습니다.', '결정은 사람이 승인함에서 하고, 에이전트는 관리 포인트를 다시 뽑습니다.'),
+    ('크레인을 1대에서 2대로, 천장 마감과 커튼월 설치 기간을 줄이는 안입니다.', '크레인을 한 대에서 두 대로, 천장 마감과 커튼월 설치 기간을 줄이는 안입니다.'),
+    ('승인하면 새 버전이 되고, 한 바퀴가 다시 돕니다.', '승인하면 새 버전이 되고, 한 바퀴가 다시 돕니다.')]),
   dict(id='S11', min=12, chip='확장 · 생산 일정', pieces=[('S11-production.mp4', 0, 36.3, 1)], lines=[
-    ('분야가 바뀌어도 엔진은 같습니다. 생산 일정도 같은 방식으로 돕니다.', '분야가 바뀌어도 엔진은 같습니다. 생산 일정도 같은 방식으로 돕니다.')]),
+    ('분야가 바뀌어도 엔진은 같습니다. 생산 일정도 같은 방식으로 돕니다.', '분야가 바뀌어도 엔진은 같습니다. 생산 일정도 같은 방식으로 돕니다.'),
+    ('분야마다 볼 바깥 자료만 켜고 끕니다.', '분야마다, 볼 바깥 자료만 켜고 끕니다.')]),
   dict(id='S12', min=12, chip='개발 콘솔 · 실행 추적', pieces=[('S12-trace.mp4', 0, 47.1, 1)], lines=[
-    ('에이전트가 한 일은 단계마다 기록으로 남습니다.', '에이전트가 한 일은, 단계마다 기록으로 남습니다.')]),
+    ('에이전트가 한 일은 단계마다 기록으로 남습니다.', '에이전트가 한 일은, 단계마다 기록으로 남습니다.'),
+    ('왜 그렇게 했는지, 나중에 그대로 따라가 볼 수 있습니다.', '왜 그렇게 했는지, 나중에 그대로 따라가 볼 수 있습니다.')]),
   dict(id='S99', chip='', cards=['c-end'], tail=2.0, lines=[
     ('무엇이 약속을 늦추는지는, 바뀔 때마다 다시 정해집니다.', '무엇이 약속을 늦추는지는, 바뀔 때마다 다시 정해집니다.'),
     ('ChronOS', '크로노스.')]),
@@ -164,34 +176,11 @@ def gemini_key():
     return None
 
 
-_MODEL = None
-
-
-def tts_model(key):
-    global _MODEL
-    if _MODEL:
-        return _MODEL
-    want = os.environ.get('TTS_MODEL')
-    if want:
-        _MODEL = want
-        return _MODEL
-    r = requests.get('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',
-                     headers={'x-goog-api-key': key}, timeout=30)
-    r.raise_for_status()
-    names = [m['name'].split('/')[-1] for m in r.json().get('models', []) if 'tts' in m['name']]
-    if not names:
-        raise SystemExit('TTS 모델을 찾지 못했습니다.')
-    names.sort(key=lambda n: (('pro' in n), n))  # flash 먼저, 같은 급이면 이름순
-    _MODEL = [n for n in names if 'flash' in n][-1] if any('flash' in n for n in names) else names[-1]
-    print('TTS 모델:', _MODEL, '(후보:', ', '.join(names), ')')
-    return _MODEL
-
-
 def tts(text):
-    """읽을 글 → (pcm int16 배열). 캐시: tts/<hash>.wav"""
+    """읽을 글 → pcm int16 배열 (Gemini TTS). 캐시: tts/<hash>.wav"""
     TTS_DIR.mkdir(parents=True, exist_ok=True)
     key = gemini_key()
-    h = hashlib.sha1(f'{VOICE}|{STYLE}|{text}'.encode()).hexdigest()[:16]
+    h = hashlib.sha1(f'{TTS_MODEL}|{VOICE}|{STYLE}|{text}'.encode()).hexdigest()[:16]
     f = TTS_DIR / f'{h}.wav'
     if f.exists():
         return read_wav(f)
@@ -201,18 +190,60 @@ def tts(text):
     body = {'contents': [{'parts': [{'text': STYLE + text}]}],
             'generationConfig': {'responseModalities': ['AUDIO'],
                                  'speechConfig': {'voiceConfig': {'prebuiltVoiceConfig': {'voiceName': VOICE}}}}}
-    for attempt in range(4):
-        r = requests.post(f'https://generativelanguage.googleapis.com/v1beta/models/{tts_model(key)}:generateContent',
-                          headers={'x-goog-api-key': key, 'Content-Type': 'application/json'}, json=body, timeout=120)
-        if r.status_code == 200:
+    for attempt in range(5):
+        r = requests.post(f'https://generativelanguage.googleapis.com/v1beta/models/{TTS_MODEL}:generateContent',
+                          headers={'x-goog-api-key': key, 'Content-Type': 'application/json'}, json=body, timeout=180)
+        if r.status_code == 200 and 'candidates' in r.json():
             break
         print('TTS 다시 시도', r.status_code, r.text[:200].replace(key, '***'))
+        import time; time.sleep(4 * (attempt + 1))
     r.raise_for_status()
     part = r.json()['candidates'][0]['content']['parts'][0]['inlineData']
     pcm = np.frombuffer(base64.b64decode(part['data']), dtype=np.int16)
     pcm = trim_silence(pcm)
     write_wav(f, pcm)
     return pcm
+
+
+def scene_tts(lines):
+    """장면의 문장을 한 번에 읽고(호출 1번), 문장 사이 쉼에서 잘라 문장별 소리로 나눈다."""
+    if not lines:
+        return []
+    texts = [t for _, t in lines]
+    pcm = tts('\n'.join(texts))
+    n = len(texts)
+    if n == 1:
+        return [pcm]
+    hop = int(0.02 * SR)
+    env = np.array([np.abs(pcm[i:i + hop]).mean() for i in range(0, len(pcm) - hop, hop)])
+    quiet = env < max(250, np.percentile(env, 30) * 0.6)
+    runs = []  # (길이, 가운데 표본)
+    i = 0
+    while i < len(quiet):
+        if quiet[i]:
+            j = i
+            while j < len(quiet) and quiet[j]:
+                j += 1
+            if (j - i) * 0.02 >= 0.15 and i > 0 and j < len(quiet):
+                runs.append((j - i, ((i + j) // 2) * hop))
+            i = j
+        else:
+            i += 1
+    if len(runs) >= n - 1:
+        # 글자 수로 어림한 경계마다 가장 가까운 쉼(길이 0.25초 이상 우선)을 고른다
+        tot = sum(len(t) for t in texts); acc = 0; cuts = []; used = set()
+        for t in texts[:-1]:
+            acc += len(t); want = len(pcm) * acc / tot
+            cand = [(abs(c - want) - (0.4 * SR if L * 0.02 >= 0.25 else 0), c) for L, c in runs if c not in used]
+            c = min(cand)[1]; used.add(c); cuts.append(c)
+        cuts.sort()
+    else:  # 쉼을 못 찾으면 글자 수 비율로
+        tot = sum(len(t) for t in texts); acc = 0; cuts = []
+        for t in texts[:-1]:
+            acc += len(t); cuts.append(int(len(pcm) * acc / tot))
+        print('  쉼 부족 → 글자 비율로 나눔:', texts[0][:20])
+    edges = [0] + cuts + [len(pcm)]
+    return [trim_silence(pcm[edges[k]:edges[k + 1]]) for k in range(n)]
 
 
 def trim_silence(x, thr=350):
@@ -242,12 +273,17 @@ def ff(*args):
 def build(seg):
     sid = seg['id']
     lines = seg['lines']
-    clips = [tts(t) for _, t in lines]
+    clips = scene_tts(lines)
     lead, gap, tailpad = 0.45, 0.32, seg.get('tail', 0.55)
     t = lead; spans = []
     for c in clips:
         d = len(c) / SR; spans.append((t, t + d)); t += d + gap
     narr_end = (spans[-1][1] if spans else 0) + tailpad
+    want = seg.get('min', 3.0)
+    if spans and not seg.get('audio') and want > narr_end and len(spans) > 1:
+        extra = (want - narr_end) * 0.85 / (len(spans) - 1)
+        spans = [(a0 + k * extra, b0 + k * extra) for k, (a0, b0) in enumerate(spans)]
+        narr_end = spans[-1][1] + tailpad
     if seg.get('audio'):
         ext = read_wav(REC / seg['audio'])
         T = len(ext) / SR + 0.3
