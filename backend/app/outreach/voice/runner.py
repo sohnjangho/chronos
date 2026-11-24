@@ -49,7 +49,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db import get_session
-from app.outreach import hours, phone, redact, worker
+from app.outreach import hours, languages, phone, redact, worker
 from app.outreach.harness import door, events, gate, registry, toolsets
 from app.outreach.harness.tools import Toolbox
 from app.outreach.harness.types import (
@@ -109,6 +109,8 @@ BACKEND_DOWN = "음성 통화 백엔드를 쓸 수 없어 걸지 않았습니다
 KEY_UNREADABLE = "저장된 음성 모델 키를 읽을 수 없어 걸지 않았습니다. 설정에서 키를 다시 넣어 주세요"
 NO_AGENT_NUMBER = "AI 전화 번호가 설정되지 않아 걸지 않았습니다"
 PREP_FAILED = "걸 준비를 하다 오류가 나 걸지 않았습니다. 다시 걸어 주세요"
+LINE_BUSY = "AI 전화 연결이 계속 다른 통화에 쓰여 걸지 않았습니다. 다시 걸어 주세요"
+LINE_BUSY_TRIES = 30  # 받는 쪽과 같이 쓰는 연결이 잠깐 바빠 다시 줄에 넣는 수(바퀴마다 한 번 — 약 5분) — 넘으면 초안으로
 SYSTEM = Actor("system", None, "통화 일꾼", None)
 _NAMES = toolsets.for_class("outbound", "call")
 _PRECHECK, _TEST_MODE, _WORKING_HOURS = GATE_RULES[0], GATE_RULES[1], GATE_RULES[3]
@@ -128,6 +130,7 @@ class _State:
     live: dict = field(default_factory=dict)  # 걸고 있는 통화 id → CallRun
     last_call_at: datetime | None = None
     last_error_kind: str | None = None  # 마지막 통화의 오류 종류(깨끗했으면 None)
+    busy_tries: dict = field(default_factory=dict)  # 통화 id → 연결이 바빠 다시 줄에 넣은 수
     task: asyncio.Task | None = None
     stop: asyncio.Event | None = None
     wake: asyncio.Event | None = None
@@ -209,6 +212,7 @@ def status() -> dict:
 
     s = _state
     return {"running": s.running, "live": live(), "backend": _backend_state(), "listening": inbound.listening(),
+            "listen_reason": inbound.reason(),
             "last_call_at": None if s.last_call_at is None else as_utc(s.last_call_at).isoformat(),
             "last_error_kind": s.last_error_kind, "off_reason": s.off_reason}
 
@@ -281,6 +285,9 @@ async def _call(call_id: int, base: datetime) -> str | None:
             run.stopped()
         raise
     except Exception as exc:  # noqa: BLE001 — 백엔드 고장·손잡이 예외·실제 시간 넘김: 이 통화만 failed
+        if getattr(exc, "retry_later", False) and not run.started and not run.ended:  # 받는 쪽과 같이 쓰는 연결이 잠깐
+            state.live.pop(call_id, None)  # 바쁘다(걸지 않았다) — 실패가 아니라 줄로 되돌려 다음 바퀴에
+            return await asyncio.to_thread(_line_busy, call_id, base)
         state.last_error_kind = _kind(exc)
         logger.warning("통화 일꾼: 통화가 예외로 끝났습니다 (%s)", _kind(exc))
         await run.broke()
@@ -325,6 +332,26 @@ async def _place(backend: VoiceBackend, spec: CallSpec, run: CallRun) -> None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
+
+
+def _line_busy(call_id: int, at: datetime) -> str | None:
+    """건 것이 없다: dialing → queued(WAITING — tick 이 다시 줄 앞에 넣는다). LINE_BUSY_TRIES 번 넘게 바쁘면 초안으로."""
+    tries = _state.busy_tries[call_id] = _state.busy_tries.get(call_id, 0) + 1
+    over = tries > LINE_BUSY_TRIES
+    with _db() as session:
+        back = update(OutreachCall).where(OutreachCall.id == call_id, OutreachCall.status == "dialing")
+        back = back.values(status="draft", fail_reason=LINE_BUSY, claimed_at=None) if over else back.values(status="queued")
+        moved = session.execute(back.execution_options(synchronize_session=False))
+        if moved.rowcount != 1:
+            session.rollback()
+            return None
+        events.record(session, Ref("call", call_id), "recheck_before_dial", "blocked" if over else "noted", "line_busy",
+                      now=at)
+        session.commit()
+    if over:
+        _state.busy_tries.pop(call_id, None)
+        return "draft"
+    return WAITING
 
 
 def _prep_failed(call_id: int, at: datetime) -> str | None:
@@ -422,7 +449,8 @@ def _spec(session: Session, row: OutreachCall, contact: Contact, number: str, ag
     record = session.get(ScheduleRecord, row.schedule_id)
     site = record.name if record is not None else ""
     company = contacts.get_company(session, row.schedule_id, contact.company_id)
-    language = contact.language or greeting.DEFAULT_LANGUAGE
+    # 통화 줄의 언어(걸기 창에서 고른 것 — 없으면 연락처의 것). 통화가 안 되는 언어(진단 P10 전)는 한국어로 건다(Task 100)
+    language = languages.call_language(row.language or contact.language)
     # 통화 줄의 음성은 꼴이 맞을 때만 — 틀린 값은 SDK 기본이 아니라 연락처·설정의 음성으로 간다(Task 99 고침 1)
     stored = row.voice_id if voices.well_formed(row.voice_id) else None
     voice_id = stored or voices.pick(contact.gender, contact.voice_mode, contact.voice_id, language, settings)

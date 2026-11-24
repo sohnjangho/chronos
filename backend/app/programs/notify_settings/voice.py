@@ -37,7 +37,7 @@ from app.db import get_session
 from app.errors import ApiError
 from app.notify import diagnostics, diagnostics_voice, live_models, voice_names
 from app.outreach import phone, provider, redact
-from app.outreach.voice import numbers, runner, voices
+from app.outreach.voice import inbound, numbers, runner, voices
 from app.programs.notify_settings import diagnose, service
 from app.programs.notify_settings.voice_schemas import (
     SLOT_FIELDS,
@@ -619,7 +619,8 @@ async def run(session: Session, conn_id: int, data: VoiceDiagnoseIn, by: str) ->
         if prep.part == "call":
             await run_in_threadpool(_mark_calling_sync, session, conn_id, data, by, now)
         try:
-            rows, halt = await _checks(prep, budget)
+            async with inbound.paused():  # 진단 동안 받는 통화 듣기를 멈춘다(연결은 번호당 하나) — 끝나면 곧바로 다시 듣는다
+                rows, halt = await _checks(prep, budget)
         except asyncio.CancelledError:
             if prep.part == "call":
                 _settle_cancelled(conn_id, now.isoformat(), budget)

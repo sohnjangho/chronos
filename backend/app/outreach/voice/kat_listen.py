@@ -37,7 +37,7 @@ from app.notify.diagnostics_voice import (
     SDK_LOGGERS,
     SESSIONS,
 )
-from app.notify.voice_sdk_logs import _quiet_sdk, session_failure
+from app.notify.voice_sdk_logs import _quiet_sdk, model_error, session_failure
 from app.outreach import phone
 from app.outreach.voice import numbers
 from app.outreach.voice.kat_sdk import (
@@ -74,6 +74,36 @@ LINE_IN_USE = "그 번호의 음성 연결을 다른 통화가 쓰고 있어 지
 CONNECT_FAILED = "플랫폼에 연결하지 못해 걸려 오는 전화를 들을 수 없습니다"
 TAKEN_OVER = "다른 접속이 이 번호의 음성 연결을 가져갔습니다"
 BAD_ANSWER = "받는 통화에는 받는 통화의 명세를 돌려줘야 합니다"
+AUTH_REJECTED = "플랫폼이 이 번호의 음성 연결을 거절했습니다(키·번호를 확인해 주세요)"
+NOT_FREE = "그 번호의 음성 연결이 지금 다른 통화에 쓰이고 있어 걸지 않았습니다(곧 다시 겁니다)"
+AUTH_PROBE_S = 5.0  # 붙어 있는 동안 연결이 거절됐는지(다시 붙기 거절) 보는 간격 — SDK 의 connect 는 거절됐으면 그 오류를 다시 던진다
+
+
+class LineBusy(VoiceError):
+    """듣는 에이전트가 잠깐 바빠(붙는 중 · 다른 통화 · 받은 통화를 닫는 중 · 연결 설정이 바뀌는 중) 걸지 않았다 — 건 것이 없다.
+    통화 일꾼은 이것을 실패로 적지 않고 줄로 되돌린다(retry_later)."""
+
+    retry_later = True
+
+
+class Displaced(VoiceError):
+    """다른 접속에 밀려났거나(taken_over) 플랫폼이 연결을 거절했다(auth_rejected) — 다시 붙으면 서로 밀어낸다(SDK 경고: 번호가
+    막힌다). 받는 쪽 고리는 설정이 바뀌거나 다시 켤 때까지 다시 붙지 않는다(final)."""
+
+    final = True
+
+    def __init__(self, message: str, reason: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+def _identity(setup: object) -> tuple:
+    """control 연결을 가르는 값(키 · 계정 · 주소 · 번호) — 음성 모델·음성 설정이 바뀌어도 같은 연결을 쓴다."""
+    return tuple(getattr(setup, name) for name in ("key", "account_id", "base_url", "agent_number"))
+
+
+def _rejected(exc: BaseException) -> bool:
+    return type(exc).__name__ == "AgentAuthRejectedError"  # SDK 의 공개 예외(connect 의 docstring) — 이름으로만 본다
 
 
 @dataclass(frozen=True)
@@ -118,6 +148,7 @@ class _Shared:
 
     def build(self) -> None:
         self.agent = self.shared.agent  # 연결은 이미 있다(connect 는 붙어 있으면 아무것도 하지 않는다)
+        self.shared.ticket = self  # 곧 걸 이 통화의 세션 표 — 팩토리가 한 번만 쓴다
 
     def session(self) -> object:
         made = super().session()
@@ -161,8 +192,10 @@ class _InLine(_Shared, _Line):
 
     def saw(self, record: object) -> None:
         found = session_failure(record)
-        if found is not None and _same_call(found[0], self.inbound_id):
-            self.events.append(("session_failed", _Stub(self.inbound_id), (), self.clock()))
+        failed = found is not None and _same_call(found[0], self.inbound_id)
+        # Task 99: OpenAI 가 세션 설정을 거절하면 오류 줄 하나뿐이다 — 에이전트가 말하기 전이면 세션 실패로(거는 통화와 같다)
+        if failed or (not self.agent_spoke() and model_error(record)):
+            self.events.append(("session_failed", self.ours or _Stub(self.inbound_id), (), self.clock()))
 
     async def handle(self, name: str, sdk_call: object, args: tuple, at: float) -> bool:
         if name in ("session_failed", "session_lost") and self.phase == "dialing" and self.mine(sdk_call):
@@ -192,6 +225,7 @@ class _Agent:
         self.error: BaseException | None = None
         self.heard: deque[str] = deque(maxlen=HEARD_KEPT)
         self.cutting: set[asyncio.Task] = set()
+        self.ticket: _Line | None = None  # 다음에 열 세션의 통화(한 번 쓰면 비운다)
 
     def clean(self, text: object, limit: int = 300) -> str:
         s, line = self.setup, self.line
@@ -204,9 +238,11 @@ class _Agent:
             line.saw(record)
 
     def session(self) -> object:
-        line = self.line
-        if line is None:
-            raise VoiceError(LINE_IN_USE)  # 받기로 하지 않은 통화 — SDK 가 그 통화의 세션을 열지 못한다
+        """SDK 의 세션 팩토리: 받기로 했거나 곧 걸 통화의 표를 한 번만 쓴다. 표가 없는 통화(훅이 늦어 SDK 가 받아 버린 것 등)는
+        세션을 열지 못한다 — 다른 통화의 지시문·도구를 받지 않는다."""
+        line, self.ticket = self.ticket, None
+        if line is None or line is not self.line:
+            raise VoiceError(LINE_IN_USE)
         return line.session()
 
     async def event(self, name: str, sdk_call: object, *args: object) -> None:
@@ -260,7 +296,7 @@ class _Agent:
         if self.line is not None or call_id is None or not self.connected:
             await handlers.on_failed("busy", "line_busy")  # 한 번에 한 통 — 받지 않는다
             return False
-        self.line = _InLine(self, spec, handlers, call_id)
+        self.line = self.ticket = _InLine(self, spec, handlers, call_id)
         return True
 
     # ── 연결 · 듣기 · 닫기 ────────────────────────────────────────────
@@ -290,14 +326,20 @@ class _Agent:
         self.build()
         try:
             await self.bounded(self.agent.connect(), CONNECT_TIMEOUT_S)
-        except Exception:  # noqa: BLE001 — SDK 예외 글은 버린다
+        except Exception as exc:  # noqa: BLE001 — SDK 예외 글은 버린다
+            if _rejected(exc):
+                raise Displaced(AUTH_REJECTED, "auth_rejected") from None
             raise VoiceError(CONNECT_FAILED) from None
         self.connected = True
+        probed = self.clock()
         while True:
             if self.error is not None:
                 raise self.error
             if getattr(self.agent, "taken_over", False) is True:
-                raise VoiceError(TAKEN_OVER)
+                raise Displaced(TAKEN_OVER, "taken_over")
+            if self.line is None and self.clock() - probed >= AUTH_PROBE_S:
+                probed = self.clock()
+                await self.probe()
             line = self.line
             if isinstance(line, _InLine):
                 try:
@@ -313,6 +355,14 @@ class _Agent:
                         self.line = None
                 continue
             await self.sleep(POLL_S)
+
+    async def probe(self) -> None:
+        """다시 붙기가 거절됐는지 — SDK 의 connect 는 붙어 있으면 아무것도 하지 않고, 거절됐으면 그 오류를 다시 던진다."""
+        try:
+            await self.bounded(self.agent.connect(), CONNECT_TIMEOUT_S)
+        except Exception as exc:  # noqa: BLE001 — 거절 밖의 오류는 SDK 가 다시 붙는다(여기서는 보지 않는다)
+            if _rejected(exc):
+                raise Displaced(AUTH_REJECTED, "auth_rejected") from None
 
     async def release(self) -> None:
         """쓰는 쪽 하나가 떠난다 — 마지막이면 번호를 놓고 연결을 닫는다."""
@@ -357,12 +407,12 @@ async def listen(kat: KatVoice, number: str, on_incoming: Callable[[Incoming], A
 
 
 async def place(kat: KatVoice, spec: CallSpec, handlers: CallHandlers, target: str) -> None:
-    """듣는 동안의 거는 통화: 그 번호의 에이전트로 건다(새 연결 없음). 다른 통화가 쓰는 중이면 걸지 않는다(on_failed)."""
+    """듣는 동안의 거는 통화: 그 번호의 에이전트로 건다(새 연결 없음). 그 연결이 잠깐 바쁘면(붙는 중 · 다른 통화 · 받은 통화를
+    닫는 중 · 연결 설정이 바뀌어 다시 붙기 전) 걸지 않고 LineBusy — 일꾼이 줄로 되돌려 나중에 건다(실패가 아니다)."""
     shared = AGENTS.get(kat._s.agent_number)
-    if (not isinstance(shared, _Agent) or shared.setup != kat._s or shared.line is not None or not shared.connected
-            or shared.closing):
-        await handlers.on_failed("failed", "line_busy")
-        return
+    if (not isinstance(shared, _Agent) or _identity(shared.setup) != _identity(kat._s) or shared.line is not None
+            or not shared.connected or shared.closing):
+        raise LineBusy(NOT_FREE)
     line = _SharedOut(shared, kat, spec, handlers, target)
     shared.users += 1
     shared.line = line

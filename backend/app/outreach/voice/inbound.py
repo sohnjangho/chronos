@@ -28,6 +28,7 @@ import contextlib
 import hashlib
 import logging
 import time
+from collections import deque
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -36,7 +37,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, select, update
 
 from app.db import get_session
-from app.outreach import phone
+from app.outreach import languages, phone
 from app.outreach.harness import door, events, gate, toolsets
 from app.outreach.harness.tools import AGENT, AGENT_NAME, Toolbox
 from app.outreach.harness.types import Caller, NotReady, Ref, Scope
@@ -75,6 +76,9 @@ IN_FAILED = "받은 통화를 시작하지 못했습니다"
 IN_BROKE = "음성 통화 오류로 받은 통화가 끊겼습니다"
 TOO_LATE = "받기 판정이 늦어 받지 못했습니다"
 WHILE_OFF = "앱이 꺼져 있는 동안 걸려 와 받지 못했습니다"
+SCOPE_OFF = "받는 범위가 「받지 않음」이라 받지 않았습니다"
+LOCK_WAIT_S = 1.0  # 다른 벨을 판정하는 중이면 이만큼만 기다리고, 넘으면 통화 중으로 판정해 줄만 남긴다
+QUIET_KEPT = 50  # 기억하는 「듣지 않은 동안」(받는 범위 끔 · 진단) 수
 _VERDICT = {"engage": "allowed", "missed": "noted"}  # admission 사건의 판정(그 밖 — reject — 은 blocked)
 _STATUS = {"reject": ("rejected", REJECTED), "missed": ("missed", MISSED)}
 
@@ -110,6 +114,10 @@ class _State:
     last_error_kind: str | None = None
     follows: set = field(default_factory=set)  # 통화 뒤 일 · 회신 문자 넣기(뒤에서 도는 일)
     lock: asyncio.Lock | None = None
+    final: str | None = None  # 다시 붙지 않는 까닭(taken_over · auth_rejected) — 설정이 바뀌거나 다시 켤 때까지
+    reason: str | None = None  # 듣지 않는 까닭(sync 가 돌려준 낱말) — status 가 보인다
+    paused: int = 0  # 음성 진단이 듣기를 멈춰 둔 수
+    quiet: deque = field(default_factory=lambda: deque(maxlen=QUIET_KEPT))  # [까닭(off·diagnosis), 처음, 끝|None]
 
 
 _state = _State()
@@ -138,17 +146,20 @@ async def on_incoming(incoming: Incoming) -> tuple[CallSpec, CallRun] | None:
     state = _state
     if state.lock is None:
         state.lock = asyncio.Lock()
-    async with state.lock:  # 판정은 하나씩 — 두 벨이 함께 응대되지 않는다
+    try:  # 판정은 하나씩 — 두 벨이 함께 응대되지 않는다. 다른 벨을 판정 중이면 오래 기다리지 않는다
+        await asyncio.wait_for(state.lock.acquire(), LOCK_WAIT_S)
+    except TimeoutError:  # 통화 중으로 판정해 줄만 남긴다(응대하지 않는다)
+        _sent(await asyncio.to_thread(_decide, incoming, door.MAX_LIVE_CALLS, as_utc(incoming.at)))
+        return None
+    try:
         work = asyncio.ensure_future(asyncio.to_thread(_decide, incoming, _busy(), as_utc(incoming.at)))
         try:
             decided = await asyncio.shield(work)
         except asyncio.CancelledError:  # 백엔드가 기다리다 그만뒀다 — 받기로 적었으면 받지 못한 줄로 닫는다
             work.add_done_callback(_too_late)
             raise
-        if isinstance(decided, int):  # 부재중 — 아는 연락처의 회신 문자 초안을 문에 넣는다(판정 시한 밖에서)
-            _behind(gate.dispatch("message", decided, AGENT, now=as_utc(incoming.at)))
-            return None
-        if decided is None:
+        if not isinstance(decided, _Engage):
+            _sent(decided)
             return None
         run = _InboundRun(decided.call_id, decided.spec, as_utc(incoming.at), decided.model)
         cls = decided.caller_class
@@ -157,6 +168,14 @@ async def on_incoming(incoming: Incoming) -> tuple[CallSpec, CallRun] | None:
         runner._state.live[decided.call_id] = run  # 한 번에 한 통 — 거는 일꾼·진단이 이것을 본다
         _behind(_follow(run, state.listen))
         return decided.spec, run
+    finally:
+        state.lock.release()
+
+
+def _sent(reply_id: object) -> None:
+    """부재중의 회신 문자 초안(있으면)을 문에 넣는다 — 판정 시한 밖에서, 지금 시각으로(문자 권한대로)."""
+    if isinstance(reply_id, int):
+        _behind(gate.dispatch("message", reply_id, AGENT, now=_now()))
 
 
 def _behind(work) -> None:
@@ -166,7 +185,10 @@ def _behind(work) -> None:
 
 
 def _too_late(work: asyncio.Future) -> None:
-    if work.cancelled() or work.exception() is not None or not isinstance(work.result(), _Engage):
+    if work.cancelled() or work.exception() is not None:
+        return
+    if not isinstance(work.result(), _Engage):  # 부재중이었다 — 회신 초안은 초안으로 버려 두지 않고 문에 넣는다
+        _sent(work.result())
         return
     _behind(asyncio.to_thread(_tries, _not_taken, work.result().call_id, "missed", TOO_LATE, None, _now()))
 
@@ -220,7 +242,8 @@ def _spec(session, caller: Caller) -> tuple[CallSpec, str | None]:
     places = {pair.schedule_id for pair in pairs}
     record = session.get(ScheduleRecord, next(iter(places))) if cls in SITE_CLASSES and len(places) == 1 else None
     site = record.name if record is not None else None
-    language = (who.language if who is not None and who.language else None) or greeting.DEFAULT_LANGUAGE
+    # 그 사람의 언어 — 통화가 안 되는 언어(진단 P10 전)는 한국어로 받는다(Task 100). 모르는 상대는 한국어
+    language = languages.call_language(who.language if who is not None else None)
     if who is not None:
         voice_id = voices.pick(who.gender, who.voice_mode, who.voice_id, language, settings)
     else:
@@ -354,10 +377,34 @@ async def _unbind() -> None:
             await asyncio.wait_for(task, call_run.HANGUP_WAIT_S)
 
 
-async def sync() -> str:
-    """듣기 고리의 한 바퀴: 설정을 보고 듣기를 걸거나·다시 걸거나·푼다. 돌려주는 것: off · not_ready · waiting · gave_up ·
-    listening. 예외를 올리지 않는다(취소만)."""
+def reason() -> str | None:
+    """듣지 않는 까닭 — off · not_ready · waiting · paused · gave_up · taken_over · auth_rejected(듣는 중이면 None)."""
+    return None if listening() else _state.reason
+
+
+def _quiet(kind: str, open_: bool) -> None:
+    """「듣지 않은 동안」을 연다·닫는다(받는 범위 끔 · 진단) — 채우기가 그 동안의 전화를 그 까닭으로 적거나 뺀다."""
+    spans, at = _state.quiet, _now()
+    current = next((span for span in reversed(spans) if span[0] == kind and span[2] is None), None)
+    if open_ and current is None:
+        spans.append([kind, at, None])
+    elif not open_ and current is not None:
+        current[2] = at
+
+
+async def sync(*, resume: bool = False) -> str:
+    """듣기 고리의 한 바퀴: 설정을 보고 듣기를 걸거나·다시 걸거나·푼다. 돌려주는 것: off · not_ready · waiting · paused ·
+    gave_up · listening. 예외를 올리지 않는다(취소만). resume 은 진단이 끝나 곧바로 다시 붙을 때(진단 표시를 보지 않는다)."""
     state = _state
+    found = await _sync(resume)
+    state.reason = None if found == "listening" else (state.final or found) if found == "gave_up" else found
+    return found
+
+
+async def _sync(resume: bool) -> str:
+    state = _state
+    if state.paused:
+        return "paused"
     try:
         wanted = await asyncio.to_thread(_wanted)
     except Exception as exc:  # noqa: BLE001 — 설정을 못 읽음: 그대로 둔다
@@ -368,8 +415,10 @@ async def sync() -> str:
         if in_call:
             return "waiting"  # 통화 중에는 듣기를 풀지 않는다(풀면 그 통화의 연결이 닫힌다) — 끝난 뒤 다음 바퀴에
         await _unbind()
-        state.failures, state.failed_at = 0, None
+        state.failures, state.failed_at, state.final = 0, None, None
+        _quiet("off", wanted == "off")
         return wanted
+    _quiet("off", False)
     backend, number, binding = wanted
     task = state.listen
     if task is not None and task.done():  # 듣기가 끝났다 — 실패면 센다
@@ -380,25 +429,51 @@ async def sync() -> str:
             logger.warning("받는 통화: 듣기가 끊겼습니다 (%s)", _kind(failure))
             state.failures = 1 if _clock() - state.since >= STABLE_S else state.failures + 1
             state.failed_at = _clock()
+            if getattr(failure, "final", False):  # 밀려남·인증 거절 — 다시 붙으면 서로 밀어내다 번호가 막힌다
+                state.failures, state.final = MAX_FAILS, getattr(failure, "reason", None) or "gave_up"
     if state.binding != binding:
         if in_call:
             return "waiting"
         await _unbind()
-        state.failures, state.failed_at, state.backfilled = 0, None, False
+        state.failures, state.failed_at, state.backfilled, state.final = 0, None, False, None
     if listening():
         if not state.backfilled and _clock() - state.since >= BACKFILL_AFTER_S:
             state.backfilled = True
             _behind(backfill(backend))
         return "listening"
     if state.failures >= MAX_FAILS:
+        state.binding = binding  # 설정이 바뀔 때까지(또는 다시 켤 때까지) 다시 붙지 않는다
         return "gave_up"
     if state.failed_at is not None and _clock() - state.failed_at < RETRY_S:
         return "waiting"
-    if runner._state.holding is not None or runner._state.live or runner._diagnosing():
+    if runner._state.holding is not None or runner._state.live or (runner._diagnosing() and not resume):
         return "waiting"  # control 연결은 번호당 하나 — 거는 통화·진단이 쓰는 동안 붙지 않는다
     state.binding, state.since = binding, _clock()
     state.listen = asyncio.ensure_future(backend.listen(number, on_incoming))
     return "listening"
+
+
+@contextlib.asynccontextmanager
+async def paused():
+    """음성 진단이 도는 동안 듣기를 멈춘다(control 연결은 번호당 하나 — 진단이 붙기 전에 듣던 연결을 닫는다). 통화 중이면
+    멈추지 않는다(진단은 holds_line 을 보고 붙지 않는다). 나갈 때(성공·실패·시간 넘김·취소) 멈췄던 듣기를 곧바로 다시 건다."""
+    state = _state
+    state.paused += 1
+    _quiet("diagnosis", True)
+    was = listening() and not (runner._state.live or runner._state.holding is not None)
+    try:
+        if was:
+            await _unbind()
+        yield
+    finally:
+        state.paused -= 1
+        if not state.paused:
+            _quiet("diagnosis", False)
+            if was:
+                try:
+                    await sync(resume=True)
+                except Exception as exc:  # noqa: BLE001 — 다음 바퀴가 다시 건다
+                    logger.warning("받는 통화: 진단 뒤 다시 듣지 못했습니다 (%s)", _kind(exc))
 
 
 async def _run(stop: asyncio.Event) -> None:
@@ -444,7 +519,9 @@ async def stop() -> None:
 
 
 async def backfill(backend: object) -> int:
-    """백엔드가 받는 통화 목록을 주면(missed_calls) 적지 않은 것을 부재중으로 남긴다. 남긴 줄 수. 던지지 않는다."""
+    """백엔드가 받는 통화 목록을 주면(missed_calls) 적지 않은 것을 부재중으로 남긴다 — **문자는 보내지도 만들지도 않는다**
+    (지난 전화에 늦게 답하지 않는다). 받는 범위가 「받지 않음」이던 동안의 전화는 그 까닭으로 적고, 진단이 돌던 동안의 전화
+    (진단이 받거나 거절한 시험 전화)는 적지 않는다. 남긴 줄 수. 던지지 않는다."""
     read: Callable | None = getattr(backend, "missed_calls", None)
     if read is None:
         return 0
@@ -452,14 +529,11 @@ async def backfill(backend: object) -> int:
     try:
         since = await asyncio.to_thread(_since, until)
         found = await read(since, until)
-        made = await asyncio.to_thread(_backfill, list(found))
+        return await asyncio.to_thread(_backfill, list(found), [list(span) for span in _state.quiet], _now())
     except Exception as exc:  # noqa: BLE001
         _state.last_error_kind = _kind(exc)
         logger.warning("받는 통화: 앱이 꺼진 동안의 전화를 읽지 못했습니다 (%s)", _kind(exc))
         return 0
-    for message_id, at in made[1]:
-        _behind(gate.dispatch("message", message_id, AGENT, now=at))
-    return made[0]
 
 
 def _since(until: datetime) -> datetime:
@@ -471,14 +545,27 @@ def _since(until: datetime) -> datetime:
     return max(floor, as_utc(last) - timedelta(seconds=OVERLAP_S)) if last is not None else floor
 
 
-def _backfill(found: list) -> tuple[int, list[tuple[int, datetime]]]:
-    made, replies = 0, []
+def _why_quiet(at: datetime, spans: list, now: datetime) -> str | None:
+    """그때 듣지 않은 까닭(진단은 앞뒤로 OVERLAP_S 넓혀 — 플랫폼 시계와 어긋날 수 있다). 없으면 None(앱이 꺼져 있었다)."""
+    margin = timedelta(seconds=OVERLAP_S)
+    for kind, start, end in spans:
+        pad = margin if kind == "diagnosis" else timedelta(0)
+        if start - pad <= at <= (end or now) + pad:
+            return kind
+    return None
+
+
+def _backfill(found: list, spans: list, now: datetime) -> int:
+    made = 0
     with _db() as session:
         for item in found:
             at = as_utc(item.at)
+            quiet = _why_quiet(at, spans, now)
+            if quiet == "diagnosis":
+                continue  # 진단이 받거나 거절한 시험 전화 — 부재중이 아니다
             caller = door.admit(session, "call", item.caller_number, now=at).caller  # 등급만 쓴다(받기는 이미 지났다)
-            row = _row(caller, item.caller_number, status="missed", fail_reason=WHILE_OFF, created_at=at, ended_at=at,
-                       provider_call_id=item.call_id)
+            row = _row(caller, item.caller_number, status="missed", fail_reason=SCOPE_OFF if quiet == "off" else WHILE_OFF,
+                       created_at=at, ended_at=at, provider_call_id=item.call_id)
             near = OutreachCall.created_at.between(at - timedelta(seconds=OVERLAP_S), at + timedelta(seconds=OVERLAP_S))
             same = [column.is_(None) if value is None else column == value
                     for column, value in ((OutreachCall.contact_id, row.contact_id),
@@ -490,9 +577,6 @@ def _backfill(found: list) -> tuple[int, list[tuple[int, datetime]]]:
             session.add(row)
             session.flush()
             events.record(session, Ref("call", row.id), "call_result", "noted", "no_answer", now=at)
-            reply = _reply(session, caller, at)
             session.commit()
             made += 1
-            if reply is not None:
-                replies.append((reply, at))
-    return made, replies
+    return made

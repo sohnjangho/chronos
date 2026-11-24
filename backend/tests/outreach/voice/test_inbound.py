@@ -33,6 +33,7 @@ from app.outreach.voice import (
 from app.outreach.voice import session as voice_session
 from app.outreach.voice.session import CallSpec, Incoming, VoiceError
 from app.outreach.voice.simulated import Hangup, Hold, Ring, Say, SimulatedVoice, Tool
+from app.programs.notify_settings import voice as voice_settings_api
 from app.security import crypto
 from app.store.tables import ScheduleRecord
 from app.store.tables_outreach import (
@@ -519,13 +520,17 @@ class ListenAgent(FakeAgent):
         super().__init__(sdk, **kw)
         self.connects = 0
         self.taken_over = False
+        self.rejected: Exception | None = None
         self.sessions: dict[str, object] = {}
 
     async def connect(self) -> None:
+        if self.rejected is not None:  # 실제 SDK: 거절된 에이전트의 connect 는 그 거절을 다시 던진다
+            raise self.rejected
         if self.connected:  # 실제 SDK 도 이미 붙어 있으면 아무것도 하지 않는다
             return
         self.connects += 1
         await super().connect()
+        self.sdk.most_connected = max(self.sdk.most_connected, sum(agent.connected for agent in self.sdk.agents))
 
     def _start(self, session) -> None:
         registry = Registry()
@@ -574,6 +579,7 @@ class ListenAgent(FakeAgent):
 class ListenSdk(FakeSdk):
     def __init__(self, world, **kw) -> None:
         super().__init__(world, **kw)
+        self.most_connected = 0  # 함께 붙어 있던 에이전트 수의 최댓값(번호당 하나여야 한다)
         self.ToolRegistry = Registry
         base = self.GeminiRealtime
 
@@ -765,29 +771,260 @@ async def test_kat_missed_calls_reads_inbound_calls_by_rest():
     assert len(asked) == 2  # 다음 쪽이 비면 멈춘다(쪽 수에도 끝이 있다)
 
 
-async def test_backfill_records_missed_calls_once(session, world, monkeypatch):
-    """앱이 꺼진 동안의 전화(REST 에서 읽은 것)를 부재중으로 한 번만 적는다 — 아는 연락처면 회신 문자 초안."""
+async def test_backfill_records_missed_calls_once_and_texts_nobody(session, world, monkeypatch, fake_channel):
+    """앱이 꺼진 동안의 전화(REST 에서 읽은 것)를 부재중으로 한 번만 — 문자는 만들지도 보내지도 않는다. 받는 범위가 「받지
+    않음」이던 동안의 전화는 그 까닭으로, 진단이 돌던 동안의 전화(진단이 받거나 거절한 시험 전화)는 적지 않는다."""
     stamp = AT - timedelta(minutes=40)
+    off_at, diag_at = AT - timedelta(minutes=30), AT - timedelta(minutes=20)
 
     class Backfilling(SimulatedVoice):
         async def missed_calls(self, since, until):
-            return [kat_listen.Missed("CAin1", world.who.phone, stamp), kat_listen.Missed("CAin2", None, stamp)]
+            return [kat_listen.Missed("CAin1", world.who.phone, stamp), kat_listen.Missed("CAin2", None, stamp),
+                    kat_listen.Missed("CAoff", world.who.phone, off_at),
+                    kat_listen.Missed("CAdiag", world.who.phone, diag_at + timedelta(seconds=5))]
 
     sim = Backfilling([], hold_line=True)
     monkeypatch.setattr(inbound, "_now", lambda: AT)
+    inbound._state.quiet.extend([["off", off_at - timedelta(minutes=1), off_at + timedelta(minutes=1)],
+                                 ["diagnosis", diag_at - timedelta(minutes=1), diag_at]])  # 진단은 앞뒤로 넓혀 본다
+    with voice_session.pinned(sim):
+        assert await inbound.backfill(sim) == 3
+        assert await inbound.backfill(sim) == 0  # 이미 적은 통화
+        await settle()
+    rows = calls_in(session)
+    assert [(r.status, r.caller_class, r.provider_call_id, r.fail_reason) for r in rows] == [
+        ("missed", "contact", "CAin1", inbound.WHILE_OFF), ("missed", "withheld", "CAin2", inbound.WHILE_OFF),
+        ("missed", "contact", "CAoff", inbound.SCOPE_OFF)]
+    assert all(("call_result", "noted", "no_answer") in rules(r) for r in rows)
+    assert messages(session) == [] and fake_channel.delivered == []
+    assert session.get(Contact, world.who.id).phone == world.who.phone
+
+
+async def test_scope_off_and_diagnosis_open_quiet_spans(session, world):
+    world.conn.inbound_mode = "off"
+    session.commit()
+    sim = SimulatedVoice([], hold_line=True)
     with voice_session.pinned(sim):
         try:
-            assert await inbound.backfill(sim) == 2
-            assert await inbound.backfill(sim) == 0  # 이미 적은 통화
+            assert await inbound.sync() == "off" and runner.status()["listen_reason"] == "off"
+            assert [(k, end) for k, _, end in inbound._state.quiet] == [("off", None)]
+            world.conn.inbound_mode = "known"
+            session.commit()
+            assert await inbound.sync() == "listening" and runner.status()["listen_reason"] is None
+            assert inbound._state.quiet[-1][2] is not None  # 받는 범위를 켜면 닫힌다
         finally:
-            await settle()
-    rows = calls_in(session)
-    assert [(r.status, r.caller_class, r.provider_call_id) for r in rows] == [("missed", "contact", "CAin1"),
-                                                                               ("missed", "withheld", "CAin2")]
-    assert all(("call_result", "noted", "no_answer") in rules(r) for r in rows)
+            await inbound.stop()
+
+
+async def test_missed_reply_is_dispatched_with_the_current_clock(session, world, monkeypatch):
+    later = AT + timedelta(minutes=3)
+    seen = []
+
+    async def spy(kind, row_id, actor, *, now=None):
+        seen.append((kind, actor, now))
+
+    monkeypatch.setattr(inbound, "_now", lambda: later)
+    monkeypatch.setattr(inbound.gate, "dispatch", spy)
+    busy_line(monkeypatch)
+    await ring(Ring(world.who.phone, AT), *TALK)
+    assert seen == [("message", tools.AGENT, later)]  # 벨이 울린 때가 아니라 넣는 때
+
+
+async def test_late_missed_reply_is_still_dispatched(session, world, monkeypatch, fake_channel):
+    """판정이 늦어 백엔드가 그만둬도 부재중 회신 초안은 문에 넣는다(넣지 않은 초안으로 버려 두지 않는다)."""
+    busy_line(monkeypatch)
+    real = inbound._decide
+
+    def slow(*args):
+        import time
+
+        time.sleep(0.3)
+        return real(*args)
+
+    monkeypatch.setattr(inbound, "_decide", slow)
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(inbound.on_incoming(Incoming(world.who.phone, AGENT_NUMBER, AT)), 0.05)
+    await asyncio.sleep(0.5)
+    await settle()
     (sms,) = messages(session)
-    assert sms.contact_id == world.who.id and sms.body == inbound.MISSED_SMS
-    assert session.get(Contact, world.who.id).phone == world.who.phone
+    assert ("permission", "blocked") in {(e["rule"], e["verdict"]) for e in sms.harness_json}
+
+
+async def test_a_second_simultaneous_ring_still_gets_its_row(session, world, monkeypatch):
+    monkeypatch.setattr(inbound, "LOCK_WAIT_S", 0.05)
+    inbound._state.lock = asyncio.Lock()
+    await inbound._state.lock.acquire()  # 다른 벨을 판정하는 중
+    try:
+        assert await inbound.on_incoming(Incoming(world.who.phone, AGENT_NUMBER, AT)) is None
+    finally:
+        inbound._state.lock.release()
+    (row,) = calls_in(session)
+    assert row.status == "missed" and rules(row) == [("admission", "noted", "line_busy")] and runner.live() == 0
+
+
+async def test_displaced_listener_does_not_reconnect_until_settings_change(session, world):
+    class Displacing(SimulatedVoice):
+        async def listen(self, number, on_incoming):
+            self.listens.append(number)
+            raise kat_listen.Displaced(kat_listen.TAKEN_OVER, "taken_over")
+
+    sim = Displacing([])
+    with voice_session.pinned(sim):
+        assert await inbound.sync() == "listening"
+        await asyncio.sleep(0)
+        for _ in range(3):
+            assert await inbound.sync() == "gave_up"
+        assert sim.listens == [AGENT_NUMBER] and runner.status()["listen_reason"] == "taken_over"
+        session.get(VoiceSettings, world.conn.id).agent_number = OTHER_AGENT  # 설정이 바뀌면 다시 붙어 본다
+        session.commit()
+        assert await inbound.sync() == "listening"
+        await asyncio.sleep(0)
+        assert sim.listens == [AGENT_NUMBER, OTHER_AGENT]
+
+
+async def test_runner_puts_the_call_back_when_the_shared_line_is_busy(session, world, monkeypatch):
+    """듣는 연결이 잠깐 바쁘면(LineBusy) 실패가 아니라 줄로 되돌린다(WAITING) — 계속 바쁘면 초안으로(걸지 않음)."""
+    monkeypatch.setattr(runner, "LINE_BUSY_TRIES", 2)
+
+    class Busy(SimulatedVoice):
+        async def place(self, spec, handlers):
+            self.dialed.append(spec.to_number)
+            raise kat_listen.LineBusy(kat_listen.NOT_FREE)
+
+    out = queued(session, world.who, claimed_at=WORK)
+    sim = Busy([])
+    with voice_session.pinned(sim):
+        for _ in range(2):
+            assert await runner.run_one(out.id, now=WORK) == runner.WAITING
+            session.expire_all()
+            assert session.get(OutreachCall, out.id).status == "queued" and runner.live() == 0
+        assert await runner.run_one(out.id, now=WORK) == "draft"
+    session.expire_all()
+    row = session.get(OutreachCall, out.id)
+    assert row.status == "draft" and row.fail_reason == runner.LINE_BUSY and row.claimed_at is None
+    assert [d for r, v, d in rules(row) if r == "recheck_before_dial" and d == "line_busy"] == ["line_busy"] * 3
+    assert ("call_result", "blocked", "backend_error") not in rules(row)
+
+
+async def test_diagnosis_pauses_the_listener_and_it_comes_back(session, world, monkeypatch):
+    """진단 동안 듣기를 멈춘다 — 진단이 붙기 전에 듣던 연결이 닫히고(두 연결이 함께 있지 않다), 끝나면 곧바로 다시 붙는다."""
+    clock = World()
+    sdk = ListenSdk(clock)
+    backend = kat(clock, sdk)
+    with voice_session.pinned(backend):
+        try:
+            assert await inbound.sync() == "listening"
+            await until(clock, lambda: sdk.agents and sdk.agents[0].connected)
+            assert runner.holds_line()
+            async with inbound.paused():
+                assert not inbound.listening() and kat_listen.AGENTS == {} and sdk.agents[0].disconnects == 1
+                assert not runner.holds_line() and await inbound.sync() == "paused"
+                probe = sdk.ClawOpsAgent(from_=OUR_NUMBER)  # 진단의 에이전트
+                await probe.connect()
+                await probe.disconnect()
+            assert inbound.listening()
+            await until(clock, lambda: len(sdk.agents) == 3 and sdk.agents[2].connected)
+            assert sdk.most_connected == 1 and inbound._state.quiet[-1][0] == "diagnosis"
+            busy_line(monkeypatch)  # 통화 중이면 멈추지 않는다(진단이 holds_line 을 보고 붙지 않는다)
+            async with inbound.paused():
+                assert inbound.listening() and runner.holds_line()
+        finally:
+            await inbound.stop()
+    assert inspect.getsource(voice_settings_api.run).count("inbound.paused()") == 1
+
+
+async def test_kat_shared_line_busy_is_not_placed_later():
+    """듣는 연결이 잠깐 바쁘면 걸지 않고 LineBusy(나중에) — 실패로 적지 않는다. 연결 값(키·계정·주소·번호)이 같으면 음성 설정이
+    바뀌어도 같은 연결로 건다."""
+    world = World()
+    sdk = ListenSdk(world, script=((1000, "call_start"), (1300, "transcript", "assistant", SAID), (3000, "call_end")))
+    listener = kat(world, sdk)
+    task = asyncio.ensure_future(listener.listen(OUR_NUMBER, lambda incoming: asyncio.sleep(0)))
+    try:
+        await until(world, lambda: sdk.agents and sdk.agents[0].connected)
+        shared = kat_listen.AGENTS[OUR_NUMBER]
+        other_key = kat(world, sdk, c=conn(secret_ciphertext=crypto.encrypt("kat-test-key-OTHER7777")))
+        with pytest.raises(kat_listen.LineBusy):  # (a) 키가 바뀌었다 — 받는 쪽이 다시 붙기 전(10초 안)
+            await other_key.place(_spec(), Rec())
+        shared.connected = False
+        with pytest.raises(kat_listen.LineBusy):  # (b) 듣기가 붙는 중
+            await kat(world, sdk).place(_spec(), Rec())
+        shared.connected, shared.line = True, object()
+        with pytest.raises(kat_listen.LineBusy):  # (c) 받은 통화를 아직 닫는 중
+            await kat(world, sdk).place(_spec(), Rec())
+        shared.line = None
+        first = asyncio.ensure_future(kat(world, sdk).place(_spec(), Rec()))
+        await until(world, lambda: shared.line is not None)
+        with pytest.raises(kat_listen.LineBusy):  # (d) 둘이 함께
+            await kat(world, sdk).place(_spec(), Rec())
+        await until(world, first.done)
+        first.result()
+        out = Rec()
+        async with asyncio.timeout(15):  # 음성 모델만 바뀜 — 같은 연결로 건다
+            await kat(world, sdk, v=voice(model="gemini-other-live")).place(_spec(), out)
+        assert out.log[-1][0] == "end" and len(sdk.agents) == 1 and sdk.agent.disconnects == 0
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    kat_listen.AGENTS[OUR_NUMBER] = kat_listen.BUSY  # 듣지 않을 때의 거는 통화가 쥐고 있다
+    try:
+        with pytest.raises(kat_listen.LineBusy):
+            await kat(world, sdk).place(_spec(), Rec())
+    finally:
+        del kat_listen.AGENTS[OUR_NUMBER]
+
+
+async def test_kat_listen_ends_for_good_when_displaced_or_rejected():
+    world = World()
+    sdk = ListenSdk(world)
+    task = asyncio.ensure_future(kat(world, sdk).listen(OUR_NUMBER, lambda incoming: asyncio.sleep(0)))
+    await until(world, lambda: sdk.agents and sdk.agents[0].connected)
+    sdk.agent.taken_over = True
+    await until(world, task.done)
+    assert isinstance(task.exception(), kat_listen.Displaced) and task.exception().reason == "taken_over"
+    assert sdk.agent.disconnects == 1 and kat_listen.AGENTS == {}
+
+    class AgentAuthRejectedError(Exception):
+        pass
+
+    task = asyncio.ensure_future(kat(world, sdk).listen(OUR_NUMBER, lambda incoming: asyncio.sleep(0)))
+    await until(world, lambda: len(sdk.agents) == 2 and sdk.agents[1].connected)
+    sdk.agents[1].rejected = AgentAuthRejectedError("키 폐기")  # 실제 SDK: 다시 붙기가 거절되면 connect 가 그것을 던진다
+    await until(world, task.done)
+    assert isinstance(task.exception(), kat_listen.Displaced) and task.exception().reason == "auth_rejected"
+
+
+async def test_kat_session_factory_serves_only_the_ticketed_call():
+    """세션 표는 한 번만 — 훅이 늦어 SDK 가 받아 버린 통화(표 없음)는 다른 통화의 지시문·도구를 받지 못한다."""
+    world = World()
+    sdk = ListenSdk(world, script=((1000, "call_start"), (1300, "transcript", "assistant", SAID), (20000, "call_end")))
+    task = asyncio.ensure_future(kat(world, sdk).listen(OUR_NUMBER, lambda incoming: asyncio.sleep(0)))
+    try:
+        await until(world, lambda: sdk.agents and sdk.agents[0].connected)
+        with pytest.raises(VoiceError):
+            sdk.agent.kw["session_factory"]()
+        out = asyncio.ensure_future(kat(world, sdk).place(_spec(), Rec()))
+        await until(world, lambda: "CA0000" in sdk.agent.sessions)  # 거는 통화가 제 세션을 열었다
+        with pytest.raises(VoiceError):  # 그 통화 중에 SDK 가 받아 버린 다른 통화 — 거는 통화의 세션을 받지 못한다
+            sdk.agent.kw["session_factory"]()
+        await until(world, out.done)
+        out.result()
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+def test_inbound_line_treats_an_openai_setup_error_as_a_session_failure():
+    world = World()
+    sdk = ListenSdk(world)
+    shared = kat_listen._Agent(kat(world, sdk), sdk, sdk, OUR_NUMBER, None)
+    line = kat_listen._InLine(shared, in_spec(), Rec(), "IN0001")
+    record = logging.LogRecord("clawops.agent", logging.ERROR, __file__, 1, "OpenAI error: invalid session config", None,
+                               None)
+    line.saw(record)
+    assert [name for name, *_ in line.events] == ["session_failed"]
 
 
 def test_inbound_instructions_use_the_harness_paragraphs():
