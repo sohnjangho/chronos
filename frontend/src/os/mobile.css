@@ -381,6 +381,29 @@
   font-size: var(--fs-13);
   white-space: nowrap;
 }
+/* 모델 단추는 이름이 보일 만큼 자리를 지킨다(「▾」만 남던 것) — 줄어드는 것은 대화 고르기. */
+.mob-root .ch-bar > .ch-model-wrap {
+  flex: 0 0 auto;
+  min-width: 72px;
+  max-width: 128px;
+}
+.mob-root .ch-bar > .ch-model-wrap > .ch-model-btn {
+  width: 100%;
+}
+/* 답 속 표: 칸을 몇 글자씩 세로로 접지 않고, 표가 넓으면 옆으로 민다. */
+.mob-root .ch-root.is-narrow .ch-md table {
+  display: block;
+  overflow-x: auto;
+  table-layout: auto;
+  width: auto;
+  max-width: 100%;
+}
+.mob-root .ch-root.is-narrow .ch-md th,
+.mob-root .ch-root.is-narrow .ch-md td {
+  min-width: 8em;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
 .mob-root[data-device="phone"] .ch-thread {
   gap: 16px;
   padding: 16px 14px;
@@ -450,6 +473,20 @@
   padding: 8px 12px;
   font-size: var(--fs-14);
 }
+/* 사진 판독 보기 단추 둘은 한 줄씩(「사람 판독 대기 · 요청 · 판독함」이 반 칸에서 두 줄로 접히던 것). */
+.mob-root[data-device="phone"] .pg-field-subbar .pg-hr-switch {
+  grid-template-columns: minmax(0, 1fr);
+}
+.mob-root[data-device="phone"] .pg-field-subbar .pg-hr-switch button {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 카드 아래 줄의 긴 사진 파일 이름은 칸 안에서 줄을 바꾼다(카드가 자리보다 넓어지던 것). */
+.mob-root[data-device="phone"] .pg-fcard-foot > .pg-muted {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .mob-root[data-device="phone"] .pg-choice-btn {
   min-height: 48px;
   padding: 10px 8px;
@@ -510,6 +547,21 @@
   height: min(120px, 22%);
   min-height: 0;
   padding: 6px 12px;
+}
+/* 스케줄표: 묶음 안 단추도 옆으로 놓고 묶음 이름을 숨겨 리본을 한 줄 높이로(130 → 약 65px). 표에 줄이 더 보인다. */
+.mob-root[data-device="phone"] .sch-table-tab > .sch-toolbar .sch-rib-stack {
+  flex-direction: row;
+  align-items: center;
+}
+.mob-root[data-device="phone"] .sch-table-tab > .sch-toolbar .sch-rib-label {
+  display: none;
+}
+/* 관계 패널: 고른 액티비티가 없으면 머리 한 줄로 접는다(행을 누르면 다시 펼쳐진다). */
+.mob-root[data-device="phone"] .sch-rel:has(> .sch-rel-empty) {
+  height: auto;
+}
+.mob-root[data-device="phone"] .sch-rel > .sch-rel-empty {
+  display: none;
 }
 
 /* 토스트(긴급 보고 등, Task 105 후속): 머리 바로 아래, 화면 폭 안에서 오른쪽 정렬. 아래 탭과 그 바로 위 입력창(연락처)을 가리지 않는다.
