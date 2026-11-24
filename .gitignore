@@ -31,3 +31,10 @@ dist/
 
 # Playwright 브라우저(scripts/e2e-local.sh 가 frontend 안에만 설치)
 frontend/.playwright-browsers/
+
+# 배포에 싣지 않는 로컬 파일
+.qdrant-initialized
+frontend/.sop-pw.mjs
+frontend/public/media/login-bg-prev-*.mp4
+frontend/tsconfig.tsbuildinfo
+backend/uv.lock
