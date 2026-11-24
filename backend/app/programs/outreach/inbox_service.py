@@ -3,7 +3,8 @@
 - 번호: 응답은 가린 꼴(phone.mask)과 peer_key 뿐. 글(받은 문자·요약·보고·이름)은 내보낼 때 redact.hide_phones 를 거친다
   (저장된 보고 글은 이미 가렸지만 받은 문자 원문은 아니다). 묶음·주소록에 넣기는 peer_key 로 가리키고, 번호는 서버가 찾는다.
 - 모르는 번호 = 일정 없는 문자·통화 줄(store.outreach.unknown_messages·unknown_calls)을 번호로 묶은 것. 표마다 최근
-  SCAN_ROWS 줄까지 본다(그보다 오래된 줄은 묶음에 들지 않는다).
+  SCAN_ROWS 줄까지 본다(그보다 오래된 줄은 묶음에 들지 않는다). 일정을 주면(Task 96 후속) 그 일정의 받은 통화 가운데 연락처
+  짝이 없는 것(대표번호 — store.outreach.unpaired_calls)도 같은 peer_key 로 묶는다. 다른 일정의 그런 줄은 없는 것과 같다.
 - 격리: 일정의 보고 목록에는 그 일정 줄만, 일정 없는 보고는 따로 된 길로만. 제안 목록은 그 일정의 것 + 일정 없는 것(모르는 번호가
   알려 준 새 연락처 — 받아들이면 지금 일정에 든다). 다른 일정의 줄은 없는 것과 같은 404.
 - 사람 만들기·언어 바꾸기는 주소록 서비스(사람 양식과 같은 검사 — check_texts·check_phone·check_channels·협력사 격리)로만 한다.
@@ -94,6 +95,7 @@ class UnknownPeerOut(BaseModel):
     last_direction: str
     blocked: bool  # 관리자 차단 목록에 있음
     known: bool  # 지금 어느 주소록에든(숨기지 않은 사람으로) 있음
+    shared: bool  # 대표번호(그 일정의 짝 없는 받은 통화)가 든 묶음
 
 
 class PeerLineOut(BaseModel):
@@ -105,6 +107,9 @@ class PeerLineOut(BaseModel):
     status: str
     message_kind: str | None  # 문자만: normal | auto_reply | notice | dnc_confirm
     events: list[EventOut]
+    caller_class: str | None  # 받을 때 정한 등급(shared = 대표번호)
+    fail_reason: str | None  # 실패·받지 못한 까닭(서버 글, 번호 가림)
+    duration_s: int | None  # 통화만: 통화 시간(초)
 
 
 class UnknownDetailOut(BaseModel):
@@ -206,12 +211,21 @@ def _line(row: OutreachMessage | OutreachCall) -> PeerLineOut:
     is_message = isinstance(row, OutreachMessage)
     return PeerLineOut(kind="message" if is_message else "call", id=row.id, direction=row.direction,
                        at=as_utc(row.created_at), text=_text(row.body if is_message else row.summary_ko),
-                       status=row.status, message_kind=row.kind if is_message else None, events=_events(row.harness_json))
+                       status=row.status, message_kind=row.kind if is_message else None, events=_events(row.harness_json),
+                       caller_class=row.caller_class, fail_reason=None if row.fail_reason is None else _text(row.fail_reason),
+                       duration_s=None if is_message else row.duration_s)
 
 
-def _unknown_rows(session: Session) -> list[OutreachMessage | OutreachCall]:
+def _unknown_rows(session: Session, schedule_id: int | None) -> list[OutreachMessage | OutreachCall]:
     rows = [*outreach.unknown_messages(session, limit=SCAN_ROWS), *outreach.unknown_calls(session, limit=SCAN_ROWS)]
+    if schedule_id is not None:
+        _schedule(session, schedule_id)
+        rows += outreach.unpaired_calls(session, schedule_id, limit=SCAN_ROWS)
     return sorted(rows, key=lambda r: (as_utc(r.created_at), r.id))
+
+
+def _shared(rows: list[OutreachMessage | OutreachCall]) -> bool:
+    return any(isinstance(r, OutreachCall) and r.schedule_id is not None for r in rows)
 
 
 def _keyed(rows: list[OutreachMessage | OutreachCall]) -> dict[str, list[OutreachMessage | OutreachCall]]:
@@ -237,10 +251,10 @@ def _flags(session: Session, number: str | None, blocked: set[str]) -> tuple[boo
     return stored in blocked, known
 
 
-def unknown_list(session: Session) -> list[UnknownPeerOut]:
+def unknown_list(session: Session, schedule_id: int | None = None) -> list[UnknownPeerOut]:
     blocked = set(session.scalars(select(BlockedNumber.number)))
     out = []
-    for key, rows in _keyed(_unknown_rows(session)).items():
+    for key, rows in _keyed(_unknown_rows(session, schedule_id)).items():
         last, number = rows[-1], _number(rows)
         is_blocked, known = _flags(session, number, blocked)
         text = last.body if isinstance(last, OutreachMessage) else last.summary_ko
@@ -248,19 +262,19 @@ def unknown_list(session: Session) -> list[UnknownPeerOut]:
             peer_key=key, number_masked=phone.mask(number), last_at=as_utc(last.created_at),
             messages=sum(isinstance(r, OutreachMessage) for r in rows), calls=sum(isinstance(r, OutreachCall) for r in rows),
             last_line=_text(text)[:LINE_CHARS], last_kind="message" if isinstance(last, OutreachMessage) else "call",
-            last_direction=last.direction, blocked=is_blocked, known=known))
+            last_direction=last.direction, blocked=is_blocked, known=known, shared=_shared(rows)))
     return sorted(out, key=lambda p: p.last_at, reverse=True)
 
 
-def _peer_rows(session: Session, key: str) -> list[OutreachMessage | OutreachCall]:
-    rows = _keyed(_unknown_rows(session)).get(key)
+def _peer_rows(session: Session, key: str, schedule_id: int | None = None) -> list[OutreachMessage | OutreachCall]:
+    rows = _keyed(_unknown_rows(session, schedule_id)).get(key)
     if not rows:
         raise ApiError(404, "peer_not_found", PEER_404)
     return rows
 
 
-def unknown_detail(session: Session, key: str) -> UnknownDetailOut:
-    rows = _peer_rows(session, key)
+def unknown_detail(session: Session, key: str, schedule_id: int | None = None) -> UnknownDetailOut:
+    rows = _peer_rows(session, key, schedule_id)
     number = _number(rows)
     is_blocked, known = _flags(session, number, set(session.scalars(select(BlockedNumber.number))))
     return UnknownDetailOut(peer_key=key, number_masked=phone.mask(number), blocked=is_blocked, known=known,
@@ -272,7 +286,7 @@ def add_peer(session: Session, schedule_id: int, key: str, body: AddPeerIn) -> P
     _schedule(session, schedule_id)
     if key == _key(None):
         raise ApiError(422, "peer_has_no_number", "번호가 없는 상대는 주소록에 넣을 수 없습니다.")
-    number = _number(_peer_rows(session, key))
+    number = _number(_peer_rows(session, key, schedule_id))
     if number is None:
         raise ApiError(422, "peer_has_no_number", "번호가 없는 상대는 주소록에 넣을 수 없습니다.")
     person = _checked_person(body.name, body.role_title, number)

@@ -59,9 +59,9 @@ type Mode =
 type InboxMode = Extract<Mode, { kind: 'reports' | 'proposals' | 'unknown' }>;
 const isInbox = (m: Mode): m is InboxMode => m.kind === 'reports' || m.kind === 'proposals' || m.kind === 'unknown';
 
-/** 들어온 문자 화면의 세 목록(제안·보고는 이 프로젝트 것 + 일정 없는 것, 모르는 번호는 일정 없는 줄). */
+/** 들어온 문자 화면의 세 목록(제안·보고는 이 프로젝트 것 + 일정 없는 것, 모르는 번호는 일정 없는 줄 + 이 프로젝트의 대표번호 통화). */
 function useInbox(scheduleId: number) {
-  return { unknown: useUnknown(), reports: useReports(scheduleId), proposals: useProposals(scheduleId) };
+  return { unknown: useUnknown(scheduleId), reports: useReports(scheduleId), proposals: useProposals(scheduleId) };
 }
 type Inbox = ReturnType<typeof useInbox>;
 

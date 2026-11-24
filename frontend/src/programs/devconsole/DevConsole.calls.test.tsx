@@ -28,7 +28,7 @@ async function openCall(detail = callDetail()) {
   const dialog = screen.getByRole('dialog', { name: '요청 고르기' });
   await userEvent.click(within(dialog).getByRole('radio', { name: '연락' }));
   const pick = await within(dialog).findByRole('button', { name: /나가상 · 동해설비/ });
-  expect(pick).toHaveTextContent('걸렸는지 확인 필요');
+  expect(pick).toHaveTextContent('확인 필요 — 걸렸는지 알 수 없음');
   expect(pick).not.toHaveTextContent('실패');
   await userEvent.click(pick);
   return screen.findByRole('group', { name: '이 연락' });
@@ -37,7 +37,7 @@ async function openCall(detail = callDetail()) {
 describe('실행 추적 — 통화', () => {
   test('the head shows starter, mode, class, status and talk time, and the transcript only as a line count', async () => {
     const head = await openCall();
-    expect(head).toHaveTextContent('걸렸는지 확인 필요');
+    expect(head).toHaveTextContent('확인 필요 — 걸렸는지 알 수 없음');
     expect(head).toHaveTextContent('시작 에이전트');
     expect(head).toHaveTextContent('권한 위임');
     expect(head).toHaveTextContent('등급 우리가 먼저 연락');

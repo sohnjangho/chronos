@@ -147,7 +147,7 @@ describe('도구 목록 — 연락 도구', () => {
     expect(fact).toHaveTextContent('일정 사실 조회');
     expect(fact).toHaveTextContent('음성·글 에이전트 — 사람이 직접 부르지 않음');
     expect(fact).toHaveTextContent('문자·통화');
-    expect(fact).toHaveTextContent('내부 · 연락처');
+    expect(fact).toHaveTextContent('내부 · 주소록'); // 연락처 화면과 같은 등급 글(contact·contact_multi 는 한 번)
     expect(fact).not.toHaveTextContent('모르는 번호');
     expect(within(fact).queryByRole('button', { name: /비활성화/ })).toBeNull();
     expect(fact).toHaveTextContent('끄기 없음');

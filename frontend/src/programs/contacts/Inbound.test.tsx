@@ -71,7 +71,7 @@ const posts = () => writes().map((w) => [w.method, w.url, w.body]);
 test('unknown numbers are one group below the address book, with masked numbers and collapsed machine lines', async () => {
   mockInbox({ unknown: [PEER_A, PEER_B], peers: { [KEY_A]: DETAIL_A } });
   show();
-  const group = await within(book()).findByRole('group', { name: '모르는 번호 2' });
+  const group = await within(book()).findByRole('group', { name: '모르는 번호 · 대표번호 2' });
   expect(within(group).getByText('010-****-0199')).toBeVisible();
   expect(within(group).getByText('다시 연락 주세요 [번호]')).toBeVisible();
   expect(within(group).getByText('차단됨')).toBeVisible();
@@ -84,7 +84,7 @@ test('unknown numbers are one group below the address book, with masked numbers 
   const machine = within(pane).getByText('처리 기록 1건').closest('details');
   expect(machine).not.toBeNull();
   expect(machine?.open).toBe(false);
-  expect(contactCalls().some((c) => c.url === `/api/outreach/unknown/${KEY_A}`)).toBe(true);
+  expect(contactCalls().some((c) => c.url === `/api/outreach/unknown/${KEY_A}?schedule_id=1`)).toBe(true);
   expect(document.body.textContent).not.toMatch(FULL);
 });
 
@@ -92,7 +92,7 @@ test('a long unknown list can be searched by the last digits or the last line', 
   const many = Array.from({ length: 8 }, (_, i) => peer({ peer_key: `${i}`.repeat(12), number_masked: `010-****-02${i}0`, last_line: `글 ${i}` }));
   mockInbox({ unknown: many });
   show();
-  const group = await within(book()).findByRole('group', { name: '모르는 번호 8' });
+  const group = await within(book()).findByRole('group', { name: '모르는 번호 · 대표번호 8' });
   await userEvent.type(within(group).getByRole('searchbox', { name: '모르는 번호 찾기' }), '0230');
   expect(within(group).getAllByRole('button', { name: /010-/ })).toHaveLength(1);
   expect(within(group).getByText('1 / 8')).toBeVisible();

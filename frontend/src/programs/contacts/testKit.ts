@@ -103,8 +103,9 @@ function route(method: string, url: string): Reply {
   }
   // 통화 수(탭 글 「통화 n」 — Task 92)를 세는 목록 — 이 가짜에서는 늘 비어 있다. 통화 시험은 callKit.
   if (method === 'GET' && /\/outreach\/calls\?contact_id=\d+$/.test(url)) return { status: 200, body: [] };
-  if (method === 'GET' && url === '/api/outreach/unknown') return { status: 200, body: inbox.unknown };
-  const peer = /^\/api\/outreach\/unknown\/([0-9a-f]{12})$/.exec(url);
+  // 모르는 번호 · 대표번호(Task 96 후속): 화면은 지금 일정을 ?schedule_id 로 붙인다
+  if (method === 'GET' && /^\/api\/outreach\/unknown(\?schedule_id=\d+)?$/.test(url)) return { status: 200, body: inbox.unknown };
+  const peer = /^\/api\/outreach\/unknown\/([0-9a-f]{12})(\?schedule_id=\d+)?$/.exec(url);
   if (method === 'GET' && peer) {
     const found = inbox.peers.get(peer[1]);
     return found ? { status: 200, body: found } : { status: 404, body: { code: 'peer_not_found', message: '그 상대를 찾을 수 없습니다.' } };

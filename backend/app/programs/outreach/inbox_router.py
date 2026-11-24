@@ -33,16 +33,20 @@ Status = Annotated[Literal["open", "reviewed", "all"], Query()]
 SCHEDULE = "/api/schedules/{schedule_id}"
 
 
+ScheduleQ = Annotated[int | None, Query(ge=1)]
+
+
 @inbox_router.get("/api/outreach/unknown")
-def unknown(session: SessionDep) -> list[UnknownPeerOut]:
-    """「모르는 번호」 묶음 — 일정 없는 문자·통화를 번호로 묶음(가린 번호·peer_key), 최근 것부터."""
-    return service.unknown_list(session)
+def unknown(session: SessionDep, schedule_id: ScheduleQ = None) -> list[UnknownPeerOut]:
+    """「모르는 번호 · 대표번호」 묶음 — 일정 없는 문자·통화를 번호로 묶음(가린 번호·peer_key), 최근 것부터. schedule_id 를 주면
+    그 일정의 짝 없는 받은 통화(대표번호)도 함께(없는 일정 404 not_found)."""
+    return service.unknown_list(session, schedule_id)
 
 
 @inbox_router.get("/api/outreach/unknown/{peer_key}")
-def unknown_peer(peer_key: PeerKey, session: SessionDep) -> UnknownDetailOut:
-    """그 번호의 문자·통화 줄(오래된 것부터, 글의 번호는 가림). 없으면 404 peer_not_found."""
-    return service.unknown_detail(session, peer_key)
+def unknown_peer(peer_key: PeerKey, session: SessionDep, schedule_id: ScheduleQ = None) -> UnknownDetailOut:
+    """그 번호의 문자·통화 줄(오래된 것부터, 글의 번호는 가림). 없으면 404 peer_not_found. schedule_id 는 목록과 같은 뜻."""
+    return service.unknown_detail(session, peer_key, schedule_id)
 
 
 @inbox_router.post(SCHEDULE + "/outreach/unknown/{peer_key}/contact", status_code=201)

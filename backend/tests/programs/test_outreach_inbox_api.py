@@ -35,7 +35,8 @@ OTHER_DIGITS = "01000000198"  # 둘째 모르는 번호(가상)
 NOW = datetime(2026, 11, 27, 1, 0, tzinfo=UTC)  # KST 10:00
 FIELD_NO = ("field_no_contacts", "현장 관리자는 연락처를 열 수 없습니다.")
 UNKNOWN_KEYS = {"peer_key", "number_masked", "last_at", "messages", "calls", "last_line", "last_kind", "last_direction",
-                "blocked", "known"}
+                "blocked", "known", "shared"}
+LINE_KEYS = {"kind", "id", "direction", "at", "text", "status", "message_kind", "events", "caller_class", "fail_reason", "duration_s"}
 REPORT_KEYS = {"id", "schedule_id", "medium", "kind", "text", "quote", "quote_found", "status", "contact_id", "contact_name",
                "peer_masked", "peer_key", "message_id", "call_id", "draft_id", "created_at", "reviewed_by", "reviewed_at"}
 PROPOSAL_KEYS = {"id", "kind", "schedule_id", "name", "role_title", "company_name", "number_masked", "language", "contact_id",
@@ -161,7 +162,7 @@ def test_unknown_list_has_no_full_number(client, user, session, sid):
     assert [(line["kind"], line["direction"]) for line in body["lines"]] == [("message", "in"), ("call", "in"),
                                                                               ("message", "in")]
     assert body["lines"][0]["text"] == "제 번호는 [번호] 입니다" and body["lines"][1]["text"] == "용건을 남김"
-    assert set(body["lines"][0]) == {"kind", "id", "direction", "at", "text", "status", "message_kind", "events"}
+    assert set(body["lines"][0]) == LINE_KEYS
 
 
 def test_unknown_peer_not_found_is_404(client, user, session):
@@ -183,6 +184,91 @@ def test_rows_without_a_number_are_one_group_that_cannot_be_blocked_or_added(cli
                     json={"name": "누군가", "company_name": "새협력"}, headers=admin)
     assert (r.status_code, r.json()["code"]) == (422, "peer_has_no_number")
     assert _people(session, sid) == []
+
+
+SHARED_DIGITS = "01000000196"  # 한 일정 주소록에 둘이 쓰는 대표번호(가상)
+SHARED_DIGITS_2 = "01000000195"  # 다른 일정의 대표번호(가상)
+
+
+def _shared_call(session, sid: int, number: str = SHARED_DIGITS, **over) -> OutreachCall:
+    """대표번호로 걸려 온 통화 — 짝이 둘이라 받는 통화(Task 95 _row)는 일정만 적고 연락처는 비운다."""
+    return _call(session, number, schedule_id=sid, contact_id=None, caller_class="shared", **over)
+
+
+def test_shared_number_calls_join_the_unknown_group_of_their_schedule_only(client, user, session, sid, sid2):
+    """(Task 96 후속) 일정은 있고 연락처 짝이 없는 받은 통화(대표번호)도 그 일정의 「모르는 번호 · 대표번호」 묶음에 든다.
+    다른 일정의 것·일정을 주지 않은 물음에는 없다. 번호는 가린 꼴·peer_key 만."""
+    for name in ("김공정", "이반장"):
+        _person(session, sid, SHARED_DIGITS, name=name)
+    _shared_call(session, sid, at=NOW - timedelta(minutes=30), status="completed", duration_s=95,
+                 summary_ko=f"대표번호로 건 용건 {SENTINEL_PHONE}")
+    _shared_call(session, sid, at=NOW - timedelta(minutes=10), status="missed", summary_ko="",
+                 fail_reason=f"통화 중이라 받지 못했습니다 {SENTINEL_DIGITS}")
+    _shared_call(session, sid2, SHARED_DIGITS_2, at=NOW - timedelta(minutes=5))
+    pid = _person(session, sid)
+    _call(session, "01000000197", schedule_id=sid, contact_id=pid, caller_class="contact", summary_ko="연락처 짝이 있는 통화")
+    _call(session, "01000000194", schedule_id=sid, contact_id=None, direction="out", origin="agent", caller_class="outbound",
+          summary_ko="우리가 건 통화")
+    _msg(session, "01000000193", schedule_id=sid, body="일정만 있는 문자")
+    _call(session, at=NOW - timedelta(minutes=1))  # 일정 없는 모르는 번호 통화(늘 보임)
+    key, key2 = phone.peer_key(SHARED_DIGITS), phone.peer_key(SHARED_DIGITS_2)
+
+    mine = client.get(f"/api/outreach/unknown?schedule_id={sid}", headers=user)
+    other = client.get(f"/api/outreach/unknown?schedule_id={sid2}", headers=user)
+    plain = client.get("/api/outreach/unknown", headers=user)
+
+    assert mine.status_code == 200, mine.json()
+    for r in (mine, other, plain):
+        _clean(r.text)
+        assert "010-****-0195" not in r.text or r is other
+        for hidden in ("연락처 짝이 있는 통화", "우리가 건 통화", "일정만 있는 문자", "01000000196", "0000-0196", "01000000195"):
+            assert hidden not in r.text, hidden
+    by_key = {i["peer_key"]: i for i in mine.json()}
+    assert set(by_key) == {key, phone.peer_key(SENTINEL_DIGITS)}
+    shared = by_key[key]
+    assert set(shared) == UNKNOWN_KEYS
+    assert (shared["number_masked"], shared["calls"], shared["messages"], shared["shared"], shared["known"]) == (
+        "010-****-0196", 2, 0, True, True)
+    assert by_key[phone.peer_key(SENTINEL_DIGITS)]["shared"] is False
+    assert {i["peer_key"] for i in other.json()} == {key2, phone.peer_key(SENTINEL_DIGITS)}
+    assert {i["peer_key"] for i in plain.json()} == {phone.peer_key(SENTINEL_DIGITS)}
+
+    detail = client.get(f"/api/outreach/unknown/{key}?schedule_id={sid}", headers=user)
+
+    assert detail.status_code == 200, detail.json()
+    _clean(detail.text)
+    lines = detail.json()["lines"]
+    assert all(set(line) == LINE_KEYS for line in lines)
+    assert [(line["caller_class"], line["status"], line["duration_s"]) for line in lines] == [
+        ("shared", "completed", 95), ("shared", "missed", None)]
+    assert lines[0]["text"] == "대표번호로 건 용건 [번호]"
+    assert lines[1]["fail_reason"] == "통화 중이라 받지 못했습니다 [번호]"
+    for url in (f"/api/outreach/unknown/{key}?schedule_id={sid2}", f"/api/outreach/unknown/{key}"):
+        r = client.get(url, headers=user)
+        assert (r.status_code, r.json()["code"]) == (404, "peer_not_found"), url
+
+
+def test_unknown_list_of_a_missing_schedule_is_404(client, user, session):
+    _call(session)
+    for url in ("/api/outreach/unknown?schedule_id=9999", f"/api/outreach/unknown/{phone.peer_key(SENTINEL_DIGITS)}?schedule_id=9999"):
+        r = client.get(url, headers=user)
+        assert (r.status_code, r.json()["code"]) == (404, "not_found"), url
+
+
+def test_peer_lines_carry_class_reason_and_duration_with_masked_text(client, user, session):
+    _call(session, at=NOW - timedelta(minutes=9), duration_s=40, caller_class="withheld")
+    _call(session, at=NOW - timedelta(minutes=5), status="missed", summary_ko="", duration_s=None,
+          fail_reason="앱이 꺼져 있는 동안 걸려 와 받지 못했습니다")
+    _msg(session, at=NOW - timedelta(minutes=1), status="failed", direction="out", origin="agent",
+         fail_reason=f"보내지 못함 {SENTINEL_PHONE}")
+
+    r = client.get(f"/api/outreach/unknown/{phone.peer_key(SENTINEL_DIGITS)}", headers=user)
+
+    assert r.status_code == 200, r.json()
+    _clean(r.text)
+    assert [(line["kind"], line["caller_class"], line["fail_reason"], line["duration_s"]) for line in r.json()["lines"]] == [
+        ("call", "withheld", None, 40), ("call", "unknown", "앱이 꺼져 있는 동안 걸려 와 받지 못했습니다", None),
+        ("message", "unknown", "보내지 못함 [번호]", None)]
 
 
 def test_block_uses_peer_key(client, admin, user, session):

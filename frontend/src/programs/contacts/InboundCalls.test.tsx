@@ -14,7 +14,7 @@ import { call, stubCalls } from './callKit';
 import CallCard, { type CallCardProps } from './CallCard';
 import Contacts from './Contacts';
 import { agentDraft, stubThread } from './threadKit';
-import { mockInbox, PARK, stubContacts } from './testKit';
+import { contactCalls, mockInbox, PARK, stubContacts } from './testKit';
 import ThreadPane from './ThreadPane';
 
 const FULL = /01\d[-. ]?\d{3,4}[-. ]?\d{4}|0100000\d{4}/;
@@ -243,25 +243,76 @@ describe('the unknown-number group', () => {
   const KEY = 'a1b2c3d4e5f6';
   const PEER = {
     peer_key: KEY, number_masked: '010-****-0199', last_at: '2026-11-27T00:50:00Z', messages: 1, calls: 3, last_line: '용건을 남김',
-    last_kind: 'call', last_direction: 'in', blocked: false, known: false,
+    last_kind: 'call', last_direction: 'in', blocked: false, known: false, shared: false,
   };
-  const line = (over: Record<string, unknown>) => ({ kind: 'call', id: 1, direction: 'in', at: '2026-11-27T00:30:00Z', text: '', status: 'completed', message_kind: null, events: [], ...over });
+  const line = (over: Record<string, unknown>) => ({
+    kind: 'call', id: 1, direction: 'in', at: '2026-11-27T00:30:00Z', text: '', status: 'completed', message_kind: null, events: [], caller_class: 'unknown',
+    fail_reason: null, duration_s: null, ...over,
+  });
   const DETAIL = {
     peer_key: KEY, number_masked: '010-****-0199', blocked: false, known: false,
     lines: [
       line({ id: 1, status: 'rejected', events: [admission('unknown_not_accepted')] }),
       line({ id: 2, status: 'missed', at: '2026-11-27T00:35:00Z', events: [ev('call_result', 'noted', 'no_answer')] }),
       line({ id: 3, status: 'completed', at: '2026-11-27T00:40:00Z', text: '용건을 남김', events: [admission('unknown_accepted', 'allowed'), ...Array.from({ length: 3 }, () => ev('scope_denied', 'blocked', 'tool=schedule_fact'))] }),
-      { kind: 'message', id: 9, direction: 'out', at: '2026-11-27T00:41:00Z', text: '담당자가 확인 후 연락드리겠습니다.', status: 'accepted', message_kind: 'notice', events: [] },
+      { kind: 'message', id: 9, direction: 'out', at: '2026-11-27T00:41:00Z', text: '담당자가 확인 후 연락드리겠습니다.', status: 'accepted', message_kind: 'notice', events: [],
+        caller_class: 'unknown', fail_reason: null, duration_s: null },
     ],
   };
+  // 대표번호(Task 96 후속): 이 일정 주소록의 둘이 쓰는 번호에서 온 받은 통화 — 서버가 ?schedule_id 로 함께 준다.
+  const SHARED_KEY = '5a5a5a5a5a5a';
+  const SHARED_PEER = { ...PEER, peer_key: SHARED_KEY, number_masked: '010-****-0196', messages: 0, calls: 2, last_line: '', known: true, shared: true, last_at: '2026-11-27T00:55:00Z' };
+  const SHARED_DETAIL = {
+    peer_key: SHARED_KEY, number_masked: '010-****-0196', blocked: false, known: true,
+    lines: [
+      line({ id: 21, caller_class: 'shared', duration_s: 95, text: '대표번호로 건 용건', events: [admission('known_caller', 'allowed')] }),
+      line({ id: 22, caller_class: 'shared', status: 'missed', at: '2026-11-27T00:55:00Z', fail_reason: '통화 중이라 받지 못했습니다', events: [admission('line_busy', 'noted')] }),
+    ],
+  };
+
+  test('a shared office number joins the group 「모르는 번호 · 대표번호」 with its class, duration and concrete reason', async () => {
+    stubContacts();
+    mockInbox({ unknown: [SHARED_PEER, PEER], peers: { [SHARED_KEY]: SHARED_DETAIL, [KEY]: DETAIL } });
+    render(<Contacts windowId="w1" params={{}} />);
+    const book = screen.getByRole('navigation', { name: '주소록' });
+    const group = await within(book).findByRole('group', { name: '모르는 번호 · 대표번호 2' });
+    expect(within(group).getByText('모르는 번호 · 대표번호')).toBeVisible();
+    const row = within(group).getByRole('button', { name: /010-\*\*\*\*-0196/ });
+    expect(within(row).getByText('대표번호')).toBeVisible();
+    expect(within(row).getByText('주소록에 있음')).toBeVisible();
+    await userEvent.click(row);
+    const pane = await screen.findByRole('region', { name: '모르는 번호 010-****-0196' });
+    expect(within(pane).getByText(/대표번호 — 이 프로젝트 주소록에서 여러 사람이 이 번호를 씁니다/)).toBeVisible();
+    const lines = within(within(pane).getByRole('list', { name: '주고받은 줄' })).getAllByRole('listitem').filter((li) => li.classList.contains('ct-ib-line'));
+    expect(lines).toHaveLength(2);
+    expect(within(lines[0]).getByText('대표번호')).toBeVisible();
+    expect(lines[0]).toHaveTextContent('통화 1분 35초');
+    expect(within(lines[1]).getByText('대표번호')).toBeVisible();
+    expect(lines[1]).toHaveTextContent('부재중');
+    expect(within(lines[1]).getByText('받지 못한 까닭: 통화 중이라 받지 못했습니다')).toBeVisible();
+    // 목록·칸 모두 지금 일정을 붙여 묻는다(다른 일정의 대표번호는 서버가 빼낸다)
+    const urls = contactCalls().map((c) => c.url);
+    expect(urls).toContain('/api/outreach/unknown?schedule_id=1');
+    expect(urls).toContain(`/api/outreach/unknown/${SHARED_KEY}?schedule_id=1`);
+    expect(document.body.innerHTML).not.toMatch(FULL);
+  });
+
+  test('a missed call whose server reason is known shows that reason in the panel', async () => {
+    stubContacts();
+    mockInbox({ unknown: [PEER], peers: { [KEY]: { ...DETAIL, lines: [line({ status: 'missed', fail_reason: WHILE_OFF })] } } });
+    render(<Contacts windowId="w1" params={{}} />);
+    await userEvent.click(await within(screen.getByRole('navigation', { name: '주소록' })).findByRole('button', { name: /010-\*\*\*\*-0199/ }));
+    const pane = await screen.findByRole('region', { name: '모르는 번호 010-****-0199' });
+    expect(within(pane).getByText(`받지 못한 까닭: ${WHILE_OFF}`)).toBeVisible();
+    expect(within(pane).getByText('모르는 번호')).toBeVisible(); // 등급 칩
+  });
 
   test('calls show in the group and in the pane with the inbound words; only the scope line is red; no full number', async () => {
     stubContacts();
     mockInbox({ unknown: [PEER], peers: { [KEY]: DETAIL } });
     render(<Contacts windowId="w1" params={{}} />);
     const book = screen.getByRole('navigation', { name: '주소록' });
-    const group = await within(book).findByRole('group', { name: '모르는 번호 1' });
+    const group = await within(book).findByRole('group', { name: '모르는 번호 · 대표번호 1' });
     const row = within(group).getByRole('button', { name: /010-\*\*\*\*-0199/ });
     expect(row).toHaveTextContent('전화 — 용건을 남김');
     expect(row).toHaveTextContent('전화 3');

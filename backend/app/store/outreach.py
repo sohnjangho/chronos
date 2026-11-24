@@ -220,6 +220,14 @@ def unknown_calls(session: Session, *, limit: int, before: int | None = None) ->
     return _unscheduled(session, OutreachCall, limit, before)
 
 
+def unpaired_calls(session: Session, schedule_id: int, *, limit: int) -> list[OutreachCall]:
+    """그 일정의 받은 통화 가운데 연락처 짝이 없고 번호가 있는 것(같은 번호가 그 일정 주소록에 둘 이상 — 대표번호),
+    새것부터(id 내림차순). 「모르는 번호 · 대표번호」 화면이 그 일정을 열 때 읽는다(번호는 부른 쪽이 가려서 내보낸다)."""
+    stmt = select(OutreachCall).where(OutreachCall.schedule_id == schedule_id, OutreachCall.contact_id.is_(None),
+                                      OutreachCall.direction == "in", OutreachCall.peer_number.is_not(None))
+    return list(session.scalars(stmt.order_by(OutreachCall.id.desc()).limit(limit)))
+
+
 def claim(
     session: Session,
     kind: Literal["message", "call"],

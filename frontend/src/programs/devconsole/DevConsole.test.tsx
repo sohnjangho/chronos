@@ -542,7 +542,7 @@ describe('연락 — 실행 추적 · 알림 연결 · 문자 사용량 (Task 10
     expect(head).toHaveTextContent('가상 담당 · 한빛전기');
     expect(head).toHaveTextContent('시작 에이전트');
     expect(head).toHaveTextContent('권한 위임');
-    expect(head).toHaveTextContent('보냈는지 확인 필요');
+    expect(head).toHaveTextContent('확인 필요 — 보냈는지 알 수 없음');
     expect(screen.getByRole('button', { name: /^연락:/ })).toHaveTextContent('가상 담당');
     expect(screen.queryByRole('group', { name: '이 요청' })).toBeNull();
   });

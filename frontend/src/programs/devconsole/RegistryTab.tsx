@@ -97,7 +97,7 @@ function Roles({ t }: { t: ToolRegistryItem }) {
         {media && <span className="dc-tag is-info" title="이 도구를 받는 매체">{mediaOf(media)}</span>}
         {classes && (
           <span className="dc-tool-classes" title="이 도구를 받는 발신자 등급(toolsets.for_class)">
-            {`등급: ${classes.map(classOf).join(' · ')}`}
+            {`등급: ${[...new Set(classes.map(classOf))].join(' · ')}`}
           </span>
         )}
       </>
