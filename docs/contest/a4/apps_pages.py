@@ -129,7 +129,7 @@ def extra_block():
     no, name, desc, shots = EXTRA
     cols = []
     for img, title, boxes in shots:
-        marks = ''.join(f'<div class="hl" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%"><i style="left:-15px;top:-15px">{i}</i></div>'
+        marks = ''.join(f'<div class="hl" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%"><i style="left:-10px;top:-10px">{i}</i></div>'
                         for i, (x, y, w, h, *_r) in enumerate(boxes, 1))
         items = ''.join(f'<li><i>{i}</i><b>{t}</b> {d}</li>' for i, (*_xy, t, d) in enumerate(boxes, 1))
         cols.append(f'<div><div class="small" style="color:#fff;font-weight:800;margin-bottom:1mm">{title}</div>'
@@ -149,8 +149,8 @@ GROUP = {**{k: '시스템 앱' for k in ['01', '02', '03', '04', '05', '06', '07
 def block(no, name, desc, agent, boxes):
     marks = []
     for i, (x, y, w, h, *_rest) in enumerate(boxes, 1):
-        bx = 'right:-15px' if x + w > 92 and x > 50 else 'left:-15px'
-        by = 'bottom:-15px' if y < 3 else 'top:-15px'
+        bx = 'right:-10px' if x + w > 92 and x > 50 else 'left:-10px'
+        by = 'bottom:-10px' if y < 3 else 'top:-10px'
         marks.append(f'<div class="hl" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%"><i style="{bx};{by}">{i}</i></div>')
     items = ''.join(f'<li><i>{i}</i><b>{t}</b> {d}</li>' for i, (*_xy, t, d) in enumerate(boxes, 1))
     return f'''  <div class="app2"><div class="ah"><span class="an">{no}</span><h3>{name}</h3><span class="ad">{desc}</span></div>
@@ -184,8 +184,8 @@ CSS = '''
 .app2 .ad{font-size:9.2pt;color:#94a3b8}
 .os{position:relative;margin-top:3.5mm;border-radius:8px;overflow:visible;border:1px solid rgba(255,255,255,.18);background:#fff}
 .os img{display:block;width:100%;border-radius:8px}
-.hl{position:absolute;border:2px solid #fbbf24;border-radius:5px;box-shadow:0 0 0 1px rgba(5,7,13,.45)}
-.hl i{position:absolute;font-style:normal;width:20px;height:20px;border-radius:50%;background:#fbbf24;color:#05070d;font:800 10.5pt/20px sans-serif;text-align:center;box-shadow:0 0 0 2px #05070d,0 2px 6px rgba(0,0,0,.55);z-index:3}
+.hl{position:absolute;border:2px solid #fbbf24;border-radius:5px}
+.hl i{position:absolute;font-style:normal;width:15px;height:15px;border-radius:50%;background:#fbbf24;color:#05070d;font:800 8pt/15px sans-serif;text-align:center;border:1.2px solid #05070d;box-sizing:content-box;z-index:3}
 .af2{display:grid;grid-template-columns:1fr 1fr;gap:.9mm 6mm;margin:2.8mm 0 0;padding:0;list-style:none;font-size:8.6pt;color:#cbd5e1;line-height:1.45}
 .af2 li{display:flex;gap:2mm;align-items:baseline}
 .af2 li i{flex:none;font-style:normal;width:14px;height:14px;border-radius:50%;background:#fbbf24;color:#05070d;font:800 8pt/14px sans-serif;text-align:center}
