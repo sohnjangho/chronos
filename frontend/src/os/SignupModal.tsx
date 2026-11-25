@@ -15,7 +15,8 @@ const ROLE_OPTIONS: { value: SignupRole; title: string; desc: string }[] = [
   { value: 'field', title: '현장 관리자', desc: '스마트폰 · 태블릿 전용 화면에서 일일 점검과 사진 AI 보고를 수행합니다.' },
 ];
 
-export default function SignupModal({ open, onClose }: Props) {
+/** 가입 신청 칸의 값 · 신청 진행 · 결과와 신청 보내기 · 비우고 닫기. 창을 열 때마다 오류 · 진행 · 결과를 되돌린다. */
+function useSignupForm(open: boolean, onClose: () => void) {
   const [loginId, setLoginId] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -29,8 +30,6 @@ export default function SignupModal({ open, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState<SignupResponse | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const trap = useModalFocus(dialogRef);
 
   useEffect(() => {
     if (!open) return;
@@ -38,8 +37,6 @@ export default function SignupModal({ open, onClose }: Props) {
     setBusy(false);
     setDone(null);
   }, [open]);
-
-  if (!open) return null;
 
   function resetAndClose() {
     setLoginId('');
@@ -96,6 +93,157 @@ export default function SignupModal({ open, onClose }: Props) {
     }
   }
 
+  return {
+    loginId, setLoginId, name, setName, email, setEmail, phone, setPhone, organization, setOrganization,
+    department, setDepartment, role, setRole, password, setPassword, passwordConfirm, setPasswordConfirm,
+    note, setNote, busy, error, done, resetAndClose, onSubmit,
+  };
+}
+
+type SignupForm = ReturnType<typeof useSignupForm>;
+
+/** 신청을 받은 뒤 보이는 요약. */
+function SignupDone({ done, onBack }: { done: SignupResponse; onBack(): void }) {
+  return (
+    <div className="os-signup-done" role="status">
+      <p className="os-signup-done-title">{done.message}</p>
+      <dl className="os-signup-summary">
+        <dt>아이디</dt>
+        <dd>{done.login_id}</dd>
+        <dt>이름</dt>
+        <dd>{done.name}</dd>
+        <dt>신청 등급</dt>
+        <dd>{done.role === 'field' ? '현장 관리자' : '사용자 (공정 · 일정 담당자)'}</dd>
+        <dt>상태</dt>
+        <dd>관리자 승인 대기</dd>
+      </dl>
+      <div className="os-card-actions">
+        <Button type="button" variant="primary" className="os-card-submit" onClick={onBack}>
+          로그인 화면으로 돌아가기
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** 아이디 · 이름 · 연락처 · 비밀번호 칸 격자. */
+function SignupFields({ f }: { f: SignupForm }) {
+  return (
+    <div className="os-signup-grid">
+      <Field label="아이디 *" hint="영문·숫자·._- (3~50자)">
+        <input
+          value={f.loginId}
+          onChange={(e) => f.setLoginId(e.target.value)}
+          placeholder="예: hong.gildong"
+          autoComplete="username"
+          required
+          autoFocus
+        />
+      </Field>
+      <Field label="이름 *">
+        <input value={f.name} onChange={(e) => f.setName(e.target.value)} placeholder="예: 홍길동" required />
+      </Field>
+      <Field label="이메일 *">
+        <input
+          type="email"
+          value={f.email}
+          onChange={(e) => f.setEmail(e.target.value)}
+          placeholder="name@company.com"
+          autoComplete="email"
+          required
+        />
+      </Field>
+      <Field label="연락처 (선택)">
+        <input
+          type="tel"
+          value={f.phone}
+          onChange={(e) => f.setPhone(e.target.value)}
+          placeholder="010-1234-5678"
+          autoComplete="tel"
+        />
+      </Field>
+      <Field label="소속 회사 · 현장 (선택)">
+        <input value={f.organization} onChange={(e) => f.setOrganization(e.target.value)} placeholder="예: OO건설 / 판교 R&D 센터" />
+      </Field>
+      <Field label="부서 · 직책 (선택)">
+        <input value={f.department} onChange={(e) => f.setDepartment(e.target.value)} placeholder="예: 공정관리팀 · 과장" />
+      </Field>
+      <Field label="비밀번호 *" hint="4자 이상">
+        <input
+          type="password"
+          value={f.password}
+          onChange={(e) => f.setPassword(e.target.value)}
+          autoComplete="new-password"
+          required
+        />
+      </Field>
+      <Field label="비밀번호 확인 *">
+        <input
+          type="password"
+          value={f.passwordConfirm}
+          onChange={(e) => f.setPasswordConfirm(e.target.value)}
+          autoComplete="new-password"
+          required
+        />
+      </Field>
+    </div>
+  );
+}
+
+/** 가입 신청 양식(칸 · 신청 등급 · 메모 · 단추). */
+function SignupForm({ f }: { f: SignupForm }) {
+  return (
+    <form className="os-signup-form" onSubmit={f.onSubmit}>
+      <SignupFields f={f} />
+
+      <div className="os-signup-roles" role="group" aria-label="신청 등급 선택">
+        <span className="os-signup-role-label">신청 등급</span>
+        <div className="os-signup-role-grid">
+          {ROLE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className="os-signup-role-btn"
+              aria-pressed={f.role === opt.value}
+              onClick={() => f.setRole(opt.value)}
+            >
+              <b>{opt.title}</b>
+              <span>{opt.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Field label="가입 사유 · 담당 업무 메모 (선택)">
+        <input value={f.note} onChange={(e) => f.setNote(e.target.value)} placeholder="예: OO 프로젝트 공정 관리 담당자입니다." />
+      </Field>
+
+      {f.error && (
+        <p className="os-card-error" role="alert">
+          {f.error}
+        </p>
+      )}
+
+      <div className="os-card-actions">
+        <Button type="button" disabled={f.busy} onClick={f.resetAndClose}>
+          취소
+        </Button>
+        <Button type="submit" variant="primary" className="os-card-submit" disabled={f.busy}>
+          {f.busy ? '신청 중…' : '가입 신청하기'}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export default function SignupModal({ open, onClose }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const trap = useModalFocus(dialogRef);
+  const f = useSignupForm(open, onClose);
+  const { busy, resetAndClose } = f;
+
+  if (!open) return null;
+
   return (
     <div
       className="os-signup-backdrop"
@@ -126,123 +274,10 @@ export default function SignupModal({ open, onClose }: Props) {
           </button>
         </div>
 
-        {done ? (
-          <div className="os-signup-done" role="status">
-            <p className="os-signup-done-title">{done.message}</p>
-            <dl className="os-signup-summary">
-              <dt>아이디</dt>
-              <dd>{done.login_id}</dd>
-              <dt>이름</dt>
-              <dd>{done.name}</dd>
-              <dt>신청 등급</dt>
-              <dd>{done.role === 'field' ? '현장 관리자' : '사용자 (공정 · 일정 담당자)'}</dd>
-              <dt>상태</dt>
-              <dd>관리자 승인 대기</dd>
-            </dl>
-            <div className="os-card-actions">
-              <Button type="button" variant="primary" className="os-card-submit" onClick={resetAndClose}>
-                로그인 화면으로 돌아가기
-              </Button>
-            </div>
-          </div>
+        {f.done ? (
+          <SignupDone done={f.done} onBack={f.resetAndClose} />
         ) : (
-          <form className="os-signup-form" onSubmit={onSubmit}>
-            <div className="os-signup-grid">
-              <Field label="아이디 *" hint="영문·숫자·._- (3~50자)">
-                <input
-                  value={loginId}
-                  onChange={(e) => setLoginId(e.target.value)}
-                  placeholder="예: hong.gildong"
-                  autoComplete="username"
-                  required
-                  autoFocus
-                />
-              </Field>
-              <Field label="이름 *">
-                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 홍길동" required />
-              </Field>
-              <Field label="이메일 *">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@company.com"
-                  autoComplete="email"
-                  required
-                />
-              </Field>
-              <Field label="연락처 (선택)">
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="010-1234-5678"
-                  autoComplete="tel"
-                />
-              </Field>
-              <Field label="소속 회사 · 현장 (선택)">
-                <input value={organization} onChange={(e) => setOrganization(e.target.value)} placeholder="예: OO건설 / 판교 R&D 센터" />
-              </Field>
-              <Field label="부서 · 직책 (선택)">
-                <input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="예: 공정관리팀 · 과장" />
-              </Field>
-              <Field label="비밀번호 *" hint="4자 이상">
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="new-password"
-                  required
-                />
-              </Field>
-              <Field label="비밀번호 확인 *">
-                <input
-                  type="password"
-                  value={passwordConfirm}
-                  onChange={(e) => setPasswordConfirm(e.target.value)}
-                  autoComplete="new-password"
-                  required
-                />
-              </Field>
-            </div>
-
-            <div className="os-signup-roles" role="group" aria-label="신청 등급 선택">
-              <span className="os-signup-role-label">신청 등급</span>
-              <div className="os-signup-role-grid">
-                {ROLE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    className="os-signup-role-btn"
-                    aria-pressed={role === opt.value}
-                    onClick={() => setRole(opt.value)}
-                  >
-                    <b>{opt.title}</b>
-                    <span>{opt.desc}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <Field label="가입 사유 · 담당 업무 메모 (선택)">
-              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: OO 프로젝트 공정 관리 담당자입니다." />
-            </Field>
-
-            {error && (
-              <p className="os-card-error" role="alert">
-                {error}
-              </p>
-            )}
-
-            <div className="os-card-actions">
-              <Button type="button" disabled={busy} onClick={resetAndClose}>
-                취소
-              </Button>
-              <Button type="submit" variant="primary" className="os-card-submit" disabled={busy}>
-                {busy ? '신청 중…' : '가입 신청하기'}
-              </Button>
-            </div>
-          </form>
+          <SignupForm f={f} />
         )}
       </div>
     </div>
