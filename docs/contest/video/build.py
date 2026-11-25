@@ -91,12 +91,13 @@ S = [
     ('결정은 사람이 승인함에서 하고, 에이전트는 관리 포인트를 다시 뽑습니다.', '결정은 사람이 승인함에서 하고, 에이전트는 관리 포인트를 다시 뽑습니다.'),
     ('크레인을 1대에서 2대로, 천장 마감과 커튼월 설치 기간을 줄이는 안입니다.', '크레인을 한 대에서 두 대로, 천장 마감과 커튼월 설치 기간을 줄이는 안입니다.'),
     ('승인하면 새 버전이 되고, 한 바퀴가 다시 돕니다.', '승인하면 새 버전이 되고, 한 바퀴가 다시 돕니다.')]),
-  dict(id='S11', min=10.5, chip='확장 · 생산 일정', pieces=[('S11-production.mp4', 0, 36.3, 1)], lines=[
+  dict(id='S11', min=10.5, chip='확장 ① 분야로 · 생산 일정', pieces=[('S11-production.mp4', 0, 36.3, 1)], lines=[
     ('분야가 바뀌어도 엔진은 같습니다. 생산 일정도 같은 방식으로 돕니다.', '분야가 바뀌어도 엔진은 같습니다. 생산 일정도 같은 방식으로 돕니다.'),
     ('분야마다 볼 외부 자료만 켜고 끕니다.', '분야마다, 볼 외부 자료만 켜고 끕니다.')]),
-  dict(id='S12', min=9.5, chip='개발 콘솔 · 실행 추적', pieces=[('S12-trace.mp4', 0, 47.1, 1)], lines=[
-    ('에이전트가 한 일은 단계마다 기록으로 남습니다.', '에이전트가 한 일은, 단계마다 기록으로 남습니다.'),
-    ('왜 그렇게 했는지, 나중에 그대로 따라가 볼 수 있습니다.', '왜 그렇게 했는지, 나중에 그대로 따라가 볼 수 있습니다.')]),
+  # 확장 ② 앱으로 (기획서 30쪽 연동 그림). 실행 추적은 W1b 가 이미 보여 주므로 S12 자리를 쓴다(5분 안).
+  dict(id='S11b', min=9.5, chip='', cards=['c-apps'], nosub=True, lines=[
+    ('원가·도면 검토 앱을 붙이면, 물량이 일정과 원가로 이어집니다.', '원가와 도면 검토 앱을 붙이면, 물량이 일정과 원가로 이어집니다.'),
+    ('에이전트가 일정, 원가, 진도를 함께 관리합니다.', '에이전트가 일정, 원가, 진도를 함께 관리합니다.')]),
   dict(id='S99', chip='', cards=['c-end'], tail=2.0, lines=[
     ('무엇이 완료일정을 늦추는지는, 바뀔 때마다 다시 정해집니다.', '무엇이 완료일정을 늦추는지는, 바뀔 때마다 다시 정해집니다.'),
     ('ChronOS', '크로노스.')]),
@@ -205,6 +206,13 @@ def card_html(cid):
 <div style="font-size:32px;color:#cbd5e1;margin-top:28px;line-height:1.55;width:660px">일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트.</div>
 <img src="{img('cap/cover-os.jpg')}" style="position:absolute;right:120px;top:110px;width:900px;border-radius:16px;border:2px solid rgba(255,255,255,.2);box-shadow:0 30px 90px rgba(0,0,0,.6)">
 <div style="position:absolute;left:120px;right:120px;bottom:90px;display:grid;grid-template-columns:repeat(3,1fr);gap:56px">{cc}</div></body></html>"""
+    if cid == 'c-apps':  # 기획서 30쪽 「② 앱으로」 연동 그림
+        src = (HERE.parent / 'a4' / 'ChronOS_기획서_rev7.html').read_text(encoding='utf-8')
+        i = src.index('<svg', src.index('<!--D:syn-->')); j = src.index('</svg>', i) + 6
+        g = src[i:j].replace('width="100%"', 'width="1480"', 1)
+        return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};padding:110px 220px}}</style></head><body>
+<div style="font:700 26px Menlo;letter-spacing:.2em;color:#4ade80">확장 ② 앱으로</div>
+<div style="font-size:64px;font-weight:800;color:#fff;letter-spacing:-.03em;margin:14px 0 26px">앱을 붙일수록 <span style="color:#fbbf24">에이전트가 프로젝트 전체</span>를 관리한다</div>{g}</body></html>"""
     if cid == 'c-end':
         return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}}</style></head><body>
 <div style="font-size:64px;font-weight:800;color:#fff;line-height:1.4;letter-spacing:-.02em">무엇이 완료일정을 늦추는지는,<br><span style="{GRAD}">바뀔 때마다 다시 정해집니다.</span></div>
