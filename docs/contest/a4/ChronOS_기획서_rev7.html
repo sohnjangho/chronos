@@ -857,11 +857,11 @@ p{margin:0}
   <h1 style="font-size:26pt">공정표로 판단해 온 사람이 <span class="c">직접 만들었다</span></h1>
   <div class="card blue" style="margin-top:7mm;padding:5mm 6mm"><div style="font-size:16pt;font-weight:800;color:#fff">참가자 <span style="font-size:10pt;color:#94a3b8;font-weight:600">건설·플랜트 현장 PM</span></div>
     <p class="small" style="color:#cbd5e1;margin-top:2mm">국내외 건설·플랜트 현장에서 공정표를 두고 일정과 만회 결정을 맡아 온 사람이 직접 만들었다.</p></div>
-  <div class="g2" style="margin-top:6mm">
+  <div class="g2" style="margin-top:4mm">
     <div class="card"><div class="k">규정</div><p class="small" style="color:#cbd5e1;line-height:1.75;margin-top:1mm"><b style="color:#fff">Liner API 핵심 사용(제4조 1항)</b> 한 바퀴의 판단에 Liner Model, 근거에 Liner Search.<br><b style="color:#fff">기간 내 신규(제4조 2항)</b> 11-19 새 저장소에서 처음부터 만들었다.<br><b style="color:#fff">가상 데이터(제5조)</b> 일정, 계정, 협력사, 주소록은 가상, 사진은 공개 라이선스. 시연 통화는 시험 통화 녹음이며 실제 번호로 걸지 않았다.</p></div>
     <div class="card"><div class="k">보안</div><p class="small" style="color:#cbd5e1;line-height:1.75;margin-top:1mm">API 키는 암호화해 저장하고 끝 4자리만 보인다. 전화번호와 키는 로그에 남기지 않는다. 저장소 추적 파일 비밀 검사 통과(11-25).</p></div>
   </div>
-  <div class="card amber" style="margin-top:5mm;padding:4mm 5mm"><div class="k">직접 돌려 보기 · 한 줄 설치</div>
+  <div class="card amber" style="margin-top:4mm;padding:3.5mm 5mm"><div class="k">직접 돌려 보기 · 한 줄 설치</div>
     <p class="small" style="color:#cbd5e1;margin-top:1mm">Docker 와 Node 없이 터미널 한 줄로 설치하고 띄운다. 준비물은 <b style="color:#fff">uv</b> 하나다(Python 은 uv 가 받는다).</p>
     <div class="mono" style="margin-top:2mm;background:#05070d;border:1px solid rgba(255,255,255,.14);border-radius:6px;padding:2.2mm 2.5mm;font-size:6.3pt;color:#7dd3fc;white-space:nowrap;letter-spacing:-.02em;line-height:1.5">uvx --from https://github.com/sohnjangho/chronos/releases/download/v0.1.0/chronos_backend-0.1.0-py3-none-any.whl chronos</div>
     <div class="small" style="color:#cbd5e1;margin-top:2mm;display:grid;grid-template-columns:repeat(3,1fr);gap:4mm">
@@ -871,7 +871,7 @@ p{margin:0}
     </div>
     <p class="small" style="margin-top:2mm;color:#cbd5e1"><b style="color:#fff">설치 없이 바로 써 보기</b> 심사용 서버 <a href="https://macmini.tail1b48b0.ts.net:10000" style="color:#7dd3fc;text-decoration:underline;text-underline-offset:2px">https://macmini.tail1b48b0.ts.net:10000</a> · 심사용 계정은 제출 양식에 적었습니다. 시연 일정 3개(수소 연료전지 실증 과제, 5층 사무동, 부품 공장)가 들어 있고, 문자와 전화는 연결이 없어 나가지 않는다.</p>
     <p class="small" style="margin-top:1.5mm">설치 직후에는 일정이 없는 빈 상태다. 자세한 설정은 저장소의 README 와 설치·사용설명서(PDF 23쪽). 저장소 <a href="https://github.com/sohnjangho/chronos" style="color:#7dd3fc;text-decoration:underline;text-underline-offset:2px">github.com/sohnjangho/chronos</a> · 데모 영상 <a href="https://youtu.be/qfEL5UWi1cc" style="color:#7dd3fc;text-decoration:underline;text-underline-offset:2px">youtu.be/qfEL5UWi1cc</a></p></div>
-  <h2 style="margin-top:5mm;font-size:16pt">부록 · 기술 구조 <span style="font-size:9pt;color:#64748b;font-weight:600">개발자 심사용</span></h2>
+  <h2 style="margin-top:4mm;font-size:15pt">부록 · 기술 구조 <span style="font-size:9pt;color:#64748b;font-weight:600">개발자 심사용</span></h2>
   <div class="tbl tight" style="grid-template-columns:58mm 1fr;margin-top:3mm;font-size:8.6pt">
     <div class="mono" style="color:#7dd3fc">core/calendar.py</div><div>근무일 배열과 이분 탐색으로 공휴일과 금지 기간 반영</div>
     <div class="mono" style="color:#7dd3fc">core/cpm.py</div><div>위상 정렬로 순환 차단, FS/SS/FF/SF + lag, ES/EF/LS/LF, TF/FF</div>
