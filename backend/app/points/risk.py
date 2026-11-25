@@ -50,8 +50,10 @@ LLM_TRANSPORT: httpx.AsyncBaseTransport | None = None
 
 Kind = Literal["weather", "materials", "fx", "business"]
 Status = Literal["ok", "none", "skipped"]
-MATERIALS = ("copper", "aluminum", "iron ore")  # 0단계 실측으로 Premium Data 에 있는 금속(The World Bank)
-MATERIAL_NAMES = {"copper": "구리", "aluminum": "알루미늄", "iron ore": "철광석"}
+MATERIALS = ("copper", "aluminum", "iron ore", "platinum")  # 실측으로 Premium Data 에 있는 금속(The World Bank 월별)
+MATERIAL_NAMES = {"copper": "구리", "aluminum": "알루미늄", "iron ore": "철광석", "platinum": "백금"}
+# 「{금속} price」로는 월별 표가 오지 않는 금속의 질의(실측 11-25: 「platinum price」는 Xignite 분 단위 시세만)
+MATERIAL_QUERIES = {"platinum": "platinum price monthly World Bank"}
 NO_DATA = "외부 자료 없음"
 NO_ADDRESS = "프로젝트 주소가 없어 날씨를 보지 않음"
 NO_STATION = "지점을 몰라 날씨를 보지 않음"
@@ -62,11 +64,14 @@ HISTORY_YEARS = 10
 LLM_TIMEOUT_S = 30.0
 KNOWLEDGE_URL, KNOWLEDGE_HOST = "https://liner.com", "liner.com"  # Premium Data 표에는 링크가 없다
 _WHY = 120
-# 업체 갈래의 공종 낱말(정해진 낱말만 — LLM 의 trade 는 이 목록에 맞춰 보는 힌트일 뿐). 건설·제조 둘 다.
+# 업체 갈래의 공종 낱말(정해진 낱말만 — LLM 의 trade 는 이 목록에 맞춰 보는 힌트일 뿐). 건설·제조·연구개발(수소 연료전지).
 TRADES = ("커튼월", "창호", "외장 패널", "철골", "철근", "골조", "콘크리트", "레미콘", "방수", "단열", "전기", "설비", "배관",
-          "승강기", "도장", "조립", "가공", "부품", "금형", "포장", "용접", "사출", "도금", "주조")
+          "승강기", "도장", "조립", "가공", "부품", "금형", "포장", "용접", "사출", "도금", "주조",
+          "연료전지", "스택", "수소", "막전극접합체", "BOP")  # 「시험 장비」는 자원 이름이라 넣지 않는다(LLM 이 늘 이것만 골랐다)
 TRADE_METAL = {"커튼월": "aluminum", "창호": "aluminum", "외장 패널": "aluminum", "철골": "iron ore", "철근": "iron ore",
-               "전기": "copper", "배관": "copper"}  # 공종 → 질의 앞에 붙일 금속(LLM 이 그 금속을 골랐을 때만)
+               "전기": "copper", "배관": "copper", "연료전지": "platinum",
+               "막전극접합체": "platinum"}  # 공종 → 질의 앞에 붙일 금속(LLM 이 그 금속을 골랐을 때만)
+TRADE_TOPIC = {"스택": "연료전지 스택", "BOP": "연료전지 BOP"}  # 낱말만으로는 뜻이 넓은 공종 → 질의에 쓸 말(코드가 정한 말)
 BUSINESS_RESULTS = 5
 BUSINESS_RECENT_DAYS = 183  # 업체 갈래는 6개월 안의 글만
 BLOG_HOSTS = ("tistory.com", "brunch.co.kr", "velog.io", "medium.com", "post.naver.com", "egloos.com", "wordpress.com")
@@ -75,11 +80,13 @@ _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _PAIR = re.compile(r"\(([A-Z]{3})\)\s*to\s.*\(([A-Z]{3})\)")
 
 SYSTEM = (
-    "건설·제조 일정의 액티비티 하나를 보고, 일정에 영향을 줄 외부 자료 중 무엇을 볼지만 고른다. 판단·숫자는 쓰지 않는다.\n"
+    "건설·제조·연구개발 일정의 액티비티 하나를 보고, 일정에 영향을 줄 외부 자료 중 무엇을 볼지만 고른다. 판단·숫자는 쓰지 않는다.\n"
     "- weather_sensitive: 실외 작업이거나 비·눈·바람·추위에 멈추는 작업(타설·골조·외벽·방수·토공·양중 등)이면 true.\n"
-    "- materials: 이 작업에 많이 드는 금속만, 목록 copper·aluminum·iron ore 에서(철근·철골은 iron ore). 없으면 [].\n"
+    "- materials: 이 작업에 많이 드는 금속만, 목록 copper·aluminum·iron ore·platinum 에서(철근·철골은 iron ore, "
+    "연료전지 스택·막전극접합체 촉매는 platinum). 없으면 [].\n"
     "- imported: 자재·장비를 외국에서 들여올 가능성이 크면 true(환율을 본다).\n"
-    f"- trade: 공급 소식을 볼 공종 낱말 하나, 목록 {'·'.join(TRADES)} 에서만(이름·WBS 에 그 낱말이 있을 때). "
+    f"- trade: 공급 소식을 볼 공종 낱말 하나, 목록 {'·'.join(TRADES)} 에서만(액티비티 이름·WBS 글에 그 낱말이 그대로 "
+    "있을 때만 — 자원 이름에서 고르지 않는다). "
     "회사 이름은 안 된다. 공급 걱정이 없으면 null.\n"
     "- why: 고른 까닭 한 줄(한국어)."
 )
@@ -271,14 +278,18 @@ def _table_hit(table: knowledge.KnowledgeTable, line: str) -> SearchHit:
     return SearchHit(title[:300], KNOWLEDGE_URL, KNOWLEDGE_HOST, line, table.as_of)
 
 
+def _material_query(commodity: str) -> str:
+    return MATERIAL_QUERIES.get(commodity, f"{commodity} price")
+
+
 async def _material(session: Session, commodity: str) -> _Found:
     label = MATERIAL_NAMES[commodity]
-    for table in await _knowledge(session, f"{commodity} price"):
+    for table in await _knowledge(session, _material_query(commodity)):
         if commodity not in table.title.lower():
             continue
         moved = knowledge.trend(table, TREND_MONTHS)
         if moved is None:
-            break
+            continue  # 같은 금속의 다른 표(분 단위 시세 등)는 건너뛰고 월별 표를 찾는다
         month = knowledge.sorted_rows(table)[-1][0][:7]
         source = table.source or "출처 미상"
         line = f"{label} {TREND_MONTHS}개월 {moved[2]:+.1f}% · {source} · {month}"
@@ -432,7 +443,7 @@ def _jobs(session: Session, point: Point, pick: _Pick, on: set[str], address: st
                             f"날씨 · {NO_DATA}", lambda p=place: _weather_lookup(session, p, point, today), pick.why))
     if "materials" in on:
         for m in pick.materials:
-            out.append(_Job(point.activity_id, "materials", KNOWLEDGE_MODE, f"{m} price",
+            out.append(_Job(point.activity_id, "materials", KNOWLEDGE_MODE, _material_query(m),
                             f"{MATERIAL_NAMES[m]} · {NO_DATA}", lambda m=m: _material(session, m), pick.why))
     if "fx" in on and pick.imported:
         out.append(_Job(point.activity_id, "fx", KNOWLEDGE_MODE, FX_QUERY, f"{FX_LABEL} · {NO_DATA}",
@@ -440,7 +451,7 @@ def _jobs(session: Session, point: Point, pick: _Pick, on: set[str], address: st
     if "business" in on and pick.trade:
         metal = TRADE_METAL.get(pick.trade)
         prefix = f"{MATERIAL_NAMES[metal]} " if metal is not None and metal in pick.materials else ""
-        label = f"{prefix}{pick.trade} 공급 동향"
+        label = f"{prefix}{TRADE_TOPIC.get(pick.trade, pick.trade)} 공급 동향"
         out.append(_Job(point.activity_id, "business", KNOWLEDGE_MODE, f"business: {label}", f"{label} · {NO_DATA}",
                         lambda q=label: _business(session, q), pick.why))
     elif "business" in on and pick.trade_asked:  # 정해진 공종 낱말에 맞지 않음 — 부르지 않는다

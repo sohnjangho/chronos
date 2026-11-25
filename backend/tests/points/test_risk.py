@@ -178,7 +178,7 @@ async def test_llm_sees_only_name_wbs_resources_domain(session, fakes):
     assert "3층 슬래브 타설" in sent and "골조" in sent and "타워크레인" in sent and "construction" in sent
     assert "2026" not in sent and "11-25" not in sent and "테헤란로" not in sent and "서울" not in sent
     assert body["response_format"]["json_schema"]["schema"]["properties"]["materials"]["items"]["enum"] == [
-        "copper", "aluminum", "iron ore"]
+        "copper", "aluminum", "iron ore", "platinum"]
 
 
 async def test_nothing_chosen_means_no_lookups(session, fakes):
@@ -455,6 +455,45 @@ async def test_fictional_company_names_never_reach_mcp(session, fakes, trade):
     assert all("한빛창호" not in q and "김하늘" not in q for q in queries)
     assert queries == (["알루미늄 창호 공급 동향"] if trade == "창호" else [])
     assert all("한빛창호" not in r.line for r in risks if r.kind != "business")
+
+
+# ── 연구개발(수소 연료전지) ─────────────────────────────────────────────
+
+def _platinum_body() -> dict:
+    """실측(11-25) 꼴을 줄인 것: 「platinum price」는 Xignite 분 단위 시세가 먼저 와서 3개월 추이를 못 낸다 — 월별 표를 찾는다."""
+    spot = {"title": "Currency Exchange: Platinum Troy Ounce (XPT) to US Dollar (USD)", "sources": ["Xignite"],
+            "dataAsOf": "2026-11-25", "columns": ["Timestamp", "rate"],
+            "rows": [["2026-11-25 05:35:00+00:00", "1251.5"], ["2026-11-25 05:36:00+00:00", "1247.5"]]}
+    monthly = {"title": "Platinum Price", "sources": ["The World Bank"], "dataAsOf": "2026-10-01",
+               "columns": ["Timestamp", "spot_price - Platinum Price"],
+               "rows": [["2026-07-01 00:00:00+00:00", "1500.0"], ["2026-08-01 00:00:00+00:00", "1550.0"],
+                        ["2026-09-01 00:00:00+00:00", "1622.0"], ["2026-10-01 00:00:00+00:00", "1620.0"]]}
+    return {"requestId": "r", "results": [], "totalCount": 0, "knowledge": [spot, monthly]}
+
+
+async def test_platinum_monthly_trend_line(session, fakes):
+    fakes.web.answers[risk.MATERIAL_QUERIES["platinum"]] = _platinum_body()
+    sid = _one(session, "스택 내구 시험", wbs="연구개발(스택)")
+    fakes.classify({**NOTHING, "materials": ["platinum"]})
+    [r] = await risk.look(session, sid, 1, [Point("A", "스택 내구 시험", False, 1, SOON.es, SOON.ef)])
+    assert r.line == "백금 3개월 +8.0% · The World Bank · 2026-10"  # 1500 → 1620, 분 단위 Xignite 표는 건너뛴다
+    assert (r.status, r.kind, r.source) == ("ok", "materials", "The World Bank")
+    assert fakes.web.queries() == ["platinum price monthly World Bank"]
+
+
+@pytest.mark.parametrize("name,wbs,trade,want", [
+    ("스택 내구 시험", "연구개발(스택)", "스택", "연료전지 스택 공급 동향"),  # 넓은 낱말 → 코드가 정한 말, 금속 없음(실측: 「백금 …」은 0건)
+    ("연료전지 성능 시험", "연구개발", "연료전지", "백금 연료전지 공급 동향"),
+    ("협력사 부품(막전극접합체·BOP) 조달", "지원", "막전극접합체", "백금 막전극접합체 공급 동향"),
+    ("실증 설비 제작(BOP 패키지)", "실증 설비", "BOP", "연료전지 BOP 공급 동향"),
+    ("수소 저장 설비 설치", "실증 설비", "수소", "수소 공급 동향"),
+    ("성능 시험", "연구개발", "스택", None),  # 이름·WBS 에 없는 낱말은 버린다
+    ("시험 장비 구매", "지원", "시험 장비", None),  # 목록에 없다(자원 이름으로 흔해 LLM 이 늘 이것만 골랐다 — 실측 11-25)
+])
+async def test_rnd_trade_words(session, fakes, name, wbs, trade, want):
+    sid = _one(session, name, wbs=wbs)
+    queries, _ = await _queries(session, fakes, sid, name, {"materials": ["platinum"], "trade": trade})
+    assert queries == ([want] if want else [])
 
 
 # ── 근거 표 · 재사용 ─────────────────────────────────────────────────────
