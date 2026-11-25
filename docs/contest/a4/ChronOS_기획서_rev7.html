@@ -180,7 +180,7 @@ p{margin:0}
   <div class="eyebrow" style="margin-top:8mm">일정 에이전트 OS</div>
   <h1 style="font-size:60pt;margin-top:1mm">Chron<span class="c">OS</span></h1>
   <div style="font-size:21pt;font-weight:800;color:#fff;letter-spacing:-.02em;margin-top:2mm">에이전트가 <span style="color:#7dd3fc">일정을 관리한다.</span></div>
-  <p class="sub" style="font-size:10.6pt">일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트. 대화창에 "커튼월 공장 제작이 3일 늦어졌어"라고 쓰면 에이전트가 CPM, 스케줄, 간트차트 창을 직접 열어 일하고, 사람은 마지막에 승인한다. 건설, 생산, 연구 과제, 시스템 구축처럼 마감이 있는 모든 일정에 쓴다.</p>
+  <p class="sub" style="font-size:10.6pt">일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트. 대화창에 "성능 시험이 재시험으로 3일 늦어졌어"라고 쓰면 에이전트가 CPM, 스케줄, 간트차트 창을 직접 열어 일하고, 사람은 마지막에 승인한다. R&amp;D 실증 과제, 건설, 생산, 시스템 구축처럼 마감이 있는 모든 일정에 쓴다.</p>
   <div class="os" style="margin-top:7mm"><img src="img/cap/cover-os.jpg"><div class="hl line" style="left:0.63%;top:5.56%;width:36.46%;height:84.72%"><span class="hlt" style="left:2mm;top:2mm"><i>1</i>에이전트 대화 · 말 한 줄로 요청</span></div><div class="hl line" style="left:37.76%;top:5.56%;width:36.46%;height:39.81%"><span class="hlt" style="left:2mm;top:2mm"><i>2</i>CPM · 크리티컬 패스</span></div><div class="hl line" style="left:61.46%;top:5.56%;width:37.76%;height:43.52%"><span class="hlt" style="right:2mm;top:2mm"><i>3</i>스케줄 · 작업 찾기</span></div><div class="hl line" style="left:37.76%;top:43.52%;width:61.46%;height:47.04%"><span class="hlt" style="left:2mm;bottom:2mm"><i>4</i>간트차트 · 영향과 완료일정</span></div></div>
   <p class="small" style="margin-top:2mm">실제 ChronOS 화면 한 장. 에이전트가 대화를 받아 CPM, 스케줄, 간트차트 창을 직접 열어 일한다.</p>
   <div class="facts" style="margin-top:4mm">
@@ -413,7 +413,7 @@ p{margin:0}
 <section class="page">
   <div class="toprow"><div class="eyebrow">04 · 실제로 도는 시연 · 장면 0</div><span class="wow">WOW 4 · AI 공정표 초안</span></div>
   <h1 style="font-size:30pt">말 한 줄이 <span class="c">공정표 초안</span>이 된다</h1>
-  <p class="sub" style="font-size:10.2pt">시연 일정은 「5층 사무동 신축」(가상)이다. 아래 숫자는 모두 엔진이 계산했고 자동 시험이 고정한다. 시작은 한 줄이다. "5층 사무동 공정표 만들어 줘. 착공은 3월, 준공은 연말까지."</p>
+  <p class="sub" style="font-size:10.2pt">시연 일정은 「가상 · 100kW급 수소 연료전지 발전 실증 과제」다. 3쪽의 실패 사례와 같은 종류의 과제다. 아래 숫자는 모두 엔진이 계산했다. 시작은 한 줄이다. "100kW급 수소 연료전지 발전 실증 과제 공정표 만들어 줘."</p>
   <div class="stage" style="height:150mm;margin-top:9mm">
     <div class="shot" style="position:absolute;left:0;top:0;width:90mm"><img src="img/c1-질문지.jpg"></div>
     <div class="shot" style="position:absolute;left:98mm;top:4mm;width:80mm"><img src="img/c2-생성카드.jpg"></div>
@@ -428,8 +428,8 @@ p{margin:0}
   </div>
   <div class="facts">
     <div><b>먼저 묻는다</b>모자란 정보는 질문지로 묻고, 답하지 않은 질문은 적어 둔 가정대로 간다.</div>
-    <div><b>날짜는 코드가</b>AI 는 작업과 기간과 관계만 쓴다. 동절기 타설, 크레인 겹침 같은 위반은 코드가 잡는다. 촬영 네 번 중 세 번 한 번에 통과, 한 번 위반 1건.</div>
-    <div><b>처음 보는 분야도</b>용어, 작업 계층, 위험 규칙을 그 자리에서 만든다. 협력사 엑셀을 붙이면 빈칸만 묻는다.</div>
+    <div><b>날짜는 코드가</b>AI 는 작업과 기간과 관계만 쓴다. 날짜 계산과 규칙 위반은 코드가 잡는다. 실증 과제 초안 두 번(작업 72개, 73개) 모두 한 번에 통과.</div>
+    <div><b>인허가를 넣는다</b>말하지 않아도 발전사업허가, 가스 안전 허가, 사용 전 검사를 넣고, 법령 검색(Liner)으로 처리 기간 근거를 붙인다. 질문지에 실증특례를 적으면 특례 심의도 들어간다.</div>
   </div>
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
 </section>
@@ -439,7 +439,7 @@ p{margin:0}
   <div class="eyebrow">04 · 실제로 도는 시연 · 장면 1, 2</div>
   <h1 style="font-size:30pt">같은 3일인데, <span class="c">관리 포인트가 바뀌었다</span></h1>
   <div class="g2" style="margin-top:6mm">
-    <p class="body"><b>장면 1.</b> "창호 제작이 3일 늦어졌어." 준공도 관리 포인트도 그대로다. 창호 쪽은 여유가 18일이다. 이어서 "커튼월 공장 제작도 3일 늦어졌어." 이번에도 준공은 그대로라 사람은 안심한다. 하지만 커튼월 쪽 여유가 4일에서 1일로 줄고 새 관리 포인트 3건이 생겼다.</p>
+    <p class="body"><b>장면 1.</b> "데이터 수집 시스템 구축이 3일 늦어졌어." 과제 종료도 관리 포인트도 그대로다. 여유가 18일에서 15일로 줄었을 뿐이다. 이어서 "성능 시험이 재시험으로 3일 늦어졌어." 이번에도 과제 종료는 그대로라 사람은 안심한다. 하지만 연구 갈래(성능 시험 → 내구 시험 → 설계 확정 → 스택 모듈 제작)의 여유가 4일에서 1일로 줄어 관리 포인트가 바뀌었다. 3쪽 사례에서 놓친 바로 그 순간이다.</p>
     <p class="body"><b>장면 2.</b> 에이전트가 「관리 포인트가 바뀌었습니다」 카드를 띄운다. 새 포인트에 대해서만 Liner Search 가 외부 영향을 찾는다. 6개월이 넘은 글은 쓰지 않고, 찾지 못하면 「외부 자료 없음」으로 둔다. [근거 문장 보기]를 누르면 출처 문장이 열린다.</p>
   </div>
   <div class="stage" style="height:118mm;margin-top:10mm">
@@ -447,8 +447,8 @@ p{margin:0}
     <div class="shot" style="position:absolute;left:40mm;top:20mm;width:54mm;z-index:3"><img src="img/s1b-포인트카드.jpg" style="height:92mm;object-fit:cover;object-position:top"></div>
     <div class="shot glow-amber" style="position:absolute;left:100mm;top:0;width:54mm;z-index:4"><img src="img/s2-바깥위험.jpg" style="height:110mm;object-fit:cover;object-position:top"></div>
     <div class="shot" style="position:absolute;left:134mm;top:30mm;width:46mm;z-index:5"><img src="img/s2b-근거문장.jpg" style="height:82mm;object-fit:cover;object-position:top"></div>
-    <div class="chip2 white" style="left:2mm;top:0"><i>1</i>창호 +3일 · 변화 없음</div>
-    <div class="chip2 red" style="left:42mm;top:14mm"><i>2</i>커튼월 +3일 · 포인트 3건</div>
+    <div class="chip2 white" style="left:2mm;top:0"><i>1</i>데이터 수집 +3일 · 변화 없음</div>
+    <div class="chip2 red" style="left:42mm;top:14mm"><i>2</i>성능 시험 +3일 · 포인트 이동</div>
     <div class="chip2 amber" style="left:102mm;top:-6mm"><i>3</i>외부 영향</div>
     <div class="chip2" style="left:136mm;top:24mm"><i>4</i>근거 문장</div>
   </div>
@@ -483,24 +483,24 @@ p{margin:0}
 <section class="page">
   <div class="toprow"><div class="eyebrow amber">04 · 실제로 도는 시연 · 장면 4</div><span class="wow">WOW 2 · 5일 중 1일</span></div>
   <h1>당기기 전에 묻는다.<br>이걸 당기면 <em>며칠이 줄어드나.</em></h1>
-  <p class="sub">"옥탑 골조를 5일 당기면?" 에이전트가 코드로 다시 계산해 바로 답한다. 당긴 5일 가운데 마감에 반영되는 날은 하루. 이미 커튼월 쪽이 마감을 좌우하고 있어서다. 그래서 다음에 볼 곳까지 알려 준다.</p>
+  <p class="sub">"실증 설비 제작을 5일 당기면?" 에이전트가 코드로 다시 계산해 바로 답한다. 당긴 5일 가운데 과제 종료에 반영되는 날은 하루. 이미 연구 갈래의 성능 시험이 종료를 좌우하고 있어서다. 그래서 다음에 볼 곳까지 알려 준다.</p>
   <div style="position:relative;height:136mm;margin-top:9mm">
     <div class="shot" style="position:absolute;left:0;top:0;width:66mm;opacity:.92"><img src="img/s1b-포인트카드.jpg" style="height:86mm;object-fit:cover;object-position:top"></div>
     <div class="shot glow-amber" style="position:absolute;left:44mm;top:18mm;width:76mm"><img src="img/s4-당김효과.jpg"></div>
     <div class="shot" style="position:absolute;left:70mm;top:94mm;width:110mm"><img src="img/s6-관리포인트창.jpg"></div>
-    <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>커튼월이 3일 늦어 좌우하는 일이 바뀜</div>
+    <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>성능 시험이 3일 늦어 좌우하는 일이 바뀜</div>
     <div class="chip2 amber" style="left:46mm;top:14mm"><i>2</i>"5일 당기면?" → 5일 중 1일</div>
-    <div class="chip2" style="left:72mm;top:90mm"><i>3</i>관리 포인트 창에서 커튼월부터</div>
+    <div class="chip2" style="left:72mm;top:90mm"><i>3</i>관리 포인트 창에서 성능 시험부터</div>
     <div style="position:absolute;right:0;top:40mm;text-align:right">
       <div style="font-size:74pt;font-weight:800;line-height:.9;letter-spacing:-.05em;color:#fbbf24">1<span style="font-size:38pt;color:#64748b">/5</span></div>
-      <div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">당긴 5일 중<br>마감에 반영되는 날</div>
-      <div style="font-size:8.6pt;color:#94a3b8;margin-top:3mm">준공 2027-11-08 → 11-06</div>
+      <div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">당긴 5일 중<br>과제 종료에 반영되는 날</div>
+      <div style="font-size:8.6pt;color:#94a3b8;margin-top:3mm">과제 종료 2028-06-30 → 06-29</div>
     </div>
   </div>
   <div class="facts">
     <div><b>힘 쏟기 전에</b>야간 작업이나 장비를 더 넣기 전에 효과를 숫자로 본다. 같은 5일이 커튼월 지연 전에는 4일이었다.</div>
     <div><b>계산은 코드</b>AI 는 날짜를 셈하지 않는다. 확인용 계산이라 일정은 바뀌지 않는다.</div>
-    <div><b>다음 행동까지</b>다음 결정 줄은 커튼월 공장 제작 → 자재 반입 → 설치. 외부 영향과 담당자 연락으로 이어진다.</div>
+    <div><b>다음 행동까지</b>다음 결정 줄은 성능 시험 → 내구 시험 → 설계 확정 → 스택 모듈 제작. 외부 영향과 담당자 연락으로 이어진다.</div>
   </div>
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
 </section>
