@@ -18,6 +18,8 @@ export interface Turn {
   cost: number | null;
   /** 턴 전체 시간. 끝나지 않았으면 null. */
   ms: number | null;
+  /** cost 합 속 가격표 어림(Liner 라우터는 비용을 알리지 않는다): 모두 · 일부 · 없음. 예전 서버는 보내지 않는다. */
+  cost_estimated?: 'all' | 'some' | null;
 }
 
 export type NodeKey = 'request' | 'context' | 'skill' | 'plan' | 'judge' | 'tool' | 'check' | 'approval' | 'respond';
@@ -99,6 +101,8 @@ export interface TraceItem {
   input_tokens: number;
   output_tokens: number;
   cost: number | null;
+  /** cost 가 가격표 어림인가. 예전 서버는 보내지 않는다. */
+  cost_estimated?: boolean;
   ok: boolean;
   error: string | null;
   input_text: string;
@@ -232,6 +236,8 @@ export interface UsageTotals {
   output_tokens: number;
   cost: number | null;
   failed: number;
+  /** cost 합 속 가격표 어림: 모두 · 일부 · 없음. 예전 서버는 보내지 않는다. */
+  cost_estimated?: 'all' | 'some' | null;
 }
 
 export interface UsageRow extends UsageTotals {

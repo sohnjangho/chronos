@@ -2,12 +2,12 @@
 // 11-23: 따로 센 호출(정보 API · Liner 검색 대 다시 쓰기 · 그림 읽기 · 임베딩, UsageCounters).
 // Task 108: 연락 사용량(문자·장문·카카오톡·자동 답, 제공사 요금 — 알려 주지 않으면 그렇게 적는다).
 // Task 110: 통화 사용량(통화 시간 · 건 통화 수 · 음성 모델 · 받아쓰기(기록이 있을 때만) · 통화 요약 — 알려 준 값만).
-// 비용은 Liner 가 보낸 값만(cost_known 이 거짓이면 "—" 와 안내).
+// 비용은 Liner 가 보낸 값, 없으면 가격표 어림(「추정」·「일부 추정」 표시). cost_known 이 거짓이면 "—" 와 안내.
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../shared/api';
 import Field from '../../shared/ui/Field';
 import { devApi, type CallUsage, type OutreachUsage, type UsageGroup, type UsageOut, type UsageRow, type UsageTotals } from './devApi';
-import { cost, count } from './format';
+import { cost, costWithEstimate, count } from './format';
 import UsageCounters from './UsageCounters';
 
 const PERIODS = [7, 14, 30];
@@ -39,7 +39,8 @@ function KeyCell({ row, group }: { row: UsageRow; group: UsageGroup }) {
   );
 }
 
-const costText = (data: UsageOut, t: UsageTotals) => (data.cost_known && t.cost !== null ? cost(t.cost) : '—');
+const costText = (data: UsageOut, t: UsageTotals) =>
+  data.cost_known && t.cost !== null ? costWithEstimate(t.cost, t.cost_estimated) : '—';
 
 function UsageTable({ data, group }: { data: UsageOut; group: UsageGroup }) {
   const max = Math.max(1, ...data.rows.map((r) => r.input_tokens + r.output_tokens));

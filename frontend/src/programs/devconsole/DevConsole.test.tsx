@@ -198,6 +198,13 @@ describe('위 줄과 요청 고르기', () => {
     expect(bar).not.toHaveTextContent('초째');
   });
 
+  test('a turn cost that includes estimates says so', async () => {
+    mockTurn(done({ cost_estimated: 'some' }));
+    show();
+    await structure();
+    expect(screen.getByRole('group', { name: '이 요청' })).toHaveTextContent('약 $0.12 (일부 추정)');
+  });
+
   test('the picker reloads recent turns, finds by text and opens the chosen turn', async () => {
     show();
     await structure();
@@ -305,6 +312,22 @@ describe('사용량', () => {
     expect(screen.getByRole('row', { name: /claude-sonnet-5\.5/ })).toHaveTextContent('$0.05');
     await userEvent.selectOptions(screen.getByLabelText('기간'), '30');
     await waitFor(() => expect(lastUrl()).toBe('/api/devconsole/usage?days=30&group=model'));
+  });
+
+  test('estimated costs say 추정, and a total with some estimates says 일부 추정', async () => {
+    mockUsage({
+      cost_known: true,
+      rows: [
+        { key: 'claude-haiku-5.5', calls: 2, input_tokens: 150, output_tokens: 30, cost: 0.03, failed: 0, cost_estimated: 'all' },
+        { key: 'deepseek-v4', calls: 1, input_tokens: 10, output_tokens: 3, cost: 0.75, failed: 0, cost_estimated: null },
+      ],
+      totals: { calls: 3, input_tokens: 160, output_tokens: 33, cost: 0.78, failed: 0, cost_estimated: 'some' },
+    });
+    await openUsage();
+    expect(screen.getByRole('row', { name: /claude-haiku-5\.5/ })).toHaveTextContent('약 $0.03 (추정)');
+    expect(screen.getByRole('row', { name: /deepseek-v4/ })).toHaveTextContent('$0.75');
+    expect(screen.getByRole('row', { name: /deepseek-v4/ })).not.toHaveTextContent('추정');
+    expect(screen.getByRole('row', { name: /합계/ })).toHaveTextContent('약 $0.78 (일부 추정)');
   });
 });
 

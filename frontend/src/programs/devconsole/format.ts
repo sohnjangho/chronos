@@ -22,6 +22,10 @@ export const count = (n: number) => n.toLocaleString('ko-KR');
 /** 비용(Liner 가 보낸 값). 작은 값은 넷째 자리까지. */
 export const cost = (c: number) => `$${c.toFixed(c < 0.01 ? 4 : 2)}`;
 
+/** 가격표로 어림한 비용이 든 합: 모두면 「약 $0.12 (추정)」, 일부면 「약 $0.12 (일부 추정)」, 없으면 cost 그대로. */
+export const costWithEstimate = (c: number, estimated?: 'all' | 'some' | null) =>
+  estimated === 'all' ? `약 ${cost(c)} (추정)` : estimated === 'some' ? `약 ${cost(c)} (일부 추정)` : cost(c);
+
 const two = (n: number) => String(n).padStart(2, '0');
 
 /** 시:분:초.1 (예 "14:02:07.3"). */

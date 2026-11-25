@@ -7,7 +7,7 @@ import Badge from '../../shared/ui/Badge';
 import Tabs from '../../shared/ui/Tabs';
 import AgentStructure from './AgentStructure';
 import { devApi, type CatalogOut, type NodeKey, type OutreachRow, type PointsStage as Stage, type TurnDetail } from './devApi';
-import { cost, seconds, status, tokens } from './format';
+import { costWithEstimate, seconds, status, tokens } from './format';
 import HarnessTab from './HarnessTab';
 import HealthTab from './HealthTab';
 import NodeDetail from './NodeDetail';
@@ -83,7 +83,7 @@ function TurnStats({ detail, halted, checkedAt }: { detail: TurnDetail; halted: 
       <span>
         토큰 <b>{tokens(turn.tokens)}</b>
       </span>
-      {turn.cost !== null && <b>{cost(turn.cost)}</b>}
+      {turn.cost !== null && <b>{costWithEstimate(turn.cost, turn.cost_estimated)}</b>}
       <Elapsed detail={detail} halted={halted} checkedAt={checkedAt} />
     </div>
   );

@@ -2,7 +2,7 @@
 // 비용은 기록된 것만 보인다(정보 API·근거 검색은 비용이 기록되지 않는다 — 「—」).
 // 관리 포인트(계획 5 Task 7)의 Premium Data·MCP·Search Agent 는 Liner 가 값을 알리지 않아 호출 수 × 단가로 어림한다(「어림」).
 import type { UsageCounters as Counters, UsageTotals } from './devApi';
-import { cost, count } from './format';
+import { costWithEstimate, count } from './format';
 import { estimate as usd } from './pointsText';
 
 interface Line {
@@ -21,7 +21,7 @@ const pointLine = (name: string, c: { calls: number; failed: number } | undefine
   c ? [{ name, calls: c.calls, failed: c.failed, tokens: NO_COST, cost: estimate(c.calls, per1k), note }] : [];
 const llmLine = (name: string, t: UsageTotals, note: string): Line => ({
   name, calls: t.calls, failed: t.failed, tokens: `${count(t.input_tokens)} → ${count(t.output_tokens)}`,
-  cost: t.cost !== null ? cost(t.cost) : NO_COST, note,
+  cost: t.cost !== null ? costWithEstimate(t.cost, t.cost_estimated) : NO_COST, note,
 });
 
 function groups(c: Counters): [string, Line[]][] {
