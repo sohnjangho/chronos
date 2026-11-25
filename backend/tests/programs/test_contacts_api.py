@@ -487,7 +487,8 @@ def test_list_query_count_does_not_grow_with_people(client, user, session, sid):
     statements: list[str] = []
 
     def count(*args) -> None:
-        statements.append(args[2])
+        if "activity_log" not in args[2]:  # 접속 기록(응답 뒤 한 줄·1분 안 반복은 건너뜀)은 목록 쿼리가 아니다
+            statements.append(args[2])
 
     def add(numbers: range) -> None:
         for i in numbers:
