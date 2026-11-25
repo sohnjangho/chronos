@@ -146,3 +146,17 @@ def test_main_prints_url_and_serves(tmp_path, monkeypatch):
     assert "설정" in text
     assert "env-pass-123" not in text
     assert os.environ["CHRONOS_SECRET_KEY"] not in text
+
+
+def test_serve_plain_logs_and_web(monkeypatch):
+    """로그 거르개가 메시지를 미리 펴 두므로 색 출력(color_message)을 쓰면 「%d」가 그대로 찍힌다 — 색을 끈다."""
+    import uvicorn
+
+    from app.main import app
+
+    seen = {}
+    monkeypatch.setattr(uvicorn, "run", lambda target, **kw: seen.update(kw, target=target))
+    monkeypatch.setattr(app.router, "routes", list(app.router.routes))  # 다른 시험의 앱에 화면 길이 남지 않게
+    cli._serve("127.0.0.1", 18999)
+    assert seen["use_colors"] is False
+    assert (seen["host"], seen["port"], seen["target"]) == ("127.0.0.1", 18999, app)

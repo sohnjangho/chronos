@@ -153,7 +153,8 @@ def _serve(host: str, port: int) -> None:
     from app.serve_web import install_web
 
     install_web(app)
-    uvicorn.run(app, host=host, port=port, access_log=False)
+    # 색 출력은 원본 틀(color_message)을 써서 로그 거르개가 편 줄 대신 「%d」를 찍는다 — 색을 끈다
+    uvicorn.run(app, host=host, port=port, access_log=False, use_colors=False)
 
 
 def main(argv: list[str] | None = None, serve: Callable[[str, int], None] = _serve, say: Say = print) -> None:

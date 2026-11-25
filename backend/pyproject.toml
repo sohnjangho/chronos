@@ -1,7 +1,7 @@
 [project]
 name = "chronos-backend"
 version = "0.1.0"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"  # uvx 가 시험한 3.13 을 고르게(3.14 이상은 시험하지 않음)
 dependencies = [
     "fastapi[standard]==0.165.0",
     "SQLAlchemy==2.1.9",
