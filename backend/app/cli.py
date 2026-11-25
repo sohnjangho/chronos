@@ -8,10 +8,12 @@
   없으면 터미널에서 묻는다(비밀번호는 보이지 않게, 두 번). 만든 뒤 서버에는 실제 비밀번호 대신 검사만 통과하는
   버리는 값을 넘긴다 — 첫 관리자가 이미 있으면 init_db 는 그 값을 쓰지 않는다.
 - 뜻 검색(Qdrant)은 기본으로 끈다(--qdrant-url 로 켠다). Liner 키 등은 로그인 뒤 설정에서 넣는다.
+- 하루 LLM 비용 상한: --llm-daily-usd 10 → CHRONOS_LLM_DAILY_USD(화면의 설정보다 앞선다, app.llm.daily_cap). 주지 않으면 그대로.
 """
 
 import argparse
 import getpass
+import math
 import os
 import secrets
 import sqlite3
@@ -29,6 +31,16 @@ Ask = Callable[[str], str]
 Say = Callable[[str], None]
 
 
+def _positive_usd(raw: str) -> float:
+    try:
+        value = float(raw)
+    except ValueError:
+        value = math.nan
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError(f"양의 숫자(USD)여야 합니다: {raw}")
+    return value
+
+
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="chronos",
@@ -43,6 +55,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--admin-id", help="처음 실행 때 만들 관리자 아이디(비밀번호는 CHRONOS_ADMIN_PASSWORD 로 주면 묻지 않음)")
     p.add_argument("--qdrant-url", default=os.environ.get("CHRONOS_QDRANT_URL", ""),
                    help="뜻 검색용 Qdrant 주소(기본: 끔 — 낱말 검색만)")
+    p.add_argument("--llm-daily-usd", type=_positive_usd, default=None,
+                   help="하루 LLM 비용 상한(USD, 서울 자정에 다시 셈). 주면 화면의 설정보다 앞선다(CHRONOS_LLM_DAILY_USD). 기본: 없음")
     return p.parse_args(argv)
 
 
@@ -137,6 +151,8 @@ def prepare(args: argparse.Namespace, ask: Ask, ask_hidden: Ask, say: Say) -> di
         "CHRONOS_ADMIN_ID": login_id,
         "CHRONOS_ADMIN_PASSWORD": new_password or secrets.token_urlsafe(24),
     }
+    if args.llm_daily_usd is not None:
+        env["CHRONOS_LLM_DAILY_USD"] = str(args.llm_daily_usd)
     os.environ.update(env)
     if new_password is not None:
         from app.db import close_db, init_db  # 환경을 넣은 뒤에 불러온다

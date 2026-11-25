@@ -197,3 +197,26 @@ def test_reset_password_without_data_stops(tmp_path):
         cli.main(["reset-password", "--data-dir", str(tmp_path / "none")], serve=_no_prompt,
                  say=lambda _s: None, ask=_no_prompt, ask_hidden=_no_prompt)
     assert not (tmp_path / "none").exists()
+
+
+def test_llm_daily_usd_option_sets_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHRONOS_ADMIN_PASSWORD", "env-pass-123")
+    monkeypatch.delenv("CHRONOS_LLM_DAILY_USD", raising=False)
+    args = cli.parse_args(["--data-dir", str(tmp_path), "--admin-id", "judge", "--llm-daily-usd", "10"])
+    env = cli.prepare(args, ask=_no_prompt, ask_hidden=_no_prompt, say=lambda _s: None)
+    assert env["CHRONOS_LLM_DAILY_USD"] == "10.0" == os.environ["CHRONOS_LLM_DAILY_USD"]
+
+
+def test_llm_daily_usd_absent_leaves_env_alone(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHRONOS_ADMIN_PASSWORD", "env-pass-123")
+    monkeypatch.delenv("CHRONOS_LLM_DAILY_USD", raising=False)
+    env = cli.prepare(cli.parse_args(["--data-dir", str(tmp_path), "--admin-id", "judge"]),
+                      ask=_no_prompt, ask_hidden=_no_prompt, say=lambda _s: None)
+    assert "CHRONOS_LLM_DAILY_USD" not in env and "CHRONOS_LLM_DAILY_USD" not in os.environ
+
+
+@pytest.mark.parametrize("bad", ["0", "-1", "abc", "nan"])
+def test_llm_daily_usd_must_be_positive(bad, capsys):
+    with pytest.raises(SystemExit):
+        cli.parse_args(["--llm-daily-usd", bad])
+    assert "양의 숫자" in capsys.readouterr().err
