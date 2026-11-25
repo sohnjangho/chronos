@@ -34,11 +34,14 @@ S = [
     ('그런데 실증 설비를 설치하려던 날, 인허가가 일정표에 없었다는 걸 알았습니다.', '그런데 실증 설비를 설치하려던 날, 인허가가 일정표에 없었다는 걸 알았습니다.')]),
   dict(id='O2', min=4.5, chip='', cards=['c-hook'], lines=[
     ('과제 종료가 7개월 늘었습니다. 일이 늦어서가 아니라, 늦게 알아서 생긴 실패입니다.', '과제 종료가, 칠 개월 늘었습니다. 일이 늦어서가 아니라, 늦게 알아서 생긴 실패입니다.')]),
+  dict(id='O4', min=6.5, chip='', cards=['c-research'], nosub=True, lines=[
+    ('실제로도 실증 일정은 연구 밖에서 늦어집니다. 특례 심의만 최대 120일입니다.',
+     '실제로도, 실증 일정은 연구 밖에서 늦어집니다. 특례 심의만 최대 백이십 일입니다.')]),
   dict(id='O3', min=6, chip='', kb=True, cards=['c-cold'], nosub=True, lines=[
     ('지금이라면, 일정을 짤 때 압니다.', '지금이라면, 일정을 짤 때 압니다.')]),
-  dict(id='S02', chip='', cards=['c-title'], lines=[
-    ('ChronOS. 일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트입니다.',
-     '크로노스. 일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지, 먼저 알려 주는 에이전트입니다.')]),
+  dict(id='S02', chip='', cards=['c-title'], nosub=True, lines=[
+    ('ChronOS. 에이전트가 일정을 관리합니다. 일정이 바뀔 때마다 완료일정을 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 줍니다.',
+     '크로노스. 에이전트가 일정을 관리합니다. 일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지, 먼저 알려 줍니다.')]),
   dict(id='W1', min=22, chip='WOW 1 · 에이전트 OS', pieces=[('A/A-os-computer-use.mp4', 20, 50, 2), ('A/A-os-computer-use.mp4', 50, 63.3, 1)], lines=[
     ('ChronOS 는 채팅창 하나가 아니라 OS 입니다.', '크로노스는 채팅창 하나가 아니라, 오에스입니다.'),
     ('대화로 지연을 알리면, 에이전트가 스케줄과 지연 기록 창을 직접 열어 일합니다.', '대화로 지연을 알리면, 에이전트가 스케줄과 지연 기록 창을 직접 열어 일합니다.'),
@@ -131,6 +134,24 @@ def img(name):
     return 'file://' + str(IMG / name)
 
 
+# 기획서 3쪽 실사 4컷과 같은 말풍선. 사진 카드와 실사 영상 위에 같이 쓴다.
+CUT_BUB = {
+    1: '<div class="bub" style="left:120px;top:110px">재시험이면 6주.<br>여유 있으니 괜찮아.</div>',
+    2: '<div class="nar" style="left:120px;top:110px">실증 설비 제작 끝. 다음 주 설치만 하면 된다.</div>',
+    3: '<div class="bub phone" style="right:120px;top:110px">"실증특례 승인 없이는 설치 못 합니다.<br>심의만 3개월이에요."</div><div class="bub" style="right:120px;top:330px">그게 일정표에<br>없었는데…</div>',
+    4: '<div class="nar" style="left:120px;top:110px">실증 운전 12개월을 못 채운다. 과제 종료 7개월 연장.</div>',
+}
+BUB_CSS = """.bub{position:absolute;background:#fff;color:#0f172a;font-size:46px;font-weight:800;line-height:1.35;padding:26px 36px;border-radius:34px;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.bub.phone{background:#e0f2fe;color:#075985;font-weight:700;font-size:40px}
+.nar{position:absolute;background:#fbbf24;color:#1c1917;font-size:44px;font-weight:800;padding:20px 32px;border-radius:6px;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.no{position:absolute;left:60px;bottom:60px;width:72px;height:72px;border-radius:50%;background:#fbbf24;color:#05070d;font:800 40px/72px sans-serif;text-align:center}"""
+
+
+def bub_html(n):  # 실사 영상 위에 얹는 투명 말풍선
+    return f'<html><head><style>{BASE_CSS}body{{background:transparent;position:relative}}{BUB_CSS}</style></head><body>{CUT_BUB[n]}<div class="no">{n}</div><div style="position:absolute;right:40px;bottom:28px;font-size:20px;color:rgba(255,255,255,.75)">연출 영상 · Liner Videos API</div></body></html>'
+
+
+
 def card_html(cid):
     if cid == 'c-3days':
         svg = (HERE.parent / 'a4' / 'ChronOS_기획서_rev7.html').read_text(encoding='utf-8')
@@ -141,12 +162,7 @@ def card_html(cid):
 <div style="font-size:78px;font-weight:800;color:#fff;letter-spacing:-.03em;margin:18px 0 60px">크기가 아니라 <span style="background:linear-gradient(90deg,#fbbf24,#f97316);-webkit-background-clip:text;background-clip:text;color:transparent">위치</span>가 약속을 늦춘다</div>{s}</body></html>"""
     if cid.startswith('c-cut'):
         n = int(cid[-1])
-        bub = {
-            1: '<div class="bub" style="left:120px;top:110px">재시험이면 6주.<br>여유 있으니 괜찮아.</div>',
-            2: '<div class="nar" style="left:120px;top:110px">실증 설비 제작 끝. 다음 주 설치만 하면 된다.</div>',
-            3: '<div class="bub phone" style="right:120px;top:110px">"실증특례 승인 없이는 설치 못 합니다.<br>심의만 3개월이에요."</div><div class="bub" style="right:120px;top:330px">그게 일정표에<br>없었는데…</div>',
-            4: '<div class="nar" style="left:120px;top:110px">실증 운전 12개월을 못 채운다. 과제 종료 7개월 연장.</div>',
-        }[n]
+        bub = CUT_BUB[n]
         return f"""<html><head><style>{BASE_CSS}body{{background:#000 url('{img(f'rd1-{n}.jpg')}') center/cover no-repeat;position:relative}}
 .bub{{position:absolute;background:#fff;color:#0f172a;font-size:46px;font-weight:800;line-height:1.35;padding:26px 36px;border-radius:34px;box-shadow:0 14px 40px rgba(0,0,0,.45)}}
 .bub.phone{{background:#e0f2fe;color:#075985;font-weight:700;font-size:40px}}
@@ -164,12 +180,31 @@ def card_html(cid):
         return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};position:relative}}</style></head><body>
 <div style="position:absolute;left:370px;top:40px">{g}</div>
 <div style="position:absolute;left:0;right:0;bottom:46px;text-align:center;font-size:54px;font-weight:800;color:#fff">지금이라면, <span style="color:#7dd3fc">일정을 짤 때 안다.</span></div></body></html>"""
-    if cid == 'c-title':
-        return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};padding:150px 170px;position:relative}}</style></head><body>
-<div style="display:inline-block;font:700 24px Menlo;letter-spacing:.12em;color:#7dd3fc;border:2px solid rgba(125,211,252,.5);border-radius:999px;padding:8px 22px">LINER .EXE-THON 2026</div>
-<div style="font-size:200px;font-weight:800;letter-spacing:-.04em;color:#fff;margin-top:40px;line-height:1">Chron<span style="{GRAD}">OS</span></div>
-<div style="font-size:52px;font-weight:700;color:#fff;margin-top:40px;line-height:1.4">일정이 바뀔 때마다, 완료일정을 좌우하는 일이<br>어디로 옮겨 갔는지 먼저 알려 주는 에이전트</div>
-<img src="{img('cv-에이전트.jpg')}" style="position:absolute;right:150px;top:120px;width:330px;height:620px;object-fit:cover;object-position:top;border-radius:24px;box-shadow:0 0 120px rgba(251,191,36,.35);border:2px solid rgba(255,255,255,.2)"></body></html>"""
+    if cid == 'c-research':  # 기획서 5쪽 「조사로 확인한 것」
+        st = [('120일', '규제 특례 심의까지 최대', '매일일보 2024.06'), ('45~150일', '지역별 인허가 기간', '기후에너지경제 2025.12'), ('58.0%', '"실증 지원 체계 부족"', 'KISTEP 2018 · 연구자 설문')]
+        cells = ''.join(f'<div style="border:2px solid rgba(248,113,113,.45);background:rgba(248,113,113,.07);border-radius:28px;padding:60px 48px">'
+                        f'<div style="font-size:104px;font-weight:800;color:#f87171;letter-spacing:-.04em;line-height:1;white-space:nowrap">{a}</div>'
+                        f'<div style="font-size:44px;font-weight:800;color:#fff;margin-top:30px;line-height:1.3">{b}</div>'
+                        f'<div style="font-size:24px;color:#94a3b8;margin-top:18px">{c}</div></div>' for a, b, c in st)
+        return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};padding:150px 140px}}</style></head><body>
+<div style="font:700 28px Menlo;letter-spacing:.2em;color:#f87171">조사로 확인한 것</div>
+<div style="font-size:84px;font-weight:800;color:#fff;letter-spacing:-.03em;margin:22px 0 70px;line-height:1.2">R&amp;D 실증 일정은 <span style="color:#fbbf24">연구 밖</span>에서 늦어진다</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:44px">{cells}</div>
+<div style="font-size:32px;color:#94a3b8;margin-top:60px">인허가, 특례 심의, 부처 간 조율처럼 연구자가 통제하지 못하는 외부 절차가 일정을 좌우한다.</div></body></html>"""
+    if cid == 'c-title':  # 기획서 표지와 같은 구성
+        cards = [('에이전트 OS 시스템', '채팅창 하나가 아니라 OS. 스케줄·간트·CPM 창을 직접 열어 일한다.'),
+                 ('AGI 시스템', '무엇을 할지 스스로 정하고, 워크플로우를 짜고, 잘 된 순서는 스킬로 남긴다.'),
+                 ('에이전트가 직접 연락', '담당자에게 문자를 보내고 AI 전화로 묻는다. 보내기 전엔 사람이 승인한다.')]
+        cc = ''.join(f'<div style="border-top:3px solid rgba(255,255,255,.2);padding-top:22px"><div style="font-size:36px;font-weight:800;color:#fff">{t}</div>'
+                     f'<div style="font-size:26px;color:#cbd5e1;line-height:1.5;margin-top:12px">{d}</div></div>' for t, d in cards)
+        return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};padding:90px 120px;position:relative}}</style></head><body>
+<div style="display:inline-block;font:700 22px Menlo;letter-spacing:.12em;color:#7dd3fc;border:2px solid rgba(125,211,252,.5);border-radius:999px;padding:8px 22px">LINER .EXE-THON 2026</div>
+<div style="font:700 24px Menlo;letter-spacing:.2em;color:#7dd3fc;margin-top:60px">일정 에이전트 OS</div>
+<div style="font-size:170px;font-weight:800;letter-spacing:-.04em;color:#fff;margin-top:10px;line-height:1">Chron<span style="{GRAD}">OS</span></div>
+<div style="font-size:60px;font-weight:800;color:#fff;margin-top:36px;letter-spacing:-.02em">에이전트가 <span style="color:#7dd3fc">일정을 관리한다.</span></div>
+<div style="font-size:32px;color:#cbd5e1;margin-top:28px;line-height:1.55;width:660px">일정이 바뀔 때마다, 완료일정을 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 주는 에이전트.</div>
+<img src="{img('cap/cover-os.jpg')}" style="position:absolute;right:120px;top:110px;width:900px;border-radius:16px;border:2px solid rgba(255,255,255,.2);box-shadow:0 30px 90px rgba(0,0,0,.6)">
+<div style="position:absolute;left:120px;right:120px;bottom:90px;display:grid;grid-template-columns:repeat(3,1fr);gap:56px">{cc}</div></body></html>"""
     if cid == 'c-end':
         return f"""<html><head><style>{BASE_CSS}body{{{DARK_BG};display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}}</style></head><body>
 <div style="font-size:64px;font-weight:800;color:#fff;line-height:1.4;letter-spacing:-.02em">무엇이 완료일정을 늦추는지는,<br><span style="{GRAD}">바뀔 때마다 다시 정해집니다.</span></div>
@@ -362,6 +397,9 @@ def build(seg):
         jobs.append({'html': overlay_html(seg['chip'], None, note=seg.get('note')), 'out': str(WORK / f'{sid}-o0.png'), 'transparent': True})
     for cid in seg.get('cards', []):
         jobs.append({'html': card_html(cid), 'out': str(WORK / f'{cid}.png')})
+    if sid == 'O1':
+        for n in CUT_BUB:
+            jobs.append({'html': bub_html(n), 'out': str(WORK / f'O1-bub{n}.png'), 'transparent': True})
     render(jobs)
     # 영상
     inputs, fc, vlabels = [], [], []
@@ -406,8 +444,14 @@ def build(seg):
             en = ''
         nxt = f'o{k}'
         fc.append(f'[{cur}][{base_in + k}:v]overlay=0:0{en}[{nxt}]'); cur = nxt
+    nb = 0
+    if seg.get('cards') and vids:  # 실사 영상 칸마다 기획서와 같은 말풍선
+        for k in range(len(seg['cards'])):
+            inputs += ['-i', WORK / f'O1-bub{k + 1}.png']
+            fc.append(f"[{cur}][{base_in + len(ovs) + k}:v]overlay=0:0:enable='between(t,{k * each:.2f},{(k + 1) * each:.2f})'[b{k}]"); cur = f'b{k}'
+            nb += 1
     out = WORK / f'{sid}.mp4'
-    ff(*inputs, '-i', WORK / f'{sid}.wav', '-filter_complex', ';'.join(fc), '-map', f'[{cur}]', '-map', f'{base_in + len(ovs)}:a',
+    ff(*inputs, '-i', WORK / f'{sid}.wav', '-filter_complex', ';'.join(fc), '-map', f'[{cur}]', '-map', f'{base_in + len(ovs) + nb}:a',
        '-t', f'{T:.3f}', '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-r', FPS, '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', out)
     print(f'{sid}: {T:.1f}s')
     return T
