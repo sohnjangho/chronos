@@ -15,6 +15,34 @@ const DEFAULT_AGENT_CONFIG: AgentConfig = {
   enable_self_reflection: true,
 };
 
+/** 실행 설정의 숫자 칸 하나(이름 · 범위 · 값). */
+function NumField({
+  label,
+  aria,
+  min,
+  max,
+  step,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  aria: string;
+  min: number;
+  max: number;
+  step?: number;
+  value: number;
+  disabled: boolean;
+  onChange(value: string): void;
+}) {
+  return (
+    <label className="dc-cfg-field">
+      <span>{label}</span>
+      <input type="number" aria-label={aria} min={min} max={max} step={step} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  );
+}
+
 function AgentConfigPanel({ initial, onSaved }: { initial?: AgentConfig; onSaved(): void }) {
   const [saved, setSaved] = useState<AgentConfig>(initial ?? DEFAULT_AGENT_CONFIG);
   const [draft, setDraft] = useState<AgentConfig>(initial ?? DEFAULT_AGENT_CONFIG);
@@ -29,6 +57,12 @@ function AgentConfigPanel({ initial, onSaved }: { initial?: AgentConfig; onSaved
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(min, Math.min(max, Math.round(n)));
+  };
+
+  /** 칸 하나를 고치면 저장 알림을 지운다. */
+  const edit = (fn: (d: AgentConfig) => AgentConfig) => {
+    setDraft(fn);
+    setNotice(null);
   };
 
   async function save() {
@@ -83,10 +117,7 @@ function AgentConfigPanel({ initial, onSaved }: { initial?: AgentConfig; onSaved
             aria-label="승인 수준"
             value={draft.approval_mode}
             disabled={busy}
-            onChange={(e) => {
-              setDraft((d) => ({ ...d, approval_mode: e.target.value as ApprovalMode }));
-              setNotice(null);
-            }}
+            onChange={(e) => edit((d) => ({ ...d, approval_mode: e.target.value as ApprovalMode }))}
           >
             <option value="all">모두 승인 (변경마다)</option>
             <option value="important">중요한 것만 (권장)</option>
@@ -94,96 +125,26 @@ function AgentConfigPanel({ initial, onSaved }: { initial?: AgentConfig; onSaved
           </select>
         </label>
 
-        <label className="dc-cfg-field">
-          <span>ReAct 루프 단계 한도 (바퀴)</span>
-          <input
-            type="number"
-            aria-label="ReAct 루프 단계 한도"
-            min={4}
-            max={24}
-            value={draft.max_steps}
-            disabled={busy}
-            onChange={(e) => {
-              setDraft((d) => ({ ...d, max_steps: clampNum(e.target.value, 4, 24, d.max_steps) }));
-              setNotice(null);
-            }}
-          />
-        </label>
+        <NumField label="ReAct 루프 단계 한도 (바퀴)" aria="ReAct 루프 단계 한도" min={4} max={24} value={draft.max_steps} disabled={busy}
+          onChange={(v) => edit((d) => ({ ...d, max_steps: clampNum(v, 4, 24, d.max_steps) }))} />
 
-        <label className="dc-cfg-field">
-          <span>하네스 재시도 한도 (회)</span>
-          <input
-            type="number"
-            aria-label="하네스 재시도 한도"
-            min={1}
-            max={10}
-            value={draft.max_check_retries}
-            disabled={busy}
-            onChange={(e) => {
-              setDraft((d) => ({ ...d, max_check_retries: clampNum(e.target.value, 1, 10, d.max_check_retries) }));
-              setNotice(null);
-            }}
-          />
-        </label>
+        <NumField label="하네스 재시도 한도 (회)" aria="하네스 재시도 한도" min={1} max={10} value={draft.max_check_retries} disabled={busy}
+          onChange={(v) => edit((d) => ({ ...d, max_check_retries: clampNum(v, 1, 10, d.max_check_retries) }))} />
 
-        <label className="dc-cfg-field">
-          <span>도구 결과 길이 상한 (자)</span>
-          <input
-            type="number"
-            aria-label="도구 결과 길이 상한"
-            min={1000}
-            max={16000}
-            step={500}
-            value={draft.tool_output_limit}
-            disabled={busy}
-            onChange={(e) => {
-              setDraft((d) => ({ ...d, tool_output_limit: clampNum(e.target.value, 1000, 16000, d.tool_output_limit) }));
-              setNotice(null);
-            }}
-          />
-        </label>
+        <NumField label="도구 결과 길이 상한 (자)" aria="도구 결과 길이 상한" min={1000} max={16000} step={500} value={draft.tool_output_limit} disabled={busy}
+          onChange={(v) => edit((d) => ({ ...d, tool_output_limit: clampNum(v, 1000, 16000, d.tool_output_limit) }))} />
 
-        <label className="dc-cfg-field">
-          <span>대화 컨텍스트 유지 수 (개)</span>
-          <input
-            type="number"
-            aria-label="대화 컨텍스트 유지 수"
-            min={6}
-            max={60}
-            step={2}
-            value={draft.history_limit}
-            disabled={busy}
-            onChange={(e) => {
-              setDraft((d) => ({ ...d, history_limit: clampNum(e.target.value, 6, 60, d.history_limit) }));
-              setNotice(null);
-            }}
-          />
-        </label>
+        <NumField label="대화 컨텍스트 유지 수 (개)" aria="대화 컨텍스트 유지 수" min={6} max={60} step={2} value={draft.history_limit} disabled={busy}
+          onChange={(v) => edit((d) => ({ ...d, history_limit: clampNum(v, 6, 60, d.history_limit) }))} />
       </div>
 
       <div className="dc-cfg-toggles">
         <label className="dc-cfg-check">
-          <input
-            type="checkbox"
-            checked={draft.enable_skill_match}
-            disabled={busy}
-            onChange={(e) => {
-              setDraft((d) => ({ ...d, enable_skill_match: e.target.checked }));
-              setNotice(null);
-            }}
-          />
+          <input type="checkbox" checked={draft.enable_skill_match} disabled={busy} onChange={(e) => edit((d) => ({ ...d, enable_skill_match: e.target.checked }))} />
           <span>베테랑 스킬 자동 매칭</span>
         </label>
         <label className="dc-cfg-check">
-          <input
-            type="checkbox"
-            checked={draft.enable_self_reflection}
-            disabled={busy}
-            onChange={(e) => {
-              setDraft((d) => ({ ...d, enable_self_reflection: e.target.checked }));
-              setNotice(null);
-            }}
-          />
+          <input type="checkbox" checked={draft.enable_self_reflection} disabled={busy} onChange={(e) => edit((d) => ({ ...d, enable_self_reflection: e.target.checked }))} />
           <span>도구 실패 시 자가 점검(Reflection) 자동 주입</span>
         </label>
         {notice && <span className="dc-ok" role="status">{notice}</span>}

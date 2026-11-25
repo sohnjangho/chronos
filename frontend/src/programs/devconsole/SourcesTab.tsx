@@ -3,6 +3,104 @@ import { useState } from 'react';
 import Badge from '../../shared/ui/Badge';
 import type { CatalogOut } from './devApi';
 
+type Sources = CatalogOut['sources'];
+type Guide = Sources['guides'][number];
+type PipelinePrompt = NonNullable<Sources['pipeline_prompts']>[number];
+
+/** 동적 가이드 표와 고른 가이드 원문. */
+function GuidesSection({ guides, guide, onPick }: { guides: Guide[]; guide: Guide | undefined; onPick(name: string): void }) {
+  return (
+    <div className="dc-src-split">
+      <table className="dc-cat-table" aria-label="동적 가이드 목록">
+        <thead>
+          <tr>
+            <th>가이드</th>
+            <th>원천 파일</th>
+            <th>동적 선택 키워드 (select_guides)</th>
+            <th>연동 화면</th>
+            <th>분량</th>
+          </tr>
+        </thead>
+        <tbody>
+          {guides.map((g) => (
+            <tr key={g.name} className={`dc-cat-row${guide?.name === g.name ? ' is-picked' : ''}`} onClick={() => onPick(g.name)}>
+              <td>
+                <button type="button" className="dc-link" onClick={() => onPick(g.name)}>
+                  <b>{g.name}</b>
+                </button>
+              </td>
+              <td>
+                <code>{g.file}</code>
+              </td>
+              <td>{g.keywords.length ? g.keywords.map((k) => <span key={k} className="dc-tag">{k}</span>) : <span className="dc-muted">—</span>}</td>
+              <td>{g.programs.length ? g.programs.map((p) => <Badge key={p} tone="info">{p}</Badge>) : <span className="dc-muted">공통</span>}</td>
+              <td>{`${g.chars.toLocaleString()}자`}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {guide && (
+        <div className="dc-principles-box">
+          <div className="dc-harness-test-head">
+            <b>{`${guide.name}.md 원문`}</b>
+            <code>{guide.file}</code>
+            <Badge tone="info">{`${guide.chars.toLocaleString()}자`}</Badge>
+          </div>
+          <pre className="dc-code-block">{guide.content}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 내부 생성 파이프라인 프롬프트 표와 고른 프롬프트 원문. */
+function PipelineSection({ pipeline, pipe, onPick }: { pipeline: PipelinePrompt[]; pipe: PipelinePrompt | undefined; onPick(name: string): void }) {
+  return (
+    <div className="dc-src-split">
+      {pipeline.length === 0 ? (
+        <p className="dc-empty">표시할 내부 파이프라인 프롬프트가 없습니다.</p>
+      ) : (
+        <>
+          <table className="dc-cat-table" aria-label="내부 파이프라인 프롬프트 목록">
+            <thead>
+              <tr>
+                <th>이름</th>
+                <th>원천 파일</th>
+                <th>분량</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pipeline.map((p) => (
+                <tr key={p.name} className={`dc-cat-row${pipe?.name === p.name ? ' is-picked' : ''}`} onClick={() => onPick(p.name)}>
+                  <td>
+                    <button type="button" className="dc-link" onClick={() => onPick(p.name)}>
+                      <b>{p.name}</b>
+                    </button>
+                  </td>
+                  <td>
+                    <code>{p.file}</code>
+                  </td>
+                  <td>{`${p.chars.toLocaleString()}자`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {pipe && (
+            <div className="dc-principles-box">
+              <div className="dc-harness-test-head">
+                <b>{`${pipe.name}.md 원문`}</b>
+                <code>{pipe.file}</code>
+                <Badge tone="info">{`${pipe.chars.toLocaleString()}자`}</Badge>
+              </div>
+              <pre className="dc-code-block">{pipe.content}</pre>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function SourcesTab({ catalog }: { catalog: CatalogOut }) {
   const { sources } = catalog;
   const pipeline = sources.pipeline_prompts ?? [];
@@ -36,91 +134,11 @@ export default function SourcesTab({ catalog }: { catalog: CatalogOut }) {
       </div>
 
       {section === 'guides' && (
-        <div className="dc-src-split">
-          <table className="dc-cat-table" aria-label="동적 가이드 목록">
-            <thead>
-              <tr>
-                <th>가이드</th>
-                <th>원천 파일</th>
-                <th>동적 선택 키워드 (select_guides)</th>
-                <th>연동 화면</th>
-                <th>분량</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sources.guides.map((g) => (
-                <tr key={g.name} className={`dc-cat-row${guide?.name === g.name ? ' is-picked' : ''}`} onClick={() => setPickedGuide(g.name)}>
-                  <td>
-                    <button type="button" className="dc-link" onClick={() => setPickedGuide(g.name)}>
-                      <b>{g.name}</b>
-                    </button>
-                  </td>
-                  <td>
-                    <code>{g.file}</code>
-                  </td>
-                  <td>{g.keywords.length ? g.keywords.map((k) => <span key={k} className="dc-tag">{k}</span>) : <span className="dc-muted">—</span>}</td>
-                  <td>{g.programs.length ? g.programs.map((p) => <Badge key={p} tone="info">{p}</Badge>) : <span className="dc-muted">공통</span>}</td>
-                  <td>{`${g.chars.toLocaleString()}자`}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {guide && (
-            <div className="dc-principles-box">
-              <div className="dc-harness-test-head">
-                <b>{`${guide.name}.md 원문`}</b>
-                <code>{guide.file}</code>
-                <Badge tone="info">{`${guide.chars.toLocaleString()}자`}</Badge>
-              </div>
-              <pre className="dc-code-block">{guide.content}</pre>
-            </div>
-          )}
-        </div>
+        <GuidesSection guides={sources.guides} guide={guide} onPick={setPickedGuide} />
       )}
 
       {section === 'pipeline' && (
-        <div className="dc-src-split">
-          {pipeline.length === 0 ? (
-            <p className="dc-empty">표시할 내부 파이프라인 프롬프트가 없습니다.</p>
-          ) : (
-            <>
-              <table className="dc-cat-table" aria-label="내부 파이프라인 프롬프트 목록">
-                <thead>
-                  <tr>
-                    <th>이름</th>
-                    <th>원천 파일</th>
-                    <th>분량</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pipeline.map((p) => (
-                    <tr key={p.name} className={`dc-cat-row${pipe?.name === p.name ? ' is-picked' : ''}`} onClick={() => setPickedPipeline(p.name)}>
-                      <td>
-                        <button type="button" className="dc-link" onClick={() => setPickedPipeline(p.name)}>
-                          <b>{p.name}</b>
-                        </button>
-                      </td>
-                      <td>
-                        <code>{p.file}</code>
-                      </td>
-                      <td>{`${p.chars.toLocaleString()}자`}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {pipe && (
-                <div className="dc-principles-box">
-                  <div className="dc-harness-test-head">
-                    <b>{`${pipe.name}.md 원문`}</b>
-                    <code>{pipe.file}</code>
-                    <Badge tone="info">{`${pipe.chars.toLocaleString()}자`}</Badge>
-                  </div>
-                  <pre className="dc-code-block">{pipe.content}</pre>
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        <PipelineSection pipeline={pipeline} pipe={pipe} onPick={setPickedPipeline} />
       )}
 
       {section === 'system' && (
