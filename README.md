@@ -201,6 +201,27 @@ docs/         설계 · 계획 · 대회 문서 · 화면
 
 실측 기록(모델·라우팅·도구 호출·JSON·그림 입력·MCP): `docs/dev-journal/2026-11.md`.
 
+## 한 줄 설치 (uvx)
+
+Docker·Node 없이 터미널 한 줄로 설치하고 띄운다. 준비물은 [uv](https://docs.astral.sh/uv/) 하나다(Python 3.13 은 uv 가 알아서 받는다).
+
+```bash
+# 준비: uv 설치 (맥·리눅스)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# (Windows PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 설치하고 띄우기
+uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos
+```
+
+- 처음 실행이면 **관리자 아이디**와 **비밀번호**(8자 이상, 입력은 보이지 않음, 두 번)를 묻는다. 다음부터는 묻지 않는다.
+- 브라우저에서 **http://127.0.0.1:8210** 을 열고 그 계정으로 로그인한다. 끌 때는 터미널에서 Ctrl+C.
+- 데이터는 `~/.chronos`(DB·비밀 열쇠)에 둔다. 옵션은 `chronos --help`(`--data-dir`, `--port`, `--host`, `--admin-id`, `--qdrant-url`).
+- Liner API 키·임베딩·외부 연결은 처음에 비어 있다. 처음 설정은 docs/manual/ChronOS_설치_사용설명서.pdf 를 따른다.
+- 저장소가 비공개인 동안은 접근 권한이 있는 GitHub 계정으로 git 이 로그인되어 있어야 한다.
+- 화면을 고친 뒤에는 `bash scripts/build-web.sh` 로 `backend/app/web`(설치본이 내주는 화면)을 다시 만들어 커밋한다.
+
 ## 실행 (맥에서 직접)
 
 준비: Python 3.13, Node 22 이상.
