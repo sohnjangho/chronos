@@ -73,6 +73,7 @@ class LlmCall(Base):
     input_tokens: Mapped[int] = mapped_column(default=0)
     output_tokens: Mapped[int] = mapped_column(default=0)
     cost: Mapped[float | None] = mapped_column(default=None)
+    cost_estimated: Mapped[bool | None] = mapped_column(default=None)  # cost 가 가격표 어림인가(예전 줄은 None)
     latency_ms: Mapped[int]
     ok: Mapped[bool]
     error_code: Mapped[str | None] = mapped_column(String(20), default=None)
@@ -435,7 +436,7 @@ class EvidenceLink(Base):
 class TraceEvent(Base):
     """실행 추적 한 줄: 턴(turn_id) 안의 맥락 조립·LLM 호출·끝. 키는 담지 않는다.
 
-    kind: 'context' | 'llm' | 'end'. cost 는 제공자가 알려 줄 때만(없으면 None).
+    kind: 'context' | 'llm' | 'end'. cost 는 제공자가 알려 준 값, 없으면 가격표 어림(cost_estimated True), 둘 다 없으면 None.
     """
 
     __tablename__ = "trace_events"
@@ -453,6 +454,7 @@ class TraceEvent(Base):
     input_tokens: Mapped[int] = mapped_column(default=0)
     output_tokens: Mapped[int] = mapped_column(default=0)
     cost: Mapped[float | None] = mapped_column(default=None)
+    cost_estimated: Mapped[bool | None] = mapped_column(default=None)  # cost 가 가격표 어림인가(예전 줄은 None)
     ok: Mapped[bool] = mapped_column(default=True)
     error: Mapped[str | None] = mapped_column(String(200), default=None)
     input_text: Mapped[str] = mapped_column(Text, default="")

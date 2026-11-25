@@ -182,11 +182,14 @@ def test_usage_by_model(client, admin, session):
                         ("liner-mark-1.3", 30, 5, None, False)])
     u = client.get("/api/devconsole/usage?group=model", headers=admin).json()
     assert u["rows"] == [
-        {"key": "claude-sonnet-5.5", "calls": 2, "input_tokens": 150, "output_tokens": 30, "cost": None, "failed": 0},
-        {"key": "liner-mark-1.3", "calls": 1, "input_tokens": 30, "output_tokens": 5, "cost": None, "failed": 1},
+        {"key": "claude-sonnet-5.5", "calls": 2, "input_tokens": 150, "output_tokens": 30, "cost": None, "failed": 0,
+         "cost_estimated": None},
+        {"key": "liner-mark-1.3", "calls": 1, "input_tokens": 30, "output_tokens": 5, "cost": None, "failed": 1,
+         "cost_estimated": None},
     ]
     assert u["cost_known"] is False
-    assert u["totals"] == {"calls": 3, "input_tokens": 180, "output_tokens": 35, "cost": None, "failed": 1}
+    assert u["totals"] == {"calls": 3, "input_tokens": 180, "output_tokens": 35, "cost": None, "failed": 1,
+                           "cost_estimated": None}
 
 
 def test_usage_by_user_labels_calls_outside_chat(client, admin, session):
@@ -205,7 +208,7 @@ def test_turn_list_row(client, admin, finished_turn, chat_id):
     assert len(rows) == 1
     row = rows[0]
     assert set(row) == {"turn_id", "chat_session_id", "user_name", "request", "started_at", "status", "llm_calls",
-                        "tool_calls", "tokens", "cost", "ms"}
+                        "tool_calls", "tokens", "cost", "ms", "cost_estimated"}
     assert (row["turn_id"], row["chat_session_id"], row["user_name"], row["request"], row["status"]) == (
         finished_turn, chat_id, "관리자", "몇 개야?", "done")
     # 가짜 답마다 12/5 토큰, 비용 0.04
@@ -338,7 +341,7 @@ def test_timeline_puts_steps_and_inner_calls_in_time_order(client, admin, sessio
         (4, "inner_llm", "도구 안 모델 호출 (hard)"), (5, "tool", "calc.cpm"), (6, "llm", "모델 호출 (normal)"),
     ]
     assert set(timeline[0]) == {"seq", "kind", "label", "started_at", "ms", "model", "input_tokens", "output_tokens",
-                                "cost", "ok", "error", "input_text", "output_text", "parallel_group", "signals"}
+                                "cost", "cost_estimated", "ok", "error", "input_text", "output_text", "parallel_group", "signals"}
     tool1, inner_call, tool2 = timeline[2], timeline[3], timeline[4]
     assert tool1["started_at"] == "2027-03-01T09:00:01.500000Z" and tool2["started_at"] == "2027-03-01T09:00:01.600000Z"
     assert inner_call["started_at"] == "2027-03-01T09:00:01.550000Z" and inner_call["ms"] == 50
@@ -434,6 +437,33 @@ def test_usage_by_purpose_and_known_cost(client, admin, session):
     assert u["cost_known"] is True and u["totals"]["cost"] == pytest.approx(0.75)
 
 
+
+def test_usage_marks_estimated_costs(client, admin, session):
+    common = {"requested_model": "liner-claude-router", "latency_ms": 1, "ok": True}
+    session.add_all([
+        LlmCall(purpose="light", model="claude-haiku-5.5", cost=0.01, cost_estimated=True, **common),
+        LlmCall(purpose="light", model="claude-haiku-5.5", cost=0.02, cost_estimated=True, **common),
+        LlmCall(purpose="hard", model="claude-sonnet-5.5", cost=0.5, cost_estimated=False, **common),
+        LlmCall(purpose="hard", model="claude-sonnet-5.5", cost=0.25, cost_estimated=None, **common),  # 예전 줄
+        LlmCall(purpose="hard", model="claude-sonnet-5.5", cost=None, cost_estimated=None, **common),
+    ])
+    session.commit()
+    u = client.get("/api/devconsole/usage?group=purpose", headers=admin).json()
+    marks = {r["key"]: (r["cost"], r["cost_estimated"]) for r in u["rows"]}
+    assert marks == {"light": (pytest.approx(0.03), "all"), "hard": (pytest.approx(0.75), None)}
+    assert u["totals"]["cost"] == pytest.approx(0.78) and u["totals"]["cost_estimated"] == "some"
+
+
+def test_turn_and_timeline_mark_estimated_costs(client, admin, session):
+    _, turn = made_turn(session, events=[ctx_ev(), llm_ev(1, cost=0.5), llm_ev(3, cost=0.1, cost_estimated=True),
+                                            end_ev(4)])
+    session.commit()
+    body = get_turn(client, admin, turn)
+    assert body["turn"]["cost"] == pytest.approx(0.6) and body["turn"]["cost_estimated"] == "some"
+    llms = [t for t in body["timeline"] if t["kind"] == "llm"]
+    assert [(t["cost"], t["cost_estimated"]) for t in llms] == [(0.5, False), (0.1, True)]
+
+
 def test_usage_window_and_searches(client, admin, session):
     old = (datetime.now(UTC) - timedelta(days=20)).replace(tzinfo=None)
     add_calls(session, [("m", 1, 1, None, True)], at=old)
@@ -482,8 +512,10 @@ def test_usage_counters_separate_info_api_searches_reuses_vision_and_embedding(c
         "weather": {"calls": 1, "failed": 0},
         "searches": {"calls": 2, "failed": 1},
         "reuses": {"calls": 3},
-        "vision": {"calls": 2, "input_tokens": 150, "output_tokens": 20, "cost": 0.01, "failed": 1},
-        "embedding": {"calls": 1, "input_tokens": 300, "output_tokens": 0, "cost": None, "failed": 0},
+        "vision": {"calls": 2, "input_tokens": 150, "output_tokens": 20, "cost": 0.01, "failed": 1,
+                   "cost_estimated": None},
+        "embedding": {"calls": 1, "input_tokens": 300, "output_tokens": 0, "cost": None, "failed": 0,
+                      "cost_estimated": None},
         "knowledge": {"calls": 0, "failed": 0}, "mcp": {"calls": 0, "failed": 0},  # 관리 포인트(test_devconsole_points)
         "search_agent": {"calls": 0, "failed": 0},
     }
@@ -497,7 +529,7 @@ def test_usage_rejects_bad_queries(client, admin, query):
 
 def test_usage_when_nothing_happened(client, admin):
     u = client.get("/api/devconsole/usage", headers=admin).json()
-    zero = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": None, "failed": 0}
+    zero = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": None, "failed": 0, "cost_estimated": None}
     assert u == {"rows": [], "totals": zero, "cost_known": False, "searches": {"calls": 0, "failed": 0},
                  "counters": {"info_api": {"calls": 0, "failed": 0}, "weather": {"calls": 0, "failed": 0},
                               "searches": {"calls": 0, "failed": 0}, "reuses": {"calls": 0},

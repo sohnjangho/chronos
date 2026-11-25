@@ -115,7 +115,7 @@ async def test_turn_id_is_the_user_message_id(run, session, chat_id):
 async def test_llm_event_keeps_model_tokens_cost_ms_and_the_reply(run, session):
     first = calls("schedule.read", {"x": 1}, text="읽겠습니다", model="m-1", prompt_tokens=7, completion_tokens=3,
                   cost=0.01)
-    await run(ScriptedLlm([first, reply("끝", cost=None)]), "몇 개야?")
+    await run(ScriptedLlm([first, reply("끝", model="m-1", cost=None)]), "몇 개야?")
     llm1, llm2 = [e for e in traced(session) if e.kind == "llm"]
     assert (llm1.model, llm1.input_tokens, llm1.output_tokens, llm1.cost, llm1.ok) == ("m-1", 7, 3, 0.01, True)
     assert llm1.label == "normal" and llm1.ms is not None and llm1.ms >= 0 and llm1.error is None
@@ -126,6 +126,13 @@ async def test_llm_event_keeps_model_tokens_cost_ms_and_the_reply(run, session):
     sent = json.loads(llm1.input_text)
     assert [m["role"] for m in sent] == ["system", "user"] and sent[1]["content"] == "몇 개야?"
     assert [m["role"] for m in json.loads(llm2.input_text)] == ["system", "user", "assistant", "tool"]
+
+
+async def test_llm_event_without_provider_cost_keeps_an_estimate_marked(run, session):
+    await run(ScriptedLlm([reply("끝", model="claude-sonnet-5.5", prompt_tokens=1000, completion_tokens=100, cost=None)]),
+              "몇 개야?")
+    (llm,) = [e for e in traced(session) if e.kind == "llm"]
+    assert llm.cost == pytest.approx((1000 * 2.0 + 100 * 10.0) / 1e6) and llm.cost_estimated is True
 
 
 async def test_failed_llm_call_is_kept_with_its_error(run, session):

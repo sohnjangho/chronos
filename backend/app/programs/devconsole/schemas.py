@@ -72,8 +72,9 @@ class TurnOut(BaseModel):
     llm_calls: int  # 루프의 모델 호출 + 도구 안 호출
     tool_calls: int  # 실행 기록의 단계 수
     tokens: int  # 입력 + 출력
-    cost: float | None  # 알려 준 비용의 합. 없으면 null
+    cost: float | None  # 알려 준 비용(없으면 가격표 어림)의 합. 없으면 null
     ms: int | None  # 턴 전체 시간. 끝나지 않았으면 null
+    cost_estimated: Literal["all", "some"] | None = None  # cost 합 속 가격표 어림: 모두 · 일부 · 없음
 
 
 class NodeDetail(BaseModel):
@@ -132,6 +133,7 @@ class TimelineItem(BaseModel):
     input_tokens: int
     output_tokens: int
     cost: float | None
+    cost_estimated: bool = False  # cost 가 가격표 어림인가
     ok: bool
     error: str | None
     input_text: str

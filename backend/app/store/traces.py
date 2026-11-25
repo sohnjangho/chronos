@@ -38,6 +38,7 @@ LOOP_PURPOSE = "normal"  # 루프가 부르는 쓰임새(도구 안 호출에서
 OUTSIDE_CHAT = "대화 밖"  # 대화 없이 부른 호출의 사용자 이름
 SEOUL = ZoneInfo("Asia/Seoul")
 UsageGroup = Literal["model", "user", "day", "purpose"]
+CostMark = Literal["all", "some"] | None  # 비용 합 속 가격표 어림: 모두 · 일부 · 없음(None)
 
 
 @dataclass(frozen=True)
@@ -56,10 +57,20 @@ class TurnRow:
     tokens: int
     cost: float | None
     ms: int | None  # 턴 전체 시간(end 사건의 ms)
+    cost_estimated: CostMark = None  # cost 합 속 가격표 어림
 
 
 def _add_cost(total: float | None, cost: float | None) -> float | None:
     return total if cost is None else (total or 0.0) + cost
+
+
+def _add_mark(total: float | None, mark: CostMark, cost: float | None, estimated: bool | None) -> CostMark:
+    """비용 하나(cost)를 합(total, 더하기 전)에 더할 때의 어림 표시."""
+    if cost is None or mark == "some":
+        return mark
+    if total is None:
+        return "all" if estimated else None
+    return mark if (mark == "all") == bool(estimated) else "some"
 
 
 def _naive(dt: datetime) -> datetime:
@@ -148,16 +159,17 @@ def _rows(session: Session, turn_ids: list[int]) -> list[TurnRow]:
         evs = by_turn[tid]
         chat_id, start, ended = windows[tid]
         end = next((e for e in evs if e.kind == "end"), None)
-        tokens, cost, llm_count = 0, None, 0
+        tokens, cost, mark, llm_count = 0, None, None, 0
         for item in [*(e for e in evs if e.kind == "llm"), *inner[tid]]:
             llm_count += 1
             tokens += item.input_tokens + item.output_tokens
+            mark = _add_mark(cost, mark, item.cost, item.cost_estimated)
             cost = _add_cost(cost, item.cost)
         rows.append(TurnRow(
             turn_id=tid, chat_session_id=chat_id, user_name=names.get(chat_id, ""), content=contents.get(tid) or {},
             started_at=start, ended_at=ended, end_status=end.label if end else None, latest=latest[chat_id] == tid,
             run_id=runs[tid], llm_calls=llm_count, tool_calls=steps.get(runs[tid], 0), tokens=tokens, cost=cost,
-            ms=end.ms if end else None,
+            ms=end.ms if end else None, cost_estimated=mark,
         ))
     return rows
 
@@ -171,11 +183,13 @@ class UsageTotals(BaseModel):
     output_tokens: int = 0
     cost: float | None = None  # NULL 아닌 비용의 합. 하나도 없으면 null
     failed: int = 0
+    cost_estimated: CostMark = None  # cost 합 속 가격표 어림(llm_calls.cost_estimated): 모두 · 일부 · 없음
 
     def add(self, call: LlmCall) -> None:
         self.calls += 1
         self.input_tokens += call.input_tokens
         self.output_tokens += call.output_tokens
+        self.cost_estimated = _add_mark(self.cost, self.cost_estimated, call.cost, call.cost_estimated)
         self.cost = _add_cost(self.cost, call.cost)
         self.failed += 0 if call.ok else 1
 

@@ -66,9 +66,9 @@ def test_app_start_adds_missing_columns_and_keeps_rows(tmp_path):
     _old_db(path)
     with TestClient(app):  # 시작할 때 create_all 뒤에 칸을 더한다
         pass
-    assert _columns(path, "llm_calls")[-1] == "finish_reason"
+    assert _columns(path, "llm_calls")[-2:] == ["cost_estimated", "finish_reason"]
     assert _columns(path, "schedule_drafts")[-2:] == ["used_at", "schedule_id"]
-    assert _rows(path, "SELECT * FROM llm_calls") == [(*CALL_ROW, None)]
+    assert _rows(path, "SELECT * FROM llm_calls") == [(*CALL_ROW, None, None)]  # 예전 줄은 비용·추정 표시 모두 NULL 그대로
     assert _rows(path, "SELECT * FROM schedule_drafts") == [(*DRAFT_ROW, None, None)]
     assert _rows(path, "SELECT login_id FROM users") == [("admin",)]  # 없던 표는 create_all 이 만든다
 
@@ -79,9 +79,10 @@ def test_second_run_adds_nothing_and_logs_only_names(tmp_path, caplog):
     engine = create_engine(f"sqlite:///{path}")
     caplog.set_level(logging.INFO, logger="app.store.upgrade")
     added = add_missing_columns(engine, Base.metadata)
-    assert added == ["llm_calls.finish_reason", "schedule_drafts.used_at", "schedule_drafts.schedule_id"]
+    assert added == ["llm_calls.cost_estimated", "llm_calls.finish_reason", "schedule_drafts.used_at",
+                     "schedule_drafts.schedule_id"]
     assert [r.args for r in caplog.records] == [
-        ("llm_calls", "finish_reason"), ("schedule_drafts", "used_at"), ("schedule_drafts", "schedule_id"),
+        ("llm_calls", "cost_estimated"), ("llm_calls", "finish_reason"), ("schedule_drafts", "used_at"), ("schedule_drafts", "schedule_id"),
     ]  # 기록에 들어가는 값은 표·칸 이름뿐이다
     caplog.clear()
     assert add_missing_columns(engine, Base.metadata) == [] and caplog.records == []

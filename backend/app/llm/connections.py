@@ -74,6 +74,23 @@ def price_of(model_id: str) -> dict | None:
     return load_prices().get(model_id)
 
 
+def estimate_cost(
+    served: str, requested: str, input_tokens: int, output_tokens: int, cached_input_tokens: int = 0
+) -> float | None:
+    """제공자가 비용을 알리지 않을 때 가격표로 어림한 비용(USD).
+
+    답한 모델(served)의 가격, 없으면 요청한 모델이 단일 모델일 때 그 가격. 라우터(가격이 범위)뿐이면 None.
+    캐시 입력 토큰은 입력 토큰 안의 몫으로 보고 cached_input 가격으로 센다.
+    """
+    for model_id in (served, requested):
+        price = price_of(model_id)
+        if price is not None and price["kind"] == "model":
+            cached = min(max(cached_input_tokens, 0), input_tokens)
+            fresh = input_tokens - cached
+            return (fresh * price["input"] + cached * price["cached_input"] + output_tokens * price["output"]) / 1_000_000
+    return None
+
+
 class ModelInfo(TypedDict):
     """모델 한 개. vendor 는 owned_by(없으면 id 의 "/" 앞), chat 은 대화 API 를 받는지, price 는 공개 가격(없으면 None)."""
 

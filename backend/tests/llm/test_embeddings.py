@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 from app.llm import embeddings, fake
 from app.llm.embeddings import EmbedFailed, embed
 from app.store.tables import LlmAssignment, LlmCall
-from tests.embed_doubles import COST, LARGE, SMALL, FakeEmbedder, vector
+from tests.embed_doubles import COST, LARGE, SMALL, FakeEmbedder, body, vector
 from tests.llm_doubles import KEY, LINER
 
 
@@ -37,6 +37,17 @@ async def test_each_call_is_recorded_with_tokens_and_cost(session, connection, e
     assert (call.purpose, call.requested_model, call.model) == ("embedding", SMALL, "text-embedding-3-small")
     assert (call.input_tokens, call.output_tokens, call.cost) == (len("동절기 타설") + len("철근 배근"), 0, COST)
     assert call.ok and call.error_code is None and call.chat_session_id is None
+
+
+
+async def test_embedding_without_cost_is_recorded_as_estimate(session, connection, embedder):
+    sent = body(["동절기 타설"], SMALL)
+    del sent["usage"]["cost"]
+    embedder.push(sent)
+    await embed(session, ["동절기 타설"])
+    call = session.scalars(select(LlmCall)).one()
+    # 답한 이름(text-embedding-3-small)은 가격표에 없고, 요청한 단일 모델(openai/…)은 $0.02 / 1M
+    assert call.cost == pytest.approx(len("동절기 타설") * 0.02 / 1e6) and call.cost_estimated is True
 
 
 async def test_stored_assignment_and_model_argument(session, connection, embedder):

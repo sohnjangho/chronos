@@ -6,7 +6,7 @@
 
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.store.tables import LlmCall
@@ -16,7 +16,7 @@ from app.store.tables import LlmCall
 class UsageSum:
     input_tokens: int
     output_tokens: int
-    cost: float | None  # 비용을 알린 호출이 없으면 None
+    cost: float | None  # 비용을 알린 호출이 없으면 None(가격표 어림은 넣지 않는다)
     calls: int
 
 
@@ -30,7 +30,7 @@ def usage_since(session: Session, chat_session_id: int, after_id: int) -> UsageS
     query = select(
         func.coalesce(func.sum(LlmCall.input_tokens), 0),
         func.coalesce(func.sum(LlmCall.output_tokens), 0),
-        func.sum(LlmCall.cost),
+        func.sum(case((LlmCall.cost_estimated.is_(True), None), else_=LlmCall.cost)),
         func.count(),
     ).where(LlmCall.chat_session_id == chat_session_id, LlmCall.id > after_id)
     input_tokens, output_tokens, cost, calls = session.execute(query).one()

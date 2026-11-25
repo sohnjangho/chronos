@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.llm import fake
 from app.llm.assignments import Purpose, resolve
-from app.llm.connections import secret_is_sendable
+from app.llm.connections import estimate_cost, secret_is_sendable
 from app.llm.errors import LlmError, explain
 from app.llm.names import from_llm_name, to_llm_name
 from app.security.crypto import SecretUnreadable, decrypt
@@ -65,6 +65,7 @@ class Usage:
     input_tokens: int
     output_tokens: int
     cost: float | None  # 청구 금액. 응답에 없으면 None
+    estimated_cost: float | None = None  # cost 가 없을 때 가격표로 어림한 값(llm_calls·trace_events 에 '추정'으로만 남긴다)
 
 
 @dataclass(frozen=True)
@@ -234,18 +235,39 @@ def _parse_reply(data: dict, requested_model: str, *, want_json: bool) -> LlmRep
     usage = data.get("usage")
     usage = {} if usage is None else _object(usage)
     cost = usage.get("cost")
+    model = str(data.get("model") or requested_model)
+    input_tokens = int(usage.get("prompt_tokens") or 0)
+    output_tokens = int(usage.get("completion_tokens") or 0)
     return LlmReply(
         text=text,
         tool_calls=_tool_calls(message),
-        model=str(data.get("model") or requested_model),
+        model=model,
         usage=Usage(
-            input_tokens=int(usage.get("prompt_tokens") or 0),
-            output_tokens=int(usage.get("completion_tokens") or 0),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             cost=float(cost) if cost is not None else None,
+            estimated_cost=None if cost is not None else estimate_cost(
+                model, requested_model, _count(input_tokens), _count(output_tokens), _cached_tokens(usage)
+            ),
         ),
         parsed=_json_object(text) if want_json else None,
         finish_reason=finish if isinstance(finish, str) else None,
     )
+
+
+def _cached_tokens(usage: dict) -> int:
+    """usage.prompt_tokens_details.cached_tokens(캐시로 읽은 입력 토큰). 없거나 정수가 아니면 0."""
+    details = usage.get("prompt_tokens_details")
+    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    return _count(cached) if isinstance(cached, int) and not isinstance(cached, bool) else 0
+
+
+def recorded_cost(usage: Usage) -> tuple[float | None, bool]:
+    """기록할 (비용, 추정인가). 제공자가 알린 값이 있으면 그 값(추정 아님), 없으면 가격표 어림(추정)."""
+    if usage.cost is not None:
+        return _money(usage.cost), False
+    estimated = _money(usage.estimated_cost)
+    return estimated, estimated is not None
 
 
 def _count(n: int) -> int:
@@ -325,6 +347,7 @@ class LlmClient:
         저장이 어떤 이유로든 실패하면 되돌리고 경고(예외 종류만)를 남길 뿐, 호출 결과는 바꾸지 않는다.
         """
         try:
+            cost, estimated = recorded_cost(reply.usage) if reply else (None, False)
             row = LlmCall(
                 chat_session_id=chat_session_id,
                 purpose=purpose,
@@ -333,7 +356,8 @@ class LlmClient:
                 routing_strategy=target.routing_strategy,
                 input_tokens=_count(reply.usage.input_tokens) if reply else 0,
                 output_tokens=_count(reply.usage.output_tokens) if reply else 0,
-                cost=_money(reply.usage.cost) if reply else None,
+                cost=cost,
+                cost_estimated=estimated,
                 latency_ms=latency_ms,
                 ok=error is None,
                 error_code=error.code if error else None,

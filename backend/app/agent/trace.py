@@ -14,7 +14,6 @@ end(턴의 끝 상태). 도구 단계는 workflow_steps 에 있고(run_id 로 �
 import functools
 import json
 import logging
-import math
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -25,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.agent import context
 from app.agent.context import CUT_NOTE, UiContext, arguments_text
 from app.domains.loader import levels_prompt
-from app.llm.client import LlmReply
+from app.llm.client import LlmReply, recorded_cost
 from app.store.chats import recent_messages
 from app.store.tables import TraceEvent, User
 
@@ -145,8 +144,7 @@ class TraceLog:
         ev.model = _safe(reply.model)[:_MODEL_LIMIT]
         ev.input_tokens = _count(reply.usage.input_tokens)
         ev.output_tokens = _count(reply.usage.output_tokens)
-        cost = reply.usage.cost
-        ev.cost = cost if cost is not None and math.isfinite(cost) else None
+        ev.cost, ev.cost_estimated = recorded_cost(reply.usage)
         ev.output_text = reply_text(reply)
 
     @_quiet

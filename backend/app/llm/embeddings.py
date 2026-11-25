@@ -20,7 +20,8 @@ from sqlalchemy.orm import Session
 
 from app.llm import fake
 from app.llm.assignments import resolve
-from app.llm.client import LlmClient, LlmNotReady, LlmReply, Usage, _Target
+from app.llm.client import LlmClient, LlmNotReady, LlmReply, Usage, _count, _Target
+from app.llm.connections import estimate_cost
 from app.llm.errors import LlmError
 from app.store.tables import LlmConnection
 
@@ -105,8 +106,10 @@ def _parse(data: object, requested_model: str, count: int) -> tuple[list[list[fl
         raise _Unusable
     cost = usage.get("cost")
     tokens = int(usage.get("prompt_tokens") or 0)
-    reply = LlmReply(text="", tool_calls=[], model=str(data.get("model") or requested_model),
-                     usage=Usage(tokens, 0, float(cost) if cost is not None else None))
+    model = str(data.get("model") or requested_model)
+    estimated = None if cost is not None else estimate_cost(model, requested_model, _count(tokens), 0)
+    reply = LlmReply(text="", tool_calls=[], model=model,
+                     usage=Usage(tokens, 0, float(cost) if cost is not None else None, estimated))
     return found, reply
 
 

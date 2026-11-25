@@ -140,6 +140,7 @@ def _turn_out(row: store.TurnRow) -> TurnOut:
         turn_id=row.turn_id, chat_session_id=row.chat_session_id, user_name=row.user_name,
         request=_request(row)[:REQUEST_LIMIT], started_at=row.started_at, status=_status(row),
         llm_calls=row.llm_calls, tool_calls=row.tool_calls, tokens=row.tokens, cost=row.cost, ms=row.ms,
+        cost_estimated=row.cost_estimated,
     )
 
 
@@ -427,7 +428,7 @@ def _event_item(e: TraceEvent) -> TimelineItem:
     return TimelineItem(
         seq=0, kind=e.kind, label=e.label if e.kind == "context" else f"모델 호출 ({e.label})",
         started_at=as_utc(e.started_at), ms=e.ms, model=e.model, input_tokens=e.input_tokens,
-        output_tokens=e.output_tokens, cost=e.cost, ok=e.ok, error=e.error, input_text=e.input_text,
+        output_tokens=e.output_tokens, cost=e.cost, cost_estimated=bool(e.cost_estimated), ok=e.ok, error=e.error, input_text=e.input_text,
         output_text=e.output_text, parallel_group=None,
     )
 
@@ -476,7 +477,8 @@ def _inner_item(call: LlmCall) -> TimelineItem:
     return TimelineItem(
         seq=0, kind="inner_llm", label=f"도구 안 모델 호출 ({call.purpose})",
         started_at=created - timedelta(milliseconds=call.latency_ms), ms=call.latency_ms, model=call.model,
-        input_tokens=call.input_tokens, output_tokens=call.output_tokens, cost=call.cost, ok=call.ok,
+        input_tokens=call.input_tokens, output_tokens=call.output_tokens, cost=call.cost,
+        cost_estimated=bool(call.cost_estimated), ok=call.ok,
         error=call.error_code, input_text="", output_text="", parallel_group=None,
     )
 
