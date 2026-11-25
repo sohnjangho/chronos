@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>ChronOS 설치·초기 설정 사용설명서</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+  :root {
+    --ink: #1b2330; --muted: #5b6676; --line: #dfe4ec; --soft: #f4f6fa;
+    --accent: #2563eb; --red: #e0242b; --ok: #15803d; --warn: #b45309;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0; color: var(--ink); background: #fff;
+    font-family: "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+    font-size: 10.2pt; line-height: 1.62; word-break: keep-all;
+  }
+  h1 { font-size: 25pt; margin: 0 0 4mm; letter-spacing: -0.5px; }
+  h2 {
+    font-size: 15pt; margin: 0 0 3mm; padding: 2mm 0 2mm 3.5mm;
+    border-left: 5px solid var(--accent); background: var(--soft); border-radius: 0 6px 6px 0;
+    break-after: avoid;
+  }
+  h2 .no { color: var(--accent); margin-right: 2mm; }
+  h3 { font-size: 11.5pt; margin: 5mm 0 2mm; break-after: avoid; }
+  section { break-before: page; }
+  section.flow { break-before: auto; margin-top: 8mm; }
+  p { margin: 0 0 2.2mm; }
+  .muted { color: var(--muted); }
+  .small { font-size: 9pt; }
+  code, .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 8.8pt; }
+  code { background: var(--soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 1.2mm; }
+  pre {
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 8.6pt; line-height: 1.5;
+    background: var(--soft); border: 1px solid var(--line); border-radius: 6px;
+    padding: 2.5mm 3.5mm; margin: 1.5mm 0 3mm; white-space: pre-wrap; word-break: break-all;
+    break-inside: avoid;
+  }
+  ol.steps { list-style: none; padding: 0; margin: 2mm 0 3mm; counter-reset: s; }
+  ol.steps > li { position: relative; padding-left: 9mm; margin: 0 0 1.8mm; break-inside: avoid; }
+  ol.steps > li::before {
+    counter-increment: s; content: counter(s);
+    position: absolute; left: 0; top: 0.2mm; width: 6mm; height: 6mm; border-radius: 50%;
+    background: var(--red); color: #fff; font-weight: 700; font-size: 9pt; line-height: 6mm; text-align: center;
+  }
+  ol.steps.blue > li::before { background: var(--accent); }
+  ul { margin: 1mm 0 3mm; padding-left: 5mm; }
+  ul li { margin: 0 0 1mm; }
+  figure { margin: 2mm 0 4mm; break-inside: avoid; }
+  figure img { max-width: 100%; max-height: 98mm; width: auto; display: block; margin: 0 auto; border: 1px solid var(--line); border-radius: 6px; }
+  figure.half img { max-width: 62%; }
+  figure.narrow img { max-width: 52%; }
+  figcaption { font-size: 8.6pt; color: var(--muted); margin-top: 1.2mm; text-align: center; }
+  .note, .warn, .ok {
+    border-radius: 6px; padding: 2.2mm 3.5mm; margin: 2mm 0 3mm; font-size: 9.4pt; break-inside: avoid;
+  }
+  .note { background: #eef4ff; border: 1px solid #c9dafc; }
+  .warn { background: #fff6e6; border: 1px solid #f3d29b; }
+  .ok { background: #ecf8f0; border: 1px solid #b8e2c5; }
+  .note b:first-child, .warn b:first-child, .ok b:first-child { margin-right: 1mm; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0 3.5mm; font-size: 9pt; break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 1.4mm 2.2mm; text-align: left; vertical-align: top; }
+  th { background: var(--soft); font-weight: 700; }
+  .tag { display: inline-block; font-size: 8pt; padding: 0 1.8mm; border-radius: 99px; border: 1px solid var(--line); background: #fff; white-space: nowrap; }
+  .tag.req { color: #fff; background: var(--red); border-color: var(--red); }
+  .tag.opt { color: var(--muted); }
+  .tag.rec { color: #fff; background: var(--accent); border-color: var(--accent); }
+  /* 터미널 상자 */
+  .term { border-radius: 8px; overflow: hidden; border: 1px solid #1f2937; margin: 2mm 0 3mm; break-inside: avoid; }
+  .term-bar { background: #2b313b; padding: 1.6mm 3mm; display: flex; align-items: center; gap: 1.4mm; }
+  .term-bar i { width: 2.6mm; height: 2.6mm; border-radius: 50%; display: inline-block; }
+  .term-bar span { color: #aab3c0; font-size: 8pt; margin-left: 2mm; font-family: "SF Mono", Menlo, monospace; }
+  .term pre { margin: 0; border: 0; border-radius: 0; background: #11161d; color: #d7dde6; font-size: 8.3pt; padding: 3mm 3.5mm; }
+  .term .p { color: #7dd3fc; } .term .c { color: #8b95a3; } .term .y { color: #fde68a; } .term .g { color: #86efac; }
+  /* 표지 */
+  .cover { padding-top: 22mm; }
+  .cover .kicker { color: var(--accent); font-weight: 700; letter-spacing: 1px; font-size: 10pt; }
+  .cover .sub { font-size: 12pt; color: var(--muted); margin-bottom: 9mm; }
+  .toc { border: 1px solid var(--line); border-radius: 8px; padding: 4mm 6mm; margin: 6mm 0; }
+  .toc ol { margin: 0; padding-left: 0; list-style: none; columns: 2; column-gap: 10mm; }
+  .toc li { margin: 0 0 1.6mm; }
+  .toc .n { display: inline-block; width: 7mm; color: var(--accent); font-weight: 700; }
+  .flowline { display: flex; gap: 2mm; flex-wrap: wrap; margin: 3mm 0 5mm; }
+  .flowline div { flex: 1 1 0; min-width: 28mm; border: 1px solid var(--line); border-radius: 6px; padding: 2mm 2.5mm; font-size: 8.8pt; background: #fff; }
+  .flowline div b { display: block; font-size: 9.4pt; }
+</style>
+</head>
+<body>
+
+<!-- 표지·목차 -->
+<div class="cover">
+  <div class="kicker">2026 .EXE-THON 출품작 · ChronOS</div>
+  <h1>설치·초기 설정 사용설명서</h1>
+  <div class="sub">새 컴퓨터에 한 줄로 설치하고, 로그인해서, 에이전트가 일할 수 있게 연결을 넣는 차례입니다.</div>
+
+  <div class="flowline">
+    <div><b>① 설치</b>uv 설치 → 한 줄 명령</div>
+    <div><b>② 관리자</b>터미널에서 아이디·비밀번호</div>
+    <div><b>③ Liner 연결</b>설정 → LLM 연결 <span class="tag req">필수</span></div>
+    <div><b>④ 확인</b>개발 콘솔 → 시스템 진단</div>
+    <div><b>⑤ 첫 일정</b>에이전트에게 한 문장</div>
+  </div>
+
+  <div class="toc">
+    <ol>
+      <li><span class="n">0</span>준비물</li>
+      <li><span class="n">1</span>한 줄 설치와 첫 실행</li>
+      <li><span class="n">2</span>로그인</li>
+      <li><span class="n">3</span>LLM 연결 (Liner) <span class="tag req">필수</span></li>
+      <li><span class="n">4</span>작업별 모델 배정 · 임베딩</li>
+      <li><span class="n">5</span>외부 API (정보 API) <span class="tag rec">권장</span></li>
+      <li><span class="n">6</span>알림 연결 — 문자 · AI 전화 <span class="tag opt">선택</span></li>
+      <li><span class="n">7</span>벡터 검색 Qdrant <span class="tag opt">선택</span></li>
+      <li><span class="n">8</span>연결 확인 (개발 콘솔 진단)</li>
+      <li><span class="n">9</span>처음 써 보기</li>
+      <li><span class="n">10</span>문제 해결</li>
+    </ol>
+  </div>
+
+  <div class="note"><b>꼭 할 것은 하나입니다.</b> 설치 뒤 <b>설정 → LLM 연결</b>에 Liner API 키를 넣으면 에이전트가 일합니다. 나머지(정보 API·문자·전화·벡터 검색)는 건너뛰어도 앱이 돕니다.</div>
+  <div class="warn"><b>화면 속 키는 모두 가짜입니다.</b> 이 설명서의 그림은 빈 새 설치본에서 찍었습니다. 키 칸에는 <code>lnr-xxxxxxxxxxxxxxxx</code> 같은 예시값을 넣었고, 실제 제공사(Liner·기상청·한국AI통신)에는 한 번도 연결하지 않았습니다. 그래서 「연결 테스트」에 성공한 뒤의 화면은 그림 대신 글로 설명합니다.</div>
+  <p class="muted small">빨간 상자와 숫자는 누를 곳과 차례입니다. 본문의 빨간 숫자와 그림의 숫자가 같습니다.</p>
+</div>
+
+<!-- 0 -->
+<section>
+  <h2><span class="no">0</span>준비물</h2>
+  <table>
+    <tr><th style="width:30%">준비물</th><th>설명</th></tr>
+    <tr><td>컴퓨터 · 인터넷</td><td>macOS · Linux · Windows. 처음 실행 때 Python과 패키지를 내려받습니다(Python을 따로 깔 필요 없음).</td></tr>
+    <tr><td>브라우저</td><td>Chrome · Edge · Safari 최신판. 화면은 1920×1080 데스크톱 기준입니다.</td></tr>
+    <tr><td><b>uv</b> (설치 도구)</td><td>아래 한 줄로 설치합니다. 설치 뒤 <b>새 터미널 창</b>을 엽니다.</td></tr>
+    <tr><td><b>Liner API 키</b> <span class="tag req">필수</span></td><td>Liner 플랫폼(<code>platform.liner.com</code>)에서 받은 키. 대화·일정 생성·근거 검색·환율/금속 자료가 모두 이 키 하나로 돕니다.</td></tr>
+    <tr><td>공공데이터포털 서비스 키 <span class="tag rec">권장</span></td><td><code>data.go.kr</code> 마이페이지의 일반 인증키. 기상청 날씨 근거와 공공 API(5장)에 씁니다.</td></tr>
+    <tr><td>한국AI통신 · Gemini 키 <span class="tag opt">선택</span></td><td>문자·AI 전화를 시험할 때만(6장).</td></tr>
+    <tr><td>Docker <span class="tag opt">선택</span></td><td>뜻 검색용 Qdrant를 띄울 때만(7장).</td></tr>
+  </table>
+
+  <h3>uv 설치 (한 번만)</h3>
+  <p><b>macOS · Linux</b> — 터미널에서:</p>
+  <pre>curl -LsSf https://astral.sh/uv/install.sh | sh</pre>
+  <p><b>Windows</b> — PowerShell에서:</p>
+  <pre>powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"</pre>
+  <p>설치가 끝나면 터미널을 닫고 새로 엽니다. <code>uv --version</code> 이 버전 번호를 보이면 됩니다.</p>
+</section>
+
+<!-- 1 -->
+<section>
+  <h2><span class="no">1</span>한 줄 설치와 첫 실행 — 관리자 계정 만들기</h2>
+  <ol class="steps blue">
+    <li>터미널에 아래 한 줄을 붙여 넣고 Enter를 누릅니다.
+      <pre>uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos</pre></li>
+    <li>처음 한 번은 Python과 패키지를 내려받습니다(시험에서 약 30초).</li>
+    <li><b>관리자 아이디</b>를 넣습니다(예: <code>admin</code>).</li>
+    <li><b>비밀번호</b>를 두 번 넣습니다. 8자 이상이고, 입력하는 글자는 화면에 보이지 않습니다.</li>
+    <li>「ChronOS 주소: http://127.0.0.1:8210」 줄이 나오면 브라우저에서 그 주소를 엽니다.</li>
+  </ol>
+
+  <!-- TRANSCRIPT:BEGIN -->
+  <div class="term">
+    <div class="term-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>터미널 — 첫 실행</span></div>
+<pre><span class="p">$</span> uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos
+<span class="c">  … Python · 패키지 내려받기(처음 한 번, 약 30초) …</span>
+데이터 폴더: ~/.chronos
+처음 실행입니다. 관리자 계정을 만듭니다.
+관리자 아이디: <span class="y">judge</span>
+비밀번호(8자 이상, 입력이 보이지 않습니다): <span class="c">(입력해도 보이지 않음)</span>
+비밀번호 확인: <span class="c">(한 번 더)</span>
+관리자 계정 「judge」을(를) 만들었습니다.
+
+<span class="g">ChronOS 주소: http://127.0.0.1:8210</span>
+브라우저에서 위 주소를 열고 관리자 계정으로 로그인하세요.
+처음에는 설정에서 Liner API 키 등을 넣어야 에이전트가 일합니다(docs/manual/ChronOS_설치_사용설명서.pdf).
+끄려면 Ctrl+C 를 누르세요.
+<span class="c">INFO:     Application startup complete.</span></pre>
+  </div>
+  <p class="muted small">시험 설치(2026-11-25)의 실제 출력입니다. 저장소 주소·데이터 폴더·포트만 위 명령과 기본값(<code>~/.chronos</code>, 8210)으로 바꿔 적었고, 내려받기 진행 줄은 줄였습니다. 설치 시작부터 아이디 질문까지 약 28초, 서버가 뜨기까지 약 8.5초 걸렸습니다.</p>
+  <!-- TRANSCRIPT:END -->
+
+  <div class="note"><b>무엇이 만들어지나요?</b> 데이터 폴더 <code>~/.chronos</code>(Windows는 <code>%USERPROFILE%\.chronos</code>)에 DB(<code>chronos.db</code>)와 비밀 열쇠(<code>secret_key</code>)가 생깁니다. 비밀 열쇠는 로그인 토큰과 저장한 API 키를 암호화합니다. 화면에는 찍지 않습니다.</div>
+  <ul>
+    <li><b>두 번째부터</b>는 같은 한 줄을 다시 치면 됩니다. 관리자를 다시 묻지 않고 바로 서버가 뜹니다.</li>
+    <li><b>끄기</b>: 터미널에서 <code>Ctrl+C</code>. 자료는 데이터 폴더에 남습니다.</li>
+    <li><b>바꿀 수 있는 것</b>: <code>--port 8300</code>(포트) · <code>--data-dir 폴더</code>(데이터 위치) · <code>--qdrant-url 주소</code>(7장). 명령 끝에 붙입니다.</li>
+  </ul>
+</section>
+
+<!-- 2 -->
+<section class="flow">
+  <h2><span class="no">2</span>로그인</h2>
+  <ol class="steps">
+    <li><b>아이디</b>: 1장에서 만든 관리자 아이디.</li>
+    <li><b>비밀번호</b>: 1장에서 두 번 넣은 비밀번호.</li>
+    <li><b>[들어가기]</b>. 「접속 화면」은 「자동」 그대로 둡니다(데스크톱을 알아서 고릅니다).</li>
+  </ol>
+  <figure><img src="img/s01_login.png" alt="로그인 화면"><figcaption>그림 2-1 로그인 화면 (예시 아이디 admin)</figcaption></figure>
+
+  <p>들어가면 빈 바탕화면이 나옵니다. 아직 일정도 연결도 없습니다. 아래 막대(Dock)의 <b>톱니바퀴(설정)</b>를 누릅니다.</p>
+  <ol class="steps"><li>Dock의 <b>설정</b>을 누릅니다.</li></ol>
+  <figure><img src="img/s02_desktop.png" alt="처음 바탕화면"><figcaption>그림 2-2 처음 로그인한 바탕화면 — 「주의할 일정 0」, 오른쪽 「빠른 시작」</figcaption></figure>
+  <p class="muted small">화면 속 표시 이름은 「관리자」입니다. 다른 사람은 로그인 화면의 [회원가입]으로 신청하고, 관리자가 <b>설정 → 계정 (관리자·사용자)</b>에서 승인합니다.</p>
+</section>
+
+<!-- 3 -->
+<section>
+  <h2><span class="no">3</span>LLM 연결 (Liner) <span class="tag req">필수</span></h2>
+  <p>에이전트의 대화·일정 생성·근거 검색은 모두 Liner로 돕니다. 키는 서버에서 암호화해 저장하고, 화면에는 끝 4자리만 보입니다.</p>
+  <ol class="steps">
+    <li>설정 왼쪽 「관리자」 아래 <b>LLM 연결</b>을 누릅니다. (관리자로 설정을 열면 처음부터 이 구역이 열립니다.)</li>
+    <li><b>[+ 연결 추가]</b>를 누릅니다.</li>
+  </ol>
+  <figure><img src="img/s03_llm_empty.png" alt="LLM 연결 빈 화면"><figcaption>그림 3-1 연결이 없는 처음 상태 — 「아직 연결이 없습니다」</figcaption></figure>
+
+  <p>연결 추가는 「공급자 → 주소와 키 → 연결 테스트」 세 단계입니다.</p>
+  <ol class="steps">
+    <li>공급자 <b>Liner</b>를 고릅니다. 이름(<code>Liner</code>)과 URL(<code>https://platform.liner.com/api/v1</code>)이 저절로 채워집니다. 바꾸지 않습니다.</li>
+    <li><b>API 키</b> 칸에 Liner 키를 붙여 넣습니다.</li>
+    <li><b>[연결 테스트]</b>를 누릅니다. 몇 초 뒤 결과와 쓸 수 있는 모델 목록이 아래에 나옵니다.</li>
+    <li>테스트에 성공해야 <b>[저장]</b>이 켜집니다. 누르면 저장됩니다.</li>
+  </ol>
+  <figure><img src="img/s04_llm_wizard.png" alt="연결 추가 마법사"><figcaption>그림 3-2 연결 추가 — 키 칸에는 예시값을 넣었습니다(점으로 가려짐)</figcaption></figure>
+
+  <div class="ok"><b>성공하면</b> 연결 테스트 결과에 응답 시간과 모델 목록이 나오고, 저장 뒤 카드에 <b>「연결됨 · 모델 N개」</b>, 「기본 연결」 표시, 확인 시각이 보입니다. 첫 연결이 저절로 <b>기본 연결</b>이 됩니다.</div>
+  <div class="warn"><b>실패하면</b> 까닭을 한국어로 보여 줍니다: 키가 틀림 · 주소가 틀림 · 시간 초과 · 한도 초과. 키를 다시 붙여 넣고 [다시 테스트]를 누릅니다. 실패한 키로는 저장되지 않습니다.</div>
+  <p><b>이 키 하나로 도는 것</b>: Model API(대화·일정 생성), Search API(웹·논문 근거), MCP(법령·기업 근거), Premium Data(환율·금속 시세), Visualization API(보고서 그림). 따로 넣을 키가 없습니다.</p>
+  <p class="muted small">저장한 연결의 [키 교체]·[URL 수정]·[삭제]는 카드 아래 단추로 합니다.</p>
+</section>
+
+<!-- 4 -->
+<section class="flow">
+  <h2><span class="no">4</span>작업별 모델 배정 · 임베딩</h2>
+  <p>에이전트가 하는 일을 여섯 갈래로 나눠, 갈래마다 모델을 정합니다. <b>처음 값이 이미 들어 있어 그대로 두면 됩니다.</b> 3장의 기본 연결을 저절로 씁니다.</p>
+  <ol class="steps">
+    <li>설정 → <b>작업별 모델 배정</b> (LLM 연결 화면 아래에도 같은 표가 있습니다).</li>
+    <li><b>임베딩</b> 줄: <code>openai/text-embedding-3-small</code>을 Liner 연결로 부릅니다. 자료함의 뜻 검색에 쓰고, 7장(Qdrant)을 켤 때만 실제로 쓰입니다.</li>
+  </ol>
+  <figure><img src="img/s09_assign.png" alt="작업별 모델 배정"><figcaption>그림 4-1 작업별 모델 배정 — 처음 값. 이 그림은 연결 테스트 전이라 줄마다 「이 연결에 불러온 모델이 없습니다」가 보입니다</figcaption></figure>
+
+  <table>
+    <tr><th>갈래</th><th>하는 일</th><th>처음 모델</th><th>기준</th></tr>
+    <tr><td>가벼운 일</td><td>조건 뽑기, 분야 읽기, 문서에서 변화 뽑기</td><td><code>liner-claude-router</code></td><td>비용 우선</td></tr>
+    <tr><td>보통 일</td><td>대화, 워크플로우 짜기, 보고서 초안</td><td><code>liner-claude-router</code></td><td>균형</td></tr>
+    <tr><td>어려운 일</td><td>WBS·스케줄 생성, 단축안, 위반 고치기</td><td><code>liner-claude-router</code></td><td>품질 우선</td></tr>
+    <tr><td>긴 문서 읽기</td><td>계약서·회의록 통째로</td><td><code>liner-mark</code></td><td>직접 호출</td></tr>
+    <tr><td>그림 읽기</td><td>그림이 붙은 대화, 사진·도면 읽기</td><td><code>liner-claude-router</code></td><td>균형</td></tr>
+    <tr><td>임베딩</td><td>자료함 뜻 검색</td><td><code>openai/text-embedding-3-small</code></td><td>직접 호출</td></tr>
+  </table>
+  <ul>
+    <li>3장의 연결 테스트에 성공하면 빨간 안내 줄이 사라지고, 모델 칸에서 그 연결의 모델을 고를 수 있습니다. [찾기]로 이름을 찾아도 됩니다.</li>
+    <li>「기준」(비용 우선 · 균형 · 품질 우선)은 이름이 <code>-router</code>로 끝나는 라우터 모델에만 있습니다. 그 밖의 모델은 「직접 호출」입니다.</li>
+    <li>줄을 바꾸면 그 줄에만 <b>[저장]</b>이 생깁니다. 줄마다 따로 저장합니다.</li>
+    <li>임베딩 모델을 바꾸면 확인 창이 뜨고, 자료함의 파일을 새 모델로 다시 넣습니다(진행 막대가 보입니다). 처음에는 바꾸지 않습니다.</li>
+  </ul>
+</section>
+
+<!-- 5 -->
+<section>
+  <h2><span class="no">5</span>외부 API (정보 API) <span class="tag rec">권장</span></h2>
+  <p>에이전트가 근거로 붙이는 바깥 자료입니다. <b>모두 선택</b>입니다. 없으면 그 근거만 빠지고 일정 생성·계산은 그대로 됩니다.</p>
+  <table>
+    <tr><th style="width:30%">자료</th><th>어디서 · 무엇이 필요한가</th><th style="width:16%">넣는 곳</th></tr>
+    <tr><td>날씨 (기상청)</td><td>공공데이터포털 키. 「기상청_지상(종관, ASOS) 일자료 조회서비스」와 「기상청_단기예보 조회서비스」를 활용 신청합니다. 지난 해들 그 달 통계·3일 예보를 근거로 씁니다.</td><td>정보 API → 기상청(전용)</td></tr>
+    <tr><td>환율 · 금속·원자재</td><td>Liner Premium Data(환율 Xignite, 금속 The World Bank). <b>Liner 키로 저절로</b> — 따로 넣을 것 없음. 부를 때 요금이 듭니다(검색 1,000건당 $2).</td><td>없음 (분야별 켜고 끄기만)</td></tr>
+    <tr><td>업체 · 규제·인허가 소식</td><td>Liner Search · MCP. <b>Liner 키로 저절로</b>.</td><td>없음</td></tr>
+    <tr><td>공휴일</td><td>2026~2028년 표가 앱에 들어 있습니다. 더 필요하면 아래 「특일 정보」.</td><td>없음</td></tr>
+    <tr><td>공공 API 5종</td><td>공공데이터포털 키(서비스마다 활용 신청): 특일 정보(공휴일·대체공휴일) · 기상특보(주의보·경보) · 에어코리아 대기오염정보 · 건축인허가 정보(건축HUB) · 나라장터 입찰공고.</td><td>정보 API → 범용 → 빠른 채움</td></tr>
+  </table>
+
+  <h3>5-1 기상청 날씨 넣기</h3>
+  <ol class="steps">
+    <li>설정 → <b>정보 API 연결</b>.</li>
+    <li><b>[+ 연결 추가]</b>.</li>
+    <li>종류 <b>기상청(전용)</b> (처음부터 골라져 있음). 이름은 「기상청 날씨」 그대로.</li>
+    <li><b>서비스 키</b>에 공공데이터포털 일반 인증키를 붙여 넣습니다(인코딩·디코딩 아무거나).</li>
+    <li><b>[저장]</b>. 저장만으로는 제공사에 연결하지 않습니다.</li>
+  </ol>
+  <figure><img src="img/s05_info_kma.png" alt="기상청 연결 추가"><figcaption>그림 5-1 기상청(전용) 연결 추가 — 키 칸은 예시값</figcaption></figure>
+  <ol class="steps"><li>저장한 카드의 <b>[연결 테스트]</b>를 누릅니다. 서비스마다 OK · 실패와 응답 시간이 한 줄씩 나옵니다.</li></ol>
+  <figure><img src="img/s07_info_saved.png" alt="저장한 기상청 연결"><figcaption>그림 5-2 저장 직후 — 상태 「미확인」, 위 카드는 「등록됨」. 테스트에 성공하면 「연결됨」이 됩니다</figcaption></figure>
+  <div class="warn"><b>실패할 때</b>: 키를 막 받았으면 공공데이터포털에서 사용 승인까지 몇 시간 걸릴 수 있습니다. 두 서비스 모두 활용 신청했는지 봅니다.</div>
+
+  <h3>5-2 공공 API 더하기 (범용 · 빠른 채움)</h3>
+  <ol class="steps">
+    <li>연결 추가에서 종류 <b>범용</b>을 고릅니다.</li>
+    <li><b>빠른 채움</b>에서 서비스를 고르면 주소·키 이름·설명·쓰는 법·시험 경로가 채워집니다. 「공식 문서」 링크로 활용 신청 페이지를 엽니다. 키만 직접 넣고 [저장] → 카드의 [연결 테스트].</li>
+  </ol>
+  <figure><img src="img/s06_info_generic.png" alt="범용 정보 API 빠른 채움"><figcaption>그림 5-3 범용 + 빠른 채움 「기상특보(주의보·경보)」를 고른 모습</figcaption></figure>
+
+  <h3>5-3 분야별 외부 자료 켜고 끄기 (선택)</h3>
+  <p>일정의 관리 포인트(크리티컬과 그 직전 작업)마다 어떤 바깥 자료를 찾을지 분야별로 정합니다. 처음 값 그대로 써도 됩니다.</p>
+  <ol class="steps">
+    <li>Dock의 <b>개발 콘솔</b> → <b>하네스·차단 시험</b> 탭.</li>
+    <li>「관리 포인트 설정」의 <b>분야별 외부 자료</b> 표에서 칸을 켜고 끈 뒤 [관리 포인트 설정 저장]. 날씨는 기상청, 나머지는 Liner(요금 있음)입니다.</li>
+  </ol>
+  <figure><img src="img/s10_points_sources.png" alt="분야별 외부 자료"><figcaption>그림 5-4 개발 콘솔 — 분야별 외부 자료(처음 값)</figcaption></figure>
+</section>
+
+<!-- 6 -->
+<section class="flow">
+  <h2><span class="no">6</span>알림 연결 — 문자 · AI 전화 <span class="tag opt">선택</span></h2>
+  <p>협력사에게 문자를 보내고 AI가 전화를 거는 기능입니다. <b>건너뛰어도 됩니다.</b> 없으면 문자·전화만 나가지 않습니다. 제공사는 한국AI통신(문자·전화), 음성 모델은 구글 Gemini Live입니다.</p>
+  <div class="note"><b>처음은 가장 안전한 값입니다.</b> 새 연결은 <b>시험 모드 켬</b>(허용 번호에만 연락) · 에이전트 권한 <b>「승인 받기」</b>(사람이 [보내기]·[전화 걸기]를 눌러야 나감) · 받는 범위 <b>「받지 않음」</b>입니다. 실제 문자·전화는 요금이 듭니다.</div>
+  <ol class="steps">
+    <li>설정 → <b>알림 연결</b>.</li>
+    <li><b>[+ 연결 추가]</b>. 이름·공급자(한국AI통신)·주소(<code>https://api.koreaaitel.com</code>)는 채워져 있습니다.</li>
+    <li><b>API Key</b>를 넣습니다.</li>
+    <li><b>Account ID</b>를 넣습니다.</li>
+    <li><b>[저장하고 연결 테스트]</b>. 이때 제공사에 연결합니다.</li>
+  </ol>
+  <figure><img src="img/s08_notify.png" alt="알림 연결 추가"><figcaption>그림 6-1 알림 연결 추가 — 두 칸 모두 예시값(점으로 가려짐)</figcaption></figure>
+  <p><b>테스트에 성공하면</b> 같은 카드에서 이어서 합니다(그림 없음 — 실제 키가 있어야 나오는 화면):</p>
+  <ol class="steps blue">
+    <li><b>발신번호</b>: 제공사에 승인된 번호 가운데 고릅니다.</li>
+    <li><b>허용 번호</b>: 본인 휴대전화를 넣습니다. 시험 모드에서는 이 번호에만 나갑니다. 진단의 실제 문자·전화는 목록의 첫 허용 번호로만 갑니다.</li>
+    <li><b>[연결 진단]</b>: 인증·발신번호(P1)부터 봅니다. 실제 시험 문자는 「실제 문자 1건 보내기」를 켤 때만 나갑니다.</li>
+    <li><b>AI 전화</b> 칸: 공급자 구글(Gemini Live) · 음성 모델 키(Google AI Studio에서 만든 Gemini API 키) · 모델(기본 <code>gemini-3.8-live</code>) → 저장 → [음성 진단].</li>
+    <li>마지막에 <b>받는 범위</b>와 <b>에이전트 권한</b>을 정합니다. 시연에는 처음 값 그대로 둡니다.</li>
+  </ol>
+  <div class="warn"><b>AI 전화는 음성 SDK가 있어야 합니다.</b> 한 줄 설치에는 음성 SDK(<code>voice</code> 묶음)가 들어 있지 않아 AI 전화는 「준비 안 됨」으로 보입니다. 문자 연결과 나머지 기능은 그대로 됩니다.</div>
+  <p class="muted small">무료 등급 Gemini 키로 한 통화는 구글 제품 개선에 쓰일 수 있습니다. 실제 협력사와 통화하기 전에는 본인 번호로만 시험합니다.</p>
+</section>
+
+<!-- 7 -->
+<section class="flow">
+  <h2><span class="no">7</span>벡터 검색 Qdrant <span class="tag opt">선택</span></h2>
+  <p>자료함 파일을 <b>뜻으로</b> 찾는 기능입니다. 한 줄 설치는 이것을 꺼 두고 <b>낱말 검색</b>으로 돕니다. 시연에는 꺼진 채로 충분합니다.</p>
+  <p>켜려면 Docker로 Qdrant를 띄우고, 주소를 붙여 다시 실행합니다.</p>
+  <ol class="steps blue" style="break-inside: avoid">
+    <li>Qdrant 띄우기(한 번):
+<pre>docker run -d --name chronos-qdrant -p 6333:6333 \
+  -v ~/.chronos/qdrant:/qdrant/storage qdrant/qdrant:v1.13.4</pre></li>
+    <li>ChronOS를 <code>Ctrl+C</code>로 끄고, 주소를 붙여 다시 실행:
+<pre>uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos \
+  --qdrant-url http://127.0.0.1:6333</pre></li>
+    <li>개발 콘솔 → 시스템 진단의 <b>벡터 검색 서버</b> 줄이 「정상」인지 봅니다(8장 그림 8-1의 ④).</li>
+  </ol>
+  <ul>
+    <li>임베딩은 4장의 <code>openai/text-embedding-3-small</code>을 Liner 연결로 부릅니다. Liner 키 말고 따로 넣을 것은 없습니다.</li>
+    <li>Qdrant가 꺼지면 앱은 멈추지 않고 낱말 검색으로 돌아갑니다.</li>
+  </ul>
+</section>
+
+<!-- 8 -->
+<section>
+  <h2><span class="no">8</span>연결 확인 — 개발 콘솔 진단</h2>
+  <p>모든 연결이 제대로인지 한 화면에서 봅니다. 문제가 있는 것부터 위에 나옵니다.</p>
+  <ol class="steps">
+    <li>Dock의 <b>개발 콘솔</b> → <b>시스템 진단</b> 탭.</li>
+    <li><b>요약 줄</b>: 「확인할 것 N개」와 정상 · 확인 필요 · 실패 · 모름 개수. 칩을 누르면 그 상태만 보입니다.</li>
+    <li><b>AI 모델 연결</b>: 「기본 「Liner」 · 키 준비됨」이면 정상입니다.</li>
+    <li><b>벡터 검색 서버</b>: 7장을 건너뛰었으면 「확인 필요 — 꺼 둠」이 맞습니다.</li>
+    <li><b>[다시 점검]</b>: 설정을 바꾼 뒤 누릅니다. 줄을 누르면 자세한 값과 「할 일」이 펼쳐집니다.</li>
+  </ol>
+  <figure><img src="img/s11_health.png" alt="시스템 진단"><figcaption>그림 8-1 Liner 연결만 넣은 새 설치본의 시스템 진단</figcaption></figure>
+
+  <table>
+    <tr><th style="width:26%">줄</th><th style="width:22%">Liner만 넣었을 때</th><th>뜻</th></tr>
+    <tr><td>AI 모델 연결 · 근거 검색 · 그림 읽기</td><td><span style="color:var(--ok)">●</span> 정상</td><td>필수 설정 끝.</td></tr>
+    <tr><td>벡터 검색 서버</td><td><span style="color:var(--warn)">●</span> 확인 필요</td><td>꺼 둠(낱말 검색). 7장을 하면 정상.</td></tr>
+    <tr><td>문자 연결</td><td><span style="color:var(--warn)">●</span> 확인 필요</td><td>알림 연결 없음. 6장을 하면 정상.</td></tr>
+    <tr><td>정보 API</td><td><span style="color:var(--ok)">●</span> 「연결 없음 — 쓰지 않음」</td><td>5장을 하면 연결 수와 상태가 나옵니다.</td></tr>
+    <tr><td>저장소 · 공휴일 표</td><td><span style="color:var(--ok)">●</span> 정상</td><td>DB와 2026~2028 공휴일.</td></tr>
+  </table>
+  <div class="note"><b>주의</b>: 「AI 모델 연결」 줄은 키가 저장돼 있고 읽히는지를 봅니다. Liner에 실제로 닿는지는 <b>설정 → LLM 연결</b> 카드의 [연결 테스트]가 봅니다. 그림 8-1은 예시 키라 연결 테스트를 하지 않은 상태입니다.</div>
+</section>
+
+<!-- 9 -->
+<section>
+  <h2><span class="no">9</span>처음 써 보기 — 에이전트에게 일정 맡기기</h2>
+  <p>위 오른쪽 <b>[+ 새 프로젝트]</b>(또는 바탕화면 「빠른 시작」의 <b>✦ AI 일정 생성</b>)를 누릅니다.</p>
+  <ol class="steps">
+    <li><b>AI 에이전트로 일정 생성</b> 탭을 고릅니다.</li>
+    <li>만들려는 일정을 한 문장으로 적습니다. 예:
+      <pre>5층 사무동 신축 일정 짜 줘. 착공 2027년 3월 2일, 준공 2028년 2월 말</pre></li>
+    <li><b>[새 프로젝트 대화 시작]</b>. 다른 일정과 떨어진 새 대화 창이 열리고 에이전트가 일을 시작합니다.</li>
+  </ol>
+  <figure class="half"><img src="img/s12_newproject.png" alt="새 프로젝트 만들기"><figcaption>그림 9-1 새 프로젝트 만들기 — AI 에이전트로 일정 생성</figcaption></figure>
+
+  <p>Dock의 <b>에이전트 대화</b>에서 바로 적어도 됩니다.</p>
+  <ol class="steps">
+    <li>아래 입력 칸에 같은 문장을 적습니다.</li>
+    <li><b>[보내기]</b>.</li>
+  </ol>
+  <figure class="narrow"><img src="img/s13_chat.png" alt="에이전트 대화"><figcaption>그림 9-2 에이전트 대화 창 (가운데 빈 대화 부분은 잘라 줄임)</figcaption></figure>
+
+  <h3>그다음에 일어나는 일</h3>
+  <ul>
+    <li>조건이 모자라면 에이전트가 <b>질문지</b>로 묻습니다. 답하면 이어서 짭니다.</li>
+    <li>에이전트가 WBS·기간·선후 관계를 내고, <b>날짜는 코드가 계산</b>합니다(CPM).</li>
+    <li>처음 승인 수준은 <b>「중요한 것만」</b>이라 첫 저장은 <b>승인함</b>에 올라옵니다. 내용을 보고 승인하면 일정이 저장됩니다.</li>
+    <li>저장된 일정은 <b>스케줄 · 간트차트 · CPM · 관리 포인트</b> 창에서 봅니다. 위 막대의 일정 이름을 눌러 일정을 바꿉니다.</li>
+    <li>하는 동안 개발 콘솔 → <b>실행 추적</b>에서 에이전트가 한 일(도구 호출)을 차례로 볼 수 있습니다.</li>
+  </ul>
+  <div class="note"><b>요금</b>: 대화와 일정 생성은 Liner 사용량을 씁니다. 개발 콘솔 → <b>사용량·비용</b>에서 호출 수와 추정 비용을 봅니다.</div>
+</section>
+
+<!-- 10 -->
+<section>
+  <h2><span class="no">10</span>문제 해결</h2>
+
+  <h3>포트가 이미 쓰이고 있다 (address already in use)</h3>
+  <p>다른 프로그램이 8210을 쓰고 있습니다. 다른 포트로 띄우고, 브라우저 주소도 그 포트로 엽니다.</p>
+  <pre>uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos --port 8300</pre>
+
+  <h3>관리자 비밀번호를 잊었다</h3>
+  <ul>
+    <li><b>로그인한 채라면</b>: 설정 → <b>내 정보</b> → 「프로필 · 비밀번호 변경」에서 바꿉니다.</li>
+    <li><b>다른 관리자 계정이 있으면</b>: 그 계정으로 들어가 설정 → <b>계정 (관리자·사용자)</b> → 그 사람 줄 → 새 비밀번호.</li>
+    <li><b>둘 다 아니면</b>: 비밀번호를 되살리는 명령은 없습니다. 새 데이터 폴더로 처음부터 시작합니다(아래 「처음부터 다시」). 예전 폴더는 지우지 않으면 그대로 남습니다.
+      <pre>uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos --data-dir ~/.chronos-new</pre></li>
+  </ul>
+
+  <h3>데이터는 어디에 있나</h3>
+  <table>
+    <tr><th style="width:32%">위치</th><th>내용</th></tr>
+    <tr><td><code>~/.chronos</code> (기본)<br><span class="small muted">Windows: <code>%USERPROFILE%\.chronos</code></span></td><td><code>chronos.db</code>(일정·대화·설정·암호화한 키) · <code>secret_key</code>(비밀 열쇠) · 올린 파일</td></tr>
+    <tr><td>바꾸기</td><td>명령 끝에 <code>--data-dir 폴더</code>, 또는 환경 변수 <code>CHRONOS_DATA_DIR</code></td></tr>
+  </table>
+  <div class="warn"><b><code>secret_key</code>를 지키세요.</b> 이 파일이 바뀌거나 없어지면 저장한 API 키를 풀 수 없습니다(키를 다시 넣어야 함). 옮길 때는 폴더째 옮깁니다. 이 폴더를 남에게 주지 않습니다.</div>
+
+  <h3>처음부터 다시 (초기화)</h3>
+  <ol class="steps blue">
+    <li>터미널에서 <code>Ctrl+C</code>로 끕니다.</li>
+    <li>데이터 폴더를 지웁니다. <b>모든 일정·대화·키가 사라집니다.</b>
+<pre>rm -rf ~/.chronos                                   # macOS · Linux
+Remove-Item -Recurse -Force $HOME\.chronos          # Windows PowerShell</pre></li>
+    <li>한 줄 명령을 다시 실행합니다. 관리자 계정부터 다시 묻습니다. 3장(Liner 키)을 다시 합니다.</li>
+  </ol>
+
+  <h3>그 밖에</h3>
+  <table>
+    <tr><th style="width:36%">증상</th><th>할 일</th></tr>
+    <tr><td><code>uv</code> / <code>uvx</code>: command not found</td><td>uv 설치 뒤 터미널을 새로 엽니다.</td></tr>
+    <tr><td>「터미널 입력을 받을 수 없습니다」</td><td>입력을 못 받는 곳에서 실행한 경우. <code>--admin-id 아이디</code>와 환경 변수 <code>CHRONOS_ADMIN_PASSWORD</code>로 관리자를 줍니다.</td></tr>
+    <tr><td>「비밀번호는 8자 이상…」</td><td>8자 이상, 72바이트 이하로 넣습니다. 세 번 틀리면 멈추니 다시 실행합니다.</td></tr>
+    <tr><td>LLM 연결 테스트 실패</td><td>화면의 까닭(키 · 주소 · 시간 초과 · 한도)을 봅니다. URL은 <code>https://platform.liner.com/api/v1</code> 그대로 둡니다.</td></tr>
+    <tr><td>에이전트가 답하지 않는다</td><td>개발 콘솔 → 시스템 진단에서 「AI 모델 연결」을 보고, 설정 → LLM 연결에서 [연결 테스트]를 다시 합니다.</td></tr>
+    <tr><td>다른 컴퓨터에서 열고 싶다</td><td>기본은 이 컴퓨터에서만 열립니다(<code>127.0.0.1</code>). <code>--host 0.0.0.0</code>으로 열 수 있지만, 같은 망의 누구나 로그인 화면에 닿으니 시연용으로만 씁니다.</td></tr>
+  </table>
+</section>
+
+</body>
+</html>
