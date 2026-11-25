@@ -37,9 +37,8 @@ function todayIso(): string {
   return `${y}-${m}-${d}`;
 }
 
-export default function NewProjectModal() {
-  const mode = useCurrentSchedule((s) => s.newProjectModal);
-  const close = useCurrentSchedule((s) => s.closeNewProjectModal);
+/** 새 프로젝트 창의 입력 상태(직접 · AI 탭)와 두 가지 만들기. 창을 열 때마다 탭·오류·진행 표시를 되돌린다. */
+function useNewProjectForm(mode: 'closed' | 'direct' | 'ai', close: () => void) {
   const [tab, setTab] = useState<'direct' | 'ai'>('direct');
   const [name, setName] = useState('');
   const [domainPreset, setDomainPreset] = useState('general');
@@ -50,8 +49,6 @@ export default function NewProjectModal() {
   const [aiTopic, setAiTopic] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const trap = useModalFocus(dialogRef);
 
   useEffect(() => {
     if (mode !== 'closed') {
@@ -60,8 +57,6 @@ export default function NewProjectModal() {
       setBusy(false);
     }
   }, [mode]);
-
-  if (mode === 'closed') return null;
 
   async function submitDirect(e: FormEvent) {
     e.preventDefault();
@@ -110,6 +105,137 @@ export default function NewProjectModal() {
     });
   }
 
+  return {
+    tab, setTab, name, setName, domainPreset, setDomainPreset, customDomain, setCustomDomain, level, setLevel,
+    start, setStart, daysPerWeek, setDaysPerWeek, aiTopic, setAiTopic, busy, error, submitDirect, startAiProject,
+  };
+}
+
+type NewProjectForm = ReturnType<typeof useNewProjectForm>;
+
+/** 「직접 빈 프로젝트 생성」 탭. */
+function DirectForm({ f, close }: { f: NewProjectForm; close: () => void }) {
+  return (
+    <form className="os-newproj-form" onSubmit={(e) => void f.submitDirect(e)}>
+      <label className="os-newproj-field">
+        <span>프로젝트 이름</span>
+        <input
+          type="text"
+          value={f.name}
+          onChange={(e) => f.setName(e.target.value)}
+          placeholder="예: 차세대 배터리 R&D 일정, 신규 공장 인허가"
+          required
+          autoFocus
+        />
+      </label>
+
+      <div className="os-newproj-grid">
+        <label className="os-newproj-field">
+          <span>분야</span>
+          <select value={f.domainPreset} onChange={(e) => f.setDomainPreset(e.target.value)}>
+            {DOMAIN_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="os-newproj-field">
+          <span>정밀도</span>
+          <select value={f.level} onChange={(e) => f.setLevel(e.target.value as (typeof LEVELS)[number])}>
+            {LEVELS.map((lv) => (
+              <option key={lv} value={lv}>
+                {lv}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {f.domainPreset === 'custom' && (
+        <label className="os-newproj-field">
+          <span>분야 코드 또는 이름</span>
+          <input
+            type="text"
+            value={f.customDomain}
+            onChange={(e) => f.setCustomDomain(e.target.value)}
+            placeholder="예: aerospace, 바이오임상, marketing"
+          />
+        </label>
+      )}
+
+      <div className="os-newproj-grid">
+        <label className="os-newproj-field">
+          <span>시작일</span>
+          <input type="date" value={f.start} onChange={(e) => f.setStart(e.target.value)} />
+        </label>
+
+        <label className="os-newproj-field">
+          <span>주 근무일</span>
+          <select value={f.daysPerWeek} onChange={(e) => f.setDaysPerWeek(Number(e.target.value) as 5 | 6 | 7)}>
+            <option value={5}>주 5일</option>
+            <option value={6}>주 6일</option>
+            <option value={7}>주 7일</option>
+          </select>
+        </label>
+      </div>
+
+      {f.error && (
+        <p className="os-newproj-error" role="alert">
+          {f.error}
+        </p>
+      )}
+
+      <div className="os-newproj-actions">
+        <Button onClick={close} disabled={f.busy}>
+          취소
+        </Button>
+        <Button type="submit" variant="primary" disabled={f.busy}>
+          {f.busy ? '생성 중…' : '프로젝트 생성'}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** 「AI 에이전트로 일정 생성」 탭. */
+function AiForm({ f, close }: { f: NewProjectForm; close: () => void }) {
+  return (
+    <form className="os-newproj-form" onSubmit={f.startAiProject}>
+      <p className="os-newproj-desc">
+        기존 일정과 완전히 격리된 상태로 새 대화창을 열고, R&amp;D·인허가·조달·SW·제조·건설 등 어떤 분야든 AI와 함께 새 일정 프로젝트를 만듭니다.
+      </p>
+      <label className="os-newproj-field">
+        <span>만들려는 일정 주제 (선택)</span>
+        <input
+          type="text"
+          value={f.aiTopic}
+          onChange={(e) => f.setAiTopic(e.target.value)}
+          placeholder="비워 두면 새 대화만 엽니다. 예: 해외 설비 조달 일정 짜줘"
+          autoFocus
+        />
+      </label>
+      <div className="os-newproj-actions">
+        <Button onClick={close}>취소</Button>
+        <Button type="submit" variant="primary">
+          새 프로젝트 대화 시작
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export default function NewProjectModal() {
+  const mode = useCurrentSchedule((s) => s.newProjectModal);
+  const close = useCurrentSchedule((s) => s.closeNewProjectModal);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const trap = useModalFocus(dialogRef);
+  const f = useNewProjectForm(mode, close);
+  const { tab, setTab, busy } = f;
+
+  if (mode === 'closed') return null;
+
   return (
     <div
       className="os-newproj-back"
@@ -155,108 +281,9 @@ export default function NewProjectModal() {
         </div>
 
         {tab === 'direct' ? (
-          <form className="os-newproj-form" onSubmit={(e) => void submitDirect(e)}>
-            <label className="os-newproj-field">
-              <span>프로젝트 이름</span>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="예: 차세대 배터리 R&D 일정, 신규 공장 인허가"
-                required
-                autoFocus
-              />
-            </label>
-
-            <div className="os-newproj-grid">
-              <label className="os-newproj-field">
-                <span>분야</span>
-                <select value={domainPreset} onChange={(e) => setDomainPreset(e.target.value)}>
-                  {DOMAIN_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="os-newproj-field">
-                <span>정밀도</span>
-                <select value={level} onChange={(e) => setLevel(e.target.value as (typeof LEVELS)[number])}>
-                  {LEVELS.map((lv) => (
-                    <option key={lv} value={lv}>
-                      {lv}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            {domainPreset === 'custom' && (
-              <label className="os-newproj-field">
-                <span>분야 코드 또는 이름</span>
-                <input
-                  type="text"
-                  value={customDomain}
-                  onChange={(e) => setCustomDomain(e.target.value)}
-                  placeholder="예: aerospace, 바이오임상, marketing"
-                />
-              </label>
-            )}
-
-            <div className="os-newproj-grid">
-              <label className="os-newproj-field">
-                <span>시작일</span>
-                <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
-              </label>
-
-              <label className="os-newproj-field">
-                <span>주 근무일</span>
-                <select value={daysPerWeek} onChange={(e) => setDaysPerWeek(Number(e.target.value) as 5 | 6 | 7)}>
-                  <option value={5}>주 5일</option>
-                  <option value={6}>주 6일</option>
-                  <option value={7}>주 7일</option>
-                </select>
-              </label>
-            </div>
-
-            {error && (
-              <p className="os-newproj-error" role="alert">
-                {error}
-              </p>
-            )}
-
-            <div className="os-newproj-actions">
-              <Button onClick={close} disabled={busy}>
-                취소
-              </Button>
-              <Button type="submit" variant="primary" disabled={busy}>
-                {busy ? '생성 중…' : '프로젝트 생성'}
-              </Button>
-            </div>
-          </form>
+          <DirectForm f={f} close={close} />
         ) : (
-          <form className="os-newproj-form" onSubmit={startAiProject}>
-            <p className="os-newproj-desc">
-              기존 일정과 완전히 격리된 상태로 새 대화창을 열고, R&amp;D·인허가·조달·SW·제조·건설 등 어떤 분야든 AI와 함께 새 일정 프로젝트를 만듭니다.
-            </p>
-            <label className="os-newproj-field">
-              <span>만들려는 일정 주제 (선택)</span>
-              <input
-                type="text"
-                value={aiTopic}
-                onChange={(e) => setAiTopic(e.target.value)}
-                placeholder="비워 두면 새 대화만 엽니다. 예: 해외 설비 조달 일정 짜줘"
-                autoFocus
-              />
-            </label>
-            <div className="os-newproj-actions">
-              <Button onClick={close}>취소</Button>
-              <Button type="submit" variant="primary">
-                새 프로젝트 대화 시작
-              </Button>
-            </div>
-          </form>
+          <AiForm f={f} close={close} />
         )}
       </div>
     </div>
