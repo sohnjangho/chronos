@@ -23,7 +23,7 @@ dev = [
 ]
 voice = ["koreaaitel[agent,gemini]==0.78.0"]  # AI 전화(음성 SDK, import 이름은 clawops) — 없어도 앱은 뜬다. 설치는 PM 이 한다
 
-# 한 줄 설치: uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos
+# 한 줄 설치: uvx --from https://github.com/sohnjangho/chronos/releases/download/v0.1.0/chronos_backend-0.1.0-py3-none-any.whl chronos
 [project.scripts]
 chronos = "app.cli:main"
 
