@@ -242,7 +242,7 @@ INFO:     Uvicorn running on http://127.0.0.1:8210 (Press CTRL+C to quit)</span>
     <li><b>임베딩</b> 줄: <code>openai/text-embedding-3-small</code>을 Liner 연결로 부릅니다. 자료함의 뜻 검색에 쓰고, 7장(Qdrant)을 켤 때만 실제로 쓰입니다.</li>
   </ol>
   <figure><img src="img/assign-01-m.png" alt="작업별 모델 배정 — 모델이 채워진 표"><figcaption>그림 4-1 Liner 연결이 된 작업별 모델 배정(처음 값, 실제 화면)</figcaption></figure>
-  <figure><img src="img/assign-02-m.png" alt="모델 목록과 기준 목록을 연 모습"><figcaption>그림 4-2 ① 모델 칸을 연 모습(Liner 묶음 15개 가운데 일부) · ② 기준 칸을 연 모습</figcaption></figure>
+  <figure><img src="img/assign-02-m.png" alt="모델 목록과 기준 목록을 연 모습"><figcaption>그림 4-2 목록을 펼친 모습 — ① 「보통 일」 모델 목록(Liner 묶음 15개 가운데 일부) ② 기준 목록</figcaption></figure>
   <p class="muted small">그림 4-1 ④의 「이 연결에서 임베딩 모델을 찾지 못했습니다」는 11-20에 저장한 예전 연결이라 보이는 글입니다. 새로 설치하면 나오지 않고, 예전 연결은 LLM 연결 카드의 [연결 테스트]를 한 번 더 누르면 사라집니다.</p>
   <ul>
     <li>줄을 바꾸면 그 줄 아래에 <b>[되돌리기]</b>와 <b>[저장]</b>이 생깁니다. 줄마다 따로 저장하고, 저장하면 「저장했습니다.」가 보입니다.</li>
@@ -376,6 +376,8 @@ INFO:     Uvicorn running on http://127.0.0.1:8210 (Press CTRL+C to quit)</span>
 
   <figure><img src="img/notify-10-m.png" alt="받는 범위"><figcaption>그림 6-8 받는 범위 · 차단 — ① 받는 범위(이 화면은 운영 사본이라 「주소록에 있는 번호만」, 새 연결은 「받지 않음」) ② 사람 연결 번호(상대가 사람 담당자를 찾을 때 넘겨 줄 번호)</figcaption></figure>
 
+  <figure class="half"><img src="img/notify-11-blocked.png" alt="차단한 번호"><figcaption>그림 6-9 차단한 번호 — 차단은 연락처 창의 「모르는 번호」에서 하고, 여기에는 목록만 보입니다</figcaption></figure>
+
   <h3>6-5 상한 · 근무시간</h3>
   <p>상한은 설정 → 알림 연결 → 「상한」 묶음에서 고칩니다(개발 콘솔 → 연락 하네스 → 「운영 상한」과 같은 값).</p>
   <table>
@@ -386,8 +388,8 @@ INFO:     Uvicorn running on http://127.0.0.1:8210 (Press CTRL+C to quit)</span>
     <tr><td>모르는 번호</td><td>통화 120초 · 전화 한 시간 6통 · 안내 한 번호 하루 1번 · 안내 모두 하루 10건</td></tr>
     <tr><td>잦은 연락</td><td>10분에 5번 넘게 들어오면 기록만(전화·문자 따로)</td></tr>
   </table>
-  <figure><img src="img/notify-05-m.png" alt="상한"><figcaption>그림 6-9 상한 묶음 — ① 펼치기 ② 기본값으로 ③ 칸마다 [저장](「잦은 연락」 칸은 그림 아래쪽에 이어짐)</figcaption></figure>
-  <p>근무시간이 비어 있는 연락처는 달력의 근무일 08:00~18:00을 씁니다. 근무시간 밖의 문자는 다음 근무 시작에 예약되고, 전화는 [다음 근무 시작에 예약]을 눌러야 예약됩니다.</p>
+  <figure><img src="img/notify-05-m.png" alt="상한"><figcaption>그림 6-10 상한 묶음 — ① 펼치기 ② 기본값으로 ③ 칸마다 [저장](「잦은 연락」 칸은 그림 아래쪽에 이어짐)</figcaption></figure>
+  <p><b>근무시간은 사람마다</b> 정합니다: 연락처 창 → 그 사람 → [고치기] → 「근무시간」(요일 칩 + 시작·끝). 알림 연결 화면에는 따로 없습니다. 요일을 하나도 고르지 않으면 달력의 근무일 08:00~18:00을 씁니다. 근무시간 밖의 문자는 다음 근무 시작에 예약되고, 전화는 [다음 근무 시작에 예약]을 눌러야 예약됩니다.</p>
 
   <h3>6-6 연결 진단 · 음성 진단</h3>
   <table>
@@ -399,7 +401,7 @@ INFO:     Uvicorn running on http://127.0.0.1:8210 (Press CTRL+C to quit)</span>
   </table>
   <p class="muted small">줄마다 정상 · 실패 · 건너뜀과 쉬운 까닭이 나옵니다. 실제 문자·전화는 요금이 듭니다. 보냈는지 모를 때(「확인 필요」)는 10분 안에 다시 보내지 않게 막습니다. 「실제 통화 포함」은 한 번 건 뒤 저절로 꺼집니다. 진단 전화의 첫마디는 「…연결 진단 전화입니다. 이 통화는 녹음하지 않습니다.」입니다.</p>
 
-  <figure><img src="img/notify-12-m.png" alt="연결 진단 결과"><figcaption>그림 6-10 연결 진단 결과 — ① 걸음마다 OK · 건너뜀과 까닭, 응답 시간</figcaption></figure>
+  <figure><img src="img/notify-12-m.png" alt="연결 진단 결과"><figcaption>그림 6-11 연결 진단 결과 — ① 걸음마다 OK · 건너뜀과 까닭, 응답 시간</figcaption></figure>
 
   <h3>6-7 수신 거부 · 카카오톡</h3>
   <ul>
