@@ -188,6 +188,91 @@ function renderWidget(id: WidgetId, data: ProgressData, scheduleId: number, plan
   }
 }
 
+/** Plan 이 없는(계획 뒤에 더한) 액티비티를 계획 지표에서 뺐다는 알림. */
+function AddedNote({ added }: { added: ProgressData['added_after_plan'] }) {
+  return (
+    <p className="pg-note" role="note">
+      {`Plan 이 없는 액티비티 ${added.count}개는 계획 공정률·S-커브·일정 수행 지수에서 뺐습니다 · 그것들의 실적 ${pct(added.actual_pct)}%`}
+    </p>
+  );
+}
+
+/** 위젯을 모두 숨겼을 때. */
+function NoWidgets({ onReset }: { onReset: () => void }) {
+  return (
+    <div className="pg-card pg-widgets-empty">
+      <p className="pg-empty">표시된 위젯이 없습니다.</p>
+      <Button onClick={onReset}>기본 배치 복원</Button>
+    </div>
+  );
+}
+
+/** 배치 편집 중 위젯 위의 막대: 끌기 손잡이 · 앞뒤로 옮기기 · 너비 · 숨기기. */
+function WidgetBar({
+  item,
+  shortLabel,
+  first,
+  last,
+  onMove,
+  onSpan,
+  onToggleVisible,
+}: {
+  item: WidgetItem;
+  shortLabel: string;
+  first: boolean;
+  last: boolean;
+  onMove: (id: WidgetId, delta: -1 | 1) => void;
+  onSpan: (id: WidgetId, span: WidgetSpan) => void;
+  onToggleVisible: (id: WidgetId) => void;
+}) {
+  return (
+    <div className="pg-widget-bar">
+      <span className="pg-widget-grip" aria-hidden="true">
+        ⋮⋮
+      </span>
+      <span className="pg-widget-name">{shortLabel}</span>
+      <button
+        type="button"
+        className="pg-wbtn"
+        aria-label={`${shortLabel} 앞으로 이동`}
+        disabled={first}
+        onClick={() => onMove(item.id, -1)}
+      >
+        ←
+      </button>
+      <button
+        type="button"
+        className="pg-wbtn"
+        aria-label={`${shortLabel} 뒤로 이동`}
+        disabled={last}
+        onClick={() => onMove(item.id, 1)}
+      >
+        →
+      </button>
+      <div role="group" aria-label={`${shortLabel} 너비`} className="pg-span-seg">
+        {SPAN_OPTIONS.map((opt) => (
+          <button
+            key={opt.span}
+            type="button"
+            aria-pressed={item.span === opt.span}
+            onClick={() => onSpan(item.id, opt.span)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="pg-wbtn is-hide"
+        aria-label={`${shortLabel} 숨기기`}
+        onClick={() => onToggleVisible(item.id)}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 function Body({
   data,
   scheduleId,
@@ -218,16 +303,9 @@ function Body({
 
   return (
     <>
-      {added.count > 0 && (
-        <p className="pg-note" role="note">
-          {`Plan 이 없는 액티비티 ${added.count}개는 계획 공정률·S-커브·일정 수행 지수에서 뺐습니다 · 그것들의 실적 ${pct(added.actual_pct)}%`}
-        </p>
-      )}
+      {added.count > 0 && <AddedNote added={added} />}
       {visibleItems.length === 0 ? (
-        <div className="pg-card pg-widgets-empty">
-          <p className="pg-empty">표시된 위젯이 없습니다.</p>
-          <Button onClick={onReset}>기본 배치 복원</Button>
-        </div>
+        <NoWidgets onReset={onReset} />
       ) : (
         <div className={editMode ? 'pg-widget-grid is-editing' : 'pg-widget-grid'} aria-label="공정률 위젯 보드">
           {visibleItems.map((item, visibleIdx) => {
@@ -275,50 +353,15 @@ function Body({
                 }}
               >
                 {editMode && (
-                  <div className="pg-widget-bar">
-                    <span className="pg-widget-grip" aria-hidden="true">
-                      ⋮⋮
-                    </span>
-                    <span className="pg-widget-name">{shortLabel}</span>
-                    <button
-                      type="button"
-                      className="pg-wbtn"
-                      aria-label={`${shortLabel} 앞으로 이동`}
-                      disabled={visibleIdx === 0}
-                      onClick={() => onMove(item.id, -1)}
-                    >
-                      ←
-                    </button>
-                    <button
-                      type="button"
-                      className="pg-wbtn"
-                      aria-label={`${shortLabel} 뒤로 이동`}
-                      disabled={visibleIdx === visibleItems.length - 1}
-                      onClick={() => onMove(item.id, 1)}
-                    >
-                      →
-                    </button>
-                    <div role="group" aria-label={`${shortLabel} 너비`} className="pg-span-seg">
-                      {SPAN_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.span}
-                          type="button"
-                          aria-pressed={item.span === opt.span}
-                          onClick={() => onSpan(item.id, opt.span)}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      className="pg-wbtn is-hide"
-                      aria-label={`${shortLabel} 숨기기`}
-                      onClick={() => onToggleVisible(item.id)}
-                    >
-                      ×
-                    </button>
-                  </div>
+                  <WidgetBar
+                    item={item}
+                    shortLabel={shortLabel}
+                    first={visibleIdx === 0}
+                    last={visibleIdx === visibleItems.length - 1}
+                    onMove={onMove}
+                    onSpan={onSpan}
+                    onToggleVisible={onToggleVisible}
+                  />
                 )}
                 <div className="pg-widget-content">{renderWidget(item.id, data, scheduleId, planStart)}</div>
               </div>

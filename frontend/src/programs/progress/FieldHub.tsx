@@ -62,37 +62,24 @@ function SamplePhotoGraphic({ kindKey }: { kindKey: string }) {
   );
 }
 
-function CheckinCard({
-  item,
+/** 체크인 카드의 진행 상태 단추와 진도율 빠른 선택. 완료 · 100% 는 서로를 맞추고 잔여일을 0 으로 둔다. */
+function CheckinChoices({
+  choice,
+  progress,
   busy,
-  reach,
-  onSave,
-  onSubmitReport,
+  setChoice,
+  setProgress,
+  setRd,
 }: {
-  item: FieldItem;
+  choice: string | null;
+  progress: number | null;
   busy: boolean;
-  reach: Reach;
-  onSave(choice: string, progress: number | null, rd: number | null, note: string): Promise<void>;
-  onSubmitReport(choice: string, progress: number | null, rd: number | null, note: string): Promise<void>;
+  setChoice(v: string): void;
+  setProgress(v: number): void;
+  setRd(v: number): void;
 }) {
-  // 회신 전 카드는 값을 비워 둔다 — 고르지 않은 「정상 진행」·진도가 눌린 채 그대로 제출되지 않게(F7).
-  const waiting = item.status === 'pending';
-  const [choice, setChoice] = useState<string | null>(waiting ? null : (item.response_choice ?? 'on_track'));
-  const [progress, setProgress] = useState<number | null>(waiting ? null : (item.reported_progress ?? 50));
-  const [rd, setRd] = useState<number | null>(waiting ? null : (item.reported_rd ?? 3));
-  const [note, setNote] = useState(item.response_note);
-
   return (
-    <article className="pg-fcard" aria-label={item.title}>
-      <div className="pg-fcard-head">
-        <div>
-          <div className="pg-fcard-trade">{item.trade}</div>
-          <h4 className="pg-fcard-title">{item.title}</h4>
-        </div>
-        <StatusBadge item={item} />
-      </div>
-      <p className="pg-muted">{item.prompt_text}</p>
-
+    <>
       <div className="pg-choice-row" role="group" aria-label="진행 상태 선택">
         {[
           ['on_track', '✓ 정상 진행'],
@@ -138,6 +125,42 @@ function CheckinCard({
           </button>
         ))}
       </div>
+    </>
+  );
+}
+
+function CheckinCard({
+  item,
+  busy,
+  reach,
+  onSave,
+  onSubmitReport,
+}: {
+  item: FieldItem;
+  busy: boolean;
+  reach: Reach;
+  onSave(choice: string, progress: number | null, rd: number | null, note: string): Promise<void>;
+  onSubmitReport(choice: string, progress: number | null, rd: number | null, note: string): Promise<void>;
+}) {
+  // 회신 전 카드는 값을 비워 둔다 — 고르지 않은 「정상 진행」·진도가 눌린 채 그대로 제출되지 않게(F7).
+  const waiting = item.status === 'pending';
+  const [choice, setChoice] = useState<string | null>(waiting ? null : (item.response_choice ?? 'on_track'));
+  const [progress, setProgress] = useState<number | null>(waiting ? null : (item.reported_progress ?? 50));
+  const [rd, setRd] = useState<number | null>(waiting ? null : (item.reported_rd ?? 3));
+  const [note, setNote] = useState(item.response_note);
+
+  return (
+    <article className="pg-fcard" aria-label={item.title}>
+      <div className="pg-fcard-head">
+        <div>
+          <div className="pg-fcard-trade">{item.trade}</div>
+          <h4 className="pg-fcard-title">{item.title}</h4>
+        </div>
+        <StatusBadge item={item} />
+      </div>
+      <p className="pg-muted">{item.prompt_text}</p>
+
+      <CheckinChoices choice={choice} progress={progress} busy={busy} setChoice={setChoice} setProgress={setProgress} setRd={setRd} />
 
       <div className={choice === 'delayed' ? 'pg-finputs' : 'pg-finputs is-single'}>
         <label className="pg-flabel">
@@ -517,31 +540,214 @@ function HandoffCard({
   );
 }
 
-export default function FieldHub({
-  scheduleId,
-  initialTab = 'checkin',
-  initialPhotoView = 'ai',
+/** 허브 맨 위 요약: 현장용(한 줄)과 관리자용(지표 네 칸). */
+function FieldSummary({ simple, s, humanWait }: { simple: boolean; s: FieldData['summary']; humanWait: number }) {
+  return simple ? (
+    <div className="pg-field-simple-bar" role="status" aria-label="오늘 현장 보고 요약">
+      <span>{`체크인 ${s.checkin_responded}/${s.checkin_total}`}</span>
+      <span>{`사진 판독 ${s.photo_total}건${humanWait > 0 ? ` · 사람 판독 대기 ${humanWait}` : ''}`}</span>
+      <span>{`핸드오프 ${s.handoff_ready}/${s.handoff_total}`}</span>
+    </div>
+  ) : (
+    <div className="pg-field-kpis">
+      <div className="pg-fkpi">
+        <span className="pg-muted">일일 체크인 응답률</span>
+        <b>{`${s.checkin_responded} / ${s.checkin_total}`}</b>
+      </div>
+      <div className="pg-fkpi">
+        <span className="pg-muted">AI 사진 판독 증빙</span>
+        <b>{`증빙 ${s.photo_total}건${humanWait > 0 ? ` · 사람 판독 대기 ${humanWait}` : ''}`}</b>
+      </div>
+      <div className="pg-fkpi">
+        <span className="pg-muted">만회안 공종 의견</span>
+        <b>{`가능 ${s.poll_feasible} · 조건부 ${s.poll_conditional} · 불가 ${s.poll_infeasible}`}</b>
+      </div>
+      <div className="pg-fkpi">
+        <span className="pg-muted">D-3 핸드오프 준비</span>
+        <b>{`${s.handoff_ready} / ${s.handoff_total} 준비 완료`}</b>
+      </div>
+    </div>
+  );
+}
+
+/** 「+ 공종 담당자 의견 조회 발송」 작성 칸. 작성 중인 글은 허브가 들고 있다(닫았다 열어도 남는다). */
+function PollComposer({
+  activities,
+  busy,
+  pollAct,
+  setPollAct,
+  pollTitle,
+  setPollTitle,
+  pollPrompt,
+  setPollPrompt,
+  onSend,
 }: {
-  scheduleId: number;
-  initialTab?: FieldKind;
-  /** 사진 탭 안: AI 판독 카드 / 사람 판독 목록(관리자 — 「주의할 일정」의 「사람 판독 n」에서 열면 human). */
-  initialPhotoView?: 'ai' | 'human';
+  activities: FieldActivityOption[];
+  busy: boolean;
+  pollAct: string;
+  setPollAct(v: string): void;
+  pollTitle: string;
+  setPollTitle(v: string): void;
+  pollPrompt: string;
+  setPollPrompt(v: string): void;
+  onSend(): void;
 }) {
-  const role = useSession((s) => s.session?.user.role ?? 'user');
-  const device = useActiveDevice();
-  const isSimpleField = role === 'field' || device === 'phone';
-  const waits = role === 'field' ? FIELD_WAITS : undefined; // 현장 관리자에게만 — 다른 역할은 바로 반영될 수 있다
+  return (
+    <section className="pg-card pg-fbox" aria-label="새 만회안 의견 조회 발송">
+      <div className="pg-fgrid-form">
+        <label className="pg-flabel">
+          <span>대상 액티비티</span>
+          <select value={pollAct} onChange={(e) => setPollAct(e.target.value)}>
+            {activities.map((a) => (
+              <option key={a.id} value={a.id}>{`${a.id} ${a.name}`}</option>
+            ))}
+          </select>
+        </label>
+        <label className="pg-flabel">
+          <span>검토 중인 만회안 제목</span>
+          <input value={pollTitle} placeholder="예: 공종 주말·병행 단축 2일안" onChange={(e) => setPollTitle(e.target.value)} />
+        </label>
+      </div>
+      <label className="pg-flabel">
+        <span>담당자에게 보낼 질문</span>
+        <input
+          value={pollPrompt}
+          placeholder="예: 일정 만회를 위해 선행 공종 완료 즉시 야간/주말 병행 투입이 가능한지 의견을 주세요."
+          onChange={(e) => setPollPrompt(e.target.value)}
+        />
+      </label>
+      <div className="pg-fcard-foot">
+        <Button
+          variant="primary"
+          disabled={busy || !pollAct || !pollTitle.trim() || !pollPrompt.trim()}
+          onClick={onSend}
+        >
+          공종 담당자에게 의견 조회 발송
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** 항목 하나를 종류에 맞는 카드로 그리고, 카드의 저장 · 제출을 허브의 run 으로 보낸다. */
+function FieldItemCard({
+  item,
+  busy,
+  reach,
+  scheduleId,
+  waits,
+  run,
+}: {
+  item: FieldItem;
+  busy: boolean;
+  reach: Reach;
+  scheduleId: number;
+  waits: string | undefined;
+  run(task: () => Promise<FieldData>, done?: string): Promise<void>;
+}) {
+  if (item.kind === 'checkin') {
+    return (
+      <CheckinCard
+        item={item}
+        busy={busy}
+        reach={reach}
+        onSave={(choice, prog, rd, note) =>
+          run(
+            () =>
+              fieldApi.respond(scheduleId, item.id, {
+                response_choice: choice,
+                reported_progress: prog ?? undefined,
+                reported_rd: rd ?? undefined,
+                response_note: note,
+              }),
+            '저장했습니다.',
+          )
+        }
+        onSubmitReport={(choice, prog, rd, note) =>
+          run(async () => {
+            const saved = await fieldApi.respond(scheduleId, item.id, {
+              response_choice: choice,
+              reported_progress: prog ?? undefined,
+              reported_rd: rd ?? undefined,
+              response_note: note,
+            });
+            if (saved.items.find((x) => x.id === item.id)?.approval_id !== null) return saved;
+            return fieldApi.apply(scheduleId, item.id);
+          }, waits)
+        }
+      />
+    );
+  }
+  if (item.kind === 'photo') {
+    return <PhotoCard item={item} busy={busy} onApply={() => run(() => fieldApi.apply(scheduleId, item.id), waits)} />;
+  }
+  if (item.kind === 'poll') {
+    return (
+      <PollCard
+        item={item}
+        busy={busy}
+        reach={reach}
+        onSubmitPoll={(choice, note) =>
+          run(async () => {
+            const saved = await fieldApi.respond(scheduleId, item.id, { response_choice: choice, response_note: note });
+            const updated = saved.items.find((x) => x.id === item.id);
+            if (!note.trim() || !updated || updated.approval_id !== null) return saved;
+            return fieldApi.apply(scheduleId, item.id);
+          }, waits)
+        }
+      />
+    );
+  }
+  return (
+    <HandoffCard item={item} busy={busy} reach={reach} onSave={(body) => run(() => fieldApi.updateHandoff(scheduleId, item.id, body), '저장했습니다.')} />
+  );
+}
+
+/** 현장 협업 기능 탭(체크인 · 사진 · 의견 조회 · 핸드오프). pill: 사진 탭에 붙일 사람 판독 대기 알약. */
+function FieldTabs({ tab, onTab, pill }: { tab: FieldKind; onTab(t: FieldKind): void; pill: string | null }) {
+  return (
+    <div role="tablist" aria-label="현장 협업 기능" className="pg-seg">
+      {TABS.map((t) => (
+        <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => onTab(t.id)}>
+          {t.label}
+          {t.id === 'photo' && pill !== null && <span className="pg-hr-pill">{pill}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 사진 탭 안 AI 판독 / 사람 판독 보기 전환. */
+function PhotoViewSwitch({
+  view,
+  onView,
+  aiLabel,
+  humanLabel,
+}: {
+  view: 'ai' | 'human';
+  onView(v: 'ai' | 'human'): void;
+  aiLabel: string;
+  humanLabel: string;
+}) {
+  return (
+    <div role="group" aria-label="사진 판독 보기" className="pg-seg pg-hr-switch">
+      <button type="button" aria-pressed={view === 'ai'} onClick={() => onView('ai')}>
+        {aiLabel}
+      </button>
+      <button type="button" aria-pressed={view === 'human'} onClick={() => onView('human')}>
+        {humanLabel}
+      </button>
+    </div>
+  );
+}
+
+/** 허브 자료(서버 목록)와 요청 하나를 보내고 결과로 바꾸는 run. 의견 조회 대상은 처음 읽을 때 첫 액티비티로 채운다. */
+function useFieldData(scheduleId: number) {
   const [data, setData] = useState<FieldData | null>(null);
-  const [tab, setTab] = useState<FieldKind>(initialTab);
-  const [photoView, setPhotoView] = useState<'ai' | 'human'>(initialPhotoView);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [pollOpen, setPollOpen] = useState(false);
   const [pollAct, setPollAct] = useState('');
-  // 의견 조회 작성 칸은 비워 두고 예시는 자리표시로만 — 기본 문구가 그대로 발송되지 않게(F7).
-  const [pollTitle, setPollTitle] = useState('');
-  const [pollPrompt, setPollPrompt] = useState('');
 
   useEffect(() => {
     let live = true;
@@ -575,6 +781,31 @@ export default function FieldHub({
     }
   }
 
+  return { data, busy, error, notice, pollAct, setPollAct, run };
+}
+
+export default function FieldHub({
+  scheduleId,
+  initialTab = 'checkin',
+  initialPhotoView = 'ai',
+}: {
+  scheduleId: number;
+  initialTab?: FieldKind;
+  /** 사진 탭 안: AI 판독 카드 / 사람 판독 목록(관리자 — 「주의할 일정」의 「사람 판독 n」에서 열면 human). */
+  initialPhotoView?: 'ai' | 'human';
+}) {
+  const role = useSession((s) => s.session?.user.role ?? 'user');
+  const device = useActiveDevice();
+  const isSimpleField = role === 'field' || device === 'phone';
+  const waits = role === 'field' ? FIELD_WAITS : undefined; // 현장 관리자에게만 — 다른 역할은 바로 반영될 수 있다
+  const { data, busy, error, notice, pollAct, setPollAct, run } = useFieldData(scheduleId);
+  const [tab, setTab] = useState<FieldKind>(initialTab);
+  const [photoView, setPhotoView] = useState<'ai' | 'human'>(initialPhotoView);
+  const [pollOpen, setPollOpen] = useState(false);
+  // 의견 조회 작성 칸은 비워 두고 예시는 자리표시로만 — 기본 문구가 그대로 발송되지 않게(F7).
+  const [pollTitle, setPollTitle] = useState('');
+  const [pollPrompt, setPollPrompt] = useState('');
+
   if (error && !data) return <p className="pg-empty" role="alert">{error}</p>;
   if (!data) return <p className="pg-empty">현장 모바일 협업 현황을 불러오는 중…</p>;
 
@@ -590,52 +821,18 @@ export default function FieldHub({
 
   return (
     <div className="pg-field-wrap" role="region" aria-label="현장 모바일 협업 허브">
-      {isSimpleField ? (
-        <div className="pg-field-simple-bar" role="status" aria-label="오늘 현장 보고 요약">
-          <span>{`체크인 ${s.checkin_responded}/${s.checkin_total}`}</span>
-          <span>{`사진 판독 ${s.photo_total}건${humanWait > 0 ? ` · 사람 판독 대기 ${humanWait}` : ''}`}</span>
-          <span>{`핸드오프 ${s.handoff_ready}/${s.handoff_total}`}</span>
-        </div>
-      ) : (
-        <div className="pg-field-kpis">
-          <div className="pg-fkpi">
-            <span className="pg-muted">일일 체크인 응답률</span>
-            <b>{`${s.checkin_responded} / ${s.checkin_total}`}</b>
-          </div>
-          <div className="pg-fkpi">
-            <span className="pg-muted">AI 사진 판독 증빙</span>
-            <b>{`증빙 ${s.photo_total}건${humanWait > 0 ? ` · 사람 판독 대기 ${humanWait}` : ''}`}</b>
-          </div>
-          <div className="pg-fkpi">
-            <span className="pg-muted">만회안 공종 의견</span>
-            <b>{`가능 ${s.poll_feasible} · 조건부 ${s.poll_conditional} · 불가 ${s.poll_infeasible}`}</b>
-          </div>
-          <div className="pg-fkpi">
-            <span className="pg-muted">D-3 핸드오프 준비</span>
-            <b>{`${s.handoff_ready} / ${s.handoff_total} 준비 완료`}</b>
-          </div>
-        </div>
-      )}
+      <FieldSummary simple={isSimpleField} s={s} humanWait={humanWait} />
 
       <div className="pg-field-subbar">
-        <div role="tablist" aria-label="현장 협업 기능" className="pg-seg">
-          {TABS.map((t) => (
-            <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
-              {t.label}
-              {t.id === 'photo' && canHuman && humanWait > 0 && <span className="pg-hr-pill">{`사람 판독 대기 ${humanWait}`}</span>}
-            </button>
-          ))}
-        </div>
+        <FieldTabs tab={tab} onTab={setTab} pill={canHuman && humanWait > 0 ? `사람 판독 대기 ${humanWait}` : null} />
         <span className="sch-gap" />
         {canHuman && tab === 'photo' && (
-          <div role="group" aria-label="사진 판독 보기" className="pg-seg pg-hr-switch">
-            <button type="button" aria-pressed={photoView === 'ai'} onClick={() => setPhotoView('ai')}>
-              {`AI 판독 ${shown.length}`}
-            </button>
-            <button type="button" aria-pressed={photoView === 'human'} onClick={() => setPhotoView('human')}>
-              {`사람 판독 대기 ${humanWait} · 요청 ${s.photo_retake ?? 0} · 판독함 ${humanDone}`}
-            </button>
-          </div>
+          <PhotoViewSwitch
+            view={photoView}
+            onView={setPhotoView}
+            aiLabel={`AI 판독 ${shown.length}`}
+            humanLabel={`사람 판독 대기 ${humanWait} · 요청 ${s.photo_retake ?? 0} · 판독함 ${humanDone}`}
+          />
         )}
         {!isSimpleField && tab === 'checkin' && (
           <Button variant="primary" disabled={busy} onClick={() => void run(() => fieldApi.dispatchCheckins(scheduleId))}>
@@ -670,112 +867,30 @@ export default function FieldHub({
       )}
 
       {tab === 'poll' && pollOpen && (
-        <section className="pg-card pg-fbox" aria-label="새 만회안 의견 조회 발송">
-          <div className="pg-fgrid-form">
-            <label className="pg-flabel">
-              <span>대상 액티비티</span>
-              <select value={pollAct} onChange={(e) => setPollAct(e.target.value)}>
-                {data.activities.map((a) => (
-                  <option key={a.id} value={a.id}>{`${a.id} ${a.name}`}</option>
-                ))}
-              </select>
-            </label>
-            <label className="pg-flabel">
-              <span>검토 중인 만회안 제목</span>
-              <input value={pollTitle} placeholder="예: 공종 주말·병행 단축 2일안" onChange={(e) => setPollTitle(e.target.value)} />
-            </label>
-          </div>
-          <label className="pg-flabel">
-            <span>담당자에게 보낼 질문</span>
-            <input
-              value={pollPrompt}
-              placeholder="예: 일정 만회를 위해 선행 공종 완료 즉시 야간/주말 병행 투입이 가능한지 의견을 주세요."
-              onChange={(e) => setPollPrompt(e.target.value)}
-            />
-          </label>
-          <div className="pg-fcard-foot">
-            <Button
-              variant="primary"
-              disabled={busy || !pollAct || !pollTitle.trim() || !pollPrompt.trim()}
-              onClick={() =>
-                void run(() =>
-                  fieldApi.createPoll(scheduleId, {
-                    activity_id: pollAct,
-                    scenario_title: pollTitle,
-                    target_delta_days: -2,
-                    prompt_text: pollPrompt,
-                  }),
-                ).then(() => setPollOpen(false))
-              }
-            >
-              공종 담당자에게 의견 조회 발송
-            </Button>
-          </div>
-        </section>
+        <PollComposer
+          activities={data.activities}
+          busy={busy}
+          pollAct={pollAct} setPollAct={setPollAct}
+          pollTitle={pollTitle} setPollTitle={setPollTitle}
+          pollPrompt={pollPrompt} setPollPrompt={setPollPrompt}
+          onSend={() =>
+            void run(() =>
+              fieldApi.createPoll(scheduleId, {
+                activity_id: pollAct,
+                scenario_title: pollTitle,
+                target_delta_days: -2,
+                prompt_text: pollPrompt,
+              }),
+            ).then(() => setPollOpen(false))
+          }
+        />
       )}
 
       {!humanView && <div className="pg-field-grid">
         {shown.length === 0 && <p className="pg-muted">등록된 항목이 없습니다.</p>}
-        {shown.map((item) => {
-          if (item.kind === 'checkin') {
-            return (
-              <CheckinCard
-                key={item.id}
-                item={item}
-                busy={busy}
-                reach={reach}
-                onSave={(choice, prog, rd, note) =>
-                  run(
-                    () =>
-                      fieldApi.respond(scheduleId, item.id, {
-                        response_choice: choice,
-                        reported_progress: prog ?? undefined,
-                        reported_rd: rd ?? undefined,
-                        response_note: note,
-                      }),
-                    '저장했습니다.',
-                  )
-                }
-                onSubmitReport={(choice, prog, rd, note) =>
-                  run(async () => {
-                    const saved = await fieldApi.respond(scheduleId, item.id, {
-                      response_choice: choice,
-                      reported_progress: prog ?? undefined,
-                      reported_rd: rd ?? undefined,
-                      response_note: note,
-                    });
-                    if (saved.items.find((x) => x.id === item.id)?.approval_id !== null) return saved;
-                    return fieldApi.apply(scheduleId, item.id);
-                  }, waits)
-                }
-              />
-            );
-          }
-          if (item.kind === 'photo') {
-            return <PhotoCard key={item.id} item={item} busy={busy} onApply={() => run(() => fieldApi.apply(scheduleId, item.id), waits)} />;
-          }
-          if (item.kind === 'poll') {
-            return (
-              <PollCard
-                key={item.id}
-                item={item}
-                busy={busy}
-                reach={reach}
-                onSubmitPoll={(choice, note) =>
-                  run(async () => {
-                    const saved = await fieldApi.respond(scheduleId, item.id, { response_choice: choice, response_note: note });
-                    const updated = saved.items.find((x) => x.id === item.id);
-                    if (!note.trim() || !updated || updated.approval_id !== null) return saved;
-                    return fieldApi.apply(scheduleId, item.id);
-                  }, waits)
-                }
-              />
-            );
-          }
-          return (
-            <HandoffCard key={item.id} item={item} busy={busy} reach={reach} onSave={(body) => run(() => fieldApi.updateHandoff(scheduleId, item.id, body), '저장했습니다.')} />
-          );
-        })}
+        {shown.map((item) => (
+          <FieldItemCard key={item.id} item={item} busy={busy} reach={reach} scheduleId={scheduleId} waits={waits} run={run} />
+        ))}
       </div>}
     </div>
   );
