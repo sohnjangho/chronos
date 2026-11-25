@@ -26,7 +26,7 @@ from app.errors import ApiError
 from app.outreach import phone, site_name
 from app.outreach.harness import facts
 from app.outreach.redact import hide_phones
-from app.points import card, quotes
+from app.points import card, quotes, risk
 from app.points import service as points_service
 from app.programs.outreach import calls_service
 from app.programs.outreach import service as outreach_service
@@ -215,8 +215,9 @@ def _clean(line: str) -> bool:
 
 
 def _risk_lines(risks: list[dict], *, outside_text: bool) -> list[str]:
-    """ok 위험 줄(번호 가림, 글자 검사를 지난 것). outside_text 가 아니면 업체 갈래(받은 제목)는 뺀다."""
-    lines = [hide_phones(r["line"]) for r in risks if r["status"] == "ok" and (outside_text or r["kind"] != "business")]
+    """ok 위험 줄(번호 가림, 글자 검사를 지난 것). outside_text 가 아니면 업체·규제 갈래(받은 제목)는 뺀다."""
+    lines = [hide_phones(r["line"]) for r in risks
+             if r["status"] == "ok" and (outside_text or r["kind"] not in risk.RECEIVED_KINDS)]
     return [line for line in lines if _clean(line)][:RISK_LINES_MAX]
 
 
@@ -297,7 +298,7 @@ def call_text(point: dict, before: int | None, risks: list[dict]) -> tuple[str, 
     purpose = f"「{point['name']}」 일정 확인"[:QUESTION_MAX]
     first = f"{_subject(point['name'])} {_spoken_day(point['ef'])}까지 끝나야 하는 일정인데, {ASK_ON_TIME}"
     questions = [first[:QUESTION_MAX]]
-    asked = [_risk_question(r) for r in risks if r["status"] == "ok" and r["kind"] != "business"]  # 코드가 지은 줄만
+    asked = [_risk_question(r) for r in risks if r["status"] == "ok" and r["kind"] not in risk.RECEIVED_KINDS]  # 코드가 지은 줄만
     questions += [q[:QUESTION_MAX] for q in asked if q is not None and _clean(q)][:2]
     return purpose, questions
 

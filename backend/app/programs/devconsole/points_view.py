@@ -39,7 +39,7 @@ WEATHER_QUERY_PREFIX = "관리 포인트 "  # app.points.risk 날씨 질의(「�
 BRANCHES: dict[str, tuple[str, str, float | None]] = {
     "weather": ("날씨 (기상청)", "기상청 — Liner 비용 없음", None),
     "knowledge": ("자재·환율 (Premium Data)", "Search + Premium Data", 2.0),
-    "business": ("업체 소식 (MCP search_business)", "MCP", 2.0),
+    "business": ("업체·규제 소식 (MCP search_business·search_legal)", "MCP", 2.0),
 }
 SEARCH_AGENT = ("Search Agent", 20.0)
 RUNS_DEFAULT, RUNS_MAX = 30, 100

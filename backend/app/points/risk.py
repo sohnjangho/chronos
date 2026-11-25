@@ -6,7 +6,8 @@
   프로젝트 주소(프로젝트 관리)가 없거나 기상청 지점을 모르면 skipped. 자재·환율 = Liner Search `include_knowledge: true`
   (Premium Data — The World Bank 월별 금속, Xignite 환율). 업체 = Liner MCP `search_business` 첫 줄을 자재·공종 낱말
   (「알루미늄 커튼월 공급 동향」 — 공종은 TRADES 에서만, 금속은 TRADE_METAL 로 맞을 때만)으로 찾고 6개월 안의 글만 쓴다 — 회사·사람 이름은 질의에 넣지 않는다(씨앗 협력사는 가상이라 비슷한 이름의 실제 회사
-  소식이 붙는다. 실제 회사라는 표시가 연락처에 생기기 전까지는 이름을 쓰지 않는다).
+  소식이 붙는다. 실제 회사라는 표시가 연락처에 생기기 전까지는 이름을 쓰지 않는다). 규제 = MCP `search_legal` 을 코드가 정한
+  말(「{분야} 규제 안전 기준 개정」, 분야는 REGULATION_TOPICS 에서 LLM 이 고름)로만, 업체 갈래와 같은 6개월·호스트 규칙으로 찾는다.
 - 숫자는 받은 표에서 코드가 읽고 계산한다. 없거나 숫자가 아니면 status none 「… · 외부 자료 없음」(숫자 없음).
 - 결과는 근거 표에 출처와 함께 남긴다(날씨 mode weather, 나머지 mode knowledge, 대화 없음). 같은 질의를
   points_forecast_reuse_hours 시간 안에 했으면(성공만) 다시 부르지 않고 그 줄을 쓴다 — 30일 같은 주소 규칙은 쓰지 않는다.
@@ -48,7 +49,7 @@ logger = logging.getLogger(__name__)
 # 시험이 가짜 LLM transport 를 끼운다. None 이면 LlmClient 의 기본(CHRONOS_FAKE_LLM=1 이면 가짜 Liner).
 LLM_TRANSPORT: httpx.AsyncBaseTransport | None = None
 
-Kind = Literal["weather", "materials", "fx", "business"]
+Kind = Literal["weather", "materials", "fx", "business", "regulation"]
 Status = Literal["ok", "none", "skipped"]
 MATERIALS = ("copper", "aluminum", "iron ore", "platinum")  # 실측으로 Premium Data 에 있는 금속(The World Bank 월별)
 MATERIAL_NAMES = {"copper": "구리", "aluminum": "알루미늄", "iron ore": "철광석", "platinum": "백금"}
@@ -72,11 +73,19 @@ TRADE_METAL = {"커튼월": "aluminum", "창호": "aluminum", "외장 패널": "
                "전기": "copper", "배관": "copper", "연료전지": "platinum",
                "막전극접합체": "platinum"}  # 공종 → 질의 앞에 붙일 금속(LLM 이 그 금속을 골랐을 때만)
 TRADE_TOPIC = {"스택": "연료전지 스택", "BOP": "연료전지 BOP"}  # 낱말만으로는 뜻이 넓은 공종 → 질의에 쓸 말(코드가 정한 말)
+# 규제 갈래: LLM 은 분야(REGULATION_TOPICS)만 고른다(목록 밖은 버림). 질의는 코드가 정한 말뿐(「{분야} 규제 안전 기준 개정」,
+# MCP search_legal) — 이름·WBS 글은 질의에 들지 않는다. 줄에는 받은 제목이 든다(업체 갈래와 같다).
+REGULATION_TOPICS = ("수소 연료전지", "고압가스", "배터리·ESS", "전기 설비", "화학물질", "의료기기", "건축")
+RECEIVED_KINDS = ("business", "regulation")  # 줄에 바깥 글(받은 제목)이 드는 갈래 — 질문·통화 물음에 넣지 않는다
 BUSINESS_RESULTS = 5
 BUSINESS_RECENT_DAYS = 183  # 업체 갈래는 6개월 안의 글만
 BLOG_HOSTS = ("tistory.com", "brunch.co.kr", "velog.io", "medium.com", "post.naver.com", "egloos.com", "wordpress.com")
 _COMPANY_MARKS = re.compile(r"\(주\)|㈜|주식회사|\s+")
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
+# 카드의 까닭에 보이면 안 되는 기계 말: 밑줄 낱말·칸 이름·목록 값(영문 약어 공종 BOP·WBS 는 둔다)
+_MACHINE = re.compile(r"(?<![A-Za-z_])(?:[A-Za-z]+_[A-Za-z_]+|weather|materials?|imported|trade|regulation|why|null|none|"
+                      r"true|false|copper|aluminum|iron ore|platinum|enum|json)(?![A-Za-z_])", re.IGNORECASE)
+_SENTENCE = re.compile(r"(?<=[.!?。])\s+")
 _PAIR = re.compile(r"\(([A-Z]{3})\)\s*to\s.*\(([A-Z]{3})\)")
 
 SYSTEM = (
@@ -85,10 +94,11 @@ SYSTEM = (
     "- materials: 이 작업에 많이 드는 금속만, 목록 copper·aluminum·iron ore·platinum 에서(철근·철골은 iron ore, "
     "연료전지 스택·막전극접합체 촉매는 platinum). 없으면 [].\n"
     "- imported: 자재·장비를 외국에서 들여올 가능성이 크면 true(환율을 본다).\n"
-    f"- trade: 공급 소식을 볼 공종 낱말 하나, 목록 {'·'.join(TRADES)} 에서만(액티비티 이름·WBS 글에 그 낱말이 그대로 "
-    "있을 때만 — 자원 이름에서 고르지 않는다). "
+    "- trade: 공급 소식을 볼 공종 낱말 하나, 받은 trade_words(이름·WBS 글에 있는 공종 낱말) 에서만 — 비었으면 null. "
     "회사 이름은 안 된다. 공급 걱정이 없으면 null.\n"
-    "- why: 고른 까닭 한 줄(한국어)."
+    f"- regulation: 인허가·심의·검사·안전 기준에 걸리는 작업이면 규제 소식을 볼 분야 하나, 목록 {'·'.join(REGULATION_TOPICS)} "
+    "에서만. 아니면 null.\n"
+    "- why: 고른 까닭 한 줄, 사람이 읽는 쉬운 한국어로. 칸 이름(trade·materials 등)·null·영문 목록 값은 쓰지 않는다."
 )
 
 
@@ -113,6 +123,7 @@ class _Pick:
     why: str = ""
     trade: str | None = None  # 업체 갈래의 공종 낱말(TRADES 의 것, 이름·WBS 에 있음, 아는 회사·사람 이름과 겹치지 않음)
     trade_asked: bool = False  # LLM 이 공종을 냈으나 받지 않았다(그 포인트 업체 줄은 none)
+    regulation: str | None = None  # 규제 갈래 분야(REGULATION_TOPICS 의 것)
 
 
 @dataclass(frozen=True)
@@ -140,7 +151,8 @@ class _NotSent(Exception):
 def _schema() -> dict:
     props = {"weather_sensitive": {"type": "boolean"},
              "materials": {"type": "array", "items": {"type": "string", "enum": list(MATERIALS)}},
-             "imported": {"type": "boolean"}, "trade": {"type": ["string", "null"]}, "why": {"type": "string"}}
+             "imported": {"type": "boolean"}, "trade": {"type": ["string", "null"]},
+             "regulation": {"type": ["string", "null"]}, "why": {"type": "string"}}
     return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
 
 
@@ -158,22 +170,31 @@ def _checked(parsed: object, seen: str, trade_from: str) -> _Pick | None:
     if trade is not None and _norm(trade) not in _norm(trade_from):
         trade = None
     why = parsed.get("why")
-    why = why.strip().splitlines()[0].strip()[:_WHY] if isinstance(why, str) and why.strip() else ""
+    why = why.strip().splitlines()[0].strip() if isinstance(why, str) and why.strip() else ""
+    why = " ".join(part for part in _SENTENCE.split(why) if not _MACHINE.search(part))[:_WHY]  # 기계 말이 든 문장은 뺀다
     if any(n not in set(_NUMBER.findall(seen)) for n in _NUMBER.findall(why)):
         why = ""
+    topic = parsed.get("regulation")
+    regulation = topic if isinstance(topic, str) and topic in REGULATION_TOPICS else None
     return _Pick(weather_sensitive=parsed.get("weather_sensitive") is True, materials=materials,
-                 imported=parsed.get("imported") is True, why=why, trade=trade, trade_asked=asked and trade is None)
+                 imported=parsed.get("imported") is True, why=why, trade=trade, trade_asked=asked and trade is None,
+                 regulation=regulation)
 
 
 def _brief(schedule: Schedule | None, point: Point, domain: str) -> dict:
-    """LLM 이 보는 것: 이름·WBS·자원·분야만(날짜·주소 없음)."""
+    """LLM 이 보는 것: 이름·WBS·자원·분야와, 이름·WBS 에 있는 공종 낱말(trade_words, TRADES 의 것)만(날짜·주소 없음)."""
     act = next((a for a in schedule.activities if a.id == point.activity_id), None) if schedule else None
     if act is None or schedule is None:
-        return {"name": point.name, "wbs": "", "resources": [], "domain": domain}
+        return {"name": point.name, "wbs": "", "resources": [], "domain": domain, "trade_words": _trade_words(point.name)}
     wbs = next((w.name for w in schedule.wbs if w.code == act.wbs), "")
     names = {r.id: r.name for r in schedule.resources}
-    return {"name": act.name, "wbs": f"{act.wbs} {wbs}".strip(), "resources": [names.get(r, r) for r in act.resources],
-            "domain": domain}
+    wbs_text = f"{act.wbs} {wbs}".strip()
+    return {"name": act.name, "wbs": wbs_text, "resources": [names.get(r, r) for r in act.resources],
+            "domain": domain, "trade_words": _trade_words(f"{act.name} {wbs_text}")}
+
+
+def _trade_words(text: str) -> list[str]:
+    return [t for t in TRADES if _norm(t) in _norm(text)]
 
 
 async def _pick(session: Session, brief: dict) -> _Pick | None:
@@ -344,14 +365,16 @@ def _host_rank(host: str) -> int:
     return 1
 
 
-async def _business(session: Session, label: str) -> _Found:
+async def _business(session: Session, label: str, *, query: str | None = None,
+                    mode: Literal["business", "legal"] = "business") -> _Found:
     """label = 자재·공종 낱말(회사 이름 없음). 줄은 「{label} · {출처 제목} · {호스트}」 — 회사 이름은 출처 제목에 있을 때만.
 
     결과 가운데 날짜가 있고 오늘부터 BUSINESS_RECENT_DAYS 안인 것만 쓴다(날짜 없음·오래된 글은 버림). 여럿이면 _host_rank 가
-    낮은 것(뉴스·기관 먼저, 블로그 나중), 같으면 받은 차례. 남는 것이 없으면 none.
+    낮은 것(뉴스·기관 먼저, 블로그 나중), 같으면 받은 차례. 남는 것이 없으면 none. 규제 갈래는 query(코드가 지은 말)를
+    mode legal 로 보낸다.
     """
     try:
-        result = await mcp_client.field_search(session, label, "business", max_results=BUSINESS_RESULTS)
+        result = await mcp_client.field_search(session, query or label, mode, max_results=BUSINESS_RESULTS)
     except SearchNotReady:
         raise _NotSent from None
     except SearchFailed as e:
@@ -456,12 +479,16 @@ def _jobs(session: Session, point: Point, pick: _Pick, on: set[str], address: st
                         lambda q=label: _business(session, q), pick.why))
     elif "business" in on and pick.trade_asked:  # 정해진 공종 낱말에 맞지 않음 — 부르지 않는다
         out.append(Risk(point.activity_id, "business", f"공급 동향 · {NO_DATA}", None, None, None, "none", pick.why))
+    if "regulation" in on and pick.regulation:
+        label, query = f"{pick.regulation} 규제·안전 기준 소식", f"{pick.regulation} 규제 안전 기준 개정"
+        out.append(_Job(point.activity_id, "regulation", KNOWLEDGE_MODE, f"legal: {query}", f"{label} · {NO_DATA}",
+                        lambda q=query, lb=label: _business(session, lb, query=q, mode="legal"), pick.why))
     return out
 
 
 async def look(session: Session, schedule_id: int, version: int, points: Sequence[Point],
                outdoor: dict[str, bool] | None = None) -> list[Risk]:
-    """새 포인트 앞에서 points_max_new 개만, 포인트 차례·갈래 차례(weather·materials·fx·business)로 위험 줄을 낸다.
+    """새 포인트 앞에서 points_max_new 개만, 포인트 차례·갈래 차례(weather·materials·fx·business·regulation)로 위험 줄을 낸다.
 
     분야에 켜진 갈래가 없으면 LLM 도 부르지 않는다. 고르기가 실패한 포인트는 줄이 없다.
     outdoor 를 주면 고르기가 된 포인트마다 LLM 의 weather_sensitive(실외 작업인가)를 채운다(카드의 「실외 작업」).

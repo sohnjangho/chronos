@@ -164,13 +164,17 @@ def set_tool_enabled(session: Session, name: str, enabled: bool) -> list[str]:
 
 # ── 관리 포인트(계획 5) ──────────────────────────────────────────────
 
-POINT_SOURCES = ("weather", "materials", "fx", "business")  # 외부 자료 갈래: 날씨·금속/원자재·환율·업체 소식
+POINT_SOURCES = ("weather", "materials", "fx", "business", "regulation")  # 외부 자료 갈래: 날씨·금속·환율·업체·규제 소식
 POINTS_SOURCES_KEY = "points_sources"
+# 저장할 때 알던 갈래(POINT_SOURCES). 저장 뒤에 생긴 갈래는 그 분야 기본값을 따른다. 없으면 규제 갈래 전의 넷.
+POINTS_SOURCES_KINDS_KEY = "points_sources_kinds"
+_LEGACY_SOURCES = ("weather", "materials", "fx", "business")
 OTHER_DOMAIN = "_other"  # points_sources 안의 「그 밖의 분야」(표에 따로 없는 분야) 열쇠 — 개발 콘솔에서 바꾼다
 OTHER_DOMAIN_SOURCES = ("business",)  # 표에 없는 분야(OTHER_DOMAIN 을 저장한 적이 없을 때)
 DEFAULT_POINTS_SOURCES: dict[str, list[str]] = {  # PM 결정 11-24: 분야별로 켜고 끈다
     "construction": ["weather", "materials", "fx", "business"],
     "manufacturing": ["materials", "fx", "business"],
+    "rnd": ["materials", "fx", "business", "regulation"],  # 연구개발(실증·인허가) — 11-25
 }
 
 ACCEL_WARN_RATIO_KEY = "accel_warn_ratio"  # 당김 효과(계획 5 F) — 아래 accel_warn_ratio
@@ -217,10 +221,21 @@ def _read_sources(session: Session) -> dict[str, list[str]]:
         return out
     if not isinstance(parsed, dict):
         return out
+    known = _known_kinds(session)
     for domain, kinds in parsed.items():
         if isinstance(kinds, list):
-            out[str(domain)] = [k for k in POINT_SOURCES if k in kinds]
+            new = DEFAULT_POINTS_SOURCES.get(str(domain), [])  # 저장 뒤에 생긴 갈래는 그 분야 기본값
+            out[str(domain)] = [k for k in POINT_SOURCES if k in kinds or (k not in known and k in new)]
     return out
+
+
+def _known_kinds(session: Session) -> set[str]:
+    row = session.get(Setting, POINTS_SOURCES_KINDS_KEY)
+    try:
+        kinds = json.loads(row.value) if row is not None else None
+    except ValueError:
+        kinds = None
+    return set(kinds) if isinstance(kinds, list) else set(_LEGACY_SOURCES)
 
 
 def points_config(session: Session) -> PointsConfig:
@@ -267,6 +282,7 @@ def set_points_config(session: Session, patch: dict[str, Any]) -> None:
                 raise ValueError("sources")
             clean[domain] = [k for k in POINT_SOURCES if k in kinds]
         writes.append((POINTS_SOURCES_KEY, json.dumps(clean, ensure_ascii=False)))
+        writes.append((POINTS_SOURCES_KINDS_KEY, json.dumps(list(POINT_SOURCES))))
     for key, value in writes:
         _upsert(session, key, value)
     session.commit()

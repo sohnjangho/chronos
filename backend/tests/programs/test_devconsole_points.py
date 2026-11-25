@@ -39,7 +39,8 @@ def test_defaults_and_rows(client, admin):
     assert set(body["points_sources"]["construction"]) == ALL
     assert set(body["points_sources"]["manufacturing"]) == {"materials", "fx", "business"}
     assert body["points_sources"]["_other"] == ["business"]
-    assert [d["id"] for d in body["domains"]] == ["construction", "manufacturing", "_other"]
+    assert body["points_sources"]["rnd"] == ["materials", "fx", "business", "regulation"]  # 11-25 기본값
+    assert [d["id"] for d in body["domains"]] == ["construction", "manufacturing", "rnd", "_other"]
     assert [d["label"] for d in body["domains"]][-1] == "그 밖의 분야"
     assert body["bounds"]["points_tf_days"] == [0, 10] and body["bounds"]["accel_warn_ratio"] == [0.1, 1.0]
 
@@ -57,7 +58,7 @@ def test_save_roundtrip_reaches_the_engine_settings(client, admin, session):
     assert settings_store.accel_warn_ratio(session) == 0.7
     assert sources_for(session, "construction") == {"weather", "fx"}
     assert sources_for(session, "manufacturing") == set()
-    assert sources_for(session, "rnd") == {"materials"}  # 그 밖의 분야
+    assert sources_for(session, "software") == {"materials"}  # 그 밖의 분야
     assert get_cfg(client, admin)["accel_warn_ratio"] == 0.7
 
 
@@ -69,10 +70,10 @@ def test_partial_save_keeps_other_values(client, admin, session):
 
 
 def test_saved_domain_outside_the_packs_gets_its_own_row(client, admin):
-    client.put(URL, headers=admin, json={"points_sources": {"rnd": ["fx"]}})
+    client.put(URL, headers=admin, json={"points_sources": {"software": ["fx"]}})
     body = get_cfg(client, admin)
-    assert [d["id"] for d in body["domains"]] == ["construction", "manufacturing", "rnd", "_other"]
-    assert body["points_sources"]["rnd"] == ["fx"]
+    assert [d["id"] for d in body["domains"]] == ["construction", "manufacturing", "rnd", "software", "_other"]
+    assert body["points_sources"]["software"] == ["fx"]
 
 
 @pytest.mark.parametrize("patch", [

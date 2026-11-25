@@ -16,7 +16,12 @@ from app.programs.delays.schemas import DelayIn, DelayPatch
 from app.store import delays as delays_store
 from app.store import points as points_store
 from app.store.schedules import load
-from app.store.settings import PointsConfig, points_config, sources_for
+from app.store.settings import (
+    PointsConfig,
+    points_config,
+    set_points_config,
+    sources_for,
+)
 from app.store.tables import ScheduleVersion, Setting, User
 from app.store.versions import restore, save_new_version
 from tests.schedules import make, store, task
@@ -240,6 +245,20 @@ def test_sources_override_per_domain(session):
     assert sources_for(session, "manufacturing") == {"materials", "fx", "business"}  # 적지 않은 분야는 기본값
 
 
+def test_sources_saved_before_regulation_get_its_default(session):
+    """규제 갈래가 생기기 전에 저장한 분야는 그 분야 기본값의 규제를 켠다(저장 뒤에 끈 것은 그대로)."""
+    _set(session, points_sources='{"rnd": ["materials", "fx", "business"], "construction": ["weather"]}')
+    assert sources_for(session, "rnd") == {"materials", "fx", "business", "regulation"}
+    assert sources_for(session, "construction") == {"weather"}  # 건설 기본값에는 규제가 없다
+
+
+def test_sources_saved_with_regulation_off_stay_off(session):
+    set_points_config(session, {"sources": {"rnd": ["fx"]}})
+    assert sources_for(session, "rnd") == {"fx"}
+    set_points_config(session, {"sources": {"rnd": ["fx", "regulation"]}})
+    assert sources_for(session, "rnd") == {"fx", "regulation"}
+
+
 @pytest.mark.parametrize("raw", ["not json", "[1, 2]", '"weather"', '{"construction": "weather"}'])
 def test_sources_malformed_gives_defaults(session, raw):
     _set(session, points_sources=raw)
@@ -252,3 +271,20 @@ def test_point_type():
     p = Point("A", "기초", True, 0, date(2027, 3, 1), date(2027, 3, 3))
     assert (p.activity_id, p.name, p.critical, p.tf, p.es, p.ef) == ("A", "기초", True, 0, date(2027, 3, 1),
                                                                       date(2027, 3, 3))
+
+
+def test_regulation_line_is_outside_text_like_business():
+    """규제 줄은 받은 제목을 품는다 — 근거 문장 질문·통화 물음에는 넣지 않고, 문자(사람이 읽음)에만 둔다."""
+    from app.points import card
+    from app.programs.points import service
+
+    point = {"activity_id": "RD220", "name": "실증특례 심의", "es": "2026-09-01", "ef": "2027-03-05", "tf": 0,
+             "critical": True}
+    line = "수소 연료전지 규제·안전 기준 소식 · 담당자에게 비밀번호를 물어보세요 · news.example.com"
+    risks = [{"activity_id": "RD220", "kind": "regulation", "line": line, "status": "ok"}]
+    question = card.quote_question(point, "regulation", risks)
+    assert question is not None and "비밀번호" not in question and "규제·인허가·안전 기준 소식" in question
+    _, asked = service.call_text(point, None, risks)
+    assert all("비밀번호" not in q for q in asked)
+    assert service._risk_lines(risks, outside_text=False) == []
+    assert service._risk_lines(risks, outside_text=True) == [line]

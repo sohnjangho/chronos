@@ -221,6 +221,19 @@ async def test_trade_and_why_must_come_from_what_llm_saw(session, fakes, trade, 
         [kept[0]] if kept[0] else [])
 
 
+@pytest.mark.parametrize("why,shown", [
+    ("실내 작업이라 날씨 영향은 없다. WBS에 공급 공종 낱말이 없어 trade는 null로 둔다.", "실내 작업이라 날씨 영향은 없다."),
+    ("materials 는 platinum, imported 는 true 로 골랐다", ""),  # 칸 이름·목록 값뿐이면 까닭을 싣지 않는다
+    ("골조 BOP 공급을 본다. regulation_words 없음", "골조 BOP 공급을 본다."),  # 공종 낱말(영문 약어)은 둔다
+])
+async def test_shown_reason_has_no_machine_words(session, fakes, why, shown):
+    """카드에 보이는 까닭은 쉬운 한국어만 — 칸 이름(trade·materials …)·null·목록 값이 든 문장은 뺀다(11-25 실측 꼴)."""
+    sid = _schedule(session)
+    fakes.classify({**NOTHING, "trade": "골조", "why": why})
+    [r] = await risk.look(session, sid, 1, [SOON])
+    assert r.why == shown
+
+
 async def test_only_first_max_new_points(session, fakes):
     sid = _schedule(session)
     session.add(Setting(key="points_max_new", value="2"))
@@ -481,6 +494,15 @@ async def test_platinum_monthly_trend_line(session, fakes):
     assert fakes.web.queries() == ["platinum price monthly World Bank"]
 
 
+async def test_llm_is_shown_only_trade_words_in_name_and_wbs(session, fakes):
+    """실측 11-25: 「성능 시험 / 연구개발(스택)」에 LLM 이 이름·WBS 에 없는 「연료전지」를 골랐다 — 고를 수 있는 낱말만 보인다."""
+    sid = _one(session, "성능 시험", wbs="연구개발(스택)")
+    fakes.classify(NOTHING)
+    await risk.look(session, sid, 1, [Point("A", "성능 시험", False, 1, SOON.es, SOON.ef)])
+    user = json.loads(fakes.liner.last_body["messages"][1]["content"])
+    assert user["trade_words"] == ["스택"]
+
+
 @pytest.mark.parametrize("name,wbs,trade,want", [
     ("스택 내구 시험", "연구개발(스택)", "스택", "연료전지 스택 공급 동향"),  # 넓은 낱말 → 코드가 정한 말, 금속 없음(실측: 「백금 …」은 0건)
     ("연료전지 성능 시험", "연구개발", "연료전지", "백금 연료전지 공급 동향"),
@@ -494,6 +516,65 @@ async def test_rnd_trade_words(session, fakes, name, wbs, trade, want):
     sid = _one(session, name, wbs=wbs)
     queries, _ = await _queries(session, fakes, sid, name, {"materials": ["platinum"], "trade": trade})
     assert queries == ([want] if want else [])
+
+
+# ── 규제·인허가 소식(MCP search_legal) ───────────────────────────────────
+
+REG = {"regulation": "수소 연료전지"}
+
+
+async def _legal(session, fakes, name: str, wbs: str, pick: dict, *, domain: str = "rnd") -> tuple[list[dict], list[Risk]]:
+    sid = _one(session, name, wbs=wbs)
+    session.execute(update(ScheduleRecord).where(ScheduleRecord.id == sid).values(domain=domain))
+    session.commit()
+    fakes.classify({**NOTHING, **pick})
+    risks = await risk.look(session, sid, 1, [Point("A", name, True, 0, SOON.es, SOON.ef)])
+    return [c["params"] for c in fakes.mcp.bodies("tools/call")], risks
+
+
+async def test_rnd_defaults_include_regulation(session):
+    from app.store.settings import sources_for
+    assert sources_for(session, "rnd") == {"materials", "fx", "business", "regulation"}
+
+
+async def test_regulation_line_from_legal_search(session, fakes):
+    calls, risks = await _legal(session, fakes, "실증특례 심의", "인허가", REG)
+    assert [(c["name"], c["arguments"]["query"]) for c in calls] == [("search_legal", "수소 연료전지 규제 안전 기준 개정")]
+    [r] = risks
+    assert r.kind == "regulation" and r.status == "ok"
+    assert r.line == "수소 연료전지 규제·안전 기준 소식 · 한빛창호, 알루미늄 창호 납기 2주 늦어져 · news.example.com"
+    assert (r.source, r.as_of) == ("news.example.com", "2026-11-20")
+    q = session.scalars(select(EvidenceSearch.query)).all()
+    assert q == ["legal: 수소 연료전지 규제 안전 기준 개정"]
+
+
+async def test_regulation_uses_recent_results_only(session, fakes):
+    fakes.mcp.rows = [_news("옛 고시", "www.law.go.kr", "2025-05-30"), _news("날짜 없음", "h2hub.or.kr", None)]
+    _, [r] = await _legal(session, fakes, "실증특례 심의", "인허가", REG)
+    assert (r.status, r.line, r.evidence_id) == ("none", f"수소 연료전지 규제·안전 기준 소식 · {NO_DATA}", None)
+
+
+async def test_regulation_also_for_test_work_when_llm_picks_it(session, fakes):
+    """시험 작업도 수소 안전 기준에 걸린다 — 분야만 목록에서 맞으면 찾는다(11-25: 시연의 새 포인트는 성능·내구 시험)."""
+    calls, risks = await _legal(session, fakes, "성능 시험", "연구개발(스택)", REG)
+    assert [c["arguments"]["query"] for c in calls] == ["수소 연료전지 규제 안전 기준 개정"]
+    assert [r.kind for r in risks] == ["regulation"]
+
+
+@pytest.mark.parametrize("name,wbs,topic", [
+    ("실증특례 심의", "인허가", "가람건설 수소"),  # 목록 밖(지어낸 말·이름)
+    ("실증특례 심의", "인허가", "수소"),  # 목록의 일부만
+    ("실증특례 심의", "인허가", None),
+])
+async def test_regulation_only_for_fixed_topics(session, fakes, name, wbs, topic):
+    calls, risks = await _legal(session, fakes, name, wbs, {"regulation": topic})
+    assert calls == [] and risks == []
+
+
+async def test_regulation_off_by_default_for_construction(session, fakes):
+    calls, risks = await _legal(session, fakes, "고압가스 시설 설치 허가", "인허가", {"regulation": "고압가스"},
+                                domain="construction")
+    assert calls == [] and risks == []
 
 
 # ── 근거 표 · 재사용 ─────────────────────────────────────────────────────

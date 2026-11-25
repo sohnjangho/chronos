@@ -18,7 +18,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, defer
 
 from app.llm.search_agent import PURPOSE as SEARCH_AGENT_PURPOSE
@@ -190,18 +190,20 @@ class SearchCount(BaseModel):
 
 
 BUSINESS_QUERY_PREFIX = "business: "  # app.points.risk 업체 갈래 질의(MCP search_business)의 머리
+LEGAL_QUERY_PREFIX = "legal: "  # app.points.risk 규제 갈래 질의(MCP search_legal)의 머리 — 같은 MCP 로 센다
 
 
 class PointCalls(BaseModel):
     """관리 포인트가 부른 Liner 호출 수(실패 포함)."""
 
     knowledge: SearchCount  # Search + Premium Data(자재·환율)
-    mcp: SearchCount  # MCP search_business(업체 소식)
+    mcp: SearchCount  # MCP search_business·search_legal(업체·규제 소식)
     search_agent: SearchCount  # Search Agent(근거 문장)
 
 
 def is_business(query: str) -> bool:
-    return query.startswith(BUSINESS_QUERY_PREFIX)
+    """MCP 갈래(업체·규제) 질의인가."""
+    return query.startswith((BUSINESS_QUERY_PREFIX, LEGAL_QUERY_PREFIX))
 
 
 def _count(session: Session, model, ok, *where) -> SearchCount:
@@ -216,7 +218,8 @@ def point_calls(session: Session, since: datetime, until: datetime | None = None
     def window(column) -> list:
         return [column >= _naive(since), *([column <= _naive(until)] if until is not None else [])]
 
-    mcp = EvidenceSearch.query.startswith(BUSINESS_QUERY_PREFIX, autoescape=True)
+    mcp = or_(EvidenceSearch.query.startswith(BUSINESS_QUERY_PREFIX, autoescape=True),
+              EvidenceSearch.query.startswith(LEGAL_QUERY_PREFIX, autoescape=True))
     knowledge = [EvidenceSearch.mode == KNOWLEDGE_MODE, *window(EvidenceSearch.created_at)]
     return PointCalls(
         knowledge=_count(session, EvidenceSearch, EvidenceSearch.ok, *knowledge, ~mcp),

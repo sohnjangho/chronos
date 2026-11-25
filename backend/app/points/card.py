@@ -325,16 +325,18 @@ def quote_json(state: quotes.QuoteState | None) -> dict | None:
 
 
 BUSINESS_TOPIC = "담당 업체의 납기·공급 소식"
+REGULATION_TOPIC = "관련 규제·인허가·안전 기준 소식"
 
 
 def quote_question(point: Mapping, kind: str, risks: Sequence[Mapping]) -> str | None:
-    """Search Agent 에 물을 글. 그 포인트·갈래의 ok 줄이 없으면 None. 업체 갈래는 받은 제목을 넣지 않고 코드가 지은 말만
+    """Search Agent 에 물을 글. 그 포인트·갈래의 ok 줄이 없으면 None. 업체·규제 갈래는 받은 제목을 넣지 않고 코드가 지은 말만
     (바깥 글이 지시로 들어가지 않게). 나머지 갈래의 줄은 코드가 숫자로 지은 것."""
     lines = [r["line"] for r in risks if r["activity_id"] == point["activity_id"] and r["kind"] == kind
              and r["status"] == "ok"]
     if not lines:
         return None
-    topic = f"「{point['name']}」 작업 {BUSINESS_TOPIC}" if kind == "business" else " / ".join(lines)
+    topics = {"business": BUSINESS_TOPIC, "regulation": REGULATION_TOPIC}  # 받은 제목이 드는 갈래 — 코드가 지은 말만
+    topic = f"「{point['name']}」 작업 {topics[kind]}" if kind in topics else " / ".join(lines)
     return (f"「{point['name']}」 작업({point['es']}~{point['ef']}) 기간에 영향을 줄 수 있는 다음 외부 소식의 근거가 되는 "
             f"기사·자료 문장을 찾아 주세요: {topic}")
 

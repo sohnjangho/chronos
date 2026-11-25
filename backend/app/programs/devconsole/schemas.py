@@ -362,7 +362,7 @@ class AgentConfigPatch(BaseModel):
     enable_self_reflection: bool | None = None
 
 
-SourceKind = Literal["weather", "materials", "fx", "business"]
+SourceKind = Literal["weather", "materials", "fx", "business", "regulation"]
 DomainKey = Annotated[str, StringConstraints(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")]
 
 
