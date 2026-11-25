@@ -1,0 +1,1 @@
+import{n as e}from"./Button-D0yVcn9F.js";var t=e();function n({tone:e=`neutral`,solid:n=!1,className:r,children:i}){let a=[`ui-badge`,`ui-badge-${e}`,n&&`ui-badge-solid`,r].filter(Boolean).join(` `);return(0,t.jsx)(`span`,{className:a,children:i})}export{n as t};

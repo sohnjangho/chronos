@@ -1,0 +1,1 @@
+var e={construction:`건설`,manufacturing:`생산`,production:`생산`,rnd:`R&D 연구개발`,research:`연구개발`,permitting:`인허가`,procurement:`자재 공급`,software:`SW 개발`,marketing:`마케팅·행사`,event:`행사·운영`,commercialization:`사업화`,general:`일반`},t=t=>e[t.toLowerCase()]??t;export{t};
