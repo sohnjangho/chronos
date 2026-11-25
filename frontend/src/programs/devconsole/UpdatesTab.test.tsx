@@ -25,10 +25,10 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('업데이트 내역', () => {
-  test('the tab sits after 사용량·비용', () => {
+  test('the tab sits after 접속 기록', () => {
     show();
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs.slice(-2)).toEqual(['사용량·비용', '업데이트 내역']);
+    expect(tabs.slice(-2)).toEqual(['접속 기록', '업데이트 내역']);
   });
 
   test('cards newest first, grouped by date, with three columns and the notice', async () => {

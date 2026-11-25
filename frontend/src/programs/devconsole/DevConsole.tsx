@@ -5,6 +5,7 @@ import type { ProgramProps } from '../../os/registry';
 import { useSession } from '../../os/session';
 import Badge from '../../shared/ui/Badge';
 import Tabs from '../../shared/ui/Tabs';
+import ActivityTab from './ActivityTab';
 import AgentStructure from './AgentStructure';
 import { devApi, type CatalogOut, type NodeKey, type OutreachRow, type PointsStage as Stage, type TurnDetail } from './devApi';
 import { costWithEstimate, seconds, status, tokens } from './format';
@@ -23,7 +24,7 @@ import UsageTab from './UsageTab';
 import { useTurnData } from './useTurnData';
 import './devconsole.css';
 
-type Tab = 'structure' | 'harness' | 'sources' | 'registry' | 'health' | 'trace' | 'usage' | 'updates';
+type Tab = 'structure' | 'harness' | 'sources' | 'registry' | 'health' | 'trace' | 'usage' | 'activity' | 'updates';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'structure', label: '에이전트 구조' },
   { id: 'harness', label: '하네스·차단 시험' },
@@ -32,6 +33,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'health', label: '시스템 진단' },
   { id: 'trace', label: '실행 추적' },
   { id: 'usage', label: '사용량·비용' },
+  { id: 'activity', label: '접속 기록' },
   { id: 'updates', label: '업데이트 내역' },
 ];
 
@@ -241,6 +243,7 @@ function AdminConsole({ params }: { params?: Record<string, string> }) {
         {tab === 'usage' && <UsageTab />}
         {tab === 'health' && <HealthTab />}
         {tab === 'updates' && <UpdatesTab />}
+        {tab === 'activity' && <ActivityTab onOpenTurn={(id) => { clear(); d.select(id); setTab('trace'); }} />}
         {catTab && !catalog && <p className="dc-empty">원천 카탈로그를 불러오는 중…</p>}
         {tab === 'harness' && catalog && <HarnessTab catalog={catalog} onSaved={reloadCatalog} focus={focus} />}
         {tab === 'sources' && catalog && <SourcesTab catalog={catalog} />}

@@ -634,6 +634,29 @@ export interface UpdatesOut {
   running_commit: string | null;
 }
 
+export interface ActivityAccount {
+  user_id: number;
+  login_id: string;
+  name: string;
+  role: string;
+  last_at: string | null;
+  logins: number;
+  failed_logins: number;
+  chats: number;
+  features: number;
+}
+export interface ActivityAccounts {
+  accounts: ActivityAccount[];
+  unknown_failed: { at: string; login_id: string }[];
+}
+export interface AccountActivity {
+  account: ActivityAccount;
+  chats: { id: number; title: string; created_at: string; schedule: string | null; messages: { role: 'user' | 'assistant'; text: string; at: string; turn_id: number | null }[] }[];
+  projects: { id: number; name: string; domain: string; created_at: string }[];
+  features: { at: string; feature: string; method: string; route: string; schedule: string | null; device: string | null; status: number; note: string | null }[];
+  summary: { feature: string; count: number }[];
+}
+
 export const RECENT = 30;
 
 export const devApi = {
@@ -658,6 +681,8 @@ export const devApi = {
   pointsRuns: () => api<PointsStage[]>(`/api/devconsole/points-runs?limit=${RECENT}`),
   health: () => api<HealthOut>('/api/devconsole/health'),
   updates: () => api<UpdatesOut>('/api/devconsole/updates'),
+  activityAccounts: () => api<ActivityAccounts>('/api/devconsole/activity/accounts'),
+  activityAccount: (userId: number) => api<AccountActivity>(`/api/devconsole/activity/accounts/${userId}`),
   stopTurn: (chatId: number) =>
     api<{ chat_session_id: number; stopped: boolean }>(`/api/devconsole/turns/${chatId}/stop`, { method: 'POST' }),
   setToolEnabled: (name: string, enabled: boolean) =>

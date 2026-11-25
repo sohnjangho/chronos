@@ -13,6 +13,7 @@ from app.files import jobs
 from app.outreach import redact, worker
 from app.outreach.voice import runner
 from app.points import card as points_card
+from app.programs.devconsole.activity_guard import ActivityGuard
 from app.programs.files.guard import UploadGuard
 from app.store import settings as settings_store
 from app.store.workflows import close_unfinished
@@ -68,6 +69,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="ChronOS", lifespan=lifespan)
 install_error_handlers(app)
 app.add_middleware(UploadGuard)  # 파일 받기: 몸을 읽기 전에 로그인·크기를 본다
+app.add_middleware(ActivityGuard)  # 접속 기록: 응답 뒤 로그인한 사람의 요청을 한 줄 적는다
 include_program_routers(app)
 
 

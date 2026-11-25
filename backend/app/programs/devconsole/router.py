@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.llm import daily_cap
 from app.programs.devconsole import (
+    activity_view,
     catalog,
     outreach_view,
     points_view,
@@ -90,6 +91,16 @@ def read_agent_config(session: SessionDep) -> AgentConfigOut:
 def write_agent_config(body: AgentConfigPatch, session: SessionDep) -> AgentConfigOut:
     updated = settings_store.set_agent_config(session, body.model_dump(exclude_unset=True))
     return AgentConfigOut.model_validate(updated)
+
+
+@router.get("/activity/accounts")
+def activity_accounts(session: SessionDep) -> activity_view.AccountsOut:
+    return activity_view.accounts(session)  # 접속 기록: 계정별 마지막 접속·로그인·대화·기능 수
+
+
+@router.get("/activity/accounts/{user_id}")
+def activity_account(user_id: int, session: SessionDep) -> activity_view.AccountActivity:
+    return activity_view.account(session, user_id)  # 그 계정의 대화(세션별)·만든 프로젝트·쓴 기능
 
 
 @router.get("/llm-cap")

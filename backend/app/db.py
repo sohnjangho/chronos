@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.security.passwords import hash_password
 from app.store import (
+    activity,  # noqa: F401  접속 기록 표(activity_log)도 create_all 전에
     devices,  # noqa: F401  기기 세션 표(user_devices)도 create_all 전에
     points,  # noqa: F401  관리 포인트 표(management_points)도 create_all 전에
     tables_outreach,  # noqa: F401  계획 4 표를 Base 에 올린다(init_db 의 create_all 전에)

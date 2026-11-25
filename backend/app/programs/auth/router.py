@@ -1,9 +1,12 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import db
 from app.db import get_session
+from app.errors import ApiError
 from app.programs.auth import service
 from app.programs.auth.schemas import (
     AccountOut,
@@ -18,7 +21,7 @@ from app.programs.auth.schemas import (
 )
 from app.security.deps import current_user, require_admin
 from app.security.tokens import issue_token
-from app.store import devices
+from app.store import activity, devices
 from app.store.tables import User
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -29,8 +32,16 @@ AdminOnly = Depends(require_admin)
 
 @router.post("/login")
 def login(body: LoginIn, request: Request, session: SessionDep) -> LoginOut:
-    user = service.authenticate(session, body.login_id, body.password)
+    try:
+        user = service.authenticate(session, body.login_id, body.password)
+    except ApiError as e:  # 실패도 접속 기록에(계정을 찾으면 그 계정, 아니면 입력한 아이디 앞 20자만)
+        known = session.scalar(select(User.id).where(User.login_id == body.login_id))
+        activity.record_safely(db.current_engine(), user_id=known, method="POST", route=activity.LOGIN_ROUTE,
+                               status=e.status_code, feature="로그인 실패", note=None if known else body.login_id[:20])
+        raise
     device = devices.open_device(session, user.id, body.device_key, body.kind, request.headers.get("user-agent", ""))
+    activity.record_safely(db.current_engine(), user_id=user.id, method="POST", route=activity.LOGIN_ROUTE,
+                           status=200, device_id=device.id, feature="로그인")
     return LoginOut(token=issue_token(user.id, device.id), user=UserOut.model_validate(user))
 
 
