@@ -150,17 +150,20 @@
   <h2><span class="no">1</span>한 줄 설치와 첫 실행 — 관리자 계정 만들기</h2>
   <ol class="steps blue">
     <li>터미널에 아래 한 줄을 붙여 넣고 Enter를 누릅니다.
-      <pre>uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos</pre></li>
-    <li>처음 한 번은 Python 3.13과 패키지를 내려받습니다(시험에서 약 20초).</li>
+      <pre>uvx --from https://github.com/sohnjangho/chronos/releases/download/v0.1.0/chronos_backend-0.1.0-py3-none-any.whl chronos</pre></li>
+    <li>처음 한 번은 ChronOS 패키지(약 19MB)와 Python 3.13 · 필요한 패키지를 내려받습니다. 한 번만 받고, 다음부터는 받아 둔 것을 씁니다.</li>
     <li><b>관리자 아이디</b>를 넣습니다(예: <code>admin</code>).</li>
     <li><b>비밀번호</b>를 두 번 넣습니다. 8자 이상이고, 입력하는 글자는 화면에 보이지 않습니다.</li>
     <li>「ChronOS 주소: http://127.0.0.1:8210」 줄이 나오면 브라우저에서 그 주소를 엽니다.</li>
   </ol>
 
+  <div class="note"><b>인터넷이 느리거나 막혀 있으면</b>: 저장소의 <b>Releases</b> 페이지(<code>github.com/sohnjangho/chronos/releases</code>)에서 <code>chronos_backend-0.1.0-py3-none-any.whl</code> 파일을 받아 두고, 그 파일이 있는 폴더에서 실행합니다(Python 패키지는 처음 한 번 받습니다).
+    <pre>uvx --from ./chronos_backend-0.1.0-py3-none-any.whl chronos</pre></div>
+
   <!-- TRANSCRIPT:BEGIN -->
   <div class="term">
     <div class="term-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>터미널 — 첫 실행</span></div>
-<pre><span class="p">$</span> uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos
+<pre><span class="p">$</span> uvx --from https://github.com/sohnjangho/chronos/releases/download/v0.1.0/chronos_backend-0.1.0-py3-none-any.whl chronos
 <span class="c">  … 처음 한 번은 Python 3.13·패키지 내려받기(약 20초) …</span>
 Installed 76 packages in 88ms
 데이터 폴더: ~/.chronos
@@ -178,7 +181,7 @@ INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8210 (Press CTRL+C to quit)</span></pre>
   </div>
-  <p class="muted small">GitHub 저장소에서 한 줄로 설치한 시험(2026-11-25)의 실제 출력입니다. 저장소 주소의 접근 토큰·브랜치, 데이터 폴더, 포트만 위 명령과 기본값(<code>~/.chronos</code>, 8210)으로 바꿔 적었습니다. 「Installed 76 packages」는 내려받기가 끝난 뒤의 줄입니다. 빈 캐시에서 설치 시작부터 아이디 질문까지 약 20초, 그 뒤 서버가 뜨기까지 약 8초 걸렸습니다.</p>
+<p class="muted small">시험 설치(2026-11-25)의 실제 출력입니다. 이 기록은 같은 패키지를 git 저장소에서 설치해 찍었고, 위 Release 명령으로 설치해도 출력은 같습니다. 그래서 첫 줄 명령만 Release 주소로 바꿨고, 데이터 폴더·포트도 기본값(<code>~/.chronos</code>, 8210)으로 바꿔 적었습니다. 「Installed 76 packages」는 내려받기가 끝난 뒤의 줄입니다. 빈 캐시에서 설치 시작부터 아이디 질문까지 약 20초, 그 뒤 서버가 뜨기까지 약 8초 걸렸습니다.</p>
   <!-- TRANSCRIPT:END -->
 
   <div class="note"><b>무엇이 만들어지나요?</b> 데이터 폴더 <code>~/.chronos</code>(Windows는 <code>%USERPROFILE%\.chronos</code>)에 DB(<code>chronos.db</code>)와 비밀 열쇠(<code>secret_key</code>)가 생깁니다. 비밀 열쇠는 로그인 토큰과 저장한 API 키를 암호화합니다. 화면에는 찍지 않습니다.</div>
@@ -421,7 +424,7 @@ INFO:     Uvicorn running on http://127.0.0.1:8210 (Press CTRL+C to quit)</span>
     <li>Qdrant 띄우기(한 번):
 <pre>docker run -d --name chronos-qdrant -p 6333:6333 qdrant/qdrant:v1.13.4</pre></li>
     <li>ChronOS를 <code>Ctrl+C</code>로 끄고, 주소를 붙여 다시 실행:
-<pre>uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos \
+<pre>uvx --from https://github.com/sohnjangho/chronos/releases/download/v0.1.0/chronos_backend-0.1.0-py3-none-any.whl chronos \
   --qdrant-url http://127.0.0.1:6333</pre></li>
     <li>개발 콘솔 → 시스템 진단의 <b>벡터 검색 서버</b> 줄이 「연결 정상 (컬렉션 0개 · 벡터 0건)」인지 봅니다(8장 그림 8-1의 ④). 파일을 넣으면 숫자가 늘어납니다.</li>
   </ol>
@@ -492,13 +495,13 @@ INFO:     Uvicorn running on http://127.0.0.1:8210 (Press CTRL+C to quit)</span>
 
   <h3>포트가 이미 쓰이고 있다 (address already in use)</h3>
   <p>다른 프로그램이 8210을 쓰고 있습니다. 다른 포트로 띄우고, 브라우저 주소도 그 포트로 엽니다.</p>
-  <pre>uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos --port 8300</pre>
+  <pre>uvx --from https://github.com/sohnjangho/chronos/releases/download/v0.1.0/chronos_backend-0.1.0-py3-none-any.whl chronos --port 8300</pre>
 
   <h3>관리자 비밀번호를 잊었다</h3>
   <p>서버를 띄운 그 컴퓨터에서 <code>reset-password</code>를 붙여 실행합니다. 어느 계정이든 바꿀 수 있습니다. 데이터 폴더를 바꿔 썼다면 <code>--data-dir 폴더</code>를 같이 줍니다.</p>
   <div class="term">
     <div class="term-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>터미널 — 비밀번호 바꾸기</span></div>
-<pre><span class="p">$</span> uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos reset-password
+<pre><span class="p">$</span> uvx --from https://github.com/sohnjangho/chronos/releases/download/v0.1.0/chronos_backend-0.1.0-py3-none-any.whl chronos reset-password
 아이디: <span class="y">judge</span>
 비밀번호(8자 이상, 입력이 보이지 않습니다): <span class="c">(입력해도 보이지 않음)</span>
 비밀번호 확인: <span class="c">(한 번 더)</span>
