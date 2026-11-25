@@ -161,21 +161,24 @@
   <div class="term">
     <div class="term-bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>터미널 — 첫 실행</span></div>
 <pre><span class="p">$</span> uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos
-<span class="c">  … Python · 패키지 내려받기(처음 한 번, 약 30초) …</span>
+<span class="c">  … 처음 한 번은 Python·패키지 내려받기(약 30초) …</span>
+Installed 76 packages in 99ms
 데이터 폴더: ~/.chronos
 처음 실행입니다. 관리자 계정을 만듭니다.
 관리자 아이디: <span class="y">judge</span>
 비밀번호(8자 이상, 입력이 보이지 않습니다): <span class="c">(입력해도 보이지 않음)</span>
 비밀번호 확인: <span class="c">(한 번 더)</span>
 관리자 계정 「judge」을(를) 만들었습니다.
-
 <span class="g">ChronOS 주소: http://127.0.0.1:8210</span>
 브라우저에서 위 주소를 열고 관리자 계정으로 로그인하세요.
 처음에는 설정에서 Liner API 키 등을 넣어야 에이전트가 일합니다(docs/manual/ChronOS_설치_사용설명서.pdf).
 끄려면 Ctrl+C 를 누르세요.
-<span class="c">INFO:     Application startup complete.</span></pre>
+<span class="c">INFO:     Started server process [73761]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8210 (Press CTRL+C to quit)</span></pre>
   </div>
-  <p class="muted small">시험 설치(2026-11-25)의 실제 출력입니다. 저장소 주소·데이터 폴더·포트만 위 명령과 기본값(<code>~/.chronos</code>, 8210)으로 바꿔 적었고, 내려받기 진행 줄은 줄였습니다. 설치 시작부터 아이디 질문까지 약 28초, 서버가 뜨기까지 약 8.5초 걸렸습니다.</p>
+  <p class="muted small">GitHub 저장소에서 한 줄로 설치한 시험(2026-11-25)의 실제 출력입니다. 저장소 주소의 접근 토큰·브랜치, 데이터 폴더, 포트만 위 명령과 기본값(<code>~/.chronos</code>, 8210)으로 바꿔 적었습니다. 「Installed 76 packages」는 내려받기가 끝난 뒤의 줄입니다. 처음 설치 시작부터 아이디 질문까지 약 28초, 서버가 뜨기까지 약 8.5초 걸렸습니다.</p>
   <!-- TRANSCRIPT:END -->
 
   <div class="note"><b>무엇이 만들어지나요?</b> 데이터 폴더 <code>~/.chronos</code>(Windows는 <code>%USERPROFILE%\.chronos</code>)에 DB(<code>chronos.db</code>)와 비밀 열쇠(<code>secret_key</code>)가 생깁니다. 비밀 열쇠는 로그인 토큰과 저장한 API 키를 암호화합니다. 화면에는 찍지 않습니다.</div>
