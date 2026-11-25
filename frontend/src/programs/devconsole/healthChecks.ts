@@ -80,7 +80,7 @@ function search(h: HealthOut, at: Check['checkedAt']): Check {
     id: 'search', source: 'search', area: 'ai', name: '근거 검색', tech: 'Liner · MCP', state,
     summary: s.ready ? `최근 7일 ${n(s.calls_7d)}회 · 실패 ${n(s.failed_7d)}건` : s.message,
     todo: state === 'ok' ? null : '설정 → AI 모델 연결에서 Liner 키 확인',
-    impact: '보고서 · 답변에 붙는 바깥 근거(웹 · 학술 · 법령)를 찾습니다.',
+    impact: '보고서 · 답변에 붙는 외부 근거(웹 · 학술 · 법령)를 찾습니다.',
     fields: [{ title: '지금 상태', rows: [
       ['서버 말', s.message], ['상태', s.ready ? '준비됨' : '미연결'], ['최근 7일 호출', `${n(s.calls_7d)}회`], ['최근 7일 실패', `${n(s.failed_7d)}건`],
     ] }],
