@@ -22,9 +22,9 @@ def node(cx, cy, title, sub='', w=86, h=44, kind=None, hot=False):
     return ''.join(o)
 
 
-def group(x, y, w, h, label, kind):
+def group(x, y, w, h, label, kind, lx=12):
     return (f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="12" fill="{FILL[kind]}" stroke="{C[kind]}" stroke-opacity=".55"/>'
-            f'<text x="{x+12}" y="{y+17}" font-size="10.5" font-weight="800" fill="{C[kind]}">{label}</text>')
+            f'<text x="{x+lx}" y="{y+17}" font-size="10.5" font-weight="800" fill="{C[kind]}">{label}</text>')
 
 
 def arrow(pts, color='#64748b', w=1.6, dash=False, label=None, lx=None, ly=None, lc=None, anchor='start'):
@@ -85,7 +85,7 @@ def d_loop():
     o.append(f'<text x="{cx}" y="{cy-16}" font-size="10" font-weight="800" fill="#fbbf24" text-anchor="middle">에이전트 루프 · Liner Model</text>')
     o.append(f'<text x="{cx}" y="{cy+3}" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">판단 → 도구 실행 → 자가 점검</text>')
     o.append(f'<text x="{cx}" y="{cy+20}" font-size="9" fill="#cbd5e1" text-anchor="middle">단계마다 이 작은 고리가 돈다 · 틀리면 다시, 최대 12단계</text>')
-    o.append(f'<path d="M{cx+92},{cy+26} q20,-28 0,-50" fill="none" stroke="#fbbf24" stroke-width="1.6" marker-end="url(#aa)"/>')
+    o.append(f'<path d="M{cx+126},{cy+22} q16,-22 0,-44" fill="none" stroke="#fbbf24" stroke-width="1.6" marker-end="url(#aa)"/>')
     # 번호 지시선
     for (i, num, dx, dy) in [(1, 1, -84, -2), (2, 2, 84, -2), (3, 3, 84, -2), (4, 4, 84, 6), (6, 5, -84, 6)]:
         x, y = pos[i]
@@ -105,7 +105,7 @@ def d_loop():
 def d_logic():
     W, H = 760, 540
     o = [group(16, 14, 392, 100, '① 변동이 들어오는 길', 'input'), group(452, 14, 292, 100, '⑥ 사람이 결정', 'human'),
-         group(16, 140, 392, 110, '에이전트 루프 · Liner Model', 'liner'), group(436, 140, 308, 110, '④ 외부 영향 · Liner Search', 'liner'),
+         group(16, 140, 392, 110, '에이전트 루프 · Liner Model', 'liner', lx=70), group(436, 140, 308, 110, '④ 외부 영향 · Liner Search', 'liner'),
          group(16, 278, 600, 110, '②③ 코드 엔진 · 날짜는 여기서만 계산', 'code'),
          group(16, 416, 322, 104, '쌓이는 기록', 'rec'), group(352, 416, 392, 104, '⑤ 연락 하네스', 'out')]
     y1, y2, y3, y4 = 72, 205, 343, 476
@@ -113,17 +113,17 @@ def d_logic():
         o.append(node(x, y1, t, s, w=88))
     o.append(node(530, y1, '새 버전', '되돌릴 수 있다', kind='human'))
     o.append(node(670, y1, '승인함', '승인 · 거부 · 다시 짜기', w=104, kind='human', hot=True))
-    for x, t, s in [(68, '컨텍스트 조립', '지침 · 스킬 · 보는 화면'), (162, '판단', 'Router 3전략'), (256, '도구 실행', '40여 개 · 실패 시 되돌림'), (350, '자가 점검', '결과 보고 고친다')]:
+    for x, t, s in [(68, '컨텍스트 조립', '지침 · 스킬 · 보는 화면'), (162, '판단', 'Router 3전략'), (256, '도구 실행', '40여 개 · 되돌림'), (350, '자가 점검', '결과 보고 고친다')]:
         o.append(node(x, y2 + 8, t, s, w=88, kind='liner'))
     for x, t, s in [(492, 'Premium Data', '시세 · 환율 + 출처'), (592, 'MCP', '업계 소식 · 법령'), (692, 'Search Agent', '근거가 된 문장')]:
         o.append(node(x, y2 + 8, t, s, w=92, kind='liner'))
     xs = [66, 160, 254, 348, 452, 556]
     for x, t, s in zip(xs, ['달력 · CPM', '자원 맞춤', '4겹 하네스', '지연 영향', '관리 포인트', '당김 효과 · 만회안'],
-                       ['공휴일 · 선후 관계', '크레인 · 설비 용량', '기본·분야·내 규칙·입력', '완료 +n일 · 여유 흡수', '크리티컬 + 여유 적은 작업', '5일 중 며칠이 반영되나']):
+                       ['공휴일 · 선후 관계', '크레인 · 설비 용량', '4겹 규칙 점검', '완료 +n일 · 여유', '크리티컬 · 여유 적음', '당긴 날 중 반영']):
         o.append(node(x, y3 + 8, t, s, w=92, kind='code', hot=(t == '관리 포인트')))
     for x, t, s in [(68, '지연 기록', '원인 · 책임 · 비용'), (170, '자료함', '시방서 5축 분류'), (272, '보고서', '회사 양식 학습')]:
         o.append(node(x, y4 + 8, t, s, w=90, kind='rec'))
-    for x, t, s in [(430, '나가는 문', '시험모드·근무시간·권한 등 6검사'), (560, '문자 · AI 전화', '첫마디는 코드가 정함'), (680, '뒤 확인', '받아쓰기와 답 대조')]:
+    for x, t, s in [(430, '나가는 문', '6가지 검사'), (560, '문자 · AI 전화', '첫마디는 코드가 정함'), (680, '뒤 확인', '받아쓰기와 답 대조')]:
         o.append(node(x, y4 + 8, t, s, w=110 if t == '나가는 문' else 96, kind='out'))
     # 화살표
     o.append(arrow([(68, y1 + 22), (68, y2 - 14)]))
@@ -142,7 +142,7 @@ def d_logic():
     o.append(arrow([(602, y3 + 8), (752, y3 + 8), (752, y1), (722, y1)], '#4ade80', w=2.6, label='대안을 올린다', lx=746, ly=y3 - 4, lc='#4ade80', anchor='end'))
     o.append(arrow([(618, y1), (574, y1)], '#4ade80', w=2.6))
     o.append(arrow([(486, y1), (424, y1), (424, y3 - 26), (440, y3 - 26), (440, y3 - 14)], '#4ade80', w=2.6, label='⑦ 다시 계산', lx=418, ly=y1 + 46, lc='#4ade80', anchor='end'))
-    for x, y, n in [(256, y2 - 44, 1), (244, y3 - 34, 2), (480, y2 + 76, 3), (380, y4 + 34, 4), (424, y1 + 64, 5)]:
+    for x, y, n in [(372, y2 - 26, 1), (240, y3 - 26, 2), (480, y2 + 76, 3), (414, 452, 4), (424, y1 + 64, 5)]:
         o.append(badge(x, y, n))
     items = [(1, '틀리면 다시 돈다', '판단 → 도구 실행 → 자가 점검. 결과가 규칙에 어긋나면 고쳐서 다시, 최대 12단계.'),
              (2, '날짜는 코드만', '에이전트는 계산을 엔진에 맡기고, 엔진은 4겹 하네스로 규칙을 확인한다.'),
