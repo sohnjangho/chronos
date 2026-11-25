@@ -142,6 +142,9 @@ p{margin:0}
 .cr.amber{border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.06)}
 .cr .w b{display:block;font-size:30pt;font-weight:800;color:#fff;line-height:1;letter-spacing:-.04em}
 .cr .w b::after{content:"%";font-size:13pt;color:#7dd3fc;margin-left:1mm}
+.crit.q4 .cr .w b::after{content:""}
+.crit.q4{margin-top:4mm;gap:2.5mm}.crit.q4 .cr{grid-template-columns:34mm 1fr 19mm;padding:3.5mm 5mm}.crit.q4 .cr .w b{font-size:24pt}.crit.q4 li{margin-bottom:.4mm}
+.crit.q4 .cr .w span{font-size:10pt;line-height:1.35}
 .cr.amber .w b::after{color:#fbbf24}
 .cr .w span{display:block;font-size:11pt;font-weight:800;color:#7dd3fc;margin-top:1.5mm}
 .cr.amber .w span{color:#fbbf24}
@@ -196,36 +199,37 @@ p{margin:0}
 
 <!-- 2 심사 기준 한 장 요약 -->
 <section class="page">
-  <div class="eyebrow">00 · 한 장 요약 · 심사 기준으로 보기</div>
+  <div class="eyebrow">00 · 한 장 요약 · 운영팀이 요청한 네 가지</div>
   <h1 style="font-size:23pt">일이 늦어서가 아니라,<br><span class="c">완료일정을 좌우하는 작업이 바뀐 걸</span> 늦게 알아서 놓친다</h1>
-  <p class="sub" style="font-size:10.2pt">ChronOS 는 완료일정을 좌우하는 작업을 변동마다 다시 계산하고, 바뀌었으면 먼저 알리고, 그곳의 외부 영향을 찾고, 담당자에게 직접 묻는 일정 에이전트 OS 다. 심사 기준 네 개에 대한 답과, 각 답을 확인할 쪽을 한 장에 모았다.</p>
-  <div class="crit">
-    <div class="cr"><div class="w"><b>30</b><span>문제 정의</span></div>
-      <div><div class="q">「누가, 언제, 얼마나 불편한지」</div>
+  <p class="sub" style="font-size:10.2pt">ChronOS 는 완료일정을 좌우하는 작업을 변동마다 다시 계산하고, 바뀌었으면 먼저 알리고, 외부 영향을 찾고, 담당자에게 직접 묻는 일정 에이전트 OS 다. 운영팀이 요청한 네 가지의 답과 확인할 쪽을 한 장에 모았다.</p>
+  <div class="crit q4">
+    <div class="cr"><div class="w"><b>1</b><span>누가 어떤 문제로<br>얼마나 불편한지</span></div>
+      <div><div class="q">심사 기준 · 문제 정의 30%</div>
         <ul><li><b>누가</b> 일정을 맡은 PM. R&amp;D·실증 과제, 건설·플랜트, 생산</li>
-        <li><b>언제</b> 일정표를 처음 짤 때(빠진 절차), 변동이 들어올 때마다(옮겨 간 크리티컬)</li>
+        <li><b>어떤 문제</b> 일정표를 처음 짤 때는 인허가 같은 절차가 빠지고, 변동이 들어올 때마다 완료일정을 좌우하는 작업(크리티컬 패스)이 바뀌는데 그것을 늦게 안다</li>
         <li><b>얼마나</b> 재시험 6주가 과제 종료 7개월 연장으로(가상 사례). 규제 특례 심의만 최대 120일, 인허가는 지역별 45~150일(조사). 공공 공사는 하루 지체상금 1,500만 원(300억 원 기준)</li></ul></div>
       <div class="pg2">3–5쪽</div></div>
-    <div class="cr"><div class="w"><b>30</b><span>완성도</span></div>
-      <div><div class="q">「시연에서 문제를 해결하는 과정」</div>
-        <ul><li><b>실제 도는 에이전트 OS</b> 앱 19개, 도구 40여 개, 승인함·버전·4겹 하네스</li>
-        <li><b>시연 6장면</b> 말 한 줄 → 일정 초안, 관리 포인트 이동, 담당자에게 먼저 묻기(문자·AI 전화), 당김 효과, 만회안 승인</li>
-        <li><b>검증</b> 서버 시험 8,306 · 화면 시험 2,167 · 실제 Liner 46단계 시나리오</li></ul></div>
-      <div class="pg2">8–14쪽<br>16–27쪽</div></div>
-    <div class="cr amber"><div class="w"><b>20</b><span>Liner 활용</span></div>
-      <div><div class="q">「Liner Model 과 Liner Search 를 핵심 기능에 알맞게」</div>
+    <div class="cr"><div class="w"><b>2</b><span>에이전트의<br>해결 방식</span></div>
+      <div><div class="q">심사 기준 · 완성도 30%</div>
+        <ul><li><b>한 바퀴</b> 변동 감지 → 코드가 영향 계산 → 관리 포인트를 다시 뽑아 바뀌면 알림 → 그곳의 외부 영향 검색 → 담당자에게 문자·AI 전화 → 만회안 → 사람이 승인</li>
+        <li><b>에이전트 OS</b> 에이전트가 앱 19개의 창을 직접 열어 일하고(도구 40여 개), 사람은 화면으로 따라가다 승인함에서 결정한다</li>
+        <li><b>시연과 검증</b> 수소 연료전지 실증 과제로 6장면을 실제 앱에서 돌렸다. 서버 시험 8,306 · 화면 시험 2,167 · 실제 Liner 46단계 시나리오</li></ul></div>
+      <div class="pg2">6쪽<br>8–14쪽<br>16–27쪽</div></div>
+    <div class="cr amber"><div class="w"><b>3</b><span>Liner API<br>활용 방식</span></div>
+      <div><div class="q">심사 기준 · Liner 활용 20%</div>
         <ul><li><b>Model = 두뇌</b> 요청 이해, 일정 초안, 만회안 설명, 연락 글과 통화 요약. Router 를 cost · balanced · quality 로 나눠 쓴다</li>
-        <li><b>Search = 근거</b> 새 관리 포인트에만 Premium Data · MCP · Search Agent 로 외부 영향을 출처와 함께 찾는다</li>
+        <li><b>Search = 근거</b> 새 관리 포인트에만 Premium Data · MCP · Search Agent 로 외부 영향을 출처와 함께 찾는다. 일정 초안의 인허가 처리 기간도 법령 검색으로 근거를 붙인다</li>
         <li><b>나눈 경계</b> 날짜는 코드가 계산하고, Liner 는 판단과 근거를 맡는다. 도구 호출 22/22, MCP 5/5</li></ul></div>
       <div class="pg2">7쪽<br>15쪽</div></div>
-    <div class="cr"><div class="w"><b>20</b><span>확장성</span></div>
-      <div><div class="q">「다른 조직과 직무로 · 시간과 비용이 실제로 줄어드는가」</div>
-        <ul><li><b>분야</b> 엔진과 한 바퀴는 그대로, 분야마다 볼 외부 자료만 바꾼다. R&amp;D 실증 본 시연, 건설·생산 시연, 9개 분야</li>
-        <li><b>시간</b> 옮겨 간 것을 아는 때: 주간 회의 → 변동 직후</li>
-        <li><b>앱으로</b> 원가·도면 검토 앱을 붙이면 같은 WBS 로 일정·원가·물량이 이어지고 에이전트가 전체를 관리</li><li><b>사람으로</b> 협력사는 문자·전화로, 발주처는 승인 기록으로 참여</li></ul></div>
+    <div class="cr"><div class="w"><b>4</b><span>다른 조직·직무로<br>확장할 가능성</span></div>
+      <div><div class="q">심사 기준 · 확장성 20%</div>
+        <ul><li><b>분야로</b> 엔진과 한 바퀴는 그대로, 분야마다 볼 외부 자료만 바꾼다. R&amp;D 실증 본 시연, 건설·생산 시연, 9개 분야</li>
+        <li><b>앱으로</b> 원가·도면 검토 앱을 붙이면 같은 WBS 로 일정·원가·물량이 이어지고 에이전트가 전체를 관리</li>
+        <li><b>사람으로</b> 협력사는 문자·전화로, 발주처는 승인 기록으로 참여</li>
+        <li><b>시간과 비용</b> 옮겨 간 것을 아는 때: 주간 회의 → 변동 직후</li></ul></div>
       <div class="pg2">28–30쪽</div></div>
   </div>
-  <div class="nums" style="margin-top:7mm">
+  <div class="nums" style="margin-top:4mm">
     <div><b>19</b><span>앱 · 하나의 OS</span></div>
     <div><b>40+</b><span>에이전트 도구</span></div>
     <div><b>5종</b><span>Liner API 연결 (Model·Search·MCP·Visualization·Embeddings)</span></div>
