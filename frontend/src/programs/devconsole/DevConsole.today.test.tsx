@@ -29,7 +29,7 @@ describe('하네스 — 묶음과 찾기', () => {
       c.harness = [
         rule('H-CPM-01', '일정 계산', '선후행 순환 차단'),
         rule('H-DATE-01', '일정 계산', '「착수 후 N주」 기한 날짜 계산', [null, null]),
-        rule('H-INFO-02', '바깥 정보', '응답에 키가 되돌아와도 남기지 않음', [5, 1]),
+        rule('H-INFO-02', '외부 정보', '응답에 키가 되돌아와도 남기지 않음', [5, 1]),
         rule('H-ROLE-01', '권한', '현장 관리자 편집 거절'),
       ] as never;
     }),
@@ -39,7 +39,7 @@ describe('하네스 — 묶음과 찾기', () => {
     show('harness');
     const table = await screen.findByRole('table', { name: '하네스 규칙 목록' });
     expect(within(table).getAllByRole('rowgroup').map((g) => g.getAttribute('aria-label')).filter(Boolean)).toEqual([
-      '일정 계산 규칙', '바깥 정보 규칙', '권한 규칙',
+      '일정 계산 규칙', '외부 정보 규칙', '권한 규칙',
     ]);
     await userEvent.click(screen.getByRole('button', { name: '권한 1' }));
     expect(within(screen.getByRole('table', { name: '하네스 규칙 목록' })).queryByText('H-CPM-01')).toBeNull();
@@ -212,7 +212,7 @@ describe('사용량 — 따로 센 호출', () => {
     expect(within(row(/그림 읽기/)).getByText('$0.01')).toBeVisible();
     expect(within(row(/임베딩/)).getByText('—')).toBeVisible();
     expect(within(t).getAllByRole('rowgroup').map((g) => g.getAttribute('aria-label')).filter(Boolean)).toEqual([
-      '바깥 정보', '근거 검색', '모델',
+      '외부 정보', '근거 검색', '모델',
     ]);
   });
 

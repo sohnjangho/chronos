@@ -280,7 +280,7 @@ export interface UsageCounters {
 
 export interface HarnessRule {
   id: string;
-  /** 묶음(일정 계산·에이전트 루프·바깥 정보·권한·가져오기·생성·현장). 예전 서버는 없다 — area 로 묶는다. */
+  /** 묶음(일정 계산·에이전트 루프·외부 정보·권한·가져오기·생성·현장). 예전 서버는 없다 — area 로 묶는다. */
   group?: string;
   area: string;
   title: string;

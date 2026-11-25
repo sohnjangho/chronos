@@ -136,7 +136,7 @@ function ConnectionList({ connections, onChanged }: { connections: InfoConnectio
   );
 }
 
-/** 「정보 API 연결」(관리자): 에이전트 도구가 쓰는 바깥 정보. 지원 프리셋 카드와 연결 카드 목록. */
+/** 「정보 API 연결」(관리자): 에이전트 도구가 쓰는 외부 정보. 지원 프리셋 카드와 연결 카드 목록. */
 export default function InfoSection() {
   const { connections, error, reload } = useInfoConnections();
   const [adding, setAdding] = useState(false);
@@ -150,7 +150,7 @@ export default function InfoSection() {
       <div className="st-head">
         <div>
           <h2>정보 API 연결</h2>
-          <p className="st-muted">에이전트 도구가 쓰는 바깥 정보 · 키는 암호화하고 끝 4자리만 보입니다.</p>
+          <p className="st-muted">에이전트 도구가 쓰는 외부 정보 · 키는 암호화하고 끝 4자리만 보입니다.</p>
         </div>
         <Button variant="primary" disabled={adding} onClick={() => setAdding(true)}>
           + 연결 추가

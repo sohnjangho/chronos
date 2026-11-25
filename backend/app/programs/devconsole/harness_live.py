@@ -65,7 +65,7 @@ Run = tuple[str, dict[str, Any], bool]  # (시뮬레이션 입력, 관측값, �
 
 RULES: list[dict[str, Any]] = [
     {
-        "id": "H-INFO-01", "group": "바깥 정보", "area": "정보 API",
+        "id": "H-INFO-01", "group": "외부 정보", "area": "정보 API",
         "title": "정보 API 경로가 연결 주소 밖으로 나가면 부르지 않음",
         "description": "path 는 / 로 시작하는 상대 경로만 받고(//·..·@·\\·://·%2e 꼴 거절), 만든 주소의 scheme·host·port·경로 "
                        "앞부분이 연결 주소와 같은지 다시 맞춘다. 거절은 부르기 전이라 요청 수(4번 한도)에 들지 않는다.",
@@ -74,7 +74,7 @@ RULES: list[dict[str, Any]] = [
         "feedback_sample": '{"error": "path 에 「..」는 쓸 수 없습니다 — 연결 주소 밖으로 나가는 경로는 부르지 않습니다."}',
     },
     {
-        "id": "H-INFO-02", "group": "바깥 정보", "area": "정보 API",
+        "id": "H-INFO-02", "group": "외부 정보", "area": "정보 API",
         "title": "응답에 키가 되돌아와도 도구 결과·근거에 키를 남기지 않음",
         "description": "응답 본문·Content-Type·주소에서 키(그대로·%XX·&#..;·\\u00XX 꼴, key_name 질의 값)를 지우고, 지운 뒤에도 "
                        "풀어 보아 남으면 본문을 통째로 버린다. 300KB·15초 안에서만 읽는다.",
@@ -83,7 +83,7 @@ RULES: list[dict[str, Any]] = [
         "feedback_sample": '{"body": "{\\"echo\\": \\"serviceKey=[키지움]\\"}"}',
     },
     {
-        "id": "H-INFO-03", "group": "바깥 정보", "area": "정보 API",
+        "id": "H-INFO-03", "group": "외부 정보", "area": "정보 API",
         "title": "정보 API 조회는 한 요청에 4번까지(실패 포함)",
         "description": "그 대화의 마지막 사용자 메시지 뒤에 한 info.call 을 세어 4번이 넘으면 부르지 않고 받은 값·분야 기본값을 "
                        "쓰라고 돌려준다. 날씨 조회·근거 검색과 따로 센다.",
@@ -92,7 +92,7 @@ RULES: list[dict[str, Any]] = [
         "feedback_sample": '{"error": "이번 요청에서 정보 API 조회를 4번 했습니다. 받은 값이나 분야 기본값을 쓰세요."}',
     },
     {
-        "id": "H-EVR-01", "group": "바깥 정보", "area": "근거 검색",
+        "id": "H-EVR-01", "group": "외부 정보", "area": "근거 검색",
         "title": "저장된 근거는 붙은 것·30일 안·「다시 쓰지 않기」 아님·낱말이 모두 맞을 때만 다시 씀",
         "description": "evidence.search 가 Liner 를 부르기 전에 저장된 근거를 찾되, 일정에 붙지 않았거나 30일이 지났거나 "
                        "다시 쓰지 않기로 한 근거는 쓰지 않는다. fresh=true 면 저장된 근거를 보지 않고 새로 찾는다.",
@@ -148,7 +148,7 @@ RULES: list[dict[str, Any]] = [
 ]
 
 
-# ── 바깥 정보: 정보 API ──────────────────────────────────────────────
+# ── 외부 정보: 정보 API ──────────────────────────────────────────────
 
 HARNESS_KEY = "HARNESSkey+7a/Zq9=="  # 가짜 디코딩 키(+ / = 섞음)
 INFO_BASE = "https://93.184.216.34/B090041/openapi/service/SpcdeInfoService"  # 공인 IP 꼴 — 이름 풀이를 하지 않는다
@@ -254,7 +254,7 @@ def _info_limit(_cfg: dict) -> Run:
     return f"한 요청에서 info.call 을 {EXPECTED_INFO_LIMIT + 1}번 부름 → 실실행(가짜 서버)", fb, held
 
 
-# ── 바깥 정보: 근거 다시 쓰기 ─────────────────────────────────────────
+# ── 외부 정보: 근거 다시 쓰기 ─────────────────────────────────────────
 
 REUSE_QUERY = "철근콘크리트 층당 골조 공기"
 REUSABLE = "붙음·1일·살아 있음"

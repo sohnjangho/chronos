@@ -30,7 +30,7 @@ from app.tools.generate import extract_conditions
 
 NEW_RULES = ["H-INFO-01", "H-INFO-02", "H-INFO-03", "H-EVR-01", "H-ROLE-01", "H-IMP-01", "H-GEN-01", "H-FLD-01",
              "H-DATE-01"]
-GROUPS = {"일정 계산", "에이전트 루프", "바깥 정보", "권한", "가져오기·생성", "현장"}
+GROUPS = {"일정 계산", "에이전트 루프", "외부 정보", "권한", "가져오기·생성", "현장"}
 
 
 def harness_test(client, admin, rule_id: str) -> dict:
@@ -55,7 +55,7 @@ def test_catalog_lists_the_new_rules_grouped(client, admin):
     assert {r["group"] for r in rules} <= GROUPS and all(r["group"] for r in rules)
     by_id = {r["id"]: r for r in rules}
     assert by_id["H-CPM-01"]["group"] == "일정 계산" and by_id["H-LOOP-01"]["group"] == "에이전트 루프"
-    assert by_id["H-INFO-02"]["group"] == "바깥 정보" and by_id["H-ROLE-01"]["group"] == "권한"
+    assert by_id["H-INFO-02"]["group"] == "외부 정보" and by_id["H-ROLE-01"]["group"] == "권한"
     assert by_id["H-FLD-01"]["group"] == "현장" and by_id["H-GEN-01"]["group"] == "가져오기·생성"
     # 세션 기록이 없는 규칙은 수를 지어내지 않는다(null)
     assert by_id["H-DATE-01"]["passed_count"] is None and by_id["H-DATE-01"]["blocked_count"] is None
@@ -69,7 +69,7 @@ def test_every_new_rule_runs_in_a_throwaway_db_and_holds(client, admin, session)
     assert live_rows(session) == before  # 운영 DB 에는 아무것도 남지 않는다
 
 
-# ── 바깥 정보 ───────────────────────────────────────────────────────
+# ── 외부 정보 ───────────────────────────────────────────────────────
 
 
 def test_info_path_guard_refuses_paths_that_leave_the_connection(client, admin):

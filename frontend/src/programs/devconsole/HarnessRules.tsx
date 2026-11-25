@@ -1,4 +1,4 @@
-// 하네스 규칙 목록: 묶음(일정 계산 · 에이전트 루프 · 바깥 정보 · 권한 · 가져오기·생성 · 현장 · 연락 하네스) + 찾기 + [차단 시험].
+// 하네스 규칙 목록: 묶음(일정 계산 · 에이전트 루프 · 외부 정보 · 권한 · 가져오기·생성 · 현장 · 연락 하네스) + 찾기 + [차단 시험].
 // 「연락 하네스」 묶음(Task 98)은 규칙 줄이 아니라 상황 격자(OutreachGrid)로 그린다 — 같은 묶음 고르기·찾기를 쓴다.
 // 시험 결과(관측값)는 접힌 나무로 보인다(화면 검수 3).
 import { useState } from 'react';
@@ -7,7 +7,7 @@ import { devApi, type HarnessRule, type HarnessTestOut, type OutreachGridOut } f
 import OutreachGrid from './OutreachGrid';
 import RawBlock from './RawBlock';
 
-const GROUPS = ['일정 계산', '에이전트 루프', '바깥 정보', '권한', '가져오기·생성', '현장', '기타'];
+const GROUPS = ['일정 계산', '에이전트 루프', '외부 정보', '권한', '가져오기·생성', '현장', '기타'];
 /** 예전 서버는 group 이 없다 — 위치(area)로 묶는다. */
 const FROM_AREA: Record<string, string> = { '조건 점검': '일정 계산', 승인: '권한', 루프: '에이전트 루프', 입력: '에이전트 루프' };
 const groupOf = (r: HarnessRule) => r.group ?? FROM_AREA[r.area] ?? '기타';

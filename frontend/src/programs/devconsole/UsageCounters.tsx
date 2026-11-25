@@ -1,4 +1,4 @@
-// 사용량의 따로 센 호출(11-23): 바깥 정보(정보 API·기상청) · 근거 검색(Liner 대 저장된 근거 다시 쓰기) · 모델(그림 읽기·임베딩).
+// 사용량의 따로 센 호출(11-23): 외부 정보(정보 API·기상청) · 근거 검색(Liner 대 저장된 근거 다시 쓰기) · 모델(그림 읽기·임베딩).
 // 비용은 기록된 것만 보인다(정보 API·근거 검색은 비용이 기록되지 않는다 — 「—」).
 // 관리 포인트(계획 5 Task 7)의 Premium Data·MCP·Search Agent 는 Liner 가 값을 알리지 않아 호출 수 × 단가로 어림한다(「어림」).
 import type { UsageCounters as Counters, UsageTotals } from './devApi';
@@ -26,7 +26,7 @@ const llmLine = (name: string, t: UsageTotals, note: string): Line => ({
 
 function groups(c: Counters): [string, Line[]][] {
   const all: [string, Line[]][] = [
-    ['바깥 정보', [
+    ['외부 정보', [
       { name: '정보 API 조회 (info.call)', calls: c.info_api.calls, failed: c.info_api.failed, tokens: NO_COST, cost: NO_COST, note: '한 요청 4번까지' },
       { name: '기상청 날씨 조회 (info.weather)', calls: c.weather.calls, failed: c.weather.failed, tokens: NO_COST, cost: NO_COST, note: '' },
     ]],
