@@ -33,7 +33,7 @@ SEOUL = ZoneInfo("Asia/Seoul")
 
 def message(cap: float) -> str:
     return (f"오늘 LLM 비용 상한(${cap:.2f})에 닿아 내일 다시 쓸 수 있습니다. "
-            "관리자가 개발 콘솔 → 설정에서 상한을 바꿀 수 있습니다.")
+            "관리자가 개발 콘솔 → 「하네스·차단 시험」 탭에서 상한을 바꿀 수 있습니다.")
 
 
 class DailyCapReached(Exception):

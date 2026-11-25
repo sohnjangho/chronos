@@ -161,7 +161,7 @@ async def test_daily_cost_cap_stops_the_turn_before_calling(run, session, chat_i
     llm = ScriptedLlm([reply("안 불려야 한다")])
     ev = await run(llm, "x")
     assert ev[-2].type == "error" and ev[-2].data == {"code": "llm_failed", "reason": "daily_cap", "message": (
-        "오늘 LLM 비용 상한($1.00)에 닿아 내일 다시 쓸 수 있습니다. 관리자가 개발 콘솔 → 설정에서 상한을 바꿀 수 있습니다.")}
+        "오늘 LLM 비용 상한($1.00)에 닿아 내일 다시 쓸 수 있습니다. 관리자가 개발 콘솔 → 「하네스·차단 시험」 탭에서 상한을 바꿀 수 있습니다.")}
     assert llm.requests == [] and session.query(LlmCall).count() == 1  # 보내지 않았고 기록도 없다
     assert stored(session, chat_id) == [("user", {"kind": "text", "text": "x"})]
 
