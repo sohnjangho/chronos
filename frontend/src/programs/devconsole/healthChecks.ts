@@ -117,7 +117,7 @@ function infoApi(h: HealthOut): Check | null {
     id: 'info_api', source: 'info_api', area: 'data', name: '정보 API', tech: '기상청 · 시세 · 단가', state,
     summary: i.status === 'off' ? '연결 없음 — 쓰지 않음' : parts.length ? `${i.count}개 중 ${parts.join(' · ')}` : `${i.count}개 모두 정상`,
     todo: state === 'ok' && !untested.length ? null : '설정 → 정보 API 에서 다시 시험',
-    impact: '날씨 · 장비 시세 · 자재 단가처럼 에이전트가 바깥에서 읽어 오는 값입니다. 실패한 연결은 답에 쓰지 못합니다.',
+    impact: '날씨 · 장비 시세 · 자재 단가처럼 에이전트가 외부에서 읽어 오는 값입니다. 실패한 연결은 답에 쓰지 못합니다.',
     fields: [
       { title: '지금 상태', rows: [['서버 말', i.message], ['연결 수', `${i.count}개`]] },
       { title: '연결마다 마지막 시험', rows: i.connections.map((c) => [`${c.name} (${INFO_KIND[c.kind] ?? c.kind})`, `${TEST_WORD[c.status] ?? c.status} · ${c.checked_at ? when(c.checked_at) : '시험 안 함'}`]) },

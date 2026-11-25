@@ -134,7 +134,7 @@ export default function HealthTab() {
       <div className="dc-hl-head">
         <div>
           <h2 className="dc-cat-h2">시스템 진단</h2>
-          <p className="dc-muted">AI · 검색, 자료, 바깥 연락이 지금 제대로 도는지 봅니다. 문제가 있는 것부터 위에 둡니다.</p>
+          <p className="dc-muted">AI · 검색, 자료, 외부 연락이 지금 제대로 도는지 봅니다. 문제가 있는 것부터 위에 둡니다.</p>
         </div>
         <div className="dc-hl-actions">
           {data && <span className="dc-muted">{`마지막 점검 ${timeOf(data.at)}`}</span>}
