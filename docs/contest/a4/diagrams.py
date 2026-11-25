@@ -253,6 +253,8 @@ def main():
     s = HTML.read_text(encoding='utf-8')
     for name, fn in [('loop', d_loop), ('logic', d_logic), ('arch', d_arch), ('os', d_os), ('syn', d_synergy)]:
         a, b = f'<!--D:{name}-->', '<!--/D-->'
+        if a not in s:
+            continue
         i = s.index(a) + len(a)
         j = s.index(b, i)
         s = s[:i] + fn() + s[j:]
