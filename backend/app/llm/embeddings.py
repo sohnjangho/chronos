@@ -18,7 +18,7 @@ from dataclasses import replace
 import httpx
 from sqlalchemy.orm import Session
 
-from app.llm import fake
+from app.llm import daily_cap, fake
 from app.llm.assignments import resolve
 from app.llm.client import LlmClient, LlmNotReady, LlmReply, Usage, _count, _Target
 from app.llm.connections import estimate_cost
@@ -53,10 +53,10 @@ _FAILURES = (httpx.HTTPError, httpx.InvalidURL, TimeoutError, ValueError, TypeEr
 class EmbedFailed(Exception):
     """임베딩하지 못했다. code 는 MESSAGES 의 열쇠, message 는 화면에 보일 설명."""
 
-    def __init__(self, code: str) -> None:
-        super().__init__(MESSAGES[code])
+    def __init__(self, code: str, message: str | None = None) -> None:
+        super().__init__(message or MESSAGES[code])
         self.code = code
-        self.message = MESSAGES[code]
+        self.message = message or MESSAGES[code]
 
 
 class _Unusable(ValueError):
@@ -164,5 +164,9 @@ async def embed(
     # trust_env=False: 환경 변수의 프록시로 키가 나가지 않게 한다. httpx 는 스스로 다시 시도하지 않는다.
     async with httpx.AsyncClient(transport=transport, timeout=timeout_s, trust_env=False) as http:
         for start in range(0, len(inputs), BATCH):
+            try:
+                daily_cap.check(session)  # 묶음마다, 보내기 전에
+            except daily_cap.DailyCapReached as capped:
+                raise EmbedFailed(capped.code, capped.message) from None
             found.extend(await _send(client, http, target, inputs[start:start + BATCH], timeout_s))
     return found

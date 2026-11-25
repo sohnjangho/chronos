@@ -1,6 +1,7 @@
 """작업 공간 및 에이전트·하네스 실행 설정(settings 표: key → value)."""
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -304,3 +305,29 @@ def accel_warn_ratio(session: Session) -> float:
         return DEFAULT_ACCEL_WARN_RATIO
     lo, hi = _ACCEL_WARN_RATIO_BOUNDS
     return value if lo <= value <= hi else DEFAULT_ACCEL_WARN_RATIO
+
+
+# ── 하루 LLM 비용 상한(app.llm.daily_cap) ────────────────────────────
+
+LLM_DAILY_USD_KEY = "llm_daily_usd"
+
+
+def llm_daily_usd(session: Session) -> float | None:
+    """저장한 하루 LLM 비용 상한(USD). 정한 적 없음·0 이하·숫자 아님은 None(상한 없음)."""
+    row = session.get(Setting, LLM_DAILY_USD_KEY)
+    try:
+        value = float(row.value) if row is not None else None
+    except ValueError:
+        return None
+    return value if value is not None and math.isfinite(value) and value > 0 else None
+
+
+def set_llm_daily_usd(session: Session, value: float | None) -> None:
+    """상한을 저장하고 commit 한다. None 이면 지운다(상한 없음). 값 확인(양의 유한한 수)은 부르는 쪽이 한다."""
+    if value is None:
+        row = session.get(Setting, LLM_DAILY_USD_KEY)
+        if row is not None:
+            session.delete(row)
+    else:
+        _upsert(session, LLM_DAILY_USD_KEY, repr(float(value)))
+    session.commit()

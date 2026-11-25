@@ -18,7 +18,7 @@ from typing import Literal
 import httpx
 from sqlalchemy.orm import Session
 
-from app.llm import fake
+from app.llm import daily_cap, fake
 from app.llm.assignments import Purpose, resolve
 from app.llm.connections import estimate_cost, secret_is_sendable
 from app.llm.errors import LlmError, explain
@@ -388,6 +388,8 @@ class LlmClient:
     ) -> LlmReply:
         """한 번 부른다. 연결이 없으면 LlmNotReady, 보낸 뒤 실패하면 LlmFailed.
 
+        - 오늘 LLM 비용 상한(app.llm.daily_cap)에 닿았으면 보내지 않고 LlmFailed(code daily_cap). llm_calls 에도 남지 않는다.
+
         - timeout_s 는 호출 전체에 건다. tools 는 registry.as_llm_tools() 형식. max_tokens 기본값은 MAX_TOKENS.
         - json_schema 를 주면 strict 모드로 그 모양의 JSON 을 요청한다. strict 모드는 모든 속성이
           required 에 들어 있고 additionalProperties 가 false 여야 하므로(중첩 객체도) 스키마를
@@ -406,6 +408,10 @@ class LlmClient:
           된다. 그러면 SQLite busy timeout(기본 5초)을 기다린 뒤 사용량 기록이 빠질 수 있다.
         """
         target = self._target(purpose)
+        try:
+            daily_cap.check(self._session)  # 오늘 비용 상한에 닿았으면 보내지 않는다(기록도 없음)
+        except daily_cap.DailyCapReached as capped:
+            raise LlmFailed(LlmError(capped.code, capped.message)) from None
         body = _request_body(target, purpose, messages, tools, json_schema, max_tokens=max_tokens)
         reply: LlmReply | None = None
         error: LlmError | None = None

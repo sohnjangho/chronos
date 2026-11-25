@@ -145,6 +145,7 @@ async def field_search(session: Session, query: str, mode: search.SearchMode, *,
     부를 수 없으면 SearchNotReady(보내지 않음), 보낸 뒤 실패하면 SearchFailed. 세션은 읽기만 한다.
     """
     base_url, key = search._target(session)
+    search.check_cap(session)
     chosen = search.TRANSPORT if search.TRANSPORT is not None else transport
     start = time.perf_counter()
     rows = await call_tool(base_url, key, FIELD_TOOLS[mode], {"query": query, "limit": max_results},

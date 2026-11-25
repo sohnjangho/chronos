@@ -25,6 +25,7 @@ from datetime import date
 import httpx
 from sqlalchemy.orm import Session
 
+from app.llm import daily_cap
 from app.llm.assignments import default_connection
 from app.llm.connections import secret_is_sendable
 from app.llm.visual_check import Verdict, cell_text, verify
@@ -50,7 +51,7 @@ FRAME = ("아래 표의 값만 그대로 써서 {chart}을 그려라. 값을 계
          "그 밖의 글(제목·설명·범례)에 표에 없는 숫자를 쓰지 마라.\n\n")
 FAILED_MESSAGES = {"not_ready": "Liner 연결이 없어 기본 그림", "verify": "Liner 그림 검증 실패 → 기본 그림"}
 _STATUS_CODES = {400: "bad_request", 401: "bad_key", 402: "no_credit", 403: "bad_key", 404: "bad_url", 429: "rate_limited"}
-_NO_RETRY = frozenset({"bad_request", "bad_key", "no_credit", "bad_url"})  # 다시 해도 같은 실패
+_NO_RETRY = frozenset({"bad_request", "bad_key", "no_credit", "bad_url", "daily_cap"})  # 다시 해도 같은 실패
 _FAILURES = (httpx.HTTPError, httpx.InvalidURL, TimeoutError, ValueError, TypeError)
 
 _last_start = 0.0
@@ -141,6 +142,10 @@ async def liner_visualize(session: Session, query: str, *, timeout_s: float = TI
                           transport: httpx.AsyncBaseTransport | None = None) -> Atlas:
     """한 번 그린다. 부를 수 없으면 VisualNotReady(보내지 않음), 보낸 뒤 실패하면 VisualFailed. 세션은 읽기만 한다."""
     base_url, key = _target(session)
+    try:
+        daily_cap.check(session)  # 오늘 LLM 비용 상한에 닿았으면 보내지 않는다(다시 하지도 않는다 — _NO_RETRY)
+    except daily_cap.DailyCapReached:
+        raise VisualFailed(daily_cap.CODE) from None
     chosen = TRANSPORT if TRANSPORT is not None else transport
     code: str | None = None
     async with _lock:

@@ -17,6 +17,7 @@ from typing import Literal
 import httpx
 from sqlalchemy.orm import Session
 
+from app.llm import daily_cap
 from app.llm.assignments import default_connection
 from app.llm.connections import secret_is_sendable
 from app.security.crypto import SecretUnreadable, decrypt
@@ -80,10 +81,10 @@ class SearchNotReady(Exception):
 class SearchFailed(Exception):
     """불렀지만 실패했다. code 는 FAILED_MESSAGES 의 열쇠, message 는 화면·에이전트에 보일 설명."""
 
-    def __init__(self, code: str) -> None:
-        super().__init__(FAILED_MESSAGES[code])
+    def __init__(self, code: str, message: str | None = None) -> None:
+        super().__init__(message or FAILED_MESSAGES[code])
         self.code = code
-        self.message = FAILED_MESSAGES[code]
+        self.message = message or FAILED_MESSAGES[code]
 
 
 class _Unreadable(ValueError):
@@ -167,10 +168,19 @@ def _hits(data: object, max_results: int) -> list[SearchHit]:
     return hits[:max_results]
 
 
+def check_cap(session: Session) -> None:
+    """오늘 LLM 비용 상한(app.llm.daily_cap)에 닿았으면 SearchFailed(daily_cap) — 보내지 않는다."""
+    try:
+        daily_cap.check(session)
+    except daily_cap.DailyCapReached as capped:
+        raise SearchFailed(capped.code, capped.message) from None
+
+
 async def _send(session: Session, mode: SearchMode, body: dict, timeout_s: float,
                 transport: httpx.AsyncBaseTransport | None, read):
     """한 번 보내고 read(받은 JSON) 를 돌려준다. 부를 수 없으면 SearchNotReady, 보낸 뒤 실패하면 SearchFailed."""
     base_url, key = _target(session)
+    check_cap(session)
     chosen = TRANSPORT if TRANSPORT is not None else transport
     code: str | None = None
     out = None

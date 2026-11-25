@@ -149,6 +149,23 @@ async def test_llm_fails_midway_keeps_conversation(run, session, chat_id):  # Re
     assert [role for role, _ in stored(session, chat_id)] == ["user", "assistant", "tool"]
 
 
+async def test_daily_cost_cap_stops_the_turn_before_calling(run, session, chat_id, monkeypatch):
+    from app.llm import daily_cap
+    from app.store import settings as settings_store
+
+    monkeypatch.delenv(daily_cap.ENV, raising=False)
+    settings_store.set_llm_daily_usd(session, 1.0)
+    session.add(LlmCall(purpose="normal", model="m", requested_model="m", routing_strategy=None, cost=1.0,
+                        cost_estimated=True, latency_ms=1, ok=True))
+    session.commit()
+    llm = ScriptedLlm([reply("안 불려야 한다")])
+    ev = await run(llm, "x")
+    assert ev[-2].type == "error" and ev[-2].data == {"code": "llm_failed", "reason": "daily_cap", "message": (
+        "오늘 LLM 비용 상한($1.00)에 닿아 내일 다시 쓸 수 있습니다. 관리자가 개발 콘솔 → 설정에서 상한을 바꿀 수 있습니다.")}
+    assert llm.requests == [] and session.query(LlmCall).count() == 1  # 보내지 않았고 기록도 없다
+    assert stored(session, chat_id) == [("user", {"kind": "text", "text": "x"})]
+
+
 async def test_ui_context_reaches_prompt(run, spy_llm, sid):
     await run(spy_llm, "이거 당겨 줘", ui=UiContext("schedule", sid, "A2020"))
     assert "A2020" in spy_llm.last_messages_text

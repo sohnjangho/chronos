@@ -27,7 +27,7 @@ import httpx
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from app.llm import fake
+from app.llm import daily_cap, fake
 from app.llm.assignments import default_connection
 from app.llm.client import _Target
 from app.llm.connections import secret_is_sendable
@@ -79,10 +79,10 @@ FAKE_QUOTE = AgentQuote("가짜 근거 문장입니다(CHRONOS_FAKE_LLM=1 시험
 class SearchAgentFailed(Exception):
     """문장을 받지 못했다. code 는 MESSAGES 의 열쇠(키·받은 글은 담지 않는다)."""
 
-    def __init__(self, code: str) -> None:
-        super().__init__(MESSAGES[code])
+    def __init__(self, code: str, message: str | None = None) -> None:
+        super().__init__(message or MESSAGES[code])
         self.code = code
-        self.message = MESSAGES[code]
+        self.message = message or MESSAGES[code]
 
 
 class _Failed(ValueError):
@@ -264,6 +264,11 @@ async def call(target: _Target, bind: Engine, question: str, *, mode: Literal["g
     """prepare 가 준 곳에 한 번 묻는다. DB 세션을 받지 않는다(기록은 bind 에 따로 연 짧은 세션). 못 받으면 SearchAgentFailed."""
     if target.base_url == "fake" and _fake():
         return [FAKE_QUOTE]  # 보내지 않았다 — 비용·기록 없음
+    try:
+        with Session(bind) as reader:  # 오늘 LLM 비용 상한(app.llm.daily_cap) — 짧게 읽고 닫는다
+            daily_cap.check(reader)
+    except daily_cap.DailyCapReached as capped:
+        raise SearchAgentFailed(capped.code, capped.message) from None
     quotes: list[AgentQuote] = []
     code: str | None = None
     billed = False
