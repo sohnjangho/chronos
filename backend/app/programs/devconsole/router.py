@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.llm import daily_cap
 from app.programs.devconsole import (
     catalog,
     outreach_view,
@@ -16,6 +17,8 @@ from app.programs.devconsole.schemas import (
     AgentConfigPatch,
     DevUsageOut,
     HealthOut,
+    LlmCapIn,
+    LlmCapOut,
     OutreachDetailOut,
     OutreachListOut,
     PointsConfigOut,
@@ -87,6 +90,16 @@ def read_agent_config(session: SessionDep) -> AgentConfigOut:
 def write_agent_config(body: AgentConfigPatch, session: SessionDep) -> AgentConfigOut:
     updated = settings_store.set_agent_config(session, body.model_dump(exclude_unset=True))
     return AgentConfigOut.model_validate(updated)
+
+
+@router.get("/llm-cap")
+def read_llm_cap(session: SessionDep) -> LlmCapOut:
+    return LlmCapOut(**daily_cap.status(session))  # 하루 LLM 비용 상한 · 오늘(서울 날짜) 쓴 돈
+
+
+@router.put("/llm-cap")
+def write_llm_cap(body: LlmCapIn, session: SessionDep) -> LlmCapOut:
+    return service.write_llm_cap(session, body.cap_usd)
 
 
 @router.get("/points-config")

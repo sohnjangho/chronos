@@ -37,7 +37,7 @@ from app.core.calendar import KOREA_HOLIDAYS
 from app.errors import ApiError
 from app.files import vectors
 from app.info import generic
-from app.llm import assignments
+from app.llm import assignments, daily_cap
 from app.llm.assignments import default_connection
 from app.llm.connections import secret_is_sendable
 from app.programs.devconsole import outreach_branches, outreach_view, points_view
@@ -50,6 +50,7 @@ from app.programs.devconsole.schemas import (
     HolidayHealthOut,
     InfoApiHealthOut,
     InfoConnOut,
+    LlmCapOut,
     LlmHealthOut,
     NodeDetail,
     NodeOut,
@@ -194,7 +195,15 @@ def _counters(session: Session, days: int) -> UsageCountersOut:
 def usage(session: Session, *, days: int, group: UsageGroup) -> DevUsageOut:
     base = store.usage(session, days=days, group=group)
     return DevUsageOut(**base.model_dump(), counters=_counters(session, days),
-                       outreach=outreach_view.usage(session, days))
+                       outreach=outreach_view.usage(session, days), llm_cap=LlmCapOut(**daily_cap.status(session)))
+
+
+def write_llm_cap(session: Session, cap_usd: float | None) -> LlmCapOut:
+    """하루 LLM 비용 상한을 저장한다. 환경 변수로 정해져 있으면 409 fixed_by_env(아무것도 적지 않는다)."""
+    if daily_cap.env_cap() is not None:
+        raise ApiError(409, "fixed_by_env", f"상한이 환경 변수 {daily_cap.ENV} 로 정해져 있어 화면에서 바꿀 수 없습니다.")
+    settings_store.set_llm_daily_usd(session, cap_usd)
+    return LlmCapOut(**daily_cap.status(session))
 
 
 # ── 구조 ────────────────────────────────────────────────────────────

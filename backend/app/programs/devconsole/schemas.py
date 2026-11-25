@@ -337,9 +337,24 @@ class OutreachUsageOut(BaseModel):
     calls: CallUsageOut | None = None  # 통화 사용량(Task 110)
 
 
+class LlmCapOut(BaseModel):
+    """하루 LLM 비용 상한(app.llm.daily_cap). cap_usd None = 상한 없음. 오늘 = 서울 날짜, 추정 비용 포함."""
+
+    cap_usd: float | None
+    fixed_by_env: bool  # CHRONOS_LLM_DAILY_USD 로 정해져 화면에서 못 바꾼다
+    spent_today_usd: float
+
+
+class LlmCapIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cap_usd: float | None = Field(gt=0, le=100_000, allow_inf_nan=False)  # None = 상한 없음
+
+
 class DevUsageOut(UsageOut):
     counters: UsageCountersOut | None = None
     outreach: OutreachUsageOut | None = None
+    llm_cap: LlmCapOut | None = None
 
 
 class AgentConfigOut(BaseModel):
