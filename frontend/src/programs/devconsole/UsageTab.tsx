@@ -8,6 +8,7 @@ import { ApiError } from '../../shared/api';
 import Field from '../../shared/ui/Field';
 import { devApi, type CallUsage, type OutreachUsage, type UsageGroup, type UsageOut, type UsageRow, type UsageTotals } from './devApi';
 import { cost, costWithEstimate, count } from './format';
+import { capLine } from './LlmCapPanel';
 import UsageCounters from './UsageCounters';
 
 const PERIODS = [7, 14, 30];
@@ -254,6 +255,7 @@ export default function UsageTab() {
           </select>
         </Field>
         {body && <span className="dc-u-search">{`근거 검색 ${count(body.searches.calls)}번 · 실패 ${count(body.searches.failed)}`}</span>}
+        {body?.llm_cap && <span className="dc-u-search" title="오늘 = 서울 날짜(자정에 다시 셈) · 추정 비용 포함">{capLine(body.llm_cap)}</span>}
       </div>
       {error && (
         <p className="dc-error" role="alert">

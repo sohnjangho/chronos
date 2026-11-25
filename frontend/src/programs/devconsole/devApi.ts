@@ -253,6 +253,15 @@ export interface UsageOut {
   counters?: UsageCounters | null;
   /** Task 108: 연락 사용량. long 은 sms 의 부분 집합, provider_cost null = 제공사가 알려 주지 않음. */
   outreach?: OutreachUsage | null;
+  /** 11-25: 하루 LLM 비용 상한과 오늘(서울 날짜) 쓴 돈. 예전 서버는 보내지 않는다. */
+  llm_cap?: LlmCap | null;
+}
+
+/** 하루 LLM 비용 상한(schemas.LlmCapOut). cap_usd null = 상한 없음. fixed_by_env = CHRONOS_LLM_DAILY_USD 로 정해져 못 바꿈. */
+export interface LlmCap {
+  cap_usd: number | null;
+  fixed_by_env: boolean;
+  spent_today_usd: number;
 }
 
 export interface OutreachUsage {
@@ -640,6 +649,9 @@ export const devApi = {
   getAgentConfig: () => api<AgentConfig>('/api/devconsole/agent-config'),
   saveAgentConfig: (cfg: AgentConfig) =>
     api<AgentConfig>('/api/devconsole/agent-config', { method: 'PUT', body: JSON.stringify(cfg) }),
+  getLlmCap: () => api<LlmCap>('/api/devconsole/llm-cap'),
+  saveLlmCap: (cap_usd: number | null) =>
+    api<LlmCap>('/api/devconsole/llm-cap', { method: 'PUT', body: JSON.stringify({ cap_usd }) }),
   getPointsConfig: () => api<PointsConfig>('/api/devconsole/points-config'),
   savePointsConfig: (patch: PointsConfigPatch) =>
     api<PointsConfig>('/api/devconsole/points-config', { method: 'PUT', body: JSON.stringify(patch) }),

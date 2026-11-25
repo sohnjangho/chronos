@@ -9,6 +9,7 @@ import type {
   NodeKey,
   NodeState,
   KakaoHealth,
+  LlmCap,
   NotifyHealth,
   NotifyStep,
   OutreachDetail,
@@ -429,6 +430,11 @@ export function pointsStage(over: Partial<PointsStage> = {}): PointsStage {
 let pointsCfg: PointsConfig = POINTS_CONFIG();
 let pointsRunsBody: PointsStage[] = [];
 export const pointsPuts: unknown[] = [];
+/** 하루 LLM 비용 상한(GET·PUT /api/devconsole/llm-cap). 기본: 상한 없음. */
+const LLM_CAP = (): LlmCap => ({ cap_usd: null, fixed_by_env: false, spent_today_usd: 0 });
+let llmCap: LlmCap = LLM_CAP();
+export const llmCapPuts: unknown[] = [];
+export const mockLlmCap = (c: Partial<LlmCap>) => void (llmCap = { ...llmCap, ...c });
 export const mockPointsRuns = (rows: PointsStage[]) => void (pointsRunsBody = rows);
 let outreachRows: OutreachRow[] = [];
 let outreachMore = false;
@@ -455,6 +461,8 @@ export function setup(role: 'admin' | 'user' = 'admin') {
   pointsCfg = POINTS_CONFIG();
   pointsRunsBody = [];
   pointsPuts.length = 0;
+  llmCap = LLM_CAP();
+  llmCapPuts.length = 0;
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === '/api/devconsole/points-config' && init?.method === 'PUT') {
@@ -465,6 +473,12 @@ export function setup(role: 'admin' | 'user' = 'admin') {
       return json(200, (pointsCfg = { ...pointsCfg, ...body }));
     }
     if (url === '/api/devconsole/points-config') return json(200, pointsCfg);
+    if (url === '/api/devconsole/llm-cap' && init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body)) as { cap_usd: number | null };
+      llmCapPuts.push(body);
+      return json(200, (llmCap = { ...llmCap, cap_usd: body.cap_usd }));
+    }
+    if (url === '/api/devconsole/llm-cap') return json(200, llmCap);
     if (url === '/api/devconsole/points-runs?limit=30') return json(200, pointsRunsBody);
     if (url === '/api/devconsole/turns?limit=30') return json(200, list);
     if (url === '/api/devconsole/outreach?limit=30') return json(200, { items: outreachRows, more: outreachMore, limit: 30 });
