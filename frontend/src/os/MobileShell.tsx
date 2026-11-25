@@ -222,13 +222,135 @@ function MobileTabBar({
   );
 }
 
+/** 지금 탭·일정 보기·전체 탭에서 고른 프로그램으로 본문에 띄울 프로그램 id. 「현장 점검」은 공정률 화면이다. */
+function activeIdFor(tab: TabId, scheduleSub: string, moreProgram: string | null): string | null {
+  return tab === 'chat'
+    ? 'chat'
+    : tab === 'approvals'
+      ? 'approvals'
+      : tab === 'contacts'
+        ? 'contacts'
+        : tab === 'schedule'
+          ? scheduleSub === 'field'
+            ? 'progress'
+            : scheduleSub
+          : moreProgram;
+}
+
+/** 머리줄 제목: 「전체」 격자 · 「현장 모바일 점검」 · 프로그램 이름. */
+function titleFor(tab: TabId, scheduleSub: string, moreProgram: string | null, manifest: ProgramManifest | undefined): string {
+  return tab === 'more' && !moreProgram
+    ? '전체'
+    : tab === 'schedule' && scheduleSub === 'field'
+      ? '현장 모바일 점검'
+      : (manifest?.name ?? 'ChronOS');
+}
+
+/** 공정률 화면은 「현장 점검」이면 field, 「공정률」이면 dashboard 보기로 연다. */
+function screenParamsFor(tab: TabId, scheduleSub: string, params: Record<string, string> | undefined) {
+  return tab === 'schedule' && scheduleSub === 'field'
+    ? { ...(params ?? {}), view: 'field' }
+    : tab === 'schedule' && scheduleSub === 'progress'
+      ? { ...(params ?? {}), view: 'dashboard' }
+      : params;
+}
+
+/** 「일정·현장」 탭 위의 보기 전환 줄(스케줄 · 간트 · 공정률 …). */
+function MobileSubbar({
+  list,
+  current,
+  onPick,
+}: {
+  list: readonly { id: string; label: string }[];
+  current: string;
+  onPick(id: string): void;
+}) {
+  return (
+    <div className="mob-subbar" role="tablist" aria-label="일정 보기 전환">
+      {list.map((s) => (
+        <button
+          key={s.id}
+          type="button"
+          role="tab"
+          aria-selected={current === s.id}
+          className={`mob-sub-btn${current === s.id ? ' is-on' : ''}`}
+          onClick={() => onPick(s.id)}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 본문: 「전체」 격자(more 가 있으면) 또는 고른 프로그램 화면. */
+function MobileMain({
+  more,
+  Screen,
+  screenParams,
+  onPickMore,
+}: {
+  more: ProgramManifest[] | null;
+  Screen: ProgramManifest['component'] | undefined;
+  screenParams: Record<string, string> | undefined;
+  onPickMore(id: string): void;
+}) {
+  return (
+    <main className="mob-main">
+      {more ? (
+        <MoreGrid list={more} onPick={onPickMore} />
+      ) : Screen ? (
+        <Suspense fallback={<div className="mob-loading">불러오는 중…</div>}>
+          <Screen windowId="mobile" params={screenParams} />
+        </Suspense>
+      ) : (
+        <div className="mob-loading">화면을 열 수 없습니다.</div>
+      )}
+    </main>
+  );
+}
+
+/**
+ * 프로그램 내부에서 useWindows.open(id, params) 호출 시 모바일/태블릿 화면도 해당 프로그램으로 자동 전환.
+ * 단, 대화 탭에서 에이전트 턴이 창을 앞으로 내는 연출(스테이지)은 따라가지 않는다 — 답을 기다리는 화면을 지킨다(F5).
+ */
+function useFollowTopWindow(
+  tab: TabId,
+  set: {
+    setTab(t: TabId): void;
+    setScheduleSub(sub: string): void;
+    setMoreProgram(id: string | null): void;
+    setParams(p: Record<string, string> | undefined): void;
+  },
+) {
+  const wins = useWindows((s) => s.wins);
+  const lastTopRef = useRef<string | null>(null);
+  const { setTab, setScheduleSub, setMoreProgram, setParams } = set;
+  useEffect(() => {
+    if (wins.length === 0) return;
+    const top = wins.reduce((a, b) => (b.z > a.z ? b : a));
+    const sig = `${top.id}:${top.z}:${JSON.stringify(top.params ?? {})}`;
+    if (sig === lastTopRef.current) return;
+    lastTopRef.current = sig;
+    const agent = useAgentView.getState();
+    if (tab === 'chat' && (agent.focus.active || agent.ribbon.status === 'running')) return;
+    const nextTab = tabForProgram(top.programId);
+    setTab(nextTab);
+    if (nextTab === 'schedule') {
+      if (top.programId === 'progress' && top.params?.view === 'field') setScheduleSub('field');
+      else setScheduleSub(top.programId);
+    }
+    if (nextTab === 'more') setMoreProgram(top.programId);
+    setParams(top.params);
+  }, [wins, tab]);
+}
+
 export default function MobileShell() {
   useApprovalPolling();
   useOutreachAlerts(); // 긴급 보고 토스트 — 바탕화면과 같게(현장 관리자는 묻지 않음)
   const role = useSession((s) => s.session?.user.role ?? 'user');
   const isFieldRole = role === 'field';
   const pending = useApprovals((s) => s.pending);
-  const wins = useWindows((s) => s.wins);
   const device = useResolvedDevice();
 
   const userId = useSession((s) => s.session?.user.id ?? null);
@@ -238,7 +360,6 @@ export default function MobileShell() {
   const [scheduleSub, setScheduleSub] = useState<string>(() => boot?.sub ?? (role === 'field' ? 'field' : 'schedule-table'));
   const [moreProgram, setMoreProgram] = useState<string | null>(boot?.more ?? null);
   const [params, setParams] = useState<Record<string, string> | undefined>(boot?.params);
-  const lastTopRef = useRef<string | null>(null);
   const layout = phoneLayout(tab, scheduleSub, moreProgram, params);
   const showLayout = (l: PhoneLayout) => {
     setTab(l.tab);
@@ -265,54 +386,14 @@ export default function MobileShell() {
     }
   }, [isFieldRole, tab]);
 
-  // 프로그램 내부에서 useWindows.open(id, params) 호출 시 모바일/태블릿 화면도 해당 프로그램으로 자동 전환.
-  // 단, 대화 탭에서 에이전트 턴이 창을 앞으로 내는 연출(스테이지)은 따라가지 않는다 — 답을 기다리는 화면을 지킨다(F5).
-  useEffect(() => {
-    if (wins.length === 0) return;
-    const top = wins.reduce((a, b) => (b.z > a.z ? b : a));
-    const sig = `${top.id}:${top.z}:${JSON.stringify(top.params ?? {})}`;
-    if (sig === lastTopRef.current) return;
-    lastTopRef.current = sig;
-    const agent = useAgentView.getState();
-    if (tab === 'chat' && (agent.focus.active || agent.ribbon.status === 'running')) return;
-    const nextTab = tabForProgram(top.programId);
-    setTab(nextTab);
-    if (nextTab === 'schedule') {
-      if (top.programId === 'progress' && top.params?.view === 'field') setScheduleSub('field');
-      else setScheduleSub(top.programId);
-    }
-    if (nextTab === 'more') setMoreProgram(top.programId);
-    setParams(top.params);
-  }, [wins, tab]);
+  useFollowTopWindow(tab, { setTab, setScheduleSub, setMoreProgram, setParams });
 
-  const activeId =
-    tab === 'chat'
-      ? 'chat'
-      : tab === 'approvals'
-        ? 'approvals'
-        : tab === 'contacts'
-          ? 'contacts'
-          : tab === 'schedule'
-            ? scheduleSub === 'field'
-              ? 'progress'
-              : scheduleSub
-            : moreProgram;
-
-  const screenParams =
-    tab === 'schedule' && scheduleSub === 'field'
-      ? { ...(params ?? {}), view: 'field' }
-      : tab === 'schedule' && scheduleSub === 'progress'
-        ? { ...(params ?? {}), view: 'dashboard' }
-        : params;
+  const activeId = activeIdFor(tab, scheduleSub, moreProgram);
+  const screenParams = screenParamsFor(tab, scheduleSub, params);
 
   const manifest = activeId ? getProgram(activeId) : undefined;
   const Screen = manifest?.component;
-  const title =
-    tab === 'more' && !moreProgram
-      ? '전체'
-      : tab === 'schedule' && scheduleSub === 'field'
-        ? '현장 모바일 점검'
-        : (manifest?.name ?? 'ChronOS');
+  const title = titleFor(tab, scheduleSub, moreProgram, manifest);
 
   function selectTab(next: TabId) {
     setTab(next);
@@ -347,42 +428,19 @@ export default function MobileShell() {
         onBack={() => setMoreProgram(null)}
       />
 
-      {showSubbar && (
-        <div className="mob-subbar" role="tablist" aria-label="일정 보기 전환">
-          {subList.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              role="tab"
-              aria-selected={scheduleSub === s.id}
-              className={`mob-sub-btn${scheduleSub === s.id ? ' is-on' : ''}`}
-              onClick={() => setScheduleSub(s.id)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {showSubbar && <MobileSubbar list={subList} current={scheduleSub} onPick={setScheduleSub} />}
 
-      <main className="mob-main">
-        {tab === 'more' && !moreProgram ? (
-          <MoreGrid
-            list={programs(role)}
-            onPick={(id) => {
-              const target = tabForProgram(id);
-              setTab(target);
-              if (target === 'schedule') setScheduleSub(id);
-              if (target === 'more') setMoreProgram(id);
-            }}
-          />
-        ) : Screen ? (
-          <Suspense fallback={<div className="mob-loading">불러오는 중…</div>}>
-            <Screen windowId="mobile" params={screenParams} />
-          </Suspense>
-        ) : (
-          <div className="mob-loading">화면을 열 수 없습니다.</div>
-        )}
-      </main>
+      <MobileMain
+        more={tab === 'more' && !moreProgram ? programs(role) : null}
+        Screen={Screen}
+        screenParams={screenParams}
+        onPickMore={(id) => {
+          const target = tabForProgram(id);
+          setTab(target);
+          if (target === 'schedule') setScheduleSub(id);
+          if (target === 'more') setMoreProgram(id);
+        }}
+      />
 
       <MobileTabBar
         tab={tab}
