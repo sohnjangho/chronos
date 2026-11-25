@@ -1,5 +1,5 @@
 // 에이전트 실시간 작업 화면 연출 (Computer Use 뷰) · 상단 얇은 워크플로우 진행 리본 상태·안무 큐.
-import { create } from 'zustand';
+import { create, type StoreApi } from 'zustand';
 import { scheduleStore } from '../shared/schedule/scheduleStore';
 import { toolLabel } from '../shared/toolLabels';
 import { useCurrentSchedule } from './currentSchedule';
@@ -106,7 +106,6 @@ const NEW_PROJECT_GENERATION_TOOLS = new Set([
   'evidence.attach',
 ]);
 
-const STAGE_WORKFLOW_MS = 900;
 const STAGE_TOOL_MS = 1200;
 const STAGE_DONE_MS = 1000;
 const RIBBON_COLLAPSE_MS = 1800;
@@ -167,7 +166,7 @@ export function resolveToolTarget(
     if (!args?.id && !args?.questionnaire_id) return { programId: null };
   }
 
-  let mapped: string | null = program ? resolveProgram(program).id : (TOOL_PROGRAM_FALLBACK[tool] ?? null);
+  const mapped: string | null = program ? resolveProgram(program).id : (TOOL_PROGRAM_FALLBACK[tool] ?? null);
   if (!mapped) return { programId: null };
 
   const params: Record<string, string> = {};
@@ -338,6 +337,291 @@ export function plannedGhostSteps(
   return [];
 }
 
+type SetState = StoreApi<AgentViewState>['setState'];
+
+/** 가게(set · get)와 그 안의 차례 넣기 · 리본 접기 예약. 사건 처리 함수들이 함께 쓴다. */
+interface StoreKit {
+  set: SetState;
+  get: () => AgentViewState;
+  enqueue(cue: Cue): void;
+  scheduleRibbonCollapse(): void;
+}
+
+function handleWorkflowEvent(kit: StoreKit, data: Record<string, unknown>) {
+  const { set, get, scheduleRibbonCollapse } = kit;
+  const runId = typeof data.run_id === 'number' ? data.run_id : null;
+  const status = validRibbonStatus(data.status);
+  const serverWait = data.wait_reason === 'answer' || data.wait_reason === 'approval' ? data.wait_reason : null;
+  const rawSteps = Array.isArray(data.steps) ? data.steps : [];
+  const steps: RibbonStep[] = rawSteps
+    .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
+    .map((r) => {
+      const tool = typeof r.tool === 'string' ? r.tool : '';
+      return {
+        n: typeof r.n === 'number' ? r.n : 1,
+        tool,
+        label: toolLabel(tool),
+        program: typeof r.program === 'string' ? r.program : null,
+        status: validStepStatus(r.status),
+      };
+    });
+
+  const cur = get().ribbon;
+  const nextRunId = runId ?? cur.runId;
+  const resetSteps = cur.runId !== null && nextRunId !== null && cur.runId !== nextRunId;
+  const mergedSteps = steps.length > 0 ? steps : resetSteps ? [] : cur.steps;
+  const keepOpen = status === 'running' || status === 'waiting';
+  const nextRibbon: WorkflowRibbonState = {
+    ...cur,
+    visible: mergedSteps.length > 0 ? true : cur.visible,
+    collapsed: keepOpen ? false : cur.collapsed,
+    runId: nextRunId,
+    status,
+    // 서버가 실은 까닭(answer·approval)이 먼저 — 없으면(예전 사건) 마지막 단계로 짐작
+    waitReason: status === 'waiting' ? (serverWait ?? inferWaitReason(mergedSteps)) : null,
+    steps: mergedSteps,
+    creatingNewProject: keepOpen ? (resetSteps ? false : cur.creatingNewProject) : false,
+    ...(status !== 'running' ? { genStage: null } : {}),
+  };
+  if (keepOpen) clearRibbonTimer();
+  set((s) => ({
+    workflowTick: s.workflowTick + 1,
+    ...(runId !== null ? { lastRunId: runId } : {}),
+    ribbon: nextRibbon,
+  }));
+  syncTopInset(nextRibbon);
+  if (!keepOpen && nextRibbon.visible && nextRibbon.steps.length > 0) scheduleRibbonCollapse();
+}
+
+/** 새 일정을 만드는 도구 호출인가. 현장 관리자는 새 일정을 만들 수 없다(서버 도구가 거절, F4) — 「새 프로젝트 생성 중」으로 바꾸지 않는다. */
+function isGenCreationTool(tool: string, args: Record<string, unknown> | null): boolean {
+  return (
+    (tool === 'generate.extract_conditions' ||
+      tool === 'generate.run' ||
+      tool === 'schedule.create_project' ||
+      (tool === 'ask.questionnaire' && args?.purpose === 'generate')) &&
+    !args?.schedule_id &&
+    useSession.getState().session?.user.role !== 'field'
+  );
+}
+
+function handleToolStart(kit: StoreKit, data: Record<string, unknown>) {
+  const { set, get, enqueue } = kit;
+  clearRibbonTimer();
+  const runId = typeof data.run_id === 'number' ? data.run_id : get().lastRunId;
+  const stepN = typeof data.n === 'number' ? data.n : 1;
+  const tool = typeof data.tool === 'string' ? data.tool : '';
+  const program = typeof data.program === 'string' ? data.program : null;
+  const argsText = typeof data.arguments === 'string' ? data.arguments : undefined;
+  const args = parseArgs(argsText);
+  const labelName = toolLabel(tool);
+  const totalSteps = Math.max(stepN, get().focus.totalSteps);
+
+  const isGenCreation = isGenCreationTool(tool, args);
+
+  if (isGenCreation && !useCurrentSchedule.getState().creatingNewProject) {
+    useCurrentSchedule.getState().enterNewProjectMode();
+  }
+
+  const prevRibbon = get().ribbon;
+  const isNewRun = prevRibbon.runId !== null && runId !== null && prevRibbon.runId !== runId;
+  const creatingNewProject = isGenCreation || (!isNewRun && (prevRibbon.creatingNewProject || useCurrentSchedule.getState().creatingNewProject));
+  const baseSteps = isNewRun ? [] : prevRibbon.steps;
+  const nextSteps = mergeStep(baseSteps, {
+    n: stepN,
+    tool,
+    label: labelName,
+    program,
+    status: 'running',
+  });
+  const nextRibbon: WorkflowRibbonState = {
+    visible: true,
+    collapsed: false,
+    runId,
+    status: 'running',
+    waitReason: null,
+    steps: nextSteps,
+    genStage: isNewRun ? null : prevRibbon.genStage,
+    creatingNewProject,
+  };
+
+  set((s) => ({
+    workflowTick: s.workflowTick + 1,
+    ...(runId !== null ? { lastRunId: runId } : {}),
+    ribbon: nextRibbon,
+  }));
+  syncTopInset(nextRibbon);
+
+  const mode = get().mode;
+  if (mode === 'off') return;
+  sawToolInTurn = true;
+  if (!windowSyncEnabled) return;
+
+  if (mode === 'workflow') {
+    const wfParams = runId !== null ? { run: String(runId) } : undefined;
+    enqueue({
+      windowProgram: 'workflow',
+      windowParams: wfParams,
+      holdMs: 0,
+      focus: {
+        runId,
+        programId: 'workflow',
+        stepN,
+        totalSteps,
+        tool,
+        status: 'workflow',
+        label: `워크플로우${runId ? ` #${runId}` : ''} · ${stepN}단계 [${labelName}]`,
+      },
+    });
+    return;
+  }
+
+  const target = resolveToolTarget(tool, program, argsText, creatingNewProject);
+  if (target.programId && target.programId !== 'workflow') {
+    enqueue({
+      windowProgram: target.programId,
+      windowParams: target.params,
+      holdMs: STAGE_TOOL_MS,
+      focus: {
+        runId,
+        programId: target.programId,
+        stepN,
+        totalSteps,
+        tool,
+        status: 'running',
+        label: `${stepN}단계 실행 중 · ${labelName}`,
+      },
+    });
+  } else {
+    set({
+      focus: {
+        active: true,
+        runId,
+        programId: null,
+        stepN,
+        totalSteps,
+        tool,
+        status: 'running',
+        label: `${stepN}단계 실행 중 · ${labelName}`,
+      },
+    });
+  }
+}
+
+function handleToolEnd(kit: StoreKit, data: Record<string, unknown>) {
+  const { set } = kit;
+  const sid = useCurrentSchedule.getState().current?.id;
+  if (typeof sid === 'number' && data.ok === true) {
+    const store = scheduleStore(sid);
+    if (store.getState().view) void store.getState().load();
+  }
+  // 지연 기록 도구는 버전을 바꾸지 않는다 — 기록된 지연 띠가 다시 세게 따로 알린다.
+  if (data.ok === true && typeof data.tool === 'string' && data.tool.startsWith('delay.')) useCurrentSchedule.getState().bumpDelays();
+  const stepN = typeof data.n === 'number' ? data.n : null;
+  const ok = data.ok !== false;
+  set((s) => ({
+    workflowTick: s.workflowTick + 1,
+    focus: s.focus.active ? { ...s.focus, status: 'done' } : s.focus,
+    ribbon: {
+      ...s.ribbon,
+      steps: s.ribbon.steps.map((st) =>
+        stepN === null || st.n === stepN ? { ...st, status: ok ? 'done' : 'failed' } : st,
+      ),
+    },
+  }));
+}
+
+function handleTurnDone(kit: StoreKit) {
+  const { set, get, enqueue, scheduleRibbonCollapse } = kit;
+  const { mode, lastRunId, focus, ribbon } = get();
+  const ranTools = sawToolInTurn;
+  sawToolInTurn = false;
+  const waitReason =
+    ribbon.status === 'waiting' ? (ribbon.waitReason ?? inferWaitReason(ribbon.steps)) : null;
+  const nextStatus: WorkflowRibbonState['status'] =
+    ribbon.status === 'stopped' || ribbon.status === 'failed' || ribbon.status === 'waiting'
+      ? ribbon.status
+      : 'done';
+  const completedRibbon: WorkflowRibbonState = {
+    ...ribbon,
+    status: nextStatus,
+    waitReason,
+    genStage: null,
+    steps: ribbon.steps.map((st) => (st.status === 'running' ? { ...st, status: 'done' } : st)),
+    ...(nextStatus === 'waiting' ? {} : { creatingNewProject: false }),
+  };
+  set({ ribbon: completedRibbon });
+  syncTopInset(completedRibbon);
+  if (completedRibbon.visible && completedRibbon.steps.length > 0 && nextStatus !== 'waiting') {
+    scheduleRibbonCollapse();
+  }
+
+  if (mode === 'off' || lastRunId === null || !ranTools || !windowSyncEnabled) {
+    if (focus.active) set({ focus: EMPTY_FOCUS });
+    return;
+  }
+  const total = Math.max(1, focus.totalSteps);
+  if (mode === 'workflow') {
+    enqueue({
+      windowProgram: 'workflow',
+      windowParams: { run: String(lastRunId) },
+      holdMs: STAGE_DONE_MS / 2,
+      focus: {
+        runId: lastRunId,
+        programId: 'workflow',
+        stepN: total,
+        totalSteps: total,
+        tool: null,
+        status: 'done',
+        label: `워크플로우 #${lastRunId} 실행 완료 (${total}단계)`,
+      },
+    });
+  }
+  const hasChat = useWindows.getState().wins.some((w) => w.programId === 'chat');
+  enqueue({
+    windowProgram: hasChat ? 'chat' : null,
+    holdMs: 0,
+    clearAfterMs: STAGE_DONE_MS,
+    focus: {
+      runId: lastRunId,
+      programId: hasChat ? 'chat' : mode === 'workflow' ? 'workflow' : null,
+      stepN: total,
+      totalSteps: total,
+      tool: null,
+      status: 'done',
+      label:
+        nextStatus === 'waiting'
+          ? waitReason === 'approval'
+            ? '승인 대기 — 승인함에서 검토 후 결정해 주세요'
+            : '답변 대기 — 질문에 답하면 이어서 생성합니다'
+          : '작업 완료 — 결과를 대화창에서 확인하세요',
+    },
+  });
+}
+
+function handleCompleteWaiting(kit: StoreKit, status: 'done' | 'stopped') {
+  const { set, get, scheduleRibbonCollapse } = kit;
+  const cur = get().ribbon;
+  set((s) => ({ workflowTick: s.workflowTick + 1 }));
+  if (cur.status !== 'waiting' && cur.status !== 'running') return;
+  clearRibbonTimer();
+  const nextRibbon: WorkflowRibbonState = {
+    ...cur,
+    status,
+    waitReason: null,
+    genStage: null,
+    creatingNewProject: false,
+    steps: cur.steps.map((st) =>
+      st.status === 'running' ? { ...st, status: status === 'stopped' ? 'stopped' : 'done' } : st,
+    ),
+  };
+  set({ ribbon: nextRibbon });
+  syncTopInset(nextRibbon);
+  if (nextRibbon.visible && nextRibbon.steps.length > 0) {
+    scheduleRibbonCollapse();
+  }
+}
+
 export const useAgentView = create<AgentViewState>((set, get) => {
   const enqueue = (cue: Cue) => {
     cueQueue.push(cue);
@@ -354,6 +638,8 @@ export const useAgentView = create<AgentViewState>((set, get) => {
       syncTopInset(next);
     }, RIBBON_COLLAPSE_MS);
   };
+
+  const kit: StoreKit = { set, get, enqueue, scheduleRibbonCollapse };
 
   return {
     userId: null,
@@ -418,268 +704,23 @@ export const useAgentView = create<AgentViewState>((set, get) => {
     },
 
     onWorkflowEvent(data) {
-      const runId = typeof data.run_id === 'number' ? data.run_id : null;
-      const status = validRibbonStatus(data.status);
-      const serverWait = data.wait_reason === 'answer' || data.wait_reason === 'approval' ? data.wait_reason : null;
-      const rawSteps = Array.isArray(data.steps) ? data.steps : [];
-      const steps: RibbonStep[] = rawSteps
-        .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
-        .map((r) => {
-          const tool = typeof r.tool === 'string' ? r.tool : '';
-          return {
-            n: typeof r.n === 'number' ? r.n : 1,
-            tool,
-            label: toolLabel(tool),
-            program: typeof r.program === 'string' ? r.program : null,
-            status: validStepStatus(r.status),
-          };
-        });
-
-      const cur = get().ribbon;
-      const nextRunId = runId ?? cur.runId;
-      const resetSteps = cur.runId !== null && nextRunId !== null && cur.runId !== nextRunId;
-      const mergedSteps = steps.length > 0 ? steps : resetSteps ? [] : cur.steps;
-      const keepOpen = status === 'running' || status === 'waiting';
-      const nextRibbon: WorkflowRibbonState = {
-        ...cur,
-        visible: mergedSteps.length > 0 ? true : cur.visible,
-        collapsed: keepOpen ? false : cur.collapsed,
-        runId: nextRunId,
-        status,
-        // 서버가 실은 까닭(answer·approval)이 먼저 — 없으면(예전 사건) 마지막 단계로 짐작
-        waitReason: status === 'waiting' ? (serverWait ?? inferWaitReason(mergedSteps)) : null,
-        steps: mergedSteps,
-        creatingNewProject: keepOpen ? (resetSteps ? false : cur.creatingNewProject) : false,
-        ...(status !== 'running' ? { genStage: null } : {}),
-      };
-      if (keepOpen) clearRibbonTimer();
-      set((s) => ({
-        workflowTick: s.workflowTick + 1,
-        ...(runId !== null ? { lastRunId: runId } : {}),
-        ribbon: nextRibbon,
-      }));
-      syncTopInset(nextRibbon);
-      if (!keepOpen && nextRibbon.visible && nextRibbon.steps.length > 0) scheduleRibbonCollapse();
+      handleWorkflowEvent(kit, data);
     },
 
     onToolStart(data) {
-      clearRibbonTimer();
-      const runId = typeof data.run_id === 'number' ? data.run_id : get().lastRunId;
-      const stepN = typeof data.n === 'number' ? data.n : 1;
-      const tool = typeof data.tool === 'string' ? data.tool : '';
-      const program = typeof data.program === 'string' ? data.program : null;
-      const argsText = typeof data.arguments === 'string' ? data.arguments : undefined;
-      const args = parseArgs(argsText);
-      const labelName = toolLabel(tool);
-      const totalSteps = Math.max(stepN, get().focus.totalSteps);
-
-      // 현장 관리자는 새 일정을 만들 수 없다(서버 도구가 거절, F4) — 「새 프로젝트 생성 중」으로 바꾸지 않는다.
-      const isGenCreation =
-        (tool === 'generate.extract_conditions' ||
-          tool === 'generate.run' ||
-          tool === 'schedule.create_project' ||
-          (tool === 'ask.questionnaire' && args?.purpose === 'generate')) &&
-        !args?.schedule_id &&
-        useSession.getState().session?.user.role !== 'field';
-
-      if (isGenCreation && !useCurrentSchedule.getState().creatingNewProject) {
-        useCurrentSchedule.getState().enterNewProjectMode();
-      }
-
-      const prevRibbon = get().ribbon;
-      const isNewRun = prevRibbon.runId !== null && runId !== null && prevRibbon.runId !== runId;
-      const creatingNewProject = isGenCreation || (!isNewRun && (prevRibbon.creatingNewProject || useCurrentSchedule.getState().creatingNewProject));
-      const baseSteps = isNewRun ? [] : prevRibbon.steps;
-      const nextSteps = mergeStep(baseSteps, {
-        n: stepN,
-        tool,
-        label: labelName,
-        program,
-        status: 'running',
-      });
-      const nextRibbon: WorkflowRibbonState = {
-        visible: true,
-        collapsed: false,
-        runId,
-        status: 'running',
-        waitReason: null,
-        steps: nextSteps,
-        genStage: isNewRun ? null : prevRibbon.genStage,
-        creatingNewProject,
-      };
-
-      set((s) => ({
-        workflowTick: s.workflowTick + 1,
-        ...(runId !== null ? { lastRunId: runId } : {}),
-        ribbon: nextRibbon,
-      }));
-      syncTopInset(nextRibbon);
-
-      const mode = get().mode;
-      if (mode === 'off') return;
-      sawToolInTurn = true;
-      if (!windowSyncEnabled) return;
-
-      if (mode === 'workflow') {
-        const wfParams = runId !== null ? { run: String(runId) } : undefined;
-        enqueue({
-          windowProgram: 'workflow',
-          windowParams: wfParams,
-          holdMs: 0,
-          focus: {
-            runId,
-            programId: 'workflow',
-            stepN,
-            totalSteps,
-            tool,
-            status: 'workflow',
-            label: `워크플로우${runId ? ` #${runId}` : ''} · ${stepN}단계 [${labelName}]`,
-          },
-        });
-        return;
-      }
-
-      const target = resolveToolTarget(tool, program, argsText, creatingNewProject);
-      if (target.programId && target.programId !== 'workflow') {
-        enqueue({
-          windowProgram: target.programId,
-          windowParams: target.params,
-          holdMs: STAGE_TOOL_MS,
-          focus: {
-            runId,
-            programId: target.programId,
-            stepN,
-            totalSteps,
-            tool,
-            status: 'running',
-            label: `${stepN}단계 실행 중 · ${labelName}`,
-          },
-        });
-      } else {
-        set({
-          focus: {
-            active: true,
-            runId,
-            programId: null,
-            stepN,
-            totalSteps,
-            tool,
-            status: 'running',
-            label: `${stepN}단계 실행 중 · ${labelName}`,
-          },
-        });
-      }
+      handleToolStart(kit, data);
     },
 
     onToolEnd(data) {
-      const sid = useCurrentSchedule.getState().current?.id;
-      if (typeof sid === 'number' && data.ok === true) {
-        const store = scheduleStore(sid);
-        if (store.getState().view) void store.getState().load();
-      }
-      // 지연 기록 도구는 버전을 바꾸지 않는다 — 기록된 지연 띠가 다시 세게 따로 알린다.
-      if (data.ok === true && typeof data.tool === 'string' && data.tool.startsWith('delay.')) useCurrentSchedule.getState().bumpDelays();
-      const stepN = typeof data.n === 'number' ? data.n : null;
-      const ok = data.ok !== false;
-      set((s) => ({
-        workflowTick: s.workflowTick + 1,
-        focus: s.focus.active ? { ...s.focus, status: 'done' } : s.focus,
-        ribbon: {
-          ...s.ribbon,
-          steps: s.ribbon.steps.map((st) =>
-            stepN === null || st.n === stepN ? { ...st, status: ok ? 'done' : 'failed' } : st,
-          ),
-        },
-      }));
+      handleToolEnd(kit, data);
     },
 
     onTurnDone() {
-      const { mode, lastRunId, focus, ribbon } = get();
-      const ranTools = sawToolInTurn;
-      sawToolInTurn = false;
-      const waitReason =
-        ribbon.status === 'waiting' ? (ribbon.waitReason ?? inferWaitReason(ribbon.steps)) : null;
-      const nextStatus: WorkflowRibbonState['status'] =
-        ribbon.status === 'stopped' || ribbon.status === 'failed' || ribbon.status === 'waiting'
-          ? ribbon.status
-          : 'done';
-      const completedRibbon: WorkflowRibbonState = {
-        ...ribbon,
-        status: nextStatus,
-        waitReason,
-        genStage: null,
-        steps: ribbon.steps.map((st) => (st.status === 'running' ? { ...st, status: 'done' } : st)),
-        ...(nextStatus === 'waiting' ? {} : { creatingNewProject: false }),
-      };
-      set({ ribbon: completedRibbon });
-      syncTopInset(completedRibbon);
-      if (completedRibbon.visible && completedRibbon.steps.length > 0 && nextStatus !== 'waiting') {
-        scheduleRibbonCollapse();
-      }
-
-      if (mode === 'off' || lastRunId === null || !ranTools || !windowSyncEnabled) {
-        if (focus.active) set({ focus: EMPTY_FOCUS });
-        return;
-      }
-      const total = Math.max(1, focus.totalSteps);
-      if (mode === 'workflow') {
-        enqueue({
-          windowProgram: 'workflow',
-          windowParams: { run: String(lastRunId) },
-          holdMs: STAGE_DONE_MS / 2,
-          focus: {
-            runId: lastRunId,
-            programId: 'workflow',
-            stepN: total,
-            totalSteps: total,
-            tool: null,
-            status: 'done',
-            label: `워크플로우 #${lastRunId} 실행 완료 (${total}단계)`,
-          },
-        });
-      }
-      const hasChat = useWindows.getState().wins.some((w) => w.programId === 'chat');
-      enqueue({
-        windowProgram: hasChat ? 'chat' : null,
-        holdMs: 0,
-        clearAfterMs: STAGE_DONE_MS,
-        focus: {
-          runId: lastRunId,
-          programId: hasChat ? 'chat' : mode === 'workflow' ? 'workflow' : null,
-          stepN: total,
-          totalSteps: total,
-          tool: null,
-          status: 'done',
-          label:
-            nextStatus === 'waiting'
-              ? waitReason === 'approval'
-                ? '승인 대기 — 승인함에서 검토 후 결정해 주세요'
-                : '답변 대기 — 질문에 답하면 이어서 생성합니다'
-              : '작업 완료 — 결과를 대화창에서 확인하세요',
-        },
-      });
+      handleTurnDone(kit);
     },
 
     completeWaitingWorkflow(status = 'done') {
-      const cur = get().ribbon;
-      set((s) => ({ workflowTick: s.workflowTick + 1 }));
-      if (cur.status !== 'waiting' && cur.status !== 'running') return;
-      clearRibbonTimer();
-      const nextRibbon: WorkflowRibbonState = {
-        ...cur,
-        status,
-        waitReason: null,
-        genStage: null,
-        creatingNewProject: false,
-        steps: cur.steps.map((st) =>
-          st.status === 'running' ? { ...st, status: status === 'stopped' ? 'stopped' : 'done' } : st,
-        ),
-      };
-      set({ ribbon: nextRibbon });
-      syncTopInset(nextRibbon);
-      if (nextRibbon.visible && nextRibbon.steps.length > 0) {
-        scheduleRibbonCollapse();
-      }
+      handleCompleteWaiting(kit, status);
     },
 
     reset() {
