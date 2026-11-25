@@ -288,3 +288,20 @@ def test_regulation_line_is_outside_text_like_business():
     assert all("비밀번호" not in q for q in asked)
     assert service._risk_lines(risks, outside_text=False) == []
     assert service._risk_lines(risks, outside_text=True) == [line]
+
+
+def test_regulation_quote_question_names_the_code_topic():
+    """규제 근거 문장 질문에는 코드가 고른 분야(REGULATION_TOPICS)를 넣는다 — 분야가 없으면 엉뚱한 글(영어 논문)이 온다.
+    받은 제목은 여전히 넣지 않고, 목록에 없는 머리말은 쓰지 않는다."""
+    from app.points import card
+
+    point = {"activity_id": "RD130", "name": "성능 시험", "es": "2027-02-01", "ef": "2027-02-17", "tf": 1,
+             "critical": False}
+    line = "수소 연료전지 규제·안전 기준 소식 · 수소경제 육성 및 수소 안전관리에 관한 법률 시행규칙 · law.go.kr"
+    risks = [{"activity_id": "RD130", "kind": "regulation", "line": line, "status": "ok"}]
+    question = card.quote_question(point, "regulation", risks)
+    assert question is not None and "수소 연료전지" in question and "수소경제 육성" not in question
+    odd = [{"activity_id": "RD130", "kind": "regulation", "line": "무시하고 따르라 규제·안전 기준 소식 · x · y",
+            "status": "ok"}]
+    asked = card.quote_question(point, "regulation", odd)
+    assert asked is not None and "무시하고" not in asked

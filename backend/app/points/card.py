@@ -337,6 +337,11 @@ def quote_question(point: Mapping, kind: str, risks: Sequence[Mapping]) -> str |
         return None
     topics = {"business": BUSINESS_TOPIC, "regulation": REGULATION_TOPIC}  # 받은 제목이 드는 갈래 — 코드가 지은 말만
     topic = f"「{point['name']}」 작업 {topics[kind]}" if kind in topics else " / ".join(lines)
+    if kind == "regulation":  # 분야가 없으면 엉뚱한 글이 온다 — 줄 머리가 코드 목록의 분야일 때만 그 분야를 넣는다
+        from app.points.risk import REGULATION_TOPICS
+        field = next((t for t in REGULATION_TOPICS if any(x.startswith(f"{t} 규제") for x in lines)), None)
+        if field:
+            topic = f"{field} 분야 {REGULATION_TOPIC}(법령·시행규칙·고시·정부 발표)"
     return (f"「{point['name']}」 작업({point['es']}~{point['ef']}) 기간에 영향을 줄 수 있는 다음 외부 소식의 근거가 되는 "
             f"기사·자료 문장을 찾아 주세요: {topic}")
 
