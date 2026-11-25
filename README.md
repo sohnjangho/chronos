@@ -134,7 +134,7 @@ flowchart LR
 |---|---|
 | 서버 | Python 3.13 · FastAPI · SQLAlchemy + SQLite · httpx · cryptography(Fernet) · bcrypt · openpyxl · pypdf · qdrant-client |
 | 화면 | React 19 · TypeScript · Vite · Zustand |
-| AI · 바깥 API | Liner Model API(`liner-claude-router` 등) · Liner Search API · Search Agent · MCP · Embeddings · Visualization · 기상청 공공데이터 · 한국AI통신 · Gemini Live |
+| AI · 외부 API | Liner Model API(`liner-claude-router` 등) · Liner Search API · Search Agent · MCP · Embeddings · Visualization · 기상청 공공데이터 · 한국AI통신 · Gemini Live |
 | 검색 | Qdrant v1.13.4(뜻 검색, 끄면 낱말 검색만) |
 | 시험 · 배포 | pytest · ruff · Vitest · ESLint · Playwright · Docker compose |
 
