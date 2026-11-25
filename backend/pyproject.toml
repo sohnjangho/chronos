@@ -23,6 +23,21 @@ dev = [
 ]
 voice = ["koreaaitel[agent,gemini]==0.78.0"]  # AI 전화(음성 SDK, import 이름은 clawops) — 없어도 앱은 뜬다. 설치는 PM 이 한다
 
+# 한 줄 설치: uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chronos
+[project.scripts]
+chronos = "app.cli:main"
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]  # app/web(빌드한 화면, scripts/build-web.sh)·프롬프트 md·도메인 yaml 도 함께 실린다
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.map"]
+
+[tool.hatch.build]
+ignore-vcs = true  # 저장소 .gitignore 의 data/ 가 app/tools/data(도구 코드)를 빼지 않게 — 빼는 것은 위 exclude 로만
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
