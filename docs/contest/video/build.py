@@ -431,11 +431,13 @@ def build(seg):
             vlabels.append(f'[v{k}]')
     else:
         tw = sum(p[3] for p in seg['pieces'])
-        for k, (src, a, b, w) in enumerate(seg['pieces']):
+        for k, (src, a, b, w, *z) in enumerate(seg['pieces']):
             alloc = T * w / tw
+            # 확대(단계별 판): (x, y, 폭) 을 16:9 로 잘라 화면에 채운다
+            zc = (f'crop={z[0][2]}:{int(z[0][2] * 9 / 16)}:{z[0][0]}:{z[0][1]},' if z else '')
             speed = (b - a) / alloc
             inputs += ['-i', REC / src]
-            fc.append(f'[{k}:v]trim={a}:{b},setpts=(PTS-STARTPTS)/{speed:.5f},fps={FPS},scale=1920:1080,format=yuv420p,setsar=1,'
+            fc.append(f'[{k}:v]trim={a}:{b},setpts=(PTS-STARTPTS)/{speed:.5f},fps={FPS},{zc}scale=1920:1080:flags=lanczos,format=yuv420p,setsar=1,'
                       f'tpad=stop_mode=clone:stop_duration=1,trim=duration={alloc:.3f}[v{k}]')
             vlabels.append(f'[v{k}]')
             print(f'  {sid} 조각 {k}: {src} {a}-{b}s ×{speed:.2f} → {alloc:.1f}s')
