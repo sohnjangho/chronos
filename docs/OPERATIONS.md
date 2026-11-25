@@ -84,7 +84,7 @@ LLM 키(Liner)는 이와 따로 **설정 → LLM 연결**에 넣는다. 에이�
 
 **무료 Gemini 등급 주의.** 무료 등급 키로 한 통화의 내용은 구글의 제품 개선에 쓰일 수 있다. 실제 협력사와 통화하기 전에 유료 등급 키로 바꾼다. 그 전에는 본인 번호로만 시험한다.
 
-**음성 SDK 설치는 PM 이 승인한 뒤에 한다.** 지금 `backend/.venv` 에 `koreaaitel[agent,gemini]==0.78.0` 이 깔려 있다(11-23 PM 승인, import 이름은 `clawops`). 새 환경에 깔 때도 PM 이 정한다: `pyproject.toml` 의 `voice` 묶음. 없어도 앱은 뜨고, 전화만 「준비 안 됨」이 된다.
+**AI 전화는 음성 SDK 가 있어야 한다.** `pyproject.toml` 의 `voice` 묶음(`koreaaitel[agent,gemini]==0.78.0`, import 이름은 `clawops`)을 깔면 켜진다. 없어도 앱은 뜨고, 전화만 「준비 안 됨」이 된다.
 
 ### 시험 모드 · 허용 번호
 

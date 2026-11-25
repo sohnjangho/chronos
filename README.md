@@ -44,7 +44,7 @@ uvx --from https://github.com/sohnjangho/chronos/releases/download/v0.1.0/chrono
 
 ## 사용설명서
 
-**[ChronOS 설치·사용설명서 (PDF, 22쪽)](docs/manual/ChronOS_설치_사용설명서.pdf)** — 설치·관리자 계정, LLM 연결, 작업별 모델 배정·임베딩, 외부 API, 문자·AI 전화 설정, Qdrant, 연결 확인, 처음 써 보기, 문제 해결을 그림과 함께 차례대로 따라 한다.
+**[ChronOS 설치·사용설명서 (PDF, 23쪽)](docs/manual/ChronOS_설치_사용설명서.pdf)** — 설치·관리자 계정, LLM 연결, 작업별 모델 배정·임베딩, 외부 API, 문자·AI 전화 설정, Qdrant, 연결 확인, 처음 써 보기, 문제 해결을 그림과 함께 차례대로 따라 한다.
 
 ## 처음 설정
 
@@ -227,7 +227,7 @@ uvx --from https://github.com/sohnjangho/chronos/releases/download/v0.1.0/chrono
 
 ## Setup manual (Korean PDF)
 
-**[ChronOS install & user manual (PDF, 22 pages, Korean)](docs/manual/ChronOS_설치_사용설명서.pdf)** — a step-by-step guide with screenshots: install and admin account, LLM connection, model per task and embeddings, external APIs, SMS and AI call setup, Qdrant, connection checks, first use, and troubleshooting.
+**[ChronOS install & user manual (PDF, 23 pages, Korean)](docs/manual/ChronOS_설치_사용설명서.pdf)** — a step-by-step guide with screenshots: install and admin account, LLM connection, model per task and embeddings, external APIs, SMS and AI call setup, Qdrant, connection checks, first use, and troubleshooting.
 
 ## First-time setup
 
