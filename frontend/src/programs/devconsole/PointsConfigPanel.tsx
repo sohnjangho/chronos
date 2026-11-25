@@ -20,6 +20,7 @@ const KINDS: { id: PointSourceKind; label: string }[] = [
   { id: 'materials', label: '금속·원자재' },
   { id: 'fx', label: '환율' },
   { id: 'business', label: '업체 소식' },
+  { id: 'regulation', label: '규제·인허가 소식' },
 ];
 
 type Draft = Record<NumKey, string> & { points_sources: Record<string, PointSourceKind[]> };

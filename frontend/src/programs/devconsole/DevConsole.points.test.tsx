@@ -33,7 +33,7 @@ describe('하네스 탭 — 관리 포인트 설정', () => {
     expect(c).toHaveTextContent('여유가 이 일수 이하인 작업도 관리 포인트로 봅니다. 0이면 크리티컬만. (0~10)');
     const table = within(c).getByRole('table', { name: '분야별 외부 자료' });
     expect(within(table).getAllByRole('rowheader').map((h) => h.textContent)).toEqual(['건설', '제조·생산', '그 밖의 분야']);
-    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['분야', '날씨', '금속·원자재', '환율', '업체 소식']);
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['분야', '날씨', '금속·원자재', '환율', '업체 소식', '규제·인허가 소식']);
     expect(within(table).getByRole('checkbox', { name: '건설 날씨' })).toBeChecked();
     expect(within(table).getByRole('checkbox', { name: '제조·생산 날씨' })).not.toBeChecked();
     expect(within(table).getByRole('checkbox', { name: '그 밖의 분야 업체 소식' })).toBeChecked();
@@ -138,7 +138,7 @@ describe('사용량 — 관리 포인트 호출', () => {
     show({ tab: 'usage' });
     const group = await screen.findByRole('rowgroup', { name: '관리 포인트 (Liner)' });
     expect(within(group).getByRole('row', { name: /자재·환율 \(Search \+ Premium Data\)/ })).toHaveTextContent('31—어림 $0.0060$2/1K');
-    expect(within(group).getByRole('row', { name: /업체 소식/ })).toHaveTextContent('20—어림 $0.0040$2/1K');
+    expect(within(group).getByRole('row', { name: /업체·규제 소식/ })).toHaveTextContent('20—어림 $0.0040$2/1K');
     expect(within(group).getByRole('row', { name: /근거 문장 \(Search Agent\)/ })).toHaveTextContent('51—어림 $0.1000$20/1K');
   });
 });

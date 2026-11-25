@@ -37,7 +37,7 @@ function groups(c: Counters): [string, Line[]][] {
     ['모델', [llmLine('그림 읽기 (vision)', c.vision, '사진 판독·그림 턴'), llmLine('임베딩 (embedding)', c.embedding, '자료함 뜻 검색')]],
     ['관리 포인트 (Liner)', [
       ...pointLine('자재·환율 (Search + Premium Data)', c.knowledge, 2, '$2/1K'),
-      ...pointLine('업체 소식 (MCP search_business)', c.mcp, 2, '$2/1K'),
+      ...pointLine('업체·규제 소식 (MCP search_business·search_legal)', c.mcp, 2, '$2/1K'),
       ...pointLine('근거 문장 (Search Agent)', c.search_agent, 20, '$20/1K'),
     ]],
   ];

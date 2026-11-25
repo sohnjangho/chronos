@@ -7,12 +7,13 @@ import { asList, asText, type CardCtx } from './Card';
 import { errorText, findQuote, type QuoteState } from './pointsApi';
 import type { Json } from '../thread';
 
-export const KINDS: Record<string, string> = { weather: '날씨', materials: '자재', fx: '환율', business: '업체' };
+export const KINDS: Record<string, string> = { weather: '날씨', materials: '자재', fx: '환율', business: '업체', regulation: '규제' };
 const ICONS: Record<string, string[]> = {
   weather: ['M7 15a4 4 0 0 1-.6-7.95A5.5 5.5 0 0 1 17 7.5a3.75 3.75 0 0 1 .5 7.5z', 'M8 18.5l-1 2M12 18.5l-1 2M16 18.5l-1 2'],
   materials: ['M12 3l8 4.5v9L12 21l-8-4.5v-9z', 'M4 7.5l8 4.5 8-4.5M12 12v9'],
   fx: ['M4 8h14l-3.5-3.5', 'M20 16H6l3.5 3.5'],
   business: ['M4 21V6l8-3v18', 'M12 9l8 2v10', 'M3 21h18M7.5 9h1M7.5 13h1M7.5 17h1M15.5 14h1M15.5 18h1'],
+  regulation: ['M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z', 'M9 12l2 2 4-4'],
 };
 
 export function KindIcon({ kind }: { kind: string }) {

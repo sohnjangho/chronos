@@ -208,7 +208,7 @@ export interface PointsStage {
   cost: number;
 }
 
-export type PointSourceKind = 'weather' | 'materials' | 'fx' | 'business';
+export type PointSourceKind = 'weather' | 'materials' | 'fx' | 'business' | 'regulation';
 
 /** 관리 포인트 설정(schemas.PointsConfigOut). points_sources 의 _other = 그 밖의 분야. bounds = [하한, 상한]. */
 export interface PointsConfig {
