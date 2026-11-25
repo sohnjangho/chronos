@@ -417,20 +417,20 @@ p{margin:0}
   <div class="toprow"><div class="eyebrow">04 · 실제로 도는 시연 · 장면 0</div><span class="wow">WOW 4 · AI 일정 초안</span></div>
   <h1 style="font-size:30pt">말 한 줄이 <span class="c">일정 초안</span>이 된다</h1>
   <p class="sub" style="font-size:10.2pt">시연 일정은 「가상 · 100kW급 수소 연료전지 발전 실증 과제」다. 3쪽의 실패 사례와 같은 종류의 과제다. 아래 숫자는 모두 엔진이 계산했다. 시작은 한 줄이다. "100kW급 수소 연료전지 발전 실증 과제 공정표 만들어 줘."</p>
-  <div class="stage" style="height:150mm;margin-top:9mm">
-    <div class="shot" style="position:absolute;left:0;top:0;width:90mm"><img src="img/c1-질문지.jpg"></div>
-    <div class="shot" style="position:absolute;left:98mm;top:4mm;width:80mm"><img src="img/c2-생성카드.jpg"></div>
-    <div class="shot glow-amber" style="position:absolute;left:44mm;top:72mm;width:134mm"><img src="img/c4-간트.jpg"></div>
-    <div class="shot" style="position:absolute;left:0;top:86mm;width:72mm;z-index:6"><img src="img/c3-승인.jpg"></div>
-    <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>바로 그리지 않고, 질문지로 먼저 묻는다</div>
-    <div class="chip2" style="left:100mm;top:-1mm"><i>2</i>날짜는 코드가 계산 · 1회차 위반 0</div>
-    <div class="chip2" style="left:2mm;top:82mm"><i>3</i>승인함</div>
-    <div class="chip2 amber" style="left:120mm;top:68mm"><i>4</i>간트에 그려진다</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:5mm;margin-top:6mm;align-items:start">
+    <div><div class="ct"><i>1</i>바로 그리지 않고, 질문지로 먼저 묻는다</div><div class="shot"><img src="img/c1-질문지.jpg"></div></div>
+    <div>
+      <div class="ct"><i>2</i>날짜는 코드가 계산 · 1회차 위반 0</div><div class="shot"><img src="img/c2-생성카드.jpg"></div>
+      <div class="ct" style="margin-top:4mm"><i>3</i>승인함에서 사람이 승인</div><div class="shot"><img src="img/c3-승인.jpg"></div>
+    </div>
   </div>
-  <div class="facts">
-    <div><b>먼저 묻는다</b>모자란 정보는 질문지로 묻고, 답하지 않은 질문은 적어 둔 가정대로 간다.</div>
-    <div><b>날짜는 코드가</b>AI 는 작업과 기간과 관계만 쓴다. 날짜 계산과 규칙 위반은 코드가 잡는다. 실증 과제 초안 세 번(작업 68개, 72개, 73개) 모두 한 번에 통과.</div>
-    <div><b>인허가를 넣는다</b>말하지 않아도 발전사업허가, 가스 안전 허가, 사용 전 검사를 넣고, 법령 검색(Liner)으로 처리 기간 근거를 붙인다. 질문지에 실증특례를 적으면 특례 심의도 들어간다.</div>
+  <div style="display:grid;grid-template-columns:1.75fr 1fr;gap:5mm;margin-top:5mm;align-items:start">
+    <div><div class="ct"><i>4</i>간트에 그려진다 · 인허가 갈래까지</div><div class="shot glow-amber"><img src="img/c4-간트.jpg"></div></div>
+    <div class="facts" style="grid-template-columns:1fr;margin-top:6mm;gap:3mm">
+      <div><b>먼저 묻는다</b>모자란 정보는 질문지로 묻고, 답하지 않은 질문은 적어 둔 가정대로 간다.</div>
+      <div><b>날짜는 코드가</b>AI 는 작업과 기간과 관계만 쓴다. 날짜 계산과 규칙 위반은 코드가 잡는다. 실증 과제 초안 세 번(작업 68개, 72개, 73개) 모두 한 번에 통과.</div>
+      <div><b>인허가를 넣는다</b>말하지 않아도 발전사업허가, 가스 안전 허가, 사용 전 검사를 넣고, 법령 검색(Liner)으로 처리 기간 근거를 붙인다. 질문지에 실증특례를 적으면 특례 심의도 들어간다.</div>
+    </div>
   </div>
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
 </section>
@@ -443,23 +443,16 @@ p{margin:0}
     <p class="body"><b>장면 1.</b> "데이터 수집 시스템 구축이 3일 늦어졌어." 과제 종료도 관리 포인트도 그대로다. 여유가 18일에서 15일로 줄었을 뿐이다. 이어서 "성능 시험이 재시험으로 3일 늦어졌어." 이번에도 과제 종료는 그대로라 사람은 안심한다. 하지만 연구 갈래(성능 시험 → 내구 시험 → 설계 확정 → 스택 모듈 제작)의 여유가 4일에서 1일로 줄어 관리 포인트가 바뀌었다. 3쪽 사례에서 놓친 바로 그 순간이다.</p>
     <p class="body"><b>장면 2.</b> 에이전트가 「관리 포인트가 바뀌었습니다」 카드를 띄운다. 새 포인트에 대해서만 Liner Search 가 외부 영향을 찾는다. 6개월이 넘은 글은 쓰지 않고, 찾지 못하면 「외부 자료 없음」으로 둔다. [근거 문장 보기]를 누르면 출처 문장이 열린다.</p>
   </div>
-  <div class="stage" style="height:118mm;margin-top:10mm">
-    <div class="shot" style="position:absolute;left:0;top:6mm;width:52mm;opacity:.95"><img src="img/s1a-창호지연.jpg"></div>
-    <div class="shot" style="position:absolute;left:40mm;top:20mm;width:54mm;z-index:3"><img src="img/s1b-포인트카드.jpg" style="height:92mm;object-fit:cover;object-position:top"></div>
-    <div class="shot glow-amber" style="position:absolute;left:100mm;top:0;width:54mm;z-index:4"><img src="img/s2-바깥위험.jpg" style="height:110mm;object-fit:cover;object-position:top"></div>
-    <div class="shot" style="position:absolute;left:134mm;top:30mm;width:46mm;z-index:5"><img src="img/s2b-근거문장.jpg" style="height:82mm;object-fit:cover;object-position:top"></div>
-    <div class="chip2 white" style="left:2mm;top:0"><i>1</i>데이터 수집 +3일 · 변화 없음</div>
-    <div class="chip2 red" style="left:42mm;top:14mm"><i>2</i>성능 시험 +3일 · 포인트 이동</div>
-    <div class="chip2 amber" style="left:102mm;top:-6mm"><i>3</i>외부 영향</div>
-    <div class="chip2" style="left:136mm;top:24mm"><i>4</i>근거 문장</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:5mm;margin-top:6mm;align-items:start">
+    <div>
+      <div class="ct"><i>1</i>데이터 수집 +3일 · 변화 없음</div><div class="shot"><img src="img/s1a-창호지연.jpg"></div>
+      <div class="ct" style="margin-top:4mm"><i>3</i>새 포인트에만 외부 영향 · 시세, 환율, 업계 소식, 법령</div><div class="shot glow-amber"><img src="img/s2-바깥위험.jpg"></div>
+      <div class="ct" style="margin-top:4mm"><i>4</i>근거 문장 · 법령 줄을 펼친 모습</div><div class="shot"><img src="img/s2b-근거문장.jpg"></div>
+    </div>
+    <div>
+      <div class="ct"><i>2</i>성능 시험 +3일 · 관리 포인트가 바뀜</div><div class="shot"><img src="img/s1b-포인트카드.jpg"></div>
+    </div>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:3mm;margin-top:8mm">
-    <div class="card amber"><div class="k">시세</div><h4>백금 3개월 -0.1%</h4><p class="small">The World Bank · 2026-10</p></div>
-    <div class="card amber"><div class="k">환율</div><h4>원·달러 1,343원</h4><p class="small">Xignite · 11-25 15:37 기준</p></div>
-    <div class="card amber"><div class="k">업계 소식</div><h4>스택 공급 동향</h4><p class="small">fortunebusinessinsights.com · 2026-11-02</p></div>
-    <div class="card amber"><div class="k">법령</div><h4>수소안전법 시행규칙</h4><p class="small">law.go.kr · 2026-09-18</p></div>
-  </div>
-  <p class="small" style="margin-top:2.5mm">고른 까닭(화면 글): 실내 시험이라 날씨 영향은 적지만, 스택에는 백금 촉매가 쓰이고 시험 장비를 수입할 수 있으며, 수소 규제와 스택 공급 소식을 함께 볼 필요가 있다.</p>
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
 </section>
 
@@ -487,19 +480,15 @@ p{margin:0}
   <div class="toprow"><div class="eyebrow amber">04 · 실제로 도는 시연 · 장면 4</div><span class="wow">WOW 2 · 5일 중 1일</span></div>
   <h1>당기기 전에 묻는다.<br>이걸 당기면 <em>며칠이 줄어드나.</em></h1>
   <p class="sub">"실증 설비 제작을 5일 당기면?" 에이전트가 코드로 다시 계산해 바로 답한다. 당긴 5일 가운데 과제 종료에 반영되는 날은 하루. 이미 연구 갈래의 성능 시험이 종료를 좌우하고 있어서다. 그래서 다음에 볼 곳까지 알려 준다.</p>
-  <div style="position:relative;height:136mm;margin-top:9mm">
-    <div class="shot" style="position:absolute;left:0;top:0;width:66mm;opacity:.92"><img src="img/s1b-포인트카드.jpg" style="height:86mm;object-fit:cover;object-position:top"></div>
-    <div class="shot glow-amber" style="position:absolute;left:44mm;top:18mm;width:76mm"><img src="img/s4-당김효과.jpg"></div>
-    <div class="shot" style="position:absolute;left:70mm;top:94mm;width:110mm"><img src="img/s6-관리포인트창.jpg"></div>
-    <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>성능 시험이 3일 늦어 좌우하는 일이 바뀜</div>
-    <div class="chip2 amber" style="left:46mm;top:14mm"><i>2</i>"5일 당기면?" → 5일 중 1일</div>
-    <div class="chip2" style="left:72mm;top:90mm"><i>3</i>관리 포인트 창에서 성능 시험부터</div>
-    <div style="position:absolute;right:0;top:40mm;text-align:right">
+  <div style="display:grid;grid-template-columns:1.9fr 1fr;gap:6mm;margin-top:7mm;align-items:center">
+    <div><div class="ct"><i>1</i>"5일 당기면?" → 5일 중 1일 · 성능 시험이 늦어지기 전에는 4일</div><div class="shot glow-amber"><img src="img/s4-당김효과.jpg"></div></div>
+    <div style="text-align:right">
       <div style="font-size:74pt;font-weight:800;line-height:.9;letter-spacing:-.05em;color:#fbbf24">1<span style="font-size:38pt;color:#64748b">/5</span></div>
       <div style="font-size:9pt;color:#cbd5e1;margin-top:1mm">당긴 5일 중<br>과제 종료에 반영되는 날</div>
       <div style="font-size:8.6pt;color:#94a3b8;margin-top:3mm">과제 종료 2028-06-30 → 06-29</div>
     </div>
   </div>
+  <div style="margin-top:6mm"><div class="ct"><i>2</i>관리 포인트 창에서 성능 시험부터</div><div class="shot"><img src="img/s6-관리포인트창.jpg"></div></div>
   <div class="facts">
     <div><b>힘 쏟기 전에</b>인력이나 비용을 더 넣기 전에 효과를 숫자로 본다. 같은 5일이 성능 시험 지연 전에는 4일(06-30 → 06-26)이었다.</div>
     <div><b>계산은 코드</b>AI 는 날짜를 셈하지 않는다. 확인용 계산이라 일정은 바뀌지 않는다.</div>
@@ -513,20 +502,12 @@ p{margin:0}
   <div class="eyebrow">04 · 실제로 도는 시연 · 장면 5</div>
   <h1 style="font-size:30pt">대안을 견주고, <span class="c">사람이 결정한다</span></h1>
   <p class="sub" style="font-size:10.2pt">만회안 A 「병행 우선」은 13근무일을 당기지만 허가 전 제작, 시험 전 설계라 재작업 위험이 크다. 만회안 B 「압축·자원 추가」는 고압가스 시설 설치 허가를 30일에서 24일로, 스택 내구 시험을 25일에서 20일로 줄여 과제 종료를 06-30 에서 06-22 로 당긴다(기한 여유 6일). 비교판에서 견주고 승인함에서 사람이 B 를 승인한다. 승인하면 새 버전이 되고 에이전트는 관리 포인트를 다시 뽑는다. 한 바퀴가 닫힌다.</p>
-  <div class="stage" style="height:96mm;margin-top:9mm">
-    <div class="shot" style="position:absolute;left:0;top:0;width:70mm;z-index:3"><img src="img/s5c-만회안카드.jpg" style="height:92mm;object-fit:cover;object-position:top"></div>
-    <div class="shot glow-amber" style="position:absolute;left:58mm;top:10mm;width:120mm"><img src="img/c3-승인.jpg"></div>
-    <div class="chip2 white" style="left:2mm;top:-4mm"><i>1</i>만회안 카드</div>
-    <div class="chip2 amber" style="left:76mm;top:6mm"><i>3</i>승인함에서 사람이 승인</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:5mm;margin-top:6mm;align-items:start">
+    <div><div class="ct"><i>1</i>만회안 카드 · A 병행 우선, B 압축·자원 추가</div><div class="shot"><img src="img/s5c-만회안카드.jpg"></div></div>
+    <div><div class="ct"><i>3</i>승인함에서 사람이 승인</div><div class="shot glow-amber"><img src="img/app/full/04.jpg"></div></div>
   </div>
-  <div style="margin-top:9mm;position:relative">
-    <div class="chip2" style="position:relative;display:inline-flex;margin-bottom:3mm"><i>2</i>비교판 요약 · 만회안 B 과제 종료 06-22</div>
-    <div class="shot"><img src="img/s5-비교판.jpg"></div>
-  </div>
-  <div style="margin-top:7mm">
-    <div class="chip2" style="position:relative;display:inline-flex;margin-bottom:3mm"><i>4</i>다시 뽑은 관리 포인트 · 이번 주, 다음 주, 그다음 주</div>
-    <div class="shot"><img src="img/s6-관리포인트창.jpg"></div>
-  </div>
+  <div style="margin-top:5mm"><div class="ct"><i>2</i>비교판 요약 · 승인 뒤 현재 일정 06-22(만회안 B), 견줘 본 만회안 A 06-13</div><div class="shot"><img src="img/s5-비교판.jpg"></div></div>
+  <div style="margin-top:5mm"><div class="ct"><i>4</i>다시 뽑은 관리 포인트 · 이번 주, 다음 주, 그다음 주</div><div class="shot"><img src="img/s6-관리포인트창.jpg"></div></div>
   <div class="foot"><span>ChronOS · .EXE-THON 2026</span><span class="pg"></span></div>
 </section>
 
