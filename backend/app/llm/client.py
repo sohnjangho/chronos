@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 import httpx
+from sqlalchemy.exc import UnboundExecutionError
 from sqlalchemy.orm import Session
 
 from app.llm import daily_cap, fake
@@ -330,6 +331,22 @@ class LlmClient:
         response.raise_for_status()
         return response.json()
 
+    def _check_cap(self) -> None:
+        """오늘 비용 상한(app.llm.daily_cap)에 닿았으면 LlmFailed(daily_cap) — 보내지도 기록하지도 않는다.
+
+        기록과 같은 곳(LlmCall 의 bind)에 따로 연 짧은 세션으로 읽는다(부른 쪽 세션·트랜잭션은 건드리지 않는다).
+        그 bind 가 없는 세션(표마다 묶은 시험용)은 쓴 돈을 기록할 곳도 없으므로 확인하지 않는다.
+        """
+        try:
+            bind = self._session.get_bind(LlmCall)
+        except UnboundExecutionError:
+            return
+        try:
+            with Session(bind) as reader:
+                daily_cap.check(reader)
+        except daily_cap.DailyCapReached as capped:
+            raise LlmFailed(LlmError(capped.code, capped.message)) from None
+
     def _record(
         self,
         purpose: str,
@@ -408,10 +425,7 @@ class LlmClient:
           된다. 그러면 SQLite busy timeout(기본 5초)을 기다린 뒤 사용량 기록이 빠질 수 있다.
         """
         target = self._target(purpose)
-        try:
-            daily_cap.check(self._session)  # 오늘 비용 상한에 닿았으면 보내지 않는다(기록도 없음)
-        except daily_cap.DailyCapReached as capped:
-            raise LlmFailed(LlmError(capped.code, capped.message)) from None
+        self._check_cap()
         body = _request_body(target, purpose, messages, tools, json_schema, max_tokens=max_tokens)
         reply: LlmReply | None = None
         error: LlmError | None = None

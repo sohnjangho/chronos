@@ -29,6 +29,7 @@ def test_env(monkeypatch, tmp_path):
     # 뜻 검색(Qdrant)을 끈다: 앱이 뜰 때 뒤 작업 일꾼이 돌지 않고, 시험이 Qdrant·Liner 에 나가지 않는다.
     # 뜻 검색 시험은 app.files.vectors.STORE 와 app.llm.embeddings.TRANSPORT 를 가짜로 끼운다(tests/files).
     monkeypatch.setenv("CHRONOS_QDRANT_URL", "")
+    monkeypatch.delenv("CHRONOS_LLM_DAILY_USD", raising=False)  # 하루 LLM 비용 상한: 셸 값과 상관없이 끔에서 시작
 
 
 @pytest.fixture(autouse=True)
