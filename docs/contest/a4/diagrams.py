@@ -210,9 +210,48 @@ def d_os():
     return svg(W, H, ''.join(o)) + legend(items, 3)
 
 
+# ── 5. 확장 시너지: 공유 WBS 위에 앱을 붙인다 ───────────────
+def d_synergy():
+    W, H = 760, 352
+    o = []
+    # 가운데: 에이전트 + 공유 WBS
+    o.append(f'<rect x="268" y="18" width="224" height="64" rx="14" fill="rgba(251,191,36,.08)" stroke="#fbbf24" stroke-width="2"/>')
+    o.append(f'<text x="380" y="44" font-size="13" font-weight="800" fill="#fbbf24" text-anchor="middle">에이전트</text>')
+    o.append(f'<text x="380" y="64" font-size="9.5" fill="#cbd5e1" text-anchor="middle">바뀐 것 하나가 어디에 닿는지 전체를 본다</text>')
+    o.append(f'<rect x="268" y="150" width="224" height="80" rx="14" fill="rgba(56,189,248,.10)" stroke="#38bdf8" stroke-width="2.4"/>')
+    o.append(f'<text x="380" y="180" font-size="14" font-weight="800" fill="#fff" text-anchor="middle">공유 WBS · 작업 코드</text>')
+    o.append(f'<text x="380" y="200" font-size="9.5" fill="#94a3b8" text-anchor="middle">모든 앱이 같은 작업 번호를 쓴다</text>')
+    o.append(f'<text x="380" y="216" font-size="9.5" fill="#94a3b8" text-anchor="middle">승인함 · 하네스 · 버전도 같이 쓴다</text>')
+    o.append(arrow([(380, 84), (380, 148)], '#fbbf24', w=2.2))
+    o.append(arrow([(380, 148), (380, 86)], '#fbbf24', w=2.2))
+    # 왼쪽: 도면 검토(붙일 앱)
+    o.append(node(96, 190, '도면 검토', '붙일 앱 · 물량 산출', w=150, h=50, kind='human', hot=True))
+    o.append(arrow([(172, 190), (266, 190)], '#4ade80', w=2.2, label='산출 물량', lx=219, ly=182, anchor='middle'))
+    # 오른쪽 위: 스케줄(있음), 오른쪽 아래: 원가(붙일 앱)
+    o.append(node(664, 120, '스케줄 · CPM', '있음 · 날짜와 크리티컬', w=170, h=50, kind='code', hot=True))
+    o.append(node(664, 262, '원가 관리', '붙일 앱 · 예산과 실적', w=170, h=50, kind='human', hot=True))
+    o.append(arrow([(494, 172), (577, 128)], '#38bdf8', w=2.2, label='기간 = 물량 ÷ 생산성', lx=498, ly=110))
+    o.append(arrow([(494, 210), (577, 254)], '#4ade80', w=2.2, label='금액 = 물량 × 단가', lx=498, ly=270))
+    o.append(arrow([(664, 147), (664, 235)], '#fbbf24', w=2, label='지연은 돈이 된다', lx=672, ly=196))
+    # 아래: 현장 진도(있음)
+    o.append(node(380, 312, '현장 진도', '있음 · 공정률 · 현장 점검', w=190, h=50, kind='code'))
+    o.append(arrow([(380, 285), (380, 232)], '#38bdf8', w=2, label='실적 진도', lx=388, ly=262))
+    o.append(arrow([(476, 312), (664, 312), (664, 289)], '#64748b', w=1.6, dash=True, label='기성 · 실적 비용', lx=570, ly=304, anchor='middle'))
+    # 범례
+    o.append(f'<g font-size="9" fill="#94a3b8"><rect x="18" y="290" width="12" height="10" rx="2" fill="none" stroke="#38bdf8"/><text x="36" y="299">지금 있는 앱</text>'
+             f'<rect x="18" y="308" width="12" height="10" rx="2" fill="none" stroke="#4ade80"/><text x="36" y="317">앞으로 붙일 앱 (설계)</text></g>')
+    for x, y, n in [(30, 160, 1), (746, 96, 2), (746, 238, 3), (276, 140, 4)]:
+        o.append(badge(x, y, n))
+    items = [(1, '도면을 읽으면 물량이 나온다', '도면 검토 앱이 산출한 물량이 같은 작업 코드로 들어간다.'),
+             (2, '물량이 일정이 된다', '기간을 물량과 생산성으로 다시 계산하고, 크리티컬 패스를 다시 본다.'),
+             (3, '물량이 돈이 된다', '물량에 단가를 곱해 예산을 고치고, 지연과 만회안마다 드는 돈을 함께 본다.'),
+             (4, '에이전트가 전체를 관리한다', '한 군데의 변화가 일정, 원가, 진도 어디에 닿는지 묶어 알리고 승인함에 올린다.')]
+    return svg(W, H, ''.join(o)) + legend(items, 2)
+
+
 def main():
     s = HTML.read_text(encoding='utf-8')
-    for name, fn in [('loop', d_loop), ('logic', d_logic), ('arch', d_arch), ('os', d_os)]:
+    for name, fn in [('loop', d_loop), ('logic', d_logic), ('arch', d_arch), ('os', d_os), ('syn', d_synergy)]:
         a, b = f'<!--D:{name}-->', '<!--/D-->'
         i = s.index(a) + len(a)
         j = s.index(b, i)
