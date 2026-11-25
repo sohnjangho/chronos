@@ -29,8 +29,8 @@ STYLE = os.environ.get('TTS_STYLE', '')
 S = [
   # 첫 20초(PM 11-25, R&D 실증 사례): 실사 영상 4컷 → 「6주가 밀렸다. 과제는 7개월.」 → 간트+CPM 카드 → 제목
   # 실사 영상이 오면 OPEN_VIDEOS 에 파일을 넣는다. 없으면 실사 사진을 천천히 당겨 보인다.
-  # 상황 설명(PM 11-25): 어떤 과제인지 먼저 말한다. 쓰지 않던 실사 영상 테이크(cut1-b)를 쓴다.
-  dict(id='O0', min=5, chip='가상 사례 · 수소 연료전지 실증 과제 (연출 영상)', pieces=[('../../chronos/docs/contest/assets/realvideo-rnd/r1-cut1-b.mp4', 0.2, 5.0, 1)], lines=[
+  # 상황 설명(PM 11-25): 어떤 과제인지 먼저 말한다. 시연 영상 전용 실사 컷 r0(일정표를 짜는 장면).
+  dict(id='O0', min=5, chip='가상 사례 · 수소 연료전지 실증 과제 (연출 영상)', pieces=[('../../chronos/docs/contest/assets/realvideo-rnd/r0-a.mp4', 0.2, 7.9, 1)], lines=[
     ('수소 연료전지를 개발해 12개월 실증 운전까지 마쳐야 하는 정부 R&D 과제입니다.', '수소 연료전지를 개발해, 십이 개월 실증 운전까지 마쳐야 하는, 정부 알앤디 과제입니다.')]),
   dict(id='O1', min=9, chip='', kb=True, cards=['c-cut1', 'c-cut2', 'c-cut3', 'c-cut4'], lines=[
     ('성능 시험이 재시험으로 6주 밀렸습니다. 여유가 있다고 봤습니다.', '성능 시험이 재시험으로, 육 주 밀렸습니다. 여유가 있다고 봤습니다.'),
