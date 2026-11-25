@@ -160,3 +160,40 @@ def test_serve_plain_logs_and_web(monkeypatch):
     cli._serve("127.0.0.1", 18999)
     assert seen["use_colors"] is False
     assert (seen["host"], seen["port"], seen["target"]) == ("127.0.0.1", 18999, app)
+
+
+def _first_admin(data_dir, monkeypatch):
+    monkeypatch.setenv("CHRONOS_ADMIN_PASSWORD", "old-pass-123")
+    cli.prepare(cli.parse_args(["--data-dir", str(data_dir), "--admin-id", "boss"]),
+                ask=_no_prompt, ask_hidden=_no_prompt, say=lambda _s: None)
+    monkeypatch.delenv("CHRONOS_ADMIN_PASSWORD")
+
+
+def test_reset_password_changes_hash(tmp_path, monkeypatch):
+    _first_admin(tmp_path, monkeypatch)
+    hidden = iter(["new-pass-456", "new-pass-456"])
+    said = []
+    cli.main(["reset-password", "--data-dir", str(tmp_path)], serve=_no_prompt, say=said.append,
+             ask=lambda _p: "boss", ask_hidden=lambda _p: next(hidden))
+    [(_id, _role, password_hash)] = _users(tmp_path)
+    assert verify_password("new-pass-456", password_hash)
+    assert not verify_password("old-pass-123", password_hash)
+    assert any("바꿨" in s for s in said)
+
+
+def test_reset_password_unknown_id_retries(tmp_path, monkeypatch):
+    _first_admin(tmp_path, monkeypatch)
+    ids = iter(["nobody", "boss"])
+    hidden = iter(["new-pass-456", "new-pass-456"])
+    said = []
+    cli.main(["reset-password", "--data-dir", str(tmp_path)], serve=_no_prompt, say=said.append,
+             ask=lambda _p: next(ids), ask_hidden=lambda _p: next(hidden))
+    assert any("없습니다" in s for s in said)
+    assert verify_password("new-pass-456", _users(tmp_path)[0][2])
+
+
+def test_reset_password_without_data_stops(tmp_path):
+    with pytest.raises(SystemExit):
+        cli.main(["reset-password", "--data-dir", str(tmp_path / "none")], serve=_no_prompt,
+                 say=lambda _s: None, ask=_no_prompt, ask_hidden=_no_prompt)
+    assert not (tmp_path / "none").exists()

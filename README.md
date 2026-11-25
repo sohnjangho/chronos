@@ -218,6 +218,7 @@ uvx --from "git+https://github.com/sohnjangho/chronos#subdirectory=backend" chro
 - 처음 실행이면 **관리자 아이디**와 **비밀번호**(8자 이상, 입력은 보이지 않음, 두 번)를 묻는다. 다음부터는 묻지 않는다.
 - 브라우저에서 **http://127.0.0.1:8210** 을 열고 그 계정으로 로그인한다. 끌 때는 터미널에서 Ctrl+C.
 - 데이터는 `~/.chronos`(DB·비밀 열쇠)에 둔다. 옵션은 `chronos --help`(`--data-dir`, `--port`, `--host`, `--admin-id`, `--qdrant-url`).
+- 비밀번호를 잊었으면 같은 줄의 끝을 `chronos reset-password` 로 바꿔 돌린다(아이디와 새 비밀번호를 묻는다).
 - Liner API 키·임베딩·외부 연결은 처음에 비어 있다. 처음 설정은 docs/manual/ChronOS_설치_사용설명서.pdf 를 따른다.
 - 저장소가 비공개인 동안은 접근 권한이 있는 GitHub 계정으로 git 이 로그인되어 있어야 한다.
 - 화면을 고친 뒤에는 `bash scripts/build-web.sh` 로 `backend/app/web`(설치본이 내주는 화면)을 다시 만들어 커밋한다.

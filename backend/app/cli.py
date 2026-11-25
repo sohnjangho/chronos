@@ -15,6 +15,7 @@ import getpass
 import os
 import secrets
 import sqlite3
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -32,6 +33,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="chronos",
         description="ChronOS 를 이 컴퓨터에서 띄웁니다. 처음 실행이면 관리자 계정을 만듭니다.",
+        epilog="비밀번호를 잊었으면: chronos reset-password [--data-dir 폴더]",
         add_help=False,
     )
     p.add_argument("-h", "--help", action="help", help="이 도움말을 보이고 끝냅니다")
@@ -157,9 +159,37 @@ def _serve(host: str, port: int) -> None:
     uvicorn.run(app, host=host, port=port, access_log=False, use_colors=False)
 
 
-def main(argv: list[str] | None = None, serve: Callable[[str, int], None] = _serve, say: Say = print) -> None:
+def reset_password(argv: list[str], ask: Ask, ask_hidden: Ask, say: Say) -> None:
+    """chronos reset-password [--data-dir 폴더]: 이 컴퓨터의 데이터 폴더에서 계정 비밀번호를 바꾼다(파일에 손댈 수 있으면 된다)."""
+    p = argparse.ArgumentParser(prog="chronos reset-password", description="계정의 비밀번호를 새로 정합니다.", add_help=False)
+    p.add_argument("-h", "--help", action="help", help="이 도움말을 보이고 끝냅니다")
+    p.add_argument("--data-dir", help="데이터 폴더. 기본: CHRONOS_DATA_DIR 또는 ~/.chronos")
+    db_path = data_dir_from(p.parse_args(argv).data_dir) / "chronos.db"
+    if existing_login(db_path) is None:
+        raise SystemExit(f"계정이 있는 데이터 폴더가 아닙니다: {db_path.parent}")
+    from app.security.passwords import hash_password
+
+    with sqlite3.connect(db_path) as db:
+        for _ in range(TRIES):
+            login_id = ask("아이디: ").strip()
+            if db.execute("SELECT 1 FROM users WHERE login_id = ?", (login_id,)).fetchone():
+                break
+            say(f"「{login_id}」 계정이 없습니다.")
+        else:
+            raise SystemExit("비밀번호를 바꾸지 못했습니다.")
+        _, password = ask_admin(ask, ask_hidden, say, login_id)
+        db.execute("UPDATE users SET password_hash = ? WHERE login_id = ?", (hash_password(password), login_id))
+    say(f"「{login_id}」 계정의 비밀번호를 바꿨습니다. 서버가 떠 있으면 다음 로그인부터 새 비밀번호를 씁니다.")
+
+
+def main(argv: list[str] | None = None, serve: Callable[[str, int], None] = _serve, say: Say = print,
+         ask: Ask = input, ask_hidden: Ask = getpass.getpass) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["reset-password"]:
+        reset_password(argv[1:], ask, ask_hidden, say)
+        return
     args = parse_args(argv)
-    prepare(args, ask=input, ask_hidden=getpass.getpass, say=say)
+    prepare(args, ask=ask, ask_hidden=ask_hidden, say=say)
     shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
     say("")
     say(f"ChronOS 주소: http://{shown}:{args.port}")
