@@ -1,4 +1,4 @@
-"""정보 API 지시문(prompts/guides/info.md): 바깥 공공데이터 요청에 골라 붙고, system.md 에는 늘 한 줄이 있다."""
+"""정보 API 지시문(prompts/guides/info.md): 외부 공공데이터 요청에 골라 붙고, system.md 에는 늘 한 줄이 있다."""
 
 import pytest
 

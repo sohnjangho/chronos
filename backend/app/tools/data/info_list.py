@@ -95,7 +95,7 @@ def _within_budget(found: list[ConnectionOut]) -> ListOut:
 @tool(
     "info.list",
     "관리자가 연결해 둔 정보 API(공공데이터) 목록을 본다: 연결마다 id·name·kind(kma = 기상청 전용, generic = 범용)·"
-    "description(무엇을 주는지)·status(마지막 연결 시험)·usage_chars. 바깥 공공데이터(공휴일·특보·대기오염·입찰공고 등)가 "
+    "description(무엇을 주는지)·status(마지막 연결 시험)·usage_chars. 외부 공공데이터(공휴일·특보·대기오염·입찰공고 등)가 "
     "필요하면 먼저 입력 없이 부르고, 맞는 generic 연결을 골라 connection_id 를 주어 다시 부르면 usage(쓰는 법: 경로·필수 "
     "파라미터·예시)가 온다. 그대로 info__call 을 짠다. 키는 보이지 않는다.",
 )
