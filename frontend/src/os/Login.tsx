@@ -29,14 +29,63 @@ function UpgradedNote() {
   ) : null;
 }
 
+/** 접속 화면(자동 · 데스크톱 · 태블릿 · 스마트폰) 고르기. */
+function DevicePicker({ detected }: { detected: ResolvedDevice }) {
+  const deviceMode = useDeviceMode((s) => s.mode);
+  const setDeviceMode = useDeviceMode((s) => s.setMode);
+  return (
+    <div className="os-login-device">
+      <div className="os-login-dev-head">
+        <span>접속 화면</span>
+        <span className="os-login-dev-detected">{`자동 감지: ${DETECTED_LABEL[detected]}`}</span>
+      </div>
+      <div className="os-login-dev-seg" role="group" aria-label="접속 화면 선택">
+        {LOGIN_DEVICES.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="os-login-dev-btn"
+            aria-pressed={deviceMode === item.id}
+            onClick={() => setDeviceMode(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 왼쪽 위 브랜드 로고(움직이는 로고 + 정지 그림)와 한 줄 소개. */
+function LoginBrand() {
+  return (
+    <div className="os-login-brand">
+      <div className="os-login-logo-wrap">
+        <video
+          className="os-login-logo-video"
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+          poster="/media/chronos-logo-poster.jpg"
+          aria-label="ChronOS — AI Schedule Agent"
+        >
+          <source src="/media/chronos-logo-motion.mp4" type="video/mp4" />
+        </video>
+        <img src="/media/chronos-logo.png" alt="" aria-hidden="true" className="os-login-logo-static" />
+      </div>
+      <div className="os-login-tagline">일정을 만들고, 지키고, 고치는 에이전트 OS</div>
+    </div>
+  );
+}
+
 /** 시안 「로그인」: 우측 홀로그램 배경 동영상 + 좌측 브랜드 로고·글래스 로그인 패널. */
 export default function Login() {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [signupOpen, setSignupOpen] = useState(false);
   const { busy, error, submit } = useSignIn();
-  const deviceMode = useDeviceMode((s) => s.mode);
-  const setDeviceMode = useDeviceMode((s) => s.setMode);
   const detected = useDetectedDevice();
 
   function onSubmit(e: FormEvent) {
@@ -49,24 +98,7 @@ export default function Login() {
       <div className="os-login-backdrop" aria-hidden="true" />
 
       <div className="os-login-pane">
-        <div className="os-login-brand">
-          <div className="os-login-logo-wrap">
-            <video
-              className="os-login-logo-video"
-              autoPlay
-              loop
-              muted
-              playsInline
-              preload="auto"
-              poster="/media/chronos-logo-poster.jpg"
-              aria-label="ChronOS — AI Schedule Agent"
-            >
-              <source src="/media/chronos-logo-motion.mp4" type="video/mp4" />
-            </video>
-            <img src="/media/chronos-logo.png" alt="" aria-hidden="true" className="os-login-logo-static" />
-          </div>
-          <div className="os-login-tagline">일정을 만들고, 지키고, 고치는 에이전트 OS</div>
-        </div>
+        <LoginBrand />
 
         <form className="os-card os-login-card" onSubmit={onSubmit}>
           <h1 className="os-card-title">로그인</h1>
@@ -82,25 +114,7 @@ export default function Login() {
               required
             />
           </Field>
-          <div className="os-login-device">
-            <div className="os-login-dev-head">
-              <span>접속 화면</span>
-              <span className="os-login-dev-detected">{`자동 감지: ${DETECTED_LABEL[detected]}`}</span>
-            </div>
-            <div className="os-login-dev-seg" role="group" aria-label="접속 화면 선택">
-              {LOGIN_DEVICES.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="os-login-dev-btn"
-                  aria-pressed={deviceMode === item.id}
-                  onClick={() => setDeviceMode(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <DevicePicker detected={detected} />
           {error && (
             <p className="os-card-error" role="alert">
               {error}

@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { loadPref, savePref } from '../../os/prefs';
 import { useSession } from '../../os/session';
 import Button from '../../shared/ui/Button';
-import { DEFAULT_GANTT_COLORS, GANTT_PALETTE, useGanttColors } from '../../shared/schedule/ganttColors';
+import { DEFAULT_GANTT_COLORS, GANTT_PALETTE, useGanttColors, type GanttColors } from '../../shared/schedule/ganttColors';
 
-const COLOR_ROWS: { key: 'plan' | 'actual' | 'cpm'; label: string }[] = [
+type ColorKey = 'plan' | 'actual' | 'cpm';
+
+const COLOR_ROWS: { key: ColorKey; label: string }[] = [
   { key: 'plan', label: 'Plan (기준 계획)' },
   { key: 'actual', label: 'Actual · 예측' },
   { key: 'cpm', label: 'CPM (크리티컬 경로)' },
@@ -19,6 +21,36 @@ const LAYOUT_KEYS = [
   'schedule.gantt.leftWidth',
   'schedule.gantt.columns',
 ] as const;
+
+/** 막대 종류(Plan · Actual · CPM)마다 색 점을 고르는 표. */
+function SwatchTable({ colors, onPick }: { colors: GanttColors; onPick(key: ColorKey, hex: string): void }) {
+  return (
+    <div className="st-swatch-table">
+      {COLOR_ROWS.map((row) => (
+        <div key={row.key} className="st-swatch-row">
+          <span className="st-swatch-label">{row.label}</span>
+          <div className="st-swatch-dots" role="group" aria-label={`${row.label} 색상`}>
+            {GANTT_PALETTE.map((c) => {
+              const active = colors[row.key] === c.hex;
+              return (
+                <button
+                  key={c.hex}
+                  type="button"
+                  className={`st-swatch-dot${active ? ' is-on' : ''}`}
+                  style={{ backgroundColor: c.hex }}
+                  aria-label={`${row.label} ${c.name}`}
+                  aria-pressed={active}
+                  title={c.name}
+                  onClick={() => onPick(row.key, c.hex)}
+                />
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** 「차트 · 표 기본값」: 간트 차트 막대 색상/투명도와 스케줄·간트 열 레이아웃 초기화. */
 export default function SchedulePrefsSection() {
@@ -63,33 +95,13 @@ export default function SchedulePrefsSection() {
           </Button>
         </div>
 
-        <div className="st-swatch-table">
-          {COLOR_ROWS.map((row) => (
-            <div key={row.key} className="st-swatch-row">
-              <span className="st-swatch-label">{row.label}</span>
-              <div className="st-swatch-dots" role="group" aria-label={`${row.label} 색상`}>
-                {GANTT_PALETTE.map((c) => {
-                  const active = colors[row.key] === c.hex;
-                  return (
-                    <button
-                      key={c.hex}
-                      type="button"
-                      className={`st-swatch-dot${active ? ' is-on' : ''}`}
-                      style={{ backgroundColor: c.hex }}
-                      aria-label={`${row.label} ${c.name}`}
-                      aria-pressed={active}
-                      title={c.name}
-                      onClick={() => {
-                        setColor(row.key, c.hex);
-                        setNotice(null);
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
+        <SwatchTable
+          colors={colors}
+          onPick={(key, hex) => {
+            setColor(key, hex);
+            setNotice(null);
+          }}
+        />
 
         <label className="st-slider-row">
           <span className="st-swatch-label">{`크리티컬 연결선 투명도 (${Math.round(colors.linkOpacity * 100)}%)`}</span>

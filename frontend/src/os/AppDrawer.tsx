@@ -9,6 +9,58 @@ import { useShell } from './shell';
 import { useWindows } from './windowStore';
 import './overlays.css';
 
+/** Dock 차례 한 줄의 ← · → · × 단추. */
+function OrderButtons({
+  name,
+  first,
+  last,
+  onMove,
+  onUnpin,
+}: {
+  name: string;
+  first: boolean;
+  last: boolean;
+  onMove(delta: -1 | 1): void;
+  onUnpin(): void;
+}) {
+  return (
+    <div className="os-drawer-order-btns">
+      <button
+        type="button"
+        className="os-drawer-order-btn"
+        aria-label={`${name} 왼쪽으로 이동`}
+        disabled={first}
+        onClick={() => onMove(-1)}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M7.5 2.5L4 6l3.5 3.5" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="os-drawer-order-btn"
+        aria-label={`${name} 오른쪽으로 이동`}
+        disabled={last}
+        onClick={() => onMove(1)}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M4.5 2.5L8 6l-3.5 3.5" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="os-drawer-order-btn"
+        aria-label={`${name} Dock에서 빼기`}
+        onClick={onUnpin}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+          <path d="M3 3l6 6M9 3L3 9" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 /** 편집 모드의 Dock 차례: 끌어서 옮기거나, 단추(←·→·×) 또는 Alt+←→ 로 조정한다. */
 function DockOrder({ all }: { all: ProgramManifest[] }) {
   const pinned = useDock((s) => s.pinned);
@@ -79,40 +131,13 @@ function DockOrder({ all }: { all: ProgramManifest[] }) {
             >
               <ProgramIcon program={p} size={32} />
               <span>{p.name}</span>
-              <div className="os-drawer-order-btns">
-                <button
-                  type="button"
-                  className="os-drawer-order-btn"
-                  aria-label={`${p.name} 왼쪽으로 이동`}
-                  disabled={i === 0}
-                  onClick={() => move(id, i - 1)}
-                >
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M7.5 2.5L4 6l3.5 3.5" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="os-drawer-order-btn"
-                  aria-label={`${p.name} 오른쪽으로 이동`}
-                  disabled={i === order.length - 1}
-                  onClick={() => move(id, i + 1)}
-                >
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M4.5 2.5L8 6l-3.5 3.5" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="os-drawer-order-btn"
-                  aria-label={`${p.name} Dock에서 빼기`}
-                  onClick={() => useDock.getState().unpin(id, allIds)}
-                >
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-                    <path d="M3 3l6 6M9 3L3 9" />
-                  </svg>
-                </button>
-              </div>
+              <OrderButtons
+                name={p.name}
+                first={i === 0}
+                last={i === order.length - 1}
+                onMove={(d) => move(id, i + d)}
+                onUnpin={() => useDock.getState().unpin(id, allIds)}
+              />
             </li>
           );
         })}
