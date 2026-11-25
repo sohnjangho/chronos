@@ -37,7 +37,7 @@ S = [
   dict(id='O4', min=6.5, chip='', cards=['c-research'], nosub=True, lines=[
     ('실제로도 실증 일정은 연구 밖에서 늦어집니다. 특례 심의만 최대 120일입니다.',
      '실제로도, 실증 일정은 연구 밖에서 늦어집니다. 특례 심의만 최대 백이십 일입니다.')]),
-  dict(id='O3', min=6, chip='', kb=True, cards=['c-cold'], nosub=True, lines=[
+  dict(id='O3', min=6, chip='', cards=['c-cold'], nosub=True, lines=[
     ('지금이라면, 일정을 짤 때 압니다.', '지금이라면, 일정을 짤 때 압니다.')]),
   dict(id='S02', chip='', cards=['c-title'], nosub=True, lines=[
     ('ChronOS. 에이전트가 일정을 관리합니다. 일정이 바뀔 때마다 완료일정을 좌우하는 일이 어디로 옮겨 갔는지 먼저 알려 줍니다.',
@@ -415,7 +415,7 @@ def build(seg):
             elif seg.get('kb'):  # 사진을 천천히 당겨 보인다
                 nf = int(each * FPS) + 1
                 inputs += ['-loop', '1', '-framerate', str(FPS), '-t', f'{each:.3f}', '-i', WORK / f'{cid}.png']
-                fc.append(f"[{k}:v]scale=2304:1296,zoompan=z='1+0.06*on/{nf}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps={FPS},"
+                fc.append(f"[{k}:v]scale=7680:4320,zoompan=z='1+0.06*on/{nf}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=3840x2160:fps={FPS},scale=1920:1080,"
                           f'format=yuv420p,setsar=1,trim=duration={each:.3f}[v{k}]')
             else:
                 inputs += ['-loop', '1', '-t', f'{each:.3f}', '-i', WORK / f'{cid}.png']
